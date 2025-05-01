@@ -228,7 +228,7 @@ def process_tissues(all_data):
     columns_to_drop = ['Scientist', 'Protocol', 'Publish_uri', 'ArrayNumber','CFUUnits']
     df.drop(columns=[col for col in columns_to_drop if col in df.columns], inplace=True)
     df.loc[~df['Type'].isin(['Blood', 'Bronchoalveolar Lavage']), 'Type'] = 'Tissue Extraction'
-    df['Type'] = "TIS::" + df['Type']
+    df['Type'] = df['Type']
     return df
 
 def edit_specimen_datafile(all_data):
@@ -332,7 +332,7 @@ def process_images(all_data):
         
         # Assign 'PATIENT_ID' to the DataFrame
         df['PATIENT_ID'] = name_value
-        df['Type'] = "D.IMG::" + df['Type']
+        df['Type'] = df['Type']
         print(f"Successfully processed imaging data.")
         
         return df
