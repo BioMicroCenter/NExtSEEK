@@ -5,108 +5,107 @@
 <script type="text/javascript" src="{{STATIC_URL}}js/custom/datagrid-custom.js"></script>
 
 <style type="text/css">
-	.datagrid-row-alt {
-		background: #e6f2ff;
-	}
-</style>
+  .datagrid-row-alt{
+        background: #e6f2ff;
+    }
+</style>    
 <script type="text/javascript">
-
-	$(document).ready(function () {
-		$('#dgtable').datagrid({
-			onCheck: function (index, row) {
+	
+$(document).ready(function(){
+    $('#dgtable').datagrid({
+		onCheck: function(index,row){
+		    row.ck = true;
+		},
+		onUncheck: function(index,row){
+		    row.ck = false;
+		},
+		onCheckAll: function() {
+			var rows = $(this).datagrid('getRows');
+			for(var i=0; i<rows.length; i++){
+				var row = rows[i];
 				row.ck = true;
-			},
-			onUncheck: function (index, row) {
-				row.ck = false;
-			},
-			onCheckAll: function () {
-				var rows = $(this).datagrid('getRows');
-				for (var i = 0; i < rows.length; i++) {
-					var row = rows[i];
-					row.ck = true;
-				}
-			},
-			onUncheckAll: function () {
-				var rows = $(this).datagrid('getRows');
-				for (var i = 0; i < rows.length; i++) {
-					var row = rows[i];
-					row.ck = false;
-				}
 			}
-		})
+		},
+		onUncheckAll: function() {
+			var rows = $(this).datagrid('getRows');
+			for(var i=0; i<rows.length; i++){
+				var row = rows[i];
+				row.ck = false;
+			}
+		}
+	})
 
-		$('#dgtable2').datagrid({
-			onCheck: function (index, row) {
+	$('#dgtable2').datagrid({
+		onCheck: function(index,row){
+		    row.ck = true;
+		},
+		onUncheck: function(index,row){
+		    row.ck = false;
+		},
+		onCheckAll: function() {
+		    var rows = $(this).datagrid('getRows');
+		    for(var i=0; i<rows.length; i++){
+				var row = rows[i];
 				row.ck = true;
-			},
-			onUncheck: function (index, row) {
+		    }
+	    },
+	    onUncheckAll: function() {
+		    var rows = $(this).datagrid('getRows');
+		    for(var i=0; i<rows.length; i++){
+				var row = rows[i];
 				row.ck = false;
-			},
-			onCheckAll: function () {
-				var rows = $(this).datagrid('getRows');
-				for (var i = 0; i < rows.length; i++) {
-					var row = rows[i];
-					row.ck = true;
-				}
-			},
-			onUncheckAll: function () {
-				var rows = $(this).datagrid('getRows');
-				for (var i = 0; i < rows.length; i++) {
-					var row = rows[i];
-					row.ck = false;
-				}
-			}
-		})
-	});
+		    }
+	    }
+    })
+});
 
-	$(function () {
-		var dg = $('#dgtable').datagrid();
+$(function(){
+    var dg = $('#dgtable').datagrid();
+    dg.datagrid('enableFilter', [{
+		field:'id',
+		type:'label'
+    }]);
+	
+    var dg = $('#dgtable2').datagrid();
 		dg.datagrid('enableFilter', [{
-			field: 'id',
-			type: 'label'
-		}]);
-
-		var dg = $('#dgtable2').datagrid();
-		dg.datagrid('enableFilter', [{
-			field: 'id',
-			type: 'label'
-		}]);
-	});
+		field:'id',
+		type:'label'
+    }]);
+});
 </script>
 <div id="search_tab" class="easyui-tabs" style="width:auto;height:1400px;">
-	<div title="Sample Search" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
-		<div class="easyui-layout" style="width:auto;height:1100px;">
-			<div id="north_div" data-options="region:'north',border:false" style="width:auto; height: 330px;">
-				{% include "pages/searchAdvanced_search.embed.html" %}
-			</div>
-			<div id="center_div" data-options="region:'center',border:false,split:true" style="width:auto; height: 800px;">
-				{% include "pages/searchAdvanced_stable.embed.html" %}
-			</div>
-			<div id="center_div" data-options="region:'south',border:false" style="height: 20px;">
-			</div>
+    <div title="Sample Search" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
+	<div class="easyui-layout" style="width:auto;height:1100px;">
+	    <div id="north_div" data-options="region:'north',border:false" style="width:auto; height: 330px;">
+			{% include "pages/searchAdvanced_search.embed.html" %}
+	    </div>
+        <div id="center_div" data-options="region:'center',border:false,split:true" style="width:auto; height: 800px;">
+            {% include "pages/searchAdvanced_stable.embed.html" %}
+	    </div>
+        <div id="center_div" data-options="region:'south',border:false" style="height: 20px;">
+	    </div>
+	</div>
+    </div>
+    <div title="Sample Retrieval" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
+	<div class="easyui-layout" style="width:auto;height:1700px;">
+	    <div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;">
+			{% include "pages/searchAdvanced_retrieval.embed.html" %}
+	    </div>
+        <div id="center_div2" data-options="region:'center',border:true,split:true" style="height: 800px;">
+			{% include "pages/searchAdvanced_tree.embed.html" %}
+	    </div>
+        <div id="south_div2" data-options="region:'south',border:true,split:true" style="height: 500px;">
+			{% include "pages/searchAdvanced_rtable.embed.html" %}
 		</div>
 	</div>
-	<div title="Sample Retrieval" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
-		<div class="easyui-layout" style="width:auto;height:1700px;">
-			<div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;">
-				{% include "pages/searchAdvanced_retrieval.embed.html" %}
-			</div>
-			<div id="center_div2" data-options="region:'center',border:true,split:true" style="height: 800px;">
-				{% include "pages/searchAdvanced_tree.embed.html" %}
-			</div>
-			<div id="south_div2" data-options="region:'south',border:true,split:true" style="height: 500px;">
-				{% include "pages/searchAdvanced_rtable.embed.html" %}
-			</div>
-		</div>
+    </div>
+    <div title="Sample Deletion" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
+	<div class="easyui-layout" style="width:auto;height:1700px;">
+	    <div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;">
+			{% include "pages/searchAdvanced_deletion.embed.html" %}
+	    </div>
 	</div>
-	<div>
-		<div title="Sample Deletion" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
-			<div class="easyui-layout" style="width:auto;height:1700px;">
-				<div id="north_div2" data-options="region:'north',border:false" style="width:auto;height:400px;">
-					{% include "pages/searchAdvanced_deletion.embed.html" %}
-				</div>
-			</div>
-		</div>
-	</div>
+    </div>
+
 </div>
 {% endblock %}

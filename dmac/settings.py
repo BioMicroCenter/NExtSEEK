@@ -155,7 +155,7 @@ DATABASES = {
         "HOST": "",
         # Set to empty string for default. Not used with sqlite3.
         "PORT": "",
-    }
+    },
 
     "seek": {
         # Add "postgresql_psycopg2", "mysql", "sqlite3" or "oracle".
@@ -414,10 +414,10 @@ SEEK_DATAFILE_SERVER = 'http://' + SEEK_HOSTNAME + ':portNumber'
 SEEK_DATAFILE_ROOT = MEDIA_ROOT + "/uploads/"
 SEEK_DATAFILE_ROOT_WEBLINK = MEDIA_URL + "uploads/"
 
-CRONJOBS = [
-    ('0 2 * * *', seek.cron_job.my_cron_job),
-    ('0 20 * * *', api_app.updateTrees.updateTrees)
-]
+#CRONJOBS = [
+#    ('0 2 * * *', seek.cron_job.my_cron_job),
+#    ('0 20 * * *', api_app.updateTrees.updateTrees)
+#]
 
 TEMPLATES_PATH = ''
 TEMPLATES_PROJECT_ID = ''

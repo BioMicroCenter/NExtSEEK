@@ -1,6 +1,6 @@
 <script type="text/javascript">
 
-	var type_options = {{report.type_options| safe}};
+	var type_options = {{report.type_options|safe}};
 
 	function getAttributes(rec) {
 		if (rec.id == 0) {
@@ -10,7 +10,7 @@
 		var url = '/seek/attributes/id=' + rec.id + '/';
 		$.get(url, {
 			'valueSelected': 'yes'
-		}, function (data) {
+		}, function(data) {
 			var obj = jQuery.parseJSON(data);
 			var msg = obj.msg;
 			var status = obj.status;
@@ -41,7 +41,7 @@
 		$.get(url, {
 			'sampletype_id': sampletype_id,
 			'attribute': attribute
-		}, function (data) {
+		}, function(data) {
 			var obj = jQuery.parseJSON(data);
 			var msg = obj.msg;
 			var status = obj.status;
@@ -68,11 +68,11 @@
 		} else {
 		}
 		return;
-		$.get(url, {}, function (data) {
+		$.get(url, {}, function(data) {
 			var obj = jQuery.parseJSON(data);
 			return;
 			var bodyhtml =
-				datanow = obj.rows;
+			datanow = obj.rows;
 			var number = datanow.length;
 			$('#dg_atype').datagrid('loadData', datanow);
 			var numberSelected = 96;
@@ -121,7 +121,7 @@
 		$.get('/seek/samples/retrieveType/', {
 			'sampletype_id': sampletype_id,
 			'attribute': attribute
-		}, function (data) {
+		}, function(data) {
 			$.messager.progress('close');
 			var obj = jQuery.parseJSON(data);
 			var msg = obj.msg;
@@ -150,36 +150,37 @@
 
 <div class="span12">
 	<form method="post" enctype="multipart/form-data" action="">
-		{% csrf_token %}
-		<div class="well">
-			<div class="row show-grid">
-				<table class="table" align="center" style="width:80%">
-					<thead>
-						<tr>
-							<th>Sample Type:</th>
-						</tr>
-					</thead <script type="text/javascript">
-					$(document).ready(function() {
-					const sampleType = document.querySelector('#_easyui_textbox_input1');
-					sampleType.addEventListener('click', function() {
-					$('#sample_type').combobox('showPanel')
-					});
-					});
-					</script>>
-					<tbody>
-						<tr>
-							<td>
-								<input id="sample_type" class="easyui-combobox" name="sample_type" style="width:100%;" data-options="
+		{% csrf_token %}	
+	<div class="well">
+		<div class="row show-grid">
+			<table class="table" align="center" style="width:80%" >
+				<thead>
+					<tr>
+						<th>Sample Type:</th>
+					</tr>
+				</thead>
+				<tbody>
+    <script type="text/javascript">
+        $(document).ready(function() {
+            const sampleType = document.querySelector('#_easyui_textbox_input1');
+            sampleType.addEventListener('click', function() {
+              $('#sample_type').combobox('showPanel')
+            });
+        }); 
+    </script>
+					<tr>
+						<td>
+							<input id="sample_type" class="easyui-combobox" name="sample_type" style="width:100%;" data-options="
 								showItemIcon: true,
 								data: type_options,
 								valueField:'id',
 								textField:'title',
-								groupFieldtrueu
-								filter: function(q, row) {
-									var opts = $(this).combobox('options');
-									return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;
-								},
-								editable: false,
+								groupField:'group',
+								editable: true,
+                                filter: function(q, row) {
+                                    var opts = $(this).combobox('options');
+                                    return row[opts.textField].indexOf(q) == 0;
+                                },
 								panelHeight:'auto',
 								label: '',
 								labelPosition: 'top',
@@ -187,19 +188,21 @@
 									getAttributes(rec);
 								}
 							">
-							</td>
-						</tr>
-					</tbody>
-				</table>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+		<div class="row show-grid">
+			<div class="col-xs-6 col-sm-4 col-md-4">
 			</div>
-			<div class="row show-grid">
-				<div class="col-xs-6 col-sm-4 col-md-4">
-				</div>
-				<div class="col-xs-6 col-sm-4 col-md-4">
-				</div>
-				<div class="col-xs-6 col-sm-4 col-md-4">
-				</div>
+			<div class="col-xs-6 col-sm-4 col-md-4">
+			</div>
+			<div class="col-xs-6 col-sm-4 col-md-4">
 			</div>
 		</div>
+	</div>
 	</form>
 </div>
+
+
