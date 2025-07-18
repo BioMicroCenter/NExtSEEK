@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block main %}
+{% load index %}
+
+<script type="text/javascript">
+  var project_stats = {{ clade_data | safe }}
+
+  for (group of project_stats) {
+    var groupTotal = group.reduce((acc, v) => v['count'] + acc, 0)
+    group.map(x => x['total'] = groupTotal)
+  }
+
+  function removeRowByFieldValue(dg, fieldName, valueToRemove) {
+    var rows = dg.datagrid('getRows');
+
+    for (var i = rows.length - 1; i >= 0; i--) {
+        if (rows[i][fieldName] === valueToRemove) {
+            var rowIndex = dg.datagrid('getRowIndex', rows[i]);
+            if (rowIndex !== -1) {
+                dg.datagrid('deleteRow', rowIndex);
+            }
+        }
+    }
+  }
+
+  function mergeSameCells(dg, fieldName) {
+    var rows = dg.datagrid('getRows');
+    var startIndex = 0;
+    var span = 1;
+
+    for (var i = 1; i <= rows.length; i++) {
+        if (i === rows.length || rows[i][fieldName] !== rows[startIndex][fieldName]) {
+            if (span > 1) {
+                dg.datagrid('mergeCells', {
+                    index: startIndex,
+                    field: fieldName,
+                    rowspan: span
+                });
+            }
+            startIndex = i;
+            span = 1;
+        } else {
+            span++;
+        }
+    }
+  }
+
+  $(document).ready(function(){
+    <!-- window.stc_dg = $('#stats_dg').datagrid({ -->
+      <!-- fitColumns: true, -->
+      <!-- rowStyler: function(index,row){ -->
+        <!-- return 'background-color:' + row.color + ';'; -->
+      <!-- } -->
+    <!-- }); -->
+    <!-- window.stc_dg.datagrid('loadData', project_stats.flat()) -->
+    <!-- removeRowByFieldValue(window.stc_dg, 'st_id', 114) -->
+    <!-- mergeSameCells(window.stc_dg, 'title') -->
+    <!-- mergeSameCells(window.stc_dg, 'total') -->
+  });
+</script>
+
+<div>
+  <ul style="list-style-type:none;margin: 0;padding:0;">
+  {% for project in projects %}
+    <li style="border:1px solid black; max-width: 60%; height: 5em; margin: 1em 0; padding: 0;">
+      <div style="display:flex;flex-flow:row-wrap;justify-content:space-between;height:100%;">
+        <a href="{{ project.id }}" style="display:flex;gap:0.5em;flex-direction:row;justify-content:space-between;height:100%;">
+          <img style="max-width: 50%; max-height:100%;" alt="{{ project.title }} avatar" src="https://{{ seek_hostname }}/assets/avatar-images/{{ project.avatar_id }}-120x120.png"/>
+          <h2 style="">{{ project.title }}</h2>
+        </a>
+        <div style="display:flex;flex-direction:row;gap:1em;text-align:right;padding: 0.5em 0.5em 0.5em 0;">
+          <div>
+            <p>{{ project.stats.sample_count }} Samples</p>
+            <p>{{ project.stats.sop_count }} Protocols</p>
+          </div>
+          <div>
+            <p>{{ project.stats.df_count }} Data Files</p>
+            <a target="_blank" href="https://{{ seek_hostname }}/projects/{{ project.id }}">Fairdata Link</a>
+          </div>
+        </div>
+      </div>
+    </li>
+  {% endfor %}
+  </ul>
+  <div style="display:flex;flex-direction:row;align-items: flex-start;gap:0.5em;">
+    {% for clade, clade_list in clade_data.items %}
+      <div style="height:24em;overflow-y:scroll;">
+      <table>
+        <thead style="border: 1px solid black;">
+          <th style="padding:0 4px;text-align: center;">{{ clade }}</th>
+          <th style="padding:0 4px;">Count</th>
+        </thead>
+        <tbody>
+            {% for sample_type in clade_list %}
+            <tr style="border: 1px solid black;background-color: {{ sample_type.color }}">
+              <td style="padding:0 4px;">{{ sample_type.st_group }}</td>
+              <td style="padding:0 4px;">{{ sample_type.count }}</td>
+            </tr>
+            {% if forloop.last %}
+            <tr>
+              <td style="padding:0 4px;"><b>Total</b></td>
+              <td style="padding:0 4px;border: 1px solid black;">{{ sample_type.total }}</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% endblock %}

@@ -6,7 +6,6 @@ chardet
 deepmerge
 Django
 django-contrib-comments
-django-cprofile-middleware
 django-crontab
 django-realtime
 django-rest-framework
@@ -16,6 +15,7 @@ djangorestframework
 et-xmlfile
 filebrowser-safe
 django-filebrowser-no-grappelli
+django-markdownify
 fpdf
 future
 grappelli-safe
@@ -32,7 +32,7 @@ lxml
 Markdown
 Mezzanine
 mysqlclient
-mysql-connector-python
+neo4j
 numpy
 oauthlib
 olefile
@@ -42,7 +42,6 @@ parse
 pathlib
 Pillow
 PyMySQL
-pydantic
 pyparsing
 python-dateutil
 python-docx

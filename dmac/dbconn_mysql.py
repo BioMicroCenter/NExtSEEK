@@ -1,11 +1,14 @@
 #!/bin/python
 import os, sys
+import logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 import MySQLdb
 from os.path import abspath, exists
 from django.conf import settings
 
-SEEK_PRO = settings['DATABASES']['seek']
-SEEK_DEV = settings['DATABASES']['seek_development']
+SEEK_PRO = settings.SEEK_DATABASE
+SEEK_DEV = settings.SEEK_DATABASE
 
 class DBconn_mysql(object):
     def __init__(self):
@@ -192,13 +195,19 @@ class DBconn_mysql(object):
         try:
             for sqlquery in sqlqueries:
                 self.cursor.execute(sqlquery)
+                logger.debug(f"Attempted sqlquery: {sqlquery}")
+                print(f"Attempted sqlquery: {sqlquery}")
             self.conn.commit()
             msg += " successfully"
             status = 1
+            logger.debug("All sqlqueries ran successful")
+            print("All sqlqueries ran successful")
         except:
             self.conn.rollback()
             msg += " failed"
             status = 0
+            logger.debug("A sqlquery failed")
+            print("A sqlquery failed")
  
         return msg, status
  
@@ -274,4 +283,3 @@ class DBconn_mysql(object):
         row = rows[0]   # only one record
         total = row[0]  # only one value
         return total
-    

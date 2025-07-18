@@ -14,6 +14,7 @@ import datetime
 import simplejson
 import logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
 from dmac.iocsv import saveCsvfile, getString, getFloat
 from dmac.conversion import convertSQLString, is_numeric

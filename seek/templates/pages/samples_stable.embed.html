@@ -4,7 +4,7 @@
 <script type="text/javascript">
 
 	$(document).ready(function () {
-		$('#dgtable').datagrid({
+		$('#simple_dgtable').datagrid({
 			onCheck: function (index, row) {
 				row.ck = true;
 			},
@@ -29,19 +29,19 @@
 	});
 
 	$(function () {
-		var dg = $('#dgtable').datagrid();
+		var dg = $('#simple_dgtable').datagrid();
 		dg.datagrid('enableFilter', [{
 			field: 'id',
 			type: 'label'
 		}]);
 	});
 
-	function downloadSamples(dg, url_download) {
+	function simple_downloadSamples(dg, url_download) {
 		var includeSampleTree = 0;
 		if (url_download == '/seek/samples/download/') {
 			$.messager.confirm({
 				title: 'Download Samples...',
-				msg: 'Do you want to include parent samples?',
+				msg: 'Include all associated samples?',
 				ok: 'Yes',
 				cancel: 'No',
 				fn: function (r) {
@@ -50,16 +50,16 @@
 					} else {
 						includeSampleTree = 0;
 					}
-					return downloadSamples_new(dg, url_download, includeSampleTree);
+					return simple_downloadSamples_new(dg, url_download, includeSampleTree);
 				}
 			});
 		} else {
-			return downloadSamples_new(dg, url_download, includeSampleTree);
+			return simple_downloadSamples_new(dg, url_download, includeSampleTree);
 		}
 		return;
 	}
 
-	function showSampleErrorMsg(errorMsg) {
+	function simple_showSampleErrorMsg(errorMsg) {
 		var header = '<div class="alert alert-danger alert-block"><h4 class="alert-heading">Sample export Failed!</h4></div>';
 		var todo = '';
 		var msginfo = '<div><h5>' + errorMsg + '</h5></div>';
@@ -73,8 +73,8 @@
 		return;
 	}
 
-	function downloadSamples_new(dg, url_download, includeSampleTree) {
-		var sampletype_id = $('#sample_type').combobox('getValue');
+	function simple_downloadSamples_new(dg, url_download, includeSampleTree) {
+		var sampletype_id = $('#simple_sample_type').combobox('getValue');
 		if (sampletype_id == 0) {
 			alert('No sample type is selected.');
 			return;
@@ -87,47 +87,91 @@
 		}
 
 		var allIds = [];
+        var allUids = "";
 		for (var i = 0; i < rows.length; i++) {
 			var row = rows[i];
 			if (row.ck) {
 				allIds.push(row.id);
+                var regex = /(?<=>).*?(?=<)/g;
+                uid = row.uid.match(regex)[0];
+                allUids += uid + "\n";
 			} else {
 			}
 		}
 
-		if (allIds.length == 0) {
+		if (allIds.length == 0 || allUids.length == 0) {
 			alert('No sample in the table is selected for download.');
 			return;
 		}
 		var attributeFilter = '';
 		var allids = JSON.stringify(allIds);
+		//var allUids = JSON.stringify(allUids);
 		var win = $.messager.progress({
 			title: 'Please wait',
 			msg: 'Searching for samples...'
 		});
 
-		$.post(url_download, {
-			'csrfmiddlewaretoken': '{{ csrf_token }}',
-			'allids': allids,
-			'sampletype_id': sampletype_id,
-			'includeSampleTree': includeSampleTree,
-			'attributeFilter': attributeFilter
-		}, function (data) {
-			$.messager.progress('close');
-			var obj = jQuery.parseJSON(data);
-			var msg = obj.msg;
-			var status = obj.status;
-			var link = obj.link;
-			if (status == 1) {
-				window.location.href = link;
-			} else {
-				showSampleErrorMsg(msg);
-			}
-			return;
-		});
+        if (includeSampleTree == 1) {
+            var new_retrieval_url = '/seek/admin/retrieve/';
+            
+            var formData = new FormData();
+            formData.append("csrfmiddlewaretoken", '{{ csrf_token }}');
+            formData.append("retrieval_uids", allUids);
+
+            fetch(new_retrieval_url, {
+                    method: 'POST',
+                    headers: {"X-CSRFToken": "{{ csrf_token }}"},
+                    body: formData,
+                  })
+              .then(response => {
+                          if (response.ok) {
+                            return response.blob();
+                          } else {
+                            $.messager.progress('close');
+                            throw new Error('Download failed');
+                          }
+                        })
+              .then(blob => {
+                          $.messager.progress('close');
+                          const downloadUrl = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = downloadUrl;
+                          var d = new Date();
+                          a.download = 'download-samples-' + d.getFullYear() + '-' + (d.getMonth() + 1) + "-" + d.getDate() + '_' + d.getHours() + '-' + d.getMinutes() + '.xlsx';
+                          document.body.appendChild(a);
+                          a.click();
+                          setTimeout(() => {
+                                        URL.revokeObjectURL(downloadUrl);
+                                        document.body.removeChild(a);
+                                      }, 0);
+                        })
+              .catch(error => {
+                          console.error('Download error:', error);
+                        });
+        } else {
+            $.post(url_download, {
+            	'csrfmiddlewaretoken': '{{ csrf_token }}',
+            	'allids': allids,
+            	'sampletype_id': sampletype_id,
+            	'includeSampleTree': includeSampleTree,
+            	'attributeFilter': attributeFilter
+            }, function (data) {
+            	$.messager.progress('close');
+            	var obj = jQuery.parseJSON(data);
+            	var msg = obj.msg;
+            	var status = obj.status;
+            	var link = obj.link;
+            	if (status == 1) {
+            		window.location.href = link;
+            	} else {
+            		simple_showSampleErrorMsg(msg);
+            	}
+            	return;
+            });
+        }
 	}
 
-	function deleteSamples(dg, url_delete) {
+	function simple_deleteSamples(dg, url_delete) {
 		var rows = dg.datagrid('getRows');
 		if (rows.length == 0) {
 			alert('No sample in the table is selected for deletion.');
@@ -178,7 +222,7 @@
 				var link = obj.link;
 				var diclist = obj.diclist;
 
-				var dg = $('#dgtable');
+				var dg = $('#simple_dgtable');
 				var row = dg.datagrid('getSelected');
 				var rows = dg.datagrid('getRows');
 
@@ -214,11 +258,11 @@
 		});
 	}
 
-	function publishSamples(dg, url_publish) {
-		return publishSamplesAjax(dg, url_publish);
+	function simple_publishSamples(dg, url_publish) {
+		return simple_publishSamplesAjax(dg, url_publish);
 	}
 
-	function publishSamplesAjax(dg, url_publish) {
+	function simple_publishSamplesAjax(dg, url_publish) {
 		var rows = dg.datagrid('getRows');
 		if (rows.length == 0) {
 			alert('No sample in the table is selected for publish.');
@@ -299,13 +343,13 @@
 </style>
 <div id="sample_table_div" style="height: auto">
 	<div style="margin: 20px 0;"></div>
-	<table id="dgtable" class="easyui - datagrid" title="" style="width: auto;height: 380px;" data-options="
+	<table id="simple_dgtable" class="easyui - datagrid" title="" style="width: auto;height: 380px;" data-options="
 				iconCls: 'icon-edit',
 				singleSelect: true,
 				selectOnCheck: false,
 				url: '',
 				method: 'get',
-				toolbar: '#tb_toolbar',
+				toolbar: '#simple_tb_toolbar',
 				striped: true,
 				pagination: false,
 				pageSize: 50,
@@ -331,16 +375,16 @@
 		</thead>
 	</table>
 
-	<div id="tb_toolbar" style="height: auto">
+	<div id="simple_tb_toolbar" style="height: auto">
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true"
-			onclick="downloadSamples($('#dgtable'), '/seek/samples/download/')">Download samples</a>
+			onclick="simple_downloadSamples($('#simple_dgtable'), '/seek/samples/download/')">Download samples</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-remove', plain: true"
-			onclick="deleteSamples($('#dgtable'), '/seek/samples/delete/')">Delete samples</a>
+			onclick="simple_deleteSamples($('#simple_dgtable'), '/seek/samples/delete/')">Delete samples</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true"
-			onclick="publishSamples($('#dgtable'), '/seek/samples/publish/')">Publish samples to FairdomHub</a>
+			onclick="simple_publishSamples($('#simple_dgtable'), '/seek/samples/publish/')">Publish samples to FairdomHub</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true"
-			onclick="downloadSamples($('#dgtable'), '/seek/samples/export/')">Export samples to Import</a>
+			onclick="simple_downloadSamples($('#simple_dgtable'), '/seek/samples/export/')">Export samples to Import</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-timeline', plain: true"
-			onclick="showTimeline($('#dgtable'))">View Timeline</a>
+			onclick="showTimeline($('#simple_dgtable'))">View Timeline</a>
 	</div>
 </div>

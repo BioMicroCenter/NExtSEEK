@@ -9,11 +9,10 @@ import os
 import re
 import subprocess
 import time
-import requests
 import uuid
 import tempfile
 import random
-import io
+import requests
 
 import logging
 logger = logging.getLogger(__name__)
@@ -22,6 +21,7 @@ from subprocess import call
 from subprocess import check_call
 from time import strftime, gmtime
 import pandas as pd
+import numpy as np
 
 from django.conf import settings
 from django.core.files.storage import default_storage
@@ -47,11 +47,15 @@ from dmac.conversion import dateconversion, dateToString, dateToStringUK, conver
 from dmac.datagrid_custom import DataGrid
 from dmac.csv_excel import load_file, load_excelfile
 from dmac.iocsv import saveCsvfile
+from dmac.dbtable_clades import DBtable_clades
+from dmac.dbtable_sampletypesclades import DBtable_sample_types_clades as DBtable_stc
 
 from .seekdb import SeekDB
 from .nextcloudapi import NextCloudAPI
 from .galaxyapi import GalaxyAPI
 from .seekapi import SeekAPI
+from .models import Projects
+from .models import Clades
 
 from .dbtable_sampletype import DBtable_sampletype
 from .dbtable_sample import DBtable_sample
@@ -60,9 +64,10 @@ from .dbtable_data_files import DBtable_data_files
 from .dbtable_sops import DBtable_sops
 from .dbtable_sampleattribute import DBtable_sampleattribute
 from .dbtable_attributetype import DBtable_attributetype
+from .dbtable_projects import DBtable_projects
 
 from rest_framework.decorators import authentication_classes
-from rest_framework.authentication import TokenAuthentication
+from rest_framework.authentication import TokenAuthentication,SessionAuthentication
 from rest_framework.decorators import api_view
 from rest_framework.decorators import permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -76,8 +81,9 @@ from subprocess import Popen, PIPE
 
 from django.conf import settings
 from seek.timeline.services.timeline_service import run_All, get_event_data
-from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
-
+from seek.timeline.services.nhp_service import save_nhp_info_to_json
+import neo4j
+from neo4j import GraphDatabase
 SEEK_DATABASE = settings.SEEK_DATABASE
 DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "/download/"
 DOWNLOAD_DIRECTORY_LINK = settings.MEDIA_URL + 'download/'  
@@ -86,8 +92,13 @@ SEEK_DATAFILE_ROOT = settings.SEEK_DATAFILE_ROOT
 DROPBOX_DIRECTORY = settings.MEDIA_ROOT + "/dropbox/"
 
 SAMPLE_TEMPLATE_FILE = settings.MEDIA_ROOT + "/reserved/SAMPLE_TEMPLATE.xlsx"
+SAMPLE_TEMPLATES_FOLDER = settings.SAMPLE_TEMPLATES_FOLDER
+SAMPLE_TEMPLATES_FOLDER_PROJECT = settings.SAMPLE_TEMPLATES_FOLDER_PROJECT
+
+PUBLISH_STATS_FILE = settings.PUBLISH_STATS_FILE
 
 PUBLISH_SERVER = settings.PUBLISH_URL
+SEEK_HOSTNAME = settings.SEEK_HOSTNAME
 
 report = {}
 def seek(request, url):
@@ -133,14 +144,11 @@ def sample(request, id):
     report = {}
     report['bodyhtml'] = bodyhtml
     report['sample_id'] = sample_id
-
+    
     dbsample = DBtable_sample()
 
     db = settings.DATABASES['default']
-    conn = MySQLdb.connect(host=db['HOST'],
-                           user=db['USER'],
-                           passwd=db['PASSWORD'],
-                           db=db['NAME'])
+    conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
     cursor = conn.cursor()
 
     cursor.execute(f"SELECT full FROM seek_sample_tree WHERE sample_id='{sample_id}'")
@@ -150,7 +158,6 @@ def sample(request, id):
         report['treeData_multiparents'] = json.loads(cursor_results[0])[0]
     else:
         report['treeData_multiparents'] = dbsample.createSampleMultiParentTree(sample_id)
-
     # This treeData_multiparents does not have the complete tree information
     sampledic, samplelist = dbsample.getSampleInfo(sample_id)
     report['sampledic'] = sampledic
@@ -366,7 +373,8 @@ def sampleSearch(request):
     report['type_options'] = stype.getSampleTypes()
     report['showSamplePage'] = True
     report['showSearch'] = True
-    return render(request,"sampleSearch.html", {'report':report})
+    #return render(request,"sampleSearch.html", {'report':report})
+    return HttpResponseRedirect('/seek/search/')
 
 def __searchFilterKeywords(keywords):
     kkk = keywords.strip()
@@ -995,7 +1003,7 @@ def sampleFindAjax(request):
     
 def sampleDelete(request):
     ret = request.GET
-    
+        
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request)
     
@@ -1006,11 +1014,12 @@ def sampleDelete(request):
     
     dbsample = DBtable_sample()
 
-    if 'allids' in ret:
+    if 'allids' in ret: 
         sample_ids = json.loads(ret['allids'])
     elif 'alluids' in ret:
         sample_uids = json.loads(ret['alluids'])
         sample_ids = list(map(dbsample.getSampleID, sample_uids))
+
     sdata = dbsample.deleteSamples(user_seek, downloadfile, link, sample_ids)
     return HttpResponse(sdata)
     
@@ -1456,8 +1465,9 @@ def samplesValidate(request):
                             data['message'] = message.replace('<br/>', '\n')
                         else:
                             data['message'] = message
-                        return HttpResponse(simplejson.dumps(data, default=str))
-                    message += f"Extra sheets: {extra_sheets}"
+                        return HttpResponse(simplejson.dumps(data, default=str))       
+
+                    message += "Extra sheets: {extra_sheets}"
                     status += 1
                 else:
                     message += "\n\nSheets match what is expected ✅"
@@ -1486,9 +1496,10 @@ def samplesValidate(request):
                 try:
                     database_field_column = instructions_sheet['Database Field'].tolist()
                 except:
-                    message = 'Error: No database field column in the Instructions sheet'
-                    data = {'msg': message, 'status': 0, 'link': ''}
-                    return HttpResponse(simplejson.dumps(data, default=str))
+                    message = 'Error: No database field column in the Instructions sheet' 
+                    data = {'msg':message, 'status': 0, 'link':''}
+                    logger.error(message)
+                    return HttpResponse(simplejson.dumps(data, default=str))       
 
                 statusChanged = False
                 for entry in database_field_column:
@@ -1522,7 +1533,7 @@ def samplesValidate(request):
                 }
 
                 if mismatches['missingSamples']:
-                    message += "\n\nHeaders in 'Samples' sheet not found in 'Field' column of 'Instructions' sheet:"
+                    message += "\n\nHeaders in 'Samples' sheet not found in 'Field' column of 'Instructions' sheet: ❌"
                     status += 1
                     for header in mismatches['missingSamples']:
                         message += "\n- " + header
@@ -1530,7 +1541,7 @@ def samplesValidate(request):
                     message += "\n\nAll headers in Samples sheet found in Instructions sheet ✅" 
 
                 if mismatches['missingInstructions']:
-                    message += f"\n\nValues in 'Field' column of 'Instructions' sheet not found in headers of 'Samples' sheet:"
+                    message += f"\n\nValues in 'Field' column of 'Instructions' sheet not found in headers of 'Samples' sheet: ❌"
                     status += 1
                     for value in mismatches['missingInstructions']:
                         message += "\n- " + value
@@ -1586,7 +1597,6 @@ def getTemplateFolders(directory_path):
 def templatesList(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
-
     if not user_seek['status']:
         url_redirect = '/login/?next=/seek/templates'
         return HttpResponseRedirect(url_redirect)
@@ -1594,21 +1604,16 @@ def templatesList(request):
         headers = {'Accept': 'application/json'}
         r = requests.get(user_seek['server'] + '/projects', auth=(user_seek['username'], user_seek['password']), headers=headers)
         projects = [p['id'] for p in r.json()['data']]
-
-        if not settings.TEMPLATES_PROJECT_ID in projects:
-            msg = "You are not in the correct project to access this page"
+        if not SAMPLE_TEMPLATES_FOLDER_PROJECT in projects:
+            msg = 'You are not in the correct project to access this page'
             status = 0
-            data = {'msg': msg, 'status': status, 'link': ""}
-            return HttpResponse(simplejson.dumps(data, default=str))
+            data = {'msg':msg, 'status': status, 'link': ""}
+            return HttpResponse(simplejson.dumps(data, default=str)) 
 
-    directory_path = settings.TEMPLATES_PATH
-    folders = getTemplateFolders(directory_path)
+    folders = getTemplateFolders(SAMPLE_TEMPLATES_FOLDER)
 
     return render(request, 'templatesList.html', {'folders': folders})
 
-########################################################
-# NHP Timeline
-########################################################
 @api_view(['GET'])
 def nhp_info(request, nhp_name):
     try:
@@ -1644,23 +1649,532 @@ def get_nhp_data(request, nhp_name: str):
     except Exception as e:
         return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-@api_view(['GET'])
-def download_nhp_data(request, nhp_name: str):
+def get_full_sample_trees_and_data(uids):
+    db = settings.DATABASES[SEEK_DATABASE]
+    conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
+    cursor = conn.cursor()
+
+    uids_str = ', '.join(f"'{uid}'" for uid in uids)
+    query_one = f"""
+    SELECT s.id, s.sample_type_id, st.title AS sample_type, s.uuid, s.json_metadata
+    FROM seek_production.samples s
+    JOIN seek_production.sample_types st
+    ON s.sample_type_id = st.id
+    WHERE s.uuid IN ({uids_str})
+    """
+
+    cursor.execute(query_one)
+    columns = [col[0] for col in cursor.description]
+    rows = cursor.fetchall()
+    sample_data = pd.DataFrame(rows, columns=columns)
+
+    query_two = f"""
+    SELECT uuid, full, updated 
+    FROM dmac.seek_sample_tree
+    WHERE uuid IN ({uids_str})
+    """
+
+    cursor.execute(query_two)
+
+    columns = [col[0] for col in cursor.description]
+    rows = cursor.fetchall()
+    results_df = pd.DataFrame(rows, columns=columns)
+
+    cursor.close()
+    conn.close()
+
+    results_df['updated'] = pd.to_datetime(results_df['updated'])
+    results_df = results_df.sort_values(by='updated', ascending=False)
+    sample_full_trees = results_df.groupby('uuid').first().reset_index()
+    return sample_data, sample_full_trees
+
+def extract_ids(data):
+    ids = []
+    if isinstance(data, dict):
+        if 'id' in data:
+            ids.append(data['id'])
+        for key, value in data.items():
+            ids.extend(extract_ids(value))
+    elif isinstance(data, list):
+        for item in data:
+            ids.extend(extract_ids(item))
+    return ids
+
+def get_clade_color(sample_type):
+    db = settings.DATABASES[SEEK_DATABASE]
+    conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
+    cursor = conn.cursor()
+    query = f"""
+    SELECT c.color FROM dmac.clades c
+    JOIN dmac.sample_types st
+    ON st.clade_id = c.id
+    WHERE st.title = '{sample_type}'
+    """
+
+    cursor.execute(query)
     try:
-        timeline_data = get_timeline_data(nhp_name)
-        if not timeline_data:
-            return Response({"detail": "NHP data not found"}, status=status.HTTP_404_NOT_FOUND)
+        color = cursor.fetchone()[0]
+    except Exception:
+        color = "#000000"
+
+    cursor.close()
+
+    return color
+
+def get_children_uids(sample_uids, user_project_ids, admin):
+    NEO4J_DATABASE = settings.NEO4J_DATABASE
+    with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
+        r,s,k = driver.execute_query("""
+		UNWIND $sample_uids AS sample_uid
+        MATCH (s:Sample {uuid: sample_uid})
+        MATCH parents=(s)-[:CHILD_OF*0..]->(parent)
+        MATCH children=(s)<-[:CHILD_OF*0..]-(child)
+        RETURN collect(DISTINCT s.uuid) + collect(DISTINCT parent.uuid) + collect(DISTINCT child.uuid) AS uuids
+        """,
+        sample_uids=sample_uids,
+        database_=NEO4J_DATABASE['NAME'])
+        uids = r[0]['uuids']
+
+    db = settings.DATABASES[SEEK_DATABASE]
+    conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
+    cursor = conn.cursor()
+
+    uids_str = ', '.join(f"'{uid}'" for uid in uids)
+    project_ids_str = ', '.join(f"'{pid}'" for pid in user_project_ids)
+
+    if admin:
+        query = f"""
+        SELECT id,sample_type_id,uuid,json_metadata
+        FROM seek_production.samples
+        WHERE uuid IN ({uids_str})
+        """
+    else:
+        query = f"""
+        SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
+        FROM seek_production.samples s
+        JOIN seek_production.projects_samples ps
+        ON s.id = ps.sample_id
+        WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
+        """
+
+    cursor.execute(query)
+    columns = [col[0] for col in cursor.description]
+    rows = cursor.fetchall()
+    samples_retrieved_df = pd.DataFrame(rows, columns=columns)
+
+    cursor.close()
+    conn.close()
+    return samples_retrieved_df
+
+def parse_json_metadata(metadata_series):
+    return metadata_series.apply(lambda x: json.loads(x) if isinstance(x, str) else {})
+
+def parse_children_uids(children_uids):
+    children_uids['json_metadata'] = parse_json_metadata(children_uids['json_metadata'])
+
+    metadata_df = pd.json_normalize(children_uids['json_metadata'])
+    metadata_df = metadata_df.loc[:, ~metadata_df.columns.duplicated()]
+
+    final_df = pd.concat([children_uids[['uuid']], metadata_df], axis=1)
+    final_df.replace("", pd.NA, inplace=True)
+    final_df.dropna(axis=1, how='all', inplace=True)
+
+    return final_df
+
+def sample_retrieval_data(children_uids, output):
+    parsed_df = parse_children_uids(children_uids)
+    parsed_df['sample_type'] = parsed_df['uuid'].str.extract(r'([A-Z]+\.[A-Z]+|[A-Z]+)', expand=False)
+
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        for sample_type, sample_type_df in parsed_df.groupby('sample_type'):
+            sample_type_df = sample_type_df.drop(columns=['uuid', 'sample_type'])
+            sample_type_df.replace("", pd.NA, inplace=True)
+            sample_type_df.dropna(axis=1, how='all', inplace=True)
+            sample_type_df.to_excel(writer, sheet_name=sample_type, index=False)
+
+def adminRetrieveSamples(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+    user_project_ids = map(lambda x: x['id'], user_projects)
+
+    if verifySuperUser(request) == 1:
+        admin = True
+    else:
+        admin = False
+
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str)) 
+    else:
+        if request.method == "POST":
+            logger.debug(f"REQUEST: {request.POST.keys()}")
+            uids = request.POST.get('retrieval_uids').strip().split()
+            #sample_data, sample_full_trees = get_full_sample_trees_and_data(uids)
+            children_uids = get_children_uids(uids, user_project_ids, admin)
+
+            datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+            filename = 'download-samples-' + datenow + '.xlsx'
+            downloadfile = DOWNLOAD_DIRECTORY + filename
+            link = DOWNLOAD_DIRECTORY_LINK + filename
+
+            sample_retrieval_data(children_uids, downloadfile)
+
+            with open(downloadfile, 'rb') as fh:
+                response = HttpResponse(fh.read(), content_type="application/vnd.ms-excel")
+                response['Content-Disposition'] = 'inline; filename=' + os.path.basename(downloadfile)
+                return response
+        else:
+            return render(request, "admin_retrieval.html")
+
+@api_view(['GET'])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+def sampleTreeNew(request, sample_id):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        url_redirect = '/login/?next=/seek/templates'
+        return HttpResponseRedirect(url_redirect)
+
+    NEO4J_DATABASE = settings.NEO4J_DATABASE
+    with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
+        r = driver.execute_query("""
+        MATCH (s: Sample {id: """ + str(sample_id)  + """})
+        MATCH parents=(s)-[r1:CHILD_OF*0..]->(parent)
+        MATCH children=(s)<-[r2:CHILD_OF*0..]-(child)
+        RETURN collect(DISTINCT s) + collect(DISTINCT parent) + collect(DISTINCT child) AS nodes, r1 + r2 AS relationships
+        """,
+        result_transformer_=neo4j.Result.graph,
+        database_=NEO4J_DATABASE['NAME'])
+
+        nodeDict = {}
+        for node in r.nodes:
+            nodeUid = node._properties['uuid']
+            nodeId = node._properties['id']
+            nodeType = node._properties['type']
+            nodeDict[nodeUid] = {'id': str(nodeId), 'type': nodeType, 'parents': []}
+
+        for rel in r.relationships:
+            nodeId = str(rel.start_node._properties['id'])
+            nodeUid = rel.start_node._properties['uuid']
+            nodeType = rel.start_node._properties['type']
+            parentId = str(rel.end_node._properties['id'])
+
+            if nodeDict.get(nodeUid) is not None:
+                nodeDict[nodeUid]['parents'].append(parentId)
+            else:
+                nodeDict[nodeUid]['parents'] = [parentId]
+
+        data = []
+        for k, v in nodeDict.items():
+            color = get_clade_color(v['type'])
+            data.append({"id": v['id'], "uuid": k, "type": v['type'], "color": color, "parentIds": v['parents']})
+
+        return Response(data, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+def sampleTreeNewUID(request, uid):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        url_redirect = '/login/?next=/seek/templates'
+        return HttpResponseRedirect(url_redirect)
+
+    dbsample = DBtable_sample()
+    sample_id = dbsample.getSampleID(uid)
+    NEO4J_DATABASE = settings.NEO4J_DATABASE
+    with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
+        r = driver.execute_query("""
+        MATCH (s: Sample {id: """ + str(sample_id)  + """})
+        MATCH parents=(s)-[r1:CHILD_OF*0..]->(parent)
+        MATCH children=(s)<-[r2:CHILD_OF*0..]-(child)
+        RETURN collect(DISTINCT s) + collect(DISTINCT parent) + collect(DISTINCT child) AS nodes, r1 + r2 AS relationships
+        """,
+        result_transformer_=neo4j.Result.graph,
+        database_=NEO4J_DATABASE['NAME'])
+
+        nodeDict = {}
+        for node in r.nodes:
+            nodeUid = node._properties['uuid']
+            nodeId = node._properties['id']
+            nodeType = node._properties['type']
+            nodeDict[nodeUid] = {'id': str(nodeId), 'type': nodeType, 'parents': []}
+
+        for rel in r.relationships:
+            nodeId = str(rel.start_node._properties['id'])
+            nodeUid = rel.start_node._properties['uuid']
+            nodeType = rel.start_node._properties['type']
+            parentId = str(rel.end_node._properties['id'])
+
+            if nodeDict.get(nodeUid) is not None:
+                nodeDict[nodeUid]['parents'].append(parentId)
+            else:
+                nodeDict[nodeUid]['parents'] = [parentId]
+
+        data = []
+
+        for k, v in nodeDict.items():
+            color = get_clade_color(v['type'])
+            data.append({"id": v['id'], "uuid": k, "type": v['type'], "color": color, "parentIds": v['parents']})
+
+        return Response(data, status=status.HTTP_200_OK)
+
+def projects(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+
+    if not user_seek['status']:
+        url_redirect = "/login/?next=/seek/projects/"
+        return HttpResponseRedirect(url_redirect) 
+    else:
+        projectsdb = DBtable_projects()
+        user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+        user_project_ids = list(map(lambda x: x['id'], user_projects))
+
+        if verifySuperUser(request) == 1:
+            projects = Projects.objects.all().values('id', 'title', 'avatar_id')
+        else:
+            projects = Projects.objects.filter(id__in=user_project_ids).values('id', 'title', 'avatar_id')
+
+        for project in projects:
+            project['stats'] = projectsdb.sample_count(project['id']) | projectsdb.files_count(project['id'])
+
+        stcdb = DBtable_stc()
+        clade_data = {k: list(v) for k, v in groupby(stcdb.getAllCounts(), lambda x: x['title'])}
+
+        for k, group in clade_data.items():
+            for item in group:
+                item['total'] = sum(i['count'] for i in group)
+               
+        return render(request, 'projectsList.html', {'projects': projects,
+                                                     'clade_data': clade_data,
+                                                     'seek_hostname': SEEK_HOSTNAME})
+
+def project_page(request, project_id):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+
+    if not user_seek['status']:
+        url_redirect = f"/login/?next=/seek/projects/{project_id}"
+        return HttpResponseRedirect(url_redirect) 
+    else:
+        if verifySuperUser(request) == 1:
+            admin = True
+        else:
+            admin = False
+
+        user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+        user_project_ids = map(lambda x: x['id'], user_projects)
+
+        # Can't view projects unless you're in it or an admin
+        if not admin and int(project_id) not in user_project_ids:
+            data = {'msg': 'You are not in this project', 'status': 0, 'link': ''}
+            return render(request, 'error.html', {'data': data})
+
+        # Project page
+        project = Projects.objects.get(id=project_id)
+
+        cladedb = DBtable_clades()
         
-        # Convert to Excel
-        excel_data = save_nhp_data(timeline_data)
+        clade_data = cladedb.getCladeProjectStats(project_id)
+        values = set(map(lambda x: x['title'], clade_data))
+        clade_data = [[y for y in clade_data if y['title']==x] for x in values]
+
+        try:
+            published_stats = pd.read_excel(PUBLISH_STATS_FILE, sheet_name=None)
+            published_stats = published_stats[project.title]
+            published_stats = published_stats.fillna(0)
+            published_stats['Published'] = published_stats['Published'].astype(int)
+            type_published_counts = dict(zip(published_stats['Data Types'],
+                                             published_stats['Published']))
+            for clade_list in clade_data:
+                for clade in clade_list:
+                    data_type = clade['st_group']
+                    published_count = type_published_counts.get(data_type, 0)
+                    clade['published'] = published_count
+                    
+        except Exception:
+            for clade_list in clade_data:
+                for clade in clade_list:
+                    clade['published'] = 0
+
+        for group in clade_data:
+            for item in group:
+                item['total'] = sum(i['count'] for i in group)
+                item['published_total'] = sum(i['published'] for i in group)
+
+        clade_data.sort(key=lambda x: x[0]['order'])
+
+        return render(request, 'projectPage.html', {'id': project.id,
+                                                    'title': re.sub("-|_", " ", project.title),
+                                                    'description': project.description.replace("\r", "\n"),
+                                                    'seek_hostname': SEEK_HOSTNAME,
+                                                    'avatar_id': project.avatar_id,
+                                                    'clade_data': clade_data,})
+
+def adminClades(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+
+    if not user_seek['status']:
+        err = user_seek['err']
+        url_redirect = '/login/?next=/seek/samples/attributes/'
+        return HttpResponseRedirect(url_redirect)
+
+    if verifySuperUser(request) != 1:
+        msg = 'Error: You login as admin to view this page.'
+        status = 0
+        logger.error(msg)
+        data = {'msg':msg, 'status': status, 'link':'', 'message':''}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    cladedb = DBtable_clades()
+    stcdb = DBtable_stc()
+    stc = simplejson.dumps(stcdb.getAllWithTitles(), default=str)
+    
+    return render(request,"clades.html", {'clades': list(cladedb.getAll()), 'stc': stc})
+
+def cladesSyncSampleTypes(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
         
-        # Create a streaming response
-        response = FileResponse(
-            io.BytesIO(excel_data),
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            as_attachment=True,
-            filename=f"{nhp_name}_data.xlsx"
-        )
-        return response
-    except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'The login user does not have the permission to perform this action.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    stcdb = DBtable_stc()
+    stcdb.syncSampleTypes()
+    
+    return HttpResponse({})
+
+def cladeSave(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'The login user does not have the permission to add the clade.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    cladedb = DBtable_clades()
+    
+    ret = request.GET
+    clades = json.loads(ret['records'])
+
+    for clade in clades:
+        if 'id' not in clade:
+            # New clade. Should create it in DB
+            cladedb.new(title=clade['title'],
+                        color=clade['color'],
+                        order=clade['order'])
+        else:
+            # Existing clade. Should update
+            cladedb.update(clade_id=clade['id'],
+                           title=clade['title'],
+                           color=clade['order'],
+                           order=clade['order'])
+        
+    return HttpResponse({}, headers={"Refresh": 1})
+    
+def cladeDelete(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        err = user_seek['err']
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'The login user does not have the permission to delete the sample attribute.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    cladedb = DBtable_clades()
+
+    ret = request.GET
+    clades = json.loads(ret['records'])
+
+    for clade in clades:
+        cladedb.delete(clade['id'])
+    
+    return HttpResponse({}, headers={"Refresh": 1})
+
+def cladeSampleTypesSave(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'The login user does not have the permission to add the clade.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    stcdb = DBtable_stc()
+    
+    ret = request.GET
+    data = json.loads(ret['records'])
+
+    for record in data:
+        sample_type_id = record['sample_type_id']
+        clade_id = record['clade_title']
+        
+        stcdb.update(sample_type_id, clade_id)
+        
+    return HttpResponse({}, headers={"Refresh": 1})
+
+def editSample(request, id):
+    return HttpResponseRedirect(f"https://{SEEK_HOSTNAME}/samples/{id}/edit")
+
+def manageSample(request, id):
+    return HttpResponseRedirect(f"https://{SEEK_HOSTNAME}/samples/{id}/manage")

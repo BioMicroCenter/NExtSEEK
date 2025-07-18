@@ -1,0 +1,250 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/3.3.1/lodash.min.js"></script>
+    <style>
+        .link {
+            stroke-width: 3px;
+            stroke: #ddd;
+            fill: none;
+        }
+        .text {
+            font-family: "Lucida Grande", "Helvetica Nueue", Arial, sans-serif;
+            font-size: 18px;
+        }
+        .hover {
+            stroke: #2c3e50;
+        }
+        .cert-root {
+            visibility: hidden;
+        }
+        .chart {
+            width: 100%;
+            height: 100%;
+        }
+        div.tooltip {
+            position: absolute;
+            text-align: center;
+            max-width: 160px;
+            padding: 7px 10px;
+            font: 12px sans-serif;
+            color: white;
+            background: #111;
+            border: 0px;
+            border-radius: 2px;
+            pointer-events: none;
+            margin-top: 2px;
+        }
+        div.tooltip:before {
+            content: '';
+            position: absolute;
+            top: 0%;
+            left: 50%;
+            margin-left: -8px;
+            margin-top: -8px;
+            width: 0; height: 0;
+            border-bottom: 8px solid #111;
+            border-right: 8px solid transparent;
+            border-left: 8px solid transparent;
+        }
+    </style>
+
+<div class="chart">
+</div>
+<script>
+    var data = {{report.treeData_multiparents|safe}};
+
+    var data0 = {
+	'name': "Sample tree: current node",
+	'id': "cert-root",
+	children: [{
+	    name: 'A',
+	    id: 'A',
+	    description: 'This is a tooltip with a long multi line text in it',
+	    children: [{
+		name: 'AA',
+		id: 'AA',
+		description: 'This is a tooltip'
+	    }, {
+		name: 'BB',
+		id: 'BB'
+	    }]
+	}, {
+	    name: 'B',
+	    id: 'B',
+	    children: [{
+		name: 'AA',
+		id: 'AA'
+	    }, {
+		name: 'BB',
+		id: 'BB'
+	    }, {
+		name: 'CC',
+		id: 'CC'
+	    }]
+	}]
+    };
+
+    var graph = {
+	width: 600, //400
+	height: 800 //600
+    };
+
+    var realWidth = window.innerWidth;
+    var realHeight = window.innerHeight;
+    //var realWidth = graph.width;
+    //var realHeight = graph.height;
+    var m = [40, 240, 40, 240],
+	//w = realWidth -m[0] -m[0],
+	w = realWidth - m[1] - m[1],
+	h = realHeight - m[0] - m[2],
+	i = 0,
+	root;
+
+    var tree = d3.layout.tree().size([h * 3, w * 3]);
+
+    var diagonal = d3.svg.diagonal().projection(function(d) {
+	return [d.y, d.x];
+    });
+
+    var svg = d3.select('.chart').append('svg:svg')
+	.attr("class", "svg_container")
+	.attr("width", w)
+	.attr("height", h)
+	.style("overflow", "scroll")
+	.style("background-color", "#EEEEEE")
+	.append("svg:g")
+	.attr("class", "drawarea")
+	.append("svg:g")
+	.attr('transform', 'translate(-' + w * 0.3 + ', 0)')
+
+    function drawMultiParentTree() {
+	var nodes = tree.nodes(root);
+	nodes = _.uniq(nodes, 'id');
+	_.each(nodes, function(o, i) {
+	    var itemsOfTheSameDepth = _.where(nodes, {
+		depth: o.depth
+	    });
+	    var indexOfCurrent = _.indexOf(itemsOfTheSameDepth, o);
+	    var interval = graph.height / itemsOfTheSameDepth.length;
+	    nodes[i].x = interval / 2 + (interval * indexOfCurrent);
+	});
+
+	//tooltip
+	var tooltip = d3.select("body")
+	    .append("div")
+	    .attr("class", "tooltip")
+	    .style("opacity", 0);
+
+	var links = tree.links(nodes);
+
+	_.each(links, function(o, i) {
+	    links[i].target = _.find(nodes, {
+		id: o.target.id
+	    });
+	});
+
+	var link = svg.selectAll("path")
+	    .data(links)
+	    .enter()
+	    .append("svg:path")
+	    .attr('class', function(d) {
+		return ( !! d.source) ? d.source.id : "root";
+	    })
+	    .classed('link', true)
+	    .attr('d', diagonal);
+
+	var node = svg.selectAll('g.node')
+	    .data(nodes)
+	    .enter()
+	    .append("svg:g")
+	    .attr("transform", function(d) {
+		return "translate(" + d.y + "," + d.x + ")";
+	    })
+	    .on('mouseup', function(d) {
+		d3.selectAll('path.link').classed('hover', false);
+		d3.selectAll("." + d.id).classed("hover", true).moveToFront();
+		_.pluck(d.children, 'id')
+		.forEach(function(id) {
+		    d3.selectAll('.' + id).classed('hover', true).moveToFront();
+		});
+
+		if (d.children) {
+		    d._children = d.children;
+		    d.children = null;
+		} else {
+		    d.children = d._children;
+		    d._children = null;
+		}
+	})
+	.on('mouseover', function(d) {
+	    if ( !! d.description) {
+		tooltip.transition().duration(200).style('opacity', .9);
+		tooltip.html(d.description)
+		    .style('left', (d3.event.pageX) + 'px')
+		    .style('top', ((d3.event.pageY) + 8) + "px")
+	    }
+	})
+	.on('mouseout', function(d) {
+	    tooltip.transition()
+		.duration(500)
+		.style('opacity', 0);
+	})
+	.on('click', function(d) {
+	    var strWindowFeatures = "";
+	    var URL = "/seek/sampletree/uid=" + d.id + "/";
+	    var win = window.open(URL, "_blank", strWindowFeatures);
+	});
+
+	var colors = d3.scale.category20();
+	node.append("svg:circle").attr("r", 4).attr('fill', function(d, i) {
+	    return colors(d.id.split('-')[0]);
+	}).attr('stroke', "#333333").attr('stroke-width', '1.5px');
+
+	node.append("svg:text").attr("dx", function(d) {
+	    return d.children ? -8 : 8;
+	}).attr("dy", 3).classed("text", true).attr("text-anchor", function(d) {
+	    return d.children ? "end" : "start";
+	}).text(function(d) {
+	    return d.name;
+	});
+
+    }
+
+    function loadData(jsondata) {
+	root = jsondata;
+	d3.select("#processName").html(root.text);
+	root.x0 = h / 2;
+	root.y0 = 0;
+	update(root);
+    }
+
+    function update(source) {
+	drawMultiParentTree();
+	d3.select("svg").call(d3.behavior.zoom().scaleExtent([0.5, 5]).on("zoom", zoom));
+    }
+    
+    function toggle(d) {
+	if (d.children) {
+	    d._children = d.children;
+	    d.children = null;
+	} else {
+	    d.children = d._children;
+	    d._children = null;
+	}
+    }
+
+    function zoom() {
+	var scale = d3.event.scale,
+	    translation = d3.event.translate,
+	    tbound = -h * scale,
+	    bbound = h * scale,
+	    lbound = (-w + m[1]) * scale,
+	    rbound = (w - m[3]) * scale;
+	// limit translation to thresholds
+	translation = [
+	Math.max(Math.min(translation[0], rbound), lbound), Math.max(Math.min(translation[1], bbound), tbound)];
+	d3.select(".drawarea").attr("transform", "translate(" + translation + ")" + " scale(" + scale + ")");
+    }
+
+    loadData(data);
+</script>
+

@@ -18,14 +18,44 @@
 </style>
 
 <div class="easyui-layout" style="width:auto;height:1500px;">
+    <!--
     <div data-options="region:'north',border:true,split:true,hideCollapsedContent:false" title="Sample tree" style="overflow: scroll; width:auto; height:500px;">
 		<div class="well" style="overflow: scroll;">
 			{% include "pages/samples_tree.embed.html" %}
 		</div>
 	</div>
-	<br/>
+    -->
+        <div data-options="region:'north',border:true,split:true,hideCollapsedContent:false" id="tree_tab" class="easyui-tabs" style="width:auto;height:600px">
+            <div title="Sample Tree v2" data-options="closable:false" style="overflow:auto;display:none;">
+                <div class="easyui-layout">
+                    <div id="north_div">
+                        <div class="well">
+                            {% include "pages/samples_tree_new.embed.html" %}
+                        </div>
+                    </div>
+                </div>	
+            </div>
+            <div title="Sample Tree v1" data-options="closable:false" style="overflow:auto;display:none;">
+                <div class="easyui-layout">
+                    <div id="center_div">
+                        <div class="well" style="overflow: scroll;">
+                            {% include "pages/samples_tree.embed.html" %}
+                        </div>
+                    </div>
+                </div>	
+            </div>
+        </div>
+    <br/>
     <div data-options="region:'center',split:true,border:true" title="Sample info" style="overflow: scroll; width:auto; height:500px;">
 		<div class="well" style="overflow: scroll;">
+        <form method="POST" action="/seek/admin/retrieve/">
+            {% csrf_token %}
+            <input name="retrieval_uids" style="display:none" value="{% for dici in report.sampleinfo %}{% if dici.attrname == 'UID' %}{{dici.attrvalue}}{% endif %}{% endfor %}"></input>
+            <button class="l-btn-left l-btn-icon-left"type="submit">
+                <span class="l-btn-text">Download All Samples</span>
+                <span class="l-btn-icon icon-save"></span>
+            </button>
+        </form>
 			<div class="widget-body">
 				<div class="widget-main">
 					<div id="piechart-placeholder">

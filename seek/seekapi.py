@@ -183,6 +183,14 @@ class SeekAPI(object):
             if 'title' in objinfo['attributes']:
                 title =  objinfo['attributes']['title']
         return title
+
+    def getCurrentUser(self):
+        import requests
+        req = requests.get(self.__server + "/people/current",
+                           auth=(self.__username, self.__password),
+                           headers = {"content-type": "application/json",
+                                      "accept": "application/json"})
+        return req.json()
     
     def getProjects(self):
         apiquery = "/projects.xml | grep -e \'project xlink\' | sed -n \'s/.*title=\"\\([^\"]*\\).*/\\1/p\'"

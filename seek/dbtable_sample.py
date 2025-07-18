@@ -14,6 +14,8 @@ import MySQLdb
 import zipfile
 from django.conf import settings
 from django.db.models import Q
+from functools import cache
+from itertools import chain
 
 from .models import Samples, Projects_samples, People, Assets_creators, Projects
 from dmac.dbtable import DBtable
@@ -30,7 +32,11 @@ from .dbtable_sops import DBtable_sops
 from .dbtable_policies import DBtable_policies
 
 from .dbtable_ontology import DBtable_ontology
+from concurrent.futures import ThreadPoolExecutor
+from api_app.updateTrees import updateTrees
+from neo4j import GraphDatabase
 
+NEO4J_DATABASE = settings.NEO4J_DATABASE
 SEEK_DATABASE = settings.SEEK_DATABASE
 DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "/download/"
 DOWNLOAD_DIRECTORY_LINK = settings.MEDIA_URL + 'download/'
@@ -273,7 +279,8 @@ class DBtable_sample(DBtable):
         
     def __updateSampleMetadata(self, metadata_db, metadata_in, attributes=None):
         #logger.debug('updateSampleMetadata')
-      
+
+        logger.debug(f"Updating sample with UID: {metadata_db['UID']}")
         if attributes is not None:
             metadata_db2 = {}
             for key, value in metadata_db.items():
@@ -311,7 +318,7 @@ class DBtable_sample(DBtable):
                     metadata_out[key] = ''
                 else:
                     metadata_out[key] = value
-        
+
         #logger.debug('updateSampleMetadata: Finish')
         return metadata_out
         
@@ -386,18 +393,18 @@ class DBtable_sample(DBtable):
         conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
         conn.autocommit(False)
         cursor = conn.cursor()
-
+        
         try:
             cursor.execute(f"INSERT INTO projects_samples (project_id, sample_id) VALUES ({project_id}, {sample_id})")
             conn.commit()
         except:
             conn.rollback()
         
-        # record = {}
-        # record['sample_id'] = sample_id
-        # record['project_id'] = project_id
-        # record = Projects_samples(project_id=project_id, sample_id=sample_id)
-        # record.save()
+        #record = {}
+        #record['sample_id'] = sample_id
+        #record['project_id'] = project_id
+        #record = Projects_samples(project_id=project_id, sample_id=sample_id)
+        #record.save()
         return
         
         
@@ -612,8 +619,12 @@ class DBtable_sample(DBtable):
         record_new, newSample = self.__getRecord(creator, record, attributeInfo, contributor_id)
         uid = record_new['uuid']
         msg, status, sample_id = self.storeOneRecord(username, record_new)
+        logger.debug(f"Username {username} storing record {record_new}")
         if status:
             if newSample:
+
+                self.storeSampleNeo4j(sampleType, record_new)
+
                 self.__updateSampleProject(creator, sample_id)
                 self.__updateSampleAssetsCreators(sample_id, creator_id)
                 if len(diclist_assay)>0:
@@ -710,7 +721,43 @@ class DBtable_sample(DBtable):
             return -1
         
         return contributor_id
-       
+
+    def extractParents(self, json_metadata):
+        parents = []
+        for k, v in json_metadata.items():
+            if "Parent" in k:
+                parents.append(v)
+        parents = list(map(lambda p: p.split(";"), parents))
+        return list(chain(*parents))
+
+    def storeSampleNeo4j(self, sampleType, record):
+        logger.debug(f"Storing sample into neo4j with info: {record}")
+        sample_id = self.getSampleID(record['uuid'])
+        json_metadata = json.loads(record['json_metadata'])
+        logger.debug(f"json_metadata: {json_metadata}")
+        parents = self.extractParents(json_metadata)
+        with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
+
+            # Create the sample node
+            records, summary, keys = driver.execute_query(
+                    "MERGE (s:Sample {id: $sample_id, uuid: $sample_uuid, type: $sample_type})",
+                    sample_id=sample_id,
+                    sample_type=sampleType,
+                    sample_uuid=record['uuid'],
+                    database_=NEO4J_DATABASE['NAME'])
+
+            # Create relationships between sample nodes
+            if len(parents) > 0:
+                for parent in parents:
+                    records, summary, keys = driver.execute_query("""
+                                MATCH (child:Sample {id: $child_id})
+                                MATCH (parent:Sample {uuid: $parent_uuid})
+                                MERGE (child)-[:CHILD_OF]->(parent)""",
+                                child_id=sample_id,
+                                parent_uuid=parent,
+                                database_=NEO4J_DATABASE['NAME'])
+                    logger.debug(f"NEO4J summary: {summary.notifications}")
+
     def __batchUploadTest(self, seekdb, sampleType, diclist, diclist_feedback, attributeInfo, attributeMapping, diclist_assay, uploadEnforced=False):
         user_seek = seekdb.user_seek
         username = user_seek['username']
@@ -845,8 +892,9 @@ class DBtable_sample(DBtable):
                 nright += 1
                 if samplename not in uids_predefined:
                     uids_predefined[samplename] = uid
-                with ThreadPoolExecutor() as executor:
-                    executor.submit(self.generateTree, uid)
+                #with ThreadPoolExecutor() as executor:
+                #    sample_id = self.getSampleID(uid)
+                #    executor.submit(updateTrees, sample_id)
             else:
                 statusTest = False
                 msg0 += msgi +  '<br/>'
@@ -858,6 +906,7 @@ class DBtable_sample(DBtable):
                 dici_feedback[primaryField] = uid
             else:
                 dici_feedback[header] = msgi
+            #self.storeSampleNeo4j(sampleType, dici_feedback)
             diclist_new.append(dici_feedback)
                 
         msg = 'The number of samples uploaded for ' + sampleType + ': ' + str(nright) + ' out of in total ' + str(ndici) + ' samples.'
@@ -1892,8 +1941,8 @@ class DBtable_sample(DBtable):
                 listlists.append(newlist)
         
         return listlists
-        
     
+    @cache
     def createSampleMultiParentTree(self, sample_id):
         includeChilren = True
         fullTreeList, parent_uids = self.__createMultiParentTree(sample_id, includeChilren)
@@ -2678,6 +2727,13 @@ class DBtable_sample(DBtable):
         msg, status, sample_id = self.storeOneRecord(username, record_db)
         return msg, status
     
+    def deleteSampleNeo4j(self, sample_id):
+        with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
+            records, summary, keys = driver.execute_query("MATCH (s:Sample {id: $id}) DETACH DELETE s",
+                    id=sample_id,
+                    database_=NEO4J_DATABASE['NAME'])
+            logger.debug(f"NEO4J summary: {summary}")
+
     
     def __deleteOneSample(self, sample_id, policy_id):
         sqlqueries = []
@@ -2701,6 +2757,7 @@ class DBtable_sample(DBtable):
         status = self.db.run_custom_transaction(sqlqueries, db_alias)
         if status:
             msg = "Trandsaction successful"
+            self.deleteSampleNeo4j(sample_id)
         else:
             msg = "Error: The trandsaction of deletion failed. Delete this sample manually"
         
@@ -3593,7 +3650,6 @@ class DBtable_sample(DBtable):
     
     def __retrieveRecords_advanced(self, user_seek, filtersdic):
         sqlquery = self.__sqlQuery_select_records(filtersdic)
-        print(f"sqlquery: {sqlquery}")
         headers = SAMPLE_HEADERS
         db_alias = settings.SEEK_DATABASE
         jdata = self.db.queryToListDics(sqlquery, headers, db_alias)
@@ -3618,7 +3674,7 @@ class DBtable_sample(DBtable):
             project_id = filtersdic['project_id']
             if int(project_id)>0:
                 sqlquery_filter = sqlquery_filter.replace('WHERE ', 'WHERE (')
-                sqlquery_filter = sqlquery_filter + ") AND D.project_id=" + str(project_id)
+                sqlquery_filter = sqlquery_filter + ") AND D.project_id=" + str(project_id)    
             
         logger.debug(sqlquery_filter)
         return sqlquery_filter
@@ -3809,6 +3865,8 @@ class DBtable_sample(DBtable):
         if includeSampleTree==1:
             headers_new, diclist_new, headersMapping = self.__createSampleTreeFromDB(sample_ids)
             headers_noneConstant, diclist_constant, headers_constant = getConstantRows(headers_new, diclist_new)
+
+            logger.debug(f"RETRIEVE: {diclist_new}")
             
             headers_inConstant = []
             for dici in diclist_constant:

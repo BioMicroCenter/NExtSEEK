@@ -102,6 +102,16 @@ class Sample_tree(models.Model):
     class Meta:
         db_table = "seek_sample_tree"
 
+class Clades(models.Model):
+    title = models.TextField(default=None)
+    color = models.TextField(default=None)
+    order = models.IntegerField()
+    
+    def __unicode__(self):
+        return self.color
+
+    class Meta:
+        db_table = "clades"
 
 class Sample_types(models.Model):
     _DATABASE = SEEK_DATABASE
@@ -115,12 +125,25 @@ class Sample_types(models.Model):
     uploaded_template = models.BooleanField(default=0)
     contributor_id = models.IntegerField(default=None)
     deleted_contributor = models.CharField(max_length=255, default=None)
+    template_id = models.IntegerField()
+    other_creators = models.TextField(default=None)
+    # clade_id = models.IntegerField(default=None)
     
     def __unicode__(self):
         return self.uuid
     
     class Meta:
         db_table = "sample_types"
+
+class Sample_types_clades(models.Model):
+    clade = models.ForeignKey(Clades, on_delete=models.PROTECT)
+    sample_type = models.ForeignKey(Sample_types, on_delete=models.PROTECT)
+
+    def __unicode__(self):
+        return self.clade + ' ' + self.sample_type
+
+    class Meta:
+        db_table = "sample_types_clades"
         
 class Sample_attributes(models.Model):
     _DATABASE = SEEK_DATABASE
@@ -193,15 +216,68 @@ class Projects_samples(models.Model):
     _DATABASE = SEEK_DATABASE
     
     project_id = models.IntegerField(default=None)
-    sample_id = models.IntegerField(default=None)
+    sample_id = models.IntegerField(default=None, primary_key=True)
     
     def __unicode__(self):
         uuid = str(self.project_id) + '-' + str(self.sample_id)
         return uuid
+
+    # Make model read-only
+    def save(self, *args, **kwargs):
+        return
+
+    # Make model read-only
+    def delete(self, *args, **kwargs):
+        return
     
     class Meta:
         db_table = "projects_samples"
         unique_together = ('project_id', 'sample_id')
+
+
+class Projects_sops(models.Model):
+    _DATABASE = SEEK_DATABASE
+    
+    project_id = models.IntegerField(default=None)
+    sop_id = models.IntegerField(default=None, primary_key=True)
+    
+    def __unicode__(self):
+        uuid = str(self.project_id) + '-' + str(self.sop_id)
+        return uuid
+
+    # Make model read-only
+    def save(self, *args, **kwargs):
+        return
+
+    # Make model read-only
+    def delete(self, *args, **kwargs):
+        return
+    
+    class Meta:
+        db_table = "projects_sops"
+        unique_together = ('project_id', 'sop_id')
+        
+class Data_files_projects(models.Model):
+    _DATABASE = SEEK_DATABASE
+    
+    project_id = models.IntegerField(default=None)
+    data_file_id = models.IntegerField(default=None, primary_key=True)
+    
+    def __unicode__(self):
+        uuid = str(self.project_id) + '-' + str(self.data_file_id)
+        return uuid
+
+    # Make model read-only
+    def save(self, *args, **kwargs):
+        return
+
+    # Make model read-only
+    def delete(self, *args, **kwargs):
+        return
+    
+    class Meta:
+        db_table = "data_files_projects"
+        unique_together = ('project_id', 'data_file_id')
         
         
 class Documents(models.Model):

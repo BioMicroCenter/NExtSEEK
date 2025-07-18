@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% load mezzanine_tags keyword_tags %}
+
+{% block meta_title %}{{ page.meta_title }}{% endblock %}
+
+{% block meta_keywords %}{% metablock %}
+{% keywords_for page as keywords %}
+{% for keyword in keywords %}
+    {% if not forloop.first %}, {% endif %}
+    {{ keyword }}
+{% endfor %}
+{% endmetablock %}{% endblock %}
+
+{% block meta_description %}{% metablock %}
+{{ page.description }}
+{% endmetablock %}{% endblock %}
+
+{% block title %}
+{% editable page.title %}{{ page.title }}{% endeditable %}
+{% endblock %}
+
+{% block main %}
+<section class='container-fluid'>
+    <section class='row-fluid'>
+        <section class='span12 content borBox'>
+            <div class='row-fluid'>
+                <div class='span12'>
+                    <div class='page-header'>
+                        <h2>Access Error</h2>
+                    </div>
+                </div>
+            </div>
+            <p>{{ data.msg }}</p>
+        </section>
+    </section>
+</section>
+{% endblock %}
