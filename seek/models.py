@@ -125,7 +125,7 @@ class Sample_types(models.Model):
     uploaded_template = models.BooleanField(default=0)
     contributor_id = models.IntegerField(default=None)
     deleted_contributor = models.CharField(max_length=255, default=None)
-    template_id = models.IntegerField()
+    template_id = models.IntegerField(default=None)
     other_creators = models.TextField(default=None)
     # clade_id = models.IntegerField(default=None)
     
