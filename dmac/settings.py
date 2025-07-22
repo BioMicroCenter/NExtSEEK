@@ -85,14 +85,10 @@ from django.utils.translation import gettext_lazy as _
 # INSTALLED_APPS setting.
 USE_MODELTRANSLATION = False
 
-
 ########################
 # MAIN DJANGO SETTINGS #
 ########################
 
-# Hosts/domain names that are valid for this site; required if DEBUG is False
-# See https://docs.djangoproject.com/en/dev/ref/settings/#allowed-hosts
-ALLOWED_HOSTS = [u'servername']
 
 # Local time zone for this installation. Choices can be found here:
 # http://en.wikipedia.org/wiki/List_of_tz_zones_by_name
@@ -137,52 +133,6 @@ AUTHENTICATION_BACKENDS = ("mezzanine.core.auth_backends.MezzanineBackend",)
 # a mode you'd pass directly to os.chmod.
 FILE_UPLOAD_PERMISSIONS = 0o644
 
-#############
-# DATABASES #
-#############
-
-DATABASES = {
-    "default": {
-        # Add "postgresql_psycopg2", "mysql", "sqlite3" or "oracle".
-        "ENGINE": "django.db.backends.",
-        # DB name or path to database file if using sqlite3.
-        "NAME": "",
-        # Not used with sqlite3.
-        "USER": "",
-        # Not used with sqlite3.
-        "PASSWORD": "",
-        # Set to empty string for localhost. Not used with sqlite3.
-        "HOST": "",
-        # Set to empty string for default. Not used with sqlite3.
-        "PORT": "",
-    },
-
-    "seek": {
-        # Add "postgresql_psycopg2", "mysql", "sqlite3", or "oracle".
-        "ENGINE": "django.db.backends.",
-        # DB name or path to database file is using sqlite3.
-        "NAME": "",
-        # Not used with sqlite3.
-        "USER": "",
-        # Not used with sqlite3.
-        "PASSWORD": "",
-        # Set to empty string for localhost. Not used with sqlite3.
-        "HOST": "",
-        # Set to empty string for default. Not used with sqlite3.
-        "PORT": "",
-    }
-}
-
-NEO4J_DATABASE = {
-    # Name of neo4j database
-    "NAME": "",
-    # neo4j database uri
-    "URI": "neo4j://<IP or Domain>",
-    # Username and password to authenticate to neo4j database
-    "AUTH": ("username", "password")
-}
-
-
 #########
 # PATHS #
 #########
@@ -197,36 +147,14 @@ PROJECT_ROOT = BASE_DIR = os.path.dirname(PROJECT_APP_PATH)
 # project specific.
 CACHE_MIDDLEWARE_KEY_PREFIX = PROJECT_APP
 
-#CACHES = {
-#    'default': {
-#        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
-#        'LOCATION': '/home/apache/nextseek/cache',
-#    },
-#}
-
-STATICFILES_DIRS = [
-        "/path/to/nextseek/themes/SmartAdmin/static",
-        "/path/to/nextseek/static",
-]
-
 # URL prefix for static files.
 # Example: "http://media.lawrence.com/static/"
 STATIC_URL = "/static/"
-
-# Absolute path to the directory static files should be collected to.
-# Don't put anything in this directory yourself; store your static files
-# in apps' "static/" subdirectories and in STATICFILES_DIRS.
-# Example: "/home/media/media.lawrence.com/static/"
-STATIC_ROOT = "/static"
 
 # URL that handles the media served from MEDIA_ROOT. Make sure to use a
 # trailing slash.
 # Examples: "http://media.lawrence.com/media/", "http://example.com/media/"
 MEDIA_URL = "/media/"
-
-# Absolute filesystem path to the directory that will hold user-uploaded files.
-# Example: "/home/media/media.lawrence.com/media/"
-MEDIA_ROOT = "/app/media"
 
 # Package/module name to import the root urlpatterns from for the project.
 ROOT_URLCONF = "%s.urls" % PROJECT_APP
@@ -235,8 +163,6 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [
-            #os.path.join(PROJECT_ROOT, "templates"),
-            #os.path.join(PROJECT_ROOT, "themes.amai.templates"),
             os.path.join(PROJECT_ROOT, "themes.SmartAdmin.templates"),
         ],
         "OPTIONS": {
@@ -252,9 +178,6 @@ TEMPLATES = [
                 "mezzanine.conf.context_processors.settings",
                 "mezzanine.pages.context_processors.page",
             ],
-            #"builtins": [
-                #"mezzanine.template.loader_tags",
-            #],
             "loaders": [
                 "mezzanine.template.loaders.host_themes.Loader",
                 "django.template.loaders.filesystem.Loader",
@@ -311,19 +234,14 @@ MIDDLEWARE = (
     "mezzanine.core.middleware.UpdateCacheMiddleware",
 
     'django.contrib.sessions.middleware.SessionMiddleware',
-    # Uncomment if using internationalisation or localisation
-    # 'django.middleware.locale.LocaleMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    #'django.contrib.auth.middleware.SessionAuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 
     "mezzanine.core.request.CurrentRequestMiddleware",
     "mezzanine.core.middleware.RedirectFallbackMiddleware",
-    #"mezzanine.core.middleware.TemplateForDeviceMiddleware",
-    #"mezzanine.core.middleware.TemplateForHostMiddleware",
     "mezzanine.core.middleware.AdminLoginInterfaceSelectorMiddleware",
     "mezzanine.core.middleware.SitePermissionMiddleware",
     "mezzanine.pages.middleware.PageMiddleware",
@@ -394,9 +312,6 @@ except ImportError:
 else:
     set_dynamic_settings(globals())
 
-# https://stackoverflow.com/questions/4438064/django-url-with-automatic-slash-adding
-# https://docs.djangoproject.com/en/dev/ref/settings/#append-slash
-# APPEND_SLASH = False
 APPEND_SLASH = True
 
 # refer to: https://bitbucket.org/stephenmcd/mezzanine/commits/ffb536fe0d1f15f9a77a59c8c91bc5845cadc8ca
@@ -406,57 +321,10 @@ ACCOUNTS_VERIFICATION_REQUIRED = True
 # Defaults to False and when set to True, sets newly created public user accounts to inactivate,
 # requiring activation by a staff member.
 ACCOUNTS_APPROVAL_REQUIRED = True
-# Can contain a comma separated string of email addresses to send notification emails to
-# each time a new account is created and requires activation. 
-ACCOUNTS_APPROVAL_EMAILS = 'example@example.com'
-
-SERVER_IPADDRESS = 'your ip address'
-
-ALLOWED_HOSTS = ['your allowed hosts']
-SESSION_COOKIE_DOMAIN = 'your domain'
-CSRF_TRUSTED_ORIGINS = ['your nextseek domain', 'your seek domain']
-
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'localhost'
-EMAIL_PORT = 25
-EMAIL_HOST_USER = ''
-EMAIL_HOST_PASSWORD = ''
-EMAIL_USE_TLS = False
-
-DEFAULT_FROM_EMAIL = SERVER_EMAIL = 'email address'
     
-# Allow specifying which database is used for a table model.
 DATABASE_ROUTERS = ['seek.dbrouters.CustomRouter']
 
-# used in dmac/views.py for managing session and authentication of user login
-# SEEK_URL = "http://" + SERVER_IPADDRESS + ":3000"
-NEXTSEEK_DATABASE = "default"
-SEEK_HOSTNAME = "seek hostname"
-SEEK_URL = "https://" + SEEK_HOSTNAME
-SEEK_DATABASE = "seek"
-SEEK_SERVER = SEEK_URL
-SEEK_JS_URL = SEEK_URL
-
-VIRTUOSO_URL = "http://" + SEEK_HOSTNAME + ":8890/sparql/"
-VIRTUOSO_JS_URL = "http://" + SEEK_HOSTNAME + ":8890/sparql"
-
-SEEK_DATAFILE_SERVER = 'https://' + SERVER_IPADDRESS
-SEEK_DATAFILE_ROOT = MEDIA_ROOT + "/uploads/production/"
-SEEK_DATAFILE_ROOT_WEBLINK = MEDIA_URL + "uploads/production/"
-
 ACCOUNTS_PROFILE_MODEL = "seek.User_profile"
-
-SAMPLE_TEMPLATES_FOLDER = "/templates"
-# ID of project
-SAMPLE_TEMPLATES_FOLDER_PROJECT = ""
-
-CRONJOBS = [
-    #('0 18 * * *', 'seek.cron_job.sample_tree_cron_job'), # run at 6pm every day
-    #('0 18 * * 4', 'seek.cron_job.sample_tree_cron_job'), # run at 6pm every friday day
-    #('0 2 * * *', 'seek.cron_job.my_cron_job'), # run at 2am every day
-    #('0 21 * * *', 'api_app.updateTrees.renewTreesCronjob'), # run at 9pm every day
-    ('0 */8 * * *', 'api_app.updateTrees.updateTrees'), # run every 8 hours
-]
 
 LOGGING = {
     'version': 1,
@@ -495,14 +363,6 @@ LOGGING = {
     }
 }
 
-PUBLISH_URL = "https://fairdomhub.org"
-# Excel file with each sheet named after a project and two
-# columns: Data Types and Published, containing the sample
-# type description and the number of samples of this type
-# published to a public repository, respectively
-PUBLISH_STATS_FILE = "/published_stats_production.xlsx"
-
-#refer to: https://blog.csdn.net/cuipengchong/article/details/73738416
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -551,7 +411,6 @@ LOGGING = {
     },
 }
 
-# https://newbedev.com/using-django-with-postman-detail-csrf-failed-csrf-token-missing-or-incorrect
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
@@ -560,7 +419,4 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
-    #'DEFAULT_PARSER_CLASSES': [
-    #    'rest_framework.parsers.JSONParser',
-    #],
 }
