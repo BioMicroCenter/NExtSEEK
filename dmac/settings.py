@@ -158,9 +158,9 @@ DATABASES = {
     },
 
     "seek": {
-        # Add "postgresql_psycopg2", "mysql", "sqlite3" or "oracle".
+        # Add "postgresql_psycopg2", "mysql", "sqlite3", or "oracle".
         "ENGINE": "django.db.backends.",
-        # DB name or path to database file if using sqlite3.
+        # DB name or path to database file is using sqlite3.
         "NAME": "",
         # Not used with sqlite3.
         "USER": "",
@@ -171,6 +171,15 @@ DATABASES = {
         # Set to empty string for default. Not used with sqlite3.
         "PORT": "",
     }
+}
+
+NEO4J_DATABASE = {
+    # Name of neo4j database
+    "NAME": "",
+    # neo4j database uri
+    "URI": "neo4j://<IP or Domain>",
+    # Username and password to authenticate to neo4j database
+    "AUTH": ("username", "password")
 }
 
 
@@ -187,6 +196,18 @@ PROJECT_ROOT = BASE_DIR = os.path.dirname(PROJECT_APP_PATH)
 # the name of the directory the project is in to try and use something
 # project specific.
 CACHE_MIDDLEWARE_KEY_PREFIX = PROJECT_APP
+
+#CACHES = {
+#    'default': {
+#        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+#        'LOCATION': '/home/apache/nextseek/cache',
+#    },
+#}
+
+STATICFILES_DIRS = [
+        "/path/to/nextseek/themes/SmartAdmin/static",
+        "/path/to/nextseek/static",
+]
 
 # URL prefix for static files.
 # Example: "http://media.lawrence.com/static/"
@@ -262,6 +283,7 @@ INSTALLED_APPS = (
     "django.contrib.sites",
     "django.contrib.sitemaps",
     "django.contrib.staticfiles",
+    "markdownify.apps.MarkdownifyConfig",
     "mezzanine.boot",
     "mezzanine.conf",
     "mezzanine.core",
@@ -306,12 +328,18 @@ MIDDLEWARE = (
     "mezzanine.core.middleware.SitePermissionMiddleware",
     "mezzanine.pages.middleware.PageMiddleware",
     "mezzanine.core.middleware.FetchFromCacheMiddleware",
+    "django_cprofile_middleware.middleware.ProfilerMiddleware",
 )
+
+DJANGO_CPROFILE_MIDDLEWARE_REQUIRE_STAFF = False
 
 # Store these package names here as they may change in the future since
 # at the moment we are using custom forks of them.
 PACKAGE_NAME_FILEBROWSER = "filebrowser_safe"
 PACKAGE_NAME_GRAPPELLI = "grappelli_safe"
+FILEBROWSER_EXTENSIONS = {
+        "Document": [".pdf", ".doc", ".rtf", ".txt", ".xls", ".xlsx", ".csv", ".docx"],
+}
 
 #########################
 # OPTIONAL APPLICATIONS #
@@ -368,7 +396,7 @@ else:
 
 # https://stackoverflow.com/questions/4438064/django-url-with-automatic-slash-adding
 # https://docs.djangoproject.com/en/dev/ref/settings/#append-slash
-APPEND_SLASH = False
+# APPEND_SLASH = False
 APPEND_SLASH = True
 
 # refer to: https://bitbucket.org/stephenmcd/mezzanine/commits/ffb536fe0d1f15f9a77a59c8c91bc5845cadc8ca
@@ -380,20 +408,22 @@ ACCOUNTS_VERIFICATION_REQUIRED = True
 ACCOUNTS_APPROVAL_REQUIRED = True
 # Can contain a comma separated string of email addresses to send notification emails to
 # each time a new account is created and requires activation. 
-ACCOUNTS_APPROVAL_EMAILS = 'your email address'
+ACCOUNTS_APPROVAL_EMAILS = 'example@example.com'
 
-SERVER_IPADDRESS = 'your IP address'
+SERVER_IPADDRESS = 'your ip address'
 
-ALLOWED_HOSTS = ['*']
-SESSION_COOKIE_DOMAIN = 'your IP address'
-CSRF_TRUSTED_ORIGINS = ['server domain']
+ALLOWED_HOSTS = ['your allowed hosts']
+SESSION_COOKIE_DOMAIN = 'your domain'
+CSRF_TRUSTED_ORIGINS = ['your nextseek domain', 'your seek domain']
 
-EMAIL_USE_TLS = True
-EMAIL_HOST = 'your smtp server'
-EMAIL_HOST_USER = 'your host email address'
-EMAIL_HOST_PASSWORD = 'your host password'
-EMAIL_PORT = 587
-DEFAULT_FROM_EMAIL = SERVER_EMAIL = 'your email address'
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'localhost'
+EMAIL_PORT = 25
+EMAIL_HOST_USER = ''
+EMAIL_HOST_PASSWORD = ''
+EMAIL_USE_TLS = False
+
+DEFAULT_FROM_EMAIL = SERVER_EMAIL = 'email address'
     
 # Allow specifying which database is used for a table model.
 DATABASE_ROUTERS = ['seek.dbrouters.CustomRouter']
@@ -401,29 +431,32 @@ DATABASE_ROUTERS = ['seek.dbrouters.CustomRouter']
 # used in dmac/views.py for managing session and authentication of user login
 # SEEK_URL = "http://" + SERVER_IPADDRESS + ":3000"
 NEXTSEEK_DATABASE = "default"
-SEEK_HOSTNAME = "example.com"
+SEEK_HOSTNAME = "seek hostname"
 SEEK_URL = "https://" + SEEK_HOSTNAME
 SEEK_DATABASE = "seek"
 SEEK_SERVER = SEEK_URL
 SEEK_JS_URL = SEEK_URL
 
-VIRTUOSO_URL = "http://" + SEEK_HOSTNAME+ ":8890/sparql/"
+VIRTUOSO_URL = "http://" + SEEK_HOSTNAME + ":8890/sparql/"
 VIRTUOSO_JS_URL = "http://" + SEEK_HOSTNAME + ":8890/sparql"
 
-SEEK_DATAFILE_SERVER = 'http://' + SEEK_HOSTNAME + ':portNumber'
-SEEK_DATAFILE_ROOT = MEDIA_ROOT + "/uploads/"
-SEEK_DATAFILE_ROOT_WEBLINK = MEDIA_URL + "uploads/"
+SEEK_DATAFILE_SERVER = 'https://' + SERVER_IPADDRESS
+SEEK_DATAFILE_ROOT = MEDIA_ROOT + "/uploads/production/"
+SEEK_DATAFILE_ROOT_WEBLINK = MEDIA_URL + "uploads/production/"
 
-#CRONJOBS = [
-#    ('0 2 * * *', seek.cron_job.my_cron_job),
-#    ('0 20 * * *', api_app.updateTrees.updateTrees)
-#]
-
-TEMPLATES_PATH = ''
-TEMPLATES_PROJECT_ID = ''
-
-AUTH_PROFILE_MODULE = "seek.User_profile"
 ACCOUNTS_PROFILE_MODEL = "seek.User_profile"
+
+SAMPLE_TEMPLATES_FOLDER = "/templates"
+# ID of project
+SAMPLE_TEMPLATES_FOLDER_PROJECT = ""
+
+CRONJOBS = [
+    #('0 18 * * *', 'seek.cron_job.sample_tree_cron_job'), # run at 6pm every day
+    #('0 18 * * 4', 'seek.cron_job.sample_tree_cron_job'), # run at 6pm every friday day
+    #('0 2 * * *', 'seek.cron_job.my_cron_job'), # run at 2am every day
+    #('0 21 * * *', 'api_app.updateTrees.renewTreesCronjob'), # run at 9pm every day
+    ('0 */8 * * *', 'api_app.updateTrees.updateTrees'), # run every 8 hours
+]
 
 LOGGING = {
     'version': 1,
@@ -462,7 +495,12 @@ LOGGING = {
     }
 }
 
-# PUBLISH_URL = "https://fairdomhub.org"
+PUBLISH_URL = "https://fairdomhub.org"
+# Excel file with each sheet named after a project and two
+# columns: Data Types and Published, containing the sample
+# type description and the number of samples of this type
+# published to a public repository, respectively
+PUBLISH_STATS_FILE = "/published_stats_production.xlsx"
 
 #refer to: https://blog.csdn.net/cuipengchong/article/details/73738416
 LOGGING = {

@@ -1,12 +1,12 @@
 
-<table id="dgtable2" class="easyui-datagrid" title="dgtable2" style="width: 1200px;; height:480px;"
+<table id="retrieval_dgtable" class="easyui-datagrid" title="retrieval_dgtable" style="width: 1200px;; height:480px;"
 			data-options="
 				iconCls: 'icon-edit',
 				singleSelect: true,
 				selectOnCheck: false,
 				url:'',
 				method:'',
-				toolbar: '#tb_toolbar2',
+				toolbar: '#retrieval_tb_toolbar',
 				striped: true,
 				pagination : false,
 				pageSize:50,
@@ -24,6 +24,6 @@
 		</tr>
 	</thead>
 </table>
-<div id="tb_toolbar2" style="height:auto">
-	<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="downloadSamples($('#dgtable2'), '/seek/samples/download/')">Download samples</a>
+<div id="retrieval_tb_toolbar" style="height:auto">
+	<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="downloadSamples($('#retrieval_dgtable'), '/seek/samples/download/')">Download samples</a>
 </div>

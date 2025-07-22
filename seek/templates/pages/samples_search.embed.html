@@ -1,8 +1,7 @@
 <script type="text/javascript">
+	var type_options = {{report.type_options|safe}};
 
-	var type_options = {{report.type_options|safe}};
-
-	function getAttributes(rec) {
+	function simple_getAttributes(rec) {
 		if (rec.id == 0) {
 			return;
 		} else {
@@ -14,7 +13,7 @@
 			var status = obj.status;
 			if (status == 1) {
 				var attr_options = obj.attrOptions;
-				$('#sample_attribute').combobox('loadData', attr_options);
+				$('#simple_sample_attribute').combobox('loadData', attr_options);
 			} else {
 				alert(msg);
 			}
@@ -22,12 +21,12 @@
 		});
 	}
 
-	function getOperators(rec) {
+	function simple_getOperators(rec) {
 		if (rec.attribute == 'none') {
 			return;
 		} else {
 		}
-		var sampletype_id = $('#sample_type').combobox('getValue');
+		var sampletype_id = $('#simple_sample_type').combobox('getValue');
 		var attribute = rec.attribute;
 		var url = '/seek/operators/';
 		$.get(url, {
@@ -53,7 +52,7 @@
 		});
 	}
 
-	function displaySamples(rec) {
+	function simple_displaySamples(rec) {
 		alert(rec.id);
 		var url = '/seek/sample_types/id=' + rec.id + '/';
 		if (rec.id == 0) {
@@ -63,19 +62,19 @@
 		return;
 	}
 
-	function getSearchVariables() {
+	function simple_getSearchVariables() {
 		var listdic = {};
 		listdic["keywords"] = document.getElementById("searching").value;
 		return listdic;
 	}
 
-	function jsonconvertdic(listdic) {
+	function simple_jsonconvertdic(listdic) {
 		var jsontry = JSON.stringify(listdic);
 		return jsontry;
 	}
 
-	function searchSamples() {
-		var sampletype_id = $('#sample_type').combobox('getValue');
+	function simple_searchSamples() {
+		var sampletype_id = $('#simple_sample_type').combobox('getValue');
 		if (sampletype_id == 0) {
 			alert('No sample type is selected.');
 			return;
@@ -85,7 +84,7 @@
 			msg: 'Searching for samples...'
 		});
 
-		var attribute = $('#sample_attribute').combobox('getValue');
+		var attribute = $('#simple_sample_attribute').combobox('getValue');
 		var filter_rule = $('#filter_rule').combobox('getValue');
 		var filter_valueFrom = document.getElementById("input_valueFrom").value;
 		var filter_valueTo = document.getElementById("input_valueTo").value;
@@ -103,8 +102,8 @@
 			if (status == 1) {
 				var datanow = obj.rows;
 				var total = obj.total;
-				$('#dgtable').datagrid('loadData', datanow);
-				var pager = $('#dgtable').datagrid('getPager');
+				$('#simple_dgtable').datagrid('loadData', datanow);
+				var pager = $('#simple_dgtable').datagrid('getPager');
 				pager.pagination({
 					showRefresh: false
 				});
@@ -138,22 +137,22 @@
 					</thead>
 					<tbody>
 						<tr>
-                            <td><input id="sample_type" class="easyui-combobox" name="sample_type" style="width:100%;" data-options="showItemIcon: true, data: type_options, valueField:'id', textField:'title', groupField:'group', editable: true, filter: function(q, row){ var opts = $(this).combobox('options'); return row[opts.textField].indexOf(q) == 0;}, panelHeight:'auto', label: '', labelPosition: 'top', onSelect: function(rec){ getAttributes(rec); }, onFocus: function() {$(this).combobox('showPanel');}"></td>
+                            <td><input id="simple_sample_type" class="easyui-combobox" name="simple_sample_type" style="width:100%;" data-options="showItemIcon: true, data: type_options, valueField:'id', textField:'title', groupField:'group', editable: true, filter: function(q, row){ var opts = $(this).combobox('options'); return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;}, panelHeight:'auto', label: '', labelPosition: 'top', onSelect: function(rec){ simple_getAttributes(rec); }, onFocus: function() {$(this).combobox('showPanel');}"></td>
 <script type="text/javascript">
         $(document).ready(function() {
-            const sampleType = document.querySelector('#_easyui_textbox_input1');
-            const sampleAttribute = document.querySelector('#_easyui_textbox_input2');
+            const sampleType = document.getElementsByName('simple_sample_type')[0].previousElementSibling
+            const sampleAttribute = document.getElementsByName('simple_sample_attribute')[0].previousElementSibling
             sampleType.addEventListener('click', function() {
-              console.log('Div was clicked!');
-              $('#sample_type').combobox('showPanel')
+              console.log('Sample Type Clicked!');
+              $('#simple_sample_type').combobox('showPanel')
             });
             sampleAttribute.addEventListener('click', function() {
-              console.log('Div was clicked!');
-              $('#sample_attribute').combobox('showPanel')
+              console.log('Sample Attributes clicked!');
+              $('#simple_sample_attribute').combobox('showPanel')
             });
         }); 
 </script>
-							<td><input id="sample_attribute" class="easyui-combobox" name="sample_attribute" style="width:100%;" data-options="showItemIcon: true, valueField:'attribute', textField:'name', editable: true, filter: function(q, row){ var opts = $(this).combobox('options'); return row[opts.textField].indexOf(q) == 0;}, panelHeight:'auto', label: '', labelPosition: 'top', onSelect: function(rec){ getOperators(rec); }"></td>
+<td><input id="simple_sample_attribute" class="easyui-combobox" name="simple_sample_attribute" style="width:100%;" data-options="showItemIcon: true, valueField:'attribute', textField:'name', editable: true, filter: function(q, row){ var opts = $(this).combobox('options'); return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;}, panelHeight:'auto', label: '', labelPosition: 'top', onSelect: function(rec){ simple_getOperators(rec); }"></td>
 							<td><input id="filter_rule" class="easyui-combobox" name="filter_rule" style="width:100%;" data-options="showItemIcon: true, valueField:'name', textField:'operator', editable: false, panelHeight:'auto', label: '', labelPosition: 'top', onSelect: function(rec){ }"></td>
 							<td><input id="input_valueFrom" label="" labelposition="left" value="" placeholder="start value" style="width:150px;height:30px"></td>
 							<td><input id="input_valueTo" label="" labelposition="left" value="" placeholder="end value" style="width:150px;height:30px"></td>
@@ -164,7 +163,7 @@
 			<div class="row show-grid">
 				<div class="col-xs-6 col-sm-4 col-md-4"></div>
 				<div class="col-xs-6 col-sm-4 col-md-4">
-					<a href="#" class="easyui-linkbutton" data-options="iconCls:'icon-search',plain:true" onclick="searchSamples()">Search</a>
+					<a href="#" class="easyui-linkbutton" data-options="iconCls:'icon-search',plain:true" onclick="simple_searchSamples()">Search</a>
 				</div>
 				<div class="col-xs-6 col-sm-4 col-md-4"></div>
 			</div>

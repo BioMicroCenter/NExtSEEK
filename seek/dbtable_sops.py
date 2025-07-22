@@ -70,8 +70,8 @@ FILETYPES_SOP_SUPPORTED = [
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "text/plain",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/msword"
-    "application/zip"
+    "application/msword",
+    "application/zip",
 ]
 
 SOP_ERRORCODE = {
@@ -264,11 +264,14 @@ class DBtable_sops(DBtable):
             return report
         
         md5Now = getFileChecksum(fullfilename, 'MD5')
+        logger.debug(f"MD5 of {fullfilename} is {md5Now}")
         if md5Now!=md5In:
             msg = 'Error: File MD5 checksum not match: ' + md5Now
+            logger.debug(msg)
             status = 0
         else:
             msg = 'File uploaded to storage server'
+            logger.debug(msg)
             status = 1
         
         report['md5'] = md5Now

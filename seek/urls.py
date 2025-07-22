@@ -9,14 +9,21 @@ urlpatterns = [
     re_path(r'^samples/query/', views.sampleQuery, name='sampleQuery'),
     re_path(r'^samples/search/', views.sampleSearch, name='sampleSearch'),
     re_path(r'^samples/searching/', views.sampleSearching, name='sampleSearching'),
-    re_path(r'^templates/', views.templatesList, name="templatesList"),
+    re_path(r'^templates/', views.templatesList, name='templatesList'),
     re_path(r'^retrieve/samples/', views.retrieveSamples, name='retrieveSamples'),
+    re_path(r'^admin/retrieve/', views.adminRetrieveSamples, name="adminRetrieveSamples"),
+    re_path(r'^admin/clades/$', views.adminClades, name="adminClades"),
+    re_path(r'^admin/clades/syncSampleTypes/$', views.cladesSyncSampleTypes, name="cladesSyncSampleTypes"),
     
     re_path(r'^samples/attributes/', views.sampleAttributes, name='sampleAttributes'),
     re_path(r'^samples/retrieveType/', views.getSampleType, name='getSampleType'),
+    re_path(r'^sample/id=(?P<id>\d+)/edit', views.editSample, name='editSample'),
+    re_path(r'^sample/id=(?P<id>\d+)/manage', views.manageSample, name='manageSample'),
     
     re_path(r'^sample/id=(?P<id>\d+)/$', views.sample, name='sample'),
+    re_path(r'^sample/id=(?P<sample_id>\d+)/tree', views.sampleTreeNew, name='sampleTreeNew'),
     re_path(r'^sampletree/uid=(?P<uid>[\w.-]{0,256})/$', views.sampleTree, name='sampleTree'),
+    re_path(r'^sampletree/uid=(?P<uid>[\w.-]{0,256})/tree', views.sampleTreeNewUID, name='sampleTreeNewUID'),
     
     re_path(r'^samples/download/', views.sampleDownload, name='sampleDownload'),
     re_path(r'^samples/export/', views.sampleExport, name='sampleExport'),
@@ -31,6 +38,9 @@ urlpatterns = [
     re_path(r'^attributes/id=(?P<id>\d+)/$', views.getAttributes, name='getAttributes'),
     re_path(r'^attribute/save/', views.sampleAttributeSave, name='sampleAttributeSave'), 
     re_path(r'^attribute/delete/', views.sampleAttributeDelete, name='sampleAttributeDelete'),
+    re_path(r'^clade/save/$', views.cladeSave, name='cladeSave'), 
+    re_path(r'^clade/delete/$', views.cladeDelete, name='cladeDelete'),
+    re_path(r'^clade/sampleTypes/save/$', views.cladeSampleTypesSave, name='cladeSampleTypesSave'), 
     re_path(r'^operators/$', views.getOperators, name='getOperators'),
     
     re_path(r'^sample_types/id=(?P<id>\d+)/$', views.sample_type, name='sample_type'),
@@ -73,10 +83,11 @@ urlpatterns = [
     re_path(r'^search/', views.searchAdvanced, name='searchAdvanced'),
     re_path(r'^searchAdvanced/', views.searchingAdvanced, name='searchingAdvanced'),
     re_path(r'^searchUIDs/', views.searchingUIDs, name='searchingUIDs'),
+    re_path(r'^projects/$', views.projects, name='projects'),
+    re_path(r'^projects/(?P<project_id>\d+)/$', views.project_page, name='project_page'),
 
     re_path(r'nhpinfo/(?P<nhp_name>[\w-]+)/$', views.nhp_info, name='nhp_info'),
     re_path(r'nhpdata/(?P<nhp_name>[\w-]+)/$', views.get_nhp_data, name='nhp_data'),
-    re_path(r'^nhpdata/(?P<nhp_name>[\w-]+)/download/$', views.download_nhp_data, name='download_nhp_data'),
     re_path(r'^eventdata/(?P<nhp_name>[\w-]+)/(?P<event_type>[\w.-]+)/(?P<date>[\w-]+)/$', views.fetch_event_data, name='event_data'),
     re_path(r'^sample_timeline/.*$', TemplateView.as_view(template_name="sample_timeline.html")),
 

@@ -236,6 +236,20 @@ class SeekDB(object):
     def getPageRequests(self, seek_url):
         bodyhtml = self.__seekapi.getPageRequests(seek_url)
         return bodyhtml
+
+    def __getSeekUserID(self, username):
+        from seek.models import Users
+        from django.db.models import Q
+
+        filter = Q(login__exact=username)
+        userobjs = Users.objects.filter(filter).values()
+        if len(userobjs)==1:
+            userinfo = userobjs[0]
+            seek_userid = userinfo['id']
+        else:
+            seek_userid = 0
+
+        return seek_userid
         
     def __getSeekPersonID(self, username):
         from seek.models import Users
@@ -249,6 +263,9 @@ class SeekDB(object):
             seek_personid = 0
         
         return seek_personid
+
+    def getCurrentUser(self):
+        return self.__seekapi.getCurrentUser()
         
     def getProjects(self, useSeekAPI=True):
         if useSeekAPI:
@@ -894,10 +911,22 @@ class SeekDB(object):
         
     def seekuploadSOP(self, title, fullfilename, originalfilename,
                content_type, creator_id, projectid, assayid, description, tags, other_creators=''):
+        logger.debug("Running seekuploadSOP")
         if not os.path.exists(fullfilename):
             msg = "Error: file not available: ", fullfilename 
             status = 0
             return msg, status, None, None
+
+        test = {"title": title,
+                "fullfilename": fullfilename,
+                "originalfilename": originalfilename,
+                "creator_id": creator_id,
+                "content_type": content_type,
+                "projectid": projectid,
+                "assayid": assayid,
+                "description": description,
+                "tags": tags}
+        logger.debug(f"Uploading: {test}")
         
         apiPostCmd = self.__seekapi.apiPost()       
         apiPostCmd = apiPostCmd[:-1] 
@@ -988,6 +1017,11 @@ class SeekDB(object):
                 "} }} \""
             )
         exitcode, out, err = self.__seekapi.callCmdline(data_instance_query)
+
+        logger.debug(f"API call exitcode: {exitcode}")
+        logger.debug(f"API call out: {out}")
+        logger.debug(f"API call err: {err}")
+
         object_info = out
         object_url = None
         if exitcode==0:

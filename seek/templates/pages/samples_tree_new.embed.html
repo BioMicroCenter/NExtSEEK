@@ -1,0 +1,28 @@
+<div style="height:100%;" id="tree_container">
+    {% csrf_token %}
+    <div id="loading-spinner">Loading...</div>
+    <svg id="svg">
+        <g id="graphGroup">
+            <g id="links" />
+            <g id="nodes" />
+        </g>
+    </svg>
+</div>
+<script type="module" src="/static/js/dag/dag.js"></script>
+<!--
+<script type="module">
+    import d3Neo4J from '/static/js/d3neo4j/d3neo4j.js'
+    fetch(window.location.href + "tree")
+        .then(r => r.json())
+        .then(data => {
+            window.d3neo4j = new d3Neo4J("#tree_container",
+                                        {"infoPanel": false,
+                                         "minCollision": 150,
+                                         "nodeRadius": 20,
+                                         "showNodeLabel": true,
+                                         "nodeLabelFunction": node => node.properties.uuid,
+                                         "onNodeClick": node => window.open("https://nextseek.mit.edu/seek/sample/id=" + node.originalTarget.__data__.properties.id),
+                                         "neo4jData": data});
+        });
+</script>
+-->

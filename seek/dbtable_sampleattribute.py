@@ -194,9 +194,9 @@ class DBtable_sampleattribute(DBtable):
             filter_type = 'numeric'
         elif attributeType_id in [5,6,7,8,9,10,11,12,13,14,19,20,21]:
             options = [
-                {'name':'No Filter','operator':'No Filter', 'selected':True},
-                {'name':'Contain','operator':'Contain'},
-                {'name':'Not Contain','operator':'Not Contain'}
+                {'name':'Contain','operator':'Contain', 'selected': True},
+                {'name':'Not Contain','operator':'Not Contain'},
+                {'name':'No Filter','operator':'No Filter'},
             ]
             placeholder_start = 'string value'
             placeholder_end = 'not in use'
@@ -516,3 +516,4 @@ class DBtable_sampleattribute(DBtable):
                     attri_renamed[title_new] = title_old
         
         return attri_renamed
+        

@@ -16,6 +16,7 @@ djangorestframework
 et-xmlfile
 filebrowser-safe
 django-filebrowser-no-grappelli
+django-markdownify
 fpdf
 future
 grappelli-safe
@@ -33,6 +34,7 @@ Markdown
 Mezzanine
 mysqlclient
 mysql-connector-python
+neo4j
 numpy
 oauthlib
 olefile
@@ -41,8 +43,8 @@ pandas
 parse
 pathlib
 Pillow
-PyMySQL
 pydantic
+PyMySQL
 pyparsing
 python-dateutil
 python-docx
