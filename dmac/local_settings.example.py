@@ -1,5 +1,8 @@
 import dmac.settings as settings
 
+SECRET_KEY = "YOUR SECRET KEY"
+NEVERCACHE_KEY = "YOUR KEY"
+
 # Hosts/domain names that are valid for this site; required if DEBUG is False
 # See https://docs.djangoproject.com/en/dev/ref/settings/#allowed-hosts
 ALLOWED_HOSTS = [u'servername']
@@ -96,3 +99,4 @@ TEMPLATES_PATH = ''
 TEMPLATES_PROJECT_ID = ''
 
 PUBLISH_URL = "https://fairdomhub.org"
+PUBLISH_STATS_FILE = "/path/to/excel/file"
