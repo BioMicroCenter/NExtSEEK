@@ -6,6 +6,7 @@ from typing import List
 from ..models.schemas import NHPInfo
 from pydantic import ValidationError
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 cache = {}
@@ -150,7 +151,7 @@ def get_timeline_data(nhp_name):
     else:
         logger.debug(f"Cache miss for key: {nhp_name}, fetching data.")
 
-    all_data = fetchAllMetadata(nhp_name, filter=["PAV", "TIS", "D.IMG"])
+    all_data = fetchAllMetadata(nhp_name)
 
     # Parse JSON once here
     for entry in all_data:
@@ -275,3 +276,65 @@ def save_nhp_info_to_json(nhp_uid) -> List[NHPInfo]:
     except Exception as e:
         logger.error(f"Error saving NHP information to JSON: {e}")
         return []
+
+def save_nhp_data(all_data: List[dict]) -> bytes:
+    """
+    Convert NHP data to Excel file and return as bytes.
+    """
+    import pandas as pd 
+    import numpy as np
+    from io import BytesIO
+    
+    # Create dictionary of dataframes that will correspond to each sheet in the excel file.
+    # The keys will be sheet names and values will be dataframes.
+    nhp_data = {}
+    # extract keys which will be "sample type". Sample type can be extracted from the first 3 letters of the UID.
+    sample_types = [entry['uuid'].split('-')[0] for entry in all_data]
+    sample_types = list(set(sample_types))
+
+    # construct a dataframe for each sample type
+    for sample_type in sample_types:
+        # Collect all entries for this sample type
+        sample_entries = [entry for entry in all_data if entry['uuid'].split('-')[0] == sample_type]
+        
+        # Convert each entry's metadata to a DataFrame row
+        rows = []
+        for entry in sample_entries:
+            # Add the UUID as a column
+            metadata = entry['parsed_metadata'].copy()
+            # metadata['uuid'] = entry['uuid']
+            rows.append(metadata)
+        
+        # Create DataFrame from the collected rows
+        if rows:
+            nhp_data[sample_type] = pd.DataFrame(rows)
+    
+    # Function to check if a column is effectively empty
+    def is_empty_column(series):
+        # Check for various types of empty values
+        return all(
+            pd.isna(val) or  # NaN/None
+            val == '' or     # Empty string
+            val == [] or     # Empty list
+            val == {} or     # Empty dict
+            (isinstance(val, str) and val.strip() == '')  # Whitespace-only string
+            for val in series
+        )
+    
+    # Remove empty columns from each DataFrame
+    for sheet_name, df in nhp_data.items():
+        # Get list of empty columns
+        empty_cols = [col for col in df.columns if is_empty_column(df[col])]
+        # Drop empty columns
+        nhp_data[sheet_name] = df.drop(columns=empty_cols)
+    
+    # Create Excel file in memory
+    output = BytesIO()
+    with pd.ExcelWriter(output) as writer:
+        for sheet_name, df in nhp_data.items():
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+    
+    # Get the Excel file data
+    excel_data = output.getvalue()
+    logger.info("NHP data converted to Excel file.")
+    return excel_data

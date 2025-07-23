@@ -81,9 +81,10 @@ from subprocess import Popen, PIPE
 
 from django.conf import settings
 from seek.timeline.services.timeline_service import run_All, get_event_data
-from seek.timeline.services.nhp_service import save_nhp_info_to_json
+from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
 import neo4j
 from neo4j import GraphDatabase
+import io
 SEEK_DATABASE = settings.SEEK_DATABASE
 DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "/download/"
 DOWNLOAD_DIRECTORY_LINK = settings.MEDIA_URL + 'download/'  
@@ -1646,6 +1647,27 @@ def get_nhp_data(request, nhp_name: str):
             return Response(timeline_data, status=status.HTTP_200_OK)
         else:
             return Response({"detail": "Event Data not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+def download_nhp_data(request, nhp_name: str):
+    try:
+        timeline_data = get_timeline_data(nhp_name)
+        if not timeline_data:
+            return Response({"detail": "NHP data not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Convert to Excel
+        excel_data = save_nhp_data(timeline_data)
+        
+        # Create a streaming response
+        response = FileResponse(
+            io.BytesIO(excel_data),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            filename=f"{nhp_name}_data.xlsx"
+        )
+        return response
     except Exception as e:
         return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
