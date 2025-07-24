@@ -224,7 +224,8 @@ INSTALLED_APPS = (
     'rest_framework.authtoken',
     'dj_rest_auth',
     'api_app',
-
+    'drf_spectacular',
+    'drf_spectacular_sidecar',
 )
 
 # List of middleware classes to use. Order is important; in the request phase,
@@ -419,4 +420,5 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }

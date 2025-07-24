@@ -100,3 +100,13 @@ SAMPLE_TEMPLATES_FOLDER_PROJECT = ''
 
 PUBLISH_URL = "https://fairdomhub.org"
 PUBLISH_STATS_FILE = "/path/to/excel/file"
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Your Project API',
+    'DESCRIPTION': 'Your project description',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SWAGGER_UI_DIST': 'SIDECAR',
+    'SWAGGER_UI_FAVICON_HREF': 'SIDECAR',
+    'REDOC_DIST': 'SIDECAR',
+}
