@@ -26,6 +26,8 @@ $(document).ready(function() {
            tabs.tabs('select', 3);
         } else if (tab == 'delete') {
            tabs.tabs('select', 4);
+	} else if (tab == 'salt') {
+	   tabs.tabs('select', 5);
         } else {
            tabs.tabs('select', 0);
         }
@@ -147,6 +149,13 @@ $(function(){
 	<div class="easyui-layout" style="width:auto;height:1700px;">
 	    <div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;">
 			{% include "pages/searchAdvanced_deletion.embed.html" %}
+	    </div>
+	</div>
+    </div>
+    <div title="SALT" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
+	<div class="easyui-layout" style="width:auto;height:1700px;">
+	    <div id="north_div2" data-options="region:'north',border:false" style="width:500px; height: 1000px;">
+		    <iframe style="height:100%;width:100%;" src="https://app.salt.ai/wf/7ccbe111-73dd-438a-8771-377de97f6265"></iframe>
 	    </div>
 	</div>
     </div>

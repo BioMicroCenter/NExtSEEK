@@ -23,7 +23,8 @@ urlpatterns = i18n_patterns(
     
     re_path("^admin/", include(admin.site.urls)),
     re_path("^seek/", include(seek.urls)),
-    re_path("^api/", include(api_app.urls)),
+    # re_path("^api/", include(api_app.urls)),
+    re_path(r'^api/', include('nextseek_api.urls')),
 )
 
 if settings.USE_MODELTRANSLATION:
