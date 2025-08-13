@@ -10,7 +10,8 @@ from mezzanine.core.views import direct_to_template
 from mezzanine.conf import settings
 
 import seek.urls
-import api_app.urls
+# import api_app.urls
+import nextseek_api.urls
 
 from . import views
 

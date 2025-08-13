@@ -1,0 +1,18 @@
+              .....
+          _d^^^^^^^^^b_
+       .d''           ``b.
+     .p'                `q.
+    .d'                   `b.
+   .d'                     `b.   * Mezzanine 6.1.1
+   ::                       ::   * Django 4.2.23
+  ::    M E Z Z A N I N E    ::  * Python 3.9.19
+   ::                       ::   * MySQL 10.5.22
+   `p.                     .q'   * Linux 5.14.0-362.18.1.el9_3.x86_64
+    `p.                   .q'
+     `b.                 .d'
+       `q..          ..p'
+          ^q........p^
+              ''''
+
+Performing system checks...
+
