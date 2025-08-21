@@ -190,7 +190,8 @@ class DBtable_sample(DBtable):
         self.tablename = 'samples'
         self.tablemodel = Samples
         self.fulltablename = self.tablemodel
-        self.viewtablename = self.dbname + '.' + self.tablename
+        # Use the Django model for viewtablename so the Django backend can call .objects
+        self.viewtablename = self.tablemodel
         self.fields = [
             'id',
             'title',

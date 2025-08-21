@@ -1,0 +1,27 @@
+#!/home/apache/NExtSEEK/nextseek_venv/bin/python3
+import argparse
+from immpload import munger
+
+parser = argparse.ArgumentParser(
+    description='Converts an input file to an Immport upload file.'
+)
+parser.add_argument('template', help='Immport template name')
+parser.add_argument('in_files', metavar='FILE', type=str, nargs='*',
+                    help='input files')
+parser.add_argument('--config', '-c', metavar='CONFIG', type=str,
+                    help='YAML mapping configuration file')
+parser.add_argument('--outDir', '-o', metavar='DIR', type=str,
+                    help='output directory (default: working directory)')
+parser.add_argument('--no-defaults', dest='defaults_opt', action='store_false',
+                    help='disable output defaults')
+parser.add_argument('--no-validate', dest='validate_opt', action='store_false',
+                    help='disable output validation')
+parser.add_argument('--append', dest='append_opt', action='store_false',
+                    help=("append rather then overwrite an existing " +
+                          "output file"))
+parser.set_defaults(defaults_opt=True, validate_opt=True, append_opt=False)
+args = parser.parse_args()
+
+munger.munge(args.template, *args.in_files, config=args.config,
+             out_dir=args.outDir, defaults_opt=args.defaults_opt,
+             validate_opt=args.validate_opt, append_opt=args.append_opt)

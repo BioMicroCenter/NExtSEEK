@@ -5,9 +5,9 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, Spec
 from . import views
 
 urlpatterns = [
-    re_path(r'^api/schema/$', SpectacularAPIView.as_view(), name='schema'),
-    re_path(r'^api/swagger/$', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
-    re_path(r'^api/redoc/$', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+    # re_path(r'^api/schema/$', SpectacularAPIView.as_view(), name='schema'),
+    # re_path(r'^api/swagger/$', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    # re_path(r'^api/redoc/$', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 
     re_path(r'^remote/', views.remote, name='remote'),
     re_path(r'^samples/upload/', views.sampleUpload, name='sampleUpload'),
