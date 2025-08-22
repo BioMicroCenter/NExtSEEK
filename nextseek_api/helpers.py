@@ -78,3 +78,20 @@ class SeekAPIClient:
         return self._request('PATCH', f'/sops/{sop_id}', request, json=payload)
 
 
+    # ---- DataFiles endpoints ----
+
+    def list_data_files(self, request, params: Optional[Dict[str, Any]] = None):
+        return self._request('GET', '/data_files', request, params=params)
+
+    def get_data_file(self, request, data_file_id: str, version: int):
+        params = {'version': int(version)}
+        return self._request('GET', f'/data_files/{data_file_id}', request, params=params)
+
+    def create_data_file(self, request, payload: Dict[str, Any]):
+        self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
+        return self._request('POST', '/data_files', request, json=payload)
+
+    def update_data_file(self, request, data_file_id: str, payload: Dict[str, Any]):
+        self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
+        return self._request('PATCH', f'/data_files/{data_file_id}', request, json=payload)
+

@@ -164,7 +164,7 @@ class NHPViewSetTests(APITestCase):
         url = reverse('nextseek_api:nhp-info', kwargs={'pk': 'FLY001'})
         response = self.client.get(url)
         
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)sertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertIn('detail', response.data)
         self.assertEqual(response.data['detail'], 'Authentication required')
 
@@ -290,7 +290,7 @@ class SampleQueryViewSetTests(APITestCase):
         response = self.client.get(url, {'page_size': 25})
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 25)parentIds', node_data)
+        self.assertEqual(len(response.data['results']), 25)
     
     def test_sample_tree_by_id_unauthorized(self):
         """Test 401 Unauthorized for sample tree by ID without auth"""
@@ -508,12 +508,7 @@ class ErrorHandlingTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         response = self.client.get('/api/nonexistent/endpoint/')
         
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)ples-by-id-tree', kwargs={'pk': 123})
-        response = self.client.get(url)
-        
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertIn('detail', response.data)
-        self.assertEqual(response.data['detail'], 'Authentication required')
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class NHPViewSetTests(APITestCase):
@@ -889,4 +884,183 @@ class SopProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
+
+class DataFileProxyViewSetTests(APITestCase):
+    """Minimal tests for DataFile proxy endpoints covering 200/401/404/422/502 paths."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.token = Token.objects.create(user=self.user)
+        self.client = APIClient()
+
+    def _good_index_payload(self):
+        return {
+            "data": [
+                {
+                    "id": "560",
+                    "type": "data_files",
+                    "attributes": {"title": "DF-20240101-01_Sample-X.csv"},
+                    "links": {"self": "/data_files/560"}
+                }
+            ],
+            "jsonapi": {"version": "1.0"},
+            "links": {"self": "/data_files?page[number]=1&page[size]=100"},
+            "meta": {"base_url": "http://localhost:3000", "api_version": "v1"}
+        }
+
+    def _good_single_payload(self, df_id="560"):
+        return {
+            "data": {
+                "id": df_id,
+                "type": "data_files",
+                "attributes": {"title": "DF-20240101-01_Sample-X.csv"},
+                "relationships": {},
+                "links": {"self": f"/data_files/{df_id}"},
+                "meta": {}
+            },
+            "jsonapi": {"version": "1.0"}
+        }
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_data_files_list_200(self, _auth):
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+        DataFileProxyViewSet.client.list_data_files = Mock(return_value=(
+            json.dumps(self._good_index_payload()).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:data_files-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    def test_data_files_list_401(self, _auth):
+        url = reverse('nextseek_api:data_files-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_data_files_list_502_html(self, _auth):
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+        DataFileProxyViewSet.client.list_data_files = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:data_files-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_data_files_retrieve_422_missing_version(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:data_files-detail', kwargs={'uid': '560'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    @patch('nextseek_api.services.data_files.DBtable_data_files')
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_data_files_retrieve_200_with_version(self, _auth, mock_dbdf):
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+        # ensure uid resolution returns same numeric id
+        mock_dbdf.return_value.queryRecordsByConstraint.return_value = [{'id': 560}]
+        DataFileProxyViewSet.client.get_data_file = Mock(return_value=(
+            json.dumps(self._good_single_payload("560")).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:data_files-detail', kwargs={'uid': 'DF-20240101-01_Sample-X.csv'})
+        resp = self.client.get(url, {'version': 1})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.services.data_files.DBtable_data_files')
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_data_files_retrieve_404_unresolved_uid(self, _auth, mock_dbdf):
+        mock_dbdf.return_value.queryRecordsByConstraint.return_value = []
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:data_files-detail', kwargs={'uid': 'NotThere.csv'})
+        resp = self.client.get(url, {'version': 1})
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_data_files_retrieve_502_html(self, _auth):
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+        DataFileProxyViewSet.client.get_data_file = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:data_files-detail', kwargs={'uid': '560'})
+        resp = self.client.get(url, {'version': 1})
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_data_files_create_422_invalid_body(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:data_files-list')
+        bad_payload = {"data": {"type": "data_files", "attributes": {}, "relationships": {}}}
+        resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_data_files_create_201(self, _auth):
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+        DataFileProxyViewSet.client.create_data_file = Mock(return_value=(
+            json.dumps(self._good_single_payload("561")).encode(), 201, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:data_files-list')
+        payload = {
+            "data": {
+                "type": "data_files",
+                "attributes": {"title": "DF-20240101-01_Sample-X.csv", "content_blobs": [{"url": "https://example.com/file.csv"}]},
+                "relationships": {"projects": {"data": [{"id": "560", "type": "projects"}]}}
+            }
+        }
+        resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
+        self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_data_files_patch_422_mismatched_id(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:data_files-detail', kwargs={'uid': '560'})
+        payload = {"data": {"type": "data_files", "id": "999", "attributes": {"description": "x"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        # Without upstream call mocked, this returns 422 from our service validation
+        self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_data_files_patch_404_no_resolution(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:data_files-detail', kwargs={'uid': 'NotThere.csv'})
+        payload = {"data": {"type": "data_files", "attributes": {"description": "x"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_data_files_patch_200(self, _auth):
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+        DataFileProxyViewSet.client.update_data_file = Mock(return_value=(
+            json.dumps(self._good_single_payload("560")).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:data_files-detail', kwargs={'uid': '560'})
+        payload = {"data": {"type": "data_files", "id": "560", "attributes": {"description": "x"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    def test_data_files_patch_401(self, _auth):
+        url = reverse('nextseek_api:data_files-detail', kwargs={'uid': '560'})
+        payload = {"data": {"type": "data_files", "id": "560", "attributes": {"description": "x"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_data_files_patch_502_html(self, _auth):
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+        DataFileProxyViewSet.client.update_data_file = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:data_files-detail', kwargs={'uid': '560'})
+        payload = {"data": {"type": "data_files", "id": "560", "attributes": {"description": "x"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 

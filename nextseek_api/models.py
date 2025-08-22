@@ -265,3 +265,178 @@ class SopListResponse(BaseModel):
     links: IndexLinks
     meta: BaseMeta
 
+
+# -----------------------------
+# DataFiles: constants
+# -----------------------------
+
+DATAFILE_TYPE = "data_files"
+
+
+# -----------------------------
+# DataFiles: request models
+# -----------------------------
+
+class RemoteContentBlob(BaseModel):
+    url: str
+    original_filename: Optional[str] = None
+    content_type: Optional[str] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ContentBlobPlaceholder(BaseModel):
+    original_filename: str
+    content_type: str
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+ContentBlobSlotUnion = Union[RemoteContentBlob, ContentBlobPlaceholder]
+
+
+class DataFilePostAttributes(BaseModel):
+    title: str
+    content_blobs: List[ContentBlobSlotUnion]
+    description: Optional[str] = None
+    tags: Optional[List[str]] = None
+    data_type_annotations: Optional[List[str]] = None
+    data_format_annotations: Optional[List[str]] = None
+    license: Optional[str] = None
+    policy: Optional[Dict[str, Any]] = None
+    other_creators: Optional[str] = None
+    creators: Optional[List[Dict[str, Any]]] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    extended_attributes: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class DataFilePostRelationships(BaseModel):
+    projects: MultipleReferences
+    creators: Optional[MultipleReferences] = None
+    assays: Optional[MultipleReferences] = None
+    publications: Optional[MultipleReferences] = None
+    events: Optional[MultipleReferences] = None
+    workflows: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class DataFilePostData(BaseModel):
+    type: Literal['data_files']
+    attributes: DataFilePostAttributes
+    relationships: DataFilePostRelationships
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class DataFileCreateRequest(BaseModel):
+    data: DataFilePostData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload = self.model_dump(exclude_none=True)
+        # Guarantee JSON:API type constant
+        payload['data']['type'] = DATAFILE_TYPE
+        return payload
+
+
+class DataFilePatchAttributes(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[List[str]] = None
+    data_type_annotations: Optional[List[str]] = None
+    data_format_annotations: Optional[List[str]] = None
+    license: Optional[str] = None
+    policy: Optional[Dict[str, Any]] = None
+    other_creators: Optional[str] = None
+    creators: Optional[List[Dict[str, Any]]] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    extended_attributes: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class DataFilePatchRelationships(BaseModel):
+    projects: Optional[MultipleReferences] = None
+    creators: Optional[MultipleReferences] = None
+    assays: Optional[MultipleReferences] = None
+    publications: Optional[MultipleReferences] = None
+    events: Optional[MultipleReferences] = None
+    workflows: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class DataFilePatchData(BaseModel):
+    id: str
+    type: Literal['data_files']
+    attributes: Optional[DataFilePatchAttributes] = None
+    relationships: Optional[DataFilePatchRelationships] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class DataFileUpdateRequest(BaseModel):
+    data: DataFilePatchData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"data": {"id": self.data.id, "type": self.data.type}}
+        if self.data.attributes is not None:
+            payload['data']['attributes'] = self.data.attributes.model_dump(exclude_none=True)
+        if self.data.relationships is not None:
+            payload['data']['relationships'] = self.data.relationships.model_dump(exclude_none=True)
+        # Guarantee JSON:API type constant
+        payload['data']['type'] = DATAFILE_TYPE
+        return payload
+
+
+# -----------------------------
+# DataFiles: response models
+# -----------------------------
+
+class DataFileIndexAttributes(BaseModel):
+    title: str
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class DataFileIndexItem(BaseModel):
+    id: str
+    type: Literal['data_files']
+    attributes: DataFileIndexAttributes
+    links: Links
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class DataFileListResponse(BaseModel):
+    data: List[DataFileIndexItem]
+    jsonapi: JsonApiVersion
+    links: IndexLinks
+    meta: BaseMeta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class DataFileResponseData(BaseModel):
+    id: str
+    type: Literal['data_files']
+    attributes: Dict[str, Any]
+    relationships: Dict[str, Any]
+    links: Links
+    meta: Meta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class DataFileSingleResponse(BaseModel):
+    data: DataFileResponseData
+    jsonapi: Optional[JsonApiVersion] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
