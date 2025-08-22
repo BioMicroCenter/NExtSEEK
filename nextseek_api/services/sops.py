@@ -14,6 +14,7 @@ from nextseek_api.models import (
     SopListResponse,
 )
 from seek.dbtable_sops import DBtable_sops
+from django.conf import settings
 
 
 def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
@@ -60,7 +61,7 @@ class SopProxyViewSet(viewsets.ViewSet):
                     ],
                     "jsonapi": {"version": "1.0"},
                     "links": {"self": "/sops?page[number]=1&page[size]=100"},
-                    "meta": {"base_url": "http://localhost:3000", "api_version": "v1"}
+                    "meta": {"base_url": settings.SEEK_URL, "api_version": "v1"}
                 }
             )
         ],
@@ -76,7 +77,7 @@ class SopProxyViewSet(viewsets.ViewSet):
             if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
                 return HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json')
             data = json.loads(body or b"{}")
-            SopListResponse(**data)
+            SopListResponse.model_validate(data)
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
@@ -125,7 +126,7 @@ class SopProxyViewSet(viewsets.ViewSet):
             if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
                 return HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json')
             data = json.loads(body or b"{}")
-            SopSingleResponse(**data)
+            SopSingleResponse.model_validate(data)
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
@@ -159,7 +160,7 @@ class SopProxyViewSet(viewsets.ViewSet):
     def create(self, request):
         # Validate request
         try:
-            payload = SopCreateRequest(**request.data).model_dump(exclude_none=True)
+            payload = SopCreateRequest.model_validate(request.data).model_dump(exclude_none=True)
         except Exception as e:
             return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
@@ -170,7 +171,7 @@ class SopProxyViewSet(viewsets.ViewSet):
         # Validate response
         try:
             data = json.loads(body or b"{}")
-            SopSingleResponse(**data)
+            SopSingleResponse.model_validate(data)
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
@@ -203,7 +204,7 @@ class SopProxyViewSet(viewsets.ViewSet):
         uid = uid or pk
         # Validate and normalize body (allows uid in body)
         try:
-            update_req = SopUpdateRequest(**request.data)
+            update_req = SopUpdateRequest.model_validate(request.data)
             payload = update_req.to_seek_payload()
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
@@ -225,7 +226,7 @@ class SopProxyViewSet(viewsets.ViewSet):
             if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
                 return HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json')
             data = json.loads(body or b"{}")
-            SopSingleResponse(**data)
+            SopSingleResponse.model_validate(data)
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 

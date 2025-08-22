@@ -712,3 +712,181 @@ class ErrorHandlingTests(APITestCase):
 
 
 
+class SopProxyViewSetTests(APITestCase):
+    """Minimal tests for SOP proxy endpoints covering 200/401/404/422/502 paths."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.token = Token.objects.create(user=self.user)
+        self.client = APIClient()
+
+    def _good_list_payload(self):
+        return {
+            "data": [
+                {
+                    "id": "131",
+                    "type": "sops",
+                    "attributes": {"title": "This Sop"},
+                    "links": {"self": "/sops/131"}
+                }
+            ],
+            "jsonapi": {"version": "1.0"},
+            "links": {"self": "/sops?page[number]=1&page[size]=100"},
+            "meta": {"base_url": "http://localhost:3000", "api_version": "v1"}
+        }
+
+    def _good_single_payload(self, sop_id="132"):
+        return {
+            "data": {
+                "id": sop_id,
+                "type": "sops",
+                "attributes": {"title": "A Maximal SOP"},
+                "relationships": {
+                    "creators": {"data": []},
+                    "submitter": {"data": []},
+                    "people": {"data": []},
+                    "projects": {"data": []},
+                    "investigations": {"data": []},
+                    "studies": {"data": []},
+                    "assays": {"data": []},
+                    "publications": {"data": []},
+                    "workflows": {"data": []}
+                },
+                "links": {"self": f"/sops/{sop_id}"},
+                "meta": {}
+            },
+            "jsonapi": {"version": "1.0"}
+        }
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sops_list_200(self, _auth):
+        from nextseek_api.services.sops import SopProxyViewSet
+        # Mock upstream JSON
+        SopProxyViewSet.client.list_sops = Mock(return_value=(
+            json.dumps(self._good_list_payload()).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sops-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    def test_sops_list_401(self, _auth):
+        url = reverse('nextseek_api:sops-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sops_list_502_html(self, _auth):
+        from nextseek_api.services.sops import SopProxyViewSet
+        SopProxyViewSet.client.list_sops = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sops-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sops_retrieve_200_numeric_uid(self, _auth):
+        from nextseek_api.services.sops import SopProxyViewSet
+        SopProxyViewSet.client.get_sop = Mock(return_value=(
+            json.dumps(self._good_single_payload("123")).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sops-detail', kwargs={'uid': '123'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.services.sops.DBtable_sops')
+    def test_sops_retrieve_404_string_uid_not_found(self, mock_dbsop, _auth):
+        # No matching title → None
+        mock_dbsop.return_value.queryRecordsByConstraint.return_value = []
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sops-detail', kwargs={'uid': 'NotThere.pdf'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sops_retrieve_502_html(self, _auth):
+        from nextseek_api.services.sops import SopProxyViewSet
+        SopProxyViewSet.client.get_sop = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sops-detail', kwargs={'uid': '123'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sops_create_201(self, _auth):
+        from nextseek_api.services.sops import SopProxyViewSet
+        SopProxyViewSet.client.create_sop = Mock(return_value=(
+            json.dumps(self._good_single_payload("140")).encode(), 201, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sops-list')
+        payload = {
+            "data": {
+                "type": "sops",
+                "attributes": {
+                    "title": "A Maximal SOP",
+                    "content_blobs": [{"original_filename": "a.pdf", "content_type": "application/pdf"}]
+                },
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }
+        resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
+        self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sops_create_422_invalid_body(self, _auth):
+        # Missing required fields (title/content_blobs/projects)
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sops-list')
+        bad_payload = {"data": {"type": "sops", "attributes": {}, "relationships": {}}}
+        resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sops_patch_200(self, _auth):
+        from nextseek_api.services.sops import SopProxyViewSet
+        SopProxyViewSet.client.update_sop = Mock(return_value=(
+            json.dumps(self._good_single_payload("132")).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sops-detail', kwargs={'uid': '132'})
+        payload = {"data": {"type": "sops", "id": "132", "attributes": {"title": "Patched"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sops_patch_404_no_resolution(self, _auth):
+        # No id in payload and non-numeric uid that won't be resolved (DB not patched returns None)
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sops-detail', kwargs={'uid': 'NotThere.pdf'})
+        payload = {"data": {"type": "sops", "attributes": {"title": "Patched"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    def test_sops_patch_401_no_auth(self, _auth):
+        url = reverse('nextseek_api:sops-detail', kwargs={'uid': '132'})
+        payload = {"data": {"type": "sops", "id": "132", "attributes": {"title": "Patched"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sops_patch_502_html(self, _auth):
+        from nextseek_api.services.sops import SopProxyViewSet
+        SopProxyViewSet.client.update_sop = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sops-detail', kwargs={'uid': '132'})
+        payload = {"data": {"type": "sops", "id": "132", "attributes": {"title": "Patched"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+
