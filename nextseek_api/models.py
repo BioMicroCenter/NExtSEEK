@@ -513,14 +513,14 @@ class ProjectRelationships(BaseModel):
     workflows: MultipleReferences
     collections: MultipleReferences
 
-    model_config = ConfigDict(extra='forbid', validate_default=True)
+    model_config = ConfigDict(extra='allow', validate_default=True)
 
 
 class ProjectResponseData(BaseModel):
     id: str
     type: Literal['projects']
-    attributes: ProjectAttributes
-    relationships: ProjectRelationships
+    attributes: Dict[str, Any]
+    relationships: Dict[str, Any]
     links: Links
     meta: Meta
 
