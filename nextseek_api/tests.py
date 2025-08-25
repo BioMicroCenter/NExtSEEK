@@ -1146,6 +1146,165 @@ class ProjectProxyViewSetTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
 
+class InvestigationProxyViewSetTests(APITestCase):
+    """Tests for Investigations proxy covering 200/201/401/404/422/502 paths."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.token = Token.objects.create(user=self.user)
+        self.client = APIClient()
+
+    def _good_index_payload(self):
+        return {
+            "data": [
+                {
+                    "id": "763",
+                    "type": "investigations",
+                    "attributes": {"title": "My Investigation"},
+                    "links": {"self": "/investigations/763"}
+                }
+            ],
+            "jsonapi": {"version": "1.0"},
+            "links": {"self": "/investigations?page[number]=1&page[size]=100"},
+            "meta": {"base_url": "http://localhost:3000", "api_version": "v1"}
+        }
+
+    def _good_single_payload(self, iid="763"):
+        return {
+            "data": {
+                "id": iid,
+                "type": "investigations",
+                "attributes": {"title": "My Investigation"},
+                "relationships": {"projects": {"data": []}},
+                "links": {"self": f"/investigations/{iid}"},
+                "meta": {}
+            },
+            "jsonapi": {"version": "1.0"}
+        }
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_investigations_list_200(self, _auth):
+        from nextseek_api.services.investigations import InvestigationProxyViewSet
+        InvestigationProxyViewSet.client.list_investigations = Mock(return_value=(
+            json.dumps(self._good_index_payload()).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:investigations-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    def test_investigations_list_401(self, _auth):
+        url = reverse('nextseek_api:investigations-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_investigations_list_502_html(self, _auth):
+        from nextseek_api.services.investigations import InvestigationProxyViewSet
+        InvestigationProxyViewSet.client.list_investigations = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:investigations-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_investigations_retrieve_200_numeric_uid(self, _auth):
+        from nextseek_api.services.investigations import InvestigationProxyViewSet
+        InvestigationProxyViewSet.client.get_investigation = Mock(return_value=(
+            json.dumps(self._good_single_payload("763")).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:investigations-detail', kwargs={'uid': '763'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_investigations_retrieve_404_unresolved_uid(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:investigations-detail', kwargs={'uid': 'INV-XYZ'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_investigations_retrieve_502_html(self, _auth):
+        from nextseek_api.services.investigations import InvestigationProxyViewSet
+        InvestigationProxyViewSet.client.get_investigation = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:investigations-detail', kwargs={'uid': '763'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_investigations_create_201(self, _auth):
+        from nextseek_api.services.investigations import InvestigationProxyViewSet
+        InvestigationProxyViewSet.client.create_investigation = Mock(return_value=(
+            json.dumps(self._good_single_payload("764")).encode(), 201, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:investigations-list')
+        payload = {
+            "data": {
+                "type": "investigations",
+                "attributes": {"title": "My Investigation"},
+                "relationships": {"projects": {"data": [{"type": "projects", "id": "4475"}]}}
+            }
+        }
+        resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
+        self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_investigations_create_422_invalid_body(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:investigations-list')
+        bad_payload = {"data": {"type": "investigations", "attributes": {}, "relationships": {}}}
+        resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_investigations_patch_200(self, _auth):
+        from nextseek_api.services.investigations import InvestigationProxyViewSet
+        InvestigationProxyViewSet.client.update_investigation = Mock(return_value=(
+            json.dumps(self._good_single_payload("763")).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:investigations-detail', kwargs={'uid': '763'})
+        payload = {"data": {"type": "investigations", "id": "763", "attributes": {"title": "Revised Title"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    def test_investigations_patch_401(self, _auth):
+        url = reverse('nextseek_api:investigations-detail', kwargs={'uid': '763'})
+        payload = {"data": {"type": "investigations", "id": "763", "attributes": {"title": "Revised Title"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_investigations_patch_404_no_resolution(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:investigations-detail', kwargs={'uid': 'INV-XYZ'})
+        payload = {"data": {"type": "investigations", "attributes": {"title": "Revised Title"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_investigations_patch_502_html(self, _auth):
+        from nextseek_api.services.investigations import InvestigationProxyViewSet
+        InvestigationProxyViewSet.client.update_investigation = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:investigations-detail', kwargs={'uid': '763'})
+        payload = {"data": {"type": "investigations", "id": "763", "attributes": {"title": "Revised Title"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+
 class PeopleProxyViewSetTests(APITestCase):
     """Tests for People proxy covering 200/201/401/404/422/502 paths."""
 

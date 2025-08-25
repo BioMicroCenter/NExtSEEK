@@ -756,3 +756,147 @@ class PersonUpdateRequest(BaseModel):
         if self.data.attributes is not None:
             payload['data']['attributes'] = self.data.attributes.model_dump(exclude_none=True)
         return payload
+
+
+# -----------------------------
+# Investigations: constants
+# -----------------------------
+
+INVESTIGATIONS_TYPE = "investigations"
+
+
+# -----------------------------
+# Investigations: list/index models
+# -----------------------------
+
+class InvestigationIndexAttributes(BaseModel):
+    title: str
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class InvestigationIndexItem(BaseModel):
+    id: str
+    type: Literal['investigations']
+    attributes: InvestigationIndexAttributes
+    links: Links
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class InvestigationListResponse(BaseModel):
+    data: List[InvestigationIndexItem]
+    jsonapi: JsonApiVersion
+    links: IndexLinks
+    meta: BaseMeta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# Investigations: detail models
+# -----------------------------
+
+class InvestigationResponseData(BaseModel):
+    id: str
+    type: Literal['investigations']
+    attributes: Dict[str, Any]
+    relationships: Dict[str, Any]
+    links: Links
+    meta: Meta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class InvestigationSingleResponse(BaseModel):
+    data: InvestigationResponseData
+    jsonapi: Optional[JsonApiVersion] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# Investigations: request models
+# -----------------------------
+
+class InvestigationPostAttributes(BaseModel):
+    title: str
+    description: Optional[str] = None
+    other_creators: Optional[str] = None
+    creators: Optional[List[Dict[str, Any]]] = None
+    policy: Optional[Dict[str, Any]] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    extended_attributes: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class InvestigationPostRelationships(BaseModel):
+    projects: MultipleReferences
+    creators: Optional[MultipleReferences] = None
+    publications: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class InvestigationPostData(BaseModel):
+    type: Literal['investigations']
+    attributes: InvestigationPostAttributes
+    relationships: InvestigationPostRelationships
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class InvestigationCreateRequest(BaseModel):
+    data: InvestigationPostData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload = self.model_dump(exclude_none=True)
+        payload['data']['type'] = INVESTIGATIONS_TYPE
+        return payload
+
+
+class InvestigationPatchAttributes(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    other_creators: Optional[str] = None
+    creators: Optional[List[Dict[str, Any]]] = None
+    policy: Optional[Dict[str, Any]] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    extended_attributes: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class InvestigationPatchRelationships(BaseModel):
+    projects: Optional[MultipleReferences] = None
+    creators: Optional[MultipleReferences] = None
+    publications: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class InvestigationPatchData(BaseModel):
+    id: str
+    type: Literal['investigations']
+    attributes: Optional[InvestigationPatchAttributes] = None
+    relationships: Optional[InvestigationPatchRelationships] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class InvestigationUpdateRequest(BaseModel):
+    data: InvestigationPatchData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"data": {"id": self.data.id, "type": self.data.type}}
+        if self.data.attributes is not None:
+            payload['data']['attributes'] = self.data.attributes.model_dump(exclude_none=True)
+        if self.data.relationships is not None:
+            payload['data']['relationships'] = self.data.relationships.model_dump(exclude_none=True)
+        payload['data']['type'] = INVESTIGATIONS_TYPE
+        return payload
