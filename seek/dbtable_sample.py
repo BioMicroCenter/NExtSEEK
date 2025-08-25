@@ -729,7 +729,9 @@ class DBtable_sample(DBtable):
             if "Parent" in k:
                 parents.append(v)
         parents = list(map(lambda p: p.split(";"), parents))
-        return list(chain(*parents))
+        parents = list(chain(*parents))
+        parents = list(map(lambda p: p.strip(), parents))
+        return parents
 
     def storeSampleNeo4j(self, sampleType, record):
         logger.debug(f"Storing sample into neo4j with info: {record}")
