@@ -1098,3 +1098,241 @@ class AssaySingleResponse(BaseModel):
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
+
+# -----------------------------
+# SampleTypes: constants
+# -----------------------------
+
+SAMPLE_TYPES_TYPE = "sample_types"
+
+
+# -----------------------------
+# SampleTypes: enums & helpers
+# -----------------------------
+
+from enum import Enum
+
+
+class SampleAttributeBaseType(str, Enum):
+    Integer = "Integer"
+    Float = "Float"
+    String = "String"
+    DateTime = "DateTime"
+    Date = "Date"
+    Text = "Text"
+    Boolean = "Boolean"
+    SeekStrain = "SeekStrain"
+    SeekSample = "SeekSample"
+    CV = "CV"
+    CVList = "CVList"
+    SeekDataFile = "SeekDataFile"
+    SeekSop = "SeekSop"
+    SeekSampleMulti = "SeekSampleMulti"
+
+
+class SampleAttributeTypeIdRef(BaseModel):
+    id: str
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleAttributeTypeTitleRef(BaseModel):
+    title: str
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+SampleAttributeTypeRef = Union[SampleAttributeTypeIdRef, SampleAttributeTypeTitleRef]
+
+
+# -----------------------------
+# SampleTypes: request models
+# -----------------------------
+
+class SampleTypeSampleAttributePost(BaseModel):
+    title: str
+    sample_attribute_type: SampleAttributeTypeRef
+    required: bool = False
+    description: Optional[str] = None
+    pid: Optional[str] = None
+    pos: Optional[int] = None
+    unit: Optional[str] = None
+    is_title: Optional[bool] = None
+    sample_controlled_vocab_id: Optional[str] = None
+    linked_sample_type_id: Optional[str] = None
+    linked_extended_metadata_type_id: Optional[str] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypeSampleAttributePatch(BaseModel):
+    id: Optional[str] = None
+    title: Optional[str] = None
+    sample_attribute_type: Optional[SampleAttributeTypeRef] = None
+    required: Optional[bool] = None
+    description: Optional[str] = None
+    pid: Optional[str] = None
+    pos: Optional[int] = None
+    unit: Optional[str] = None
+    is_title: Optional[bool] = None
+    sample_controlled_vocab_id: Optional[str] = None
+    linked_sample_type_id: Optional[str] = None
+    linked_extended_metadata_type_id: Optional[str] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypePostAttributes(BaseModel):
+    title: str
+    description: Optional[str] = None
+    policy: Optional[Dict[str, Any]] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    sample_attributes: List[SampleTypeSampleAttributePost]
+    tags: Optional[List[str]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypePostRelationships(BaseModel):
+    projects: MultipleReferences
+    assays: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypePostData(BaseModel):
+    type: Literal['sample_types']
+    attributes: SampleTypePostAttributes
+    relationships: SampleTypePostRelationships
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypeCreateRequest(BaseModel):
+    data: SampleTypePostData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload = self.model_dump(exclude_none=True)
+        payload['data']['type'] = SAMPLE_TYPES_TYPE
+        return payload
+
+
+class SampleTypePatchAttributes(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    policy: Optional[Dict[str, Any]] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    tags: Optional[List[str]] = None
+    sample_attributes: Optional[List[SampleTypeSampleAttributePatch]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypePatchRelationships(BaseModel):
+    projects: Optional[MultipleReferences] = None
+    assays: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypePatchData(BaseModel):
+    id: str
+    type: Literal['sample_types']
+    attributes: Optional[SampleTypePatchAttributes] = None
+    relationships: Optional[SampleTypePatchRelationships] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypeUpdateRequest(BaseModel):
+    data: SampleTypePatchData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"data": {"id": self.data.id, "type": self.data.type}}
+        if self.data.attributes is not None:
+            payload['data']['attributes'] = self.data.attributes.model_dump(exclude_none=True)
+        if self.data.relationships is not None:
+            payload['data']['relationships'] = self.data.relationships.model_dump(exclude_none=True)
+        payload['data']['type'] = SAMPLE_TYPES_TYPE
+        return payload
+
+
+# -----------------------------
+# SampleTypes: response models
+# -----------------------------
+
+class SampleTypeIndexAttributes(BaseModel):
+    title: str
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypeIndexItem(BaseModel):
+    id: str
+    type: Literal['sample_types']
+    attributes: SampleTypeIndexAttributes
+    links: Links
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypeListResponse(BaseModel):
+    data: List[SampleTypeIndexItem]
+    jsonapi: JsonApiVersion
+    links: IndexLinks
+    meta: BaseMeta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleAttributeTypeDetail(BaseModel):
+    id: str
+    title: str
+    base_type: SampleAttributeBaseType
+    regexp: Optional[str] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypeSampleAttributeResponse(BaseModel):
+    id: Optional[str] = None
+    title: str
+    sample_attribute_type: SampleAttributeTypeDetail
+    required: Optional[bool] = None
+    pos: Optional[int] = None
+    unit: Optional[str] = None
+    is_title: Optional[bool] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypeRelationships(BaseModel):
+    submitter: MultipleReferences
+    projects: MultipleReferences
+    assays: MultipleReferences
+    samples: MultipleReferences
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypeResponseData(BaseModel):
+    id: str
+    type: Literal['sample_types']
+    attributes: Dict[str, Any]
+    relationships: SampleTypeRelationships
+    links: Links
+    meta: Meta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypeSingleResponse(BaseModel):
+    data: SampleTypeResponseData
+    jsonapi: Optional[JsonApiVersion] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+

@@ -159,3 +159,19 @@ class SeekAPIClient:
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
         return self._request('PATCH', f'/assays/{assay_id}', request, json=payload)
 
+    # ---- SampleTypes endpoints ----
+
+    def list_sample_types(self, request, params: Optional[Dict[str, Any]] = None):
+        return self._request('GET', '/sample_types', request, params=params)
+
+    def get_sample_type(self, request, sample_type_id: str):
+        return self._request('GET', f'/sample_types/{sample_type_id}', request)
+
+    def create_sample_type(self, request, payload: Dict[str, Any]):
+        self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
+        return self._request('POST', '/sample_types', request, json=payload)
+
+    def update_sample_type(self, request, sample_type_id: str, payload: Dict[str, Any]):
+        self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
+        return self._request('PATCH', f'/sample_types/{sample_type_id}', request, json=payload)
+

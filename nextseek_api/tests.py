@@ -1374,6 +1374,187 @@ class AssayProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
+
+class SampleTypeProxyViewSetTests(APITestCase):
+    """Tests for SampleTypes proxy covering 200/201/401/404/422/502 paths."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.token = Token.objects.create(user=self.user)
+        self.client = APIClient()
+
+    def _good_index_payload(self):
+        return {
+            "data": [
+                {
+                    "id": "12",
+                    "type": "sample_types",
+                    "attributes": {"title": "Experimental type"},
+                    "links": {"self": "/sample_types/12"}
+                }
+            ],
+            "jsonapi": {"version": "1.0"},
+            "links": {"self": "/sample_types?page[number]=1&page[size]=100"},
+            "meta": {"base_url": "http://localhost:3000", "api_version": "v1"}
+        }
+
+    def _good_single_payload(self, sid="12"):
+        return {
+            "data": {
+                "id": sid,
+                "type": "sample_types",
+                "attributes": {"title": "Experimental type"},
+                "relationships": {
+                    "submitter": {"data": []},
+                    "projects": {"data": []},
+                    "assays": {"data": []},
+                    "samples": {"data": []}
+                },
+                "links": {"self": f"/sample_types/{sid}"},
+                "meta": {}
+            },
+            "jsonapi": {"version": "1.0"}
+        }
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sample_types_list_200(self, _auth):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        SampleTypeProxyViewSet.client.list_sample_types = Mock(return_value=(
+            json.dumps(self._good_index_payload()).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sample_types-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    def test_sample_types_list_401(self, _auth):
+        url = reverse('nextseek_api:sample_types-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sample_types_list_502_html(self, _auth):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        SampleTypeProxyViewSet.client.list_sample_types = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sample_types-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sample_types_retrieve_200_numeric_uid(self, _auth):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        SampleTypeProxyViewSet.client.get_sample_type = Mock(return_value=(
+            json.dumps(self._good_single_payload("12")).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sample_types-detail', kwargs={'uid': '12'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.services.sample_types.DBtable_sampletype')
+    def test_sample_types_retrieve_404_string_uid_not_found(self, mock_dbst, _auth):
+        mock_dbst.return_value.getSampleTypeID.return_value = 0
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sample_types-detail', kwargs={'uid': 'NotThere'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sample_types_retrieve_502_html(self, _auth):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        SampleTypeProxyViewSet.client.get_sample_type = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sample_types-detail', kwargs={'uid': '12'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sample_types_create_201(self, _auth):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        SampleTypeProxyViewSet.client.create_sample_type = Mock(return_value=(
+            json.dumps(self._good_single_payload("13")).encode(), 201, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sample_types-list')
+        payload = {
+            "data": {
+                "type": "sample_types",
+                "attributes": {
+                    "title": "Experimental type",
+                    "sample_attributes": [
+                        {"title": "Attr A", "sample_attribute_type": {"title": "Date"}, "required": True}
+                    ]
+                },
+                "relationships": {"projects": {"data": [{"id": "2558", "type": "projects"}]}}
+            }
+        }
+        resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
+        self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sample_types_create_422_invalid_body(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sample_types-list')
+        bad_payload = {"data": {"type": "sample_types", "attributes": {}, "relationships": {}}}
+        resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sample_types_patch_200(self, _auth):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        SampleTypeProxyViewSet.client.update_sample_type = Mock(return_value=(
+            json.dumps(self._good_single_payload("12")).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sample_types-detail', kwargs={'uid': '12'})
+        payload = {"data": {"type": "sample_types", "id": "12", "attributes": {"title": "Revised"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    def test_sample_types_patch_401(self, _auth):
+        url = reverse('nextseek_api:sample_types-detail', kwargs={'uid': '12'})
+        payload = {"data": {"type": "sample_types", "id": "12", "attributes": {"title": "Revised"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sample_types_patch_422_mismatched_id(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sample_types-detail', kwargs={'uid': '12'})
+        payload = {"data": {"type": "sample_types", "id": "999", "attributes": {"title": "Revised"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.services.sample_types.DBtable_sampletype')
+    def test_sample_types_patch_404_no_resolution(self, mock_dbst, _auth):
+        mock_dbst.return_value.getSampleTypeID.return_value = 0
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sample_types-detail', kwargs={'uid': 'NotThere'})
+        payload = {"data": {"type": "sample_types", "attributes": {"title": "Revised"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_sample_types_patch_502_html(self, _auth):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        SampleTypeProxyViewSet.client.update_sample_type = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:sample_types-detail', kwargs={'uid': '12'})
+        payload = {"data": {"type": "sample_types", "id": "12", "attributes": {"title": "Revised"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
     @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
     def test_assays_retrieve_200_numeric_uid(self, _auth):
         from nextseek_api.services.assays import AssayProxyViewSet

@@ -20,6 +20,7 @@ router.register(r"projects", views.ProjectViewSet, basename="projects")
 router.register(r"people", views.PeopleViewSet, basename="people")
 router.register(r"investigations", views.InvestigationViewSet, basename="investigations")
 router.register(r"assays", views.AssayViewSet, basename="assays")
+router.register(r"sample_types", views.SampleTypeViewSet, basename="sample_types")
 
 urlpatterns = [
     # OpenAPI Schema Documentation
