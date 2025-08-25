@@ -73,6 +73,9 @@ class SampleTreeByIDViewSet(viewsets.GenericViewSet):
     lookup_field = 'pk'
     
     @extend_schema(
+        operation_id="Get Sample Tree",
+        description="Get sample tree by numeric ID",
+        tags=['Samples'],
         responses={200: SampleTreeSerializer()},
         parameters=[
             OpenApiParameter(
@@ -164,6 +167,9 @@ class SampleTreeByUUIDViewSet(viewsets.GenericViewSet):
     lookup_value_regex = '[0-9A-Fa-f-]{36}'
     
     @extend_schema(
+        operation_id="Get Sample Tree by UUID",
+        description="Get sample tree by UUID",
+        tags=['Samples'],
         responses={200: SampleTreeSerializer()},
         parameters=[
             OpenApiParameter(
@@ -256,6 +262,9 @@ class NHPViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
     
     @extend_schema(
+        operation_id="Get NHP Info",
+        description="Get NHP info by UID",
+        tags=['Timeline'],
         responses={200: OpenApiTypes.OBJECT},
         parameters=[
             OpenApiParameter(
@@ -285,6 +294,9 @@ class NHPViewSet(viewsets.GenericViewSet):
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @extend_schema(
+        operation_id="Get NHP Events",
+        description="Get NHP events by UID, event type, and date",
+        tags=['Timeline'],
         responses={200: OpenApiTypes.OBJECT},
         parameters=[
             OpenApiParameter(
@@ -328,6 +340,9 @@ class NHPViewSet(viewsets.GenericViewSet):
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @extend_schema(
+        operation_id="Get NHP Timeline Data",
+        description="Get NHP timeline by UID",
+        tags=['Timeline'],
         responses={200: OpenApiTypes.OBJECT},
         parameters=[
             OpenApiParameter(
@@ -357,6 +372,9 @@ class NHPViewSet(viewsets.GenericViewSet):
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @extend_schema(
+        operation_id="Download NHP Data",
+        description="Download NHP data as Excel file by UID",
+        tags=['Timeline'],
         responses={200: OpenApiTypes.STR},
         parameters=[
             OpenApiParameter(
@@ -366,7 +384,6 @@ class NHPViewSet(viewsets.GenericViewSet):
                 description='NHP identifier/name'
             )
         ],
-        description="Downloads NHP data as Excel file"
     )
     @action(detail=True, methods=["get"], url_path="download")
     def download(self, request, pk=None):
@@ -456,6 +473,8 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, IsAdminUser]
     
     @extend_schema(
+        operation_id="Admin Sample Retrieval",
+        tags=['Samples'],
         request=AdminRetrieveRequestSerializer,
         description="Admin sample retrieval: POST UIDs and receive an Excel file",
         responses={200: OpenApiTypes.STR},
