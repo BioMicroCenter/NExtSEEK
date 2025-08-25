@@ -33,6 +33,7 @@ SEEK_DATABASE = 'default'
 from .serializers import SampleTreeSerializer, SampleNodeSerializer, AdminRetrieveRequestSerializer
 from .services.sops import SopProxyViewSet as SopViewSet
 from .services.data_files import DataFileProxyViewSet as DataFileViewSet
+from .services.projects import ProjectProxyViewSet as ProjectViewSet
 
 
 def get_clade_color(sample_type):

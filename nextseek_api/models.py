@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 # Import SOP DB helper to resolve NExtSEEK UID -> SEEK id when provided in payloads
 from seek.dbtable_sops import DBtable_sops
+from seek.dbtable_projects import DBtable_projects
 
 
 # -----------------------------
@@ -439,4 +440,189 @@ class DataFileSingleResponse(BaseModel):
     jsonapi: Optional[JsonApiVersion] = None
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# Projects: constants
+# -----------------------------
+
+PROJECTS_TYPE = "projects"
+
+
+# -----------------------------
+# Projects: list/index models
+# -----------------------------
+
+class ProjectIndexAttributes(BaseModel):
+    title: str
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectIndexItem(BaseModel):
+    id: str
+    type: Literal['projects']
+    attributes: ProjectIndexAttributes
+    links: Links
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectListResponse(BaseModel):
+    data: List[ProjectIndexItem]
+    jsonapi: JsonApiVersion
+    links: IndexLinks
+    meta: BaseMeta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# Projects: detail models
+# -----------------------------
+
+class ProjectAttributes(BaseModel):
+    avatar: Optional[Any] = None
+    title: str
+    description: Optional[str] = None
+    web_page: Optional[str] = None
+    wiki_page: Optional[str] = None
+    default_policy: Optional[Dict[str, Any]] = None
+    default_license: Optional[str] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    extended_attributes: Optional[Dict[str, Any]] = None
+    topic_annotations: Optional[List[Dict[str, Any]]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectRelationships(BaseModel):
+    people: MultipleReferences
+    projects: MultipleReferences
+    institutions: MultipleReferences
+    investigations: MultipleReferences
+    studies: MultipleReferences
+    assays: MultipleReferences
+    data_files: MultipleReferences
+    documents: MultipleReferences
+    models: MultipleReferences
+    sops: MultipleReferences
+    publications: MultipleReferences
+    presentations: MultipleReferences
+    events: MultipleReferences
+    workflows: MultipleReferences
+    collections: MultipleReferences
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectResponseData(BaseModel):
+    id: str
+    type: Literal['projects']
+    attributes: ProjectAttributes
+    relationships: ProjectRelationships
+    links: Links
+    meta: Meta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectSingleResponse(BaseModel):
+    data: ProjectResponseData
+    jsonapi: Optional[JsonApiVersion] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# Projects: request models
+# -----------------------------
+
+class ProjectPostAttributes(BaseModel):
+    title: str
+    avatar: Optional[Any] = None
+    description: Optional[str] = None
+    web_page: Optional[str] = None
+    wiki_page: Optional[str] = None
+    default_policy: Optional[Dict[str, Any]] = None
+    default_license: Optional[str] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    extended_attributes: Optional[Dict[str, Any]] = None
+    topic_annotations: Optional[List[Dict[str, Any]]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectPostRelationships(BaseModel):
+    programmes: Optional[MultipleReferences] = None
+    organisms: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectPostData(BaseModel):
+    type: Literal['projects']
+    attributes: ProjectPostAttributes
+    relationships: Optional[ProjectPostRelationships] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectCreateRequest(BaseModel):
+    data: ProjectPostData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload = self.model_dump(exclude_none=True)
+        # Guarantee JSON:API type constant
+        payload['data']['type'] = PROJECTS_TYPE
+        return payload
+
+
+class ProjectPatchAttributes(BaseModel):
+    title: Optional[str] = None
+    avatar: Optional[Any] = None
+    description: Optional[str] = None
+    web_page: Optional[str] = None
+    wiki_page: Optional[str] = None
+    default_policy: Optional[Dict[str, Any]] = None
+    default_license: Optional[str] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    extended_attributes: Optional[Dict[str, Any]] = None
+    topic_annotations: Optional[List[Dict[str, Any]]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectPatchRelationships(BaseModel):
+    programmes: Optional[MultipleReferences] = None
+    organisms: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectPatchData(BaseModel):
+    id: Optional[str] = None
+    type: Literal['projects']
+    attributes: Optional[ProjectPatchAttributes] = None
+    relationships: Optional[ProjectPatchRelationships] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectUpdateRequest(BaseModel):
+    data: ProjectPatchData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"data": {"type": PROJECTS_TYPE}}
+        if self.data.id is not None:
+            payload['data']['id'] = str(self.data.id)
+        if self.data.attributes is not None:
+            payload['data']['attributes'] = self.data.attributes.model_dump(exclude_none=True)
+        if self.data.relationships is not None:
+            payload['data']['relationships'] = self.data.relationships.model_dump(exclude_none=True)
+        return payload
 

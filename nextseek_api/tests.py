@@ -1064,3 +1064,183 @@ class DataFileProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
+
+class ProjectProxyViewSetTests(APITestCase):
+    """Minimal tests for Projects proxy endpoints covering 200/401/404/422/502 paths."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.token = Token.objects.create(user=self.user)
+        self.client = APIClient()
+
+    def _good_index_payload(self):
+        return {
+            "data": [
+                {
+                    "id": "2558",
+                    "type": "projects",
+                    "attributes": {"title": "A Project"},
+                    "links": {"self": "/projects/2558"}
+                }
+            ],
+            "jsonapi": {"version": "1.0"},
+            "links": {"self": "/projects?page[number]=1&page[size]=100"},
+            "meta": {"base_url": "http://localhost:3000", "api_version": "v1"}
+        }
+
+    def _good_single_payload(self, pid="2558"):
+        return {
+            "data": {
+                "id": pid,
+                "type": "projects",
+                "attributes": {"title": "A Project"},
+                "relationships": {
+                    "people": {"data": []},
+                    "projects": {"data": []},
+                    "institutions": {"data": []},
+                    "investigations": {"data": []},
+                    "studies": {"data": []},
+                    "assays": {"data": []},
+                    "data_files": {"data": []},
+                    "documents": {"data": []},
+                    "models": {"data": []},
+                    "sops": {"data": []},
+                    "publications": {"data": []},
+                    "presentations": {"data": []},
+                    "events": {"data": []},
+                    "workflows": {"data": []},
+                    "collections": {"data": []}
+                },
+                "links": {"self": f"/projects/{pid}"},
+                "meta": {}
+            },
+            "jsonapi": {"version": "1.0"}
+        }
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_projects_list_200(self, _auth):
+        from nextseek_api.services.projects import ProjectProxyViewSet
+        ProjectProxyViewSet.client.list_projects = Mock(return_value=(
+            json.dumps(self._good_index_payload()).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:projects-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    def test_projects_list_401(self, _auth):
+        url = reverse('nextseek_api:projects-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_projects_list_502_html(self, _auth):
+        from nextseek_api.services.projects import ProjectProxyViewSet
+        ProjectProxyViewSet.client.list_projects = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:projects-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.services.projects.DBtable_projects')
+    def test_projects_retrieve_200_numeric_uid(self, mock_dbp, _auth):
+        from nextseek_api.services.projects import ProjectProxyViewSet
+        # numeric uid bypasses DB
+        ProjectProxyViewSet.client.get_project = Mock(return_value=(
+            json.dumps(self._good_single_payload("2558")).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:projects-detail', kwargs={'uid': '2558'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.services.projects.DBtable_projects')
+    def test_projects_retrieve_404_string_uid_not_found(self, mock_dbp, _auth):
+        mock_dbp.return_value.queryRecordsByConstraint.return_value = []
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:projects-detail', kwargs={'uid': 'NotThere'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_projects_retrieve_502_html(self, _auth):
+        from nextseek_api.services.projects import ProjectProxyViewSet
+        ProjectProxyViewSet.client.get_project = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:projects-detail', kwargs={'uid': '2558'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_projects_create_422_invalid_body(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:projects-list')
+        bad_payload = {"data": {"type": "projects", "attributes": {}, "relationships": {}}}
+        resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_projects_create_201(self, _auth):
+        from nextseek_api.services.projects import ProjectProxyViewSet
+        ProjectProxyViewSet.client.create_project = Mock(return_value=(
+            json.dumps(self._good_single_payload("2559")).encode(), 201, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:projects-list')
+        payload = {"data": {"type": "projects", "attributes": {"title": "A Project"}}}
+        resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
+        self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_projects_patch_422_mismatched_id(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:projects-detail', kwargs={'uid': '2558'})
+        payload = {"data": {"type": "projects", "id": "999", "attributes": {"title": "x"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_projects_patch_404_no_resolution(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:projects-detail', kwargs={'uid': 'NotThere'})
+        payload = {"data": {"type": "projects", "attributes": {"title": "x"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_projects_patch_200(self, _auth):
+        from nextseek_api.services.projects import ProjectProxyViewSet
+        ProjectProxyViewSet.client.update_project = Mock(return_value=(
+            json.dumps(self._good_single_payload("2558")).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:projects-detail', kwargs={'uid': '2558'})
+        payload = {"data": {"type": "projects", "id": "2558", "attributes": {"title": "x"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    def test_projects_patch_401(self, _auth):
+        url = reverse('nextseek_api:projects-detail', kwargs={'uid': '2558'})
+        payload = {"data": {"type": "projects", "id": "2558", "attributes": {"title": "x"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_projects_patch_502_html(self, _auth):
+        from nextseek_api.services.projects import ProjectProxyViewSet
+        ProjectProxyViewSet.client.update_project = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:projects-detail', kwargs={'uid': '2558'})
+        payload = {"data": {"type": "projects", "id": "2558", "attributes": {"title": "x"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)

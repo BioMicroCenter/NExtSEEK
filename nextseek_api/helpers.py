@@ -95,3 +95,19 @@ class SeekAPIClient:
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
         return self._request('PATCH', f'/data_files/{data_file_id}', request, json=payload)
 
+    # ---- Projects endpoints ----
+
+    def list_projects(self, request, params: Optional[Dict[str, Any]] = None):
+        return self._request('GET', '/projects', request, params=params)
+
+    def get_project(self, request, project_id: str):
+        return self._request('GET', f'/projects/{project_id}', request)
+
+    def create_project(self, request, payload: Dict[str, Any]):
+        self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
+        return self._request('POST', '/projects', request, json=payload)
+
+    def update_project(self, request, project_id: str, payload: Dict[str, Any]):
+        self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
+        return self._request('PATCH', f'/projects/{project_id}', request, json=payload)
+
