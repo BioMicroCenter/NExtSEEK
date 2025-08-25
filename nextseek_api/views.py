@@ -36,6 +36,7 @@ from .services.data_files import DataFileProxyViewSet as DataFileViewSet
 from .services.projects import ProjectProxyViewSet as ProjectViewSet
 from .services.people import PeopleProxyViewSet as PeopleViewSet
 from .services.investigations import InvestigationProxyViewSet as InvestigationViewSet
+from .services.assays import AssayProxyViewSet as AssayViewSet
 
 
 def get_clade_color(sample_type):

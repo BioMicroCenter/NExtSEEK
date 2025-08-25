@@ -900,3 +900,201 @@ class InvestigationUpdateRequest(BaseModel):
             payload['data']['relationships'] = self.data.relationships.model_dump(exclude_none=True)
         payload['data']['type'] = INVESTIGATIONS_TYPE
         return payload
+
+
+# -----------------------------
+# Assays: constants
+# -----------------------------
+
+ASSAYS_TYPE = "assays"
+
+
+# -----------------------------
+# Assays: list/index models
+# -----------------------------
+
+class AssayIndexAttributes(BaseModel):
+    title: str
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AssayIndexItem(BaseModel):
+    id: str
+    type: Literal['assays']
+    attributes: AssayIndexAttributes
+    links: Links
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AssayListResponse(BaseModel):
+    data: List[AssayIndexItem]
+    jsonapi: JsonApiVersion
+    links: IndexLinks
+    meta: BaseMeta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# Assays: request models
+# -----------------------------
+
+class AssayClass(BaseModel):
+    # Restrict to EXP (experimental) or MOD (modelling)
+    key: Literal['EXP', 'MOD']
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class OntologyRef(BaseModel):
+    uri: str
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AssayPostAttributes(BaseModel):
+    title: str
+    description: Optional[str] = None
+    other_creators: Optional[str] = None
+    creators: Optional[List[Dict[str, Any]]] = None
+    assay_class: AssayClass
+    assay_type: OntologyRef
+    technology_type: Optional[OntologyRef] = None
+    policy: Optional[Dict[str, Any]] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    extended_attributes: Optional[Dict[str, Any]] = None
+    tags: Optional[List[str]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AssayPostRelationships(BaseModel):
+    study: SingleReference
+    creators: Optional[MultipleReferences] = None
+    publications: Optional[MultipleReferences] = None
+    data_files: Optional[MultipleReferences] = None
+    samples: Optional[MultipleReferences] = None
+    documents: Optional[MultipleReferences] = None
+    models: Optional[MultipleReferences] = None
+    sops: Optional[MultipleReferences] = None
+    organisms: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AssayPostData(BaseModel):
+    type: Literal['assays']
+    attributes: AssayPostAttributes
+    relationships: AssayPostRelationships
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AssayCreateRequest(BaseModel):
+    data: AssayPostData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload = self.model_dump(exclude_none=True)
+        payload['data']['type'] = ASSAYS_TYPE
+        return payload
+
+
+class AssayPatchAttributes(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    other_creators: Optional[str] = None
+    creators: Optional[List[Dict[str, Any]]] = None
+    assay_class: Optional[AssayClass] = None
+    assay_type: Optional[OntologyRef] = None
+    technology_type: Optional[OntologyRef] = None
+    policy: Optional[Dict[str, Any]] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    extended_attributes: Optional[Dict[str, Any]] = None
+    tags: Optional[List[str]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AssayPatchRelationships(BaseModel):
+    study: Optional[SingleReference] = None
+    creators: Optional[MultipleReferences] = None
+    publications: Optional[MultipleReferences] = None
+    data_files: Optional[MultipleReferences] = None
+    samples: Optional[MultipleReferences] = None
+    documents: Optional[MultipleReferences] = None
+    models: Optional[MultipleReferences] = None
+    sops: Optional[MultipleReferences] = None
+    organisms: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AssayPatchData(BaseModel):
+    id: str
+    type: Literal['assays']
+    attributes: Optional[AssayPatchAttributes] = None
+    relationships: Optional[AssayPatchRelationships] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AssayUpdateRequest(BaseModel):
+    data: AssayPatchData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"data": {"id": self.data.id, "type": self.data.type}}
+        if self.data.attributes is not None:
+            payload['data']['attributes'] = self.data.attributes.model_dump(exclude_none=True)
+        if self.data.relationships is not None:
+            payload['data']['relationships'] = self.data.relationships.model_dump(exclude_none=True)
+        payload['data']['type'] = ASSAYS_TYPE
+        return payload
+
+
+# -----------------------------
+# Assays: response models
+# -----------------------------
+
+class AssayRelationships(BaseModel):
+    creators: MultipleReferences
+    submitter: MultipleReferences
+    organisms: MultipleReferences
+    people: MultipleReferences
+    projects: MultipleReferences
+    investigation: SingleReference
+    study: SingleReference
+    data_files: MultipleReferences
+    samples: MultipleReferences
+    documents: MultipleReferences
+    models: MultipleReferences
+    sops: MultipleReferences
+    publications: MultipleReferences
+    placeholders: MultipleReferences
+    human_diseases: MultipleReferences
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AssayResponseData(BaseModel):
+    id: str
+    type: Literal['assays']
+    attributes: Dict[str, Any]
+    relationships: AssayRelationships
+    links: Links
+    meta: Meta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AssaySingleResponse(BaseModel):
+    data: AssayResponseData
+    jsonapi: Optional[JsonApiVersion] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
