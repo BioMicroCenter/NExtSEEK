@@ -1336,3 +1336,197 @@ class SampleTypeSingleResponse(BaseModel):
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
+
+# -----------------------------
+# Samples: constants
+# -----------------------------
+
+SAMPLES_TYPE = "samples"
+
+
+# -----------------------------
+# Samples: request models
+# -----------------------------
+
+
+class SamplePostAttributes(BaseModel):
+    title: str
+    tags: Optional[List[str]] = None
+    other_creators: Optional[str] = None
+    attribute_map: Optional[Dict[str, Any]] = None
+    policy: Optional[Dict[str, Any]] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    creators: Optional[List[Dict[str, Any]]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SamplePostRelationships(BaseModel):
+    sample_type: SingleReference
+    creators: Optional[MultipleReferences] = None
+    projects: Optional[MultipleReferences] = None
+    people: Optional[MultipleReferences] = None
+    data_files: Optional[MultipleReferences] = None
+    assays: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SamplePostData(BaseModel):
+    type: Literal['samples']
+    attributes: SamplePostAttributes
+    relationships: SamplePostRelationships
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleCreateRequest(BaseModel):
+    data: SamplePostData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self, db_resolver=None) -> Dict[str, Any]:
+        payload = self.model_dump(exclude_none=True)
+        # Guarantee JSON:API type constant
+        payload['data']['type'] = SAMPLES_TYPE
+
+        # Optionally normalize relationship ids via provided resolver
+        if db_resolver:
+            try:
+                rels = payload.get('data', {}).get('relationships', {})
+                for key, rel in list(rels.items()):
+                    if isinstance(rel, dict) and 'data' in rel:
+                        if isinstance(rel['data'], dict):
+                            ref = rel['data']
+                            rid = ref.get('id')
+                            rtype = ref.get('type')
+                            if rid is not None and isinstance(rid, str) and not rid.isdigit():
+                                mapped = db_resolver(rtype, rid)
+                                if mapped:
+                                    ref['id'] = str(mapped)
+                        elif isinstance(rel['data'], list):
+                            new_list = []
+                            for ref in rel['data']:
+                                rid = ref.get('id')
+                                rtype = ref.get('type')
+                                if rid is not None and isinstance(rid, str) and not rid.isdigit():
+                                    mapped = db_resolver(rtype, rid)
+                                    if mapped:
+                                        ref['id'] = str(mapped)
+                                new_list.append(ref)
+                            rel['data'] = new_list
+            except Exception:
+                # Best-effort normalization; ignore resolver errors
+                pass
+        return payload
+
+
+class SamplePatchAttributes(BaseModel):
+    title: Optional[str] = None
+    tags: Optional[List[str]] = None
+    other_creators: Optional[str] = None
+    attribute_map: Optional[Dict[str, Any]] = None
+    policy: Optional[Dict[str, Any]] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    creators: Optional[List[Dict[str, Any]]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SamplePatchRelationships(BaseModel):
+    sample_type: Optional[SingleReference] = None
+    creators: Optional[MultipleReferences] = None
+    projects: Optional[MultipleReferences] = None
+    people: Optional[MultipleReferences] = None
+    data_files: Optional[MultipleReferences] = None
+    assays: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SamplePatchData(BaseModel):
+    id: Optional[str] = None
+    type: Literal['samples']
+    attributes: Optional[SamplePatchAttributes] = None
+    relationships: Optional[SamplePatchRelationships] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleUpdateRequest(BaseModel):
+    data: SamplePatchData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self, db_resolver=None) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"data": {"type": SAMPLES_TYPE}}
+        if self.data.id is not None:
+            payload['data']['id'] = str(self.data.id)
+        if self.data.attributes is not None:
+            payload['data']['attributes'] = self.data.attributes.model_dump(exclude_none=True)
+        if self.data.relationships is not None:
+            payload['data']['relationships'] = self.data.relationships.model_dump(exclude_none=True)
+
+        # Optionally normalize relationship ids
+        if db_resolver and 'relationships' in payload['data']:
+            try:
+                rels = payload['data']['relationships']
+                for key, rel in list(rels.items()):
+                    if isinstance(rel, dict) and 'data' in rel:
+                        if isinstance(rel['data'], dict):
+                            ref = rel['data']
+                            rid = ref.get('id')
+                            rtype = ref.get('type')
+                            if rid is not None and isinstance(rid, str) and not rid.isdigit():
+                                mapped = db_resolver(rtype, rid)
+                                if mapped:
+                                    ref['id'] = str(mapped)
+                        elif isinstance(rel['data'], list):
+                            new_list = []
+                            for ref in rel['data']:
+                                rid = ref.get('id')
+                                rtype = ref.get('type')
+                                if rid is not None and isinstance(rid, str) and not rid.isdigit():
+                                    mapped = db_resolver(rtype, rid)
+                                    if mapped:
+                                        ref['id'] = str(mapped)
+                                new_list.append(ref)
+                            rel['data'] = new_list
+            except Exception:
+                pass
+        return payload
+
+
+# -----------------------------
+# Samples: response models
+# -----------------------------
+
+
+class SampleRelationships(BaseModel):
+    sample_type: SingleReference
+    creators: MultipleReferences
+    projects: MultipleReferences
+    people: MultipleReferences
+    assays: MultipleReferences
+    data_files: MultipleReferences
+
+    model_config = ConfigDict(extra='allow', validate_default=True)
+
+
+class SampleResponseData(BaseModel):
+    id: str
+    type: Literal['samples']
+    attributes: Dict[str, Any]
+    relationships: SampleRelationships
+    links: Links
+    meta: Meta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleSingleResponse(BaseModel):
+    data: SampleResponseData
+    jsonapi: Optional[JsonApiVersion] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
