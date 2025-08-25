@@ -17,6 +17,7 @@ router.register(r"admin/samples", views.AdminSampleViewSet, basename="admin-samp
 router.register(r"sops", views.SopViewSet, basename="sops")
 router.register(r"data_files", views.DataFileViewSet, basename="data_files")
 router.register(r"projects", views.ProjectViewSet, basename="projects")
+router.register(r"people", views.PeopleViewSet, basename="people")
 
 urlpatterns = [
     # OpenAPI Schema Documentation

@@ -111,3 +111,19 @@ class SeekAPIClient:
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
         return self._request('PATCH', f'/projects/{project_id}', request, json=payload)
 
+    # ---- People endpoints ----
+
+    def list_people(self, request, params: Optional[Dict[str, Any]] = None):
+        return self._request('GET', '/people', request, params=params)
+
+    def get_person(self, request, person_id: str):
+        return self._request('GET', f'/people/{person_id}', request)
+
+    def create_person(self, request, payload: Dict[str, Any]):
+        self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
+        return self._request('POST', '/people', request, json=payload)
+
+    def update_person(self, request, person_id: str, payload: Dict[str, Any]):
+        self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
+        return self._request('PATCH', f'/people/{person_id}', request, json=payload)
+

@@ -1145,6 +1145,184 @@ class ProjectProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
+
+class PeopleProxyViewSetTests(APITestCase):
+    """Tests for People proxy covering 200/201/401/404/422/502 paths."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.token = Token.objects.create(user=self.user)
+        self.client = APIClient()
+
+    def _good_index_payload(self):
+        return {
+            "data": [
+                {
+                    "id": "1652",
+                    "type": "people",
+                    "attributes": {"title": "Doe, John"},
+                    "links": {"self": "/people/1652"}
+                }
+            ],
+            "jsonapi": {"version": "1.0"},
+            "links": {"self": "/people?page[number]=1&page[size]=100"},
+            "meta": {"base_url": "http://localhost:3000", "api_version": "v1"}
+        }
+
+    def _good_single_payload(self, pid="1652"):
+        return {
+            "data": {
+                "id": pid,
+                "type": "people",
+                "attributes": {"title": "Doe, John", "mbox_sha1sum": "abc123"},
+                "relationships": {
+                    "projects": {"data": []},
+                    "institutions": {"data": []},
+                    "investigations": {"data": []},
+                    "studies": {"data": []},
+                    "assays": {"data": []},
+                    "data_files": {"data": []},
+                    "documents": {"data": []},
+                    "models": {"data": []},
+                    "sops": {"data": []},
+                    "publications": {"data": []},
+                    "events": {"data": []},
+                    "presentations": {"data": []},
+                    "collections": {"data": []},
+                    "workflows": {"data": []}
+                },
+                "links": {"self": f"/people/{pid}"},
+                "meta": {}
+            },
+            "jsonapi": {"version": "1.0"}
+        }
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_people_list_200(self, _auth):
+        from nextseek_api.services.people import PeopleProxyViewSet
+        PeopleProxyViewSet.client.list_people = Mock(return_value=(
+            json.dumps(self._good_index_payload()).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:people-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    def test_people_list_401(self, _auth):
+        url = reverse('nextseek_api:people-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_people_list_502_html(self, _auth):
+        from nextseek_api.services.people import PeopleProxyViewSet
+        PeopleProxyViewSet.client.list_people = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:people-list')
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_people_retrieve_200_numeric_uid(self, _auth):
+        from nextseek_api.services.people import PeopleProxyViewSet
+        PeopleProxyViewSet.client.get_person = Mock(return_value=(
+            json.dumps(self._good_single_payload("1652")).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:people-detail', kwargs={'uid': '1652'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.services.people.DBtable_people')
+    def test_people_retrieve_404_string_uid_not_found(self, mock_dbp, _auth):
+        mock_dbp.return_value.queryRecordsByConstraint.return_value = []
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:people-detail', kwargs={'uid': 'NotThere'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_people_retrieve_502_html(self, _auth):
+        from nextseek_api.services.people import PeopleProxyViewSet
+        PeopleProxyViewSet.client.get_person = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:people-detail', kwargs={'uid': '1652'})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_people_create_201(self, _auth):
+        from nextseek_api.services.people import PeopleProxyViewSet
+        PeopleProxyViewSet.client.create_person = Mock(return_value=(
+            json.dumps(self._good_single_payload("1700")).encode(), 201, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:people-list')
+        payload = {"data": {"type": "people", "attributes": {"first_name": "Post", "last_name": "User", "email": "x@y"}}}
+        resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
+        self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_people_create_422_invalid_body(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:people-list')
+        bad_payload = {"data": {"type": "people", "attributes": {}}}
+        resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_people_patch_200(self, _auth):
+        from nextseek_api.services.people import PeopleProxyViewSet
+        PeopleProxyViewSet.client.update_person = Mock(return_value=(
+            json.dumps(self._good_single_payload("1652")).encode(), 200, {"Content-Type": "application/json"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:people-detail', kwargs={'uid': '1652'})
+        payload = {"data": {"type": "people", "id": "1652", "attributes": {"first_name": "Patched"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_people_patch_422_mismatched_id(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:people-detail', kwargs={'uid': '1652'})
+        payload = {"data": {"type": "people", "id": "999", "attributes": {"first_name": "Patched"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_people_patch_404_no_resolution(self, _auth):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:people-detail', kwargs={'uid': 'NotThere'})
+        payload = {"data": {"type": "people", "attributes": {"first_name": "Patched"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    def test_people_patch_401(self, _auth):
+        url = reverse('nextseek_api:people-detail', kwargs={'uid': '1652'})
+        payload = {"data": {"type": "people", "id": "1652", "attributes": {"first_name": "Patched"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    def test_people_patch_502_html(self, _auth):
+        from nextseek_api.services.people import PeopleProxyViewSet
+        PeopleProxyViewSet.client.update_person = Mock(return_value=(
+            b"<html>login</html>", 200, {"Content-Type": "text/html"}, Mock()
+        ))
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:people-detail', kwargs={'uid': '1652'})
+        payload = {"data": {"type": "people", "id": "1652", "attributes": {"first_name": "Patched"}}}
+        resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
+
     @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
     @patch('nextseek_api.services.projects.DBtable_projects')
     def test_projects_retrieve_200_numeric_uid(self, mock_dbp, _auth):

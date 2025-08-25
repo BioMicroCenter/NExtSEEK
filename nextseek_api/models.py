@@ -626,3 +626,133 @@ class ProjectUpdateRequest(BaseModel):
             payload['data']['relationships'] = self.data.relationships.model_dump(exclude_none=True)
         return payload
 
+
+# -----------------------------
+# People: constants
+# -----------------------------
+
+PEOPLE_TYPE = "people"
+
+
+# -----------------------------
+# People: list/index models
+# -----------------------------
+
+class PersonIndexAttributes(BaseModel):
+    title: str
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class PersonIndexItem(BaseModel):
+    id: str
+    type: Literal['people']
+    attributes: PersonIndexAttributes
+    links: Links
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class PersonListResponse(BaseModel):
+    data: List[PersonIndexItem]
+    jsonapi: JsonApiVersion
+    links: IndexLinks
+    meta: BaseMeta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# People: detail models
+# -----------------------------
+
+class PersonResponseData(BaseModel):
+    id: str
+    type: Literal['people']
+    attributes: Dict[str, Any]
+    relationships: Dict[str, Any]
+    links: Links
+    meta: Meta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class PersonSingleResponse(BaseModel):
+    data: PersonResponseData
+    jsonapi: Optional[JsonApiVersion] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# People: request models
+# -----------------------------
+
+class PersonPostAttributes(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
+    description: Optional[str] = None
+    web_page: Optional[str] = None
+    orcid: Optional[str] = None
+    expertise: Optional[List[str]] = None
+    tools: Optional[List[str]] = None
+    phone: Optional[str] = None
+    skype_name: Optional[str] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class PersonPostData(BaseModel):
+    type: Literal['people']
+    attributes: PersonPostAttributes
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class PersonCreateRequest(BaseModel):
+    data: PersonPostData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload = self.model_dump(exclude_none=True)
+        payload['data']['type'] = PEOPLE_TYPE
+        return payload
+
+
+class PersonPatchAttributes(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    description: Optional[str] = None
+    web_page: Optional[str] = None
+    orcid: Optional[str] = None
+    expertise: Optional[List[str]] = None
+    tools: Optional[List[str]] = None
+    phone: Optional[str] = None
+    skype_name: Optional[str] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class PersonPatchData(BaseModel):
+    id: Optional[str] = None
+    type: Literal['people']
+    attributes: Optional[PersonPatchAttributes] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class PersonUpdateRequest(BaseModel):
+    data: PersonPatchData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"data": {"type": PEOPLE_TYPE}}
+        if self.data.id is not None:
+            payload['data']['id'] = str(self.data.id)
+        if self.data.attributes is not None:
+            payload['data']['attributes'] = self.data.attributes.model_dump(exclude_none=True)
+        return payload
