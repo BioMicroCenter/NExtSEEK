@@ -30,7 +30,13 @@ from seek.views import get_children_uids, sample_retrieval_data
 SEEK_DATABASE = 'default'
 
 # Import serializers
-from .serializers import SampleTreeSerializer, SampleNodeSerializer, AdminRetrieveRequestSerializer
+from .serializers import (
+    SampleTreeSerializer,
+    SampleNodeSerializer,
+    AdminRetrieveRequestSerializer,
+    SampleRetrieveRequestSerializer,
+    SampleAdvancedRetrieveRequestSerializer,
+)
 from .services.sops import SopProxyViewSet as SopViewSet
 from .services.data_files import DataFileProxyViewSet as DataFileViewSet
 from .services.projects import ProjectProxyViewSet as ProjectViewSet
@@ -425,9 +431,33 @@ class SampleQueryViewSet(viewsets.GenericViewSet):
     
     @extend_schema(
         responses={200: OpenApiTypes.OBJECT},
-        description="Retrieve samples with pagination"
+        description="Advanced sample retrieval via stable SQL path (FILTERING).",
+        request=SampleAdvancedRetrieveRequestSerializer,
+        tags=['Samples'],
+        examples=[
+            OpenApiExample(
+                name="Keyword within json_metadata",
+                value={
+                    "sampletype_id": 12,
+                    "attribute": "none",
+                    "filter_valueFrom": "SARS-CoV-2",
+                    "project_id": 0
+                }
+            ),
+            OpenApiExample(
+                name="Attribute-based range",
+                value={
+                    "sampletype_id": 12,
+                    "attribute": "CollectionDate",
+                    "filter_rule": "range",
+                    "filter_valueFrom": "2023-01-01",
+                    "filter_valueTo": "2023-12-31",
+                    "project_id": 0
+                }
+            ),
+        ],
     )
-    @action(detail=False, methods=["get"], url_path="retrieve")
+    @action(detail=False, methods=["post"], url_path="retrieve")
     def retrieve_samples(self, request):
         """
         Extract core logic from retrieveSamples function.
@@ -444,25 +474,42 @@ class SampleQueryViewSet(viewsets.GenericViewSet):
         
         dbsample = DBtable_sample()
         try:
-            reportData = dbsample.processRecords(request, user_seek, "retrieve")
+            # Validate advanced search body
+            params = SampleAdvancedRetrieveRequestSerializer(data=request.data)
+            params.is_valid(raise_exception=True)
+            body = params.validated_data
+
+            # Build filters expected by __parseSearchFilters for searchType "FILTERING"
+            filters = {
+                'sampletype_id': body.get('sampletype_id'),
+                'attribute': body.get('attribute', 'none') or 'none',
+                'filter_rule': body.get('filter_rule'),
+                'filter_valueFrom': body.get('filter_valueFrom'),
+                'filter_valueTo': body.get('filter_valueTo'),
+            }
+            project_id = int(body.get('project_id') or 0)
+
+            # Execute advanced retrieval (stable SQL path) and return JSON
+            reportData = dbsample.searchAdvanced(user_seek, filters, 'FILTERING', project_id)
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        # Convert HttpResponse data to DRF Response with pagination
+        # Convert underlying JSON string to DRF Response
         try:
-            data = json.loads(reportData)  # Parse the JSON string
-            
-            # Apply pagination
-            paginator = self.pagination_class()
-            if isinstance(data, list):
-                page = paginator.paginate_queryset(data, request)
-                return paginator.get_paginated_response(page)
-            else:
-                return Response(data, status=status.HTTP_200_OK)
-                
+            payload = json.loads(reportData)
         except json.JSONDecodeError:
-            # If reportData is not JSON, return as-is
             return Response({"data": reportData}, status=status.HTTP_200_OK)
+
+        # Paginate rows array if present
+        if isinstance(payload, dict) and isinstance(payload.get('rows'), list):
+            paginator = self.pagination_class()
+            page = paginator.paginate_queryset(payload['rows'], request)
+            # Keep other keys (e.g., msg/status) while replacing rows with the page
+            paginated_payload = {k: v for k, v in payload.items() if k != 'rows'}
+            paginated_payload['rows'] = page
+            return paginator.get_paginated_response(paginated_payload['rows'])
+
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 class AdminSampleViewSet(viewsets.GenericViewSet):

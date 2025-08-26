@@ -85,3 +85,35 @@ class AdminRetrieveRequestSerializer(serializers.Serializer):
     uids = serializers.ListField(child=serializers.CharField(), required=False)
     retrieval_uids_text = serializers.CharField(required=False, allow_blank=True)
 
+
+class DataGridFilterRuleSerializer(serializers.Serializer):
+    """DataGrid-style filter rule used by legacy retrieval.
+    Example: {"field": "sample_type_id", "op": "equal", "value": 12}
+    """
+    field = serializers.CharField()
+    op = serializers.CharField()
+    value = serializers.CharField(allow_blank=True)
+
+
+class SampleRetrieveRequestSerializer(serializers.Serializer):
+    """Request body for sample retrieval with filters and optional paging.
+    Mirrors legacy DataGrid filters expected by DBtable.processRecords.
+    """
+    filterRules = serializers.ListField(child=DataGridFilterRuleSerializer(), required=False)
+    sampletype_id = serializers.IntegerField(required=False)
+    page = serializers.IntegerField(required=False, min_value=1)
+    rows = serializers.IntegerField(required=False, min_value=1)
+
+
+class SampleAdvancedRetrieveRequestSerializer(serializers.Serializer):
+    """Advanced search request mapped to DBtable_sample.searchAdvanced(FILTERING).
+    - If attribute == 'none', filter_valueFrom is used as a keyword against json_metadata.
+    - If attribute != 'none', include filter_rule and value range as needed.
+    """
+    sampletype_id = serializers.IntegerField()
+    attribute = serializers.CharField(required=False, allow_blank=True, default='none')
+    filter_rule = serializers.CharField(required=False, allow_blank=True)
+    filter_valueFrom = serializers.CharField(required=False, allow_blank=True)
+    filter_valueTo = serializers.CharField(required=False, allow_blank=True)
+    project_id = serializers.IntegerField(required=False, default=0)
+
