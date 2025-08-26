@@ -45,6 +45,7 @@ from .services.investigations import InvestigationProxyViewSet as InvestigationV
 from .services.assays import AssayProxyViewSet as AssayViewSet
 from .services.sample_types import SampleTypeProxyViewSet as SampleTypeViewSet
 from .services.samples import SampleProxyViewSet as SampleViewSet
+from .services.samples import _resolve_uid_to_seek_id
 
 
 def get_clade_color(sample_type):
@@ -69,164 +70,67 @@ def get_clade_color(sample_type):
     conn.close()
     return color
 
-
-class SampleTreeByIDViewSet(viewsets.GenericViewSet):
+class SampleTreeViewSet(viewsets.GenericViewSet):
     """
-    ViewSet for sample tree retrieval by numeric ID.
-    Extracts core logic from sampleTreeNew function to avoid authentication bypass.
+    ViewSet for sample tree retrieval by SEEK id (numeric) or Sample UID (string).
+    Mirrors SampleProxyViewSet resolution behavior.
     """
     permission_classes = [IsAuthenticated]
-    lookup_field = 'pk'
-    
+    lookup_field = 'uid'
+    lookup_url_kwarg = 'uid'
+    lookup_value_regex = r'[^/]+'
+
     @extend_schema(
-        operation_id="Get Sample Tree",
-        description="Get sample tree by numeric ID",
+        operation_id="Get Sample Tree by id or uid",
+        description="Get sample tree by SEEK id (numeric) or Sample UID (string)",
         tags=['Samples'],
         responses={200: SampleTreeSerializer()},
         parameters=[
             OpenApiParameter(
-                name='id',
-                type=int,
-                location=OpenApiParameter.PATH,
-                description='Numeric sample ID'
-            )
-        ],
-        examples=[
-            OpenApiExample(
-                name="Sample Tree Response",
-                value=[
-                    {
-                        "id": "123",
-                        "uuid": "abc-def-123",
-                        "type": "Sample",
-                        "color": "#FF0000",
-                        "parentIds": ["456"]
-                    }
-                ]
-            )
-        ]
-    )
-    @action(detail=True, methods=["get"], url_path="tree")
-    def get_tree(self, request, pk=None):
-        """
-        Extract core Neo4j logic from legacy sampleTreeNew function.
-        Handle authentication at ViewSet level instead of function decorators.
-        """
-        # Validate user authentication (handled by ViewSet permission_classes)
-        seekdb = SeekDB(None, None, None)
-        user_seek = seekdb.getSeekLogin(request, False)
-        # Fallback: if SEEK session missing but DRF auth is valid, allow read-only
-        if not user_seek.get('status') and not request.user.is_authenticated:
-            return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
-
-        # Core Neo4j logic extracted from sampleTreeNew (lines 1883-1917)
-        NEO4J_DATABASE = settings.NEO4J_DATABASE
-        with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
-            r = driver.execute_query("""
-            MATCH (s: Sample {id: """ + str(pk) + """})
-            MATCH parents=(s)-[r1:CHILD_OF*0..]->(parent)
-            MATCH children=(s)<-[r2:CHILD_OF*0..]-(child)
-            RETURN collect(DISTINCT s) + collect(DISTINCT parent) + collect(DISTINCT child) AS nodes, r1 + r2 AS relationships
-            """,
-            result_transformer_=neo4j.Result.graph,
-            database_=NEO4J_DATABASE['NAME'])
-
-            nodeDict = {}
-            for node in r.nodes:
-                nodeUid = node._properties['uuid']
-                nodeId = node._properties['id']
-                nodeType = node._properties['type']
-                nodeDict[nodeUid] = {'id': str(nodeId), 'type': nodeType, 'parents': []}
-
-            for rel in r.relationships:
-                nodeId = str(rel.start_node._properties['id'])
-                nodeUid = rel.start_node._properties['uuid']
-                nodeType = rel.start_node._properties['type']
-                parentId = str(rel.end_node._properties['id'])
-
-                if nodeDict.get(nodeUid) is not None:
-                    nodeDict[nodeUid]['parents'].append(parentId)
-                else:
-                    nodeDict[nodeUid]['parents'] = [parentId]
-
-            data = []
-            for k, v in nodeDict.items():
-                color = get_clade_color(v['type'])
-                data.append({
-                    "id": v['id'], 
-                    "uuid": k, 
-                    "type": v['type'], 
-                    "color": color, 
-                    "parentIds": v['parents']
-                })
-
-            return Response(data, status=status.HTTP_200_OK)
-
-
-class SampleTreeByUUIDViewSet(viewsets.GenericViewSet):
-    """
-    ViewSet for sample tree retrieval by UUID.
-    Separate ViewSet to avoid routing conflicts with numeric IDs.
-    """
-    permission_classes = [IsAuthenticated]
-    lookup_field = 'uuid'
-    lookup_value_regex = '[0-9A-Fa-f-]{36}'
-    
-    @extend_schema(
-        operation_id="Get Sample Tree by UUID",
-        description="Get sample tree by UUID",
-        tags=['Samples'],
-        responses={200: SampleTreeSerializer()},
-        parameters=[
-            OpenApiParameter(
-                name='uuid',
+                name='uid',
                 type=str,
                 location=OpenApiParameter.PATH,
-                description='Sample UUID (36-character format)'
+                description='SEEK id (numeric) or Sample UID (string)'
             )
         ],
         examples=[
             OpenApiExample(
-                name="Sample Tree Response", 
-                value=[
-                    {
-                        "id": "123",
-                        "uuid": "abc-def-123",
-                        "type": "Sample",
-                        "color": "#FF0000",
-                        "parentIds": ["456"]
-                    }
-                ]
-            )
+                name="Tree by numeric id",
+                value={"uid": "123"}
+            ),
+            OpenApiExample(
+                name="Tree by UID",
+                value={"uid": "ABC-DEF-UUID"}
+            ),
         ]
     )
     @action(detail=True, methods=["get"], url_path="tree")
-    def get_tree(self, request, uuid=None):
-        """
-        Extract core logic from legacy sampleTreeNewUID function.
-        Convert UUID to sample_id then execute Neo4j query.
-        """
+    def get_tree(self, request, uid=None, pk=None):
+        """Resolve uid to SEEK id when needed, then run the Neo4j tree query."""
         # Validate user authentication
         seekdb = SeekDB(None, None, None)
         user_seek = seekdb.getSeekLogin(request, False)
-        # Fallback: if SEEK session missing but DRF auth is valid, allow read-only
         if not user_seek.get('status') and not request.user.is_authenticated:
             return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # Core logic extracted from sampleTreeNewUID (lines 1928-1965)
-        dbsample = DBtable_sample()
-        sample_id = dbsample.getSampleID(uuid)
-        
+        # Resolve to numeric sample_id
+        path_value = uid or pk
+        seek_id = _resolve_uid_to_seek_id(str(path_value))
+        if seek_id is None:
+            return Response({"detail": "Sample not found"}, status=status.HTTP_404_NOT_FOUND)
+
         NEO4J_DATABASE = settings.NEO4J_DATABASE
         with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
-            r = driver.execute_query("""
-            MATCH (s: Sample {id: """ + str(sample_id) + """})
-            MATCH parents=(s)-[r1:CHILD_OF*0..]->(parent)
-            MATCH children=(s)<-[r2:CHILD_OF*0..]-(child)
-            RETURN collect(DISTINCT s) + collect(DISTINCT parent) + collect(DISTINCT child) AS nodes, r1 + r2 AS relationships
-            """,
-            result_transformer_=neo4j.Result.graph,
-            database_=NEO4J_DATABASE['NAME'])
+            r = driver.execute_query(
+                """
+                MATCH (s: Sample {id: """ + str(seek_id) + """})
+                MATCH parents=(s)-[r1:CHILD_OF*0..]->(parent)
+                MATCH children=(s)<-[r2:CHILD_OF*0..]-(child)
+                RETURN collect(DISTINCT s) + collect(DISTINCT parent) + collect(DISTINCT child) AS nodes, r1 + r2 AS relationships
+                """,
+                result_transformer_=neo4j.Result.graph,
+                database_=NEO4J_DATABASE['NAME']
+            )
 
             nodeDict = {}
             for node in r.nodes:
@@ -250,15 +154,14 @@ class SampleTreeByUUIDViewSet(viewsets.GenericViewSet):
             for k, v in nodeDict.items():
                 color = get_clade_color(v['type'])
                 data.append({
-                    "id": v['id'], 
-                    "uuid": k, 
-                    "type": v['type'], 
-                    "color": color, 
+                    "id": v['id'],
+                    "uuid": k,
+                    "type": v['type'],
+                    "color": color,
                     "parentIds": v['parents']
                 })
 
             return Response(data, status=status.HTTP_200_OK)
-
 
 class NHPViewSet(viewsets.GenericViewSet):
     """

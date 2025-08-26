@@ -9,9 +9,8 @@ app_name = "nextseek_api"
 router = DefaultRouter()
 
 # Register all ViewSets created in Phase 3:
-# Existing tree/legacy endpoints remain
-router.register(r"samples", views.SampleTreeByIDViewSet, basename="samples-by-id")
-router.register(r"samples-uuid", views.SampleTreeByUUIDViewSet, basename="samples-by-uuid")  
+# Existing tree/legacy endpoints remain 
+router.register(r"sample-tree", views.SampleTreeViewSet, basename="sample-tree")
 router.register(r"nhp", views.NHPViewSet, basename="nhp")
 router.register(r"sample-queries", views.SampleQueryViewSet, basename="sample-queries")
 router.register(r"admin/samples", views.AdminSampleViewSet, basename="admin-samples")
@@ -22,7 +21,7 @@ router.register(r"people", views.PeopleViewSet, basename="people")
 router.register(r"investigations", views.InvestigationViewSet, basename="investigations")
 router.register(r"assays", views.AssayViewSet, basename="assays")
 router.register(r"sample_types", views.SampleTypeViewSet, basename="sample_types")
-router.register(r"samples-proxy", views.SampleViewSet, basename="samples")
+router.register(r"samples", views.SampleViewSet, basename="samples")
 
 urlpatterns = [
     # OpenAPI Schema Documentation
