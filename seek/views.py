@@ -67,7 +67,7 @@ from .dbtable_attributetype import DBtable_attributetype
 from .dbtable_projects import DBtable_projects
 
 from rest_framework.decorators import authentication_classes
-from rest_framework.authentication import TokenAuthentication,SessionAuthentication
+from rest_framework.authentication import BasicAuthentication, TokenAuthentication,SessionAuthentication
 from rest_framework.decorators import api_view
 from rest_framework.decorators import permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -1854,13 +1854,13 @@ def adminRetrieveSamples(request):
             return render(request, "admin_retrieval.html")
 
 @api_view(['GET'])
-@authentication_classes([TokenAuthentication, SessionAuthentication])
+@authentication_classes([BasicAuthentication, TokenAuthentication, SessionAuthentication])
 def sampleTreeNew(request, sample_id):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        url_redirect = '/login/?next=/seek/templates'
-        return HttpResponseRedirect(url_redirect)
+      url_redirect = '/login/?next=/seek/templates'
+      return HttpResponseRedirect(url_redirect)
 
     NEO4J_DATABASE = settings.NEO4J_DATABASE
     with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
@@ -1899,7 +1899,7 @@ def sampleTreeNew(request, sample_id):
         return Response(data, status=status.HTTP_200_OK)
 
 @api_view(['GET'])
-@authentication_classes([TokenAuthentication, SessionAuthentication])
+@authentication_classes([BasicAuthentication, TokenAuthentication, SessionAuthentication])
 def sampleTreeNewUID(request, uid):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
