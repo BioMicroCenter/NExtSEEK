@@ -4,6 +4,7 @@ import json
 import logging
 from django.http import HttpResponse
 from rest_framework import viewsets
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from pydantic import ValidationError
 from django.conf import settings
@@ -43,6 +44,7 @@ def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
 
 
 class SampleProxyViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
     client = SeekAPIClient()
     lookup_field = 'uid'
     lookup_url_kwarg = 'uid'

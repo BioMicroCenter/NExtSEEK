@@ -196,7 +196,7 @@ if DJANGO_VERSION < (1, 9):
 
 INSTALLED_APPS = (
     "seek",
-    'themes.SmartAdmin',
+    "themes.SmartAdmin",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -217,21 +217,24 @@ INSTALLED_APPS = (
     "mezzanine.galleries",
     "mezzanine.twitter",
     "mezzanine.accounts",
-    'widget_tweaks',
+    "widget_tweaks",
 
-    'django_crontab',
-    'rest_framework',
-    'rest_framework.authtoken',
-    'dj_rest_auth',
-    'api_app',
-    'drf_spectacular',
-    'drf_spectacular_sidecar',
+    "django_crontab",
+    "rest_framework",
+    "rest_framework.authtoken",
+    "dj_rest_auth",
+    "api_app",
+    "drf_spectacular",
+    "drf_spectacular_sidecar",
+    "corsheaders",
 )
 
 # List of middleware classes to use. Order is important; in the request phase,
 # these middleware classes will be applied in the order given, and in the
 # response phase the middleware will be applied in reverse order.
 MIDDLEWARE = (
+    "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.common.CommonMiddleware",
     "mezzanine.core.middleware.UpdateCacheMiddleware",
 
     'django.contrib.sessions.middleware.SessionMiddleware',

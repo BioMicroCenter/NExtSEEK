@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 import json
 from django.http import HttpResponse
 from rest_framework import viewsets, status
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 
@@ -35,6 +36,7 @@ def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
 
 
 class SopProxyViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
     client = SeekAPIClient()
     # Ensure router renders /sops/{uid}
     lookup_field = 'uid'

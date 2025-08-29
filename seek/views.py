@@ -1978,6 +1978,7 @@ def projects(request):
                                                      'seek_hostname': SEEK_HOSTNAME})
 
 def project_page(request, project_id):
+    logger.debug(f"REQUEST: {request.__dict__}")
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
 

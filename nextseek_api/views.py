@@ -46,6 +46,7 @@ from .services.assays import AssayProxyViewSet as AssayViewSet
 from .services.sample_types import SampleTypeProxyViewSet as SampleTypeViewSet
 from .services.samples import SampleProxyViewSet as SampleViewSet
 from .services.samples import _resolve_uid_to_seek_id
+from .helpers import resolve_seek_auth
 
 
 def get_clade_color(sample_type):
@@ -107,10 +108,9 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
     @action(detail=True, methods=["get"], url_path="tree")
     def get_tree(self, request, uid=None, pk=None):
         """Resolve uid to SEEK id when needed, then run the Neo4j tree query."""
-        # Validate user authentication
-        seekdb = SeekDB(None, None, None)
-        user_seek = seekdb.getSeekLogin(request, False)
-        if not user_seek.get('status') and not request.user.is_authenticated:
+        # Validate user authentication: allow BASIC header or session; no token here
+        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+        if not basic_tuple and not request.user.is_authenticated:
             return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
 
         # Resolve to numeric sample_id
@@ -367,9 +367,9 @@ class SampleQueryViewSet(viewsets.GenericViewSet):
         Convert HttpResponse to DRF Response and add pagination.
         """
         # Core logic extracted from retrieveSamples (lines 892-896)
-        seekdb = SeekDB(None, None, None)
-        user_seek = seekdb.getSeekLogin(request, False)
-        if not user_seek['status']:
+        # Gate using BASIC header or session only (no token)
+        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+        if not basic_tuple:
             return Response(
                 {"detail": "Authentication required"}, 
                 status=status.HTTP_401_UNAUTHORIZED
@@ -393,6 +393,13 @@ class SampleQueryViewSet(viewsets.GenericViewSet):
             project_id = int(body.get('project_id') or 0)
 
             # Execute advanced retrieval (stable SQL path) and return JSON
+            # Reconstruct minimal user_seek dict required by legacy code when using BASIC header
+            if isinstance(basic_tuple, tuple):
+                user_seek = {'status': True, 'username': basic_tuple[0], 'password': basic_tuple[1]}
+            else:
+                seekdb = SeekDB(None, None, None)
+                user_seek = seekdb.getSeekLogin(request, False)
+
             reportData = dbsample.searchAdvanced(user_seek, filters, 'FILTERING', project_id)
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -436,9 +443,9 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=["post"], url_path="retrieve")
     def admin_retrieve_samples(self, request):
         """Admin export: accepts UIDs, returns an Excel workbook of metadata."""
-        seekdb = SeekDB(None, None, None)
-        user_seek = seekdb.getSeekLogin(request, False)
-        if not user_seek.get('status'):
+        # Gate using BASIC header or session only (no token)
+        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+        if not basic_tuple:
             return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
 
         # Extract UIDs from JSON body or form-encoded fallbacks
@@ -453,6 +460,7 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
             return Response({"detail": "retrieval_uids required"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Project scope and admin flag mirroring legacy behavior
+        seekdb = SeekDB(None, None, None)
         try:
             user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
             user_project_ids = list(map(lambda x: x['id'], user_projects))

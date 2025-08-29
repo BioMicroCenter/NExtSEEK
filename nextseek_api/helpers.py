@@ -1,6 +1,7 @@
 import time
 import logging
-from typing import Any, Dict, Optional, Tuple
+import base64
+from typing import Any, Dict, Optional, Tuple, List
 
 import requests
 from django.conf import settings
@@ -12,14 +13,83 @@ log = logging.getLogger(__name__)
 
 JSONAPI_ACCEPT = 'application/vnd.api+json'
 
+def get_basic_auth(request) -> Optional[Tuple[str, str]]:
+    try:
+        auth_header = request.META.get('HTTP_AUTHORIZATION') or ''
+        if not auth_header.lower().startswith('basic '):
+            return None
+        encoded_credentials = auth_header.split(' ', 1)[1]
+        decoded = base64.b64decode(encoded_credentials).decode("utf-8")
+        # Only split on the first colon to allow colons in password
+        username, password = decoded.split(':', 1)
+        return username, password
+    except Exception:
+        return None
+
 
 def get_auth(request) -> Optional[Tuple[str, str]]:
-    """Return (username, password) for the current SEEK user, or None if unauthenticated."""
+    """Return (username, password) for the current SEEK user session, or None if unauthenticated.
+
+    Note: This does NOT consider Token auth or direct Basic headers. Use resolve_seek_auth
+    when you need to consider multiple upstream auth sources.
+    """
     seekdb = SeekDB(None, None, None)
     user = seekdb.getSeekLogin(request, False)
     if not user or not user.get('status'):
         return None
     return user['username'], user['password']
+
+
+def get_token_auth(request) -> Optional[str]:
+    try:
+        # Prefer SEEK-specific header if you decide to introduce it in the future:
+        h = request.META.get('HTTP_X_SEEK_AUTHORIZATION') or ''
+        if not h:
+            h = request.META.get('HTTP_AUTHORIZATION') or ''
+        low = h.lower()
+        if low.startswith('token ') or low.startswith('bearer '):
+            val = h.split(' ', 1)[1].strip()
+            # Remove optional surrounding quotes from Swagger inputs
+            if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                val = val[1:-1].strip()
+            return val
+    except Exception:
+        pass
+    return None
+
+
+def resolve_seek_auth(request, order: Optional[List[str]] = None) -> Tuple[Optional[Tuple[str, str]], Optional[Dict[str, str]]]:
+    """
+    Determine how to authenticate to SEEK for this incoming request.
+
+    Returns a tuple: (basic_tuple, extra_headers)
+    - basic_tuple: (username, password) when using Basic auth (session or header)
+    - extra_headers: {'Authorization': 'Token <token>'} when using Token auth
+
+    order controls which sources to try first. Allowed entries:
+      - "BASIC": try HTTP Basic Authorization header
+      - "SESSION": try session-derived Basic (SeekDB)
+      - "TOKEN": try HTTP Token Authorization header
+
+    Default order is ["BASIC", "SESSION", "TOKEN"].
+    """
+    order = order or ["BASIC", "SESSION", "TOKEN"]
+
+    for method in order:
+        if method == "BASIC":
+            basic = get_basic_auth(request)
+            if basic and basic[0] and basic[1]:
+                return basic, {}
+        elif method == "SESSION":
+            sess = get_auth(request)
+            if sess:
+                return sess, {}
+        elif method == "TOKEN":
+            token = get_token_auth(request)
+            if token:
+                return None, { 'Authorization': f'Token {token}' }
+
+    return None, None
 
 
 class SeekAPIClient:
@@ -33,17 +103,23 @@ class SeekAPIClient:
 
     def _request(self, method: str, path: str, request, params: Optional[Dict[str, Any]] = None,
                  json: Optional[Dict[str, Any]] = None):
-        auth = get_auth(request)
-        if not auth:
+        # Try BASIC -> SESSION -> TOKEN by default for proxy endpoints
+        basic_tuple, extra_headers = resolve_seek_auth(request)
+        if not basic_tuple and not extra_headers:
             # Synthesize a 401 response signature for the caller
             return None, 401, {'Content-Type': JSONAPI_ACCEPT}, None
 
         url = f"{self.base_url}{path}"
         t0 = time.time()
+        # Build per-request headers to avoid mutating session-wide headers with Authorization
+        headers = {'Accept': JSONAPI_ACCEPT}
+        if extra_headers:
+            headers.update(extra_headers)
         resp = self.session.request(
             method=method.upper(),
             url=url,
-            auth=auth,
+            auth=basic_tuple,  # Only for Basic auth; None when using Token
+            headers=headers,
             params=params,
             json=json,
             timeout=self.timeout_s,

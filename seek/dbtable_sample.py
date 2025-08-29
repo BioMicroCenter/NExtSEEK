@@ -3800,6 +3800,8 @@ class DBtable_sample(DBtable):
             dici = self.__getRecordFromJson(json_metadata)
             
             attributeValue = self.__highlightKeyValues(dici, terms, matchType)
+
+            data['json_metadata'] = json.loads(data['json_metadata'])
             
             if len(attributeValue)==0:
                 continue
