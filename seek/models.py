@@ -9,6 +9,7 @@ from datetime import date
 
 from django.conf import settings
 SEEK_DATABASE = settings.SEEK_DATABASE
+NEXTSEEK_DATABASE = settings.NEXTSEEK_DATABASE
 
 class Users(models.Model):
     _DATABASE = SEEK_DATABASE
@@ -103,6 +104,8 @@ class Sample_tree(models.Model):
         db_table = "seek_sample_tree"
 
 class Clades(models.Model):
+    _DATABASE = NEXTSEEK_DATABASE
+
     title = models.TextField(default=None)
     color = models.TextField(default=None)
     order = models.IntegerField()
@@ -114,9 +117,10 @@ class Clades(models.Model):
         db_table = "clades"
 
 class Sample_types(models.Model):
-    _DATABASE = SEEK_DATABASE
+    _DATABASE = NEXTSEEK_DATABASE
     
     title = models.CharField(max_length=255, default=None)
+    st_group = models.TextField(default=None)
     uuid = models.CharField(max_length=255, default=None)
     created_at = models.DateTimeField(null=False)
     updated_at = models.DateTimeField(null=False)
@@ -127,7 +131,7 @@ class Sample_types(models.Model):
     deleted_contributor = models.CharField(max_length=255, default=None)
     template_id = models.IntegerField(default=None)
     other_creators = models.TextField(default=None)
-    # clade_id = models.IntegerField(default=None)
+    clade_id = models.IntegerField(default=None)
     
     def __unicode__(self):
         return self.uuid
@@ -136,6 +140,8 @@ class Sample_types(models.Model):
         db_table = "sample_types"
 
 class Sample_types_clades(models.Model):
+    _DATABASE = NEXTSEEK_DATABASE
+
     clade = models.ForeignKey(Clades, on_delete=models.PROTECT)
     sample_type = models.ForeignKey(Sample_types, on_delete=models.PROTECT)
 
