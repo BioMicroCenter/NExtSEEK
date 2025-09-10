@@ -1978,7 +1978,6 @@ def projects(request):
                                                      'seek_hostname': SEEK_HOSTNAME})
 
 def project_page(request, project_id):
-    logger.debug(f"REQUEST: {request.__dict__}")
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
 
@@ -1992,12 +1991,13 @@ def project_page(request, project_id):
             admin = False
 
         user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
-        user_project_ids = map(lambda x: x['id'], user_projects)
+        user_project_ids = list(map(lambda x: int(x['id']), user_projects))
+        user_in_project = int(project_id) in user_project_ids
 
         # Can't view projects unless you're in it or an admin
-        if not admin and int(project_id) not in user_project_ids:
-            data = {'msg': 'You are not in this project', 'status': 0, 'link': ''}
-            return render(request, 'error.html', {'data': data})
+        if admin is False and user_in_project is False:
+                data = {'msg': 'You are not in this project', 'status': 0, 'link': ''}
+                return render(request, 'error.html', {'data': data})
 
         # Project page
         project = Projects.objects.get(id=project_id)
