@@ -22,7 +22,7 @@
   });
 
   function cladesSyncSampleTypes() {
-    fetch('syncSampleTypes', {
+    fetch('syncSampleTypes/', {
       method: 'POST',
       headers: {"X-CSRFToken": "{{ csrf_token }}"},})
     .then(data => console.log(data))

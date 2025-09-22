@@ -624,7 +624,7 @@ class DBtable_sample(DBtable):
         if status:
             if newSample:
 
-                self.storeSampleNeo4j(sampleType, record_new)
+                #self.storeSampleNeo4j(sampleType, record_new)
 
                 self.__updateSampleProject(creator, sample_id)
                 self.__updateSampleAssetsCreators(sample_id, creator_id)
@@ -909,7 +909,12 @@ class DBtable_sample(DBtable):
                 dici_feedback[primaryField] = uid
             else:
                 dici_feedback[header] = msgi
-            #self.storeSampleNeo4j(sampleType, dici_feedback)
+                
+            try:
+                self.storeSampleNeo4j(sampleType, dici_feedback)
+            except:
+                None
+
             diclist_new.append(dici_feedback)
                 
         msg = 'The number of samples uploaded for ' + sampleType + ': ' + str(nright) + ' out of in total ' + str(ndici) + ' samples.'
@@ -2759,8 +2764,11 @@ class DBtable_sample(DBtable):
         db_alias = SEEK_DATABASE
         status = self.db.run_custom_transaction(sqlqueries, db_alias)
         if status:
-            msg = "Trandsaction successful"
-            self.deleteSampleNeo4j(sample_id)
+            msg = "Transaction successful"
+            try:
+                self.deleteSampleNeo4j(sample_id)
+            except:
+                None
         else:
             msg = "Error: The trandsaction of deletion failed. Delete this sample manually"
         

@@ -67,14 +67,15 @@ class DBtable_clades(DBtable):
     def getCladeProjectStats(self, project_id):
         seekdb = SEEK_DATABASE['NAME']
         query = f"""
-            SELECT p.id, p.title, st.st_group, c.title, c.color, c.order, COUNT(s.id) AS count
+            SELECT p.id, p.title, st.description AS st_group, c.title, c.color, c.order, COUNT(s.id) AS count
             FROM {seekdb}.projects_samples ps
             JOIN {seekdb}.samples s ON ps.sample_id = s.id
-            JOIN {self.dbname}.sample_types st ON s.sample_type_id = st.id
-            JOIN {self.dbname}.clades c ON st.clade_id = c.id
+            JOIN {seekdb}.sample_types st ON s.sample_type_id = st.id
+            JOIN {self.dbname}.sample_types_clades stc ON st.id = stc.sample_type_id
+            JOIN {self.dbname}.clades c ON stc.clade_id = c.id
             JOIN {seekdb}.projects p ON ps.project_id = p.id
             WHERE p.id = {project_id}
-            GROUP BY st.st_group, c.title
+            GROUP BY st_group, c.title
             ORDER BY c.order
         """
         data = self.__sendQuery(query)

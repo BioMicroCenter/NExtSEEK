@@ -117,10 +117,10 @@ class Clades(models.Model):
         db_table = "clades"
 
 class Sample_types(models.Model):
-    _DATABASE = NEXTSEEK_DATABASE
+    _DATABASE = SEEK_DATABASE
     
     title = models.CharField(max_length=255, default=None)
-    st_group = models.TextField(default=None)
+    #st_group = models.TextField(default=None)
     uuid = models.CharField(max_length=255, default=None)
     created_at = models.DateTimeField(null=False)
     updated_at = models.DateTimeField(null=False)
@@ -131,7 +131,7 @@ class Sample_types(models.Model):
     deleted_contributor = models.CharField(max_length=255, default=None)
     template_id = models.IntegerField(default=None)
     other_creators = models.TextField(default=None)
-    clade_id = models.IntegerField(default=None)
+    #clade_id = models.IntegerField(default=None)
     
     def __unicode__(self):
         return self.uuid
@@ -142,11 +142,14 @@ class Sample_types(models.Model):
 class Sample_types_clades(models.Model):
     _DATABASE = NEXTSEEK_DATABASE
 
-    clade = models.ForeignKey(Clades, on_delete=models.PROTECT)
-    sample_type = models.ForeignKey(Sample_types, on_delete=models.PROTECT)
+    #clade = models.ForeignKey(Clades, null=True, blank=True, on_delete=models.PROTECT)
+    #sample_type = models.ForeignKey(Sample_types, on_delete=models.PROTECT)
+
+    clade_id = models.IntegerField(default=None)
+    sample_type_id = models.IntegerField(default=None)
 
     def __unicode__(self):
-        return self.clade + ' ' + self.sample_type
+        return self.clade_id + ' ' + self.sample_type_id
 
     class Meta:
         db_table = "sample_types_clades"
