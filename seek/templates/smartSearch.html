@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block main %}
+<div id="smart_search_tab" class="easyui-tabs" style="width:auto;height:1400px;">
+  <div title="SALT" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
+        <div class="easyui-layout" style="width:auto;height:1700px;">
+        <div id="north_div2" data-options="region:'north',border:false" style="width:500px; height: 700px;">
+                <iframe frameBorder="0"
+                                style="color-scheme:light;height:100%;width:100%;"
+				src="{{ smart_search_url }}">
+                </iframe>
+        </div>
+        </div>
+  </div>
+</div>
+{% endblock %}
+
