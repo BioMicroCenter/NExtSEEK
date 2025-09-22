@@ -7,6 +7,7 @@ from django.urls import reverse
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 from rest_framework.authtoken.models import Token
+from unittest.mock import patch
 
 
 class SampleTreeViewSetTests(APITestCase):
@@ -432,6 +433,78 @@ class SampleQueryViewSetTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 25)
 
+
+class SampleAdvancedSearchViewSetTests(APITestCase):
+    """
+    Tests for SampleAdvancedSearchViewSet pagination while preserving envelope
+    """
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='testpass123')
+        self.token = Token.objects.create(user=self.user)
+        self.client = APIClient()
+
+    @patch('nextseek_api.services.samples.DBtable_sample')
+    def test_advanced_search_default_pagination(self, mock_db_sample):
+        # Mock large dataset
+        rows = [{'id': i, 'uuid': f'u-{i}', 'sample_type_id': 1, 'sample_type': 'TIS', 'json_metadata': {}} for i in range(250)]
+        payload = {
+            'total': len(rows),
+            'rows': rows,
+            'footer': [],
+            'sampleTypes': ['TIS'],
+            'noSampleTypes': 1,
+            'msg': 'okay',
+            'status': 1,
+        }
+        mock_db_sample.return_value.searchAdvanced.return_value = json.dumps(payload)
+
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:samples-advanced-search-list')
+        resp = self.client.post(url, data={
+            'sampletype': '1',
+            'filter_searchText': 'lung',
+            'attribute': 'Organ',
+            'filter_matchType': 'PARTIAL'
+        }, format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn('rows', resp.json())
+        self.assertIn('total', resp.json())
+        self.assertEqual(resp.json()['total'], 250)
+        self.assertEqual(len(resp.json()['rows']), 100)  # default page size
+        # Envelope preserved
+        self.assertIn('msg', resp.json())
+        self.assertIn('status', resp.json())
+
+    @patch('nextseek_api.services.samples.DBtable_sample')
+    def test_advanced_search_custom_pagination(self, mock_db_sample):
+        rows = [{'id': i, 'uuid': f'u-{i}', 'sample_type_id': 1, 'sample_type': 'TIS', 'json_metadata': {}} for i in range(250)]
+        payload = {
+            'total': len(rows),
+            'rows': rows,
+            'footer': [],
+            'sampleTypes': ['TIS'],
+            'noSampleTypes': 1,
+            'msg': 'okay',
+            'status': 1,
+        }
+        mock_db_sample.return_value.searchAdvanced.return_value = json.dumps(payload)
+
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        url = reverse('nextseek_api:samples-advanced-search-list')
+        resp = self.client.post(url + '?page=2&page_size=60', data={
+            'sampletype': '1',
+            'filter_searchText': 'lung',
+            'attribute': 'Organ',
+            'filter_matchType': 'PARTIAL'
+        }, format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.json()
+        self.assertEqual(data['total'], 250)
+        self.assertEqual(len(data['rows']), 60)
+        # Page 2 should start at index 60
+        self.assertEqual(data['rows'][0]['id'], 60)
 
 class AdminSampleViewSetTests(APITestCase):
     """

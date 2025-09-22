@@ -4,16 +4,19 @@ import json
 import logging
 from django.http import HttpResponse
 from rest_framework import viewsets
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from pydantic import ValidationError
 from django.conf import settings
 
 from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.helpers import paginate_rows_in_envelope
 from nextseek_api.models import (
     SampleSingleResponse,
     SampleCreateRequest,
     SampleUpdateRequest,
+    SampleAdvancedSearchRequest,
+    SampleAdvancedSearchResult,
 )
 
 log = logging.getLogger(__name__)
@@ -321,4 +324,148 @@ class SampleProxyViewSet(viewsets.ViewSet):
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
 
+
+def _resolve_sampletype_to_seek_id(s: str) -> Optional[str]:
+    """Resolve a sample type display title to a SEEK numeric id string.
+    - If input is numeric, return as-is.
+    - Else, use DBtable_sampletype("DEFAULT").getSampleTypeID(title).
+    """
+    val = str(s)
+    if val.isdigit():
+        return val
+    try:
+        from seek.dbtable_sampletype import DBtable_sampletype  # local import for optional dependency
+        rid = DBtable_sampletype("DEFAULT").getSampleTypeID(val)
+        if isinstance(rid, int) and rid > 0:
+            return str(rid)
+        return None
+    except Exception:
+        return None
+
+
+class SampleAdvancedSearchViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="Advanced Search Samples",
+        description="Advanced Samples search via SEEK DB helper.",
+        parameters=[
+            OpenApiParameter(
+                name='debug_validation',
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                description='Include validation error details in 502 response'
+            ),
+            OpenApiParameter(
+                name='page',
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description='1-based page number'
+            ),
+            OpenApiParameter(
+                name='page_size',
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description='Items per page (default 100, max 1000)'
+            ),
+        ],
+        request=SampleAdvancedSearchRequest,
+        responses={200: SampleAdvancedSearchResult},
+        tags=['Samples'],
+        examples=[
+            OpenApiExample(
+                name="Numeric sampletype",
+                value={
+                    "sampletype": "2",
+                    "filter_searchText": "lung",
+                    "attribute": "Organ",
+                    "filter_matchType": "PARTIAL"
+                }
+            ),
+            OpenApiExample(
+                name="Title sampletype",
+                value={
+                    "sampletype": "TIS",
+                    "filter_searchText": "lung",
+                    "attribute": "Organ",
+                    "filter_matchType": "EXACT"
+                }
+            ),
+        ],
+    )
+    def create(self, request):
+        # Parse and validate request
+        try:
+            req = SampleAdvancedSearchRequest.model_validate(request.data)
+        except Exception:
+            return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+
+        # Pre-check for resolvable sample type to return 404 when clearly not found
+        sampletype_raw = str(req.sampletype)
+        if not sampletype_raw.isdigit():
+            resolved = _resolve_sampletype_to_seek_id(sampletype_raw)
+            if resolved is None:
+                return HttpResponse(b'{"errors":[{"title":"SampleType not found"}]}', status=404, content_type='application/json')
+
+        # Build resolver closure and DB filters
+        try:
+            def resolver(title: str) -> Optional[str]:
+                return _resolve_sampletype_to_seek_id(title)
+
+            filters = req.to_db_filters(sampletype_resolver=resolver)
+        except ValueError as ve:
+            # Distinguish resolution failure (404) vs generic validation (422)
+            if "SampleType not found" in str(ve):
+                return HttpResponse(b'{"errors":[{"title":"SampleType not found"}]}', status=404, content_type='application/json')
+            return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+        except Exception:
+            return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+
+        # Execute DB search
+        try:
+            searchType = "Advanced"
+            user_seek = getattr(request, "user", None)
+            if DBtable_sample is None:
+                raise RuntimeError("DBtable_sample unavailable")
+            report = DBtable_sample().searchAdvanced(user_seek, filters, searchType)
+        except Exception as e:
+            log.warning("samples_advanced.exec_exception action=create error=%s", str(e))
+            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+
+        # Validate output schema
+        try:
+            data = json.loads(report or "{}")
+            SampleAdvancedSearchResult.model_validate(data)
+        except ValidationError as ve:
+            try:
+                errs = ve.errors()
+            except Exception:
+                errs = str(ve)
+            log.warning("samples_advanced.validation_error action=create errors=%s", errs)
+            debug_flag = bool(getattr(settings, 'DEBUG', False) or str(request.GET.get('debug_validation', '0')).lower() in ('1', 'true', 'yes'))
+            if debug_flag:
+                resp_payload = {
+                    "errors": [
+                        {
+                            "title": "Invalid upstream response",
+                            "detail": "JSON schema mismatch",
+                            "validation_errors": errs,
+                        }
+                    ]
+                }
+                return HttpResponse(json.dumps(resp_payload).encode(), status=502, content_type='application/json')
+            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+        except Exception as e:
+            log.warning("samples_advanced.validation_exception action=create error=%s", str(e))
+            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+
+        # Paginate rows within the envelope while preserving schema
+        try:
+            data = paginate_rows_in_envelope(request, data)
+        except Exception:
+            # Fallback to unpaginated envelope on pagination error
+            pass
+
+        # Always return the mutated dict to ensure pagination is applied
+        return HttpResponse(json.dumps(data).encode(), status=200, content_type='application/json')
 

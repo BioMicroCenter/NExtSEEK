@@ -1,7 +1,7 @@
 from django.db import models
 
 # Pydantic models for API request/response validation (JSON:API + SOPs)
-from typing import Any, Dict, List, Optional, Literal, Union
+from typing import Any, Dict, List, Optional, Literal, Union, Callable
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -1527,6 +1527,76 @@ class SampleResponseData(BaseModel):
 class SampleSingleResponse(BaseModel):
     data: SampleResponseData
     jsonapi: Optional[JsonApiVersion] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# Samples: advanced search models
+# -----------------------------
+
+
+class AdvancedSearchMatchType(str, Enum):
+    EXACT = "EXACT"
+    PARTIAL = "PARTIAL"
+
+
+class SampleAdvancedSearchRequest(BaseModel):
+    sampletype: str
+    filter_searchText: str
+    attribute: str = Field(default='none', description='Attribute to filter on')
+    filter_matchType: AdvancedSearchMatchType = AdvancedSearchMatchType.PARTIAL
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_db_filters(self, sampletype_resolver: Optional[Callable[[str], Optional[str]]] = None) -> Dict[str, Any]:
+        """
+        Normalize request into DB helper filters.
+        - If 'sampletype' is numeric, use it directly.
+        - Else, resolve via provided resolver to a numeric SEEK id.
+        - Raise on failure to resolve.
+        """
+        candidate: str = str(self.sampletype)
+
+        sampletype_id: Optional[int] = None
+        if candidate.isdigit():
+            sampletype_id = int(candidate)
+        else:
+            if sampletype_resolver is not None:
+                resolved: Optional[str] = sampletype_resolver(candidate)
+                if resolved is not None and str(resolved).isdigit():
+                    sampletype_id = int(str(resolved))
+
+        if sampletype_id is None:
+            raise ValueError("SampleType not found or not resolvable to a SEEK id")
+
+        return {
+            "filter_searchText": self.filter_searchText,
+            "sampletype_id": sampletype_id,
+            "attribute": self.attribute,
+            "filter_matchType": self.filter_matchType.value,
+        }
+
+
+class SampleAdvancedSearchRow(BaseModel):
+    id: Union[str, int] = Field(..., description='Numeric SEEK ID of the sample')
+    uuid: Optional[str] = Field(None, description='UUID of the sample')
+    sample_type_id: Union[str, int] = Field(..., description='Numeric SEEK ID of the sample type')
+    sample_type: Optional[str] = Field(None, description='Title of the sample type')
+    json_metadata: Dict[str, Any] = Field(default_factory=dict, description='JSON metadata of the sample')
+    attributeValue: str = Field(..., description='Value of the attribute')
+
+    model_config = ConfigDict(extra='allow', validate_default=True)
+
+
+class SampleAdvancedSearchResult(BaseModel):
+    total: int
+    rows: List[SampleAdvancedSearchRow]
+    footer: Optional[List[Any]] = None
+    sampleTypes: Optional[List[str]] = None
+    noSampleTypes: Optional[int] = None
+    msg: Optional[str] = None
+    status: Optional[int] = None
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 

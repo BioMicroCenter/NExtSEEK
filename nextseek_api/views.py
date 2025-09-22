@@ -46,7 +46,9 @@ from .services.assays import AssayProxyViewSet as AssayViewSet
 from .services.sample_types import SampleTypeProxyViewSet as SampleTypeViewSet
 from .services.samples import SampleProxyViewSet as SampleViewSet
 from .services.samples import _resolve_uid_to_seek_id
+from .services.samples import SampleAdvancedSearchViewSet as SampleAdvancedSearchViewSet
 from .helpers import resolve_seek_auth
+from nextseek_api.helpers import StandardResultsSetPagination
 
 
 def get_clade_color(sample_type):
@@ -317,13 +319,6 @@ class NHPViewSet(viewsets.GenericViewSet):
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-class StandardResultsSetPagination(PageNumberPagination):
-    """Custom pagination class for large datasets."""
-    page_size = 100
-    page_size_query_param = 'page_size'
-    max_page_size = 1000
-
-
 class SampleQueryViewSet(viewsets.GenericViewSet):
     """
     ViewSet for sample query operations with pagination.
@@ -334,7 +329,8 @@ class SampleQueryViewSet(viewsets.GenericViewSet):
     
     @extend_schema(
         responses={200: OpenApiTypes.OBJECT},
-        description="Advanced sample retrieval via stable SQL path (FILTERING).",
+        operation_id="Simple Sample Search",
+        description="Simple sample retrieval via stable SQL path (FILTERING).",
         request=SampleAdvancedRetrieveRequestSerializer,
         tags=['Samples'],
         examples=[

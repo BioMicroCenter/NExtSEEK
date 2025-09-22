@@ -21,7 +21,9 @@ router.register(r"people", views.PeopleViewSet, basename="people")
 router.register(r"investigations", views.InvestigationViewSet, basename="investigations")
 router.register(r"assays", views.AssayViewSet, basename="assays")
 router.register(r"sample_types", views.SampleTypeViewSet, basename="sample_types")
+router.register(r"samples/advanced_search", views.SampleAdvancedSearchViewSet, basename="samples-advanced-search")
 router.register(r"samples", views.SampleViewSet, basename="samples")
+
 
 urlpatterns = [
     # OpenAPI Schema Documentation

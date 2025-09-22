@@ -1,3 +1,4 @@
+from rest_framework.pagination import PageNumberPagination
 import time
 import logging
 import base64
@@ -267,4 +268,21 @@ class SeekAPIClient:
     def delete_sample(self, request, sample_id: str):
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
         return self._request('DELETE', f'/samples/{sample_id}', request)
+
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 100
+    page_size_query_param = 'page_size'
+    max_page_size = 1000
+
+
+def paginate_rows_in_envelope(request, envelope, rows_key='rows', paginator_cls=StandardResultsSetPagination):
+    rows = envelope.get(rows_key)
+    if not isinstance(rows, list):
+        return envelope
+    paginator = paginator_cls()
+    page = paginator.paginate_queryset(rows, request)
+    envelope[rows_key] = page
+    if 'total' not in envelope:
+        envelope['total'] = len(rows)
+    return envelope
 
