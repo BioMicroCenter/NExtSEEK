@@ -49,6 +49,8 @@ from dmac.csv_excel import load_file, load_excelfile
 from dmac.iocsv import saveCsvfile
 from dmac.dbtable_clades import DBtable_clades
 from dmac.dbtable_sampletypesclades import DBtable_sample_types_clades as DBtable_stc
+from dmac.dbtable_internalassays import DBtable_internalassays
+from dmac.dbtable_assaysinternalassays import DBtable_assaysinternalassays
 
 from .seekdb import SeekDB
 from .nextcloudapi import NextCloudAPI
@@ -148,17 +150,17 @@ def sample(request, id):
     
     dbsample = DBtable_sample()
 
-    db = settings.DATABASES['default']
-    conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
-    cursor = conn.cursor()
+    # db = settings.DATABASES['default']
+    # conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
+    # cursor = conn.cursor()
 
-    cursor.execute(f"SELECT full FROM seek_sample_tree WHERE sample_id='{sample_id}'")
+    # cursor.execute(f"SELECT full FROM seek_sample_tree WHERE sample_id='{sample_id}'")
 
-    cursor_results = cursor.fetchone()
-    if cursor_results is not None:
-        report['treeData_multiparents'] = json.loads(cursor_results[0])[0]
-    else:
-        report['treeData_multiparents'] = dbsample.createSampleMultiParentTree(sample_id)
+    # cursor_results = cursor.fetchone()
+    # if cursor_results is not None:
+        # report['treeData_multiparents'] = json.loads(cursor_results[0])[0]
+    # else:
+        # report['treeData_multiparents'] = dbsample.createSampleMultiParentTree(sample_id)
     # This treeData_multiparents does not have the complete tree information
     sampledic, samplelist = dbsample.getSampleInfo(sample_id)
     report['sampledic'] = sampledic
@@ -340,7 +342,11 @@ def sample_type(request, id):
     return render(request,"sampleQuery.html", {'bodyhtml' : report['bodyhtml'], 'report':report})
 
 def getAttributes(request, id):
-    sampletype_id = int(id)
+    try:
+        sampletype_id = int(id)
+    except:
+        stype = DBtable_sampletype()
+        sampletype_id = stype.getSampleTypeID(id)
     valueSelected = ''
     ret = request.GET
     if 'valueSelected' in ret:
@@ -1728,8 +1734,8 @@ def get_clade_color(sample_type):
     cursor = conn.cursor()
     query = f"""
     SELECT c.color FROM dmac.clades c
-    JOIN dmac.sample_types st
-    ON st.clade_id = c.id
+    JOIN dmac.sample_types_clades stc ON stc.clade_id = c.id
+    JOIN seek_production.sample_types st ON stc.sample_type_id = st.id
     WHERE st.title = '{sample_type}'
     """
 
@@ -1994,12 +2000,10 @@ def project_page(request, project_id):
         user_project_ids = list(map(lambda x: int(x['id']), user_projects))
         user_in_project = int(project_id) in user_project_ids
 
-        # Can't view projects unless you're in it or an admin
         if admin is False and user_in_project is False:
                 data = {'msg': 'You are not in this project', 'status': 0, 'link': ''}
                 return render(request, 'error.html', {'data': data})
 
-        # Project page
         project = Projects.objects.get(id=project_id)
 
         cladedb = DBtable_clades()
@@ -2213,3 +2217,157 @@ def smartSearch(request):
         data = {'msg': 'You do not have access to this page', 'status': 0, 'link': ''}
         return render(request, 'error.html', {'data': data})
     return render(request, "smartSearch.html", {"smart_search_url": settings.SMART_SEARCH_URL})
+
+def internalAssays(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+
+    if not user_seek['status']:
+        err = user_seek['err']
+        url_redirect = '/login/?next=/seek/samples/attributes/'
+        return HttpResponseRedirect(url_redirect)
+
+    if verifySuperUser(request) != 1:
+        msg = 'Error: You login as admin to view this page.'
+        status = 0
+        logger.error(msg)
+        data = {'msg':msg, 'status': status, 'link':'', 'message':''}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    db_ia = DBtable_internalassays()
+    db_aia = DBtable_assaysinternalassays()
+    internal_assays = simplejson.dumps(db_ia.getAll(), default=list)
+    assay_associations = simplejson.dumps(db_aia.getAllWithTitles(), default=list)
+
+    return render(request,"internal_assays.html", {"internal_assays": internal_assays, "assay_associations": assay_associations})
+
+def internalAssaySave(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'The login user does not have the permission to add the internal assay.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    ia = DBtable_internalassays()
+    
+    ret = request.GET
+    internal_assays = json.loads(ret['records'])
+
+    for internal_assay in internal_assays:
+        if 'id' not in internal_assay:
+            ia.new(internal_assay_title=internal_assay['internal_assay_title'],)
+        else:
+            id = internal_assay["id"]
+            internal_assay_title = internal_assay["internal_assay_title"]
+            ia.update(internal_assay_id=id,
+                      internal_assay_title=internal_assay_title)
+        
+    return HttpResponse({}, headers={"Refresh": 1})
+
+def internalAssayDelete(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        err = user_seek['err']
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'You do not have the permission to delete the internal assay.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    ia = DBtable_internalassays()
+
+    ret = request.GET
+    internal_assays = json.loads(ret['records'])
+
+    for internal_assay in internal_assays:
+        ia.delete(internal_assay['id'])
+    
+    return HttpResponse({}, headers={"Refresh": 1})
+
+def assayAssociationSave(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'You do not have the permission to add the assay association.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    aia = DBtable_assaysinternalassays()
+    
+    ret = request.GET
+    data = json.loads(ret['records'])
+
+    for record in data:
+        assay_id = record['assay_id']
+        internal_assay_id = record['internal_assay_id']
+        
+        aia.update(assay_id, internal_assay_id)
+        
+    return HttpResponse({}, headers={"Refresh": 1})
+
+def syncInternalAssays(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'The login user does not have the permission to perform this action.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    aia = DBtable_assaysinternalassays()
+    aia.syncAssays()
+    
+    return HttpResponse({})
+

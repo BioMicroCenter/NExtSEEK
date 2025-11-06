@@ -1540,41 +1540,101 @@ class AdvancedSearchMatchType(str, Enum):
     EXACT = "EXACT"
     PARTIAL = "PARTIAL"
 
+class FilterLogic(str, Enum):
+    AND = "AND"
+    OR = "OR"
+
 
 class SampleAdvancedSearchRequest(BaseModel):
-    sampletype: str
-    filter_searchText: str
-    attribute: str = Field(default='none', description='Attribute to filter on')
+    sampletype: Optional[Union[str, List[str]]] = None
+    attribute: Optional[Union[str, List[str]]] = None
+    filter_searchText: Union[str, List[str]] = Field(..., description='Search text or list of search texts')
     filter_matchType: AdvancedSearchMatchType = AdvancedSearchMatchType.PARTIAL
+    attribute_logic: Optional[FilterLogic] = None
+    searchText_logic: Optional[FilterLogic] = None
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
     def to_db_filters(self, sampletype_resolver: Optional[Callable[[str], Optional[str]]] = None) -> Dict[str, Any]:
         """
         Normalize request into DB helper filters.
-        - If 'sampletype' is numeric, use it directly.
-        - Else, resolve via provided resolver to a numeric SEEK id.
-        - Raise on failure to resolve.
+        - Accept string or list for 'sampletype' and 'attribute'.
+        - For sample types: strip whitespace, keep case; resolve titles when possible; drop unresolvable; dedupe.
+        - Upstream sampletype_id: singleton id or 0. We also return 'sampletype_ids' for post-filter OR.
+        - Attributes return as normalized lowercase list in 'attribute_list'.
         """
-        candidate: str = str(self.sampletype)
+        # sampletype → list[str]
+        sampletype_items: List[str] = []
+        if self.sampletype is not None:
+            if isinstance(self.sampletype, list):
+                for it in self.sampletype:
+                    if it is None:
+                        continue
+                    s = str(it).strip()
+                    if s:
+                        sampletype_items.append(s)
+            else:
+                s = str(self.sampletype).strip()
+                if s:
+                    sampletype_items.append(s)
 
-        sampletype_id: Optional[int] = None
-        if candidate.isdigit():
-            sampletype_id = int(candidate)
+        # Resolve sample types to ids (drop unresolvable), dedupe preserving order
+        sampletype_ids: List[int] = []
+        seen_ids: set = set()
+        for item in sampletype_items:
+            if item.isdigit():
+                val = int(item)
+            else:
+                val = None
+                if sampletype_resolver is not None:
+                    resolved: Optional[str] = sampletype_resolver(item)
+                    if resolved is not None and str(resolved).isdigit():
+                        val = int(str(resolved))
+            if val is not None and val not in seen_ids:
+                seen_ids.add(val)
+                sampletype_ids.append(val)
+
+        if len(sampletype_ids) == 1:
+            sampletype_id_upstream = sampletype_ids[0]
         else:
-            if sampletype_resolver is not None:
-                resolved: Optional[str] = sampletype_resolver(candidate)
-                if resolved is not None and str(resolved).isdigit():
-                    sampletype_id = int(str(resolved))
+            sampletype_id_upstream = 0
 
-        if sampletype_id is None:
-            raise ValueError("SampleType not found or not resolvable to a SEEK id")
+        # attribute → list[str] (normalized lower for view matching)
+        attribute_list: List[str] = []
+        if self.attribute is not None:
+            if isinstance(self.attribute, list):
+                for it in self.attribute:
+                    if it is None:
+                        continue
+                    s = str(it).strip().lower()
+                    if s:
+                        attribute_list.append(s)
+            else:
+                s = str(self.attribute).strip().lower()
+                if s:
+                    attribute_list.append(s)
+
+        # Determine attribute logic default
+        if self.attribute_logic is not None:
+            attribute_logic_val = self.attribute_logic.value
+        else:
+            attribute_logic_val = "OR" if len(attribute_list) > 1 else None
+        
+        #  determine search text logic default
+        if self.searchText_logic is not None:
+            searchText_logic_val = self.searchText_logic.value
+        else:
+            searchText_logic_val = "OR" if isinstance(self.filter_searchText, list) and len(self.filter_searchText) > 1 else None
 
         return {
             "filter_searchText": self.filter_searchText,
-            "sampletype_id": sampletype_id,
-            "attribute": self.attribute,
             "filter_matchType": self.filter_matchType.value,
+            "sampletype_id": sampletype_id_upstream,
+            "sampletype_ids": sampletype_ids,
+            "attribute": 'none',
+            "attribute_list": attribute_list,
+            "attribute_logic": attribute_logic_val,
+            "searchText_logic": searchText_logic_val,
         }
 
 
@@ -1600,3 +1660,22 @@ class SampleAdvancedSearchResult(BaseModel):
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
+
+# -----------------------------
+# Additional request/response models
+# -----------------------------
+
+# Imports already present at file scope: List, Optional, BaseModel, Field
+
+class SamplesByChildTypesRequest(BaseModel):
+    sample_type_titles: Optional[List[str]] = Field(
+        None, description="Child sample type titles to match (logical AND)"
+    )
+    sample_type_ids: Optional[List[int]] = Field(
+        None, description="Child sample type IDs to match (logical AND)"
+    )
+
+
+class SampleUIDItem(BaseModel):
+    id: str = Field(..., description="SEEK numeric id (stringified)")
+    uuid: str = Field(..., description="Sample UID")

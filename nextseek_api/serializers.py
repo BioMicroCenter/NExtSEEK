@@ -117,3 +117,23 @@ class SampleAdvancedRetrieveRequestSerializer(serializers.Serializer):
     filter_valueTo = serializers.CharField(required=False, allow_blank=True)
     project_id = serializers.IntegerField(required=False, default=0)
 
+
+class SamplesByChildTypesRequestSerializer(serializers.Serializer):
+    """Request body for parents_by_child_types.
+    Accepts exact child sample type titles and/or ids.
+    """
+    sample_type_titles = serializers.ListField(child=serializers.CharField(), required=False, allow_null=True)
+    sample_type_ids = serializers.ListField(child=serializers.IntegerField(), required=False, allow_null=True)
+
+
+class SampleUIDItemSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    uuid = serializers.CharField()
+
+
+class SampleUIDListSerializer(serializers.ListSerializer):
+    child = SampleUIDItemSerializer()
+
+    class Meta:
+        # mirror pattern used by SampleTreeSerializer for list responses
+        list_serializer_class = serializers.ListSerializer

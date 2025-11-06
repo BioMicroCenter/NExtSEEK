@@ -166,3 +166,4 @@ local_settings.py
 gunicorn.conf.py
 .DS_Store
 internal_docs/
+.cursor/

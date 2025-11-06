@@ -1,20 +1,37 @@
-from typing import Optional
+from typing import Optional, List
 
 import json
 from django.http import HttpResponse
-from rest_framework import viewsets
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+# from drf_spectacular.types import OpenApiTypes
 from django.conf import settings
+from pydantic import ValidationError
 
 from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.helpers import resolve_seek_auth
+from nextseek_api.services.samples import _resolve_uid_to_seek_id as _resolve_sample_uid_to_seek_id
 from nextseek_api.models import (
     SampleTypeListResponse,
     SampleTypeSingleResponse,
     SampleTypeCreateRequest,
     SampleTypeUpdateRequest,
 )
+from nextseek_api.models import SamplesByChildTypesRequest, SampleUIDItem
 from seek.dbtable_sampletype import DBtable_sampletype
+from seek.models import Sample_types
+
+# Neo4j
+import neo4j
+from neo4j import GraphDatabase
+from neo4j.exceptions import Neo4jError
+
+
+# NEW IMPORTS: DRF serializers for request/response
+from nextseek_api.serializers import SamplesByChildTypesRequestSerializer, SampleUIDItemSerializer, SampleUIDListSerializer
 
 
 def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
@@ -189,3 +206,159 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         return HttpResponse(body, status=code, content_type=ct)
 
 
+class SampleTypeChildrenViewSet(viewsets.GenericViewSet):
+    """Return unique child sample type titles for a given Sample (by id or UID)."""
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'uid'
+    lookup_url_kwarg = 'uid'
+    lookup_value_regex = r'[^/]+'
+
+    @extend_schema(
+        operation_id="Get Child Sample Types",
+        description="Return the list of unique child sample type titles for a given Sample (by id or UID).",
+        parameters=[
+            OpenApiParameter(
+                name='uid',
+                type=str,
+                location=OpenApiParameter.PATH,
+                description='SEEK id (numeric) or Sample UID (string)'
+            )
+        ],
+        responses={200: List[str]},
+        examples=[
+            OpenApiExample(name="By numeric id", value={"uid": "123"}),
+            OpenApiExample(name="By UID", value={"uid": "ABC-DEF-UUID"}),
+        ],
+        tags=['Samples'],
+    )
+    @action(detail=True, methods=["get"], url_path="child_types")
+    def child_types(self, request, uid=None, pk=None):
+        # Auth gate: allow BASIC header or session; otherwise 401
+        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+        if not basic_tuple and not request.user.is_authenticated:
+            return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Resolve uid/id to numeric SEEK id
+        path_value = uid or pk
+        seek_id = _resolve_sample_uid_to_seek_id(str(path_value))
+        if seek_id is None:
+            return Response({"detail": "Sample not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        NEO4J_DATABASE = settings.NEO4J_DATABASE
+        try:
+            with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
+                query = (
+                    """
+                    MATCH (s: Sample {id: toInteger($id)})
+                    MATCH (s)<-[:CHILD_OF*1..]-(child)
+                    RETURN DISTINCT child.type AS type
+                    ORDER BY type
+                    """
+                )
+                records, summary, keys = driver.execute_query(
+                    query,
+                    id=int(seek_id),
+                    database_=NEO4J_DATABASE['NAME']
+                )
+                types_list = [r["type"] for r in records if r["type"] is not None]
+                return Response(types_list, status=status.HTTP_200_OK)
+        except Neo4jError:
+            return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception:
+            return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
+
+
+class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="Get samples with children of specified sample types",
+        description="Return parent samples (SEEK id and UID) that have at least one descendant with each specified sample type. Logical AND across provided types.",
+        request=SamplesByChildTypesRequestSerializer,
+        responses={200: SampleUIDListSerializer(child=SampleUIDItemSerializer())},
+        examples=[
+            OpenApiExample(
+                name="By child type titles",
+                value={
+                    "sample_type_titles": ["D.IMG", "TIS"]
+                },
+            ),
+            OpenApiExample(
+                name="By child type IDs",
+                value={
+                    "sample_type_ids": [14,2]
+                },
+            ),
+        ],
+        tags=["SampleTypes"],
+    )
+    @action(detail=False, methods=["post"], url_path="parents_by_child_types")
+    def parents_by_child_types(self, request):
+        # Auth gate
+        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+        if not basic_tuple and not request.user.is_authenticated:
+            return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Validation using DRF serializer
+        ser = SamplesByChildTypesRequestSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response({"errors": [{"title": "Invalid request", "detail": ser.errors}]}, status=422)
+        payload = ser.validated_data
+
+        # Normalize titles (exact match)
+        titles: List[str] = []
+        titles_in = payload.get('sample_type_titles')
+        if titles_in:
+            for t in titles_in:
+                if isinstance(t, str):
+                    titles.append(t)
+
+        # If ids are present, resolve to titles via ORM
+        ids_in = payload.get('sample_type_ids')
+        if ids_in:
+            try:
+                id_list = [int(x) for x in ids_in if x is not None]
+                qs = Sample_types.objects.filter(id__in=id_list).values_list('title', flat=True)
+                titles.extend([t for t in qs if t])
+            except Exception:
+                return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
+
+        input_types = sorted({t.strip().upper() for t in titles if t and isinstance(t, str)})
+        if not input_types:
+            return Response({"errors": [{"title": "Invalid request", "detail": "Provide at least one valid sample type (title or id)."}]}, status=422)
+
+        cypher = (
+            """
+      WITH $types AS input_types
+      MATCH (p:Sample)
+      MATCH (c:Sample)-[:CHILD_OF*1..]->(p)
+      WHERE c.type IN input_types
+      WITH p, collect(DISTINCT c.type) AS matched_types, input_types
+      WHERE size(matched_types) = size(input_types)
+      RETURN p.id AS id, p.uuid AS uuid
+      ORDER BY id
+      """
+        )
+
+        NEO4J_DATABASE = settings.NEO4J_DATABASE
+        try:
+            with GraphDatabase.driver(NEO4J_DATABASE["URI"], auth=NEO4J_DATABASE["AUTH"]) as driver:
+                records, summary, keys = driver.execute_query(
+                    cypher,
+                    types=input_types,
+                    database_=NEO4J_DATABASE["NAME"],
+                )
+        except Neo4jError:
+            return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception:
+            return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
+
+        items = []
+        for r in records:
+            rid = r["id"]
+            ruid = r["uuid"]
+            if rid is not None and ruid is not None:
+                items.append({"id": str(rid), "uuid": str(ruid)})
+
+        # Use DRF serializer instance for response consistency if desired
+        return Response(items, status=status.HTTP_200_OK)

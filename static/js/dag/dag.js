@@ -66,7 +66,7 @@ function clickNode(e, d) {
     console.log(d.data);
     const nodeId = d.data.id;
     const sampleId = d.data.id;
-    window.open("https://nextseek.mit.edu/seek/sample/id=" + sampleId)
+    window.open("https://nextseek-dev.mit.edu/seek/sample/id=" + sampleId)
 }
 
 const nodes = svg.select("#nodes")

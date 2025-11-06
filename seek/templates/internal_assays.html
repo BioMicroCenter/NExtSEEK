@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% include "pages/seek_includes.html" %} 
+{% block main %}
+
+<script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-filter.js"></script>
+<script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-export.js"></script>
+<script type="text/javascript" src="{{STATIC_URL}}js/custom/datagrid-custom.js"></script>
+
+<script type="text/javascript">
+
+  var internal_assays = {{ internal_assays | safe }}
+  var assay_associations = {{ assay_associations | safe }}
+
+  $(document).ready(function(){
+    window.dg_internal_assays = $('#dg_internal_assays').datagrid();
+    window.dg_internal_assays.datagrid('loadData', internal_assays);
+  });
+
+  $(document).ready(function(){
+    window.internal_assay_association_dg= $('#internal_assay_association_dg').datagrid();
+    window.internal_assay_association_dg.datagrid('loadData', assay_associations);
+  });
+
+  function syncInternalAssays() {
+    fetch('syncInternalAssays', {
+      method: 'POST',
+      headers: {"X-CSRFToken": "{{ csrf_token }}"},})
+    .then(data => console.log(data))
+  }
+
+  function formatAssay(value, row){
+    if (!value) return '';
+    for (var i = 0; i < assay_associations.length; i++){
+        if (assay_associations[i].assay_id == value){
+            return assay_associations[i].assay_title;
+        }
+    }
+    return value;
+  }
+
+  function formatInternalAssay(value, row){
+    if (!value) return '';
+    for (var i = 0; i < assay_associations.length; i++){
+        if (assay_associations[i].internal_assay_id == value){
+            return assay_associations[i].internal_assay_title;
+        }
+    }
+    return value;
+  }
+ 
+  function saveSelectedIntoDB(dg, url) {
+    var records = [];
+    var rows = dg.datagrid('getChanges');
+
+    if (rows.length == 0) {
+      alert("You have not entered any new clade information!");
+      return false;
+    }
+
+    for (var i=0; i<rows.length; i++) {
+      var row = rows[i];
+      var record = {};
+
+      for (var key in row) {
+        var value = row[key];
+        record[key] = value;
+      }
+      records.push(record);
+    }
+
+    var msg = 'You have entered ' +
+              rows.length +
+              ' records for saving. Do you really want to save?';
+
+    $.messager.confirm('Saving record', msg, function(r) {
+      if (r) {
+        
+      } else {
+        return false;
+      }
+
+      var win = $.messager.progress({
+        title: 'Please wait',
+        msg: 'Saving record ...'
+      });
+
+      $.get(url, { records: JSON.stringify(records)}, function(data) {
+        $.messager.progress('close');
+
+        console.log(data)
+
+        var obj = jQuery.parseJSON(data);
+        var msg = obj.msg;
+        var link = obj.link;
+        var status = obj.status;
+        if (!status) {
+					var msg2 = "Error in saving record. <br/><br/>";
+					msg2 += msg;
+					alert(msg);
+					window.location.href = link;
+					return false;
+				} else{
+					$.messager.alert('Saving record',msg,'info');
+				}
+				window.location.href = link;
+				return true;
+      });
+      return true;
+    });
+    return true;
+  }
+</script>
+
+<div id="internal_assays_tab" class="easyui-tabs" style="width:auto;height:900px;">
+  <div title="Internal Assays" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
+  	<div class="easyui-layout" style="width:auto;height:900px;">
+      <div id="center_div" data-options="region:'center',border:false" style="display:flex;flex-direction:column;gap:2em;height: 600px;">
+        <div id="internal_assays_table_div" style="height:auto">
+        	<div style="margin:20px 0;"></div>
+          <h1>Internal Assays</h1>
+        	<table id="dg_internal_assays" class="easyui-datagrid" title="" style="width:auto; height:fit-content;"
+        			data-options="
+        				iconCls: 'icon-edit',
+        				singleSelect: true,
+        				selectOnCheck: false,
+        				url:'',
+        				method:'get',
+        				toolbar: '#tb_toolbar',
+        				striped: true,
+        				pagination : false,
+                onClickCell: onClickCell,
+                onEndEdit: onEndEdit,
+        				showFooter: false,
+        				remoteFilter: false
+        			">
+        		<thead>
+        			<tr>
+        				<th data-options="field:'id',width:120"><B>ID</B></th>
+        				<th data-options="field:'internal_assay_title',width:120,editor:'text'"><B>Internal Title</B></th>
+        			</tr>
+        		</thead>
+        	</table>
+        	<div id="tb_toolbar" style="height:auto">
+        		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true" onclick="append($('#dg_internal_assays'))">Add</a>
+            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="removeit($('#dg_internal_assays'), '/seek/internal_assay/delete')">Remove</a>
+            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="accept($('#dg_internal_assays'), '/seek/internal_assays/save')">Save</a>
+            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#dg_internal_assays'))">Cancel</a>
+          </div>
+        </div>
+        <div id="internal_assay_association_table_div">
+          <h1>Assay Association</h1>
+        	<table id="internal_assay_association_dg" class="easyui-datagrid" title="" style="width:auto; height:fit-content;"
+        			data-options="
+        				iconCls: 'icon-edit',
+        				singleSelect: true,
+        				selectOnCheck: false,
+        				toolbar: '#internal_assay_toolbar',
+        				striped: true,
+        				pagination : false,
+                onClickCell: onClickCell,
+                onEndEdit: onEndEdit,
+        				showFooter: false,
+        				remoteFilter: false
+        			">
+        		<thead>
+        			<tr>
+                <th data-options="field:'assay_id', width:240, formatter: formatAssay">
+                  <B>Assay</B>
+                </th>
+        				<th data-options='field:"internal_assay_id",width:240,
+                    formatter: formatInternalAssay,
+        						editor:{
+        							type:"combobox",
+        							options:{
+        								valueField: "id",
+        								textField: "internal_assay_title",
+        								data: internal_assays,
+        								required: true
+        							}
+        						}'>
+                  <B>Internal Assay</B>
+                </th>
+        			</tr>
+        		</thead>
+        	</table>
+        	<div id="internal_assay_toolbar" style="height:auto">
+            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-reload',plain:true" onclick="syncInternalAssays()">Sync Assays</a>
+            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="accept($('#internal_assay_association_dg'), '/seek/internal_assays/assayAssociation/save')">Save</a>
+            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#internal_assay_association_dg'))">Cancel</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+{% endblock %}

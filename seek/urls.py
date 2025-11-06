@@ -20,6 +20,12 @@ urlpatterns = [
     re_path(r'^admin/retrieve/', views.adminRetrieveSamples, name="adminRetrieveSamples"),
     re_path(r'^admin/clades/$', views.adminClades, name="adminClades"),
     re_path(r'^admin/clades/syncSampleTypes/$', views.cladesSyncSampleTypes, name="cladesSyncSampleTypes"),
+
+    re_path(r'^admin/internal_assays/$', views.internalAssays, name="internalAssays"),
+    re_path(r'^admin/internal_assays/syncInternalAssays$', views.syncInternalAssays, name="syncInternalAssays"),
+    re_path(r'^internal_assays/assayAssociation/save$', views.assayAssociationSave, name='assayAssociationSave'), 
+    re_path(r'^internal_assays/save$', views.internalAssaySave, name="internalAssaySave"),
+    re_path(r'^internal_assays/delete$', views.internalAssayDelete, name="internalAssayDelete"),
     
     re_path(r'^samples/attributes/', views.sampleAttributes, name='sampleAttributes'),
     re_path(r'^samples/retrieveType/', views.getSampleType, name='getSampleType'),
@@ -41,7 +47,7 @@ urlpatterns = [
     
     re_path(r'^document/id=(?P<id>\d+)/$', views.document, name='document'),
 
-    re_path(r'^attributes/id=(?P<id>\d+)/$', views.getAttributes, name='getAttributes'),
+    re_path(r'^attributes/id=(?P<id>[\w.-]{0,256})/$', views.getAttributes, name='getAttributes'),
     re_path(r'^attribute/save/', views.sampleAttributeSave, name='sampleAttributeSave'), 
     re_path(r'^attribute/delete/', views.sampleAttributeDelete, name='sampleAttributeDelete'),
     re_path(r'^clade/save/$', views.cladeSave, name='cladeSave'), 

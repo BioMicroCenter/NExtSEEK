@@ -286,3 +286,20 @@ def paginate_rows_in_envelope(request, envelope, rows_key='rows', paginator_cls=
         envelope['total'] = len(rows)
     return envelope
 
+def resolve_sampletype_to_seek_id(s: str) -> Optional[str]:
+    """Resolve a sample type display title to a SEEK numeric id string.
+    - If input is numeric, return as-is.
+    - Else, use DBtable_sampletype("DEFAULT").getSampleTypeID(title).
+    """
+    val = str(s)
+    if val.isdigit():
+        return val
+    try:
+        from seek.dbtable_sampletype import DBtable_sampletype  # local import for optional dependency
+        rid = DBtable_sampletype("DEFAULT").getSampleTypeID(val)
+        if isinstance(rid, int) and rid > 0:
+            return str(rid)
+        return None
+    except Exception:
+        return None
+

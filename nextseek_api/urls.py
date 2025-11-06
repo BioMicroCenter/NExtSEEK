@@ -12,7 +12,7 @@ router = DefaultRouter()
 # Existing tree/legacy endpoints remain 
 router.register(r"sample-tree", views.SampleTreeViewSet, basename="sample-tree")
 router.register(r"nhp", views.NHPViewSet, basename="nhp")
-router.register(r"sample-queries", views.SampleQueryViewSet, basename="sample-queries")
+# router.register(r"sample-queries", views.SampleQueryViewSet, basename="sample-queries")
 router.register(r"admin/samples", views.AdminSampleViewSet, basename="admin-samples")
 router.register(r"sops", views.SopViewSet, basename="sops")
 router.register(r"data_files", views.DataFileViewSet, basename="data_files")
@@ -22,6 +22,8 @@ router.register(r"investigations", views.InvestigationViewSet, basename="investi
 router.register(r"assays", views.AssayViewSet, basename="assays")
 router.register(r"sample_types", views.SampleTypeViewSet, basename="sample_types")
 router.register(r"samples/advanced_search", views.SampleAdvancedSearchViewSet, basename="samples-advanced-search")
+router.register(r"sample_types/get_parents", views.SamplesByChildTypesViewSet,basename="get-parents-by-childtype")
+router.register(r"sampletypes", views.SampleTypeChildrenViewSet, basename="sampletypes")
 router.register(r"samples", views.SampleViewSet, basename="samples")
 
 
@@ -32,5 +34,5 @@ urlpatterns = [
     re_path(r'^redoc/$', SpectacularRedocView.as_view(url_name='nextseek_api:schema'), name='redoc'),
     
     # Include router URLs
-    re_path(r'^', include(router.urls)),
+    re_path(r'^', include(router.urls))
 ]

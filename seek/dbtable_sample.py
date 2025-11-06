@@ -624,7 +624,10 @@ class DBtable_sample(DBtable):
         if status:
             if newSample:
 
-                #self.storeSampleNeo4j(sampleType, record_new)
+                try:
+                    self.storeSampleNeo4j(sampleType, record_new)
+                except:
+                    None
 
                 self.__updateSampleProject(creator, sample_id)
                 self.__updateSampleAssetsCreators(sample_id, creator_id)

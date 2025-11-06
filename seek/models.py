@@ -103,6 +103,49 @@ class Sample_tree(models.Model):
     class Meta:
         db_table = "seek_sample_tree"
 
+class Assays(models.Model):
+    _DATABASE = SEEK_DATABASE
+
+    title = models.TextField(default=None)
+    description = models.TextField(default=None)
+    created_at = models.DateTimeField(default=None)
+    updated_at = models.DateTimeField(default=None)
+    study_id = models.IntegerField()
+    contributor_id = models.IntegerField()
+    first_letter = models.CharField(max_length=1, default=None)
+    assay_class_id = models.IntegerField()
+    uuid = models.CharField(max_length=255, default=None)
+    policy_id = models.IntegerField()
+    assay_type_uri = models.TextField()
+    technology_type_uri = models.TextField()
+    suggested_assay_type_id = models.IntegerField()
+    suggested_technology_type_id = models.IntegerField()
+    other_creators = models.TextField(default=None)
+    deleted_contributor = models.TextField(default=None)
+    sample_type_id = models.IntegerField()
+    position = models.IntegerField()
+    assay_stream_id = models.IntegerField()
+
+    class Meta:
+        db_table = "assays"
+
+class Internal_assays(models.Model):
+    _DATABASE = NEXTSEEK_DATABASE
+    
+    internal_assay_title = models.TextField(default=None)
+
+    class Meta:
+        db_table = "internal_assays"
+
+class Assays_internal_assays(models.Model):
+    _DATABASE = NEXTSEEK_DATABASE
+
+    internal_assay_id = models.IntegerField(default=None)
+    assay_id = models.IntegerField(default=None)
+
+    class Meta:
+        db_table = "assays_internal_assays"
+
 class Clades(models.Model):
     _DATABASE = NEXTSEEK_DATABASE
 
