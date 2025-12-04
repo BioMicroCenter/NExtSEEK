@@ -49,6 +49,7 @@ from .services.sample_types import SamplesByChildTypesViewSet as SamplesByChildT
 from .services.samples import SampleProxyViewSet as SampleViewSet
 from .services.samples import _resolve_uid_to_seek_id
 from .services.samples import SampleAdvancedSearchViewSet as SampleAdvancedSearchViewSet
+from .services.schema_rag import SchemaRAGViewSet
 from .helpers import resolve_seek_auth
 from nextseek_api.helpers import StandardResultsSetPagination
 

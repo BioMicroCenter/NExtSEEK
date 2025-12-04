@@ -1679,3 +1679,105 @@ class SamplesByChildTypesRequest(BaseModel):
 class SampleUIDItem(BaseModel):
     id: str = Field(..., description="SEEK numeric id (stringified)")
     uuid: str = Field(..., description="Sample UID")
+
+
+# -----------------------------
+# Schema RAG: request/response models
+# -----------------------------
+
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nextseek_api.schema_rag.models import MinimalAPIEndpoint, FullAPIEndpoint
+
+
+class IngestRequest(BaseModel):
+    """Request to ingest an OpenAPI schema for RAG retrieval."""
+    schema_url: str = Field(..., description="URL of the OpenAPI schema to ingest")
+    ttl_minutes: Optional[int] = Field(None, description="Session TTL in minutes (uses default if not provided)")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class IngestResponse(BaseModel):
+    """Successful response from schema ingestion."""
+    session_id: str = Field(..., description="Unique session identifier for retrieval")
+    schema_url: str = Field(..., description="URL of the ingested schema")
+    ttl_minutes: int = Field(..., description="Session TTL in minutes")
+    expires_at: datetime = Field(..., description="When the session will expire")
+    num_endpoints: int = Field(..., description="Number of endpoints indexed")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class IngestError(BaseModel):
+    """Error details for failed ingestion."""
+    error_code: str = Field(..., description="Symbolic error code from schema_rag/errors.py")
+    message: str = Field(..., description="Human-readable error message")
+    details: Optional[Dict[str, Any]] = Field(None, description="Additional error details")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class IngestResult(BaseModel):
+    """Discriminated union result for ingestion operations."""
+    success: bool = Field(..., description="True if ingestion succeeded")
+    response: Optional[IngestResponse] = Field(None, description="Populated when success=True")
+    error: Optional[IngestError] = Field(None, description="Populated when success=False")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class RetrieveDebugInfo(BaseModel):
+    """Debug metadata for retrieval operations."""
+    used_fallback_full: bool = Field(..., description="Whether full mode fallback was used")
+    used_enriched_minimal_examples: bool = Field(..., description="Whether enriched minimal examples were used")
+    similarity_threshold_effective: float = Field(..., description="Effective similarity threshold used")
+    num_candidates_initial: int = Field(..., description="Number of initial candidates before filtering")
+    num_candidates_final: int = Field(..., description="Number of final candidates returned")
+    scores: Optional[List[float]] = Field(None, description="Final similarity scores for returned endpoints")
+    error_code: Optional[str] = Field(None, description="Error code if partial failure")
+    error_details: Optional[dict] = Field(None, description="Error details if partial failure")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class RetrieveRequest(BaseModel):
+    """Request to retrieve relevant API endpoints from an ingested schema."""
+    session_id: Optional[str] = Field(None, description="Session ID from prior ingestion")
+    schema_url: Optional[str] = Field(None, description="Schema URL to look up existing session")
+    query: str = Field(..., description="Natural language query describing the desired operation")
+    resolved_terms: Optional[Dict[str, Any]] = Field(None, description="Pre-resolved entity terms")
+    mode: Literal["minimal", "full"] = Field("minimal", description="Response detail level")
+    top_k: int = Field(5, description="Maximum number of endpoints to return")
+    min_score: Optional[float] = Field(None, description="Minimum similarity score threshold")
+    include_debug: bool = Field(True, description="Whether to include debug info in response")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class RetrieveResponse(BaseModel):
+    """Response containing retrieved API endpoints."""
+    session_id: str = Field(..., description="Session ID used for retrieval")
+    mode: Literal["minimal", "full"] = Field(..., description="Response detail level")
+    endpoints_minimal: Optional[List["MinimalAPIEndpoint"]] = Field(
+        None, description="Minimal endpoint info (when mode='minimal')"
+    )
+    endpoints_full: Optional[List["FullAPIEndpoint"]] = Field(
+        None, description="Full endpoint info (when mode='full')"
+    )
+    message: Optional[str] = Field(None, description="Optional message (e.g., warnings)")
+    debug: Optional[RetrieveDebugInfo] = Field(None, description="Debug info (when include_debug=True)")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# Rebuild models with forward references when schema_rag package is available
+def _rebuild_schema_rag_models():
+    """Call this after schema_rag.models is imported to resolve forward references."""
+    try:
+        from nextseek_api.schema_rag.models import MinimalAPIEndpoint, FullAPIEndpoint
+        RetrieveResponse.model_rebuild()
+    except ImportError:
+        pass  # schema_rag package not yet available

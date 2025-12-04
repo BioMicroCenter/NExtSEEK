@@ -167,3 +167,5 @@ gunicorn.conf.py
 .DS_Store
 internal_docs/
 .cursor/
+duckdb/
+embedding_models/

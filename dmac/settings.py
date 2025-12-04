@@ -432,3 +432,18 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "0.1.0",
     "OAS_VERSION": "3.1.0",  # drf-spectacular supports 3.0 & 3.1
 }
+
+#######################
+# SCHEMA RAG SETTINGS #
+#######################
+
+SCHEMA_RAG_DUCKDB_DIR = os.path.join(BASE_DIR, 'schema_rag', 'duckdb')
+SCHEMA_RAG_DEFAULT_TTL_MINUTES = 15
+SCHEMA_RAG_MAX_ENDPOINTS = 250
+SCHEMA_RAG_MAX_TOP_K = 10
+SCHEMA_RAG_EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+SCHEMA_RAG_EMBEDDING_MODEL_PATH = os.path.join(BASE_DIR, 'schema_rag', 'embedding_models')
+
+# Ensure Schema RAG directories exist
+os.makedirs(SCHEMA_RAG_DUCKDB_DIR, exist_ok=True)
+os.makedirs(SCHEMA_RAG_EMBEDDING_MODEL_PATH, exist_ok=True)

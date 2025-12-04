@@ -25,6 +25,7 @@ router.register(r"samples/advanced_search", views.SampleAdvancedSearchViewSet, b
 router.register(r"sample_types/get_parents", views.SamplesByChildTypesViewSet,basename="get-parents-by-childtype")
 router.register(r"sampletypes", views.SampleTypeChildrenViewSet, basename="sampletypes")
 router.register(r"samples", views.SampleViewSet, basename="samples")
+router.register(r"schema_rag", views.SchemaRAGViewSet, basename="schema-rag")
 
 
 urlpatterns = [
