@@ -83,7 +83,7 @@ EndpointScore = Tuple[str, float]  # (endpoint_id, similarity_score)
 # ---------------------------------------------------------------------------
 
 DEFAULT_MIN_SCORE = 0.3
-RESOLVED_TERM_BOOST = 0.1
+RESOLVED_TERM_BOOST = 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +170,11 @@ def flatten_endpoints(openapi_doc: dict, processor: OpenAPISchemaProcessor) -> L
     paths = openapi_doc.get("paths", {})
     
     for path, path_item in paths.items():
+        # Skip excluded paths (e.g., meta-endpoints like /schema_rag/)
+        excluded_patterns = getattr(settings, 'SCHEMA_RAG_EXCLUDED_PATH_PATTERNS', [])
+        if any(pattern in path for pattern in excluded_patterns):
+            continue
+        
         if not isinstance(path_item, dict):
             continue
         

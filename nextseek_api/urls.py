@@ -11,7 +11,7 @@ router = DefaultRouter()
 # Register all ViewSets created in Phase 3:
 # Existing tree/legacy endpoints remain 
 router.register(r"sample-tree", views.SampleTreeViewSet, basename="sample-tree")
-router.register(r"nhp", views.NHPViewSet, basename="nhp")
+# router.register(r"nhp", views.NHPViewSet, basename="nhp")
 # router.register(r"sample-queries", views.SampleQueryViewSet, basename="sample-queries")
 router.register(r"admin/samples", views.AdminSampleViewSet, basename="admin-samples")
 router.register(r"sops", views.SopViewSet, basename="sops")

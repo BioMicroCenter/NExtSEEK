@@ -27,7 +27,7 @@ class PeopleProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="List People",
-        description="List People (proxy to SEEK). JSON:API pass-through.",
+        description="Retrieve all registered researchers and users in the system. Returns names, email addresses, institutions, and IDs for their associated projects, studies, and contributions. Examples: 'Show me all researchers in the system'; 'Who are the scientists working on primate studies?'",
         responses={200: PersonListResponse},
         tags=['People'],
         examples=[
@@ -67,7 +67,7 @@ class PeopleProxyViewSet(viewsets.ViewSet):
         return HttpResponse(body, status=code, content_type=ct)
 
     @extend_schema(
-        description="Fetch a single Person by SEEK id (numeric).",
+        description="Fetch profile details for a specific researcher by their ID. Returns full metadata including name, email, institution, and all linked projects, studies, assays, data files, and publications they have contributed to. Examples: 'Show me Dr. Smith's profile and projects'; 'What studies has this researcher contributed to?'",
         operation_id="Fetch a Person",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric)')
@@ -130,7 +130,7 @@ class PeopleProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Create a Person",
-        description="Create a Person via JSON:API (proxy to SEEK).",
+        description="Register a new researcher or user in the system with their name, email, and institution. Returns the created person record with their assigned ID. Examples: 'Add a new researcher named Jane Doe to the system'; 'Register a collaborator from the partner institution'",
         request=PersonCreateRequest,
         responses={201: PersonSingleResponse, 200: PersonSingleResponse},
         tags=['People'],
@@ -170,7 +170,7 @@ class PeopleProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Update a Person",
-        description="Update a Person by SEEK id (numeric).",
+        description="Update an existing researcher's profile by their ID. Modify name, email, institution, or project associations. Returns the updated person record with all current metadata. Examples: 'Update Dr. Smith's email address'; 'Change the institution for this researcher'",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric)')
         ],

@@ -58,7 +58,7 @@ class DataFileProxyViewSet(viewsets.ViewSet):
     # GET /data_files
     @extend_schema(
         operation_id="List DataFiles",
-        description="List DataFiles (proxy to SEEK). JSON:API pass-through.",
+        description="Retrieve all data files you have access to, including spreadsheets, images, sequencing outputs, and other research data. Returns file titles, descriptions, content types, and associated projects or assays. Examples: 'Show me all uploaded data files'; 'What sequencing results are available for download?'",
         responses={200: DataFileListResponse},
         tags=['DataFiles'],
         examples=[
@@ -99,7 +99,7 @@ class DataFileProxyViewSet(viewsets.ViewSet):
 
     # GET /data_files/{uid}?version=int
     @extend_schema(
-        description="Fetch a single DataFile by SEEK id or NExtSEEK UID (resolved to SEEK id). Version query param is required by SEEK.",
+        description="Fetch metadata for a specific data file by ID or name. Returns title, description, file type, download URL, version history, and linked samples or assays. Specify version number to retrieve historical file revisions. Examples: 'Get the CT scan images for this monkey'; 'Show me the flow cytometry results file for sample NHP-220630FLY-1-PUB'",
         operation_id="Fetch a DataFile",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or NExtSEEK UID (string)'),
@@ -156,7 +156,7 @@ class DataFileProxyViewSet(viewsets.ViewSet):
     # POST /data_files
     @extend_schema(
         operation_id="Create a DataFile",
-        description="Create a DataFile via JSON:API (proxy to SEEK).",
+        description="Register a new data file by providing a URL or uploading content. Associate with projects, assays, or samples. Returns the created file record with its assigned ID and metadata. Examples: 'Upload the microscopy images from today's experiment'; 'Register a new sequencing output file for the water study'",
         request=DataFileCreateRequest,
         responses={201: DataFileSingleResponse, 200: DataFileSingleResponse},
         tags=['DataFiles'],
@@ -203,7 +203,7 @@ class DataFileProxyViewSet(viewsets.ViewSet):
     # PATCH /data_files/{uid}
     @extend_schema(
         operation_id="Update a DataFile",
-        description="Update a DataFile by SEEK id or NExtSEEK UID (resolved to SEEK id).",
+        description="Update an existing data file's metadata by ID or name. Modify title, description, or project/assay associations. Returns the updated file record with all current metadata. Examples: 'Add a description to the microscopy images'; 'Change the project association for this sequencing file'",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or NExtSEEK UID (string)')
         ],

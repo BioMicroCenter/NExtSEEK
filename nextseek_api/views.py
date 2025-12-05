@@ -61,8 +61,8 @@ def get_clade_color(sample_type):
     cursor = conn.cursor()
     query = f"""
     SELECT c.color FROM dmac.clades c
-    JOIN dmac.sample_types st
-    ON st.clade_id = c.id
+    JOIN dmac.sample_types_clades stc ON stc.clade_id = c.id
+    JOIN seek_production.sample_types st ON stc.sample_type_id = st.id
     WHERE st.title = '{sample_type}'
     """
     
@@ -88,7 +88,7 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="Get Sample Tree by id or uid",
-        description="Get sample tree by SEEK id (numeric) or Sample UID (string)",
+        description="Retrieve the full sample lineage for a given sample, showing all related samples above and below it in the hierarchy. Returns nodes with ID, UUID, sample type, color, and relationships for visualization. Examples: 'Show me all samples derived from NHP-220630FLY-2-PUB'; 'What tissue and cell samples came from this patient: PAT-241113DFC-3?'",
         tags=['Samples'],
         responses={200: SampleTreeSerializer()},
         parameters=[
@@ -124,49 +124,65 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
         if seek_id is None:
             return Response({"detail": "Sample not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        NEO4J_DATABASE = settings.NEO4J_DATABASE
-        with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
-            r = driver.execute_query(
-                """
-                MATCH (s: Sample {id: """ + str(seek_id) + """})
-                MATCH parents=(s)-[r1:CHILD_OF*0..]->(parent)
-                MATCH children=(s)<-[r2:CHILD_OF*0..]-(child)
-                RETURN collect(DISTINCT s) + collect(DISTINCT parent) + collect(DISTINCT child) AS nodes, r1 + r2 AS relationships
-                """,
-                result_transformer_=neo4j.Result.graph,
-                database_=NEO4J_DATABASE['NAME']
+        try:
+            NEO4J_DATABASE = settings.NEO4J_DATABASE
+            with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
+                r = driver.execute_query(
+                    """
+                    MATCH (s: Sample {id: """ + str(seek_id) + """})
+                    MATCH parents=(s)-[r1:CHILD_OF*0..]->(parent)
+                    MATCH children=(s)<-[r2:CHILD_OF*0..]-(child)
+                    RETURN collect(DISTINCT s) + collect(DISTINCT parent) + collect(DISTINCT child) AS nodes, r1 + r2 AS relationships
+                    """,
+                    result_transformer_=neo4j.Result.graph,
+                    database_=NEO4J_DATABASE['NAME']
+                )
+
+                nodeDict = {}
+                for node in r.nodes:
+                    nodeUid = node._properties['uuid']
+                    nodeId = node._properties['id']
+                    nodeType = node._properties['type']
+                    nodeDict[nodeUid] = {'id': str(nodeId), 'type': nodeType, 'parents': []}
+
+                for rel in r.relationships:
+                    nodeId = str(rel.start_node._properties['id'])
+                    nodeUid = rel.start_node._properties['uuid']
+                    nodeType = rel.start_node._properties['type']
+                    parentId = str(rel.end_node._properties['id'])
+
+                    if nodeDict.get(nodeUid) is not None:
+                        nodeDict[nodeUid]['parents'].append(parentId)
+                    else:
+                        nodeDict[nodeUid]['parents'] = [parentId]
+
+                data = []
+                for k, v in nodeDict.items():
+                    color = get_clade_color(v['type'])
+                    data.append({
+                        "id": v['id'],
+                        "uuid": k,
+                        "type": v['type'],
+                        "color": color,
+                        "parentIds": v['parents']
+                    })
+
+                return Response(data, status=status.HTTP_200_OK)
+        except AuthError as e:
+            return Response(
+                {"detail": f"Neo4j authentication failed: {str(e)}"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
-
-            nodeDict = {}
-            for node in r.nodes:
-                nodeUid = node._properties['uuid']
-                nodeId = node._properties['id']
-                nodeType = node._properties['type']
-                nodeDict[nodeUid] = {'id': str(nodeId), 'type': nodeType, 'parents': []}
-
-            for rel in r.relationships:
-                nodeId = str(rel.start_node._properties['id'])
-                nodeUid = rel.start_node._properties['uuid']
-                nodeType = rel.start_node._properties['type']
-                parentId = str(rel.end_node._properties['id'])
-
-                if nodeDict.get(nodeUid) is not None:
-                    nodeDict[nodeUid]['parents'].append(parentId)
-                else:
-                    nodeDict[nodeUid]['parents'] = [parentId]
-
-            data = []
-            for k, v in nodeDict.items():
-                color = get_clade_color(v['type'])
-                data.append({
-                    "id": v['id'],
-                    "uuid": k,
-                    "type": v['type'],
-                    "color": color,
-                    "parentIds": v['parents']
-                })
-
-            return Response(data, status=status.HTTP_200_OK)
+        except Neo4jError as e:
+            return Response(
+                {"detail": f"Neo4j query failed: {str(e)}"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        except Exception as e:
+            return Response(
+                {"detail": f"Tree query failed: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class NHPViewSet(viewsets.GenericViewSet):
     """
@@ -432,7 +448,7 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
         operation_id="Admin Sample Retrieval",
         tags=['Samples'],
         request=AdminRetrieveRequestSerializer,
-        description="Admin sample retrieval: POST UIDs and receive an Excel file",
+        description="Export sample metadata to Excel for admin users. Accepts a list of sample UIDs and returns an Excel workbook containing full metadata for those samples and all derived samples. Requires admin privileges. Examples: 'Export all metadata for NHP-220630FLY-1-PUB and its derived samples to Excel'; 'Download a spreadsheet with data for these three monkeys'",
         responses={200: OpenApiTypes.STR},
         examples=[
             OpenApiExample(name="UID list", value={"retrieval_uids": ["UID1", "UID2"]}),

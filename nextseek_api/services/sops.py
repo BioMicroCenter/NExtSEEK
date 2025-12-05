@@ -46,7 +46,7 @@ class SopProxyViewSet(viewsets.ViewSet):
     # GET /sops
     @extend_schema(
         operation_id="List SOPs",
-        description="List SOPs (proxy to SEEK). Pass-through query parameters and JSON:API response.",
+        description="Retrieve all standard operating procedures (protocols) you have access to. Returns protocol titles, descriptions, associated projects, and file attachment metadata. Examples: 'Show me all available protocols'; 'What procedures are documented for sample collection?'",
         responses={200: SopListResponse},
         tags=['SOPs'],
         examples=[
@@ -90,7 +90,7 @@ class SopProxyViewSet(viewsets.ViewSet):
 
     # GET /sops/{uid}
     @extend_schema(
-        description="Fetch a single SOP by SEEK id or NExtSEEK UID (resolved to SEEK id).",
+        description="Fetch details for a specific protocol document by ID or name. Returns full metadata including title, description, version history, attached files, and linked projects. Optionally specify a version to retrieve historical revisions. Examples: 'Show me the tissue processing protocol'; 'What is the current version of the blood draw procedure?'",
         operation_id="Fetch a SOP",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or NExtSEEK UID (string)'),
@@ -142,7 +142,7 @@ class SopProxyViewSet(viewsets.ViewSet):
     # POST /sops
     @extend_schema(
         operation_id="Create a SOP",
-        description="Create a SOP via JSON:API (proxy to SEEK).",
+        description="Upload a new standard operating procedure document. Attach protocol files (PDF, Word, etc.) and associate with projects. Returns the created protocol with its assigned ID and metadata. Examples: 'Add a new necropsy protocol for the primate study'; 'Upload the updated sample handling procedure'",
         request=SopCreateRequest,
         responses={201: SopSingleResponse, 200: SopSingleResponse},
         tags=['SOPs'],
@@ -189,7 +189,7 @@ class SopProxyViewSet(viewsets.ViewSet):
     # PATCH /sops/{uid}
     @extend_schema(
         operation_id="Update a SOP",
-        description="Update a SOP by SEEK id or NExtSEEK UID (resolved to SEEK id).",
+        description="Revise an existing protocol document by ID or name. Update title, description, attached files, or project associations. Returns the updated protocol with all current metadata. Examples: 'Update the description for the imaging protocol'; 'Change the project association for the cell culture procedure'",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or NExtSEEK UID (string)')
         ],

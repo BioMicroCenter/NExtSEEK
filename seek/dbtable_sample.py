@@ -211,6 +211,21 @@ class DBtable_sample(DBtable):
         self.primaryField = "id"
         self.fieldMapping = SAMPLE_FILTER_MAPPING
         self.excludeFields = []
+
+    def __runQuery(self, query):
+        db = settings.DATABASES[SEEK_DATABASE]
+        conn = MySQLdb.connect(host=db['HOST'],
+                               user=db['USER'],
+                               passwd=db['PASSWORD'],
+                               db=db['NAME'])
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute(query)
+            results = cursor.fetchall()
+            return results
+        except:
+            return None
         
     def __notEmptyLine(self, csvdic):
         notEmpty = True

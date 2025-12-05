@@ -36,7 +36,7 @@ class AssayProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="List Assays",
-        description="List Assays (proxy to SEEK). JSON:API pass-through.",
+        description="Retrieve all assays (experimental procedures) you have access to. Returns assay titles, types, technologies used, and IDs for linked studies, samples, and data files. Examples: 'Show me all available assays'; 'What experimental procedures have been run on the primate samples?'",
         responses={200: AssayListResponse},
         tags=['Assays'],
         examples=[
@@ -76,7 +76,7 @@ class AssayProxyViewSet(viewsets.ViewSet):
         return HttpResponse(body, status=code, content_type=ct)
 
     @extend_schema(
-        description="Fetch a single Assay by SEEK id (numeric).",
+        description="Fetch details for a specific assay by its ID. Returns full metadata including title, assay type, technology used, linked study, associated samples, protocols, and generated data files. Examples: 'Show me the details of the RNA-seq assay'; 'What samples were processed in this flow cytometry experiment?'",
         operation_id="Fetch an Assay",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric). Non-numeric UID resolution not configured.'),
@@ -124,7 +124,7 @@ class AssayProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Create an Assay",
-        description="Create an Assay via JSON:API (proxy to SEEK).",
+        description="Define a new assay (experimental procedure) within a study. Specify the assay type, technology, and link to samples and protocols. Returns the created assay with its assigned ID and metadata. Examples: 'Create a new transcriptomics assay for the immune response study'; 'Add a histology assay to analyze the tissue samples'",
         request=AssayCreateRequest,
         responses={201: AssaySingleResponse, 200: AssaySingleResponse},
         tags=['Assays'],
@@ -167,7 +167,7 @@ class AssayProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Update an Assay",
-        description="Update an Assay by SEEK id (numeric).",
+        description="Update an existing assay by its ID. Modify title, description, assay type, technology, or linked samples and data files. Returns the updated assay with all current metadata. Examples: 'Update the description for the RNA-seq assay'; 'Add additional samples to the flow cytometry experiment'",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric). Non-numeric UID resolution not configured.')
         ],

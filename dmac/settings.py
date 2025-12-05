@@ -431,6 +431,9 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "NExtSEEK API",
     "VERSION": "0.1.0",
     "OAS_VERSION": "3.1.0",  # drf-spectacular supports 3.0 & 3.1
+    "PREPROCESSING_HOOKS": [
+        "dmac.openapi_hooks.exclude_seek_paths",
+    ],
 }
 
 #######################
@@ -443,6 +446,9 @@ SCHEMA_RAG_MAX_ENDPOINTS = 250
 SCHEMA_RAG_MAX_TOP_K = 10
 SCHEMA_RAG_EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
 SCHEMA_RAG_EMBEDDING_MODEL_PATH = os.path.join(BASE_DIR, 'schema_rag', 'embedding_models')
+SCHEMA_RAG_EXCLUDED_PATH_PATTERNS = [
+    "/schema_rag/",
+]
 
 # Ensure Schema RAG directories exist
 os.makedirs(SCHEMA_RAG_DUCKDB_DIR, exist_ok=True)

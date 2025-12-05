@@ -37,7 +37,7 @@ class InvestigationProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="List Investigations",
-        description="List Investigations (proxy to SEEK). JSON:API pass-through.",
+        description="Retrieve all investigations (research topics or themes) you have access to. Returns investigation titles, descriptions, and IDs for their parent projects and child studies. Examples: 'Show me all ongoing investigations'; 'What research topics are being studied in the primate project?'",
         responses={200: InvestigationListResponse},
         tags=['Investigations'],
         examples=[
@@ -77,7 +77,7 @@ class InvestigationProxyViewSet(viewsets.ViewSet):
         return HttpResponse(body, status=code, content_type=ct)
 
     @extend_schema(
-        description="Fetch a single Investigation by SEEK id (numeric) or UID (unavailable here).",
+        description="Fetch details for a specific investigation by its ID. Returns full metadata including title, description, objectives, linked project, and all associated studies. Examples: 'Show me the details of the immune response investigation'; 'What studies are part of this research topic?'",
         operation_id="Fetch an Investigation",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric). Non-numeric UID resolution not configured.'),
@@ -125,7 +125,7 @@ class InvestigationProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Create an Investigation",
-        description="Create an Investigation via JSON:API (proxy to SEEK).",
+        description="Create a new investigation (research topic) within a project. Define the title, description, and objectives. Returns the created investigation with its assigned ID and metadata. Examples: 'Create a new investigation for studying vaccine efficacy'; 'Add a research topic about tumor microenvironment to the cancer project'",
         request=InvestigationCreateRequest,
         responses={201: InvestigationSingleResponse, 200: InvestigationSingleResponse},
         tags=['Investigations'],
@@ -163,7 +163,7 @@ class InvestigationProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Update an Investigation",
-        description="Update an Investigation by SEEK id (numeric).",
+        description="Update an existing investigation by its ID. Modify title, description, objectives, or project association. Returns the updated investigation with all current metadata. Examples: 'Rename the vaccine study investigation'; 'Update the objectives for the immune response research topic'",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric). Non-numeric UID resolution not configured.')
         ],

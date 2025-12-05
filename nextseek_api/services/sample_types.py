@@ -58,7 +58,7 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="List SampleTypes",
-        description="List SampleTypes (proxy to SEEK). JSON:API pass-through.",
+        description="Retrieve all sample type definitions available in the system. Returns a list of sample type schemas including their titles, descriptions, and attribute configurations for categories like tissue samples, cell lines, animals, imaging data, and sequencing data. Examples: 'What types of samples can I register?'; 'Show me all available sample categories'",
         responses={200: SampleTypeListResponse},
         tags=['SampleTypes'],
         examples=[
@@ -98,7 +98,7 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         return HttpResponse(body, status=code, content_type=ct)
 
     @extend_schema(
-        description="Fetch a single SampleType by SEEK id (numeric) or by title (resolved).",
+        description="Fetch details for a specific sample type by ID or name. Returns the full schema definition including title, description, and all attribute specifications that samples of this type must have. Examples: 'What fields are required for tissue samples?'; 'Show me the schema for imaging data samples'",
         operation_id="Fetch a SampleType",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or title (resolved to id)'),
@@ -130,7 +130,7 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Create a SampleType",
-        description="Create a SampleType via JSON:API (proxy to SEEK).",
+        description="Register a new sample type with custom attributes and validation rules. Returns the created sample type with its assigned ID and full schema definition. Examples: 'Create a new sample type for flow cytometry data'; 'Add a custom sample category for behavioral observations'",
         request=SampleTypeCreateRequest,
         responses={201: SampleTypeSingleResponse, 200: SampleTypeSingleResponse},
         tags=['SampleTypes'],
@@ -156,7 +156,7 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Update a SampleType",
-        description="Update a SampleType by SEEK id (numeric) or resolved title.",
+        description="Modify an existing sample type's attributes, description, or validation rules. Returns the updated sample type with all current settings. Examples: 'Add a new required field to the tissue sample type'; 'Update the description for sequencing data samples'",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or title (resolved to id)')
         ],
@@ -215,7 +215,7 @@ class SampleTypeChildrenViewSet(viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="Get Child Sample Types",
-        description="Return the list of unique child sample type titles for a given Sample (by id or UID).",
+        description="Get the distinct types of all samples derived from a given sample. Traverses the sample hierarchy to find all related samples below it. Returns a list of unique type titles (e.g., PAV, D.SEQ, A.GEX). Examples: 'What types of samples were collected from NHP-220630FLY-1-PUB?'; 'Does this monkey have any imaging data?'",
         parameters=[
             OpenApiParameter(
                 name='uid',
@@ -273,7 +273,7 @@ class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="Get samples with children of specified sample types",
-        description="Return parent samples (SEEK id and UID) that have at least one descendant with each specified sample type. Logical AND across provided types.",
+        description="Find parent samples that have derived samples of all specified types. Uses AND logic across types, so only samples with descendants matching every requested type are returned. Returns a list of matching sample IDs and UIDs. Examples: 'Which monkeys have both imaging data and sequencing results?'; 'Find all animals that have tissue samples and cell line derivatives'",
         request=SamplesByChildTypesRequestSerializer,
         responses={200: SampleUIDListSerializer(child=SampleUIDItemSerializer())},
         examples=[
