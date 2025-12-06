@@ -386,13 +386,16 @@ class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
 
         # Lookup sample type descriptions from database
         desc_lookup: dict = {}
+        desc_lookup_failed = False
+        n_failed = 0
         if unique_types:
             try:
                 qs = Sample_types.objects.filter(title__in=unique_types).values('title', 'description')
                 for row in qs:
                     desc_lookup[row['title']] = row.get('description')
+                n_failed = len(unique_types) - len(desc_lookup)
             except Exception:
-                pass  # Continue without descriptions if lookup fails
+                desc_lookup_failed = True  # Continue without descriptions if lookup fails
 
         # Build response items using Pydantic models
         items = []
@@ -407,6 +410,15 @@ class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
                     sample_type=rtype or "",
                     sample_type_description=desc_lookup.get(rtype) if rtype else None
                 ))
-
-        response = SamplesByChildTypesResponse(samples=items)
+        if n_failed > 0:
+            status_msg = f"OK, but sample type descriptions not available for {n_failed} sample types."
+        elif desc_lookup_failed:
+            status_msg = "OK, but sample type descriptions not available."
+        else:
+            status_msg = "OK"
+        response = SamplesByChildTypesResponse(
+            total=len(items),
+            samples=items,
+            msg=status_msg
+        )
         return Response(response.model_dump(), status=status.HTTP_200_OK)

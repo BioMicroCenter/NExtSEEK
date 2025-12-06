@@ -1684,7 +1684,9 @@ class SampleUIDItem(BaseModel):
 
 
 class SamplesByChildTypesResponse(BaseModel):
+    total: int = Field(..., description="Total number of matching samples")
     samples: List[SampleUIDItem] = Field(..., description="List of parent sample IDs and UIDs")
+    msg: Optional[str] = Field(None, description="Status message")
 
 # -----------------------------
 # Schema RAG: request/response models
