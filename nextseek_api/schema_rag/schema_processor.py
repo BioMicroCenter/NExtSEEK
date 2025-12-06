@@ -91,33 +91,37 @@ class OpenAPISchemaProcessor:
             logger.error("Failed to resolve $ref in schema from %s: %s", schema_url, e)
             raise SchemaFetchError(f"$ref resolution failed: {e}") from e
 
-    def _convert_jsonref_to_dict(self, obj: Any, _seen: Optional[set] = None) -> Any:
+    def _convert_jsonref_to_dict(self, obj: Any, _ancestors: Optional[set] = None) -> Any:
         """
         Recursively convert jsonref proxy objects to regular Python dicts.
         
-        Handles circular references by tracking visited object ids.
+        Handles circular references by tracking ancestors in the current recursion path.
+        Shared references (same object via different paths) are converted normally.
         
         Args:
             obj: Object to convert (may be jsonref proxy, dict, list, or primitive).
-            _seen: Set of already-visited object ids (for circular reference detection).
+            _ancestors: Set of object ids in the current recursion path (for cycle detection).
         
         Returns:
             Plain Python object (dict, list, or primitive).
         """
-        if _seen is None:
-            _seen = set()
+        if _ancestors is None:
+            _ancestors = set()
         
-        # Handle circular references
         obj_id = id(obj)
-        if obj_id in _seen:
-            # Return a placeholder for circular references
-            return {"$circular_ref": True}
+        
+        # Only circular if we're descending INTO this same object (ancestor check)
+        if obj_id in _ancestors:
+            return {}  # Break genuine cycle
         
         if isinstance(obj, dict):
-            _seen.add(obj_id)
-            return {k: self._convert_jsonref_to_dict(v, _seen) for k, v in obj.items()}
+            _ancestors.add(obj_id)
+            try:
+                return {k: self._convert_jsonref_to_dict(v, _ancestors) for k, v in obj.items()}
+            finally:
+                _ancestors.discard(obj_id)  # Remove when leaving this branch
         elif isinstance(obj, list):
-            return [self._convert_jsonref_to_dict(item, _seen) for item in obj]
+            return [self._convert_jsonref_to_dict(item, _ancestors) for item in obj]
         else:
             return obj
 

@@ -1668,18 +1668,23 @@ class SampleAdvancedSearchResult(BaseModel):
 # Imports already present at file scope: List, Optional, BaseModel, Field
 
 class SamplesByChildTypesRequest(BaseModel):
-    sample_type_titles: Optional[List[str]] = Field(
+    child_sample_types: Optional[Union[List[int], List[str]]] = Field(
         None, description="Child sample type titles to match (logical AND)"
     )
-    sample_type_ids: Optional[List[int]] = Field(
-        None, description="Child sample type IDs to match (logical AND)"
+    parent_sample_type_filters: Optional[Union[List[int], List[str]]] = Field(
+        None, description="Parent sample type titles or SEEK IDs to filter by (logical OR)"
     )
 
 
 class SampleUIDItem(BaseModel):
     id: str = Field(..., description="SEEK numeric id (stringified)")
     uuid: str = Field(..., description="Sample UID")
+    sample_type: Union[int, str] = Field(..., description="Sample type title or SEEK ID")
+    sample_type_description: Optional[str] = Field(None, description="Sample type description")
 
+
+class SamplesByChildTypesResponse(BaseModel):
+    samples: List[SampleUIDItem] = Field(..., description="List of parent sample IDs and UIDs")
 
 # -----------------------------
 # Schema RAG: request/response models

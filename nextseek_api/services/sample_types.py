@@ -20,7 +20,7 @@ from nextseek_api.models import (
     SampleTypeCreateRequest,
     SampleTypeUpdateRequest,
 )
-from nextseek_api.models import SamplesByChildTypesRequest, SampleUIDItem
+from nextseek_api.models import SamplesByChildTypesRequest, SampleUIDItem, SamplesByChildTypesResponse
 from seek.dbtable_sampletype import DBtable_sampletype
 from seek.models import Sample_types
 
@@ -28,10 +28,6 @@ from seek.models import Sample_types
 import neo4j
 from neo4j import GraphDatabase
 from neo4j.exceptions import Neo4jError
-
-
-# NEW IMPORTS: DRF serializers for request/response
-from nextseek_api.serializers import SamplesByChildTypesRequestSerializer, SampleUIDItemSerializer, SampleUIDListSerializer
 
 
 def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
@@ -273,20 +269,21 @@ class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="Get samples with children of specified sample types",
-        description="Find parent samples that have derived samples of all specified types. Uses AND logic across types, so only samples with descendants matching every requested type are returned. Returns a list of matching sample IDs and UIDs. Examples: 'Which monkeys have both imaging data and sequencing results?'; 'Find all animals that have tissue samples and cell line derivatives'",
-        request=SamplesByChildTypesRequestSerializer,
-        responses={200: SampleUIDListSerializer(child=SampleUIDItemSerializer())},
+        description="Find parent samples that have derived samples of all specified types. Uses AND logic across types, so only samples with descendants matching every requested type are returned. Optionally filter by parent sample type. Returns a list of matching sample IDs, UIDs, sample types, and descriptions. Examples: 'Which monkeys have both imaging data and sequencing results?'; 'Find all animals that have tissue samples and cell line derivatives'",
+        request=SamplesByChildTypesRequest,
+        responses={200: SamplesByChildTypesResponse},
         examples=[
             OpenApiExample(
                 name="By child type titles",
                 value={
-                    "sample_type_titles": ["D.IMG", "TIS"]
+                    "child_sample_types": ["D.IMG", "TIS"]
                 },
             ),
             OpenApiExample(
-                name="By child type IDs",
+                name="With parent type filter",
                 value={
-                    "sample_type_ids": [14,2]
+                    "child_sample_types": ["D.IMG", "D.SEQ"],
+                    "parent_sample_type_filters": ["NHP"]
                 },
             ),
         ],
@@ -299,53 +296,80 @@ class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
         if not basic_tuple and not request.user.is_authenticated:
             return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # Validation using DRF serializer
-        ser = SamplesByChildTypesRequestSerializer(data=request.data)
-        if not ser.is_valid():
-            return Response({"errors": [{"title": "Invalid request", "detail": ser.errors}]}, status=422)
-        payload = ser.validated_data
+        # Validation using Pydantic V2
+        try:
+            req = SamplesByChildTypesRequest.model_validate(request.data)
+        except ValidationError as e:
+            return Response({"errors": [{"title": "Invalid request", "detail": e.errors()}]}, status=422)
 
-        # Normalize titles (exact match)
-        titles: List[str] = []
-        titles_in = payload.get('sample_type_titles')
-        if titles_in:
-            for t in titles_in:
-                if isinstance(t, str):
-                    titles.append(t)
+        # Normalize child sample types (titles or IDs -> titles)
+        child_titles: List[str] = []
+        if req.child_sample_types:
+            for item in req.child_sample_types:
+                if isinstance(item, int) or (isinstance(item, str) and item.isdigit()):
+                    # Resolve ID to title via ORM
+                    try:
+                        st = Sample_types.objects.filter(id=int(item)).values_list('title', flat=True).first()
+                        if st:
+                            child_titles.append(st)
+                    except Exception:
+                        pass
+                elif isinstance(item, str):
+                    child_titles.append(item)
 
-        # If ids are present, resolve to titles via ORM
-        ids_in = payload.get('sample_type_ids')
-        if ids_in:
-            try:
-                id_list = [int(x) for x in ids_in if x is not None]
-                qs = Sample_types.objects.filter(id__in=id_list).values_list('title', flat=True)
-                titles.extend([t for t in qs if t])
-            except Exception:
-                return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
-
-        input_types = sorted({t.strip().upper() for t in titles if t and isinstance(t, str)})
+        input_types = sorted({t.strip().upper() for t in child_titles if t and isinstance(t, str)})
         if not input_types:
-            return Response({"errors": [{"title": "Invalid request", "detail": "Provide at least one valid sample type (title or id)."}]}, status=422)
+            return Response({"errors": [{"title": "Invalid request", "detail": "Provide at least one valid child sample type."}]}, status=422)
 
-        cypher = (
+        # Normalize parent sample type filters (titles or IDs -> titles)
+        parent_types: List[str] = []
+        if req.parent_sample_type_filters:
+            for item in req.parent_sample_type_filters:
+                if isinstance(item, int) or (isinstance(item, str) and item.isdigit()):
+                    # Resolve ID to title via ORM
+                    try:
+                        st = Sample_types.objects.filter(id=int(item)).values_list('title', flat=True).first()
+                        if st:
+                            parent_types.append(st.strip().upper())
+                    except Exception:
+                        pass
+                elif isinstance(item, str):
+                    parent_types.append(item.strip().upper())
+
+        # Build Cypher query with optional parent type filtering
+        if parent_types:
+            cypher = """
+                WITH $types AS input_types, $parent_types AS parent_types
+                MATCH (p:Sample)
+                WHERE p.type IN parent_types
+                MATCH (c:Sample)-[:CHILD_OF*1..]->(p)
+                WHERE c.type IN input_types
+                WITH p, collect(DISTINCT c.type) AS matched_types, input_types
+                WHERE size(matched_types) = size(input_types)
+                RETURN p.id AS id, p.uuid AS uuid, p.type AS type
+                ORDER BY id
             """
-      WITH $types AS input_types
-      MATCH (p:Sample)
-      MATCH (c:Sample)-[:CHILD_OF*1..]->(p)
-      WHERE c.type IN input_types
-      WITH p, collect(DISTINCT c.type) AS matched_types, input_types
-      WHERE size(matched_types) = size(input_types)
-      RETURN p.id AS id, p.uuid AS uuid
-      ORDER BY id
-      """
-        )
+        else:
+            cypher = """
+                WITH $types AS input_types
+                MATCH (p:Sample)
+                MATCH (c:Sample)-[:CHILD_OF*1..]->(p)
+                WHERE c.type IN input_types
+                WITH p, collect(DISTINCT c.type) AS matched_types, input_types
+                WHERE size(matched_types) = size(input_types)
+                RETURN p.id AS id, p.uuid AS uuid, p.type AS type
+                ORDER BY id
+            """
 
         NEO4J_DATABASE = settings.NEO4J_DATABASE
         try:
             with GraphDatabase.driver(NEO4J_DATABASE["URI"], auth=NEO4J_DATABASE["AUTH"]) as driver:
+                query_params = {"types": input_types}
+                if parent_types:
+                    query_params["parent_types"] = parent_types
                 records, summary, keys = driver.execute_query(
                     cypher,
-                    types=input_types,
+                    **query_params,
                     database_=NEO4J_DATABASE["NAME"],
                 )
         except Neo4jError:
@@ -353,12 +377,36 @@ class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
         except Exception:
             return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
 
+        # Collect unique sample types from results for description lookup
+        unique_types = set()
+        for r in records:
+            rtype = r.get("type")
+            if rtype:
+                unique_types.add(rtype)
+
+        # Lookup sample type descriptions from database
+        desc_lookup: dict = {}
+        if unique_types:
+            try:
+                qs = Sample_types.objects.filter(title__in=unique_types).values('title', 'description')
+                for row in qs:
+                    desc_lookup[row['title']] = row.get('description')
+            except Exception:
+                pass  # Continue without descriptions if lookup fails
+
+        # Build response items using Pydantic models
         items = []
         for r in records:
             rid = r["id"]
             ruid = r["uuid"]
+            rtype = r.get("type")
             if rid is not None and ruid is not None:
-                items.append({"id": str(rid), "uuid": str(ruid)})
+                items.append(SampleUIDItem(
+                    id=str(rid),
+                    uuid=str(ruid),
+                    sample_type=rtype or "",
+                    sample_type_description=desc_lookup.get(rtype) if rtype else None
+                ))
 
-        # Use DRF serializer instance for response consistency if desired
-        return Response(items, status=status.HTTP_200_OK)
+        response = SamplesByChildTypesResponse(samples=items)
+        return Response(response.model_dump(), status=status.HTTP_200_OK)
