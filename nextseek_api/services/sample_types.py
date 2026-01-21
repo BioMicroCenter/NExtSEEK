@@ -21,6 +21,7 @@ from nextseek_api.models import (
     SampleTypeUpdateRequest,
 )
 from nextseek_api.models import SamplesByChildTypesRequest, SampleUIDItem, SamplesByChildTypesResponse
+from nextseek_api.models import ChildSampleTypeItem, ChildSampleTypesResponse
 from seek.dbtable_sampletype import DBtable_sampletype
 from seek.models import Sample_types
 
@@ -211,7 +212,7 @@ class SampleTypeChildrenViewSet(viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="Get Child Sample Types",
-        description="Get the distinct types of all samples derived from a given sample. Traverses the sample hierarchy to find all related samples below it. Returns a list of unique type titles (e.g., PAV, D.SEQ, A.GEX). Examples: 'What types of samples were collected from NHP-220630FLY-1-PUB?'; 'Does this monkey have any imaging data?'",
+        description="Get the distinct types of all samples derived from a given sample. Traverses the sample hierarchy to find all related samples below it. Returns a list of unique sample types with their IDs, titles, and descriptions. Examples: 'What types of samples were collected from NHP-220630FLY-1-PUB?'; 'Does this monkey have any imaging data?'",
         parameters=[
             OpenApiParameter(
                 name='uid',
@@ -220,10 +221,20 @@ class SampleTypeChildrenViewSet(viewsets.GenericViewSet):
                 description='SEEK id (numeric) or Sample UID (string)'
             )
         ],
-        responses={200: List[str]},
+        responses={200: ChildSampleTypesResponse},
         examples=[
-            OpenApiExample(name="By numeric id", value={"uid": "123"}),
-            OpenApiExample(name="By UID", value={"uid": "ABC-DEF-UUID"}),
+            OpenApiExample(
+                name="Sample response",
+                value={
+                    "total": 3,
+                    "child_types": [
+                        {"id": "5", "title": "D.IMG", "description": "Imaging data samples"},
+                        {"id": "12", "title": "D.SEQ", "description": "Sequencing data samples"},
+                        {"id": "8", "title": "TIS", "description": "Tissue samples"}
+                    ],
+                    "msg": "OK"
+                }
+            ),
         ],
         tags=['Samples'],
     )
@@ -256,12 +267,53 @@ class SampleTypeChildrenViewSet(viewsets.GenericViewSet):
                     id=int(seek_id),
                     database_=NEO4J_DATABASE['NAME']
                 )
-                types_list = [r["type"] for r in records if r["type"] is not None]
-                return Response(types_list, status=status.HTTP_200_OK)
+                # Deduplicate and sort types (Neo4j DISTINCT may not work with variable-length paths)
+                types_list = sorted(set(r["type"] for r in records if r["type"] is not None))
         except Neo4jError:
             return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
         except Exception:
             return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
+
+        # Look up sample type details (id, description) from database
+        type_details: dict = {}
+        desc_lookup_failed = False
+        n_failed = 0
+        if types_list:
+            try:
+                qs = Sample_types.objects.filter(title__in=types_list).values('id', 'title', 'description')
+                for row in qs:
+                    type_details[row['title']] = {
+                        'id': str(row['id']),
+                        'description': row.get('description')
+                    }
+                n_failed = len(types_list) - len(type_details)
+            except Exception:
+                desc_lookup_failed = True
+
+        # Build response items using Pydantic models
+        items = []
+        for title in types_list:
+            details = type_details.get(title, {})
+            items.append(ChildSampleTypeItem(
+                id=details.get('id', ''),
+                title=title,
+                description=details.get('description')
+            ))
+
+        # Build status message
+        if n_failed > 0:
+            status_msg = f"OK, but details not available for {n_failed} sample type(s)."
+        elif desc_lookup_failed:
+            status_msg = "OK, but sample type details not available."
+        else:
+            status_msg = "OK"
+
+        response = ChildSampleTypesResponse(
+            total=len(items),
+            child_types=items,
+            msg=status_msg
+        )
+        return Response(response.model_dump(), status=status.HTTP_200_OK)
 
 
 class SamplesByChildTypesViewSet(viewsets.GenericViewSet):

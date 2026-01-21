@@ -1,4 +1,0 @@
-Collecting duckdb
-  Downloading duckdb-1.4.2-cp39-cp39-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (20.4 MB)
-Installing collected packages: duckdb
-Successfully installed duckdb-1.4.2

@@ -1688,6 +1688,86 @@ class SamplesByChildTypesResponse(BaseModel):
     samples: List[SampleUIDItem] = Field(..., description="List of parent sample IDs and UIDs")
     msg: Optional[str] = Field(None, description="Status message")
 
+
+class ChildSampleTypeItem(BaseModel):
+    id: str = Field(..., description="Sample type SEEK numeric id (stringified)")
+    title: str = Field(..., description="Sample type title (e.g., PAV, D.SEQ)")
+    description: Optional[str] = Field(None, description="Sample type description")
+
+
+class ChildSampleTypesResponse(BaseModel):
+    total: int = Field(..., description="Total number of unique child sample types")
+    child_types: List[ChildSampleTypeItem] = Field(..., description="List of child sample type details")
+    msg: Optional[str] = Field(None, description="Status message")
+
+
+class SampleTreeNode(BaseModel):
+    id: str = Field(..., description="SEEK numeric id (stringified)")
+    uuid: str = Field(..., description="Sample UID")
+    sample_type: str = Field(..., description="Sample type title (e.g., PAT, TIS, D.IMG)")
+    color: str = Field(..., description="Hex color for the sample type")
+    parentIds: List[str] = Field(default_factory=list, description="List of parent SEEK ids (stringified)")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTreeRel(BaseModel):
+    child_id: Optional[str] = Field(None, description="Child sample SEEK id (numeric string)")
+    parent_id: Optional[str] = Field(None, description="Parent sample SEEK id (numeric string)")
+    internal_assay_id: Optional[str] = Field(None, description="Internal assay id (numeric string, if available)")
+    internal_assay_title: Optional[str] = Field(None, description="Internal assay title (if available)")
+    protocol_title: Optional[str] = Field(None, description="Protocol title (if available)")
+    protocol_id: Optional[str] = Field(None, description="Protocol id (numeric string, if available)")
+
+    # Neo4j relationship properties may evolve; allow extras while strongly typing known keys.
+    model_config = ConfigDict(extra='allow', validate_default=True)
+
+
+class SampleTreeResponse(BaseModel):
+    total_nodes: int = Field(..., description="Total number of unique nodes in the tree")
+    total_rels: int = Field(..., description="Total number of relationships in the tree")
+    nodes: List[SampleTreeNode] = Field(..., description="List of nodes for visualization")
+    rels: List[SampleTreeRel] = Field(..., description="List of relationship property dicts")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# Admin samples: request/response models
+# -----------------------------
+
+class AdminSampleRetrieveRequest(BaseModel):
+    identifiers: List[str] = Field(
+        ...,
+        description="List of Sample UIDs (e.g., 'NHP-220630FLY-1-PUB') and/or SEEK IDs (numeric strings). "
+                    "Numeric strings are treated as SEEK IDs; non-numeric strings are treated as sample UIDs."
+    )
+    output_format: Literal["json", "excel"] = Field("json", description="Output format")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AdminSampleGroup(BaseModel):
+    sample_type: str = Field(..., description="Sample type identifier (e.g., 'NHP', 'TIS')")
+    n_samples: int = Field(..., description="Number of samples returned for this sample type")
+    samples: List[Dict[str, Any]] = Field(..., description="List of sample metadata dicts")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AdminSampleRetrieveResponse(BaseModel):
+    total_samples: int = Field(
+        ...,
+        description="Total samples returned across all sample types; includes results for both parents and child (derived) samples."
+    )
+    total_sample_types: int = Field(..., description="Number of distinct sample types")
+    total_children: int = Field(..., description="Total child samples (derived) included")
+    failed_uids: int = Field(0, description="Count of identifiers not found")
+    data: List[AdminSampleGroup] = Field(..., description="Samples grouped by type")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
 # -----------------------------
 # Schema RAG: request/response models
 # -----------------------------
@@ -1788,3 +1868,139 @@ def _rebuild_schema_rag_models():
         RetrieveResponse.model_rebuild()
     except ImportError:
         pass  # schema_rag package not yet available
+
+
+# -----------------------------
+# EntityTree: request/response models
+# -----------------------------
+
+
+class NodeAttribute(BaseModel):
+    """Node metadata from dmac.sample_types_context."""
+
+    node: str = Field(..., description="Sample type abbreviation (e.g., 'NHP', 'TIS')")
+    id: int = Field(..., description="Sample type ID (sample_types_context.sampletype_id)")
+    description: Optional[str] = Field(None, description="Human-readable description")
+    clade: Optional[str] = Field(None, description="Clade classification")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class NodeAttributeResponse(BaseModel):
+    """Response model for node attributes endpoint."""
+
+    total: int = Field(..., description="Total number of node attributes (unpaginated)")
+    nodes: List[NodeAttribute] = Field(..., description="List of node attributes (may be paginated)")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class Edge(BaseModel):
+    """A single directed edge between sample types."""
+
+    source: str = Field(..., description="Source sample type")
+    target: str = Field(..., description="Target sample type")
+    annotation: str = Field(..., description="Edge label (internal assay title)")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class EdgeResponse(BaseModel):
+    """Response model for edges endpoint."""
+
+    total: int = Field(..., description="Total number of edges (unpaginated)")
+    edges: List[Edge] = Field(..., description="List of edges (may be paginated)")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class EdgeAttribute(BaseModel):
+    """Edge metadata with provenance information."""
+
+    source: str = Field(..., description="Source sample type")
+    target: str = Field(..., description="Target sample type")
+    annotation: str = Field(..., description="Internal assay title")
+    internal_assay_id: Optional[str] = Field(None, description="ID from dmac.internal_assays table (string)")
+    study_titles: Optional[str] = Field(None, description="Semicolon-separated study titles")
+    description: Optional[str] = Field(None, description="Assay description from dmac.assay_context.Description")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class EdgeAttributeResponse(BaseModel):
+    """Response model for edge attributes endpoint."""
+
+    total: int = Field(..., description="Total number of edge attributes (unpaginated)")
+    edges: List[EdgeAttribute] = Field(..., description="List of edge attributes (may be paginated)")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# EntityTree Lineage: request/response models
+# -----------------------------
+
+
+class LineageRequest(BaseModel):
+    """Request body for POST /entity_tree/lineage endpoint."""
+
+    sample_ids: List[str] = Field(
+        ...,
+        description="List of sample identifiers: UIDs (e.g., 'NHP-220630FLY-1-PUB') or numeric SEEK IDs",
+    )
+    include_attributes: bool = Field(
+        default=False,
+        description="When true, include edge attributes (study_titles, description)",
+    )
+
+    model_config = ConfigDict(extra="forbid", validate_default=True)
+
+
+class LineageEdge(BaseModel):
+    """An edge within a sample lineage tree."""
+
+    child_id: str = Field(..., description="Child sample SEEK id (numeric string)")
+    parent_id: str = Field(..., description="Parent sample SEEK id (numeric string)")
+    internal_assay_id: Optional[str] = Field(None, description="Internal assay id")
+    internal_assay_title: Optional[str] = Field(None, description="Internal assay title")
+    protocol_title: Optional[str] = Field(None, description="Protocol title")
+    protocol_id: Optional[str] = Field(None, description="Protocol id")
+    study_titles: Optional[str] = Field(
+        None, description="Semicolon-separated study titles (when include_attributes=true)"
+    )
+    description: Optional[str] = Field(
+        None, description="Assay description (when include_attributes=true)"
+    )
+
+    model_config = ConfigDict(extra="forbid", validate_default=True)
+
+
+class LineageTree(BaseModel):
+    """Lineage tree for a single input sample."""
+
+    input_id: str = Field(..., description="Original input identifier (for correlation)")
+    resolved_id: Optional[str] = Field(
+        None, description="Resolved SEEK numeric id (null if not found)"
+    )
+    total_nodes: int = Field(..., description="Total node count (unpaginated)")
+    total_rels: int = Field(..., description="Total relationship count")
+    nodes: List[SampleTreeNode] = Field(
+        default_factory=list, description="List of nodes (may be paginated)"
+    )
+    rels: List[LineageEdge] = Field(default_factory=list, description="List of relationships")
+    warning: Optional[str] = Field(
+        None, description="Warning message (e.g., sample not found)"
+    )
+
+    model_config = ConfigDict(extra="forbid", validate_default=True)
+
+
+class LineageResponse(BaseModel):
+    """Response model for POST /entity_tree/lineage endpoint."""
+
+    total_trees: int = Field(..., description="Number of trees returned")
+    trees: List[LineageTree] = Field(
+        ..., description="Array of lineage trees, one per input sample"
+    )
+
+    model_config = ConfigDict(extra="forbid", validate_default=True)

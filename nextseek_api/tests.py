@@ -31,13 +31,9 @@ class SampleTreeViewSetTests(APITestCase):
         self.client = APIClient()
     
     @patch('nextseek_api.views.GraphDatabase.driver')
-    @patch('nextseek_api.views.SeekDB')
     @patch('nextseek_api.views.get_clade_color')
-    def test_sample_tree_by_id_success(self, mock_color, mock_seekdb, mock_driver):
+    def test_sample_tree_by_id_success(self, mock_color, mock_driver):
         """Test successful sample tree retrieval by numeric ID"""
-        # Mock authentication
-        mock_seekdb.return_value.getSeekLogin.return_value = {'status': True}
-        
         # Mock Neo4j response
         mock_node = Mock()
         mock_node._properties = {
@@ -53,6 +49,14 @@ class SampleTreeViewSetTests(APITestCase):
             'type': 'Sample'
         }
         mock_relationship.end_node._properties = {'id': 456}
+        mock_relationship._properties = {
+            'child_id': '123',
+            'parent_id': '456',
+            'internal_assay_id': '380',
+            'internal_assay_title': 'Patient Visit',
+            'protocol_title': 'Test Protocol',
+            'protocol_id': '145',
+        }
         
         mock_result = Mock()
         mock_result.nodes = [mock_node]
@@ -67,44 +71,38 @@ class SampleTreeViewSetTests(APITestCase):
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsInstance(response.data, list)
-        
-        # Verify response structure
-        if response.data:
-            node_data = response.data[0]
-            self.assertIn('id', node_data)
-            self.assertIn('uuid', node_data)
-            self.assertIn('type', node_data)
-            self.assertIn('color', node_data)
-            self.assertIn('parentIds', node_data)
-    
-    def test_sample_tree_by_id_unauthorized(self):
-        """Test 401 Unauthorized for sample tree by ID without auth"""
-        url = reverse('nextseek_api:samples-by-id-tree', kwargs={'pk': 123})
-        response = self.client.get(url)
-        
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIsInstance(response.data, dict)
 
+        # Verify response envelope structure
+        self.assertIn('total_nodes', response.data)
+        self.assertIn('total_rels', response.data)
+        self.assertIn('nodes', response.data)
+        self.assertIn('rels', response.data)
+
+        self.assertEqual(response.data['total_nodes'], 1)
+        self.assertEqual(response.data['total_rels'], 1)
+        self.assertIsInstance(response.data['nodes'], list)
+        self.assertIsInstance(response.data['rels'], list)
+
+        # Verify node structure
+        node_data = response.data['nodes'][0]
+        self.assertIn('id', node_data)
+        self.assertIn('uuid', node_data)
+        self.assertIn('sample_type', node_data)
+        self.assertIn('color', node_data)
+        self.assertIn('parentIds', node_data)
+
+        # Verify relationship structure (known keys)
+        rel_data = response.data['rels'][0]
+        self.assertIn('child_id', rel_data)
+        self.assertIn('parent_id', rel_data)
+    
     def test_sample_tree_by_id_unauthorized(self):
         """Test 401 Unauthorized for sample tree by ID without auth"""
         url = reverse('nextseek_api:samples-by-id-tree', kwargs={'pk': 123})
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-    
-    @patch('nextseek_api.views.SeekDB')
-    def test_sample_tree_by_id_authentication_failed(self, mock_seekdb):
-        """Test authentication failure handling"""
-        # Mock failed authentication
-        mock_seekdb.return_value.getSeekLogin.return_value = {'status': False}
-        
-        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
-        url = reverse('nextseek_api:samples-by-id-tree', kwargs={'pk': 123})
-        response = self.client.get(url)
-        
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertIn('detail', response.data)
-        self.assertEqual(response.data['detail'], 'Authentication required')
 
 
 class NHPViewSetTests(APITestCase):
@@ -517,36 +515,82 @@ class AdminSampleViewSetTests(APITestCase):
         self.user = User.objects.create_user(username='testuser', password='testpass123')
         self.admin_user = User.objects.create_superuser(username='admin', password='adminpass123')
         
-        self.user_token = Token.objects.create(user=self.user)
-        self.admin_token = Token.objects.create(user=self.admin_user)
         self.client = APIClient()
     
     @patch('nextseek_api.views.DBtable_sample')
     @patch('nextseek_api.views.SeekDB')
-    def test_admin_sample_query_success(self, mock_seekdb, mock_db_sample):
-        """Test successful admin sample query with admin user"""
-        # Mock authentication and data
-        mock_seekdb.return_value.getSeekLogin.return_value = {'status': True}
-        mock_db_sample.return_value.processRecords.return_value = json.dumps([{'id': 1}])
-        
-        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.admin_token.key)
+    @patch('nextseek_api.views.resolve_seek_auth')
+    def test_admin_sample_retrieve_json_success(self, mock_resolve_seek_auth, mock_seekdb, mock_db_sample):
+        """Test successful admin sample retrieval (JSON default) with admin user."""
+        import pandas as pd
+
+        # Admin permission
+        self.client.force_authenticate(user=self.admin_user)
+
+        # Upstream auth gating: allow BASIC tuple
+        mock_resolve_seek_auth.return_value = (("seekuser", "seekpass"), {})
+
+        # Project scoping
+        mock_seekdb.return_value.getCurrentUser.return_value = {
+            "data": {"relationships": {"projects": {"data": []}}}
+        }
+
+        # DB child expansion result
+        df = pd.DataFrame(
+            [
+                {"id": 1, "sample_type_id": 12, "uuid": "NHP-220630FLY-1-PUB", "json_metadata": "{\"a\": 1}"},
+                {"id": 2, "sample_type_id": 34, "uuid": "TIS-230324BOO-39-PUB", "json_metadata": "{\"b\": 2}"},
+            ]
+        )
+        mock_db_sample.return_value.getChildrenUIDs.return_value = df
+
         url = reverse('nextseek_api:admin-samples-admin-retrieve-samples')
-        response = self.client.get(url)
-        
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resp = self.client.post(url, data={"identifiers": ["NHP-220630FLY-1-PUB", "TIS-230324BOO-39-PUB"]}, format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.json()
+
+        # Top-level key ordering: summary stats before data
+        self.assertEqual(
+            list(data.keys()),
+            ["total_samples", "total_sample_types", "total_children", "failed_uids", "data"],
+        )
+
+        self.assertEqual(data["total_samples"], 2)
+        self.assertEqual(data["total_sample_types"], 2)
+        self.assertEqual(data["total_children"], 0)
+        self.assertEqual(data["failed_uids"], 0)
+        self.assertTrue(isinstance(data["data"], list))
+        # Each group should include sample_type + n_samples
+        sample_types = {g["sample_type"] for g in data["data"]}
+        self.assertEqual(sample_types, {"NHP", "TIS"})
+        for g in data["data"]:
+            # Group key ordering: sample_type, n_samples, samples
+            self.assertEqual(list(g.keys()), ["sample_type", "n_samples", "samples"])
+            self.assertEqual(g["n_samples"], len(g["samples"]))
     
-    def test_admin_sample_query_forbidden(self):
-        """Test 403 Forbidden for non-admin user accessing admin endpoint"""
-        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.user_token.key)
+    @patch('nextseek_api.views.resolve_seek_auth')
+    def test_admin_sample_retrieve_missing_identifiers_400(self, mock_resolve_seek_auth):
+        """Missing/empty identifiers should return 400 for authenticated admin."""
+        self.client.force_authenticate(user=self.admin_user)
+        mock_resolve_seek_auth.return_value = (("seekuser", "seekpass"), {})
+
         url = reverse('nextseek_api:admin-samples-admin-retrieve-samples')
-        response = self.client.get(url)
+        resp = self.client.post(url, data={"identifiers": []}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_admin_sample_retrieve_forbidden(self):
+        """Test 403 Forbidden for non-admin user accessing admin endpoint"""
+        self.client.force_authenticate(user=self.user)
+        url = reverse('nextseek_api:admin-samples-admin-retrieve-samples')
+        response = self.client.post(url, data={"identifiers": ["NHP-220630FLY-1-PUB"]}, format='json')
         
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
     
-    def test_admin_sample_query_unauthorized(self):
+    def test_admin_sample_retrieve_unauthorized(self):
         """Test 401 Unauthorized for admin endpoint without auth"""
         url = reverse('nextseek_api:admin-samples-admin-retrieve-samples')
-        response = self.client.get(url)
+        response = self.client.post(url, data={"identifiers": ["NHP-220630FLY-1-PUB"]}, format='json')
         
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 

@@ -33,9 +33,7 @@ urlpatterns = [
     re_path(r'^sample/id=(?P<id>\d+)/manage', views.manageSample, name='manageSample'),
     
     re_path(r'^sample/id=(?P<id>\d+)/$', views.sample, name='sample'),
-    re_path(r'^sample/id=(?P<sample_id>\d+)/tree', views.sampleTreeNew, name='sampleTreeNew'),
     re_path(r'^sampletree/uid=(?P<uid>[\w.-]{0,256})/$', views.sampleTree, name='sampleTree'),
-    re_path(r'^sampletree/uid=(?P<uid>[\w.-]{0,256})/tree', views.sampleTreeNewUID, name='sampleTreeNewUID'),
     
     re_path(r'^samples/download/', views.sampleDownload, name='sampleDownload'),
     re_path(r'^samples/export/', views.sampleExport, name='sampleExport'),

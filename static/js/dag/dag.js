@@ -2,7 +2,17 @@ import * as d3base from "https://cdn.skypack.dev/d3@7.8.4"
 import * as d3dag from "https://cdn.skypack.dev/d3-dag@1.1.0"
 
 function fetchData() {
-    const data = d3.json(location.href + "tree");
+    const currentLocation = decodeURIComponent(location.href)
+    const pageRegex = /sampletree/
+    const pageMatch = currentLocation.match(pageRegex)
+    let sampleRegex;
+    if (pageMatch !== null && pageMatch.length > 0) {
+      sampleRegex = /=(.*[\w])/
+    } else {
+      sampleRegex = /=(.*[\d])/
+    }
+    const sample = currentLocation.match(sampleRegex).at(-1)
+    const data = d3.json("/nextseek_api/sample-tree/" + sample + "/tree")
     return data;
 }
 
@@ -13,9 +23,10 @@ const gap = nodeRadius * 100
 const circleRadius = 40
 const hMultiplier = 0.095
 const data = await fetchData();
+const nodesData = data.nodes
+const relationships = data.rels
 document.getElementById("loading-spinner").remove();
-const dag = d3.graphStratify()(data);
-window.dagW = d3.graphStratify()(data);
+const dag = d3.graphStratify()(nodesData);
 
 const layout = d3.sugiyama()
                  .layering(d3.layeringLongestPath())
@@ -47,10 +58,10 @@ function mouseOverNode(e, d) {
         d3.select(this).select("circle")
           .attr("fill", "white")
 
-        tooltip.style("visibility", "visible")
-               .text(`ID: ${d.data.id}
-                      UUID: ${d.data.uuid}
-                      TYPE: ${d.data.type}`)
+        tooltip.html(`<p>ID: ${d.data.id}</p>
+                      <p>UUID: ${d.data.uuid}</p>
+                      <p>TYPE: ${d.data.sample_type}</p>`)
+               .style("visibility", "visible")
                .style("left", (e.pageX + 10) + "px")
                .style("top", (e.pageY + 10) + "px")
 }
@@ -63,7 +74,6 @@ function mouseOutNode(e, d) {
 }
 
 function clickNode(e, d) {
-    console.log(d.data);
     const nodeId = d.data.id;
     const sampleId = d.data.id;
     window.open("https://nextseek-dev.mit.edu/seek/sample/id=" + sampleId)
@@ -90,7 +100,41 @@ nodes.append("circle")
                  return color == undefined ? "black" : color
               });
 
+
 const line = d3.line().curve(d3.curveMonotoneX);
+
+function getRelationship(child, parent) {
+  return relationships.filter(rel => {
+    if (rel.child_id == child & rel.parent_id == parent) {
+      return rel
+    }
+  })[0]
+}
+
+function relsToHtml(rel) {
+  let relStr = ""
+  if ('internal_assay_title' in rel) {
+    relStr += `<p><strong>Assay:</strong> <a href="https://fairdata-dev.mit.edu/assays/${rel['assay_id']}">${rel['internal_assay_title']}</a></p>`
+  } else {
+    relStr += `<p><strong>Assay:</strong> <a href="https://fairdata-dev.mit.edu/assays/${rel['assay_id']}">${rel['assay_title']}</a></p>`
+  }
+
+  if ('protocol_title' in rel) {
+    relStr += `<p><strong>Protocol:</strong> <a href="https://fairdata-dev.mit.edu/sops/${rel['protocol_id']}">${rel['protocol_title']}</a></p>`
+  }
+  
+  return relStr
+}
+
+function mouseOverLine(e, d) {
+    const parentId = d.source.data.id
+    const childId = d.target.data.id
+    const rels = getRelationship(childId, parentId)
+    tooltip.html(relsToHtml(rels))
+           .style("visibility", "visible")
+           .style("left", (e.pageX + 10) + "px")
+           .style("top", (e.pageY + 10) + "px")
+}
 
 svg.select("#links")
    .selectAll("path")
@@ -101,6 +145,7 @@ svg.select("#links")
    .attr("fill", "none")
    .attr("stroke-width", 3)
    .attr("stroke", "black")
+   .on("mouseover", mouseOverLine)
 
 nodes.append('text')
      .text(({ data }) => data.uuid) 
@@ -134,4 +179,3 @@ const centerGraph = () => {
 };
 
 centerGraph()
-

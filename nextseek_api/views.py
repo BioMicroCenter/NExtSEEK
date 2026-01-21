@@ -10,9 +10,10 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.pagination import PageNumberPagination
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.openapi import OpenApiExample
+from pydantic import ValidationError
 
 # Import Neo4j
 import neo4j
@@ -33,7 +34,6 @@ SEEK_DATABASE = 'default'
 from .serializers import (
     SampleTreeSerializer,
     SampleNodeSerializer,
-    AdminRetrieveRequestSerializer,
     SampleRetrieveRequestSerializer,
     SampleAdvancedRetrieveRequestSerializer,
 )
@@ -50,8 +50,17 @@ from .services.samples import SampleProxyViewSet as SampleViewSet
 from .services.samples import _resolve_uid_to_seek_id
 from .services.samples import SampleAdvancedSearchViewSet as SampleAdvancedSearchViewSet
 from .services.schema_rag import SchemaRAGViewSet
+from .services.entity_tree import EntityTreeViewSet
 from .helpers import resolve_seek_auth
 from nextseek_api.helpers import StandardResultsSetPagination
+from nextseek_api.models import (
+    SampleTreeResponse,
+    SampleTreeNode,
+    SampleTreeRel,
+    AdminSampleRetrieveRequest,
+    AdminSampleRetrieveResponse,
+    AdminSampleGroup,
+)
 
 
 def get_clade_color(sample_type):
@@ -90,7 +99,7 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
         operation_id="Get Sample Tree by id or uid",
         description="Retrieve the full sample lineage for a given sample, showing all related samples above and below it in the hierarchy. Returns nodes with ID, UUID, sample type, color, and relationships for visualization. Examples: 'Show me all samples derived from NHP-220630FLY-2-PUB'; 'What tissue and cell samples came from this patient: PAT-241113DFC-3?'",
         tags=['Samples'],
-        responses={200: SampleTreeSerializer()},
+        responses={200: SampleTreeResponse},
         parameters=[
             OpenApiParameter(
                 name='uid',
@@ -102,11 +111,47 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
         examples=[
             OpenApiExample(
                 name="Tree by numeric id",
-                value={"uid": "123"}
+                value={"uid": "123"},
+                request_only=True,
             ),
             OpenApiExample(
                 name="Tree by UID",
-                value={"uid": "ABC-DEF-UUID"}
+                value={"uid": "ABC-DEF-UUID"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Sample tree response",
+                value={
+                    "total_nodes": 2,
+                    "total_rels": 1,
+                    "nodes": [
+                        {
+                            "id": "1525",
+                            "uuid": "PAV-230522GRI-7-PUB",
+                            "sample_type": "PAV",
+                            "color": "#A3D46F",
+                            "parentIds": ["1506"],
+                        },
+                        {
+                            "id": "1506",
+                            "uuid": "PAT-230522GRI-7-PUB",
+                            "sample_type": "PAT",
+                            "color": "#A3D46F",
+                            "parentIds": [],
+                        },
+                    ],
+                    "rels": [
+                        {
+                            "child_id": "1525",
+                            "parent_id": "1506",
+                            "internal_assay_id": "380",
+                            "internal_assay_title": "Patient Visit",
+                            "protocol_title": "P.GRI-230228-V1_2.1-Study-Approval.docx",
+                            "protocol_id": "145",
+                        }
+                    ],
+                },
+                response_only=True,
             ),
         ]
     )
@@ -127,47 +172,73 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
         try:
             NEO4J_DATABASE = settings.NEO4J_DATABASE
             with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
+                # Mirror legacy SEEK behavior (seek/views.py sampleTreeNew/sampleTreeNewUID):
+                # Traverse DERIVED_FROM in both directions and return nodes + relationships for visualization.
                 r = driver.execute_query(
                     """
-                    MATCH (s: Sample {id: """ + str(seek_id) + """})
-                    MATCH parents=(s)-[r1:CHILD_OF*0..]->(parent)
-                    MATCH children=(s)<-[r2:CHILD_OF*0..]-(child)
+                    MATCH (s: Sample {id: toInteger($id)})
+                    MATCH parents=(s)-[r1:DERIVED_FROM*0..]->(parent)
+                    MATCH children=(s)<-[r2:DERIVED_FROM*0..]-(child)
                     RETURN collect(DISTINCT s) + collect(DISTINCT parent) + collect(DISTINCT child) AS nodes, r1 + r2 AS relationships
                     """,
+                    id=int(seek_id),
                     result_transformer_=neo4j.Result.graph,
                     database_=NEO4J_DATABASE['NAME']
                 )
 
                 nodeDict = {}
                 for node in r.nodes:
-                    nodeUid = node._properties['uuid']
-                    nodeId = node._properties['id']
-                    nodeType = node._properties['type']
+                    nodeProps = node._properties
+                    nodeUid = nodeProps['uuid']
+                    nodeId = nodeProps['id']
+                    nodeType = nodeProps['type']
                     nodeDict[nodeUid] = {'id': str(nodeId), 'type': nodeType, 'parents': []}
 
+                rel_props = []
                 for rel in r.relationships:
-                    nodeId = str(rel.start_node._properties['id'])
-                    nodeUid = rel.start_node._properties['uuid']
-                    nodeType = rel.start_node._properties['type']
-                    parentId = str(rel.end_node._properties['id'])
+                    relProps = rel._properties
+                    startRelProps = rel.start_node._properties
+                    endRelProps = rel.end_node._properties
 
-                    if nodeDict.get(nodeUid) is not None:
+                    nodeUid = startRelProps['uuid']
+                    parentId = str(endRelProps['id'])
+
+                    if nodeDict.get(nodeUid):
                         nodeDict[nodeUid]['parents'].append(parentId)
                     else:
-                        nodeDict[nodeUid]['parents'] = [parentId]
+                        # Should not happen if r.nodes includes all relationship endpoints,
+                        # but keep this defensive to avoid KeyError.
+                        nodeDict[nodeUid] = {
+                            'id': str(startRelProps.get('id', '')),
+                            'type': startRelProps.get('type', ''),
+                            'parents': [parentId]
+                        }
 
-                data = []
+                    # Normalize relationship id fields to numeric strings for parity with SampleTreeNode.id
+                    relProps_norm = dict(relProps or {})
+                    for k in ("child_id", "parent_id", "internal_assay_id", "protocol_id"):
+                        if k in relProps_norm and relProps_norm[k] is not None:
+                            relProps_norm[k] = str(relProps_norm[k])
+                    rel_props.append(relProps_norm)
+
+                nodes = []
                 for k, v in nodeDict.items():
                     color = get_clade_color(v['type'])
-                    data.append({
-                        "id": v['id'],
-                        "uuid": k,
-                        "type": v['type'],
-                        "color": color,
-                        "parentIds": v['parents']
-                    })
+                    nodes.append(SampleTreeNode(
+                        id=v['id'],
+                        uuid=k,
+                        sample_type=v['type'],
+                        color=color,
+                        parentIds=v['parents'],
+                    ))
 
-                return Response(data, status=status.HTTP_200_OK)
+                response = SampleTreeResponse(
+                    total_nodes=len(nodes),
+                    total_rels=len(rel_props),
+                    nodes=nodes,
+                    rels=[SampleTreeRel.model_validate(p) for p in rel_props],
+                )
+                return Response(response.model_dump(), status=status.HTTP_200_OK)
         except AuthError as e:
             return Response(
                 {"detail": f"Neo4j authentication failed: {str(e)}"},
@@ -440,39 +511,85 @@ class SampleQueryViewSet(viewsets.GenericViewSet):
 class AdminSampleViewSet(viewsets.GenericViewSet):
     """
     ViewSet for admin-only sample operations.
-    Requires admin permissions.
+    Supports JSON export (default) and Excel export (opt-in) of sample metadata,
+    including parent/child (derived) samples.
     """
     permission_classes = [IsAuthenticated, IsAdminUser]
     
     @extend_schema(
         operation_id="Admin Sample Retrieval",
         tags=['Samples'],
-        request=AdminRetrieveRequestSerializer,
-        description="Export sample metadata to Excel for admin users. Accepts a list of sample UIDs and returns an Excel workbook containing full metadata for those samples and all derived samples. Requires admin privileges. Examples: 'Export all metadata for NHP-220630FLY-1-PUB and its derived samples to Excel'; 'Download a spreadsheet with data for these three monkeys'",
-        responses={200: OpenApiTypes.STR},
+        request=AdminSampleRetrieveRequest,
+        description=(
+            "Export sample metadata for admin users. Accepts a list of sample UIDs (e.g., 'NHP-220630FLY-1-PUB') "
+            "and/or SEEK IDs (numeric). Returns metadata for requested samples plus all parent/child samples. "
+            "Default output is JSON grouped by sample type; set output_format='excel' for an Excel workbook. "
+            "Requires admin privileges. Examples: 'Export all metadata for NHP-220630FLY-1-PUB and its derived "
+            "samples as JSON'; 'Download an Excel spreadsheet with data for samples 12345 and 67890'; "
+            "'Get sample data for these three monkeys in JSON format'; 'Retrieve full metadata for tissue "
+            "samples TIS-230324BOO-39-PUB and TIS-230324BOO-40-PUB'"
+        ),
+        responses={
+            (200, "application/json"): AdminSampleRetrieveResponse,
+            (200, "application/vnd.ms-excel"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="Excel workbook (XLSX) containing sample metadata grouped by sample type.",
+            ),
+        },
         examples=[
-            OpenApiExample(name="UID list", value={"retrieval_uids": ["UID1", "UID2"]}),
-            OpenApiExample(name="Whitespace-separated", value={"retrieval_uids_text": "UID1 UID2 UID3"})
+            OpenApiExample(
+                name="JSON output (default)",
+                value={"identifiers": ["NHP-220630FLY-1-PUB", "TIS-230324BOO-39-PUB"]},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Excel output with mixed IDs",
+                value={"identifiers": ["NHP-220630FLY-1-PUB", "12345"], "output_format": "excel"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="SEEK IDs only",
+                value={"identifiers": ["12345", "67890"], "output_format": "json"},
+                request_only=True,
+            ),
         ]
     )
     @action(detail=False, methods=["post"], url_path="retrieve")
     def admin_retrieve_samples(self, request):
-        """Admin export: accepts UIDs, returns an Excel workbook of metadata."""
+        """Admin export: accepts sample UIDs/SEEK ids, returns JSON (default) or an Excel workbook (opt-in)."""
         # Gate using BASIC header or session only (no token)
         basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
         if not basic_tuple:
             return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # Extract UIDs from JSON body or form-encoded fallbacks
+        # Normalize request payload for pydantic validation (support legacy field names as input)
         body = request.data or {}
-        raw_uids = body.get("retrieval_uids") or body.get("uids") or body.get("retrieval_uids_text") or ""
-        if isinstance(raw_uids, list):
-            uids = [str(u).strip() for u in raw_uids if str(u).strip()]
+        if isinstance(body, dict):
+            output_format = body.get("output_format", "json")
+            raw_identifiers = body.get("identifiers")
+            if raw_identifiers is None:
+                raw_identifiers = body.get("retrieval_uids") or body.get("uids") or body.get("retrieval_uids_text") or ""
         else:
-            uids = str(raw_uids).strip().split()
+            output_format = "json"
+            raw_identifiers = ""
 
-        if not uids:
-            return Response({"detail": "retrieval_uids required"}, status=status.HTTP_400_BAD_REQUEST)
+        if isinstance(raw_identifiers, list):
+            identifiers = [str(u).strip() for u in raw_identifiers if str(u).strip()]
+        else:
+            identifiers = str(raw_identifiers or "").strip().split()
+
+        try:
+            req = AdminSampleRetrieveRequest.model_validate(
+                {"identifiers": identifiers, "output_format": output_format}
+            )
+        except ValidationError as e:
+            return Response(
+                {"detail": "Invalid request", "errors": e.errors()},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        if not req.identifiers:
+            return Response({"detail": "identifiers required"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Project scope and admin flag mirroring legacy behavior
         seekdb = SeekDB(None, None, None)
@@ -483,10 +600,49 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
             user_project_ids = []
         # Treat Django staff as admin for data scope, matching IsAdminUser
         is_superuser = bool(getattr(request.user, 'is_superuser', False) or getattr(request.user, 'is_staff', False))
+        
+        dbs = DBtable_sample()
+
+        # Resolve numeric SEEK ids → sample UUIDs (used by downstream retrieval)
+        requested_uids: list[str] = []
+        numeric_ids: list[str] = []
+        for it in req.identifiers:
+            s = str(it or "").strip()
+            if not s:
+                continue
+            if s.isdigit():
+                numeric_ids.append(s)
+            else:
+                requested_uids.append(s)
+
+        unresolved_numeric = 0
+        if numeric_ids:
+            try:
+                db = settings.DATABASES[SEEK_DATABASE]
+                conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
+                cursor = conn.cursor()
+                ids_str = ", ".join(str(int(x)) for x in numeric_ids)
+                cursor.execute(f"SELECT id, uuid FROM seek_production.samples WHERE id IN ({ids_str})")
+                rows = cursor.fetchall()
+                id_to_uuid = {str(r[0]): str(r[1]) for r in rows if r and r[0] is not None and r[1] is not None}
+                for sid in numeric_ids:
+                    u = id_to_uuid.get(str(sid))
+                    if u:
+                        requested_uids.append(u)
+                    else:
+                        unresolved_numeric += 1
+                cursor.close()
+                conn.close()
+            except Exception:
+                unresolved_numeric = len(numeric_ids)
+
+        # Dedupe while preserving order
+        seen = set()
+        requested_uids = [u for u in requested_uids if not (u in seen or seen.add(u))]
 
         # Build dataset and write Excel to a temp path under MEDIA_ROOT/download
         try:
-            children_uids_df = get_children_uids(uids, user_project_ids, is_superuser)
+            children_uids_df = dbs.getChildrenUIDs(requested_uids, user_project_ids, is_superuser)
         except IndexError:
             return Response({"detail": "No samples found for provided UIDs"}, status=status.HTTP_404_NOT_FOUND)
         except (AuthError, Neo4jError):
@@ -497,7 +653,7 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
                 conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
                 cursor = conn.cursor()
 
-                uids_str = ', '.join(["'%s'" % uid for uid in uids])
+                uids_str = ', '.join(["'%s'" % uid for uid in requested_uids])
 
                 if is_superuser:
                     query = f"""
@@ -529,13 +685,87 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
         
         if getattr(children_uids_df, 'empty', False):
             return Response({"detail": "No samples found for provided UIDs"}, status=status.HTTP_404_NOT_FOUND)
+
+        # JSON output (default)
+        if req.output_format == "json":
+            # Compute failure count: unresolved numeric ids + requested UIDs that didn't appear in results
+            try:
+                returned_uids = set(str(u) for u in list(children_uids_df.get("uuid", [])))
+            except Exception:
+                returned_uids = set()
+            missing_requested = len(set(requested_uids) - returned_uids) if requested_uids else 0
+            failed_uids = int(unresolved_numeric + missing_requested)
+
+            # Group by sample_type (same extraction used for Excel sheet naming)
+            try:
+                df = children_uids_df.copy()
+                df["uuid"] = df["uuid"].astype(str)
+                df["sample_type"] = df["uuid"].str.extract(r"([A-Z]+\.[A-Z]+|[A-Z]+)", expand=False).fillna("UNKNOWN")
+            except Exception:
+                df = children_uids_df
+
+            def _parse_meta(val):
+                try:
+                    if isinstance(val, str):
+                        return json.loads(val) if val else {}
+                    if isinstance(val, dict):
+                        return val
+                except Exception:
+                    pass
+                return {}
+
+            groups: list[AdminSampleGroup] = []
+            try:
+                for st, gdf in df.groupby("sample_type"):
+                    records = []
+                    for row in gdf.to_dict("records"):
+                        records.append(
+                            {
+                                "id": str(row.get("id")) if row.get("id") is not None else None,
+                                "uuid": str(row.get("uuid")) if row.get("uuid") is not None else None,
+                                "sample_type_id": row.get("sample_type_id"),
+                                "metadata": _parse_meta(row.get("json_metadata")),
+                            }
+                        )
+                    groups.append(AdminSampleGroup(sample_type=str(st), samples=records, n_samples=len(records)))
+            except Exception:
+                # Fallback: treat as a single group
+                records = []
+                try:
+                    for row in children_uids_df.to_dict("records"):
+                        records.append(
+                            {
+                                "id": str(row.get("id")) if row.get("id") is not None else None,
+                                "uuid": str(row.get("uuid")) if row.get("uuid") is not None else None,
+                                "sample_type_id": row.get("sample_type_id"),
+                                "metadata": _parse_meta(row.get("json_metadata")),
+                            }
+                        )
+                except Exception:
+                    records = []
+                groups = [AdminSampleGroup(sample_type="UNKNOWN", samples=records, n_samples=len(records))]
+
+            total_samples = int(getattr(children_uids_df, "shape", [0])[0] or 0)
+            total_sample_types = int(len(groups))
+            requested_found = len(set(requested_uids) & returned_uids) if requested_uids else 0
+            total_children = int(max(0, total_samples - requested_found))
+
+            resp = AdminSampleRetrieveResponse(
+                data=groups,
+                total_samples=total_samples,
+                total_sample_types=total_sample_types,
+                total_children=total_children,
+                failed_uids=failed_uids,
+            )
+            return Response(resp.model_dump(mode="json", exclude_none=True), status=status.HTTP_200_OK)
+
         datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
         filename = f"download-samples-{datenow}.xlsx"
         download_dir = os.path.join(settings.MEDIA_ROOT, "download")
         os.makedirs(download_dir, exist_ok=True)
         downloadfile = os.path.join(download_dir, filename)
 
-        sample_retrieval_data(children_uids_df, downloadfile)
+        dbs.sampleRetrievalData(children_uids_df, downloadfile)
 
         # Stream the file (let FileResponse manage the file handle)
         try:

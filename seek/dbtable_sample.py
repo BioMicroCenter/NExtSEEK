@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 import MySQLdb
 import zipfile
+import pandas as pd
 from django.conf import settings
 from django.db.models import Q
 from functools import cache
@@ -212,7 +213,7 @@ class DBtable_sample(DBtable):
         self.fieldMapping = SAMPLE_FILTER_MAPPING
         self.excludeFields = []
 
-    def __runQuery(self, query):
+    def __runQuery(self, query, withColumns=False):
         db = settings.DATABASES[SEEK_DATABASE]
         conn = MySQLdb.connect(host=db['HOST'],
                                user=db['USER'],
@@ -223,8 +224,12 @@ class DBtable_sample(DBtable):
         try:
             cursor.execute(query)
             results = cursor.fetchall()
-            return results
-        except:
+            if withColumns:
+                columns = [col[0] for col in cursor.description]
+                return results, columns
+            else:
+                return results
+        except Exception:
             return None
         
     def __notEmptyLine(self, csvdic):
@@ -638,12 +643,6 @@ class DBtable_sample(DBtable):
         logger.debug(f"Username {username} storing record {record_new}")
         if status:
             if newSample:
-
-                try:
-                    self.storeSampleNeo4j(sampleType, record_new)
-                except:
-                    None
-
                 self.__updateSampleProject(creator, sample_id)
                 self.__updateSampleAssetsCreators(sample_id, creator_id)
                 if len(diclist_assay)>0:
@@ -653,6 +652,11 @@ class DBtable_sample(DBtable):
                         msg += ';' + msgj
                 else:
                     msg = 'Info: Assay info not available for updating array-sample relationship for sample id: ' + str(sample_id)
+
+                try:
+                    self.storeSampleNeo4j(sampleType, record_new)
+                except:
+                    None
             else:
                 msg = 'Info: No update on array-sample relationship for old sample id: ' + str(sample_id)
                     
@@ -741,6 +745,74 @@ class DBtable_sample(DBtable):
         
         return contributor_id
 
+    def getConnectingRelationships(self, child_id, parent_id):
+        relationships = {
+            "child_id": child_id,
+            "parent_id": parent_id,
+        }
+        connecting_assay_query = f"""
+            SELECT aa.assay_id, a.title
+            FROM seek_production.assay_assets aa
+            JOIN seek_production.assays a ON a.id = aa.assay_id
+            WHERE
+                aa.asset_type = 'Sample' AND
+                (aa.asset_id = {child_id} OR aa.asset_id = {parent_id})
+            GROUP BY aa.assay_id
+            HAVING COUNT(aa.assay_id) = 2
+        """
+        connecting_assay_results = self.__runQuery(connecting_assay_query)
+
+        if len(connecting_assay_results) != 0:
+            connecting_assay_id, connecting_assay_title = connecting_assay_results[0]
+
+            relationships["assay_id"] = connecting_assay_id
+            relationships["assay_title"] = connecting_assay_title
+
+            internal_assay_query = f"""
+                SELECT ia.internal_assay_title
+                FROM dmac.internal_assays ia
+                JOIN dmac.assays_internal_assays aia ON aia.internal_assay_id = ia.id
+                WHERE aia.assay_id = {connecting_assay_id}
+            """
+
+            internal_assay_results = self.__runQuery(internal_assay_query)
+
+            if len(internal_assay_results) != 0:
+                internal_assay_title = internal_assay_results[0][0]
+
+                relationships["internal_assay_title"] = internal_assay_title
+
+        protocol_id_substring = """
+            SUBSTRING_INDEX(
+                REPLACE(
+                    JSON_EXTRACT(s.json_metadata, '$.Protocol'),
+                    '"',
+                    ''
+                ),
+                '/',
+                -1
+            )
+        """
+        
+        connecting_sop_query = f"""
+            SELECT
+                sop.id AS sop_id,
+                sop.title AS sop_title
+            FROM seek_production.samples s
+            JOIN seek_production.sops sop ON sop.id = {protocol_id_substring}
+            WHERE s.id = {child_id}
+        """
+
+        connecting_sop_results = self.__runQuery(connecting_sop_query)
+        
+        if len(connecting_sop_results) != 0:
+            sop_id, sop_title = connecting_sop_results[0]
+
+            relationships["protocol_id"] = sop_id
+            relationships["protocol_title"] = sop_title
+            
+        return relationships
+
     def extractParents(self, json_metadata):
         parents = []
         for k, v in json_metadata.items():
@@ -755,29 +827,106 @@ class DBtable_sample(DBtable):
         logger.debug(f"Storing sample into neo4j with info: {record}")
         sample_id = self.getSampleID(record['uuid'])
         json_metadata = json.loads(record['json_metadata'])
-        logger.debug(f"json_metadata: {json_metadata}")
         parents = self.extractParents(json_metadata)
+        
         with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
-
+            
             # Create the sample node
-            records, summary, keys = driver.execute_query(
+            driver.execute_query(
                     "MERGE (s:Sample {id: $sample_id, uuid: $sample_uuid, type: $sample_type})",
                     sample_id=sample_id,
                     sample_type=sampleType,
                     sample_uuid=record['uuid'],
                     database_=NEO4J_DATABASE['NAME'])
 
+            # Assign it a sample type
+            driver.execute_query(
+                """
+                    MATCH (s:Sample {id: $sample_id})
+                    MATCH (st:SampleType {title: $sample_type})
+                    MERGE (s)-[:OF_TYPE]->(st)
+                """,
+                sample_id=sample_id,
+                sample_type=sampleType,
+                database_=NEO4J_DATABASE['NAME'])
+
             # Create relationships between sample nodes
             if len(parents) > 0:
                 for parent in parents:
-                    records, summary, keys = driver.execute_query("""
+                    parent_id = self.getSampleID(parent)
+                    relationships = self.getConnectingRelationships(sample_id, parent_id)
+                    driver.execute_query("""
                                 MATCH (child:Sample {id: $child_id})
-                                MATCH (parent:Sample {uuid: $parent_uuid})
-                                MERGE (child)-[:CHILD_OF]->(parent)""",
+                                MATCH (parent:Sample {id: $parent_id})
+                                MERGE (child)-[r:DERIVED_FROM]->(parent)
+                                SET r+= $rels""",
                                 child_id=sample_id,
-                                parent_uuid=parent,
+                                parent_id=parent_id,
+                                rels=relationships,
                                 database_=NEO4J_DATABASE['NAME'])
-                    logger.debug(f"NEO4J summary: {summary.notifications}")
+
+    def getChildrenUIDs(self, sample_uids, user_project_ids, admin):
+        NEO4J_DATABASE = settings.NEO4J_DATABASE
+        with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
+            r,s,k = driver.execute_query("""
+    		UNWIND $sample_uids AS sample_uid
+            MATCH (s:Sample {uuid: sample_uid})
+            MATCH parents=(s)-[:DERIVED_FROM*0..]->(parent)
+            MATCH children=(s)<-[:DERIVED_FROM*0..]-(child)
+            RETURN collect(DISTINCT s.uuid) + collect(DISTINCT parent.uuid) + collect(DISTINCT child.uuid) AS uuids
+            """,
+            sample_uids=sample_uids,
+            database_=NEO4J_DATABASE['NAME'])
+            uids = r[0]['uuids']
+
+        uids_str = ', '.join(f"'{uid}'" for uid in uids)
+        project_ids_str = ', '.join(f"'{pid}'" for pid in user_project_ids)
+
+        if admin:
+            query = f"""
+            SELECT id,sample_type_id,uuid,json_metadata
+            FROM seek_production.samples
+            WHERE uuid IN ({uids_str})
+            """
+        else:
+            query = f"""
+            SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
+            FROM seek_production.samples s
+            JOIN seek_production.projects_samples ps
+            ON s.id = ps.sample_id
+            WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
+            """
+
+        rows, columns = self.__runQuery(query, withColumns=True)
+        samples_retrieved_df = pd.DataFrame(rows, columns=columns)
+
+        return samples_retrieved_df
+
+    def __parse_json_metadata(self, metadata_series):
+        return metadata_series.apply(lambda x: json.loads(x) if isinstance(x, str) else {})
+
+    def __parse_children_uids(self, children_uids):
+        children_uids['json_metadata'] = self.__parse_json_metadata(children_uids['json_metadata'])
+
+        metadata_df = pd.json_normalize(children_uids['json_metadata'])
+        metadata_df = metadata_df.loc[:, ~metadata_df.columns.duplicated()]
+
+        final_df = pd.concat([children_uids[['uuid']], metadata_df], axis=1)
+        final_df.replace("", pd.NA, inplace=True)
+        final_df.dropna(axis=1, how='all', inplace=True)
+
+        return final_df
+
+    def sampleRetrievalData(self, children_uids, output):
+        parsed_df = self.__parse_children_uids(children_uids)
+        parsed_df['sample_type'] = parsed_df['uuid'].str.extract(r'([A-Z]+\.[A-Z]+|[A-Z]+)', expand=False)
+
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for sample_type, sample_type_df in parsed_df.groupby('sample_type'):
+                sample_type_df = sample_type_df.drop(columns=['uuid', 'sample_type'])
+                sample_type_df.replace("", pd.NA, inplace=True)
+                sample_type_df.dropna(axis=1, how='all', inplace=True)
+                sample_type_df.to_excel(writer, sheet_name=sample_type, index=False)
 
     def __batchUploadTest(self, seekdb, sampleType, diclist, diclist_feedback, attributeInfo, attributeMapping, diclist_assay, uploadEnforced=False):
         user_seek = seekdb.user_seek
