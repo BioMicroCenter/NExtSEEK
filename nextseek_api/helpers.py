@@ -269,6 +269,45 @@ class SeekAPIClient:
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
         return self._request('DELETE', f'/samples/{sample_id}', request)
 
+    # ---- Streaming content blob download ----
+
+    def stream_content_blob(self, request, path: str, accept: str = '*/*',
+                            params: Optional[Dict[str, Any]] = None):
+        """Stream-download content from SEEK.
+
+        Uses per-request headers (does not mutate session-wide headers),
+        ``stream=True`` to avoid buffering, and a longer read timeout suitable
+        for large file transfers.
+
+        Returns ``(status_code, headers_dict, requests.Response)`` on success,
+        or ``(status_code, headers_dict, None)`` when authentication is missing.
+        The caller is responsible for closing the response after consuming the stream.
+        """
+        basic_tuple, extra_headers = resolve_seek_auth(request)
+        if not basic_tuple and not extra_headers:
+            return 401, {'Content-Type': JSONAPI_ACCEPT}, None
+
+        url = f"{self.base_url}{path}"
+        headers = {'Accept': accept}
+        if extra_headers:
+            headers.update(extra_headers)
+
+        t0 = time.time()
+        resp = self.session.request(
+            method='GET',
+            url=url,
+            auth=basic_tuple,
+            headers=headers,
+            params=params,
+            stream=True,
+            timeout=(10, 300),
+        )
+        dt_ms = (time.time() - t0) * 1000.0
+        log.info("seek_proxy_stream path=%s status=%d latency_ms=%.1f",
+                 path, resp.status_code, dt_ms)
+
+        return resp.status_code, dict(resp.headers), resp
+
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 100
     page_size_query_param = 'page_size'

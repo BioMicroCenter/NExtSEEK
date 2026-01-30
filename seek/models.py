@@ -140,8 +140,8 @@ class Internal_assays(models.Model):
 class Assays_internal_assays(models.Model):
     _DATABASE = NEXTSEEK_DATABASE
 
-    internal_assay_id = models.IntegerField(default=None)
-    assay_id = models.IntegerField(default=None)
+    internal_assay_id = models.IntegerField(default=None, null=True)
+    assay_id = models.IntegerField(default=None, null=True)
 
     class Meta:
         db_table = "assays_internal_assays"
@@ -188,8 +188,8 @@ class Sample_types_clades(models.Model):
     #clade = models.ForeignKey(Clades, null=True, blank=True, on_delete=models.PROTECT)
     #sample_type = models.ForeignKey(Sample_types, on_delete=models.PROTECT)
 
-    clade_id = models.IntegerField(default=None)
-    sample_type_id = models.IntegerField(default=None)
+    clade_id = models.IntegerField(default=None, null=True)
+    sample_type_id = models.IntegerField(default=None, null=True)
 
     def __unicode__(self):
         return self.clade_id + ' ' + self.sample_type_id

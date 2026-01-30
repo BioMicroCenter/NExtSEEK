@@ -1,8 +1,12 @@
 from typing import Any, Dict, Optional
 
 import json
-from django.http import HttpResponse
+import logging
+import requests as upstream_requests
+
+from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework import viewsets, status
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
@@ -13,7 +17,12 @@ from nextseek_api.models import (
     SopUpdateRequest,
     SopSingleResponse,
     SopListResponse,
+    SopDownloadRequest,
+    SeekContentBlobPathParams,
+    SeekContentBlobDownloadRequest,
 )
+
+log = logging.getLogger(__name__)
 from seek.dbtable_sops import DBtable_sops
 from django.conf import settings
 
@@ -243,4 +252,251 @@ class SopProxyViewSet(viewsets.ViewSet):
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
 
+    # POST /sops/download
+    @extend_schema(
+        operation_id="Download SOP content blob",
+        description=(
+            "Download the file content of a standard operating procedure (protocol) by ID or UID. "
+            "Automatically resolves the SOP identifier, fetches the latest version, discovers the "
+            "attached content blob, and streams the file download. Supports optional format conversion "
+            "to CSV or JSON via output_format. If a SOP has multiple content blobs, returns 409 with "
+            "candidate metadata so the caller can re-request with an explicit blob_id. "
+            "Examples: 'Download the GEX protocol document'; "
+            "'Get the DNA adducts procedure file as a PDF'; "
+            "'Fetch the sequencing analysis protocol for offline review'"
+        ),
+        request=SopDownloadRequest,
+        responses={200: OpenApiTypes.BINARY},
+        tags=['SOPs'],
+        examples=[
+            OpenApiExample(
+                name="Download by SEEK ID",
+                description="Download a SOP's content blob using its numeric SEEK ID",
+                value={"uid_or_id": "142"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Download by SOP title/UID",
+                description="Download a SOP's content blob using its NExtSEEK UID (title)",
+                value={"uid_or_id": "P.ESS-251028-V1_NG_8-GEX.docx"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Download as CSV",
+                description="Download content blob with CSV conversion (SEEK readContentBlob with Accept: text/csv)",
+                value={"uid_or_id": "142", "output_format": "csv"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Download with explicit blob_id",
+                description="Specify blob_id when a SOP has multiple content blobs",
+                value={"uid_or_id": "142", "blob_id": 246},
+                request_only=True,
+            ),
+        ],
+    )
+    @action(detail=False, methods=["post"], url_path="download")
+    def download(self, request):
+        # --- Parse & validate request body ---
+        try:
+            req = SopDownloadRequest.model_validate(request.data)
+        except Exception:
+            return HttpResponse(
+                b'{"errors":[{"title":"Invalid request body"}]}',
+                status=422, content_type='application/json',
+            )
+
+        # --- Resolve SOP identifier ---
+        seek_id_str: Optional[str] = None
+        if req.seek_id is not None:
+            seek_id_str = str(req.seek_id)
+        else:
+            seek_id_str = _resolve_uid_to_seek_id(req.uid_or_id)
+        if seek_id_str is None:
+            return HttpResponse(
+                b'{"errors":[{"title":"SOP not found"}]}',
+                status=404, content_type='application/json',
+            )
+
+        # --- Fetch SOP metadata (latest version) ---
+        body, code, headers, resp = self.client.get_sop(request, seek_id_str)
+        if code == 401:
+            return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+        if code >= 400:
+            return HttpResponse(
+                json.dumps({"errors": [{"title": "Failed to fetch SOP metadata", "status": str(code)}]}).encode(),
+                status=502, content_type='application/json',
+            )
+
+        try:
+            sop_data = json.loads(body or b"{}")
+        except Exception:
+            return HttpResponse(
+                b'{"errors":[{"title":"Invalid upstream SOP response"}]}',
+                status=502, content_type='application/json',
+            )
+
+        attrs = sop_data.get("data", {}).get("attributes", {})
+
+        # If version != latest_version, refetch with the latest version
+        version = attrs.get("version")
+        latest_version = attrs.get("latest_version")
+        if version is not None and latest_version is not None and version != latest_version:
+            body, code, headers, resp = self.client.get_sop(request, seek_id_str)
+            if code == 401:
+                return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+            if code >= 400:
+                return HttpResponse(
+                    json.dumps({"errors": [{"title": "Failed to fetch latest SOP version", "status": str(code)}]}).encode(),
+                    status=502, content_type='application/json',
+                )
+            try:
+                sop_data = json.loads(body or b"{}")
+            except Exception:
+                return HttpResponse(
+                    b'{"errors":[{"title":"Invalid upstream SOP response"}]}',
+                    status=502, content_type='application/json',
+                )
+            attrs = sop_data.get("data", {}).get("attributes", {})
+
+        # --- Discover content blob ---
+        content_blobs = attrs.get("content_blobs", [])
+        if not content_blobs:
+            return HttpResponse(
+                b'{"errors":[{"title":"No content blob available for SOP"}]}',
+                status=404, content_type='application/json',
+            )
+
+        if req.blob_id is not None:
+            # Client explicitly specified a blob_id override
+            blob_id = req.blob_id
+            # Find matching blob for original_filename (for Content-Disposition default)
+            blob_meta = next((b for b in content_blobs if str(b.get("id")) == str(blob_id)), content_blobs[0])
+        elif len(content_blobs) == 1:
+            blob_meta = content_blobs[0]
+            blob_link = blob_meta.get("link", "")
+            # Parse blob_id from link: e.g. /sops/142/content_blobs/246
+            try:
+                blob_id = int(blob_link.rstrip("/").split("/")[-1])
+            except (ValueError, IndexError):
+                return HttpResponse(
+                    b'{"errors":[{"title":"Cannot parse blob id from SOP metadata"}]}',
+                    status=502, content_type='application/json',
+                )
+        else:
+            # Multiple blobs — 409 Conflict with candidate info
+            candidates = []
+            for b in content_blobs:
+                candidates.append({
+                    "link": b.get("link"),
+                    "original_filename": b.get("original_filename"),
+                    "content_type": b.get("content_type"),
+                })
+            return HttpResponse(
+                json.dumps({
+                    "errors": [{
+                        "title": "Multiple content blobs found",
+                        "detail": "SOP has multiple content blobs. Specify blob_id to select one.",
+                    }],
+                    "candidates": candidates,
+                }).encode(),
+                status=409, content_type='application/json',
+            )
+
+        # --- Build upstream path ---
+        asset_types = req.asset_types or "sops"
+        effective_seek_id = req.seek_id if req.seek_id is not None else int(seek_id_str)
+
+        # Determine upstream behavior based on output_format
+        fmt = req.output_format
+        if fmt in (None, "original", "binary"):
+            # Binary download: GET /{asset_types}/{id}/content_blobs/{blob_id}/download
+            upstream_path = f"/{asset_types}/{effective_seek_id}/content_blobs/{blob_id}/download"
+            accept = "*/*"
+        elif fmt == "csv":
+            # Read with conversion: GET /{asset_types}/{id}/content_blobs/{blob_id}
+            upstream_path = f"/{asset_types}/{effective_seek_id}/content_blobs/{blob_id}"
+            accept = "text/csv"
+        elif fmt == "json":
+            upstream_path = f"/{asset_types}/{effective_seek_id}/content_blobs/{blob_id}"
+            accept = "application/json"
+        else:
+            return HttpResponse(
+                b'{"errors":[{"title":"Unsupported output_format"}]}',
+                status=422, content_type='application/json',
+            )
+
+        # --- Stream download from SEEK ---
+        try:
+            status_code, upstream_headers, upstream_resp = self.client.stream_content_blob(
+                request, path=upstream_path, accept=accept, params=request.query_params,
+            )
+        except upstream_requests.Timeout:
+            return HttpResponse(
+                b'{"errors":[{"title":"Upstream timeout"}]}',
+                status=504, content_type='application/json',
+            )
+        except upstream_requests.RequestException as exc:
+            log.warning("stream_content_blob failed: %s", exc)
+            return HttpResponse(
+                b'{"errors":[{"title":"Upstream connection error"}]}',
+                status=502, content_type='application/json',
+            )
+
+        if status_code == 401:
+            return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+        if status_code in (403, 404):
+            if upstream_resp is not None:
+                upstream_resp.close()
+            return HttpResponse(
+                json.dumps({"errors": [{"title": "Upstream error", "status": str(status_code)}]}).encode(),
+                status=status_code, content_type='application/json',
+            )
+        if status_code >= 500:
+            if upstream_resp is not None:
+                upstream_resp.close()
+            return HttpResponse(
+                json.dumps({"errors": [{"title": "Upstream server error", "status": str(status_code)}]}).encode(),
+                status=502, content_type='application/json',
+            )
+        if status_code >= 400:
+            if upstream_resp is not None:
+                upstream_resp.close()
+            return HttpResponse(
+                json.dumps({"errors": [{"title": "Upstream error", "status": str(status_code)}]}).encode(),
+                status=status_code, content_type='application/json',
+            )
+
+        # --- Validate upstream response before streaming ---
+        ct = (upstream_headers.get('Content-Type') or '').lower()
+        if 'text/html' in ct:
+            if upstream_resp is not None:
+                upstream_resp.close()
+            return HttpResponse(
+                b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)"}]}',
+                status=502, content_type='application/json',
+            )
+
+        # --- Build streaming response ---
+        content_type = upstream_headers.get('Content-Type', 'application/octet-stream')
+        original_filename = blob_meta.get("original_filename")
+        content_disposition = upstream_headers.get('Content-Disposition')
+        if not content_disposition:
+            if original_filename:
+                content_disposition = f'attachment; filename="{original_filename}"'
+            else:
+                content_disposition = 'attachment'
+
+        def _iter_and_close():
+            try:
+                yield from upstream_resp.iter_content(chunk_size=8192)
+            finally:
+                upstream_resp.close()
+
+        response = StreamingHttpResponse(_iter_and_close(), content_type=content_type)
+        response['Content-Disposition'] = content_disposition
+        content_length = upstream_headers.get('Content-Length')
+        if content_length:
+            response['Content-Length'] = content_length
+        return response
 

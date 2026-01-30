@@ -188,6 +188,78 @@ class SchemaRAGViewSet(viewsets.ViewSet):
                 request_only=True,
             ),
             OpenApiExample(
+                name="NExtSEEK Full Mode Query",
+                value={
+                    "schema_url": "https://nextseek-dev.mit.edu/nextseek_api/schema/?format=yaml",
+                    "query": "Find all mice from water study that were treated with NDMA",
+                    "mode": "full",
+                    "top_k": 2,
+                    "min_score": 0.3,
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Full Mode Response with Multiple Endpoints",
+                value={
+                    "session_id": "ce1817b6ebcd43fab8af80c9fe708844",
+                    "mode": "full",
+                    "endpoints_full": [
+                        {
+                            "operationId": "Get samples with children of specified sample types",
+                            "method": "POST",
+                            "tags": [
+                                "SampleTypes"
+                            ],
+                            "description": "Return parent samples (SEEK id and UID) that have at least one descendant with each specified sample type. Logical AND across provided types.",
+                            "path": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+                            "request_schema": {
+                                "sample_type_titles": [
+                                    "array",
+                                    "null"
+                                ],
+                                "sample_type_ids": [
+                                    "array",
+                                    "null"
+                                ]
+                            },
+                            "examples": [
+                                "{\"sample_type_titles\":[\"D.IMG\",\"TIS\"]}",
+                                "{\"sample_type_ids\":[14,2]}"
+                            ]
+                        },
+                        {
+                            "operationId": "Get Sample Tree by id or uid",
+                            "method": "GET",
+                            "tags": [
+                                "Samples"
+                            ],
+                            "description": "Get sample tree by SEEK id (numeric) or Sample UID (string)",
+                            "path": "/nextseek_api/sample-tree/{uid}/tree/",
+                            "parameters": {
+                                "uid": {
+                                    "in": "path",
+                                    "required": True,
+                                    "type": "string"
+                                }
+                            },
+                            "request_schema": {}
+                        }
+                    ],
+                    "debug": {
+                        "used_fallback_full": False,
+                        "used_enriched_minimal_examples": False,
+                        "similarity_threshold_effective": 0.3,
+                        "num_candidates_initial": 50,
+                        "num_candidates_final": 2,
+                        "scores": [
+                            0.560836672782898,
+                            0.560149073600769
+                        ]
+                    }
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
                 name="Minimal Mode Response",
                 value={
                     "session_id": "abc123def456",

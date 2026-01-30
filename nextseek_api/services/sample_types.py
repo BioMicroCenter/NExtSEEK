@@ -257,7 +257,7 @@ class SampleTypeChildrenViewSet(viewsets.GenericViewSet):
                 query = (
                     """
                     MATCH (s: Sample {id: toInteger($id)})
-                    MATCH (s)<-[:CHILD_OF*1..]-(child)
+                    MATCH (s)<-[:DERIVED_FROM*1..]-(child)
                     RETURN DISTINCT child.type AS type
                     ORDER BY type
                     """
@@ -394,7 +394,7 @@ class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
                 WITH $types AS input_types, $parent_types AS parent_types
                 MATCH (p:Sample)
                 WHERE p.type IN parent_types
-                MATCH (c:Sample)-[:CHILD_OF*1..]->(p)
+                MATCH (c:Sample)-[:DERIVED_FROM*1..]->(p)
                 WHERE c.type IN input_types
                 WITH p, collect(DISTINCT c.type) AS matched_types, input_types
                 WHERE size(matched_types) = size(input_types)
@@ -405,7 +405,7 @@ class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
             cypher = """
                 WITH $types AS input_types
                 MATCH (p:Sample)
-                MATCH (c:Sample)-[:CHILD_OF*1..]->(p)
+                MATCH (c:Sample)-[:DERIVED_FROM*1..]->(p)
                 WHERE c.type IN input_types
                 WITH p, collect(DISTINCT c.type) AS matched_types, input_types
                 WHERE size(matched_types) = size(input_types)

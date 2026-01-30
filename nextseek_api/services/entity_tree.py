@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 import MySQLdb
+import neo4j
 from django.conf import settings
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
 from neo4j import GraphDatabase
@@ -524,31 +525,31 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
         db_name: str,
         input_id: str,
         resolved_id: str,
+        timeout: float = 90.0,
     ) -> Tuple[LineageTree, set]:
         """Fetch a single sample's full lineage from Neo4j.
 
         Returns tuple of (LineageTree, set of internal_assay_ids for enrichment).
         """
         try:
+            # Mirror SampleTreeViewSet.get_tree query logic and return a graph-shaped response.
             cypher = """
-                MATCH (s:Sample {id: toInteger($id)})
-                OPTIONAL MATCH parents_path=(s)-[r1:DERIVED_FROM*0..]->(parent)
-                OPTIONAL MATCH children_path=(s)<-[r2:DERIVED_FROM*0..]-(child)
-                WITH s,
-                     collect(DISTINCT parent) AS parents_list,
-                     collect(DISTINCT child) AS children_list,
-                     [p IN collect(DISTINCT parents_path) | relationships(p)] AS parent_rels_nested,
-                     [c IN collect(DISTINCT children_path) | relationships(c)] AS child_rels_nested
+                MATCH (s: Sample {id: toInteger($id)})
+                MATCH parents=(s)-[r1:DERIVED_FROM*0..]->(parent)
+                MATCH children=(s)<-[r2:DERIVED_FROM*0..]-(child)
                 RETURN
-                    [s] + parents_list + children_list AS nodes,
-                    reduce(acc = [], rels IN parent_rels_nested | acc + rels) +
-                    reduce(acc = [], rels IN child_rels_nested | acc + rels) AS relationships
+                    collect(DISTINCT s) + collect(DISTINCT parent) + collect(DISTINCT child) AS nodes,
+                    r1 + r2 AS relationships
             """
-            records, summary, keys = driver.execute_query(
-                cypher, id=sample_id, database_=db_name
+            r = driver.execute_query(
+                cypher,
+                id=int(sample_id),
+                result_transformer_=neo4j.Result.graph,
+                database_=db_name,
+                timeout=timeout,
             )
 
-            if not records:
+            if r is None or not getattr(r, "nodes", None):
                 return (
                     LineageTree(
                         input_id=input_id,
@@ -562,81 +563,98 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                     set(),
                 )
 
-            record = records[0]
-            raw_nodes = record.get("nodes", [])
-            raw_rels = record.get("relationships", [])
-
-            # Process nodes - build lookup for parent relationships
-            node_dict: Dict[int, Dict[str, Any]] = {}
-            for node in raw_nodes:
-                if node is None:
+            # Process nodes - build lookup keyed by UUID (string)
+            node_dict: Dict[str, Dict[str, Any]] = {}
+            for node in r.nodes:
+                try:
+                    props = node._properties or {}
+                except Exception:
+                    props = {}
+                node_uuid = props.get("uuid") or ""
+                node_id = props.get("id")
+                node_type = props.get("type") or ""
+                if not node_uuid or node_id is None:
                     continue
-                node_id = node.get("id")
-                node_uuid = node.get("uuid", "")
-                node_type = node.get("type", "")
-                if node_id is not None:
-                    node_dict[int(node_id)] = {
-                        "id": str(node_id),
-                        "uuid": node_uuid or "",
-                        "type": node_type or "",
-                        "parents": [],
-                    }
+                node_dict[str(node_uuid)] = {
+                    "id": str(node_id),
+                    "type": str(node_type),
+                    "parents": [],
+                }
 
-            # Process relationships and collect internal_assay_ids
+            # Process relationships and collect internal_assay_ids for optional enrichment
             rel_list: List[LineageEdge] = []
-            internal_assay_ids: set = set()
-            seen_rels: set = set()
+            internal_assay_ids: set[int] = set()
+            seen_rels: set[tuple[str, str]] = set()
 
-            for rel in raw_rels:
-                if rel is None:
-                    continue
+            for rel in r.relationships:
+                try:
+                    rel_props = rel._properties or {}
+                except Exception:
+                    rel_props = {}
+                try:
+                    start_props = rel.start_node._properties or {}
+                except Exception:
+                    start_props = {}
+                try:
+                    end_props = rel.end_node._properties or {}
+                except Exception:
+                    end_props = {}
 
-                # Extract relationship properties
-                child_id = rel.start_node.get("id") if rel.start_node else None
-                parent_id = rel.end_node.get("id") if rel.end_node else None
+                child_id = start_props.get("id")
+                parent_id = end_props.get("id")
+                child_uuid = start_props.get("uuid") or ""
 
                 if child_id is None or parent_id is None:
                     continue
 
-                # Deduplicate relationships
-                rel_key = (int(child_id), int(parent_id))
+                child_id_str = str(child_id)
+                parent_id_str = str(parent_id)
+
+                rel_key = (child_id_str, parent_id_str)
                 if rel_key in seen_rels:
                     continue
                 seen_rels.add(rel_key)
 
-                # Update parent tracking for node
-                if int(child_id) in node_dict:
-                    node_dict[int(child_id)]["parents"].append(str(parent_id))
+                # Track parentIds for each node (child -> parent)
+                if child_uuid:
+                    if child_uuid not in node_dict:
+                        node_dict[child_uuid] = {
+                            "id": child_id_str,
+                            "type": str(start_props.get("type") or ""),
+                            "parents": [],
+                        }
+                    node_dict[child_uuid]["parents"].append(parent_id_str)
 
-                # Get relationship properties
-                internal_assay_id = rel.get("internal_assay_id")
-                internal_assay_title = rel.get("internal_assay_title")
-                protocol_title = rel.get("protocol_title")
-                protocol_id = rel.get("protocol_id")
-
-                internal_assay_id_str = None
-                if internal_assay_id is not None:
+                internal_assay_id = rel_props.get("internal_assay_id")
+                internal_assay_id_str: Optional[str] = None
+                if internal_assay_id is not None and str(internal_assay_id).isdigit():
                     internal_assay_id_str = str(int(internal_assay_id))
                     internal_assay_ids.add(int(internal_assay_id))
 
-                edge = LineageEdge(
-                    child_id=str(child_id),
-                    parent_id=str(parent_id),
-                    internal_assay_id=internal_assay_id_str,
-                    internal_assay_title=internal_assay_title,
-                    protocol_title=protocol_title,
-                    protocol_id=str(int(protocol_id)) if protocol_id is not None else None,
+                protocol_id = rel_props.get("protocol_id")
+                protocol_id_str: Optional[str] = None
+                if protocol_id is not None and str(protocol_id).isdigit():
+                    protocol_id_str = str(int(protocol_id))
+
+                rel_list.append(
+                    LineageEdge(
+                        child_id=child_id_str,
+                        parent_id=parent_id_str,
+                        internal_assay_id=internal_assay_id_str,
+                        internal_assay_title=rel_props.get("internal_assay_title"),
+                        protocol_title=rel_props.get("protocol_title"),
+                        protocol_id=protocol_id_str,
+                    )
                 )
-                rel_list.append(edge)
 
             # Build SampleTreeNode list with colors
             nodes: List[SampleTreeNode] = []
-            for nid, v in node_dict.items():
+            for uuid, v in node_dict.items():
                 color = self._get_clade_color(v["type"])
                 nodes.append(
                     SampleTreeNode(
                         id=v["id"],
-                        uuid=v["uuid"],
+                        uuid=uuid,
                         sample_type=v["type"],
                         color=color,
                         parentIds=v["parents"],
@@ -714,6 +732,7 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                 value={
                     "sample_ids": ["NHP-220630FLY-1-PUB", "12345"],
                     "include_attributes": True,
+                    "timeout": 120.0,
                 },
                 request_only=True,
             ),
@@ -825,6 +844,7 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                         NEO4J_DATABASE["NAME"],
                         str(input_id),
                         resolved_id,
+                        timeout=(req.timeout or 90.0),
                     )
 
                     # Collect internal_assay_ids for batch enrichment

@@ -1952,6 +1952,12 @@ class LineageRequest(BaseModel):
         default=False,
         description="When true, include edge attributes (study_titles, description)",
     )
+    timeout: Optional[float] = Field(
+        default=90.0,
+        ge=1.0,
+        le=300.0,
+        description="Query timeout in seconds (default 90, max 300)",
+    )
 
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
@@ -2004,3 +2010,101 @@ class LineageResponse(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid", validate_default=True)
+
+
+# -----------------------------
+# Content Blob: SEEK path param models
+# -----------------------------
+
+
+class SeekContentBlobPathParams(BaseModel):
+    """Maps directly to SEEK's ``/{asset_types}/{id}/content_blobs/{blob_id}`` path segments."""
+
+    asset_types: str = Field(..., description="SEEK asset type path segment, e.g. 'sops' or 'data_files'")
+    id: int = Field(..., description="SEEK numeric asset id (path param {id})")
+    blob_id: int = Field(..., description="SEEK numeric content-blob id (path param {blob_id})")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SeekContentBlobReadRequest(BaseModel):
+    """Internal request model for ``GET /{asset_types}/{id}/content_blobs/{blob_id}`` (readContentBlob).
+
+    Supports optional format conversion via the ``Accept`` header.
+    """
+
+    path: SeekContentBlobPathParams
+    output_format: Optional[Literal["json", "csv"]] = Field(
+        None,
+        description=(
+            "Desired conversion format. "
+            "None → Accept: */* (original representation); "
+            "'json' → Accept: application/json; "
+            "'csv' → Accept: text/csv"
+        ),
+    )
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def accept_header(self) -> str:
+        """Return the ``Accept`` header value for the upstream SEEK request."""
+        if self.output_format == "json":
+            return "application/json"
+        if self.output_format == "csv":
+            return "text/csv"
+        return "*/*"
+
+
+class SeekContentBlobDownloadRequest(BaseModel):
+    """Internal request model for ``GET /{asset_types}/{id}/content_blobs/{blob_id}/download``
+    (downloadAssetContent).  Binary download — no conversion fields.
+    """
+
+    path: SeekContentBlobPathParams
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# SOP Download: public request model
+# -----------------------------
+
+
+class SopDownloadRequest(BaseModel):
+    """Public request body for ``POST /sops/download``.
+
+    The client provides a SOP identifier (NExtSEEK UID or numeric SEEK ID).
+    The endpoint resolves the identifier, fetches the latest SOP version from
+    SEEK, discovers the content blob, and streams the download.
+    """
+
+    uid_or_id: str = Field(
+        ...,
+        description=(
+            "SOP identifier: a numeric SEEK SOP id (string) or a NExtSEEK SOP UID. "
+            "Numeric strings are treated as SEEK IDs; non-numeric strings are resolved via the SOP title."
+        ),
+    )
+    output_format: Optional[Literal["original", "csv", "json", "binary"]] = Field(
+        None,
+        description=(
+            "Desired output format. Maps to SEEK endpoints as follows: "
+            "'binary' or None/'original' → GET /{asset_types}/{id}/content_blobs/{blob_id}/download (binary stream); "
+            "'csv' → GET /{asset_types}/{id}/content_blobs/{blob_id} with Accept: text/csv; "
+            "'json' → GET /{asset_types}/{id}/content_blobs/{blob_id} with Accept: application/json."
+        ),
+    )
+    asset_types: Optional[str] = Field(
+        None,
+        description="Override for SEEK path param {asset_types}. Default internally is 'sops'.",
+    )
+    seek_id: Optional[int] = Field(
+        None,
+        description="Override for SEEK path param {id}. Default comes from resolving uid_or_id.",
+    )
+    blob_id: Optional[int] = Field(
+        None,
+        description="Override for SEEK path param {blob_id}. Default comes from SOP metadata content_blobs.",
+    )
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)

@@ -15,6 +15,7 @@ import logging
 from typing import List, Optional
 
 import duckdb
+import pandas as pd
 
 from .models import SessionInfo, MinimalAPIEndpoint, FullAPIEndpoint
 
@@ -104,36 +105,63 @@ def insert_endpoints(session: SessionInfo, endpoints: List[FullAPIEndpoint]) -> 
     """
     if not endpoints:
         return 0
-    
+
+    # DuckDB recommends bulk loading via pandas/Arrow rather than row-by-row inserts.
+    df = pd.DataFrame(
+        [
+            {
+                "endpoint_id": ep.operationId,  # endpoint_id = operationId
+                "operationId": ep.operationId,
+                "method": ep.method,
+                "tags": ep.tags,  # DuckDB handles Python list -> VARCHAR[]
+                "description": ep.description,
+                "path": ep.path,
+                "parameters": json.dumps(ep.parameters) if ep.parameters else None,
+                "request_schema": json.dumps(ep.request_schema) if ep.request_schema else None,
+                "response_schema": json.dumps(ep.response_schema) if ep.response_schema else None,
+                "examples": ep.examples,  # DuckDB handles Python list -> VARCHAR[]
+            }
+            for ep in endpoints
+        ]
+    )
+
     conn = duckdb.connect(session.db_path)
     try:
-        # Prepare data for bulk insert
-        rows = []
-        for ep in endpoints:
-            rows.append((
-                ep.operationId,  # endpoint_id = operationId
-                ep.operationId,
-                ep.method,
-                ep.tags,  # DuckDB handles Python list -> VARCHAR[]
-                ep.description,
-                ep.path,
-                json.dumps(ep.parameters) if ep.parameters else None,
-                json.dumps(ep.request_schema) if ep.request_schema else None,
-                json.dumps(ep.response_schema) if ep.response_schema else None,
-                ep.examples,  # DuckDB handles Python list -> VARCHAR[]
-            ))
-        
-        conn.executemany(
+        conn.register("df_endpoints", df)
+
+        # Bulk upsert in one statement.
+        conn.execute(
             """
             INSERT INTO endpoints (
                 endpoint_id, operationId, method, tags, description,
                 path, parameters, request_schema, response_schema, examples
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            rows
+            )
+            SELECT
+                endpoint_id,
+                operationId,
+                method,
+                tags,
+                description,
+                path,
+                CAST(parameters AS JSON),
+                CAST(request_schema AS JSON),
+                CAST(response_schema AS JSON),
+                examples
+            FROM df_endpoints
+            ON CONFLICT (endpoint_id) DO UPDATE SET
+                operationId = excluded.operationId,
+                method = excluded.method,
+                tags = excluded.tags,
+                description = excluded.description,
+                path = excluded.path,
+                parameters = excluded.parameters,
+                request_schema = excluded.request_schema,
+                response_schema = excluded.response_schema,
+                examples = excluded.examples
+            """
         )
-        
-        return len(rows)
+
+        return len(df)
     finally:
         conn.close()
 
