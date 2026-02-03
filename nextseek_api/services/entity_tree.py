@@ -98,9 +98,27 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                 value={
                     "total": 3,
                     "nodes": [
-                        {"node": "NHP", "id": 41, "description": "Non Human Primates", "clade": "Subject"},
-                        {"node": "TIS", "id": 26, "description": "Tissue Sample", "clade": "Sample"},
-                        {"node": "D.IMG", "id": 40, "description": "Imaging Data", "clade": "Data"},
+                        {
+                            "node": "NHP",
+                            "id": 41,
+                            "description": "Non Human Primates",
+                            "clade": "Subject",
+                            "metadata_fields": "Sex; Species; Date_of_birth",
+                        },
+                        {
+                            "node": "TIS",
+                            "id": 26,
+                            "description": "Tissue Sample",
+                            "clade": "Sample",
+                            "metadata_fields": "Organ; Collection_date; Preservation_method",
+                        },
+                        {
+                            "node": "D.IMG",
+                            "id": 40,
+                            "description": "Imaging Data",
+                            "clade": "Data",
+                            "metadata_fields": "Modality; Acquisition_date; File_format",
+                        },
                     ],
                 },
                 response_only=True,
@@ -181,14 +199,61 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
 
+        # Bulk fetch attribute titles via dbtable_ helper (no raw SQL).
+        # Fail the request if any sample type would have empty metadata_fields.
+        try:
+            from seek.dbtable_sampleattribute import DBtable_sampleattribute
+
+            sample_type_ids: List[int] = []
+            for r in rows:
+                try:
+                    sample_type_ids.append(int(r.get("id") or 0))
+                except Exception:
+                    continue
+            sample_type_ids = sorted(set([i for i in sample_type_ids if i > 0]))
+
+            titles_by_id: Dict[int, List[str]] = DBtable_sampleattribute().getAttributeTitlesBySampleTypeIds(
+                sample_type_ids
+            )
+            metadata_fields_by_id: Dict[int, str] = {}
+            missing_ids: List[int] = []
+            for sid in sample_type_ids:
+                titles = titles_by_id.get(sid) or []
+                joined = "; ".join([t.strip() for t in titles if str(t).strip()])
+                if not joined.strip():
+                    missing_ids.append(sid)
+                else:
+                    metadata_fields_by_id[sid] = joined
+
+            if missing_ids:
+                return Response(
+                    {
+                        "errors": [
+                            {
+                                "title": "Missing sample type attributes",
+                                "detail": "One or more sample types have no attribute definitions; cannot emit non-empty metadata_fields.",
+                                "sample_type_ids": missing_ids,
+                            }
+                        ]
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+        except Exception as e:
+            return Response(
+                {"errors": [{"title": "Attribute lookup failed", "detail": str(e)}]},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
         items: List[NodeAttribute] = []
         for row in rows:
+            sid = int(row.get("id") or 0)
             items.append(
                 NodeAttribute(
                     node=str(row.get("node") or ""),
-                    id=int(row.get("id") or 0),
+                    id=sid,
                     description=row.get("description"),
                     clade=row.get("clade"),
+                    metadata_fields=metadata_fields_by_id.get(sid, ""),
                 )
             )
 

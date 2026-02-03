@@ -1882,6 +1882,10 @@ class NodeAttribute(BaseModel):
     id: int = Field(..., description="Sample type ID (sample_types_context.sampletype_id)")
     description: Optional[str] = Field(None, description="Human-readable description")
     clade: Optional[str] = Field(None, description="Clade classification")
+    metadata_fields: str = Field(
+        ...,
+        description="Semicolon-separated sample attribute titles for this sample type (delimiter '; ')",
+    )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
