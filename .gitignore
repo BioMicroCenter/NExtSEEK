@@ -171,4 +171,4 @@ internal_docs/
 duckdb/
 embedding_models/
 *.swp
- 
+setup-celery-worker.sh
