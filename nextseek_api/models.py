@@ -2098,6 +2098,7 @@ class SopDownloadRequest(BaseModel):
             "'json' → GET /{asset_types}/{id}/content_blobs/{blob_id} with Accept: application/json."
         ),
     )
+    
     asset_types: Optional[str] = Field(
         None,
         description="Override for SEEK path param {asset_types}. Default internally is 'sops'.",
@@ -2112,3 +2113,29 @@ class SopDownloadRequest(BaseModel):
     )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SopBatchDownloadManifestEntry(BaseModel):
+    """Single entry (success) in the batch download manifest."""
+    filename: str
+    seek_id: str
+    uid_or_id: str
+    model_config = ConfigDict(extra='forbid')
+
+
+class SopBatchDownloadManifestFailure(BaseModel):
+    """Single failure entry in the batch download manifest."""
+    uid_or_id: str
+    error: str
+    model_config = ConfigDict(extra='forbid')
+
+
+class SopBatchDownloadManifest(BaseModel):
+    """manifest.json written inside the zip."""
+    generated_at: str
+    total_requested: int
+    total_success: int
+    total_failed: int
+    successes: List[SopBatchDownloadManifestEntry] = Field(default_factory=list)
+    failures: List[SopBatchDownloadManifestFailure] = Field(default_factory=list)
+    model_config = ConfigDict(extra='forbid')

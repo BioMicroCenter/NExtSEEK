@@ -1,7 +1,12 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
+import datetime
 import json
 import logging
+import os
+import tempfile
+import zipfile
+
 import requests as upstream_requests
 
 from django.http import HttpResponse, StreamingHttpResponse
@@ -20,6 +25,9 @@ from nextseek_api.models import (
     SopDownloadRequest,
     SeekContentBlobPathParams,
     SeekContentBlobDownloadRequest,
+    SopBatchDownloadManifest,
+    SopBatchDownloadManifestEntry,
+    SopBatchDownloadManifestFailure,
 )
 
 log = logging.getLogger(__name__)
@@ -42,6 +50,127 @@ def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
     except Exception:
         return None
     return None
+
+
+def _resolve_sop_and_blob(client, request, req, allow_multi_blob_auto_select=False):
+    """Resolve a SopDownloadRequest into SOP metadata and blob info.
+
+    Returns a dict with:
+      On success: success=True, seek_id, blob_meta, upstream_path, accept
+      On multi_blob (409): success=False, multi_blob=True, candidates
+      On failure: success=False, error (str), status (int)
+    """
+    # 1. Resolve identifier
+    seek_id_str = None
+    if req.seek_id is not None:
+        seek_id_str = str(req.seek_id)
+    else:
+        seek_id_str = _resolve_uid_to_seek_id(req.uid_or_id)
+    if seek_id_str is None:
+        return {"success": False, "error": "SOP not found", "status": 404}
+
+    # 2. Fetch SOP metadata
+    body, code, headers, resp = client.get_sop(request, seek_id_str)
+    if code == 401:
+        return {"success": False, "error": "Authentication required", "status": 401}
+    if code >= 400:
+        return {"success": False, "error": f"Failed to fetch SOP metadata (status {code})", "status": 502}
+
+    try:
+        sop_data = json.loads(body or b"{}")
+    except Exception:
+        return {"success": False, "error": "Invalid upstream SOP response", "status": 502}
+
+    attrs = sop_data.get("data", {}).get("attributes", {})
+
+    # 3. Handle version mismatch
+    version = attrs.get("version")
+    latest_version = attrs.get("latest_version")
+    if version is not None and latest_version is not None and version != latest_version:
+        body, code, headers, resp = client.get_sop(request, seek_id_str)
+        if code == 401:
+            return {"success": False, "error": "Authentication required", "status": 401}
+        if code >= 400:
+            return {"success": False, "error": f"Failed to fetch latest SOP version (status {code})", "status": 502}
+        try:
+            sop_data = json.loads(body or b"{}")
+        except Exception:
+            return {"success": False, "error": "Invalid upstream SOP response", "status": 502}
+        attrs = sop_data.get("data", {}).get("attributes", {})
+
+    # 4. Discover content blob
+    content_blobs = attrs.get("content_blobs", [])
+    if not content_blobs:
+        return {"success": False, "error": "No content blob available for SOP", "status": 404}
+
+    if req.blob_id is not None:
+        blob_id = req.blob_id
+        blob_meta = next((b for b in content_blobs if str(b.get("id")) == str(blob_id)), content_blobs[0])
+    elif len(content_blobs) == 1:
+        blob_meta = content_blobs[0]
+        blob_link = blob_meta.get("link", "")
+        try:
+            blob_id = int(blob_link.rstrip("/").split("/")[-1])
+        except (ValueError, IndexError):
+            return {"success": False, "error": "Cannot parse blob id from SOP metadata", "status": 502}
+    else:
+        # Multiple blobs
+        if allow_multi_blob_auto_select:
+            blob_meta = content_blobs[0]
+            blob_link = blob_meta.get("link", "")
+            try:
+                blob_id = int(blob_link.rstrip("/").split("/")[-1])
+            except (ValueError, IndexError):
+                return {"success": False, "error": "Cannot parse blob id from SOP metadata", "status": 502}
+        else:
+            candidates = []
+            for b in content_blobs:
+                candidates.append({
+                    "link": b.get("link"),
+                    "original_filename": b.get("original_filename"),
+                    "content_type": b.get("content_type"),
+                })
+            return {"success": False, "multi_blob": True, "candidates": candidates}
+
+    # 5. Build upstream path and accept header
+    asset_types = req.asset_types or "sops"
+    effective_seek_id = req.seek_id if req.seek_id is not None else int(seek_id_str)
+
+    fmt = req.output_format
+    if fmt in (None, "original", "binary"):
+        upstream_path = f"/{asset_types}/{effective_seek_id}/content_blobs/{blob_id}/download"
+        accept = "*/*"
+    elif fmt == "csv":
+        upstream_path = f"/{asset_types}/{effective_seek_id}/content_blobs/{blob_id}"
+        accept = "text/csv"
+    elif fmt == "json":
+        upstream_path = f"/{asset_types}/{effective_seek_id}/content_blobs/{blob_id}"
+        accept = "application/json"
+    else:
+        return {"success": False, "error": "Unsupported output_format", "status": 422}
+
+    return {
+        "success": True,
+        "seek_id": str(effective_seek_id),
+        "blob_meta": blob_meta,
+        "upstream_path": upstream_path,
+        "accept": accept,
+    }
+
+
+def _deduplicate_filename(original_filename, seek_id, used_filenames):
+    """Return a unique filename for the zip archive.
+
+    If original_filename is already in used_filenames, return '{stem}_{seek_id}{ext}'.
+    Adds the returned filename to used_filenames (mutates the set).
+    """
+    if original_filename not in used_filenames:
+        used_filenames.add(original_filename)
+        return original_filename
+    stem, ext = os.path.splitext(original_filename)
+    deduped = f"{stem}_{seek_id}{ext}"
+    used_filenames.add(deduped)
+    return deduped
 
 
 class SopProxyViewSet(viewsets.ViewSet):
@@ -256,16 +385,22 @@ class SopProxyViewSet(viewsets.ViewSet):
     @extend_schema(
         operation_id="Download SOP content blob",
         description=(
-            "Download the file content of a standard operating procedure (protocol) by ID or UID. "
-            "Automatically resolves the SOP identifier, fetches the latest version, discovers the "
-            "attached content blob, and streams the file download. Supports optional format conversion "
-            "to CSV or JSON via output_format. If a SOP has multiple content blobs, returns 409 with "
-            "candidate metadata so the caller can re-request with an explicit blob_id. "
+            "Download SOP content blobs — supports single and batch modes.\n\n"
+            "**Single mode** (JSON object): Pass a single SopDownloadRequest object. "
+            "Returns the file as a streaming binary download. If a SOP has multiple "
+            "content blobs, returns 409 with candidate metadata so the caller can "
+            "re-request with an explicit blob_id.\n\n"
+            "**Batch mode** (JSON array): Pass an array of SopDownloadRequest objects. "
+            "Returns a zip archive containing all successfully downloaded files plus a "
+            "manifest.json documenting successes and failures. Multi-blob SOPs "
+            "auto-select the first content blob. The zip filename follows the pattern "
+            "sops-{YYYY-MM-DD_HH}.zip. Duplicate filenames are resolved by appending "
+            "the SEEK id.\n\n"
             "Examples: 'Download the GEX protocol document'; "
             "'Get the DNA adducts procedure file as a PDF'; "
-            "'Fetch the sequencing analysis protocol for offline review'"
+            "'Fetch multiple protocols at once as a zip archive'"
         ),
-        request=SopDownloadRequest,
+        request=OpenApiTypes.OBJECT,
         responses={200: OpenApiTypes.BINARY},
         tags=['SOPs'],
         examples=[
@@ -293,138 +428,65 @@ class SopProxyViewSet(viewsets.ViewSet):
                 value={"uid_or_id": "142", "blob_id": 246},
                 request_only=True,
             ),
+            OpenApiExample(
+                name="Batch download (zip)",
+                description="Download multiple SOPs as a zip archive",
+                value=[{"uid_or_id": "142"}, {"uid_or_id": "P.ESS-251028-V1_NG_8-GEX.docx"}],
+                request_only=True,
+            ),
         ],
     )
     @action(detail=False, methods=["post"], url_path="download")
     def download(self, request):
+        """Dispatcher: single dict → streaming file; list → zip archive."""
+        data = request.data
+        if isinstance(data, dict):
+            return self._download_single(request, data)
+        elif isinstance(data, list):
+            return self._download_batch(request, data)
+        else:
+            return HttpResponse(
+                b'{"errors":[{"title":"Request body must be a JSON object or array"}]}',
+                status=422, content_type='application/json',
+            )
+
+    def _download_single(self, request, data):
+        """Handle single SOP download (original behavior)."""
         # --- Parse & validate request body ---
         try:
-            req = SopDownloadRequest.model_validate(request.data)
+            req = SopDownloadRequest.model_validate(data)
         except Exception:
             return HttpResponse(
                 b'{"errors":[{"title":"Invalid request body"}]}',
                 status=422, content_type='application/json',
             )
 
-        # --- Resolve SOP identifier ---
-        seek_id_str: Optional[str] = None
-        if req.seek_id is not None:
-            seek_id_str = str(req.seek_id)
-        else:
-            seek_id_str = _resolve_uid_to_seek_id(req.uid_or_id)
-        if seek_id_str is None:
-            return HttpResponse(
-                b'{"errors":[{"title":"SOP not found"}]}',
-                status=404, content_type='application/json',
-            )
+        # --- Resolve SOP + blob via helper ---
+        result = _resolve_sop_and_blob(self.client, request, req, allow_multi_blob_auto_select=False)
 
-        # --- Fetch SOP metadata (latest version) ---
-        body, code, headers, resp = self.client.get_sop(request, seek_id_str)
-        if code == 401:
-            return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
-        if code >= 400:
-            return HttpResponse(
-                json.dumps({"errors": [{"title": "Failed to fetch SOP metadata", "status": str(code)}]}).encode(),
-                status=502, content_type='application/json',
-            )
-
-        try:
-            sop_data = json.loads(body or b"{}")
-        except Exception:
-            return HttpResponse(
-                b'{"errors":[{"title":"Invalid upstream SOP response"}]}',
-                status=502, content_type='application/json',
-            )
-
-        attrs = sop_data.get("data", {}).get("attributes", {})
-
-        # If version != latest_version, refetch with the latest version
-        version = attrs.get("version")
-        latest_version = attrs.get("latest_version")
-        if version is not None and latest_version is not None and version != latest_version:
-            body, code, headers, resp = self.client.get_sop(request, seek_id_str)
-            if code == 401:
+        if not result["success"]:
+            if result.get("multi_blob"):
+                return HttpResponse(
+                    json.dumps({
+                        "errors": [{
+                            "title": "Multiple content blobs found",
+                            "detail": "SOP has multiple content blobs. Specify blob_id to select one.",
+                        }],
+                        "candidates": result["candidates"],
+                    }).encode(),
+                    status=409, content_type='application/json',
+                )
+            st = result.get("status", 502)
+            if st == 401:
                 return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
-            if code >= 400:
-                return HttpResponse(
-                    json.dumps({"errors": [{"title": "Failed to fetch latest SOP version", "status": str(code)}]}).encode(),
-                    status=502, content_type='application/json',
-                )
-            try:
-                sop_data = json.loads(body or b"{}")
-            except Exception:
-                return HttpResponse(
-                    b'{"errors":[{"title":"Invalid upstream SOP response"}]}',
-                    status=502, content_type='application/json',
-                )
-            attrs = sop_data.get("data", {}).get("attributes", {})
-
-        # --- Discover content blob ---
-        content_blobs = attrs.get("content_blobs", [])
-        if not content_blobs:
             return HttpResponse(
-                b'{"errors":[{"title":"No content blob available for SOP"}]}',
-                status=404, content_type='application/json',
+                json.dumps({"errors": [{"title": result["error"]}]}).encode(),
+                status=st, content_type='application/json',
             )
 
-        if req.blob_id is not None:
-            # Client explicitly specified a blob_id override
-            blob_id = req.blob_id
-            # Find matching blob for original_filename (for Content-Disposition default)
-            blob_meta = next((b for b in content_blobs if str(b.get("id")) == str(blob_id)), content_blobs[0])
-        elif len(content_blobs) == 1:
-            blob_meta = content_blobs[0]
-            blob_link = blob_meta.get("link", "")
-            # Parse blob_id from link: e.g. /sops/142/content_blobs/246
-            try:
-                blob_id = int(blob_link.rstrip("/").split("/")[-1])
-            except (ValueError, IndexError):
-                return HttpResponse(
-                    b'{"errors":[{"title":"Cannot parse blob id from SOP metadata"}]}',
-                    status=502, content_type='application/json',
-                )
-        else:
-            # Multiple blobs — 409 Conflict with candidate info
-            candidates = []
-            for b in content_blobs:
-                candidates.append({
-                    "link": b.get("link"),
-                    "original_filename": b.get("original_filename"),
-                    "content_type": b.get("content_type"),
-                })
-            return HttpResponse(
-                json.dumps({
-                    "errors": [{
-                        "title": "Multiple content blobs found",
-                        "detail": "SOP has multiple content blobs. Specify blob_id to select one.",
-                    }],
-                    "candidates": candidates,
-                }).encode(),
-                status=409, content_type='application/json',
-            )
-
-        # --- Build upstream path ---
-        asset_types = req.asset_types or "sops"
-        effective_seek_id = req.seek_id if req.seek_id is not None else int(seek_id_str)
-
-        # Determine upstream behavior based on output_format
-        fmt = req.output_format
-        if fmt in (None, "original", "binary"):
-            # Binary download: GET /{asset_types}/{id}/content_blobs/{blob_id}/download
-            upstream_path = f"/{asset_types}/{effective_seek_id}/content_blobs/{blob_id}/download"
-            accept = "*/*"
-        elif fmt == "csv":
-            # Read with conversion: GET /{asset_types}/{id}/content_blobs/{blob_id}
-            upstream_path = f"/{asset_types}/{effective_seek_id}/content_blobs/{blob_id}"
-            accept = "text/csv"
-        elif fmt == "json":
-            upstream_path = f"/{asset_types}/{effective_seek_id}/content_blobs/{blob_id}"
-            accept = "application/json"
-        else:
-            return HttpResponse(
-                b'{"errors":[{"title":"Unsupported output_format"}]}',
-                status=422, content_type='application/json',
-            )
+        blob_meta = result["blob_meta"]
+        upstream_path = result["upstream_path"]
+        accept = result["accept"]
 
         # --- Stream download from SEEK ---
         try:
@@ -498,5 +560,152 @@ class SopProxyViewSet(viewsets.ViewSet):
         content_length = upstream_headers.get('Content-Length')
         if content_length:
             response['Content-Length'] = content_length
+        return response
+
+    def _download_batch(self, request, data: list):
+        """Handle batch SOP download — returns a zip archive with manifest.json."""
+        if not data:
+            return HttpResponse(
+                b'{"errors":[{"title":"Empty list: provide at least one SOP to download"}]}',
+                status=422, content_type='application/json',
+            )
+
+        successes: List[SopBatchDownloadManifestEntry] = []
+        failures: List[SopBatchDownloadManifestFailure] = []
+        used_filenames: set = set()
+
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+        tmp_path = tmp.name
+        tmp.close()
+
+        try:
+            with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for item in data:
+                    uid_or_id_label = str(item.get("uid_or_id", "unknown")) if isinstance(item, dict) else "unknown"
+
+                    # Validate individual request
+                    try:
+                        req = SopDownloadRequest.model_validate(item)
+                    except Exception as e:
+                        failures.append(SopBatchDownloadManifestFailure(
+                            uid_or_id=uid_or_id_label,
+                            error=f"Validation error: {e}",
+                        ))
+                        continue
+
+                    uid_or_id_label = req.uid_or_id or str(req.seek_id or "unknown")
+
+                    # Resolve SOP + blob
+                    result = _resolve_sop_and_blob(
+                        self.client, request, req, allow_multi_blob_auto_select=True,
+                    )
+
+                    if not result["success"]:
+                        error_msg = result.get("error", "Unknown resolution error")
+                        if result.get("multi_blob"):
+                            error_msg = "Multiple content blobs; auto-select failed"
+                        failures.append(SopBatchDownloadManifestFailure(
+                            uid_or_id=uid_or_id_label,
+                            error=error_msg,
+                        ))
+                        continue
+
+                    blob_meta = result["blob_meta"]
+                    upstream_path = result["upstream_path"]
+                    accept = result["accept"]
+                    seek_id = result["seek_id"]
+
+                    # Stream content blob
+                    upstream_resp = None
+                    try:
+                        status_code, upstream_headers, upstream_resp = self.client.stream_content_blob(
+                            request, path=upstream_path, accept=accept, params=request.query_params,
+                        )
+                    except Exception as exc:
+                        failures.append(SopBatchDownloadManifestFailure(
+                            uid_or_id=uid_or_id_label,
+                            error=f"Upstream error: {exc}",
+                        ))
+                        continue
+
+                    if status_code >= 400:
+                        if upstream_resp is not None:
+                            upstream_resp.close()
+                        failures.append(SopBatchDownloadManifestFailure(
+                            uid_or_id=uid_or_id_label,
+                            error=f"Upstream HTTP {status_code}",
+                        ))
+                        continue
+
+                    # Validate response content type
+                    ct = (upstream_headers.get('Content-Type') or '').lower()
+                    if 'text/html' in ct:
+                        if upstream_resp is not None:
+                            upstream_resp.close()
+                        failures.append(SopBatchDownloadManifestFailure(
+                            uid_or_id=uid_or_id_label,
+                            error="Upstream returned HTML (likely unauthenticated)",
+                        ))
+                        continue
+
+                    # Read content and write to zip
+                    try:
+                        content = upstream_resp.content
+                    finally:
+                        upstream_resp.close()
+
+                    original_filename = blob_meta.get("original_filename") or f"sop_{seek_id}"
+                    filename = _deduplicate_filename(original_filename, seek_id, used_filenames)
+                    zf.writestr(filename, content)
+
+                    successes.append(SopBatchDownloadManifestEntry(
+                        filename=filename,
+                        seek_id=seek_id,
+                        uid_or_id=uid_or_id_label,
+                    ))
+
+                # Write manifest.json
+                manifest = SopBatchDownloadManifest(
+                    generated_at=datetime.datetime.utcnow().isoformat() + "Z",
+                    total_requested=len(data),
+                    total_success=len(successes),
+                    total_failed=len(failures),
+                    successes=successes,
+                    failures=failures,
+                )
+                zf.writestr("manifest.json", manifest.model_dump_json(indent=2))
+
+        except Exception:
+            # Clean up temp file on unexpected error
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+        # Stream the zip file and clean up
+        zip_size = os.path.getsize(tmp_path)
+        zip_filename = f"sops-{datetime.datetime.utcnow().strftime('%Y-%m-%d_%H')}.zip"
+
+        def _iter_and_cleanup(path):
+            try:
+                with open(path, 'rb') as f:
+                    while True:
+                        chunk = f.read(8192)
+                        if not chunk:
+                            break
+                        yield chunk
+            finally:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+        response = StreamingHttpResponse(
+            _iter_and_cleanup(tmp_path),
+            content_type='application/zip',
+        )
+        response['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
+        response['Content-Length'] = zip_size
         return response
 
