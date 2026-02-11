@@ -215,7 +215,7 @@ INSTALLED_APPS = (
     "mezzanine.blog",
     "mezzanine.forms",
     "mezzanine.galleries",
-    "mezzanine.twitter",
+    #"mezzanine.twitter",
     "mezzanine.accounts",
     "widget_tweaks",
 
@@ -290,14 +290,9 @@ OPTIONAL_APPS = (
 
 f = os.path.join(PROJECT_APP_PATH, "local_settings.py")
 if os.path.exists(f):
-    import sys
-    import imp
-    module_name = "%s.local_settings" % PROJECT_APP
-    module = imp.new_module(module_name)
-    module.__file__ = f
-    sys.modules[module_name] = module
-    exec(open(f, "rb").read())
-
+    if os.path.exists(f):
+        with open(f) as cf:
+            exec(cf.read(), globals())
 
 ####################
 # DYNAMIC SETTINGS #
@@ -325,7 +320,18 @@ ACCOUNTS_VERIFICATION_REQUIRED = True
 # Defaults to False and when set to True, sets newly created public user accounts to inactivate,
 # requiring activation by a staff member.
 ACCOUNTS_APPROVAL_REQUIRED = True
-    
+
+DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+
+STORAGES = {
+	"default": {
+		"BACKEND": "django.core.files.storage.FileSystemStorage",
+	},
+	"staticfiles": {
+		"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+	},
+}
+
 DATABASE_ROUTERS = ['seek.dbrouters.CustomRouter']
 
 ACCOUNTS_PROFILE_MODEL = "seek.User_profile"

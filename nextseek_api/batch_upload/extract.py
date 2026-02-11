@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Dict, Iterator, List, Optional, Set
+from typing import Dict, Iterator, List, Optional, Set, Tuple
 
 import polars as pl
 from pydantic import TypeAdapter, ValidationError
@@ -31,8 +31,29 @@ _COLUMN_MAP = {
 
 _REQUIRED_COLUMNS = {"uid", "sampletype", "json_metadata", "assay_ids"}
 
+# Known (optional) columns that may appear in real-world spreadsheets.
+# These are NOT required for successful upload, but should not be flagged as unknown.
+_OPTIONAL_COLUMNS = {
+    "project_id",
+    "study_title",
+    "study_id",
+    "sop_id",
+    "assay_titles",
+}
 
-def stream_rows(xlsx_path: str, limit: Optional[int] = None) -> Iterator[StreamResult]:
+# Aliases that are accepted and/or mapped by _COLUMN_MAP.
+_ALIAS_COLUMNS = set(_COLUMN_MAP.keys())
+
+
+def _detect_unknown_columns(normalized_cols: Set[str]) -> List[str]:
+    """Return a sorted list of columns to ignore (unknown extras)."""
+    known = set(_REQUIRED_COLUMNS) | set(_OPTIONAL_COLUMNS) | set(_ALIAS_COLUMNS)
+    # sample_type is accepted as alias for sampletype
+    known.add("sample_type")
+    return sorted(normalized_cols - known)
+
+
+def stream_rows(xlsx_path: str, limit: Optional[int] = None) -> Tuple[List[str], Iterator[StreamResult]]:
     """Parse an Excel file and yield validated InputRowModel instances.
 
     Uses Polars with calamine engine for fast parsing and TypeAdapter
@@ -48,6 +69,10 @@ def stream_rows(xlsx_path: str, limit: Optional[int] = None) -> Iterator[StreamR
     col_renames = {col: col.strip().lower() for col in df.columns}
     df = df.rename(col_renames)
     normalized_cols = set(df.columns)
+
+    unknown_columns = _detect_unknown_columns(normalized_cols)
+    if unknown_columns:
+        log.warning("EXTRACT: unknown columns ignored: %s", unknown_columns)
 
     # 3. Validate required columns
     missing = _REQUIRED_COLUMNS - normalized_cols
@@ -85,9 +110,11 @@ def stream_rows(xlsx_path: str, limit: Optional[int] = None) -> Iterator[StreamR
             elapsed,
             total_rows / elapsed if elapsed > 0 else 0,
         )
-        for idx, model in enumerate(models):
-            yield StreamResult(row_index=idx, data=model, errors=[])
-        return
+        def _iter_fast() -> Iterator[StreamResult]:
+            for idx, model in enumerate(models):
+                yield StreamResult(row_index=idx, data=model, errors=[])
+
+        return unknown_columns, _iter_fast()
     except ValidationError as e:
         log.info("EXTRACT: fast path failed, entering error recovery")
 
@@ -95,14 +122,15 @@ def stream_rows(xlsx_path: str, limit: Optional[int] = None) -> Iterator[StreamR
     failed_indices = _extract_failed_indices(e)
     error_messages = _extract_error_messages(e)
 
-    for idx, row_dict in enumerate(prepared):
-        if idx in failed_indices:
-            msgs = error_messages.get(idx, [str(e)])
-            yield StreamResult(row_index=idx, data=None, errors=msgs)
-        else:
-            # model_construct skips re-validation for known-valid rows
-            model = InputRowModel.model_construct(**row_dict)
-            yield StreamResult(row_index=idx, data=model, errors=[])
+    def _iter_recovery() -> Iterator[StreamResult]:
+        for idx, row_dict in enumerate(prepared):
+            if idx in failed_indices:
+                msgs = error_messages.get(idx, [str(e)])
+                yield StreamResult(row_index=idx, data=None, errors=msgs)
+            else:
+                # model_construct skips re-validation for known-valid rows
+                model = InputRowModel.model_construct(**row_dict)
+                yield StreamResult(row_index=idx, data=model, errors=[])
 
     elapsed = time.perf_counter() - t0
     log.info(
@@ -111,6 +139,7 @@ def stream_rows(xlsx_path: str, limit: Optional[int] = None) -> Iterator[StreamR
         len(failed_indices),
         elapsed,
     )
+    return unknown_columns, _iter_recovery()
 
 
 def _coerce_json_cell(value) -> str:

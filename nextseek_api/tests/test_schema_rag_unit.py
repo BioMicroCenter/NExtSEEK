@@ -18,6 +18,7 @@ import numpy as np
 from django.test import TestCase
 from django.conf import settings
 
+from pydantic import ValidationError as PydanticValidationError
 from nextseek_api.models import IngestRequest, RetrieveRequest
 from nextseek_api.schema_rag import service as schema_rag_service
 from nextseek_api.schema_rag.session import (
@@ -959,4 +960,265 @@ class RetrievalTests(SchemaRAGTestCase):
             for ep in response.endpoints_full:
                 self.assertIsInstance(ep, FullAPIEndpoint)
                 self.assertIsNotNone(ep.request_schema)
+
+
+# ---------------------------------------------------------------------------
+# Filter & top_k="ALL" Tests
+# ---------------------------------------------------------------------------
+
+class SchemaRAGFilterTests(SchemaRAGTestCase):
+    """Tests for endpoint filtering (METHOD/TAG) and top_k='ALL'."""
+
+    def _setup_mixed_session(self) -> SessionInfo:
+        """Create a session with endpoints spanning multiple methods and tags."""
+        session = create_session(
+            schema_url="https://example.com/api.json",
+            ttl_minutes=60,
+            num_endpoints=6,
+        )
+        init_session_db(session)
+
+        endpoints = [
+            FullAPIEndpoint(
+                operationId="listSamples",
+                method="GET",
+                path="/samples",
+                tags=["Samples"],
+                description="List all samples",
+                request_schema={},
+            ),
+            FullAPIEndpoint(
+                operationId="createSample",
+                method="POST",
+                path="/samples",
+                tags=["Samples"],
+                description="Create a new sample",
+                request_schema={"title": "string"},
+            ),
+            FullAPIEndpoint(
+                operationId="deleteSample",
+                method="DELETE",
+                path="/samples/{id}",
+                tags=["Samples"],
+                description="Delete a sample by ID",
+                request_schema={},
+            ),
+            FullAPIEndpoint(
+                operationId="listProjects",
+                method="GET",
+                path="/projects",
+                tags=["Projects"],
+                description="List all projects",
+                request_schema={},
+            ),
+            FullAPIEndpoint(
+                operationId="createProject",
+                method="POST",
+                path="/projects",
+                tags=["Projects"],
+                description="Create a new project",
+                request_schema={"name": "string"},
+            ),
+            FullAPIEndpoint(
+                operationId="getStudy",
+                method="GET",
+                path="/studies/{id}",
+                tags=["Studies"],
+                description="Get a study by ID",
+                request_schema={},
+            ),
+        ]
+        insert_endpoints(session, endpoints)
+        return session
+
+    @patch('nextseek_api.schema_rag.service.embed_texts')
+    def test_retrieve_filter_by_method(self, mock_embed):
+        """Filter by METHOD=['GET'] returns only GET endpoints."""
+        session = self._setup_mixed_session()
+
+        def embed_side_effect(texts):
+            n = len(texts)
+            # Use absolute-valued embeddings so all cosine similarities are positive
+            emb = np.abs(np.random.randn(n, 384)) + 0.1
+            norms = np.linalg.norm(emb, axis=1, keepdims=True)
+            return emb / norms
+
+        mock_embed.side_effect = embed_side_effect
+
+        req = RetrieveRequest(
+            session_id=session.session_id,
+            query="list resources",
+            mode="minimal",
+            top_k=10,
+            min_score=0.0,
+            filter_by="METHOD",
+            filter_terms=["GET"],
+            include_debug=True,
+        )
+        response = schema_rag_service.retrieve_endpoints(req)
+
+        # All returned endpoints should be GET
+        self.assertIsNotNone(response.endpoints_minimal)
+        for ep in response.endpoints_minimal:
+            self.assertEqual(ep.method.upper(), "GET")
+        # There are 3 GET endpoints in the fixture
+        self.assertEqual(len(response.endpoints_minimal), 3)
+
+    @patch('nextseek_api.schema_rag.service.embed_texts')
+    def test_retrieve_filter_by_tag(self, mock_embed):
+        """Filter by TAG=['Samples'] returns only Samples-tagged endpoints."""
+        session = self._setup_mixed_session()
+
+        def embed_side_effect(texts):
+            n = len(texts)
+            emb = np.abs(np.random.randn(n, 384)) + 0.1
+            norms = np.linalg.norm(emb, axis=1, keepdims=True)
+            return emb / norms
+
+        mock_embed.side_effect = embed_side_effect
+
+        req = RetrieveRequest(
+            session_id=session.session_id,
+            query="sample operations",
+            mode="minimal",
+            top_k=10,
+            min_score=0.0,
+            filter_by="TAG",
+            filter_terms=["Samples"],
+            include_debug=True,
+        )
+        response = schema_rag_service.retrieve_endpoints(req)
+
+        self.assertIsNotNone(response.endpoints_minimal)
+        for ep in response.endpoints_minimal:
+            self.assertIn("Samples", ep.tags)
+        # 3 endpoints tagged "Samples"
+        self.assertEqual(len(response.endpoints_minimal), 3)
+
+    @patch('nextseek_api.schema_rag.service.embed_texts')
+    def test_retrieve_filter_by_method_multiple(self, mock_embed):
+        """Filter by METHOD=['GET','POST'] returns both method types."""
+        session = self._setup_mixed_session()
+
+        def embed_side_effect(texts):
+            n = len(texts)
+            emb = np.abs(np.random.randn(n, 384)) + 0.1
+            norms = np.linalg.norm(emb, axis=1, keepdims=True)
+            return emb / norms
+
+        mock_embed.side_effect = embed_side_effect
+
+        req = RetrieveRequest(
+            session_id=session.session_id,
+            query="resources",
+            mode="minimal",
+            top_k=10,
+            min_score=0.0,
+            filter_by="METHOD",
+            filter_terms=["GET", "POST"],
+            include_debug=True,
+        )
+        response = schema_rag_service.retrieve_endpoints(req)
+
+        self.assertIsNotNone(response.endpoints_minimal)
+        methods = {ep.method.upper() for ep in response.endpoints_minimal}
+        self.assertTrue(methods.issubset({"GET", "POST"}))
+        # 3 GET + 2 POST = 5
+        self.assertEqual(len(response.endpoints_minimal), 5)
+
+    @patch('nextseek_api.schema_rag.service.embed_texts')
+    def test_retrieve_top_k_all(self, mock_embed):
+        """top_k='ALL' returns more than SCHEMA_RAG_MAX_TOP_K when available."""
+        # Create session with 15 endpoints (more than MAX_TOP_K=10)
+        session = create_session(
+            schema_url="https://example.com/api.json",
+            ttl_minutes=60,
+            num_endpoints=15,
+        )
+        init_session_db(session)
+
+        endpoints = [
+            FullAPIEndpoint(
+                operationId=f"endpoint{i}",
+                method="GET",
+                path=f"/path{i}",
+                tags=["Test"],
+                description=f"Test endpoint {i}",
+                request_schema={},
+            )
+            for i in range(15)
+        ]
+        insert_endpoints(session, endpoints)
+
+        def embed_side_effect(texts):
+            n = len(texts)
+            emb = np.abs(np.random.randn(n, 384)) + 0.1
+            norms = np.linalg.norm(emb, axis=1, keepdims=True)
+            return emb / norms
+
+        mock_embed.side_effect = embed_side_effect
+
+        req = RetrieveRequest(
+            session_id=session.session_id,
+            query="test endpoint",
+            mode="minimal",
+            top_k="ALL",
+            min_score=0.0,
+            include_debug=True,
+        )
+        response = schema_rag_service.retrieve_endpoints(req)
+
+        max_top_k = settings.SCHEMA_RAG_MAX_TOP_K  # 10
+        # With "ALL", we should get more than the normal cap
+        self.assertIsNotNone(response.endpoints_minimal)
+        self.assertGreater(len(response.endpoints_minimal), max_top_k)
+        self.assertEqual(len(response.endpoints_minimal), 15)
+
+    @patch('nextseek_api.schema_rag.service.embed_texts')
+    def test_retrieve_filter_with_top_k_all(self, mock_embed):
+        """Combine filtering + top_k='ALL': only filtered endpoints returned."""
+        session = self._setup_mixed_session()
+
+        def embed_side_effect(texts):
+            n = len(texts)
+            emb = np.abs(np.random.randn(n, 384)) + 0.1
+            norms = np.linalg.norm(emb, axis=1, keepdims=True)
+            return emb / norms
+
+        mock_embed.side_effect = embed_side_effect
+
+        req = RetrieveRequest(
+            session_id=session.session_id,
+            query="resources",
+            mode="minimal",
+            top_k="ALL",
+            min_score=0.0,
+            filter_by="METHOD",
+            filter_terms=["DELETE"],
+            include_debug=True,
+        )
+        response = schema_rag_service.retrieve_endpoints(req)
+
+        self.assertIsNotNone(response.endpoints_minimal)
+        for ep in response.endpoints_minimal:
+            self.assertEqual(ep.method.upper(), "DELETE")
+        # Only 1 DELETE endpoint
+        self.assertEqual(len(response.endpoints_minimal), 1)
+
+    def test_filter_by_without_filter_terms_raises(self):
+        """filter_by set without filter_terms raises ValidationError."""
+        with self.assertRaises(PydanticValidationError):
+            RetrieveRequest(
+                query="test",
+                filter_by="METHOD",
+            )
+
+    def test_filter_terms_invalid_method_raises(self):
+        """filter_by='METHOD' with invalid method value raises ValidationError."""
+        with self.assertRaises(PydanticValidationError):
+            RetrieveRequest(
+                query="test",
+                filter_by="METHOD",
+                filter_terms=["INVALID"],
+            )
 

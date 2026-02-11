@@ -87,6 +87,44 @@ RESOLVED_TERM_BOOST = 0.05
 
 
 # ---------------------------------------------------------------------------
+# Endpoint Filtering
+# ---------------------------------------------------------------------------
+
+
+def _apply_endpoint_filters(
+    endpoints: list,
+    filter_by: Optional[str],
+    filter_terms: Optional[List[str]],
+) -> list:
+    """
+    Filter endpoints by HTTP method or tag before scoring.
+
+    Args:
+        endpoints: List of MinimalAPIEndpoint or FullAPIEndpoint objects.
+        filter_by: "METHOD" or "TAG", or None to skip filtering.
+        filter_terms: Values to match against (already validated/normalized).
+
+    Returns:
+        Filtered list of endpoints.
+    """
+    if filter_by is None or not filter_terms:
+        return endpoints
+
+    if filter_by == "METHOD":
+        terms_upper = {t.upper() for t in filter_terms}
+        return [ep for ep in endpoints if ep.method.upper() in terms_upper]
+
+    if filter_by == "TAG":
+        terms_set = set(filter_terms)
+        return [
+            ep for ep in endpoints
+            if ep.tags and any(t in terms_set for t in ep.tags)
+        ]
+
+    return endpoints
+
+
+# ---------------------------------------------------------------------------
 # Embedding Utilities
 # ---------------------------------------------------------------------------
 
@@ -476,13 +514,14 @@ def _pass_1(
         List of (endpoint_id, score) sorted by descending score.
     """
     endpoints = load_all_minimal_endpoints(session)
-    
+    endpoints = _apply_endpoint_filters(endpoints, req.filter_by, req.filter_terms)
+
     if not endpoints:
         return []
-    
+
     endpoint_texts = [ep.to_embedding_text() for ep in endpoints]
     endpoint_ids = [ep.operationId for ep in endpoints]
-    
+
     return _compute_scores(
         query_embedding,
         endpoint_texts,
@@ -537,19 +576,23 @@ def _pass_2(
     # Load both minimal and full endpoints
     minimal_endpoints = load_all_minimal_endpoints(session)
     full_endpoints = load_all_full_endpoints(session)
-    
+
+    # Apply filters to both sets consistently
+    minimal_endpoints = _apply_endpoint_filters(minimal_endpoints, req.filter_by, req.filter_terms)
+    full_endpoints = _apply_endpoint_filters(full_endpoints, req.filter_by, req.filter_terms)
+
     if not minimal_endpoints:
         return []
-    
+
     # Create a map of operationId -> examples
     examples_map: Dict[str, Optional[List[str]]] = {}
     for full_ep in full_endpoints:
         examples_map[full_ep.operationId] = full_ep.examples
-    
+
     # Build enriched texts
     endpoint_texts = []
     endpoint_ids = []
-    
+
     for minimal_ep in minimal_endpoints:
         examples = examples_map.get(minimal_ep.operationId)
         enriched_text = _build_enriched_text(minimal_ep, examples)
@@ -591,13 +634,14 @@ def _pass_3(
         List of (endpoint_id, score) sorted by descending score.
     """
     full_endpoints = load_all_full_endpoints(session)
-    
+    full_endpoints = _apply_endpoint_filters(full_endpoints, req.filter_by, req.filter_terms)
+
     if not full_endpoints:
         return []
-    
+
     endpoint_texts = [ep.to_embedding_text(include_examples=True) for ep in full_endpoints]
     endpoint_ids = [ep.operationId for ep in full_endpoints]
-    
+
     # Mark that we used full fallback
     debug.used_fallback_full = True
     
@@ -752,7 +796,10 @@ def retrieve_endpoints(req: RetrieveRequest) -> RetrieveResponse:
     debug.similarity_threshold_effective = min_score
     
     # Effective top_k with hard cap
-    top_k = min(req.top_k, settings.SCHEMA_RAG_MAX_TOP_K)
+    if req.top_k == "ALL":
+        top_k = settings.SCHEMA_RAG_MAX_ENDPOINTS
+    else:
+        top_k = min(req.top_k, settings.SCHEMA_RAG_MAX_TOP_K)
     
     # Pass 1: Minimal schema text
     scores = _pass_1(session, req, query_embedding, debug)

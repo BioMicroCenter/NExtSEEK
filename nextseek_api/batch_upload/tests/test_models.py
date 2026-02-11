@@ -118,6 +118,47 @@ class TestInputRowModel:
         )
         assert row.project_id is None
 
+    def test_extra_columns_allowed(self):
+        row = InputRowModel(
+            UID="X",
+            SampleType="Y",
+            json_metadata="{}",
+            assay_ids=[],
+            mapped_assay_ids="[1]",
+        )
+        # extra fields should not error
+        assert row.UID == "X"
+
+    def test_assay_titles_bracketed_string(self):
+        row = InputRowModel(
+            UID="X",
+            SampleType="Y",
+            json_metadata="{}",
+            assay_ids="[171]",
+            assay_titles="[ADCD Analysis - Data Linked]",
+        )
+        assert row.assay_ids == [171]
+        assert row.assay_titles == ["ADCD Analysis - Data Linked"]
+
+    def test_assay_titles_length_mismatch_rejected(self):
+        with pytest.raises(ValidationError):
+            InputRowModel(
+                UID="X",
+                SampleType="Y",
+                json_metadata="{}",
+                assay_ids="1,2",
+                assay_titles="[Only one]",
+            )
+
+    def test_uid_mismatch_vs_json_metadata_rejected(self):
+        with pytest.raises(ValidationError):
+            InputRowModel(
+                UID="COL-UID",
+                SampleType="Y",
+                json_metadata='{\"UID\":\"META-UID\"}',
+                assay_ids=[],
+            )
+
 
 # ── InsertableSample ──────────────────────────────────────────────────────
 

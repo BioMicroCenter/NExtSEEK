@@ -172,3 +172,6 @@ duckdb/
 embedding_models/
 *.swp
 setup-celery-worker.sh
+outputs 
+CLAUDE.md
+.python-version

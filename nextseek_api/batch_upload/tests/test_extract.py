@@ -6,6 +6,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from nextseek_api.batch_upload.extract import (
     _coerce_json_cell,
+    _detect_unknown_columns,
     _extract_error_messages,
     _extract_failed_indices,
     _prepare_row_dicts,
@@ -45,6 +46,12 @@ class TestPrepareRowDicts:
         result = _prepare_row_dicts(rows, ["uid", "sampletype", "json_metadata", "assay_ids"])
         assert result[0]["json_metadata"] == '{"k":"v"}'
 
+
+class TestDetectUnknownColumns:
+    def test_unknown_columns_detected(self):
+        cols = {"uid", "sampletype", "json_metadata", "assay_ids", "mapped_assay_ids"}
+        unknown = _detect_unknown_columns(cols)
+        assert "mapped_assay_ids" in unknown
 
 class TestExtractFailedIndices:
     def test_parses_loc(self):

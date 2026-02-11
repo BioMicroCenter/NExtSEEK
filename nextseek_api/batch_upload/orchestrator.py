@@ -77,8 +77,12 @@ def run_batch_upload(
 
     log.info("Stage 1/7: EXTRACT")
     valid_rows: List[InputRowModel] = []
+    warnings: Dict[str, object] = {}
     try:
-        for sr in stream_rows(xlsx_path, limit=config.limit):
+        unknown_columns, row_iter = stream_rows(xlsx_path, limit=config.limit)
+        if unknown_columns:
+            warnings["unknown_columns"] = unknown_columns
+        for sr in row_iter:
             if sr.data is not None:
                 valid_rows.append(sr.data)
             else:
@@ -254,7 +258,7 @@ def run_batch_upload(
     }
 
     row_summaries = build_row_summaries(batch_result.outcomes, valid_rows, error_collector)
-    write_summary_csv(summary_path, row_summaries, totals, neo4j_metrics)
+    write_summary_csv(summary_path, row_summaries, totals, neo4j_metrics, warnings=warnings or None)
 
     log.info(
         "=== BATCH UPLOAD COMPLETE (job=%s) === inserted=%d elapsed=%.1fs",
@@ -265,6 +269,7 @@ def run_batch_upload(
         "job_id": job_id,
         "summary_path": summary_path,
         "totals": totals,
+        "warnings": warnings,
         "errors": [
             {"type": e.error_type.value, "message": e.message}
             for e in error_collector.all_errors()[:50]

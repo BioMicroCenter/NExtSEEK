@@ -3,7 +3,7 @@ from django.db import models
 # Pydantic models for API request/response validation (JSON:API + SOPs)
 from typing import Any, Dict, List, Optional, Literal, Union, Callable
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 # Import SOP DB helper to resolve NExtSEEK UID -> SEEK id when provided in payloads
 from seek.dbtable_sops import DBtable_sops
@@ -1830,6 +1830,9 @@ class RetrieveDebugInfo(BaseModel):
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
 
+ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+
+
 class RetrieveRequest(BaseModel):
     """Request to retrieve relevant API endpoints from an ingested schema."""
     session_id: Optional[str] = Field(None, description="Session ID from prior ingestion")
@@ -1837,11 +1840,39 @@ class RetrieveRequest(BaseModel):
     query: str = Field(..., description="Natural language query describing the desired operation")
     resolved_terms: Optional[Dict[str, Any]] = Field(None, description="Pre-resolved entity terms")
     mode: Literal["minimal", "full"] = Field("minimal", description="Response detail level")
-    top_k: int = Field(5, description="Maximum number of endpoints to return")
+    top_k: Union[int, Literal["ALL"]] = Field(5, description="Maximum number of endpoints to return. Use 'ALL' to return all matching endpoints up to the ingestion ceiling.")
     min_score: Optional[float] = Field(None, description="Minimum similarity score threshold")
     include_debug: bool = Field(True, description="Whether to include debug info in response")
+    filter_by: Optional[Literal["METHOD", "TAG"]] = Field(None, description="Filter type: 'METHOD' to filter by HTTP method, 'TAG' to filter by endpoint tag")
+    filter_terms: Optional[List[str]] = Field(None, description="Values to filter by. For METHOD: HTTP methods (GET, POST, etc.). For TAG: tag names.")
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    @model_validator(mode="after")
+    def _validate_filters_and_top_k(self) -> "RetrieveRequest":
+        # filter_by and filter_terms must be provided together
+        if self.filter_by is not None and not self.filter_terms:
+            raise ValueError("filter_terms is required when filter_by is set")
+        if self.filter_terms is not None and self.filter_by is None:
+            raise ValueError("filter_by is required when filter_terms is set")
+
+        # Validate METHOD filter_terms against allowed methods
+        if self.filter_by == "METHOD" and self.filter_terms:
+            normalized = []
+            for term in self.filter_terms:
+                upper = term.upper()
+                if upper not in ALLOWED_METHODS:
+                    raise ValueError(
+                        f"Invalid HTTP method '{term}'. Allowed: {sorted(ALLOWED_METHODS)}"
+                    )
+                normalized.append(upper)
+            self.filter_terms = normalized
+
+        # Validate integer top_k >= 1
+        if isinstance(self.top_k, int) and self.top_k < 1:
+            raise ValueError("top_k must be >= 1")
+
+        return self
 
 
 class RetrieveResponse(BaseModel):

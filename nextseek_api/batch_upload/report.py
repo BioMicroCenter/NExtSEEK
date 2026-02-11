@@ -105,6 +105,7 @@ def write_summary_csv(
     row_summaries: List[RowSummary],
     totals: dict,
     neo4j_metrics: Optional[Metrics] = None,
+    warnings: Optional[dict] = None,
 ) -> None:
     """Write a summary CSV with per-row details and aggregate totals."""
     fieldnames = [
@@ -141,6 +142,15 @@ def write_summary_csv(
         totals_row["sample_id"] = f"elapsed={totals.get('elapsed_s', 0):.1f}s"
         totals_row["assays_linked_count"] = f"throughput={totals.get('throughput_rps', 0):.0f}rps"
         writer.writerow(totals_row)
+
+        # Warnings section
+        if warnings:
+            warn_row = {k: "" for k in fieldnames}
+            warn_row["row_index"] = "WARNINGS"
+            unknown_cols = warnings.get("unknown_columns") if isinstance(warnings, dict) else None
+            if unknown_cols:
+                warn_row["uid"] = "unknown_columns=" + "; ".join(str(x) for x in unknown_cols)
+            writer.writerow(warn_row)
 
         # Permissions totals
         if totals.get("permissions_inserted", 0) > 0:

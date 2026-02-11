@@ -1,15 +1,17 @@
 """Tests for the DRF ViewSet routing and basic behavior."""
 import pytest
 
-from django.test import RequestFactory
-from rest_framework.test import force_authenticate
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test.utils import override_settings
+from rest_framework.test import APIRequestFactory, force_authenticate
+from unittest.mock import patch
 
 from nextseek_api.batch_upload.views import BatchUploadViewSet
 
 
 @pytest.fixture
 def factory():
-    return RequestFactory()
+    return APIRequestFactory()
 
 
 @pytest.fixture
@@ -110,3 +112,56 @@ class TestBatchUploadViewSetStatus:
         response = view(request, job_id="nonexistent-id")
         assert response.status_code == 200
         assert response.data["state"] == "PENDING"
+
+
+class TestBatchUploadFileUpload:
+    """Test client-side Excel file upload."""
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
+    @patch("nextseek_api.batch_upload.views._resolve_contributor_id", return_value=1)
+    def test_upload_xlsx_returns_202(self, mock_contrib, mock_task, factory, admin_user, tmp_path):
+        mock_task.delay.return_value.id = "fake-task-id"
+        view = BatchUploadViewSet.as_view({"post": "start"})
+        xlsx_file = SimpleUploadedFile(
+            "samples.xlsx",
+            b"fake-xlsx-content",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        request = factory.post(
+            "/api/batch-upload/start/",
+            data={"file": xlsx_file, "project_id": 1},
+            format="multipart",
+        )
+        force_authenticate(request, user=admin_user)
+        with override_settings(MEDIA_ROOT=str(tmp_path)):
+            response = view(request)
+        assert response.status_code == 202
+        assert response.data["job_id"] == "fake-task-id"
+
+    @pytest.mark.django_db
+    def test_upload_non_xlsx_rejected(self, factory, admin_user):
+        view = BatchUploadViewSet.as_view({"post": "start"})
+        csv_file = SimpleUploadedFile("data.csv", b"a,b,c", content_type="text/csv")
+        request = factory.post(
+            "/api/batch-upload/start/",
+            data={"file": csv_file, "project_id": 1},
+            format="multipart",
+        )
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 400
+        assert ".xlsx" in response.data["detail"]
+
+    @pytest.mark.django_db
+    def test_missing_file_and_path_rejected(self, factory, admin_user):
+        view = BatchUploadViewSet.as_view({"post": "start"})
+        request = factory.post(
+            "/api/batch-upload/start/",
+            data={"project_id": 1},
+            content_type="application/json",
+        )
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 400
+        assert "upload" in response.data["detail"].lower() or "xlsx_path" in response.data["detail"]

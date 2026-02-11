@@ -199,6 +199,28 @@ class SchemaRAGViewSet(viewsets.ViewSet):
                 request_only=True,
             ),
             OpenApiExample(
+                name="Filter by HTTP Method (GET only, return ALL)",
+                value={
+                    "schema_url": "https://fairdomhub.org/api/definitions/openapi-v3-resolved.yaml",
+                    "query": "List available resources",
+                    "filter_by": "METHOD",
+                    "filter_terms": ["GET"],
+                    "top_k": "ALL",
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Filter by Tag",
+                value={
+                    "session_id": "abc123def456",
+                    "query": "How do I manage samples?",
+                    "filter_by": "TAG",
+                    "filter_terms": ["Samples"],
+                    "top_k": 5,
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
                 name="Full Mode Response with Multiple Endpoints",
                 value={
                     "session_id": "ce1817b6ebcd43fab8af80c9fe708844",

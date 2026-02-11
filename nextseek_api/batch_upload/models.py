@@ -42,6 +42,7 @@ def _minify_json_string(json_value: Union[str, dict]) -> str:
 
 
 _ASSAY_ID_RE = re.compile(r"\d+")
+_SOP_URL_RE = re.compile(r"/sops/(\d+)")
 
 
 # ── 1. SampleTypeDescription ──────────────────────────────────────────────
@@ -106,8 +107,53 @@ class InputRowModel(BaseModel):
     json_metadata: str
     assay_ids: List[int] = Field(default_factory=list)
     project_id: Optional[int] = None
+    study_title: Optional[str] = None
+    study_id: Optional[int] = None
+    sop_id: Optional[int] = None
+    assay_titles: Optional[List[str]] = None
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
+
+    @field_validator("assay_titles", mode="before")
+    @classmethod
+    def coerce_assay_titles(cls, v):
+        """Coerce assay_titles from common Excel encodings into a list[str].
+
+        Accepts:
+        - list[str]
+        - JSON array string (e.g. '["A","B"]')
+        - bracketed single-item string from Excel (e.g. '[ADCD Analysis - Data Linked]')
+        - delimited strings ('A; B' or 'A, B')
+        """
+        if v is None:
+            return None
+        if isinstance(v, list):
+            out = [str(x).strip() for x in v if str(x).strip()]
+            return out or None
+        s = str(v).strip()
+        if not s or s.lower() == "nan":
+            return None
+
+        # JSON array
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                parsed = _json_loads(s)
+                if isinstance(parsed, list):
+                    out = [str(x).strip() for x in parsed if str(x).strip()]
+                    return out or None
+            except Exception:
+                # Excel sometimes produces unquoted bracketed strings: [Title]
+                inner = s[1:-1].strip()
+                if inner:
+                    return [inner]
+                return None
+
+        # Delimited strings
+        delim = ";" if ";" in s else ("," if "," in s else None)
+        if delim:
+            out = [part.strip() for part in s.split(delim) if part.strip()]
+            return out or None
+        return [s]
 
     @field_validator("assay_ids", mode="before")
     @classmethod
@@ -135,6 +181,36 @@ class InputRowModel(BaseModel):
         if v is None:
             return "{}"
         return str(v)
+
+    @model_validator(mode="after")
+    def validate_optional_consistency(self):
+        # 1) UID consistency if json_metadata contains UID
+        try:
+            meta = _json_loads(self.json_metadata) if self.json_metadata else {}
+        except Exception:
+            meta = {}
+        if isinstance(meta, dict):
+            meta_uid = meta.get("UID") or meta.get("uid")
+            if meta_uid is not None and str(meta_uid).strip() and str(meta_uid).strip() != str(self.UID).strip():
+                raise ValueError("UID column does not match json_metadata.UID")
+
+            # 2) SOP consistency if sop_id provided and Protocol encodes SOP
+            if self.sop_id is not None:
+                protocol_val = meta.get("Protocol") or meta.get("protocol") or ""
+                m = _SOP_URL_RE.search(str(protocol_val))
+                if m:
+                    parsed = int(m.group(1))
+                    if int(self.sop_id) != parsed:
+                        raise ValueError("sop_id does not match SOP id in json_metadata.Protocol")
+
+        # 3) assay_titles length consistency if provided
+        if self.assay_titles is not None:
+            if self.assay_ids and len(self.assay_titles) != len(self.assay_ids):
+                # allow singleton only when assay_ids is singleton
+                if not (len(self.assay_titles) == 1 and len(self.assay_ids) == 1):
+                    raise ValueError("assay_titles length must match assay_ids length")
+
+        return self
 
 
 # ── 4. InsertableSample ───────────────────────────────────────────────────

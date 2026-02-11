@@ -239,6 +239,7 @@ def build_derived_from_payloads_from_db(
     sql_conn: Connection,
     assays_by_uid: Dict[str, Set[int]],
     outcomes: Dict[str, RowOutcome],
+    input_models: List[InputRowModel],
 ) -> List[DerivedFromRelRow]:
     """Build DERIVED_FROM payloads with protocol and assay context.
 
@@ -250,6 +251,32 @@ def build_derived_from_payloads_from_db(
     """
     if not parent_child_rels:
         return []
+
+    uid_to_model = {m.UID: m for m in input_models}
+    provided_sop_by_uid: Dict[str, int] = {}
+    provided_assay_title_by_id: Dict[int, str] = {}
+    for uid, model in uid_to_model.items():
+        if model.sop_id is not None:
+            try:
+                provided_sop_by_uid[uid] = int(model.sop_id)
+            except Exception:
+                pass
+        if model.assay_titles and model.assay_ids and len(model.assay_titles) == len(model.assay_ids):
+            for aid, title in zip(model.assay_ids, model.assay_titles):
+                if aid is None:
+                    continue
+                t = str(title).strip()
+                if not t:
+                    continue
+                if aid in provided_assay_title_by_id and provided_assay_title_by_id[aid] != t:
+                    log.warning(
+                        "Conflicting assay_titles provided for assay_id=%s; keeping first='%s', ignoring='%s'",
+                        aid,
+                        provided_assay_title_by_id[aid],
+                        t,
+                    )
+                    continue
+                provided_assay_title_by_id[aid] = t
 
     # Collect all parent and child UUIDs
     all_children = set(parent_child_rels.keys())
@@ -275,6 +302,7 @@ def build_derived_from_payloads_from_db(
         outcome = outcomes.get(uid)
         if outcome and outcome.sample_id:
             child_uuid_to_id[uid] = outcome.sample_id
+    child_id_to_uuid: Dict[int, str] = {sid: uid for uid, sid in child_uuid_to_id.items()}
 
     # Step 1: Child metadata (Protocol extraction)
     child_ids = list(child_uuid_to_id.values())
@@ -286,7 +314,14 @@ def build_derived_from_payloads_from_db(
         sql = text(f"SELECT id, json_metadata FROM samples WHERE id IN ({placeholders})")
         rows = sql_conn.execute(sql, params).fetchall()
         for sid, jmeta in rows:
+            # Prefer user-provided sop_id when available
             sop_id = None
+            child_uid = child_id_to_uuid.get(sid)
+            if child_uid and child_uid in provided_sop_by_uid:
+                sop_id = provided_sop_by_uid.get(child_uid)
+                child_protocol_map[sid] = sop_id
+                continue
+
             try:
                 meta = json.loads(jmeta) if jmeta else {}
                 protocol_val = meta.get("Protocol") or meta.get("protocol") or ""
@@ -342,14 +377,19 @@ def build_derived_from_payloads_from_db(
             shared = child_assays & parent_assays
             internal_assay_id = min(shared) if shared else None
 
-            # Lazy-load assay title
-            if internal_assay_id and internal_assay_id not in assay_titles:
-                sql = text("SELECT id, title FROM assays WHERE id = :aid")
-                row = sql_conn.execute(sql, {"aid": internal_assay_id}).fetchone()
-                if row:
-                    assay_titles[row[0]] = row[1]
-
-            internal_assay_title = assay_titles.get(internal_assay_id) if internal_assay_id else None
+            internal_assay_title = None
+            if internal_assay_id:
+                # Prefer user-provided assay_titles when available
+                if internal_assay_id in provided_assay_title_by_id:
+                    internal_assay_title = provided_assay_title_by_id.get(internal_assay_id)
+                else:
+                    # Lazy-load assay title from DB
+                    if internal_assay_id not in assay_titles:
+                        sql = text("SELECT id, title FROM assays WHERE id = :aid")
+                        row = sql_conn.execute(sql, {"aid": internal_assay_id}).fetchone()
+                        if row:
+                            assay_titles[row[0]] = row[1]
+                    internal_assay_title = assay_titles.get(internal_assay_id)
 
             results.append(DerivedFromRelRow(
                 child_id=child_id,
@@ -414,6 +454,7 @@ def upload_all(
             sql_conn,
             direction_computation.assays_by_uid,
             outcomes,
+            input_models,
         )
         metrics.rels_input = len(derived_from_rows)
         metrics.eligible_children = len(direction_computation.parents_of)

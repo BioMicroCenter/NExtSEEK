@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import logging
 import os
+import json
+import time
 
 from celery.result import AsyncResult
 from django.conf import settings
 from django.http import FileResponse
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from pydantic import BaseModel, Field
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 
@@ -24,7 +27,13 @@ log = logging.getLogger(__name__)
 
 
 class BatchUploadStartRequest(BaseModel):
-    xlsx_path: str = Field(..., description="Absolute path to the Excel file on the server")
+    xlsx_path: str | None = Field(
+        None,
+        description=(
+            "Absolute path to an Excel file already on the server. "
+            "Only used as a fallback when no file is uploaded via multipart/form-data."
+        ),
+    )
     project_id: int = Field(..., description="SEEK project ID to link samples to")
     config_overrides: dict = Field(
         default_factory=dict,
@@ -55,28 +64,93 @@ class BatchUploadViewSet(viewsets.ViewSet):
     """
 
     permission_classes = [IsAdminUser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     @extend_schema(
-        request={"application/json": BatchUploadStartRequest.model_json_schema()},
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "Excel (.xlsx) file containing samples to upload.",
+                    },
+                    "project_id": {
+                        "type": "integer",
+                        "description": "SEEK project ID to link samples to.",
+                    },
+                    "xlsx_path": {
+                        "type": "string",
+                        "description": (
+                            "Fallback: absolute path to an Excel file already on the server. "
+                            "Ignored when a file is uploaded."
+                        ),
+                    },
+                    "config_overrides": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": "Optional config overrides (JSON object).",
+                    },
+                },
+                "required": ["project_id"],
+            },
+            "application/json": BatchUploadStartRequest.model_json_schema(),
+        },
         responses={202: BatchUploadStartResponse.model_json_schema()},
-        description="Start a batch upload job from an Excel file on the server.",
+        description=(
+            "Start a batch upload job for bulk sample creation.\n\n"
+            "**Preferred:** Upload an Excel (.xlsx) file via multipart/form-data using the `file` field.\n\n"
+            "**Fallback:** Send a JSON body with `xlsx_path` pointing to a file already on the server.\n\n"
+            "## Required Excel Columns\n\n"
+            "- **uid** — Sample UID (unique identifier)\n"
+            "- **sampletype** — Sample type name (alias: `sample_type`)\n"
+            "- **json_metadata** — JSON metadata string (alias: `jsonmetadata`)\n"
+            "- **assay_ids** — Comma-separated assay IDs (alias: `assayids`)\n\n"
+            "## Optional Excel Columns\n\n"
+            "- **project_id** — Per-row project ID override (alias: `projectid`)\n"
+            "- **study_title** — Accepted but not used by the pipeline\n"
+            "- **study_id** — Accepted but not used by the pipeline\n"
+            "- **sop_id** — Optional SOP id override. If provided and `json_metadata.Protocol` contains an SOP id, they must match or the row is rejected.\n"
+            "- **assay_titles** — Optional assay title(s). If provided, parsed into a list and must match `assay_ids` length (or both singleton) or the row is rejected.\n\n"
+            "## Notes\n\n"
+            "- Column headers are case-insensitive and whitespace is trimmed.\n"
+            "- Unknown extra columns are ignored, but a warning listing them is included in logs, the job status payload, and the summary CSV.\n"
+            "- Some validation conflicts (e.g., UID mismatch between `uid` and `json_metadata.UID`) reject only that row; the job continues."
+        ),
     )
     @action(detail=False, methods=["post"], url_path="start")
     def start(self, request):
         """POST /api/batch-upload/start/ — dispatch a batch upload job."""
-        xlsx_path = request.data.get("xlsx_path")
-        project_id = request.data.get("project_id")
-        config_overrides = request.data.get("config_overrides", {})
+        uploaded_file = request.FILES.get("file")
+        xlsx_path = None
 
-        if not xlsx_path or project_id is None:
+        if uploaded_file:
+            if not (uploaded_file.name or "").lower().endswith(".xlsx"):
+                return Response(
+                    {"detail": "Only .xlsx files are accepted."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            xlsx_path = _save_uploaded_file(uploaded_file)
+        else:
+            xlsx_path = request.data.get("xlsx_path")
+
+        if not xlsx_path:
             return Response(
-                {"detail": "xlsx_path and project_id are required"},
+                {"detail": "Either upload a .xlsx file or provide xlsx_path."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         if not os.path.isfile(xlsx_path):
             return Response(
                 {"detail": f"File not found: {xlsx_path}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        project_id = request.data.get("project_id")
+        if project_id is None:
+            return Response(
+                {"detail": "project_id is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -87,6 +161,20 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 {"detail": "project_id must be an integer"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        config_overrides = request.data.get("config_overrides", {})
+        if isinstance(config_overrides, str):
+            s = config_overrides.strip()
+            if not s:
+                config_overrides = {}
+            else:
+                try:
+                    config_overrides = json.loads(s)
+                except Exception:
+                    return Response(
+                        {"detail": "config_overrides must be a JSON object"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
         # Resolve contributor_id from the authenticated user
         contributor_id = _resolve_contributor_id(request)
@@ -187,6 +275,21 @@ class BatchUploadViewSet(viewsets.ViewSet):
 
 
 # ── helpers ───────────────────────────────────────────────────────────────
+
+_UPLOAD_DIR = "batch_upload_uploads"
+
+
+def _save_uploaded_file(uploaded_file) -> str:
+    """Save an uploaded Django file to MEDIA_ROOT/batch_upload_uploads/ and return the path."""
+    upload_dir = os.path.join(getattr(settings, "MEDIA_ROOT", "/tmp"), _UPLOAD_DIR)
+    os.makedirs(upload_dir, exist_ok=True)
+    safe_name = os.path.basename(getattr(uploaded_file, "name", "upload.xlsx") or "upload.xlsx")
+    filename = f"{int(time.time())}_{safe_name}"
+    dest_path = os.path.join(upload_dir, filename)
+    with open(dest_path, "wb") as f:
+        for chunk in uploaded_file.chunks():
+            f.write(chunk)
+    return dest_path
 
 
 def _resolve_contributor_id(request) -> int | None:
