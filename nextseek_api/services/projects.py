@@ -7,6 +7,12 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 
 from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.endpoint_descriptions import (
+    PROJECT_LIST_DESC,
+    PROJECT_FETCH_DESC,
+    PROJECT_CREATE_DESC,
+    PROJECT_UPDATE_DESC,
+)
 from nextseek_api.models import (
     ProjectListResponse,
     ProjectSingleResponse,
@@ -40,7 +46,7 @@ class ProjectProxyViewSet(viewsets.ViewSet):
     # GET /projects
     @extend_schema(
         operation_id="List Projects",
-        description="Retrieve all research projects you have access to. Returns project titles, descriptions, and IDs for related team members, investigations, studies, assays, and data files. Examples: 'Show me all projects I am part of'; 'What research projects are studying water toxicity?'",
+        description=PROJECT_LIST_DESC,
         responses={200: ProjectListResponse},
         tags=['Projects'],
         examples=[
@@ -81,7 +87,7 @@ class ProjectProxyViewSet(viewsets.ViewSet):
 
     # GET /projects/{uid}
     @extend_schema(
-        description="Fetch details for a specific research project by ID or name. Returns full metadata including title, description, team members, linked investigations, studies, assays, protocols, and data files. Examples: 'Show me the details of the primate immunology study'; 'Who are the team members on the water toxicity project?'",
+        description=PROJECT_FETCH_DESC,
         operation_id="Fetch a Project",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or NExtSEEK UID (string)')
@@ -146,7 +152,7 @@ class ProjectProxyViewSet(viewsets.ViewSet):
     # POST /projects
     @extend_schema(
         operation_id="Create a Project",
-        description="Create a new research project with title, description, and team associations. Returns the created project with its assigned ID and metadata. Examples: 'Create a new project for the cancer biomarker study'; 'Set up a project for the 2024 primate cohort'",
+        description=PROJECT_CREATE_DESC,
         request=ProjectCreateRequest,
         responses={201: ProjectSingleResponse, 200: ProjectSingleResponse},
         tags=['Projects'],
@@ -188,7 +194,7 @@ class ProjectProxyViewSet(viewsets.ViewSet):
     # PATCH /projects/{uid}
     @extend_schema(
         operation_id="Update a Project",
-        description="Update an existing research project by ID or name. Modify title, description, or team member associations. Returns the updated project with all current metadata. Examples: 'Rename the water study project to Water Toxicity Phase 2'; 'Add a new team member to the primate research project'",
+        description=PROJECT_UPDATE_DESC,
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or NExtSEEK UID (string)')
         ],

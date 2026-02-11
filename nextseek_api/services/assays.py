@@ -8,6 +8,12 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from django.conf import settings
 
 from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.endpoint_descriptions import (
+    ASSAY_LIST_DESC,
+    ASSAY_FETCH_DESC,
+    ASSAY_CREATE_DESC,
+    ASSAY_UPDATE_DESC,
+)
 from nextseek_api.models import (
     AssayListResponse,
     AssaySingleResponse,
@@ -36,7 +42,7 @@ class AssayProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="List Assays",
-        description="Retrieve all assays (experimental procedures) you have access to. Returns assay titles, types, technologies used, and IDs for linked studies, samples, and data files. Examples: 'Show me all available assays'; 'What experimental procedures have been run on the primate samples?'",
+        description=ASSAY_LIST_DESC,
         responses={200: AssayListResponse},
         tags=['Assays'],
         examples=[
@@ -76,7 +82,7 @@ class AssayProxyViewSet(viewsets.ViewSet):
         return HttpResponse(body, status=code, content_type=ct)
 
     @extend_schema(
-        description="Fetch details for a specific assay by its ID. Returns full metadata including title, assay type, technology used, linked study, associated samples, protocols, and generated data files. Examples: 'Show me the details of the RNA-seq assay'; 'What samples were processed in this flow cytometry experiment?'",
+        description=ASSAY_FETCH_DESC,
         operation_id="Fetch an Assay",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric). Non-numeric UID resolution not configured.'),
@@ -124,7 +130,7 @@ class AssayProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Create an Assay",
-        description="Define a new assay (experimental procedure) within a study. Specify the assay type, technology, and link to samples and protocols. Returns the created assay with its assigned ID and metadata. Examples: 'Create a new transcriptomics assay for the immune response study'; 'Add a histology assay to analyze the tissue samples'",
+        description=ASSAY_CREATE_DESC,
         request=AssayCreateRequest,
         responses={201: AssaySingleResponse, 200: AssaySingleResponse},
         tags=['Assays'],
@@ -167,7 +173,7 @@ class AssayProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Update an Assay",
-        description="Update an existing assay by its ID. Modify title, description, assay type, technology, or linked samples and data files. Returns the updated assay with all current metadata. Examples: 'Update the description for the RNA-seq assay'; 'Add additional samples to the flow cytometry experiment'",
+        description=ASSAY_UPDATE_DESC,
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric). Non-numeric UID resolution not configured.')
         ],

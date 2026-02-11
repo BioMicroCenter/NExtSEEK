@@ -25,6 +25,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from nextseek_api.helpers import resolve_seek_auth
+from nextseek_api.endpoint_descriptions import (
+    ENTITY_TREE_NODES_DESC,
+    ENTITY_TREE_EDGES_DESC,
+    ENTITY_TREE_EDGE_ATTRS_DESC,
+    ENTITY_TREE_LINEAGE_DESC,
+)
 from nextseek_api.models import (
     Edge,
     EdgeAttribute,
@@ -84,12 +90,7 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
     # -------------------------------------------------------------------------
     @extend_schema(
         operation_id="List Node Attributes",
-        description=(
-            "Retrieve all sample type node attributes from the entity graph. "
-            "Uses dmac.sample_types_context for description and clade. "
-            "Examples: 'What sample types exist in the system?'; "
-            "'Show me all node types and their descriptions'"
-        ),
+        description=ENTITY_TREE_NODES_DESC,
         responses={200: NodeAttributeResponse},
         tags=["EntityTree"],
         examples=[
@@ -271,10 +272,7 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
     # -------------------------------------------------------------------------
     @extend_schema(
         operation_id="List Edges",
-        description=(
-            "Retrieve all edges (relationships) between sample types from the entity graph. "
-            "Each edge is a Neo4j DERIVED_FROM relationship annotated by internal_assay_title."
-        ),
+        description=ENTITY_TREE_EDGES_DESC,
         responses={200: EdgeResponse},
         tags=["EntityTree"],
         examples=[
@@ -345,11 +343,7 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
     # -------------------------------------------------------------------------
     @extend_schema(
         operation_id="List Edge Attributes",
-        description=(
-            "Retrieve all edges with extended metadata including internal_assay_id, "
-            "study_titles, and description. Uses Neo4j for (source, target, annotation) "
-            "and dmac.assay_context + seek_production.studies for enrichment."
-        ),
+        description=ENTITY_TREE_EDGE_ATTRS_DESC,
         responses={200: EdgeAttributeResponse},
         tags=["EntityTree"],
         examples=[
@@ -758,14 +752,7 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
     # -------------------------------------------------------------------------
     @extend_schema(
         operation_id="Get Sample Lineage Trees",
-        description=(
-            "Retrieve full lineage trees for one or more samples. "
-            "For each input sample, returns all upstream (parents via DERIVED_FROM) "
-            "and downstream (children) samples. Accepts sample UIDs or SEEK IDs. "
-            "Optionally includes edge attributes (study_titles, description). "
-            "Examples: 'Show me all samples derived from NHP-220630FLY-1-PUB'; "
-            "'Get the full lineage for tissue samples TIS-230324BOO-39-PUB and TIS-230324BOO-40-PUB'"
-        ),
+        description=ENTITY_TREE_LINEAGE_DESC,
         request=LineageRequest,
         responses={200: LineageResponse},
         tags=["EntityTree"],

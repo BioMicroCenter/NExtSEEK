@@ -16,6 +16,7 @@ from drf_spectacular.utils import extend_schema, OpenApiExample
 from pydantic import ValidationError
 
 from nextseek_api.helpers import resolve_seek_auth
+from nextseek_api.endpoint_descriptions import SCHEMA_RAG_INGEST_DESC, SCHEMA_RAG_RETRIEVE_DESC
 from nextseek_api.models import (
     IngestRequest,
     IngestResponse,
@@ -67,11 +68,7 @@ class SchemaRAGViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Ingest OpenAPI Schema",
-        description=(
-            "Ingest an OpenAPI schema from a URL for RAG retrieval. "
-            "Creates a session that can be used for subsequent retrieve calls. "
-            "The session has a configurable TTL (default 15 minutes)."
-        ),
+        description=SCHEMA_RAG_INGEST_DESC,
         request=IngestRequest,
         responses={
             201: IngestResponse,
@@ -152,11 +149,7 @@ class SchemaRAGViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Retrieve API Endpoints",
-        description=(
-            "Retrieve relevant API endpoints from an ingested schema using semantic search. "
-            "Uses multi-pass scoring with embedding similarity and optional term boosting. "
-            "Returns endpoints in minimal or full mode based on request."
-        ),
+        description=SCHEMA_RAG_RETRIEVE_DESC,
         request=RetrieveRequest,
         responses={
             200: RetrieveResponse,

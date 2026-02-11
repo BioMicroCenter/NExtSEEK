@@ -17,6 +17,13 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from drf_spectacular.types import OpenApiTypes
 
 from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.endpoint_descriptions import (
+    SOP_LIST_DESC,
+    SOP_FETCH_DESC,
+    SOP_CREATE_DESC,
+    SOP_UPDATE_DESC,
+    SOP_DOWNLOAD_DESC,
+)
 from nextseek_api.models import (
     SopCreateRequest,
     SopUpdateRequest,
@@ -184,7 +191,7 @@ class SopProxyViewSet(viewsets.ViewSet):
     # GET /sops
     @extend_schema(
         operation_id="List SOPs",
-        description="Retrieve all standard operating procedures (protocols) you have access to. Returns protocol titles, descriptions, associated projects, and file attachment metadata. Examples: 'Show me all available protocols'; 'What procedures are documented for sample collection?'",
+        description=SOP_LIST_DESC,
         responses={200: SopListResponse},
         tags=['SOPs'],
         examples=[
@@ -228,7 +235,7 @@ class SopProxyViewSet(viewsets.ViewSet):
 
     # GET /sops/{uid}
     @extend_schema(
-        description="Fetch details for a specific protocol document by ID or name. Returns full metadata including title, description, version history, attached files, and linked projects. Optionally specify a version to retrieve historical revisions. Examples: 'Show me the tissue processing protocol'; 'What is the current version of the blood draw procedure?'",
+        description=SOP_FETCH_DESC,
         operation_id="Fetch a SOP",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or NExtSEEK UID (string)'),
@@ -280,7 +287,7 @@ class SopProxyViewSet(viewsets.ViewSet):
     # POST /sops
     @extend_schema(
         operation_id="Create a SOP",
-        description="Upload a new standard operating procedure document. Attach protocol files (PDF, Word, etc.) and associate with projects. Returns the created protocol with its assigned ID and metadata. Examples: 'Add a new necropsy protocol for the primate study'; 'Upload the updated sample handling procedure'",
+        description=SOP_CREATE_DESC,
         request=SopCreateRequest,
         responses={201: SopSingleResponse, 200: SopSingleResponse},
         tags=['SOPs'],
@@ -327,7 +334,7 @@ class SopProxyViewSet(viewsets.ViewSet):
     # PATCH /sops/{uid}
     @extend_schema(
         operation_id="Update a SOP",
-        description="Revise an existing protocol document by ID or name. Update title, description, attached files, or project associations. Returns the updated protocol with all current metadata. Examples: 'Update the description for the imaging protocol'; 'Change the project association for the cell culture procedure'",
+        description=SOP_UPDATE_DESC,
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or NExtSEEK UID (string)')
         ],
@@ -384,22 +391,7 @@ class SopProxyViewSet(viewsets.ViewSet):
     # POST /sops/download
     @extend_schema(
         operation_id="Download SOP content blob",
-        description=(
-            "Download SOP content blobs — supports single and batch modes.\n\n"
-            "**Single mode** (JSON object): Pass a single SopDownloadRequest object. "
-            "Returns the file as a streaming binary download. If a SOP has multiple "
-            "content blobs, returns 409 with candidate metadata so the caller can "
-            "re-request with an explicit blob_id.\n\n"
-            "**Batch mode** (JSON array): Pass an array of SopDownloadRequest objects. "
-            "Returns a zip archive containing all successfully downloaded files plus a "
-            "manifest.json documenting successes and failures. Multi-blob SOPs "
-            "auto-select the first content blob. The zip filename follows the pattern "
-            "sops-{YYYY-MM-DD_HH}.zip. Duplicate filenames are resolved by appending "
-            "the SEEK id.\n\n"
-            "Examples: 'Download the GEX protocol document'; "
-            "'Get the DNA adducts procedure file as a PDF'; "
-            "'Fetch multiple protocols at once as a zip archive'"
-        ),
+        description=SOP_DOWNLOAD_DESC,
         request=OpenApiTypes.OBJECT,
         responses={200: OpenApiTypes.BINARY},
         tags=['SOPs'],

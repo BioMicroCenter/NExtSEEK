@@ -54,6 +54,7 @@ from .services.schema_rag import SchemaRAGViewSet
 from .services.entity_tree import EntityTreeViewSet
 from .helpers import resolve_seek_auth
 from nextseek_api.helpers import StandardResultsSetPagination
+from nextseek_api.endpoint_descriptions import SAMPLE_TREE_GET_DESC, ADMIN_SAMPLE_RETRIEVE_DESC
 from nextseek_api.models import (
     SampleTreeResponse,
     SampleTreeNode,
@@ -98,7 +99,7 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="Get Sample Tree by id or uid",
-        description="Retrieve the full sample lineage for a given sample, showing all related samples above and below it in the hierarchy. Returns nodes with ID, UUID, sample type, color, and relationships for visualization. Examples: 'Show me all samples derived from NHP-220630FLY-2-PUB'; 'What tissue and cell samples came from this patient: PAT-241113DFC-3?'",
+        description=SAMPLE_TREE_GET_DESC,
         tags=['Samples'],
         responses={200: SampleTreeResponse},
         parameters=[
@@ -521,15 +522,7 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
         operation_id="Admin Sample Retrieval",
         tags=['Samples'],
         request=AdminSampleRetrieveRequest,
-        description=(
-            "Export sample metadata for admin users. Accepts a list of sample UIDs (e.g., 'NHP-220630FLY-1-PUB') "
-            "and/or SEEK IDs (numeric). Returns metadata for requested samples plus all parent/child samples. "
-            "Default output is JSON grouped by sample type; set output_format='excel' for an Excel workbook. "
-            "Requires admin privileges. Examples: 'Export all metadata for NHP-220630FLY-1-PUB and its derived "
-            "samples as JSON'; 'Download an Excel spreadsheet with data for samples 12345 and 67890'; "
-            "'Get sample data for these three monkeys in JSON format'; 'Retrieve full metadata for tissue "
-            "samples TIS-230324BOO-39-PUB and TIS-230324BOO-40-PUB'"
-        ),
+        description=ADMIN_SAMPLE_RETRIEVE_DESC,
         responses={
             (200, "application/json"): AdminSampleRetrieveResponse,
             (200, "application/vnd.ms-excel"): OpenApiResponse(

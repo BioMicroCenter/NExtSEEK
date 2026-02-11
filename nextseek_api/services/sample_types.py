@@ -13,6 +13,14 @@ from pydantic import ValidationError
 
 from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.helpers import resolve_seek_auth
+from nextseek_api.endpoint_descriptions import (
+    SAMPLETYPE_LIST_DESC,
+    SAMPLETYPE_FETCH_DESC,
+    SAMPLETYPE_CREATE_DESC,
+    SAMPLETYPE_UPDATE_DESC,
+    SAMPLETYPE_CHILDREN_DESC,
+    PARENTS_BY_CHILD_TYPES_DESC,
+)
 from nextseek_api.services.samples import _resolve_uid_to_seek_id as _resolve_sample_uid_to_seek_id
 from nextseek_api.models import (
     SampleTypeListResponse,
@@ -55,7 +63,7 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="List SampleTypes",
-        description="Retrieve all sample type definitions available in the system. Returns a list of sample type schemas including their titles, descriptions, and attribute configurations for categories like tissue samples, cell lines, animals, imaging data, and sequencing data. Examples: 'What types of samples can I register?'; 'Show me all available sample categories'",
+        description=SAMPLETYPE_LIST_DESC,
         responses={200: SampleTypeListResponse},
         tags=['SampleTypes'],
         examples=[
@@ -95,7 +103,7 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         return HttpResponse(body, status=code, content_type=ct)
 
     @extend_schema(
-        description="Fetch details for a specific sample type by ID or name. Returns the full schema definition including title, description, and all attribute specifications that samples of this type must have. Examples: 'What fields are required for tissue samples?'; 'Show me the schema for imaging data samples'",
+        description=SAMPLETYPE_FETCH_DESC,
         operation_id="Fetch a SampleType",
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or title (resolved to id)'),
@@ -127,7 +135,7 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Create a SampleType",
-        description="Register a new sample type with custom attributes and validation rules. Returns the created sample type with its assigned ID and full schema definition. Examples: 'Create a new sample type for flow cytometry data'; 'Add a custom sample category for behavioral observations'",
+        description=SAMPLETYPE_CREATE_DESC,
         request=SampleTypeCreateRequest,
         responses={201: SampleTypeSingleResponse, 200: SampleTypeSingleResponse},
         tags=['SampleTypes'],
@@ -153,7 +161,7 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Update a SampleType",
-        description="Modify an existing sample type's attributes, description, or validation rules. Returns the updated sample type with all current settings. Examples: 'Add a new required field to the tissue sample type'; 'Update the description for sequencing data samples'",
+        description=SAMPLETYPE_UPDATE_DESC,
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or title (resolved to id)')
         ],
@@ -212,7 +220,7 @@ class SampleTypeChildrenViewSet(viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="Get Child Sample Types",
-        description="Get the distinct types of all samples derived from a given sample. Traverses the sample hierarchy to find all related samples below it. Returns a list of unique sample types with their IDs, titles, and descriptions. Examples: 'What types of samples were collected from NHP-220630FLY-1-PUB?'; 'Does this monkey have any imaging data?'",
+        description=SAMPLETYPE_CHILDREN_DESC,
         parameters=[
             OpenApiParameter(
                 name='uid',
@@ -321,7 +329,7 @@ class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="Get samples with children of specified sample types",
-        description="Find parent samples that have derived samples of all specified types. Uses AND logic across types, so only samples with descendants matching every requested type are returned. Optionally filter by parent sample type. Returns a list of matching sample IDs, UIDs, sample types, and descriptions. Examples: 'Which monkeys have both imaging data and sequencing results?'; 'Find all animals that have tissue samples and cell line derivatives'",
+        description=PARENTS_BY_CHILD_TYPES_DESC,
         request=SamplesByChildTypesRequest,
         responses={200: SamplesByChildTypesResponse},
         examples=[

@@ -19,6 +19,13 @@ from rest_framework.response import Response
 
 from .celery_app import app as celery_app
 from .tasks import run_batch_upload_task
+from nextseek_api.endpoint_descriptions import (
+    BATCH_UPLOAD_START_DESC,
+    BATCH_UPLOAD_STATUS_DESC,
+    BATCH_UPLOAD_CANCEL_DESC,
+    BATCH_UPLOAD_SUMMARY_DESC,
+    BATCH_UPLOAD_LIST_DESC,
+)
 
 log = logging.getLogger(__name__)
 
@@ -98,26 +105,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
             "application/json": BatchUploadStartRequest.model_json_schema(),
         },
         responses={202: BatchUploadStartResponse.model_json_schema()},
-        description=(
-            "Start a batch upload job for bulk sample creation.\n\n"
-            "**Preferred:** Upload an Excel (.xlsx) file via multipart/form-data using the `file` field.\n\n"
-            "**Fallback:** Send a JSON body with `xlsx_path` pointing to a file already on the server.\n\n"
-            "## Required Excel Columns\n\n"
-            "- **uid** — Sample UID (unique identifier)\n"
-            "- **sampletype** — Sample type name (alias: `sample_type`)\n"
-            "- **json_metadata** — JSON metadata string (alias: `jsonmetadata`)\n"
-            "- **assay_ids** — Comma-separated assay IDs (alias: `assayids`)\n\n"
-            "## Optional Excel Columns\n\n"
-            "- **project_id** — Per-row project ID override (alias: `projectid`)\n"
-            "- **study_title** — Accepted but not used by the pipeline\n"
-            "- **study_id** — Accepted but not used by the pipeline\n"
-            "- **sop_id** — Optional SOP id override. If provided and `json_metadata.Protocol` contains an SOP id, they must match or the row is rejected.\n"
-            "- **assay_titles** — Optional assay title(s). If provided, parsed into a list and must match `assay_ids` length (or both singleton) or the row is rejected.\n\n"
-            "## Notes\n\n"
-            "- Column headers are case-insensitive and whitespace is trimmed.\n"
-            "- Unknown extra columns are ignored, but a warning listing them is included in logs, the job status payload, and the summary CSV.\n"
-            "- Some validation conflicts (e.g., UID mismatch between `uid` and `json_metadata.UID`) reject only that row; the job continues."
-        ),
+        description=BATCH_UPLOAD_START_DESC,
     )
     @action(detail=False, methods=["post"], url_path="start")
     def start(self, request):
@@ -198,7 +186,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
 
     @extend_schema(
         responses={200: BatchUploadStatusResponse.model_json_schema()},
-        description="Get the status and progress of a batch upload job.",
+        description=BATCH_UPLOAD_STATUS_DESC,
     )
     @action(detail=False, methods=["get"], url_path=r"status/(?P<job_id>[^/.]+)")
     def job_status(self, request, job_id=None):
@@ -222,7 +210,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
 
     @extend_schema(
         responses={204: None},
-        description="Cancel (revoke) a running batch upload job.",
+        description=BATCH_UPLOAD_CANCEL_DESC,
     )
     @action(detail=False, methods=["delete"], url_path=r"cancel/(?P<job_id>[^/.]+)")
     def cancel(self, request, job_id=None):
@@ -232,7 +220,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
 
     @extend_schema(
         responses={200: OpenApiResponse(description="Summary CSV file download")},
-        description="Download the summary CSV for a completed batch upload job.",
+        description=BATCH_UPLOAD_SUMMARY_DESC,
     )
     @action(detail=False, methods=["get"], url_path=r"summary/(?P<job_id>[^/.]+)")
     def summary(self, request, job_id=None):
@@ -261,7 +249,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
 
     @extend_schema(
         responses={200: {"type": "array", "items": {"type": "object"}}},
-        description="List recent batch upload jobs.",
+        description=BATCH_UPLOAD_LIST_DESC,
     )
     def list(self, request):
         """GET /api/batch-upload/ — list recent jobs."""

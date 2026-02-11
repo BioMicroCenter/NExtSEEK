@@ -11,6 +11,13 @@ from django.conf import settings
 
 from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id
 from nextseek_api.helpers import paginate_rows_in_envelope
+from nextseek_api.endpoint_descriptions import (
+    SAMPLE_FETCH_DESC,
+    SAMPLE_CREATE_DESC,
+    SAMPLE_UPDATE_DESC,
+    SAMPLE_DELETE_DESC,
+    ADVANCED_SEARCH_DESC,
+)
 from nextseek_api.models import (
     SampleSingleResponse,
     SampleCreateRequest,
@@ -54,7 +61,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
     lookup_value_regex = r'[^/]+'
 
     @extend_schema(
-        description="Fetch a single Sample by SEEK id or NExtSEEK UID. Returns sample metadata including title, UUID, created/updated timestamps, and IDs for related entities (sample_type, creators, projects, assays, data_files). Examples: 'Show me the details of sample NHP-220630FLY-2-PUB'; 'What assays are linked to TIS-230324BOO-39-PUB?'",
+        description=SAMPLE_FETCH_DESC,
         operation_id="Fetch a Sample",
         parameters=[
             OpenApiParameter(
@@ -140,7 +147,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Create a Sample",
-        description="Create a new Sample in SEEK. Requires sample type relationship and attributes. Returns the created sample with its assigned ID, UUID, and metadata. Examples: 'Register a new tissue sample for the water study'; 'Add a new blood draw sample for a monkey taken during this visit (PAV-220630FLY-3)'",
+        description=SAMPLE_CREATE_DESC,
         parameters=[
             OpenApiParameter(
                 name='debug_validation',
@@ -207,7 +214,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Update a Sample",
-        description="Update an existing Sample by SEEK id or NExtSEEK UID. Accepts partial updates via attribute_map. Returns the updated sample with all current metadata. Examples: 'Update NHP-220630FLY-1-PUB scientist to John Doe'; 'Change the study name for sample TIS-230324BOO-39-PUB to John Doe's study'",
+        description=SAMPLE_UPDATE_DESC,
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or Sample UUID (string)'),
             OpenApiParameter(
@@ -308,7 +315,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
     # Optional delete endpoint, behind feature flag if needed by caller
     @extend_schema(
         operation_id="Delete a Sample",
-        description="Delete a Sample by SEEK id or NExtSEEK UID. Permanently removes the sample from SEEK. Returns confirmation on success. Examples: 'Remove sample NHP-220630FLY-1-PUB from the system'; 'Delete all records for sample 321'",
+        description=SAMPLE_DELETE_DESC,
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or Sample UUID (string)')
         ],
@@ -334,7 +341,7 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Advanced Search Samples",
-        description="Search samples by type, attribute filters, and text matching. Supports multiple sample types, attribute-based filtering, and partial/exact match modes. Returns paginated list of matching samples with full metadata. Can also retrieve all samples of a given type by leaving filter fields empty. Examples: 'Group all monkeys by sex and necropsy date'; 'Find all mice from water study that were treated with NDMA'; 'Show me all samples associated with T cell depletion'; 'Create a barplot comparing the fraction of tumor values for all DFCI3 patient biopsies'; 'How many monkeys have both CT scan data and sequencing data?'",
+        description=ADVANCED_SEARCH_DESC,
         parameters=[
             OpenApiParameter(
                 name='debug_validation',
