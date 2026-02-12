@@ -1,0 +1,213 @@
+import type {
+  AsyncQueryResponse,
+  ProgressEvent,
+  TestCase,
+  TestCasesResponse,
+} from "@/lib/types/api";
+import type { BasicAuthService } from "./auth";
+
+const POLL_INTERVAL = 2000;
+
+export class NextseekApiService {
+  private auth: BasicAuthService;
+  private _sessionId: string | null = null;
+
+  constructor(auth: BasicAuthService) {
+    this.auth = auth;
+  }
+
+  get sessionId(): string | null {
+    return this._sessionId;
+  }
+
+  async submitQuery(
+    query: string,
+    onProgress: (event: ProgressEvent) => void,
+    onError: (error: string) => void,
+  ): Promise<void> {
+    const baseUrl = this.auth.getApiBaseUrl();
+
+    // 1. POST async query
+    let taskId: string;
+    try {
+      const response = await fetch(
+        `${baseUrl}/nextseek_api/assistant/query/async/`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: this.auth.getAuthHeader(),
+          },
+          body: JSON.stringify({ query }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`Query submission failed: ${response.status}`);
+      }
+
+      const data: AsyncQueryResponse = await response.json();
+      taskId = data.task_id;
+      this._sessionId = data.session_id;
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Query submission failed");
+      return;
+    }
+
+    // 2. Open WS for progress
+    const wsBase = this.auth.getWsBaseUrl();
+    try {
+      await this.streamProgress(
+        `${wsBase}/ws/assistant/progress/${taskId}/`,
+        onProgress,
+        onError,
+      );
+    } catch {
+      // WS failed, fall back to polling
+      await this.pollProgress(baseUrl, taskId, onProgress, onError);
+    }
+  }
+
+  private streamProgress(
+    url: string,
+    onProgress: (event: ProgressEvent) => void,
+    onError: (error: string) => void,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(url);
+      let opened = false;
+
+      ws.onopen = () => {
+        opened = true;
+      };
+
+      ws.onmessage = (event: MessageEvent) => {
+        try {
+          const parsed: ProgressEvent = JSON.parse(event.data as string);
+          onProgress(parsed);
+
+          if (
+            parsed.event === "query_complete" ||
+            parsed.event === "query_error"
+          ) {
+            ws.close(1000);
+            resolve();
+          }
+        } catch {
+          // ignore non-JSON
+        }
+      };
+
+      ws.onerror = () => {
+        if (!opened) {
+          reject(new Error("WebSocket connection failed"));
+        }
+      };
+
+      ws.onclose = (event: CloseEvent) => {
+        if (!opened) {
+          reject(new Error("WebSocket connection failed"));
+        } else if (event.code !== 1000) {
+          onError("Connection closed unexpectedly");
+          resolve();
+        } else {
+          resolve();
+        }
+      };
+    });
+  }
+
+  private async pollProgress(
+    baseUrl: string,
+    taskId: string,
+    onProgress: (event: ProgressEvent) => void,
+    onError: (error: string) => void,
+  ): Promise<void> {
+    let lastIndex = 0;
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      try {
+        const response = await fetch(
+          `${baseUrl}/nextseek_api/assistant/tasks/${taskId}/progress/`,
+          {
+            headers: { Authorization: this.auth.getAuthHeader() },
+          },
+        );
+
+        if (!response.ok) {
+          onError(`Polling failed: ${response.status}`);
+          return;
+        }
+
+        const data = await response.json();
+        const events: ProgressEvent[] = data.progress ?? [];
+
+        for (let i = lastIndex; i < events.length; i++) {
+          onProgress(events[i]);
+
+          if (
+            events[i].event === "query_complete" ||
+            events[i].event === "query_error"
+          ) {
+            return;
+          }
+        }
+
+        lastIndex = events.length;
+      } catch (err) {
+        onError(
+          err instanceof Error ? err.message : "Polling failed",
+        );
+        return;
+      }
+
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+    }
+  }
+
+  async fetchTestCases(): Promise<TestCase[]> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const response = await fetch(
+      `${baseUrl}/nextseek_api/assistant/test-cases/`,
+      {
+        headers: { Authorization: this.auth.getAuthHeader() },
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch test cases: ${response.status}`);
+    }
+
+    const data: TestCasesResponse = await response.json();
+    return data.test_cases;
+  }
+
+  async downloadBundle(
+    sessionId: string,
+    bundleId: number,
+    format: string,
+  ): Promise<void> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const response = await fetch(
+      `${baseUrl}/nextseek_api/assistant/sessions/${sessionId}/bundles/${bundleId}/?format=${format}`,
+      {
+        headers: { Authorization: this.auth.getAuthHeader() },
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to download: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `result_${bundleId}.${format === "json" ? "json" : "json"}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+}
