@@ -35,9 +35,35 @@ class TaskProgressConsumer(AsyncWebsocketConsumer):
 
     POLL_INTERVAL = 0.3  # seconds
 
+    @staticmethod
+    def _is_allowed_origin(origin: str | None) -> bool:
+        """Check if the WebSocket Origin header is allowed.
+
+        Reads from settings.CORS_ALLOWED_ORIGINS plus the server's own
+        CSRF_TRUSTED_ORIGINS.  None origin (no header) is allowed since
+        that means same-origin or a non-browser client.
+        """
+        if origin is None:
+            return True
+        from django.conf import settings
+
+        allowed = set(getattr(settings, "CORS_ALLOWED_ORIGINS", []))
+        allowed.update(getattr(settings, "CSRF_TRUSTED_ORIGINS", []))
+        return origin in allowed
+
     async def connect(self):
         self.task_id = self.scope["url_route"]["kwargs"]["task_id"]
         self._polling = False
+
+        # Validate Origin header (defense-in-depth)
+        origin = None
+        for header_name, header_value in self.scope.get("headers", []):
+            if header_name == b"origin":
+                origin = header_value.decode("utf-8")
+                break
+        if not self._is_allowed_origin(origin):
+            await self.close()
+            return
 
         # Verify task exists (UUID-as-capability; ownership checked
         # only when a session cookie provides an authenticated user)
