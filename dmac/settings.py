@@ -452,6 +452,28 @@ SPECTACULAR_SETTINGS = {
     ],
 }
 
+####################
+# CORS SETTINGS    #
+####################
+# Allow the React/Vite frontend dev server to make cross-origin requests
+# to nextseek_api endpoints. Authentication (Token/Basic/Session) is still
+# enforced — CORS only governs browser same-origin policy.
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_URLS_REGEX = r"^/nextseek_api/.*$"
+
+CORS_EXPOSE_HEADERS = [
+    "Content-Type",
+    "X-Request-Id",
+    "Cache-Control",
+    "X-Accel-Buffering",
+]
+
 #######################
 # SCHEMA RAG SETTINGS #
 #######################
