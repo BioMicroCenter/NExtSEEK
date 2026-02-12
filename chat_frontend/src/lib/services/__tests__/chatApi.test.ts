@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextseekApiService } from "../chatApi";
-import type { BasicAuthService } from "../auth";
+import type { AuthService } from "../authTypes";
 
 // Mock WebSocket
 class MockWebSocket {
@@ -37,19 +37,17 @@ class MockWebSocket {
 
 vi.stubGlobal("WebSocket", MockWebSocket);
 
-function createMockAuth(): BasicAuthService {
+function createMockAuth(): AuthService {
   return {
-    getAuthHeader: vi.fn().mockReturnValue("Basic dGVzdDp0ZXN0"),
+    getAuthHeaders: vi.fn().mockReturnValue({ Authorization: "Basic dGVzdDp0ZXN0" }),
     getApiBaseUrl: vi.fn().mockReturnValue("http://localhost"),
     getWsBaseUrl: vi.fn().mockReturnValue("ws://localhost"),
-    isConfigured: vi.fn().mockReturnValue(true),
-    validateCredentials: vi.fn(),
-  } as unknown as BasicAuthService;
+  };
 }
 
 describe("NextseekApiService", () => {
   let service: NextseekApiService;
-  let mockAuth: BasicAuthService;
+  let mockAuth: AuthService;
 
   beforeEach(() => {
     vi.useFakeTimers();

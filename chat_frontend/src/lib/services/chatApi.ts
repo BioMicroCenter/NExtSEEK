@@ -4,15 +4,15 @@ import type {
   TestCase,
   TestCasesResponse,
 } from "@/lib/types/api";
-import type { BasicAuthService } from "./auth";
+import type { AuthService } from "./authTypes";
 
 const POLL_INTERVAL = 2000;
 
 export class NextseekApiService {
-  private auth: BasicAuthService;
+  private auth: AuthService;
   private _sessionId: string | null = null;
 
-  constructor(auth: BasicAuthService) {
+  constructor(auth: AuthService) {
     this.auth = auth;
   }
 
@@ -36,7 +36,7 @@ export class NextseekApiService {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: this.auth.getAuthHeader(),
+            ...this.auth.getAuthHeaders(),
           },
           body: JSON.stringify({ query }),
         },
@@ -131,7 +131,7 @@ export class NextseekApiService {
         const response = await fetch(
           `${baseUrl}/nextseek_api/assistant/tasks/${taskId}/progress/`,
           {
-            headers: { Authorization: this.auth.getAuthHeader() },
+            headers: { ...this.auth.getAuthHeaders() },
           },
         );
 
@@ -171,7 +171,7 @@ export class NextseekApiService {
     const response = await fetch(
       `${baseUrl}/nextseek_api/assistant/test-cases/`,
       {
-        headers: { Authorization: this.auth.getAuthHeader() },
+        headers: { ...this.auth.getAuthHeaders() },
       },
     );
 
@@ -192,7 +192,7 @@ export class NextseekApiService {
     const response = await fetch(
       `${baseUrl}/nextseek_api/assistant/sessions/${sessionId}/bundles/${bundleId}/?format=${format}`,
       {
-        headers: { Authorization: this.auth.getAuthHeader() },
+        headers: { ...this.auth.getAuthHeaders() },
       },
     );
 

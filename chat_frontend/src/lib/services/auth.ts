@@ -1,6 +1,7 @@
 import type { MeResponse } from "@/lib/types/api";
+import type { AuthService } from "./authTypes";
 
-export class BasicAuthService {
+export class BasicAuthService implements AuthService {
   private user: string;
   private pass: string;
   private baseUrl: string;
@@ -29,6 +30,10 @@ export class BasicAuthService {
 
   getWsBaseUrl(): string {
     return this.baseUrl.replace(/^http/, "ws");
+  }
+
+  getAuthHeaders(): HeadersInit {
+    return { Authorization: this.getAuthHeader() };
   }
 
   async validateCredentials(): Promise<MeResponse> {
