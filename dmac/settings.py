@@ -227,7 +227,17 @@ INSTALLED_APPS = (
     "drf_spectacular",
     "drf_spectacular_sidecar",
     "corsheaders",
+    "channels",
+    "nextseek_api",
 )
+
+# Django Channels (ASGI)
+ASGI_APPLICATION = "dmac.asgi.application"
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    },
+}
 
 # List of middleware classes to use. Order is important; in the request phase,
 # these middleware classes will be applied in the order given, and in the
