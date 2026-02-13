@@ -28,7 +28,7 @@ from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from pydantic import ValidationError
 
-from chat_nextseek import TEST_CASES
+from dmac.settings import TEST_CASES
 
 from nextseek_api.assistant.descriptions import (
     ASSISTANT_BUNDLE_DOWNLOAD_DESC,
@@ -460,7 +460,10 @@ class AssistantViewSet(viewsets.ViewSet):
         if not (request.user.is_staff or request.user.is_superuser):
             return _error_response("Forbidden", "Admin access required.", status.HTTP_403_FORBIDDEN)
 
-        items = [TestCaseItem(id=tc["id"], prompt=tc["prompt"]) for tc in TEST_CASES]
+        test_cases = {}
+        for tc in TEST_CASES.values():
+            test_cases = test_cases | tc
+        items = [TestCaseItem(id=tc_id, prompt=tc["prompt"]) for tc_id, tc in test_cases.items()]
         return Response(
             TestCaseListResponse(total=len(items), test_cases=items).model_dump(),
             status=status.HTTP_200_OK,
