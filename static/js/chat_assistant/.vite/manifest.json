@@ -1,0 +1,11 @@
+{
+  "src/main.embedded.tsx": {
+    "file": "assets/main.embedded-s9yPLUaZ.js",
+    "name": "main.embedded",
+    "src": "src/main.embedded.tsx",
+    "isEntry": true,
+    "css": [
+      "assets/main-L054wev2.css"
+    ]
+  }
+}
