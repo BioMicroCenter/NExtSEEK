@@ -52,11 +52,31 @@ from nextseek_api.assistant.models_api import (
     TestCaseListResponse,
 )
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
-from nextseek_api.assistant.pipeline_adapter import make_db_event_callback, run_query
-from nextseek_api.assistant.session_adapter import DictSessionAdapter
+from rest_framework.authentication import (
+    BasicAuthentication,
+    SessionAuthentication,
+    TokenAuthentication,
+)
+
 from nextseek_api.helpers import resolve_seek_auth
 
 logger = logging.getLogger(__name__)
+
+
+class CsrfExemptSessionAuthentication(SessionAuthentication):
+    """SessionAuthentication without CSRF enforcement.
+
+    DRF's SessionAuthentication.enforce_csrf() runs Django's CSRFCheck
+    independently of the global CsrfViewMiddleware (which is disabled in
+    this project).  Since no middleware sets the ``csrftoken`` cookie,
+    browser-based session users always fail CSRF validation -> 403.
+
+    This subclass skips that check.  The ViewSet is still protected by
+    ``IsAuthenticated`` and the custom ``_check_auth`` method.
+    """
+
+    def enforce_csrf(self, request):
+        return  # CSRF cookie is never set; skip the check
 
 
 def _error_response(title: str, detail: str, http_status: int) -> Response:
@@ -70,6 +90,7 @@ def _error_response(title: str, detail: str, http_status: int) -> Response:
 class AssistantViewSet(viewsets.ViewSet):
     """ViewSet for the NExtSEEK Assistant (multi-agent chat)."""
 
+    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated]
 
     def _check_auth(self, request):
@@ -190,6 +211,9 @@ class AssistantViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"], url_path="query")
     def query(self, request):
+        from nextseek_api.assistant.pipeline_adapter import run_query
+        from nextseek_api.assistant.session_adapter import DictSessionAdapter
+
         authed, err = self._check_auth(request)
         if not authed:
             return err
@@ -289,6 +313,9 @@ class AssistantViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"], url_path="query/async")
     def query_async(self, request):
+        from nextseek_api.assistant.pipeline_adapter import make_db_event_callback, run_query
+        from nextseek_api.assistant.session_adapter import DictSessionAdapter
+
         authed, err = self._check_auth(request)
         if not authed:
             return err

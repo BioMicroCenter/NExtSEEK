@@ -16,40 +16,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from chat_nextseek.agents import (
-    api_agent_build_request,
-    chatter_agent_report_answer,
-    chatter_agent_search_answer,
-    entity_agent,
-    memory_agent_answer,
-    parser_agent,
-    report_writer_agent,
-    reporter_agent,
-)
-from chat_nextseek.config import (
-    LOG_DIR,
-    MIN_ASSAYS,
-    MIN_SAMPLETYPES,
-    get_schema_for_endpoint,
-)
-from chat_nextseek.helpers import (
-    _extract_required_paths,
-    _retry_advanced_search_if_empty,
-    build_recent_results_summary,
-    fix_sample_endpoint,
-    generate_report_outputs,
-    normalize_api_result_for_memory,
-    persist_report_file,
-    slim_api_result_for_llm,
-    shortlist_catalog,
-    tool_nextseek_api_request,
-    top_items,
-)
-from chat_nextseek.schemas import (
-    APIRequestPlan,
-    ParserPlan,
-    ReportWriterOutput,
-)
+# chat_nextseek imports are deferred to function bodies so that importing
+# this module does not trigger chat_nextseek's eager prompt-file loading
+# (which requires external files that may not be present at import time).
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +37,11 @@ def run_query(
         user_query: The user's natural language query.
         send_event: ``send_event(event_type, data)`` — emits an SSE event.
     """
+    from chat_nextseek.agents import entity_agent, memory_agent_answer, parser_agent
+    from chat_nextseek.config import MIN_ASSAYS, MIN_SAMPLETYPES
+    from chat_nextseek.helpers import fix_sample_endpoint, shortlist_catalog
+    from chat_nextseek.schemas import ParserPlan
+
     current_agent = "catalog"
     try:
         # ------------------------------------------------------------------
@@ -253,6 +227,15 @@ def _handle_reporter(
     send_event: SendEvent,
 ) -> None:
     """Handle reporter mode: SQL reports or report generation."""
+    from chat_nextseek.agents import (
+        chatter_agent_report_answer,
+        report_writer_agent,
+        reporter_agent,
+    )
+    from chat_nextseek.config import LOG_DIR
+    from chat_nextseek.helpers import generate_report_outputs, persist_report_file, top_items
+    from chat_nextseek.schemas import ReportWriterOutput
+
     current_agent = "reporter"
     send_event("agent_started", {"agent": "reporter", "mode": mode})
 
@@ -433,6 +416,17 @@ def _handle_search(
     send_event: SendEvent,
 ) -> None:
     """Handle new_search / refine_last_search modes."""
+    from chat_nextseek.agents import api_agent_build_request, chatter_agent_search_answer
+    from chat_nextseek.config import LOG_DIR, get_schema_for_endpoint
+    from chat_nextseek.helpers import (
+        _extract_required_paths,
+        _retry_advanced_search_if_empty,
+        normalize_api_result_for_memory,
+        slim_api_result_for_llm,
+        tool_nextseek_api_request,
+    )
+    from chat_nextseek.schemas import APIRequestPlan, ParserPlan
+
     # Refine: merge previous context
     if mode == "refine_last_search":
         plan_data = plan.model_dump()
