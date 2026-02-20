@@ -403,7 +403,7 @@
 
   <!-- Real Backend Embedded -->
   <div class="tab-content" id="tab-real-embedded">
-    <h3>Real Backend Tests — Embedded (nextseek-dev.mit.edu/smartSearch/)</h3>
+    <h3>Real Backend Tests — Embedded (nextseek-dev.mit.edu/seek/salt/)</h3>
     <div id="real-embedded-results"></div>
   </div>
 
@@ -485,87 +485,87 @@ const testData = {
     ]
   },
 
-  // Existing mock E2E tests — 13/13 passed
+  // Existing mock E2E tests — 13/13 passed (this run)
   mockE2e: {
     status: "pass",
     error: null,
     tests: [
-      { name: "Chat Flow > sends query and shows user message", status: "pass", duration: 1300, error: null },
-      { name: "Chat Flow > shows stepper during processing", status: "pass", duration: 1500, error: null },
-      { name: "Chat Flow > displays assistant response after query complete", status: "pass", duration: 1800, error: null },
-      { name: "Chat Flow > handles query error gracefully", status: "pass", duration: 1500, error: null },
-      { name: "Dark Mode > toggles dark class on html element", status: "pass", duration: 772, error: null },
-      { name: "Dark Mode > persists dark mode preference across reload", status: "pass", duration: 1300, error: null },
-      { name: "Debug Panel > shows empty state initially", status: "pass", duration: 842, error: null },
-      { name: "Debug Panel > shows entries after query completes", status: "pass", duration: 1300, error: null },
-      { name: "Debug Panel > accordion expands to show summary", status: "pass", duration: 1500, error: null },
-      { name: "Download > download buttons disabled before query, enabled after", status: "pass", duration: 1600, error: null },
-      { name: "Download > clicking download triggers fetch to bundle endpoint", status: "pass", duration: 1800, error: null },
-      { name: "Test Runner > displays test cases in left sidebar", status: "pass", duration: 996, error: null },
-      { name: "Test Runner > clicking run sends the test query", status: "pass", duration: 1300, error: null },
+      { name: "Chat Flow > sends query and shows user message", status: "pass", duration: 914, error: null },
+      { name: "Chat Flow > shows stepper during processing", status: "pass", duration: 920, error: null },
+      { name: "Chat Flow > displays assistant response after query complete", status: "pass", duration: 1100, error: null },
+      { name: "Chat Flow > handles query error gracefully", status: "pass", duration: 929, error: null },
+      { name: "Dark Mode > toggles dark class on html element", status: "pass", duration: 548, error: null },
+      { name: "Dark Mode > persists dark mode preference across reload", status: "pass", duration: 925, error: null },
+      { name: "Debug Panel > shows empty state initially", status: "pass", duration: 578, error: null },
+      { name: "Debug Panel > shows entries after query completes", status: "pass", duration: 1100, error: null },
+      { name: "Debug Panel > accordion expands to show summary", status: "pass", duration: 1300, error: null },
+      { name: "Download > download buttons disabled before query, enabled after", status: "pass", duration: 1400, error: null },
+      { name: "Download > clicking download triggers fetch to bundle endpoint", status: "pass", duration: 1700, error: null },
+      { name: "Test Runner > displays test cases in left sidebar", status: "pass", duration: 881, error: null },
+      { name: "Test Runner > clicking run sends the test query", status: "pass", duration: 1200, error: null },
     ]
   },
 
-  // New UI functionality tests — 12/12 passed
+  // New UI functionality tests — 12/12 passed (this run)
   uiFunc: {
     status: "pass",
     tests: [
-      { name: "UI Functionality > left sidebar opens and closes", status: "pass", duration: 1400, error: null },
-      { name: "UI Functionality > right sidebar opens and closes", status: "pass", duration: 1300, error: null },
-      { name: "UI Functionality > test case list populates with mock data", status: "pass", duration: 1300, error: null },
-      { name: "UI Functionality > Run All button sends staggered queries", status: "pass", duration: 3300, error: null },
-      { name: "UI Functionality > processing stepper shows new_search mode", status: "pass", duration: 1200, error: null },
+      { name: "UI Functionality > left sidebar opens and closes", status: "pass", duration: 1200, error: null },
+      { name: "UI Functionality > right sidebar opens and closes", status: "pass", duration: 1200, error: null },
+      { name: "UI Functionality > test case list populates with mock data", status: "pass", duration: 1200, error: null },
+      { name: "UI Functionality > Run All button sends staggered queries", status: "pass", duration: 3200, error: null },
+      { name: "UI Functionality > processing stepper shows new_search mode", status: "pass", duration: 1100, error: null },
       { name: "UI Functionality > processing stepper shows reporter mode", status: "pass", duration: 1100, error: null },
-      { name: "UI Functionality > message input auto-resizes", status: "pass", duration: 880, error: null },
-      { name: "UI Functionality > message input disabled during query", status: "pass", duration: 1300, error: null },
-      { name: "UI Functionality > Shift+Enter creates newline without sending", status: "pass", duration: 1100, error: null },
-      { name: "UI Functionality > empty input cannot send", status: "pass", duration: 1900, error: null },
-      { name: "UI Functionality > auto-scrolls to bottom on new messages", status: "pass", duration: 4000, error: null },
-      { name: "UI Functionality > error message styling", status: "pass", duration: 1300, error: null },
+      { name: "UI Functionality > message input auto-resizes", status: "pass", duration: 904, error: null },
+      { name: "UI Functionality > message input disabled during query", status: "pass", duration: 1200, error: null },
+      { name: "UI Functionality > Shift+Enter creates newline without sending", status: "pass", duration: 1000, error: null },
+      { name: "UI Functionality > empty input cannot send", status: "pass", duration: 769, error: null },
+      { name: "UI Functionality > auto-scrolls to bottom on new messages", status: "pass", duration: 3900, error: null },
+      { name: "UI Functionality > error message styling", status: "pass", duration: 1200, error: null },
     ]
   },
 
-  // Real backend standalone — 13 failed (timeout after receiving reply), 2 skipped
+  // Real backend standalone — 15/15 passed (this run)
   realStandalone: {
-    status: "fail",
+    status: "pass",
     tests: [
-      { id: "tumor_patient_4", prompt: "Show me tumor data for patient 4.", status: "fail", reply: "(1219 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 47658, error: "Test timeout of 120000ms exceeded. Query completed (47.7s) but test timed out during cleanup — likely pending WebSocket connection." },
-      { id: "tumor_dfci4", prompt: "Try that search again but instead with DFCI4.", status: "skip", reply: null, agents: [], duration: null, error: "Skipped: depends on tumor_patient_4 which timed out" },
-      { id: "what_monkeys_exist", prompt: "What monkeys exist in the database?", status: "fail", reply: "(1024 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15563, error: "Test timeout of 120000ms exceeded. Query completed (15.6s) but test timed out during cleanup." },
-      { id: "monkeys_cd8_depleted", prompt: "Which of those monkeys are depleted of CD8?", status: "skip", reply: null, agents: [], duration: null, error: "Skipped: depends on what_monkeys_exist which timed out" },
-      { id: "mice_ndma", prompt: "Find me mice treated with NDMA.", status: "fail", reply: "(1143 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 17606, error: "Test timeout of 120000ms exceeded. Query completed (17.6s) but test timed out during cleanup." },
-      { id: "monkeys_flow_and_seq", prompt: "Find me monkeys that have flow and sequencing data.", status: "fail", reply: "(520 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15619, error: "Test timeout of 120000ms exceeded. Query completed (15.6s) but test timed out during cleanup." },
-      { id: "cd8_antibodies", prompt: "Find me all CD8 antibodies in the database.", status: "fail", reply: "(1114 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 13569, error: "Test timeout of 120000ms exceeded. Query completed (13.6s) but test timed out during cleanup." },
-      { id: "sample_tree", prompt: "Show me all samples derived from CEL-250319WHI-1-PUB?", status: "fail", reply: "(415 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 31612, error: "Test timeout of 120000ms exceeded. Query completed (31.6s) but test timed out during cleanup." },
-      { id: "retrieval", prompt: "Retrieve all samples associated with: NHP-220630FLY-5-PUB", status: "fail", reply: "(505 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 13570, error: "Test timeout of 120000ms exceeded. Query completed (13.6s) but test timed out during cleanup." },
-      { id: "list_assays_access", prompt: "Show me all assays I have access to.", status: "fail", reply: "(312 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 19578, error: "Test timeout of 120000ms exceeded. Query completed (19.6s) but test timed out during cleanup." },
-      { id: "omero_fibrin_images", prompt: "What fibrin images exist?", status: "fail", reply: "(1353 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15593, error: "Test timeout of 120000ms exceeded. Query completed (15.6s) but test timed out during cleanup." },
-      { id: "gpt_assay", prompt: "What GPT data exists in the database?", status: "fail", reply: "(1111 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 13560, error: "Test timeout of 120000ms exceeded. Query completed (13.6s) but test timed out during cleanup." },
-      { id: "reporter_impact", prompt: "How many samples were uploaded for impact from 2023 to 2025?", status: "fail", reply: "(476 chars received)", agents: ["entity", "parser", "chatter", "reporter"], duration: 9562, error: "Test timeout of 120000ms exceeded. Query completed (9.6s) but test timed out during cleanup." },
-      { id: "reporter_language", prompt: "How many samples were uploaded last month?", status: "fail", reply: "(510 chars received)", agents: ["entity", "parser", "chatter", "reporter"], duration: 11560, error: "Test timeout of 120000ms exceeded. Query completed (11.6s) but test timed out during cleanup." },
-      { id: "GEO", prompt: "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB", status: "fail", reply: "(317 chars received)", agents: ["entity", "parser", "reporter"], duration: 47665, error: "Test timeout of 120000ms exceeded. Query completed (47.7s) but test timed out during cleanup." },
+      { id: "tumor_patient_4", prompt: "Show me tumor data for patient 4.", status: "pass", reply: "(1172 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 39684, error: null },
+      { id: "tumor_dfci4", prompt: "Try that search again but instead with DFCI4.", status: "pass", reply: "(689 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 19559, error: null },
+      { id: "what_monkeys_exist", prompt: "What monkeys exist in the database?", status: "pass", reply: "(943 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15587, error: null },
+      { id: "monkeys_cd8_depleted", prompt: "Which of those monkeys are depleted of CD8?", status: "pass", reply: "(650 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15556, error: null },
+      { id: "mice_ndma", prompt: "Find me mice treated with NDMA.", status: "pass", reply: "(981 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15575, error: null },
+      { id: "monkeys_flow_and_seq", prompt: "Find me monkeys that have flow and sequencing data.", status: "pass", reply: "(597 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 17581, error: null },
+      { id: "cd8_antibodies", prompt: "Find me all CD8 antibodies in the database.", status: "pass", reply: "(1039 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 13556, error: null },
+      { id: "sample_tree", prompt: "Show me all samples derived from CEL-250319WHI-1-PUB?", status: "pass", reply: "(407 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 29584, error: null },
+      { id: "retrieval", prompt: "Retrieve all samples associated with: NHP-220630FLY-5-PUB", status: "pass", reply: "(560 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 13544, error: null },
+      { id: "list_assays_access", prompt: "Show me all assays I have access to.", status: "pass", reply: "(411 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 23568, error: null },
+      { id: "omero_fibrin_images", prompt: "What fibrin images exist?", status: "pass", reply: "(1247 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15557, error: null },
+      { id: "gpt_assay", prompt: "What GPT data exists in the database?", status: "pass", reply: "(1141 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 17558, error: null },
+      { id: "reporter_impact", prompt: "How many samples were uploaded for impact from 2023 to 2025?", status: "pass", reply: "(476 chars received)", agents: ["entity", "parser", "chatter", "reporter"], duration: 9534, error: null },
+      { id: "reporter_language", prompt: "How many samples were uploaded last month?", status: "pass", reply: "(348 chars received)", agents: ["entity", "parser", "chatter", "reporter"], duration: 11545, error: null },
+      { id: "GEO", prompt: "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB", status: "pass", reply: "(524 chars received)", agents: ["entity", "parser", "reporter"], duration: 61662, error: null },
     ]
   },
 
-  // Real backend embedded — 13 failed (EasyUI tab selector not found), 2 skipped
+  // Real backend embedded — 15/15 passed (this run)
   realEmbedded: {
-    status: "fail",
+    status: "pass",
     tests: [
-      { id: "tumor_patient_4", prompt: "Show me tumor data for patient 4.", status: "fail", reply: null, agents: [], duration: null, error: "beforeAll hook timeout: locator('.tabs-title:has-text(\"Assistant\")') not found. EasyUI tab selector mismatch — needs investigation of actual DOM structure." },
-      { id: "tumor_dfci4", prompt: "Try that search again but instead with DFCI4.", status: "skip", reply: null, agents: [], duration: null, error: "Skipped: depends on tumor_patient_4 which failed in beforeAll" },
-      { id: "what_monkeys_exist", prompt: "What monkeys exist in the database?", status: "fail", reply: null, agents: [], duration: null, error: "beforeAll hook timeout: locator('.tabs-title:has-text(\"Assistant\")') not found." },
-      { id: "monkeys_cd8_depleted", prompt: "Which of those monkeys are depleted of CD8?", status: "skip", reply: null, agents: [], duration: null, error: "Skipped: depends on what_monkeys_exist which failed in beforeAll" },
-      { id: "mice_ndma", prompt: "Find me mice treated with NDMA.", status: "fail", reply: null, agents: [], duration: null, error: "beforeEach timeout: locator('.tabs-title:has-text(\"Assistant\")') not found." },
-      { id: "monkeys_flow_and_seq", prompt: "Find me monkeys that have flow and sequencing data.", status: "fail", reply: null, agents: [], duration: null, error: "beforeEach timeout: locator('.tabs-title:has-text(\"Assistant\")') not found." },
-      { id: "cd8_antibodies", prompt: "Find me all CD8 antibodies in the database.", status: "fail", reply: null, agents: [], duration: null, error: "beforeEach timeout: locator('.tabs-title:has-text(\"Assistant\")') not found." },
-      { id: "sample_tree", prompt: "Show me all samples derived from CEL-250319WHI-1-PUB?", status: "fail", reply: null, agents: [], duration: null, error: "beforeEach timeout: locator('.tabs-title:has-text(\"Assistant\")') not found." },
-      { id: "retrieval", prompt: "Retrieve all samples associated with: NHP-220630FLY-5-PUB", status: "fail", reply: null, agents: [], duration: null, error: "beforeEach timeout: locator('.tabs-title:has-text(\"Assistant\")') not found." },
-      { id: "list_assays_access", prompt: "Show me all assays I have access to.", status: "fail", reply: null, agents: [], duration: null, error: "beforeEach timeout: locator('.tabs-title:has-text(\"Assistant\")') not found." },
-      { id: "omero_fibrin_images", prompt: "What fibrin images exist?", status: "fail", reply: null, agents: [], duration: null, error: "beforeEach timeout: locator('.tabs-title:has-text(\"Assistant\")') not found." },
-      { id: "gpt_assay", prompt: "What GPT data exists in the database?", status: "fail", reply: null, agents: [], duration: null, error: "beforeEach timeout: locator('.tabs-title:has-text(\"Assistant\")') not found." },
-      { id: "reporter_impact", prompt: "How many samples were uploaded for impact from 2023 to 2025?", status: "fail", reply: null, agents: [], duration: null, error: "beforeEach timeout: locator('.tabs-title:has-text(\"Assistant\")') not found." },
-      { id: "reporter_language", prompt: "How many samples were uploaded last month?", status: "fail", reply: null, agents: [], duration: null, error: "beforeEach timeout: locator('.tabs-title:has-text(\"Assistant\")') not found." },
-      { id: "GEO", prompt: "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB", status: "fail", reply: null, agents: [], duration: null, error: "beforeEach timeout: locator('.tabs-title:has-text(\"Assistant\")') not found." },
+      { id: "tumor_patient_4", prompt: "Show me tumor data for patient 4.", status: "pass", reply: "(1078 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 43660, error: null },
+      { id: "tumor_dfci4", prompt: "Try that search again but instead with DFCI4.", status: "pass", reply: "(480 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 9572, error: null },
+      { id: "what_monkeys_exist", prompt: "What monkeys exist in the database?", status: "pass", reply: "(972 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15582, error: null },
+      { id: "monkeys_cd8_depleted", prompt: "Which of those monkeys are depleted of CD8?", status: "pass", reply: "(193 chars received)", agents: ["entity", "parser"], duration: 7539, error: null },
+      { id: "mice_ndma", prompt: "Find me mice treated with NDMA.", status: "pass", reply: "(1062 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15590, error: null },
+      { id: "monkeys_flow_and_seq", prompt: "Find me monkeys that have flow and sequencing data.", status: "pass", reply: "(560 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15579, error: null },
+      { id: "cd8_antibodies", prompt: "Find me all CD8 antibodies in the database.", status: "pass", reply: "(1007 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 13556, error: null },
+      { id: "sample_tree", prompt: "Show me all samples derived from CEL-250319WHI-1-PUB?", status: "pass", reply: "(379 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 31589, error: null },
+      { id: "retrieval", prompt: "Retrieve all samples associated with: NHP-220630FLY-5-PUB", status: "pass", reply: "(573 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15558, error: null },
+      { id: "list_assays_access", prompt: "Show me all assays I have access to.", status: "pass", reply: "(342 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 19561, error: null },
+      { id: "omero_fibrin_images", prompt: "What fibrin images exist?", status: "pass", reply: "(1353 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 13497, error: null },
+      { id: "gpt_assay", prompt: "What GPT data exists in the database?", status: "pass", reply: "(587 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 57638, error: null },
+      { id: "reporter_impact", prompt: "How many samples were uploaded for impact from 2023 to 2025?", status: "pass", reply: "(476 chars received)", agents: ["entity", "parser", "chatter", "reporter"], duration: 13556, error: null },
+      { id: "reporter_language", prompt: "How many samples were uploaded last month?", status: "pass", reply: "(422 chars received)", agents: ["entity", "parser", "chatter", "reporter"], duration: 13550, error: null },
+      { id: "GEO", prompt: "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB", status: "pass", reply: "(584 chars received)", agents: ["entity", "parser", "reporter"], duration: 37589, error: null },
     ]
   }
 };
