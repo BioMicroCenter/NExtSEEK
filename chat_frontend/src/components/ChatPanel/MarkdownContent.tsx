@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkUidLinks from "@/lib/remark-uid-links";
 import rehypeHighlight from "rehype-highlight";
 
 interface MarkdownContentProps {
@@ -9,7 +10,7 @@ interface MarkdownContentProps {
 export function MarkdownContent({ content }: MarkdownContentProps) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkUidLinks]}
       rehypePlugins={[rehypeHighlight]}
       components={{
         p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,

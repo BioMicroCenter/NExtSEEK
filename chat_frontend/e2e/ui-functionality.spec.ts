@@ -293,4 +293,34 @@ test.describe("UI Functionality", () => {
     });
     expect(isItalic).toBe(true);
   });
+
+  // --- 13. UID linkification in assistant responses ---
+  test("UIDs in assistant response become clickable links", async ({ page }) => {
+    const mock = await setupMocks(page);
+    await page.goto("/");
+    await page.waitForSelector('text="NExtSEEK Chat"', { timeout: 10_000 });
+    await delay(200);
+
+    const input = page.getByPlaceholder("Ask NExtSEEK a question...");
+    await input.fill("find mice");
+    await input.press("Enter");
+    await delay(300);
+
+    mock.simulateAgentStarted("entity", "");
+    mock.simulateAgentComplete("entity", "test");
+    mock.simulateQueryComplete(
+      "Found 2 samples: NHP-220630FLY-1-PUB and D.IMG-230324BOO-39-PUB.",
+      1,
+    );
+    await delay(300);
+
+    const link1 = page.locator('a[href="/seek/sampletree/uid=NHP-220630FLY-1-PUB/"]');
+    const link2 = page.locator('a[href="/seek/sampletree/uid=D.IMG-230324BOO-39-PUB/"]');
+
+    await expect(link1).toBeVisible();
+    await expect(link2).toBeVisible();
+    await expect(link1).toHaveText("NHP-220630FLY-1-PUB");
+    await expect(link2).toHaveText("D.IMG-230324BOO-39-PUB");
+    await expect(link1).toHaveAttribute("target", "_blank");
+  });
 });
