@@ -28,12 +28,28 @@ export default defineConfig({
     ...(useRealBackend
       ? [
           {
-            name: "real",
+            name: "real-standalone",
             testDir: "./e2e/real-backend",
-            use: { ...devices["Desktop Chrome"] },
+            testMatch: "test-case-1-standalone.spec.ts",
+            use: {
+              ...devices["Desktop Chrome"],
+              baseURL: "http://localhost:5173",
+            },
+            timeout: 120_000,
+          },
+          {
+            name: "real-embedded",
+            testDir: "./e2e/real-backend",
+            testMatch: "test-case-1-embedded.spec.ts",
+            use: {
+              ...devices["Desktop Chrome"],
+              baseURL: "https://nextseek-dev.mit.edu",
+              ignoreHTTPSErrors: true,
+            },
+            timeout: 120_000,
           },
         ]
       : []),
   ],
-  webServer: frontendServer,
+  webServer: useRealBackend ? frontendServer : frontendServer,
 });

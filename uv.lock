@@ -309,7 +309,7 @@ wheels = [
 [[package]]
 name = "chat-nextseek"
 version = "0.1.0"
-source = { git = "ssh://github.com/cdemurjian/chat_nextseek#436ff2797cb2195ea89a5592f0e26f2a179f866b" }
+source = { git = "ssh://github.com/cdemurjian/chat_nextseek#658bb9c8891ceafeedd6ea94ef47349959b39ad0" }
 dependencies = [
     { name = "anthropic" },
     { name = "google-genai" },
