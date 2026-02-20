@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { setupMocks, delay } from "./fixtures/ws-mock";
 
-test.describe("Debug Panel", () => {
+test.describe.skip("Debug Panel — removed in feature/chat-ui-styling", () => {
   test("shows empty state initially", async ({ page }) => {
     await setupMocks(page);
     await page.goto("/");

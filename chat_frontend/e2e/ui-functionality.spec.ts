@@ -25,31 +25,6 @@ test.describe("UI Functionality", () => {
   });
 
   // --- 2. Right sidebar opens/closes ---
-  test("right sidebar opens and closes", async ({ page }) => {
-    await setupMocks(page);
-    await page.goto("/");
-    await page.waitForSelector('text="NExtSEEK Chat"', { timeout: 10_000 });
-    await delay(200);
-
-    // Open right sidebar
-    await page.getByLabel("Toggle debug panel").click();
-    await delay(300);
-
-    // Should see placeholder text
-    await expect(
-      page.getByText("Send a query to see debug output"),
-    ).toBeVisible();
-
-    // Close by pressing Escape
-    await page.keyboard.press("Escape");
-    await delay(300);
-
-    // Placeholder should no longer be visible
-    await expect(
-      page.getByText("Send a query to see debug output"),
-    ).not.toBeVisible();
-  });
-
   // --- 3. Test case list populates ---
   test("test case list populates with mock data", async ({ page }) => {
     await setupMocks(page);
