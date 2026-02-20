@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useMessages, useProcessingState, useChatApi } from "@/hooks";
 import { ChatPanel } from "@/components/ChatPanel";
-import { HeaderBar, LeftSidebar, RightSidebar } from "@/components/Layout";
+import { HeaderBar, LeftSidebar } from "@/components/Layout";
 import type {
   ProgressEvent,
   AgentStartedData,
@@ -10,7 +10,6 @@ import type {
   QueryErrorData,
   TestCase,
 } from "@/lib/types/api";
-import type { DebugData } from "@/lib/types/chat";
 
 interface AppLayoutProps {
   credentialError: string | null;
@@ -18,13 +17,7 @@ interface AppLayoutProps {
 
 export function AppLayout({ credentialError }: AppLayoutProps) {
   const [leftOpen, setLeftOpen] = useState(false);
-  const [rightOpen, setRightOpen] = useState(false);
   const [testCases, setTestCases] = useState<TestCase[]>([]);
-  const [debugData, setDebugData] = useState<DebugData>({
-    entries: [],
-    bundleId: null,
-    query: "",
-  });
 
   const { messages, addUserMessage, addAssistantMessage, addSystemMessage } =
     useMessages();
@@ -37,10 +30,8 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
 
   const {
     isQuerying,
-    sessionId,
     submitQuery,
     fetchTestCases,
-    downloadBundle,
   } = useChatApi();
 
   // Show credential error as system message
@@ -68,23 +59,12 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
         case "agent_complete": {
           const d = event.data as AgentCompleteData;
           handleAgentComplete(d.agent);
-          setDebugData((prev) => ({
-            ...prev,
-            entries: [
-              ...prev.entries,
-              { agent: d.agent, summary: typeof d.summary === "string" ? d.summary : JSON.stringify(d.summary ?? "", null, 2), timestamp: new Date() },
-            ],
-          }));
           break;
         }
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
           resetProcessing();
-          setDebugData((prev) => ({
-            ...prev,
-            bundleId: d.bundle_id,
-          }));
           break;
         }
         case "query_error": {
@@ -109,19 +89,9 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
   const handleSendMessage = useCallback(
     (text: string) => {
       addUserMessage(text);
-      setDebugData({ entries: [], bundleId: null, query: text });
       submitQuery(text, handleProgress, handleQueryError);
     },
     [addUserMessage, submitQuery, handleProgress, handleQueryError],
-  );
-
-  const handleDownload = useCallback(
-    (format: string) => {
-      if (sessionId && debugData.bundleId) {
-        downloadBundle(sessionId, debugData.bundleId, format);
-      }
-    },
-    [sessionId, debugData.bundleId, downloadBundle],
   );
 
   const isDisabled = !!credentialError || isQuerying;
@@ -130,9 +100,6 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
     <div className="flex h-screen flex-col bg-background text-foreground">
       <HeaderBar
         onLeftToggle={() => setLeftOpen(!leftOpen)}
-        onRightToggle={() => setRightOpen(!rightOpen)}
-        isLeftOpen={leftOpen}
-        isRightOpen={rightOpen}
       />
       <div className="flex flex-1 overflow-hidden">
         <ChatPanel
@@ -152,12 +119,6 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
             setTimeout(() => handleSendMessage(tc.prompt), i * 500);
           });
         }}
-      />
-      <RightSidebar
-        isOpen={rightOpen}
-        onOpenChange={setRightOpen}
-        debugData={debugData}
-        onDownload={handleDownload}
       />
     </div>
   );

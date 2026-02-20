@@ -3,7 +3,7 @@ import { useMessages, useProcessingState } from "@/hooks";
 import { NextseekApiService } from "@/lib/services/chatApi";
 import { SessionAuthService } from "@/lib/services/sessionAuth";
 import { ChatPanel } from "@/components/ChatPanel";
-import { CompactToolbar, LeftSidebar, RightSidebar } from "@/components/Layout";
+import { CompactToolbar, LeftSidebar } from "@/components/Layout";
 import type {
   ProgressEvent,
   AgentStartedData,
@@ -12,23 +12,15 @@ import type {
   QueryErrorData,
   TestCase,
 } from "@/lib/types/api";
-import type { DebugData } from "@/lib/types/chat";
 
 export function EmbeddedApp() {
   const [leftOpen, setLeftOpen] = useState(false);
-  const [rightOpen, setRightOpen] = useState(false);
   const [testCases, setTestCases] = useState<TestCase[]>([]);
-  const [debugData, setDebugData] = useState<DebugData>({
-    entries: [],
-    bundleId: null,
-    query: "",
-  });
 
   const serviceRef = useRef(
     new NextseekApiService(new SessionAuthService()),
   );
   const [isQuerying, setIsQuerying] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const { messages, addUserMessage, addAssistantMessage, addSystemMessage } =
     useMessages();
@@ -55,30 +47,12 @@ export function EmbeddedApp() {
         case "agent_complete": {
           const d = event.data as AgentCompleteData;
           handleAgentComplete(d.agent);
-          setDebugData((prev) => ({
-            ...prev,
-            entries: [
-              ...prev.entries,
-              {
-                agent: d.agent,
-                summary:
-                  typeof d.summary === "string"
-                    ? d.summary
-                    : JSON.stringify(d.summary ?? "", null, 2),
-                timestamp: new Date(),
-              },
-            ],
-          }));
           break;
         }
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
           resetProcessing();
-          setDebugData((prev) => ({
-            ...prev,
-            bundleId: d.bundle_id,
-          }));
           break;
         }
         case "query_error": {
@@ -103,33 +77,21 @@ export function EmbeddedApp() {
   const handleSendMessage = useCallback(
     (text: string) => {
       addUserMessage(text);
-      setDebugData({ entries: [], bundleId: null, query: text });
       setIsQuerying(true);
 
       serviceRef.current
         .submitQuery(text, handleProgress, handleQueryError)
         .finally(() => {
-          setSessionId(serviceRef.current.sessionId);
           setIsQuerying(false);
         });
     },
     [addUserMessage, handleProgress, handleQueryError],
   );
 
-  const handleDownload = useCallback(
-    (format: string) => {
-      if (sessionId && debugData.bundleId) {
-        serviceRef.current.downloadBundle(sessionId, debugData.bundleId, format);
-      }
-    },
-    [sessionId, debugData.bundleId],
-  );
-
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
       <CompactToolbar
         onLeftToggle={() => setLeftOpen(!leftOpen)}
-        onRightToggle={() => setRightOpen(!rightOpen)}
       />
       <div className="flex flex-1 overflow-hidden">
         <ChatPanel
@@ -149,12 +111,6 @@ export function EmbeddedApp() {
             setTimeout(() => handleSendMessage(tc.prompt), i * 500);
           });
         }}
-      />
-      <RightSidebar
-        isOpen={rightOpen}
-        onOpenChange={setRightOpen}
-        debugData={debugData}
-        onDownload={handleDownload}
       />
     </div>
   );

@@ -17,40 +17,27 @@ describe("HeaderBar", () => {
     render(
       <HeaderBar
         onLeftToggle={vi.fn()}
-        onRightToggle={vi.fn()}
-        isLeftOpen={false}
-        isRightOpen={false}
       />,
     );
     expect(screen.getByText("NExtSEEK Chat")).toBeInTheDocument();
   });
 
-  it("calls onLeftToggle and onRightToggle when buttons clicked", () => {
+  it("calls onLeftToggle when Tests button clicked", () => {
     const onLeft = vi.fn();
-    const onRight = vi.fn();
     render(
       <HeaderBar
         onLeftToggle={onLeft}
-        onRightToggle={onRight}
-        isLeftOpen={false}
-        isRightOpen={false}
       />,
     );
 
     fireEvent.click(screen.getByLabelText("Toggle tests panel"));
     expect(onLeft).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByLabelText("Toggle debug panel"));
-    expect(onRight).toHaveBeenCalledTimes(1);
   });
 
   it("toggles dark mode class on click", () => {
     render(
       <HeaderBar
         onLeftToggle={vi.fn()}
-        onRightToggle={vi.fn()}
-        isLeftOpen={false}
-        isRightOpen={false}
       />,
     );
 
