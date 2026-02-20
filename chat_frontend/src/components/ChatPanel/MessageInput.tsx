@@ -32,7 +32,7 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
       <div className="flex items-end gap-2">
         <textarea
           ref={textareaRef}
-          className="flex-1 resize-none rounded-lg border bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex-1 resize-none rounded-lg border bg-transparent px-3 py-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           placeholder="Ask NExtSEEK a question..."
           value={value}
           onChange={(e) => {

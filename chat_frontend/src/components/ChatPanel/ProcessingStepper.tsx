@@ -49,7 +49,7 @@ export function ProcessingStepper({ steps }: ProcessingStepperProps) {
               )}
               <div
                 className={cn(
-                  "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs transition-colors",
+                  "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm transition-colors",
                   step.status === "pending" &&
                     "text-muted-foreground/50",
                   step.status === "active" &&
@@ -62,11 +62,11 @@ export function ProcessingStepper({ steps }: ProcessingStepperProps) {
                 title={step.label}
               >
                 {step.status === "active" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : step.status === "complete" ? (
-                  <Check className="h-3.5 w-3.5" />
+                  <Check className="h-4 w-4" />
                 ) : (
-                  <Icon className="h-3.5 w-3.5" />
+                  <Icon className="h-4 w-4" />
                 )}
                 <span className="hidden sm:inline">{step.label}</span>
               </div>

@@ -38,13 +38,13 @@ export function HeaderBar({
         onClick={onLeftToggle}
         aria-label="Toggle tests panel"
       >
-        <PanelLeftOpen className="h-4 w-4" />
-        <span className="ml-1 hidden sm:inline text-xs">Tests</span>
+        <PanelLeftOpen className="h-5 w-5" />
+        <span className="ml-1 hidden sm:inline text-base">Tests</span>
       </Button>
 
       <div className="flex flex-1 items-center justify-center gap-2">
-        <Database className="h-4 w-4 text-primary" />
-        <span className="text-sm font-semibold">NExtSEEK Chat</span>
+        <Database className="h-5 w-5 text-primary" />
+        <span className="text-lg font-semibold">NExtSEEK Chat</span>
       </div>
 
       <div className="flex items-center gap-1">
@@ -54,7 +54,7 @@ export function HeaderBar({
           onClick={toggleTheme}
           aria-label="Toggle dark mode"
         >
-          {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>
         <Button
           variant="ghost"
@@ -62,8 +62,8 @@ export function HeaderBar({
           onClick={onRightToggle}
           aria-label="Toggle debug panel"
         >
-          <span className="mr-1 hidden sm:inline text-xs">Debug</span>
-          <PanelRightOpen className="h-4 w-4" />
+          <span className="mr-1 hidden sm:inline text-base">Debug</span>
+          <PanelRightOpen className="h-5 w-5" />
         </Button>
       </div>
     </header>

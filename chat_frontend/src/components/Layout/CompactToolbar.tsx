@@ -18,8 +18,8 @@ export function CompactToolbar({
         onClick={onLeftToggle}
         aria-label="Toggle tests panel"
       >
-        <PanelLeftOpen className="h-4 w-4" />
-        <span className="ml-1 text-xs">Tests</span>
+        <PanelLeftOpen className="h-5 w-5" />
+        <span className="ml-1 text-base">Tests</span>
       </Button>
 
       <Button
@@ -28,8 +28,8 @@ export function CompactToolbar({
         onClick={onRightToggle}
         aria-label="Toggle debug panel"
       >
-        <span className="mr-1 text-xs">Debug</span>
-        <PanelRightOpen className="h-4 w-4" />
+        <span className="mr-1 text-base">Debug</span>
+        <PanelRightOpen className="h-5 w-5" />
       </Button>
     </div>
   );
