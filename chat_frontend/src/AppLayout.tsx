@@ -1,23 +1,27 @@
 import { useState, useCallback, useEffect } from "react";
 import { useMessages, useProcessingState, useChatApi } from "@/hooks";
 import { ChatPanel } from "@/components/ChatPanel";
-import { HeaderBar, LeftSidebar } from "@/components/Layout";
+import { HeaderBar, RightSidebar } from "@/components/Layout";
 import type {
   ProgressEvent,
   AgentStartedData,
   AgentCompleteData,
   QueryCompleteData,
   QueryErrorData,
-  TestCase,
 } from "@/lib/types/api";
+import type { DebugData } from "@/lib/types/chat";
 
 interface AppLayoutProps {
   credentialError: string | null;
 }
 
 export function AppLayout({ credentialError }: AppLayoutProps) {
-  const [leftOpen, setLeftOpen] = useState(false);
-  const [testCases, setTestCases] = useState<TestCase[]>([]);
+  const [rightOpen, setRightOpen] = useState(false);
+  const [debugData, setDebugData] = useState<DebugData>({
+    entries: [],
+    bundleId: null,
+    query: "",
+  });
 
   const { messages, addUserMessage, addAssistantMessage, addSystemMessage } =
     useMessages();
@@ -30,8 +34,9 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
 
   const {
     isQuerying,
+    sessionId,
     submitQuery,
-    fetchTestCases,
+    downloadBundle,
   } = useChatApi();
 
   // Show credential error as system message
@@ -40,13 +45,6 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
       addSystemMessage(credentialError);
     }
   }, [credentialError, addSystemMessage]);
-
-  // Fetch test cases on mount
-  useEffect(() => {
-    if (!credentialError) {
-      fetchTestCases().then(setTestCases).catch(() => {});
-    }
-  }, [credentialError, fetchTestCases]);
 
   const handleProgress = useCallback(
     (event: ProgressEvent) => {
@@ -59,12 +57,23 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
         case "agent_complete": {
           const d = event.data as AgentCompleteData;
           handleAgentComplete(d.agent);
+          setDebugData((prev) => ({
+            ...prev,
+            entries: [
+              ...prev.entries,
+              { agent: d.agent, summary: typeof d.summary === "string" ? d.summary : JSON.stringify(d.summary ?? "", null, 2), timestamp: new Date() },
+            ],
+          }));
           break;
         }
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
           resetProcessing();
+          setDebugData((prev) => ({
+            ...prev,
+            bundleId: d.bundle_id,
+          }));
           break;
         }
         case "query_error": {
@@ -89,9 +98,19 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
   const handleSendMessage = useCallback(
     (text: string) => {
       addUserMessage(text);
+      setDebugData({ entries: [], bundleId: null, query: text });
       submitQuery(text, handleProgress, handleQueryError);
     },
     [addUserMessage, submitQuery, handleProgress, handleQueryError],
+  );
+
+  const handleDownload = useCallback(
+    (format: string) => {
+      if (sessionId && debugData.bundleId) {
+        downloadBundle(sessionId, debugData.bundleId, format);
+      }
+    },
+    [sessionId, debugData.bundleId, downloadBundle],
   );
 
   const isDisabled = !!credentialError || isQuerying;
@@ -99,7 +118,7 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <HeaderBar
-        onLeftToggle={() => setLeftOpen(!leftOpen)}
+        onRightToggle={() => setRightOpen(!rightOpen)}
       />
       <div className="flex flex-1 overflow-hidden">
         <ChatPanel
@@ -109,16 +128,11 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
           onSendMessage={handleSendMessage}
         />
       </div>
-      <LeftSidebar
-        isOpen={leftOpen}
-        onOpenChange={setLeftOpen}
-        testCases={testCases}
-        onRunTest={(tc) => handleSendMessage(tc.prompt)}
-        onRunAllTests={() => {
-          testCases.forEach((tc, i) => {
-            setTimeout(() => handleSendMessage(tc.prompt), i * 500);
-          });
-        }}
+      <RightSidebar
+        isOpen={rightOpen}
+        onOpenChange={setRightOpen}
+        debugData={debugData}
+        onDownload={handleDownload}
       />
     </div>
   );

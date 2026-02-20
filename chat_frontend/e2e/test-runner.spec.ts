@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { setupMocks, delay } from "./fixtures/ws-mock";
 
-test.describe("Test Runner", () => {
+test.describe.skip("Test Runner — left sidebar removed in feature/chat-ui-styling", () => {
   test("displays test cases in left sidebar", async ({ page }) => {
     await setupMocks(page);
     await page.goto("/");

@@ -2,66 +2,33 @@ import { test, expect } from "@playwright/test";
 import { setupMocks, delay } from "./fixtures/ws-mock";
 
 test.describe("UI Functionality", () => {
-  // --- 1. Left sidebar opens/closes ---
-  test("left sidebar opens and closes", async ({ page }) => {
+  // --- 1. Right sidebar (debug panel) opens and closes ---
+  test("right sidebar opens and closes", async ({ page }) => {
     await setupMocks(page);
     await page.goto("/");
     await page.waitForSelector('text="NExtSEEK Chat"', { timeout: 10_000 });
     await delay(200);
 
-    // Open left sidebar
-    await page.getByLabel("Toggle tests panel").click();
+    // Open right sidebar
+    await page.getByLabel("Toggle debug panel").click();
     await delay(300);
 
-    // Should see test case content
-    await expect(page.getByText("mice_ndma")).toBeVisible();
+    // Should see debug panel content
+    await expect(
+      page.getByText("Send a query to see debug output"),
+    ).toBeVisible();
 
     // Close by pressing Escape
     await page.keyboard.press("Escape");
     await delay(300);
 
     // Content should no longer be visible
-    await expect(page.getByText("mice_ndma")).not.toBeVisible();
+    await expect(
+      page.getByText("Send a query to see debug output"),
+    ).not.toBeVisible();
   });
 
-  // --- 2. Right sidebar opens/closes ---
-  // --- 3. Test case list populates ---
-  test("test case list populates with mock data", async ({ page }) => {
-    await setupMocks(page);
-    await page.goto("/");
-    await page.waitForSelector('text="NExtSEEK Chat"', { timeout: 10_000 });
-    await delay(500);
-
-    // Open left sidebar
-    await page.getByLabel("Toggle tests panel").click();
-    await delay(300);
-
-    // Both mock test cases should be visible
-    await expect(page.getByText("mice_ndma")).toBeVisible();
-    await expect(page.getByText("cd8_antibodies")).toBeVisible();
-  });
-
-  // --- 4. Run All button sends staggered queries ---
-  test("Run All button sends staggered queries", async ({ page }) => {
-    await setupMocks(page);
-    await page.goto("/");
-    await page.waitForSelector('text="NExtSEEK Chat"', { timeout: 10_000 });
-    await delay(500);
-
-    // Open left sidebar
-    await page.getByLabel("Toggle tests panel").click();
-    await delay(300);
-
-    // Click Run All
-    await page.getByRole("button", { name: "Run All" }).click();
-    await delay(2000); // Allow staggered queries to fire
-
-    // At least 2 user message bubbles should appear (mock has 2 test cases)
-    const userBubbles = page.locator(".rounded-2xl.rounded-br-sm");
-    await expect(userBubbles).toHaveCount(2, { timeout: 5_000 });
-  });
-
-  // --- 5. Processing stepper shows correct agents for new_search mode ---
+  // --- 2. Processing stepper shows correct agents for new_search mode ---
   test("processing stepper shows correct agents for new_search mode", async ({
     page,
   }) => {
