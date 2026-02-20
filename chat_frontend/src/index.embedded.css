@@ -125,3 +125,19 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 }
+
+/* Responsive font sizes for embedded mode (same clamp values as standalone).
+   Scoped to #chat-assistant-root so host page fonts are unaffected.
+   Using px (not rem) normalizes against the host page's base font-size. */
+#chat-assistant-root {
+  --text-xs: clamp(12px, calc(8px + 0.39vw), 16px);
+  --text-xs--line-height: 1.5;
+  --text-sm: clamp(14px, calc(8.67px + 0.52vw), 19px);
+  --text-sm--line-height: 1.5;
+  --text-base: clamp(16px, calc(10.67px + 0.52vw), 21px);
+  --text-base--line-height: 1.5;
+  --text-lg: clamp(18px, calc(11.33px + 0.65vw), 24px);
+  --text-lg--line-height: 1.5;
+  --text-xl: clamp(20px, calc(13.33px + 0.65vw), 26px);
+  --text-xl--line-height: 1.4;
+}
