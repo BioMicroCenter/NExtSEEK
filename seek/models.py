@@ -103,6 +103,15 @@ class Sample_tree(models.Model):
     class Meta:
         db_table = "seek_sample_tree"
 
+class Session_state(models.Model):
+    session_id = models.CharField(max_length=255, null=False)
+    key = models.CharField(max_length=255, null=False)
+    value = models.TextField()
+    
+    class Meta:
+        db_table = "session_state"
+        unique_together = ("session_id", "key")
+
 class Assays(models.Model):
     _DATABASE = SEEK_DATABASE
 
