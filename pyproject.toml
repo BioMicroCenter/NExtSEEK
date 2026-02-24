@@ -72,7 +72,7 @@ dependencies = [
   "pandas",
   "parse",
   "pathlib",
-  "polars",
+  "polars[calamine]",
   "pillow",
   "psutil",
   "pydantic",
@@ -119,7 +119,6 @@ dependencies = [
   "pytest-django",
   "channels>=4.3.2",
   "daphne>=4.2.1",
-  "fastexcel>=0.19.0",
 ]
 
 [tool.uv.sources]
