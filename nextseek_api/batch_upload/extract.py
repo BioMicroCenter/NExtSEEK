@@ -39,6 +39,8 @@ _OPTIONAL_COLUMNS = {
     "study_id",
     "sop_id",
     "assay_titles",
+    "mapped_assay_ids",
+    "mapped_study_id",
 }
 
 # Aliases that are accepted and/or mapped by _COLUMN_MAP.
@@ -117,20 +119,31 @@ def stream_rows(xlsx_path: str, limit: Optional[int] = None) -> Tuple[List[str],
         return unknown_columns, _iter_fast()
     except ValidationError as e:
         log.info("EXTRACT: fast path failed, entering error recovery")
+        validation_error = e
 
-    # 7. Error recovery path
-    failed_indices = _extract_failed_indices(e)
-    error_messages = _extract_error_messages(e)
+    # 7. Error recovery path: identify failed rows, bulk re-validate the rest
+    failed_indices = _extract_failed_indices(validation_error)
+    error_messages = _extract_error_messages(validation_error)
+
+    # Filter out failed rows and bulk re-validate valid ones
+    valid_prepared = [row for idx, row in enumerate(prepared) if idx not in failed_indices]
+    valid_original_indices = [idx for idx in range(len(prepared)) if idx not in failed_indices]
+
+    validated_models: List[InputRowModel] = []
+    if valid_prepared:
+        # Re-validate valid rows in bulk — runs all validators (coercion, normalization)
+        validated_models = _input_row_adapter.validate_python(valid_prepared)
+
+    # Build index -> validated model lookup
+    validated_by_original_idx = dict(zip(valid_original_indices, validated_models))
 
     def _iter_recovery() -> Iterator[StreamResult]:
-        for idx, row_dict in enumerate(prepared):
+        for idx in range(len(prepared)):
             if idx in failed_indices:
-                msgs = error_messages.get(idx, [str(e)])
+                msgs = error_messages.get(idx, [str(validation_error)])
                 yield StreamResult(row_index=idx, data=None, errors=msgs)
             else:
-                # model_construct skips re-validation for known-valid rows
-                model = InputRowModel.model_construct(**row_dict)
-                yield StreamResult(row_index=idx, data=model, errors=[])
+                yield StreamResult(row_index=idx, data=validated_by_original_idx[idx], errors=[])
 
     elapsed = time.perf_counter() - t0
     log.info(
