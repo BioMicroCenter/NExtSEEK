@@ -6,6 +6,7 @@ from nextseek_api.batch_upload.insert import (
     _estimate_row_payload_bytes,
     _plan_next_batch,
 )
+from nextseek_api.batch_upload.insert_strategies import compute_first_letter
 from nextseek_api.batch_upload.models import InsertableSample
 
 
@@ -88,3 +89,22 @@ class TestPlanNextBatch:
         batch, next_idx, _ = _plan_next_batch([], 0, 10, 999_999)
         assert len(batch) == 0
         assert next_idx == 0
+
+
+class TestComputeFirstLetter:
+    def test_from_uuid(self):
+        """first_letter should be computed from UUID (first char uppercase)."""
+        assert compute_first_letter("A.ADCD-250312ALT-1-TEST") == "A"
+
+    def test_from_uuid_lowercase(self):
+        assert compute_first_letter("nhp-test") == "N"
+
+    def test_empty_returns_empty(self):
+        """Empty input returns empty string (not '?')."""
+        assert compute_first_letter("") == ""
+
+    def test_none_returns_empty(self):
+        assert compute_first_letter(None) == ""
+
+    def test_whitespace_returns_empty(self):
+        assert compute_first_letter("   ") == ""

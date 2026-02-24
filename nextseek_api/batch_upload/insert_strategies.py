@@ -105,8 +105,11 @@ def insert_samples_fallback_select(
     return [(r[0], r[1]) for r in rows]
 
 
-def compute_first_letter(title: str) -> str:
-    """Return first character uppercase, default '?'."""
-    if title and title.strip():
-        return title.strip()[0].upper()
-    return "?"
+def compute_first_letter(uid: str) -> str:
+    """Return first character uppercase, default empty string."""
+    if not uid:
+        return ""
+    s = str(uid).strip()
+    if not s:
+        return ""
+    return s[:1].upper()

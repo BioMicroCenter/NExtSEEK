@@ -10,6 +10,9 @@ from sqlalchemy.engine import Connection
 
 log = logging.getLogger(__name__)
 
+# (assay_id, asset_id, asset_type, direction, relationship_type_id, version)
+AssayAssetRecord = Tuple[int, int, str, int, Optional[int], Optional[int]]
+
 
 def batch_insert_projects_samples(
     project_id: int, sample_ids: List[int], conn: Connection
@@ -57,44 +60,36 @@ def batch_insert_projects_samples(
 
 
 def batch_insert_assay_assets(
-    assay_records: List[Tuple[str, int, List[int]]],
-    direction_by_pair: Dict[Tuple[str, int], int],
+    records: List[AssayAssetRecord],
     conn: Connection,
 ) -> int:
-    """Link samples to assays as assets, using DAG-computed directions.
+    """Idempotently insert into assay_assets.
 
-    assay_records: list of (uid, sample_id, assay_ids)
-    direction_by_pair: (uid, assay_id) -> 0|1
-
-    Returns count of newly inserted links.
+    Record tuple is (assay_id, asset_id, asset_type, direction, relationship_type_id, version).
+    Version is forced to 1 for all inserted rows.
+    Only inserts rows that do not already exist with the same identifying fields.
+    Returns number of new rows inserted.
     """
-    if not assay_records:
+    if not records:
         return 0
 
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Build full list of (assay_id, sample_id, uid) tuples
-    all_links: List[Tuple[int, int, str]] = []
-    for uid, sample_id, assay_ids in assay_records:
-        for aid in assay_ids:
-            all_links.append((aid, sample_id, uid))
+    # Group records by assay_id to keep IN clauses small and leverage index
+    grouped: Dict[int, List[AssayAssetRecord]] = {}
+    for rec in records:
+        grouped.setdefault(int(rec[0]), []).append(rec)
 
-    if not all_links:
-        return 0
+    inserted_total = 0
 
-    # Step 1: Find existing links (grouped by assay_id, chunked by 1000)
-    existing: Set[Tuple[int, int]] = set()  # (assay_id, sample_id)
+    for assay_id, group in grouped.items():
+        # Fetch existing rows for this assay_id
+        asset_ids = list({int(r[1]) for r in group})
+        existing_keys: Set[Tuple[int, int]] = set()  # (assay_id, asset_id)
 
-    # Group by assay_id for efficient querying
-    by_assay: Dict[int, List[int]] = {}
-    for aid, sid, _uid in all_links:
-        by_assay.setdefault(aid, []).append(sid)
-
-    for aid, sids in by_assay.items():
-        unique_sids = list(set(sids))
-        for chunk_start in range(0, len(unique_sids), 1000):
-            chunk = unique_sids[chunk_start : chunk_start + 1000]
-            params = {"aid": aid}
+        for chunk_start in range(0, len(asset_ids), 1000):
+            chunk = asset_ids[chunk_start : chunk_start + 1000]
+            params = {"aid": assay_id}
             params.update({f"sid_{i}": sid for i, sid in enumerate(chunk)})
             placeholders = ", ".join(f":sid_{i}" for i in range(len(chunk)))
             sql = text(
@@ -103,36 +98,42 @@ def batch_insert_assay_assets(
                 f"AND asset_type = 'Sample'"
             )
             rows = conn.execute(sql, params).fetchall()
-            existing.update((r[0], r[1]) for r in rows)
+            existing_keys.update((int(r[0]), int(r[1])) for r in rows)
 
-    # Step 2: Insert new links
-    new_links = [(aid, sid, uid) for aid, sid, uid in all_links if (aid, sid) not in existing]
-    if not new_links:
-        return 0
+        # Filter to new records only
+        new_records = [rec for rec in group if (int(rec[0]), int(rec[1])) not in existing_keys]
+        if not new_records:
+            continue
 
-    values_parts = []
-    params = {}
-    for i, (aid, sid, uid) in enumerate(new_links):
-        direction = direction_by_pair.get((uid, aid), 0)
-        values_parts.append(
-            f"(:aid_{i}, :sid_{i}, :ver_{i}, :cat_{i}, :cau_{i}, "
-            f":rtid_{i}, :atype_{i}, :dir_{i})"
-        )
-        params[f"aid_{i}"] = aid
-        params[f"sid_{i}"] = sid
-        params[f"ver_{i}"] = 1
-        params[f"cat_{i}"] = now
-        params[f"cau_{i}"] = now
-        params[f"rtid_{i}"] = None
-        params[f"atype_{i}"] = "Sample"
-        params[f"dir_{i}"] = direction
+        # Insert new records in chunks
+        for chunk_start in range(0, len(new_records), 1000):
+            chunk = new_records[chunk_start : chunk_start + 1000]
+            values_parts = []
+            params = {}
+            for i, rec in enumerate(chunk):
+                _assay_id, asset_id, asset_type, direction, rel_type_id, _version = rec
+                values_parts.append(
+                    f"(:aid_{i}, :sid_{i}, :ver_{i}, :cat_{i}, :cau_{i}, "
+                    f":rtid_{i}, :atype_{i}, :dir_{i})"
+                )
+                params[f"aid_{i}"] = int(_assay_id)
+                params[f"sid_{i}"] = int(asset_id)
+                params[f"ver_{i}"] = 1  # force version to 1
+                params[f"cat_{i}"] = now
+                params[f"cau_{i}"] = now
+                params[f"rtid_{i}"] = None if rel_type_id is None else int(rel_type_id)
+                params[f"atype_{i}"] = str(asset_type) if asset_type else "Sample"
+                params[f"dir_{i}"] = int(direction) if direction is not None else 0
 
-    sql = text(
-        "INSERT INTO assay_assets "
-        "(assay_id, asset_id, version, created_at, updated_at, "
-        "relationship_type_id, asset_type, direction) "
-        f"VALUES {', '.join(values_parts)}"
-    )
-    conn.execute(sql, params)
-    log.info("Created %d assay-asset links", len(new_links))
-    return len(new_links)
+            sql = text(
+                "INSERT INTO assay_assets "
+                "(assay_id, asset_id, version, created_at, updated_at, "
+                "relationship_type_id, asset_type, direction) "
+                f"VALUES {', '.join(values_parts)}"
+            )
+            conn.execute(sql, params)
+            inserted_total += len(chunk)
+
+    if inserted_total:
+        log.info("Created %d assay-asset links", inserted_total)
+    return inserted_total
