@@ -16,7 +16,9 @@ from .config import Neo4jConfig
 from .models import (
     DerivedFromRelRow,
     DirectionComputation,
+    InStudyRelRow,
     InputRowModel,
+    InsertableSample,
     Metrics,
     NodeRow,
     OfTypeRelRow,
@@ -66,6 +68,7 @@ def ensure_constraints(driver, database_name: str) -> None:
         "CREATE CONSTRAINT sample_id_unique IF NOT EXISTS FOR (s:Sample) REQUIRE s.id IS UNIQUE",
         "CREATE CONSTRAINT sample_uuid_unique IF NOT EXISTS FOR (s:Sample) REQUIRE s.uuid IS UNIQUE",
         "CREATE CONSTRAINT sample_type_title_unique IF NOT EXISTS FOR (st:SampleType) REQUIRE st.title IS UNIQUE",
+        "CREATE CONSTRAINT study_id_unique IF NOT EXISTS FOR (s:Study) REQUIRE s.id IS UNIQUE",
     ]
     for cypher in constraints:
         try:
@@ -196,6 +199,32 @@ def bulk_merge_of_type_relationships(
     return total
 
 
+def bulk_merge_in_study_relationships(
+    driver, db_name: str, in_study_rows: List[InStudyRelRow], chunk_size: int = 20_000
+) -> int:
+    """MERGE (Sample)-[:IN_STUDY]->(Study). Returns count processed."""
+    total = 0
+    cypher = """
+    UNWIND $rows AS row
+    MATCH (s:Sample {uuid: row.sample_uuid})
+    MATCH (st:Study {id: row.study_id})
+    MERGE (s)-[r:IN_STUDY]->(st)
+    RETURN count(r) AS processed
+    """
+    for i in range(0, len(in_study_rows), chunk_size):
+        chunk = in_study_rows[i : i + chunk_size]
+        rows_data = [r.model_dump() for r in chunk]
+
+        def _run(data=rows_data):
+            return driver.execute_query(cypher, {"rows": data}, database_=db_name)
+
+        result = _retry(_run)
+        if result.records:
+            total += result.records[0]["processed"]
+
+    return total
+
+
 # ── payload building ──────────────────────────────────────────────────────
 
 
@@ -210,7 +239,7 @@ def build_payloads(
     uid_to_model = {m.UID: m for m in input_models}
 
     for uid, outcome in outcomes.items():
-        if outcome.status != "success" or outcome.sample_id is None:
+        if outcome.sample_id is None:
             continue
         model = uid_to_model.get(uid)
         if not model:
@@ -232,6 +261,56 @@ def build_payloads(
         ))
 
     return node_rows, of_type_rows
+
+
+def build_in_study_payloads(
+    outcomes: Dict[str, RowOutcome],
+    input_models: List[InputRowModel],
+) -> Tuple[List[InStudyRelRow], int]:
+    """Build IN_STUDY payloads. Returns (rows, warning_count).
+
+    Includes all outcomes with sample_id (success + skipped duplicates).
+    Logs warning and increments count for rows missing study_id.
+    """
+    uid_to_model = {m.UID: m for m in input_models}
+    rows: List[InStudyRelRow] = []
+    warnings = 0
+    for uid, outcome in outcomes.items():
+        if outcome.sample_id is None:
+            continue
+        model = uid_to_model.get(uid)
+        if not model:
+            continue
+        if model.study_id is None:
+            warnings += 1
+            log.warning("IN_STUDY: skipping UID=%s — no study_id provided", uid)
+            continue
+        rows.append(InStudyRelRow(sample_uuid=uid, study_id=model.study_id))
+    return rows, warnings
+
+
+def build_of_type_payloads(
+    outcomes: Dict[str, RowOutcome],
+    insertable_samples: List[InsertableSample],
+) -> List[OfTypeRelRow]:
+    """Build OF_TYPE payloads using InsertableSample.sample_type_id.
+
+    Includes all outcomes with sample_id (success + skipped duplicates).
+    """
+    uuid_to_insertable = {s.uuid: s for s in insertable_samples}
+    rows: List[OfTypeRelRow] = []
+    for uid, outcome in outcomes.items():
+        if outcome.sample_id is None:
+            continue
+        insertable = uuid_to_insertable.get(uid)
+        if not insertable:
+            continue
+        rows.append(OfTypeRelRow(
+            sample_id=outcome.sample_id,
+            sample_uuid=uid,
+            sample_type_id=insertable.sample_type_id,
+        ))
+    return rows
 
 
 def build_derived_from_payloads_from_db(
@@ -414,9 +493,10 @@ def upload_all(
     direction_computation: DirectionComputation,
     sql_conn: Connection,
     neo4j_config: Neo4jConfig,
+    insertable_samples: Optional[List[InsertableSample]] = None,
 ) -> Metrics:
     """Full Neo4j upload: constraints -> Sample nodes -> SampleType nodes ->
-    DERIVED_FROM -> OF_TYPE.
+    DERIVED_FROM -> OF_TYPE -> IN_STUDY.
 
     Returns Metrics with all counters.
     """
@@ -463,24 +543,19 @@ def upload_all(
         st_map: Dict[str, Optional[int]] = {}
         uid_to_model = {m.UID: m for m in input_models}
         for uid, outcome in outcomes.items():
-            if outcome.status == "success":
+            if outcome.sample_id is not None:
                 model = uid_to_model.get(uid)
                 if model and model.SampleType not in st_map:
-                    st_map[model.SampleType] = None  # ID resolved later if needed
+                    st_map[model.SampleType] = None
         st_node_rows = [SampleTypeNodeRow(title=t, id=None) for t in st_map]
 
         # 5. Build OF_TYPE rows
-        of_type_rows: List[OfTypeRelRow] = []
-        for uid, outcome in outcomes.items():
-            if outcome.status == "success" and outcome.sample_id:
-                model = uid_to_model.get(uid)
-                if model:
-                    # Need sample_type_id — query from the insertable data
-                    # We approximate by looking at what was inserted
-                    pass  # OF_TYPE requires sample_type_id which we don't have here
-                    # This is handled in the orchestrator by querying the DB
+        of_type_rows = build_of_type_payloads(outcomes, insertable_samples or [])
 
-        # 6. MERGE Sample nodes
+        # 6. Build IN_STUDY rows
+        in_study_rows, in_study_warn_count = build_in_study_payloads(outcomes, input_models)
+
+        # 7. MERGE Sample nodes
         if node_rows:
             created, matched = bulk_merge_nodes(
                 driver, db_name, node_rows, neo4j_config.NEO4J_NODE_CHUNK
@@ -488,26 +563,34 @@ def upload_all(
             metrics.nodes_created = created
             metrics.nodes_matched = matched
 
-        # 7. MERGE SampleType nodes
+        # 8. MERGE SampleType nodes
         if st_node_rows:
             st_created = bulk_merge_sample_type_nodes(
                 driver, db_name, st_node_rows, neo4j_config.NEO4J_NODE_CHUNK
             )
             metrics.sample_type_nodes_created = st_created
 
-        # 8. MERGE DERIVED_FROM
+        # 9. MERGE DERIVED_FROM
         if derived_from_rows:
             df_count = bulk_merge_relationships(
                 driver, db_name, derived_from_rows, neo4j_config.NEO4J_REL_CHUNK
             )
             metrics.derived_from_rels_created = df_count
 
-        # 9. MERGE OF_TYPE (if we have rows)
+        # 10. MERGE OF_TYPE
         if of_type_rows:
             ot_count = bulk_merge_of_type_relationships(
                 driver, db_name, of_type_rows, neo4j_config.NEO4J_REL_CHUNK
             )
             metrics.of_type_rels_created = ot_count
+
+        # 11. MERGE IN_STUDY
+        if in_study_rows:
+            is_count = bulk_merge_in_study_relationships(
+                driver, db_name, in_study_rows, neo4j_config.NEO4J_REL_CHUNK
+            )
+            metrics.in_study_rels_created = is_count
+        metrics.in_study_warnings = in_study_warn_count
 
     finally:
         driver.close()

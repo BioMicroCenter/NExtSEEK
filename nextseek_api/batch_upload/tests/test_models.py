@@ -7,6 +7,7 @@ from nextseek_api.batch_upload.models import (
     BatchResult,
     ConstraintStatus,
     DerivedFromRelRow,
+    InStudyRelRow,
     InputRowModel,
     InsertableSample,
     Metrics,
@@ -298,3 +299,37 @@ class TestErrorSystem:
         ec = ErrorCollector()
         ec.add(0, "UID-1", ErrorType.DUPLICATE, "dup")
         assert ec.has_critical() is False
+
+
+# ── InStudyRelRow ────────────────────────────────────────────────────────────
+
+
+class TestInStudyRelRow:
+    def test_valid(self):
+        r = InStudyRelRow(sample_uuid="UID-1", study_id=5)
+        assert r.sample_uuid == "UID-1"
+        assert r.study_id == 5
+
+    def test_strips_uuid(self):
+        r = InStudyRelRow(sample_uuid="  UID-1  ", study_id=5)
+        assert r.sample_uuid == "UID-1"
+
+    def test_rejects_zero_study_id(self):
+        with pytest.raises(ValidationError):
+            InStudyRelRow(sample_uuid="UID-1", study_id=0)
+
+    def test_rejects_negative_study_id(self):
+        with pytest.raises(ValidationError):
+            InStudyRelRow(sample_uuid="UID-1", study_id=-1)
+
+    def test_rejects_empty_uuid(self):
+        with pytest.raises(ValidationError):
+            InStudyRelRow(sample_uuid="", study_id=5)
+
+    def test_rejects_blank_uuid(self):
+        with pytest.raises(ValidationError):
+            InStudyRelRow(sample_uuid="   ", study_id=5)
+
+    def test_forbids_extra(self):
+        with pytest.raises(ValidationError):
+            InStudyRelRow(sample_uuid="UID-1", study_id=5, extra_field="bad")

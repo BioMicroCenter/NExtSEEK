@@ -237,6 +237,7 @@ def run_batch_upload(
                     direction_computation=direction_computation,
                     sql_conn=conn,
                     neo4j_config=neo4j_config,
+                    insertable_samples=insertable_samples,
                 )
             log.info("NEO4J: %s", neo4j_metrics)
         except Exception as exc:

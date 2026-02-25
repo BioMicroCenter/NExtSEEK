@@ -328,6 +328,8 @@ class Metrics(BaseModel):
     skipped_children_missing_parents: int = 0
     derived_from_rels_created: int = 0
     of_type_rels_created: int = 0
+    in_study_rels_created: int = 0
+    in_study_warnings: int = 0
     sample_type_nodes_created: int = 0
     elapsed_ms_total: float = 0.0
     per_chunk_timings: List[dict] = Field(default_factory=list)
@@ -432,6 +434,29 @@ class OfTypeRelRow(BaseModel):
         if v <= 0:
             raise ValueError("id must be positive")
         return v
+
+
+# ── 12b. InStudyRelRow ───────────────────────────────────────────────────
+
+
+class InStudyRelRow(BaseModel):
+    sample_uuid: str
+    study_id: int
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("study_id")
+    @classmethod
+    def positive_study_id(cls, v):
+        if v <= 0:
+            raise ValueError("study_id must be positive")
+        return v
+
+    @field_validator("sample_uuid")
+    @classmethod
+    def non_empty_uuid(cls, v):
+        if not v or not v.strip():
+            raise ValueError("sample_uuid must be non-empty")
+        return v.strip()
 
 
 # ── 13. SampleTypeNodeRow ─────────────────────────────────────────────────
