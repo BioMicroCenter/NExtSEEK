@@ -4,7 +4,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.utils import override_settings
 from rest_framework.test import APIRequestFactory, force_authenticate
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from nextseek_api.batch_upload.views import BatchUploadViewSet
 
@@ -36,6 +36,59 @@ def normal_user():
         defaults={"is_staff": False, "is_superuser": False},
     )
     return user
+
+
+class TestResolveUserContext:
+    """Unit tests for _resolve_user_context."""
+
+    @pytest.mark.django_db
+    def test_fallback_to_django_user(self):
+        """When SeekDB fails, should fall back to Django user pk."""
+        from nextseek_api.batch_upload.views import _resolve_user_context
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username="ctx_test_user", defaults={"is_staff": True, "is_superuser": True}
+        )
+        request = MagicMock()
+        request.user = user  # Real Django user (is_authenticated is True by default)
+
+        with patch("seek.seekdb.SeekDB", side_effect=Exception("no seekdb")):
+            result = _resolve_user_context(request)
+
+        assert result is not None
+        assert result["contributor_id"] == user.pk
+        assert result["lababbv"] == "NA"
+
+    def test_unauthenticated_returns_none(self):
+        """Unauthenticated request should return None."""
+        from nextseek_api.batch_upload.views import _resolve_user_context
+
+        request = MagicMock()
+        request.user.is_authenticated = False
+
+        with patch("seek.seekdb.SeekDB", side_effect=Exception("no seekdb")):
+            result = _resolve_user_context(request)
+
+        assert result is None
+
+    def test_seekdb_returns_lababbv(self):
+        """When SeekDB succeeds, should return lababbv from profile."""
+        from nextseek_api.batch_upload.views import _resolve_user_context
+
+        mock_seekdb_instance = MagicMock()
+        mock_seekdb_instance.getSeekLogin.return_value = {
+            "status": True,
+            "person_id": 42,
+            "lababbv": "MIT",
+        }
+
+        request = MagicMock()
+        with patch("seek.seekdb.SeekDB", return_value=mock_seekdb_instance):
+            result = _resolve_user_context(request)
+
+        assert result == {"contributor_id": 42, "lababbv": "MIT"}
 
 
 class TestBatchUploadViewSetAuth:
@@ -119,7 +172,7 @@ class TestBatchUploadFileUpload:
 
     @pytest.mark.django_db
     @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
-    @patch("nextseek_api.batch_upload.views._resolve_contributor_id", return_value=1)
+    @patch("nextseek_api.batch_upload.views._resolve_user_context", return_value={"contributor_id": 1, "lababbv": "MIT"})
     def test_upload_xlsx_returns_202(self, mock_contrib, mock_task, factory, admin_user, tmp_path):
         mock_task.delay.return_value.id = "fake-task-id"
         view = BatchUploadViewSet.as_view({"post": "start"})

@@ -160,6 +160,39 @@ class TestInputRowModel:
                 assay_ids=[],
             )
 
+    def test_none_uid_validates(self):
+        """UID=None should be accepted (for UID_GEN stage to fill in later)."""
+        row = InputRowModel(
+            UID=None,
+            SampleType="NHP",
+            json_metadata='{"Name":"test"}',
+            assay_ids=[1],
+        )
+        assert row.UID is None
+        assert row.SampleType == "NHP"
+
+    def test_none_uid_skips_metadata_check(self):
+        """When UID is None, json_metadata.UID should not cause validation error."""
+        row = InputRowModel(
+            UID=None,
+            SampleType="NHP",
+            json_metadata='{"Name":"test","UID":"NHP-260225MIT-1"}',
+            assay_ids=[],
+        )
+        assert row.UID is None
+
+    def test_none_uid_with_valid_fields(self):
+        """UID=None row with all other fields valid."""
+        row = InputRowModel(
+            UID=None,
+            SampleType="D.IMG_files",
+            json_metadata='{"File_PrimaryData":"sample.fastq"}',
+            assay_ids=[171, 172],
+            study_id=20,
+        )
+        assert row.UID is None
+        assert row.assay_ids == [171, 172]
+
 
 # ── InsertableSample ──────────────────────────────────────────────────────
 

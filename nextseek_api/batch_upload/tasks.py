@@ -20,6 +20,7 @@ def run_batch_upload_task(
     xlsx_path: str,
     project_id: int,
     contributor_id: int,
+    lababbv: str = "NA",
     config_overrides: dict = None,
 ):
     """Celery task entry point for batch upload.
@@ -55,6 +56,7 @@ def run_batch_upload_task(
             xlsx_path=xlsx_path,
             project_id=project_id,
             contributor_id=contributor_id,
+            lababbv=lababbv,
             config=config,
             checkpoint_dir=checkpoint_dir,
             should_stop=should_stop,

@@ -102,7 +102,7 @@ class SampleMetadata(BaseModel):
 
 
 class InputRowModel(BaseModel):
-    UID: str
+    UID: Optional[str] = None
     SampleType: str
     json_metadata: str
     assay_ids: List[int] = Field(default_factory=list)
@@ -189,7 +189,7 @@ class InputRowModel(BaseModel):
             meta = _json_loads(self.json_metadata) if self.json_metadata else {}
         except Exception:
             meta = {}
-        if isinstance(meta, dict):
+        if isinstance(meta, dict) and self.UID is not None:
             meta_uid = meta.get("UID") or meta.get("uid")
             if meta_uid is not None and str(meta_uid).strip() and str(meta_uid).strip() != str(self.UID).strip():
                 raise ValueError("UID column does not match json_metadata.UID")
@@ -261,6 +261,7 @@ class RowOutcome(BaseModel):
     reason: Optional[str] = None
     sample_id: Optional[int] = None
     assays_linked_count: Optional[int] = None
+    uid_generated: bool = False
 
     model_config = ConfigDict(extra="forbid")
 

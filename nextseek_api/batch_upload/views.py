@@ -164,9 +164,9 @@ class BatchUploadViewSet(viewsets.ViewSet):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-        # Resolve contributor_id from the authenticated user
-        contributor_id = _resolve_contributor_id(request)
-        if contributor_id is None:
+        # Resolve contributor_id and lababbv from the authenticated user
+        user_ctx = _resolve_user_context(request)
+        if user_ctx is None:
             return Response(
                 {"detail": "Could not resolve contributor ID from session"},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -175,7 +175,8 @@ class BatchUploadViewSet(viewsets.ViewSet):
         task = run_batch_upload_task.delay(
             xlsx_path=xlsx_path,
             project_id=project_id,
-            contributor_id=contributor_id,
+            contributor_id=user_ctx["contributor_id"],
+            lababbv=user_ctx["lababbv"],
             config_overrides=config_overrides,
         )
 
@@ -280,27 +281,37 @@ def _save_uploaded_file(uploaded_file) -> str:
     return dest_path
 
 
-def _resolve_contributor_id(request) -> int | None:
-    """Resolve the SEEK person/contributor ID from the authenticated user.
+def _resolve_user_context(request) -> dict | None:
+    """Resolve contributor_id and lababbv from the authenticated user.
 
-    Uses SeekDB.getSeekLogin to get the person_id from the session,
+    Uses SeekDB.getSeekLogin to get person_id and lab abbreviation,
     falling back to request.user.pk for Django-authenticated users.
+
+    Returns {"contributor_id": int, "lababbv": str} or None.
     """
+    contributor_id = None
+    lababbv = "NA"
+
     try:
         from seek.seekdb import SeekDB
 
         seekdb = SeekDB(None, None, None)
-        user_info = seekdb.getSeekLogin(request, False)
+        # Pass True to get full profile including lababbv
+        user_info = seekdb.getSeekLogin(request, True)
         if user_info and user_info.get("status"):
-            # SeekDB returns person_id in the user info dict
             person_id = user_info.get("person_id") or user_info.get("id")
             if person_id:
-                return int(person_id)
+                contributor_id = int(person_id)
+            lababbv = user_info.get("lababbv", "NA") or "NA"
     except Exception:
-        log.debug("Could not resolve contributor_id from SeekDB", exc_info=True)
+        log.debug("Could not resolve user context from SeekDB", exc_info=True)
 
     # Fallback: use Django user pk
-    if hasattr(request, "user") and request.user.is_authenticated:
-        return request.user.pk
+    if contributor_id is None:
+        if hasattr(request, "user") and request.user.is_authenticated:
+            contributor_id = request.user.pk
 
-    return None
+    if contributor_id is None:
+        return None
+
+    return {"contributor_id": contributor_id, "lababbv": lababbv}

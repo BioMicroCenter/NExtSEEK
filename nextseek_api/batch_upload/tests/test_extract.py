@@ -51,6 +51,55 @@ class TestPrepareRowDicts:
         assert result[0]["json_metadata"] == '{"k":"v"}'
 
 
+class TestDropLogicNullUid:
+    """Test that rows with null uid but valid sampletype+json_metadata are kept."""
+
+    def _make_xlsx(self, rows: list[dict]) -> str:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        headers = list(rows[0].keys())
+        ws.append(headers)
+        for row in rows:
+            ws.append([row.get(h) for h in headers])
+        path = os.path.join(tempfile.mkdtemp(), "test.xlsx")
+        wb.save(path)
+        return path
+
+    def test_null_uid_row_kept_when_sampletype_present(self):
+        """Row with null uid but valid SampleType and json_metadata should NOT be dropped."""
+        xlsx = self._make_xlsx([
+            {"uid": "TEST-000001AA-1", "SampleType": "TypeA",
+             "json_metadata": '{"Name":"has_uid"}', "assay_ids": "1"},
+            {"uid": None, "SampleType": "TypeB",
+             "json_metadata": '{"Name":"no_uid"}', "assay_ids": "2"},
+        ])
+        try:
+            _, row_iter = stream_rows(xlsx)
+            results = list(row_iter)
+            assert len(results) == 2, f"Expected 2 rows, got {len(results)}"
+            # Both should be valid
+            assert results[0].data is not None
+            assert results[1].data is not None
+            assert results[1].data.UID is None
+        finally:
+            os.unlink(xlsx)
+
+    def test_fully_blank_row_dropped(self):
+        """Row where uid, sampletype, AND json_metadata are all null should be dropped."""
+        xlsx = self._make_xlsx([
+            {"uid": "TEST-000001AA-1", "SampleType": "TypeA",
+             "json_metadata": '{"Name":"valid"}', "assay_ids": "1"},
+            {"uid": None, "SampleType": None,
+             "json_metadata": None, "assay_ids": None},
+        ])
+        try:
+            _, row_iter = stream_rows(xlsx)
+            results = list(row_iter)
+            assert len(results) == 1, f"Expected 1 row (blank dropped), got {len(results)}"
+        finally:
+            os.unlink(xlsx)
+
+
 class TestDetectUnknownColumns:
     def test_unknown_columns_detected(self):
         cols = {"uid", "sampletype", "json_metadata", "assay_ids", "totally_random_col"}
@@ -74,10 +123,10 @@ class TestExtractFailedIndices:
             {"UID": "ok", "SampleType": "T", "json_metadata": "{}", "assay_ids": []},
             {"UID": "", "SampleType": "T", "json_metadata": "{}", "assay_ids": []},  # bad: empty UID? Actually UID="" is valid string
         ]
-        # Force a validation error with a missing field
+        # Force a validation error with a missing required field (SampleType)
         bad_rows = [
             {"UID": "ok", "SampleType": "T", "json_metadata": "{}", "assay_ids": []},
-            {"SampleType": "T", "json_metadata": "{}", "assay_ids": []},  # missing UID
+            {"UID": "ok", "json_metadata": "{}", "assay_ids": []},  # missing SampleType
         ]
         try:
             adapter.validate_python(bad_rows)

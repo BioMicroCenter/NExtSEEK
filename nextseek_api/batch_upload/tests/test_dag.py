@@ -43,6 +43,40 @@ class TestExtractParents:
         assert r1 is r2  # same frozen set from cache
 
 
+class TestExtractParentsRegexVariants:
+    """Test the fixed regex: optional -PUB suffix, 2-5 char lab abbreviation."""
+
+    def test_non_pub_uid(self):
+        extract_parents.cache_clear()
+        meta = '{"Parent":"NHP-260225MIT-6"}'
+        assert "NHP-260225MIT-6" in extract_parents(meta)
+
+    def test_pub_uid(self):
+        extract_parents.cache_clear()
+        meta = '{"Parent":"NHP-260225MIT-6-PUB"}'
+        assert "NHP-260225MIT-6-PUB" in extract_parents(meta)
+
+    def test_pub_with_number(self):
+        extract_parents.cache_clear()
+        meta = '{"Parent":"NHP-260225MIT-6-PUB2"}'
+        assert "NHP-260225MIT-6-PUB2" in extract_parents(meta)
+
+    def test_short_lab_abbrev(self):
+        extract_parents.cache_clear()
+        meta = '{"Parent":"NHP-260225MI-1"}'
+        assert "NHP-260225MI-1" in extract_parents(meta)
+
+    def test_long_lab_abbrev(self):
+        extract_parents.cache_clear()
+        meta = '{"Parent":"NHP-260225MITLL-1"}'
+        assert "NHP-260225MITLL-1" in extract_parents(meta)
+
+    def test_dotted_prefix_no_pub(self):
+        extract_parents.cache_clear()
+        meta = '{"Parent":"D.IMG-260225MIT-3"}'
+        assert "D.IMG-260225MIT-3" in extract_parents(meta)
+
+
 class TestBuildRelationships:
     def _make_row(self, uid, parent_meta="{}"):
         return InputRowModel(

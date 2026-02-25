@@ -21,7 +21,7 @@ from .models import DirectionComputation, InputRowModel
 log = logging.getLogger(__name__)
 
 _PARENT_SPLIT_RE = re.compile(r"[;\,\s]+")
-_VALID_PARENT_UID_RE = re.compile(r"^([AD]\.)?[A-Z]{3,}-\d{6}[A-Z]{3}-\d+-PUB\d*$")
+_VALID_PARENT_UID_RE = re.compile(r"^([AD]\.)?[A-Z]{3,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?$")
 
 # DuckDB fallback threshold (combined rows in assays_df + edges_df)
 _DUCKDB_THRESHOLD = 250_000

@@ -87,8 +87,10 @@ def stream_rows(xlsx_path: str, limit: Optional[int] = None) -> Tuple[List[str],
             f"Found columns: {sorted(normalized_cols)}"
         )
 
-    # Drop completely empty rows
-    df = df.drop_nulls(subset=["uid"])
+    # Drop rows only when ALL key columns are null (uid, sampletype, json_metadata)
+    _drop_cols = [c for c in ["uid", "sampletype", "sample_type", "json_metadata"] if c in df.columns]
+    if _drop_cols:
+        df = df.filter(~pl.all_horizontal(pl.col(c).is_null() for c in _drop_cols))
 
     if limit is not None:
         df = df.head(limit)

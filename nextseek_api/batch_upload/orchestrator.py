@@ -30,6 +30,7 @@ from .report import (
     write_summary_csv,
 )
 from .transform import build_insertable
+from .uid_gen import run_uid_gen
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ def run_batch_upload(
     xlsx_path: str,
     project_id: int,
     contributor_id: int,
+    lababbv: str = "NA",
     config: Optional[BatchUploadConfig] = None,
     checkpoint_dir: str = "",
     resume_uid: Optional[str] = None,
@@ -57,6 +59,8 @@ def run_batch_upload(
     t0 = time.perf_counter()
     error_collector = ErrorCollector()
     neo4j_metrics: Optional[Metrics] = None
+    generated_uids: set = set()
+    uid_gen_report: dict = {"uids_generated": 0}
 
     # Determine output directory
     if not output_dir:
@@ -105,6 +109,37 @@ def run_batch_upload(
 
     if not valid_rows:
         return _error_result(job_id, summary_path, error_collector, "No valid rows extracted")
+
+    # ── Stage 1.5: UID_GEN ───────────────────────────────────────────────
+    if should_stop and should_stop():
+        return _cancelled_result(job_id, summary_path)
+
+    log.info("Stage 1.5: UID_GEN")
+    # Track which rows need UID generation so we can flag them in outcomes
+    uids_before_gen = {r.UID for r in valid_rows if r.UID is not None}
+    try:
+        with get_connection() as conn:
+            valid_rows, uid_gen_report = run_uid_gen(
+                rows=valid_rows,
+                lababbv=lababbv,
+                conn=conn,
+                error_collector=error_collector,
+            )
+        generated_uids = {r.UID for r in valid_rows if r.UID is not None} - uids_before_gen
+        if uid_gen_report.get("uids_generated", 0) > 0:
+            log.info("UID_GEN: generated %d UIDs", uid_gen_report["uids_generated"])
+        if uid_gen_report.get("duplicates_removed", 0) > 0:
+            log.info("UID_GEN: removed %d duplicates", uid_gen_report["duplicates_removed"])
+    except Exception as exc:
+        log.exception("UID_GEN failed")
+        error_collector.add(
+            row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
+            message=f"UID_GEN failed: {exc}",
+        )
+        return _error_result(job_id, summary_path, error_collector, str(exc))
+
+    if not valid_rows:
+        return _error_result(job_id, summary_path, error_collector, "No valid rows after UID_GEN")
 
     # ── Stage 2: DAG ──────────────────────────────────────────────────────
     if should_stop and should_stop():
@@ -221,6 +256,12 @@ def run_batch_upload(
         batch_result.permissions_inserted_count,
     )
 
+    # Mark uid_generated flag on outcomes for rows that had UIDs auto-generated
+    if generated_uids:
+        for uid, outcome in batch_result.outcomes.items():
+            if uid in generated_uids:
+                outcome.uid_generated = True
+
     # ── Stage 6: NEO4J ────────────────────────────────────────────────────
     if should_stop and should_stop():
         return _cancelled_result(job_id, summary_path)
@@ -256,6 +297,7 @@ def run_batch_upload(
         "elapsed_s": elapsed,
         "throughput_rps": batch_result.inserted_count / elapsed if elapsed > 0 else 0,
         "permissions_inserted": batch_result.permissions_inserted_count,
+        "uids_generated": uid_gen_report.get("uids_generated", 0),
     }
 
     row_summaries = build_row_summaries(batch_result.outcomes, valid_rows, error_collector)
