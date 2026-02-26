@@ -239,6 +239,7 @@ def _bulk_insert_permissions_ignore(
     policy_ids: List[int],
     project_id: int,
     conn: Connection,
+    now: str,
     contributor_type: str = "Project",
     access_type: int = 4,
 ) -> int:
@@ -259,7 +260,6 @@ def _bulk_insert_permissions_ignore(
     if not unique:
         return 0
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     for chunk_start in range(0, len(unique), 1000):
         chunk = unique[chunk_start : chunk_start + 1000]
         values_parts = []
@@ -406,7 +406,7 @@ def bulk_update_samples(
             for s in valid_rows
             if details[s.uuid].get("policy_id")
         ]
-        _bulk_insert_permissions_ignore(policy_ids, project_id, conn)
+        _bulk_insert_permissions_ignore(policy_ids, project_id, conn, now)
 
     # ── Build outcomes ───────────────────────────────────────────────────
     for sample in valid_rows:
