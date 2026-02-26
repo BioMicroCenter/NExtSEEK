@@ -9,6 +9,9 @@ from typing import Dict, List, Optional, Set, Tuple
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from .associations import batch_insert_assay_assets, batch_insert_projects_samples
+from .models import InsertableSample, RowOutcome
+
 try:
     import orjson
     def _json_loads(s): return orjson.loads(s)
@@ -152,6 +155,8 @@ def add_permission_for_existing_policy(
 ) -> bool:
     """Add a permission row for existing policy_id with new project_id.
 
+    .. deprecated:: Use bulk_update_samples() instead.
+
     Returns True if inserted, False if already exists.
     """
     result = conn.execute(
@@ -173,3 +178,247 @@ def add_permission_for_existing_policy(
         {"ct": contributor_type, "cid": project_id, "pid": policy_id, "at": access_type, "now": now},
     )
     return True
+
+
+# ── Bulk update (replaces per-row N+1 patterns) ──────────────────────────
+
+
+def _bulk_prefetch_assay_links(
+    sample_ids: List[int], conn: Connection
+) -> Dict[int, Set[int]]:
+    """Prefetch ALL existing assay links for the given sample IDs.
+
+    Returns {sample_id: {assay_id, ...}}.
+    Uses chunked IN queries (1000 per chunk).
+    """
+    existing: Dict[int, Set[int]] = {}
+    for chunk_start in range(0, len(sample_ids), 1000):
+        chunk = sample_ids[chunk_start : chunk_start + 1000]
+        params = {f"sid_{i}": sid for i, sid in enumerate(chunk)}
+        placeholders = ", ".join(f":sid_{i}" for i in range(len(chunk)))
+        result = conn.execute(
+            text(
+                f"SELECT asset_id, assay_id FROM assay_assets "
+                f"WHERE asset_id IN ({placeholders}) AND asset_type = 'Sample'"
+            ),
+            params,
+        )
+        for asset_id, assay_id in result.fetchall():
+            existing.setdefault(asset_id, set()).add(assay_id)
+    return existing
+
+
+def _bulk_delete_assay_links(
+    removals: List[Tuple[int, int]], conn: Connection
+) -> int:
+    """Bulk DELETE assay_assets rows by (assay_id, asset_id) pairs.
+
+    Returns count of rows targeted for deletion.
+    """
+    if not removals:
+        return 0
+    for chunk_start in range(0, len(removals), 1000):
+        chunk = removals[chunk_start : chunk_start + 1000]
+        conditions = []
+        params: Dict[str, int] = {}
+        for i, (assay_id, sample_id) in enumerate(chunk):
+            conditions.append(f"(assay_id = :aid_{i} AND asset_id = :sid_{i})")
+            params[f"aid_{i}"] = assay_id
+            params[f"sid_{i}"] = sample_id
+        where_clause = " OR ".join(conditions)
+        conn.execute(
+            text(
+                f"DELETE FROM assay_assets WHERE asset_type = 'Sample' AND ({where_clause})"
+            ),
+            params,
+        )
+    return len(removals)
+
+
+def _bulk_insert_permissions_ignore(
+    policy_ids: List[int],
+    project_id: int,
+    conn: Connection,
+    contributor_type: str = "Project",
+    access_type: int = 4,
+) -> int:
+    """Bulk INSERT IGNORE permissions — no per-row SELECT needed.
+
+    Returns count of policy_ids submitted (actual insert count may be lower
+    due to IGNORE on duplicates).
+    """
+    if not policy_ids:
+        return 0
+    # De-duplicate
+    seen: Set[int] = set()
+    unique: List[int] = []
+    for pid in policy_ids:
+        if pid not in seen:
+            seen.add(pid)
+            unique.append(pid)
+    if not unique:
+        return 0
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    for chunk_start in range(0, len(unique), 1000):
+        chunk = unique[chunk_start : chunk_start + 1000]
+        values_parts = []
+        params: Dict = {}
+        for i, pid in enumerate(chunk):
+            values_parts.append(
+                f"(:ct_{i}, :cid_{i}, :pid_{i}, :at_{i}, :ca_{i}, :ua_{i})"
+            )
+            params[f"ct_{i}"] = contributor_type
+            params[f"cid_{i}"] = project_id
+            params[f"pid_{i}"] = pid
+            params[f"at_{i}"] = access_type
+            params[f"ca_{i}"] = now
+            params[f"ua_{i}"] = now
+        conn.execute(
+            text(
+                "INSERT IGNORE INTO permissions "
+                "(contributor_type, contributor_id, policy_id, access_type, "
+                "created_at, updated_at) "
+                f"VALUES {', '.join(values_parts)}"
+            ),
+            params,
+        )
+    return len(unique)
+
+
+def bulk_update_samples(
+    rows: List[InsertableSample],
+    details: Dict[str, dict],
+    project_id: int,
+    direction_by_pair: Dict[Tuple[str, int], int],
+    conn: Connection,
+    enable_auto_permissions: bool = False,
+) -> Dict[str, RowOutcome]:
+    """Bulk-update existing samples, eliminating per-row N+1 queries.
+
+    Steps:
+    1. Deep-merge metadata for ALL rows (pure Python, no DB)
+    2. Bulk UPDATE samples SET title, json_metadata, updated_at
+    3. Bulk prefetch ALL existing assay links (single chunked IN query)
+    4. Compute assay diffs in Python (set operations per sample)
+    5. Bulk DELETE removed assay links
+    6. Bulk INSERT new assay links (via batch_insert_assay_assets)
+    7. Bulk INSERT projects_samples links (via batch_insert_projects_samples)
+    8. Bulk permissions via INSERT IGNORE (no SELECT+INSERT per row)
+
+    Returns Dict[str, RowOutcome] keyed by UUID.
+    """
+    outcomes: Dict[str, RowOutcome] = {}
+    if not rows:
+        return outcomes
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+    # ── Step 1: Deep-merge metadata (pure Python) ────────────────────────
+    # Build per-row merged data
+    merge_results: Dict[str, Tuple[str, str, Set[str], int]] = {}
+    # uuid -> (new_title, merged_meta, changed_keys, sample_id)
+    valid_rows: List[InsertableSample] = []
+
+    for sample in rows:
+        if sample.uuid not in details:
+            outcomes[sample.uuid] = RowOutcome(
+                status="failed", reason="update: sample details not found"
+            )
+            continue
+        detail = details[sample.uuid]
+        merged_meta, changed_keys = deep_merge_metadata(
+            detail["json_metadata"], sample.json_metadata
+        )
+        merge_results[sample.uuid] = (
+            sample.title,
+            merged_meta,
+            changed_keys,
+            detail["sample_id"],
+        )
+        valid_rows.append(sample)
+
+    if not valid_rows:
+        return outcomes
+
+    # ── Step 2: Bulk UPDATE samples ──────────────────────────────────────
+    for chunk_start in range(0, len(valid_rows), 1000):
+        chunk = valid_rows[chunk_start : chunk_start + 1000]
+        # Use CASE/WHEN for bulk UPDATE
+        title_cases = []
+        meta_cases = []
+        params: Dict = {"now": now}
+        sid_list = []
+        for i, sample in enumerate(chunk):
+            _title, _meta, _changed, sid = merge_results[sample.uuid]
+            title_cases.append(f"WHEN :sid_{i} THEN :title_{i}")
+            meta_cases.append(f"WHEN :sid_{i} THEN :meta_{i}")
+            params[f"sid_{i}"] = sid
+            params[f"title_{i}"] = _title
+            params[f"meta_{i}"] = _meta
+            sid_list.append(f":sid_{i}")
+
+        sid_in = ", ".join(sid_list)
+        conn.execute(
+            text(
+                f"UPDATE samples SET "
+                f"title = CASE id {' '.join(title_cases)} ELSE title END, "
+                f"json_metadata = CASE id {' '.join(meta_cases)} ELSE json_metadata END, "
+                f"updated_at = :now "
+                f"WHERE id IN ({sid_in})"
+            ),
+            params,
+        )
+
+    # ── Step 3: Bulk prefetch existing assay links ───────────────────────
+    all_sample_ids = [merge_results[s.uuid][3] for s in valid_rows]
+    existing_assays = _bulk_prefetch_assay_links(all_sample_ids, conn)
+
+    # ── Step 4: Compute assay diffs (Python set operations) ──────────────
+    removals: List[Tuple[int, int]] = []  # (assay_id, sample_id)
+    additions = []  # AssayAssetRecord tuples for batch_insert_assay_assets
+
+    for sample in valid_rows:
+        sid = merge_results[sample.uuid][3]
+        old_assays = existing_assays.get(sid, set())
+        new_assays = set(sample.assay_ids)
+        to_remove = old_assays - new_assays
+        to_add = new_assays - old_assays
+        for aid in to_remove:
+            removals.append((aid, sid))
+        for aid in to_add:
+            direction = direction_by_pair.get((sample.uuid, aid), 0)
+            additions.append((aid, sid, "Sample", direction, None, None))
+
+    # ── Step 5: Bulk DELETE removed assay links ──────────────────────────
+    _bulk_delete_assay_links(removals, conn)
+
+    # ── Step 6: Bulk INSERT new assay links ──────────────────────────────
+    batch_insert_assay_assets(additions, conn)
+
+    # ── Step 7: Bulk INSERT projects_samples links ───────────────────────
+    batch_insert_projects_samples(project_id, all_sample_ids, conn)
+
+    # ── Step 8: Bulk permissions via INSERT IGNORE ───────────────────────
+    if enable_auto_permissions:
+        policy_ids = [
+            details[s.uuid]["policy_id"]
+            for s in valid_rows
+            if details[s.uuid].get("policy_id")
+        ]
+        _bulk_insert_permissions_ignore(policy_ids, project_id, conn)
+
+    # ── Build outcomes ───────────────────────────────────────────────────
+    for sample in valid_rows:
+        _title, _meta, changed_keys, sid = merge_results[sample.uuid]
+        parent_changed = "Parent" in changed_keys or "parent" in changed_keys
+        outcomes[sample.uuid] = RowOutcome(
+            status="success",
+            reason="updated",
+            sample_id=sid,
+            assays_linked_count=len(sample.assay_ids),
+            parent_changed=parent_changed,
+        )
+
+    log.info("Bulk updated %d samples", len(valid_rows))
+    return outcomes

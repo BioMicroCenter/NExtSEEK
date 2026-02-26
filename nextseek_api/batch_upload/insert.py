@@ -372,86 +372,40 @@ def process_batches(
     # ── Process updates for existing samples ──────────────────────────────
     total_updated = 0
     if rows_to_update:
-        from .update import (
-            deep_merge_metadata,
-            load_existing_sample_details,
-            update_sample_metadata,
-            smart_merge_assay_assets,
-            add_permission_for_existing_policy,
-        )
+        from .update import bulk_update_samples, load_existing_sample_details
 
-        update_uuids = [s.uuid for s in rows_to_update]
-        with conn_factory() as conn:
-            details = load_existing_sample_details(update_uuids, conn)
+        try:
+            with conn_factory() as conn:
+                update_uuids = [s.uuid for s in rows_to_update]
+                details = load_existing_sample_details(update_uuids, conn)
 
-        direction_by_pair = direction_computation.direction_by_pair
-
-        for sample in rows_to_update:
-            if sample.uuid not in details:
-                outcomes[sample.uuid] = RowOutcome(
-                    status="failed", reason="update: sample details not found"
+                update_outcomes = bulk_update_samples(
+                    rows=rows_to_update,
+                    details=details,
+                    project_id=project_id,
+                    direction_by_pair=direction_computation.direction_by_pair,
+                    conn=conn,
+                    enable_auto_permissions=config.enable_auto_permissions,
                 )
-                continue
 
-            detail = details[sample.uuid]
-            sample_id = detail["sample_id"]
-
-            try:
-                with conn_factory() as conn:
-                    # 1. Deep merge metadata
-                    merged_meta, changed_keys = deep_merge_metadata(
-                        detail["json_metadata"], sample.json_metadata
-                    )
-
-                    # 2. Update sample row
-                    update_sample_metadata(
-                        uuid=sample.uuid,
-                        sample_id=sample_id,
-                        new_title=sample.title,
-                        merged_metadata=merged_meta,
-                        conn=conn,
-                    )
-
-                    # 3. Smart merge assay links
-                    smart_merge_assay_assets(
-                        sample_id=sample_id,
-                        new_assay_ids=sample.assay_ids,
-                        direction_by_pair=direction_by_pair,
-                        uid=sample.uuid,
-                        conn=conn,
-                    )
-
-                    # 4. Add project link
-                    batch_insert_projects_samples(project_id, [sample_id], conn)
-
-                    # 5. Add permission for existing policy with new project
-                    if config.enable_auto_permissions and detail["policy_id"]:
-                        add_permission_for_existing_policy(
-                            policy_id=detail["policy_id"],
-                            project_id=project_id,
-                            conn=conn,
-                        )
-
+                outcomes.update(update_outcomes)
+                total_updated = sum(
+                    1 for o in update_outcomes.values() if o.status == "success"
+                )
+        except Exception as exc:
+            log.exception("Bulk update failed: %s", exc)
+            for sample in rows_to_update:
+                if sample.uuid not in outcomes:
                     outcomes[sample.uuid] = RowOutcome(
-                        status="success",
-                        reason="updated",
-                        sample_id=sample_id,
-                        assays_linked_count=len(sample.assay_ids),
+                        status="failed", reason=f"update failed: {str(exc)[:200]}"
                     )
-                    total_updated += 1
-
-            except Exception as exc:
-                log.exception("Update failed for %s: %s", sample.uuid, exc)
-                outcomes[sample.uuid] = RowOutcome(
-                    status="failed", reason=f"update failed: {str(exc)[:200]}"
-                )
-                if error_collector:
-                    error_collector.add(
-                        row_index=-1,
-                        uid=sample.uuid,
-                        error_type=ErrorType.DB_CONSTRAINT,
-                        message=f"Update failed: {exc}",
-                    )
+                    if error_collector:
+                        error_collector.add(
+                            row_index=-1,
+                            uid=sample.uuid,
+                            error_type=ErrorType.DB_CONSTRAINT,
+                            message=f"Bulk update failed: {exc}",
+                        )
 
     return BatchResult(
         inserted_count=total_inserted,
