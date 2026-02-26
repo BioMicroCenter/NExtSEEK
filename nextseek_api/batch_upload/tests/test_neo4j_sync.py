@@ -190,3 +190,156 @@ class TestBuildOfTypePayloads:
         insertables = [_insertable("UID-1", 10), _insertable("UID-2", 20)]
         rows = build_of_type_payloads(outcomes, insertables)
         assert len(rows) == 2
+
+
+# ── TestBuildStudyNodePayloads ────────────────────────────────────────────
+
+
+class TestBuildStudyNodePayloads:
+    def test_builds_study_and_investigation_payloads(self):
+        from nextseek_api.batch_upload.neo4j_sync import build_study_node_payloads
+
+        conn = MagicMock()
+        # Two execute calls: studies then investigations
+        studies_result = MagicMock()
+        studies_result.fetchall.return_value = [
+            (1, "Study A", "Desc A", 10),
+            (2, "Study B", "Desc B", 10),
+        ]
+        inv_result = MagicMock()
+        inv_result.fetchall.return_value = [
+            (10, "Investigation X", "Inv Desc"),
+        ]
+        conn.execute.side_effect = [studies_result, inv_result]
+        study_rows, inv_rows, inv_rels = build_study_node_payloads({1, 2}, conn)
+        assert len(study_rows) == 2
+        assert study_rows[0].title == "Study A"
+        assert len(inv_rows) == 1
+        assert inv_rows[0].title == "Investigation X"
+        assert len(inv_rels) == 2  # both studies -> investigation 10
+
+    def test_empty_study_ids(self):
+        from nextseek_api.batch_upload.neo4j_sync import build_study_node_payloads
+
+        conn = MagicMock()
+        study_rows, inv_rows, inv_rels = build_study_node_payloads(set(), conn)
+        assert len(study_rows) == 0
+        assert len(inv_rows) == 0
+        assert len(inv_rels) == 0
+        conn.execute.assert_not_called()
+
+    def test_study_without_investigation(self):
+        from nextseek_api.batch_upload.neo4j_sync import build_study_node_payloads
+
+        conn = MagicMock()
+        studies_result = MagicMock()
+        studies_result.fetchall.return_value = [
+            (1, "Study A", "Desc", None),  # no investigation_id
+        ]
+        conn.execute.return_value = studies_result
+        study_rows, inv_rows, inv_rels = build_study_node_payloads({1}, conn)
+        assert len(study_rows) == 1
+        assert len(inv_rows) == 0
+        assert len(inv_rels) == 0
+
+    def test_study_with_null_title_skipped(self):
+        from nextseek_api.batch_upload.neo4j_sync import build_study_node_payloads
+
+        conn = MagicMock()
+        studies_result = MagicMock()
+        studies_result.fetchall.return_value = [
+            (1, None, "Desc", 10),  # null title
+        ]
+        conn.execute.return_value = studies_result
+        study_rows, inv_rows, inv_rels = build_study_node_payloads({1}, conn)
+        assert len(study_rows) == 0
+
+
+# ── TestBulkMergeStudyNodes ──────────────────────────────────────────────
+
+
+class TestBulkMergeStudyNodes:
+    def test_merge_cypher_uses_merge(self):
+        from nextseek_api.batch_upload.neo4j_sync import bulk_merge_study_nodes
+        from nextseek_api.batch_upload.models import StudyNodeRow
+
+        driver = MagicMock()
+        mock_result = MagicMock()
+        mock_result.summary.counters.nodes_created = 1
+        driver.execute_query.return_value = mock_result
+        rows = [StudyNodeRow(id=1, title="Study A", description="desc")]
+        created = bulk_merge_study_nodes(driver, "testdb", rows)
+        call_args = driver.execute_query.call_args
+        cypher = call_args[0][0]
+        assert "MERGE" in cypher
+        assert "Study" in cypher
+        assert created == 1
+
+    def test_empty_rows(self):
+        from nextseek_api.batch_upload.neo4j_sync import bulk_merge_study_nodes
+
+        driver = MagicMock()
+        created = bulk_merge_study_nodes(driver, "testdb", [])
+        assert created == 0
+        driver.execute_query.assert_not_called()
+
+
+# ── TestBulkMergeInvestigationNodes ──────────────────────────────────────
+
+
+class TestBulkMergeInvestigationNodes:
+    def test_merge_cypher_uses_merge(self):
+        from nextseek_api.batch_upload.neo4j_sync import bulk_merge_investigation_nodes
+        from nextseek_api.batch_upload.models import InvestigationNodeRow
+
+        driver = MagicMock()
+        mock_result = MagicMock()
+        mock_result.summary.counters.nodes_created = 2
+        driver.execute_query.return_value = mock_result
+        rows = [
+            InvestigationNodeRow(id=10, title="Inv X", description="desc"),
+            InvestigationNodeRow(id=20, title="Inv Y", description=""),
+        ]
+        created = bulk_merge_investigation_nodes(driver, "testdb", rows)
+        call_args = driver.execute_query.call_args
+        cypher = call_args[0][0]
+        assert "MERGE" in cypher
+        assert "Investigation" in cypher
+        assert created == 2
+
+    def test_empty_rows(self):
+        from nextseek_api.batch_upload.neo4j_sync import bulk_merge_investigation_nodes
+
+        driver = MagicMock()
+        created = bulk_merge_investigation_nodes(driver, "testdb", [])
+        assert created == 0
+        driver.execute_query.assert_not_called()
+
+
+# ── TestBulkMergeInInvestigationRelationships ────────────────────────────
+
+
+class TestBulkMergeInInvestigationRelationships:
+    def test_merge_cypher(self):
+        from nextseek_api.batch_upload.neo4j_sync import bulk_merge_in_investigation_relationships
+        from nextseek_api.batch_upload.models import InInvestigationRelRow
+
+        driver = _mock_driver([2])
+        rows = [
+            InInvestigationRelRow(study_id=1, investigation_id=10),
+            InInvestigationRelRow(study_id=2, investigation_id=10),
+        ]
+        total = bulk_merge_in_investigation_relationships(driver, "testdb", rows)
+        call_args = driver.execute_query.call_args
+        cypher = call_args[0][0]
+        assert "MERGE" in cypher
+        assert "IN_INVESTIGATION" in cypher
+        assert total == 2
+
+    def test_empty_rows(self):
+        from nextseek_api.batch_upload.neo4j_sync import bulk_merge_in_investigation_relationships
+
+        driver = MagicMock()
+        total = bulk_merge_in_investigation_relationships(driver, "testdb", [])
+        assert total == 0
+        driver.execute_query.assert_not_called()

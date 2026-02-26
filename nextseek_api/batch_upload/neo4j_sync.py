@@ -16,14 +16,17 @@ from .config import Neo4jConfig
 from .models import (
     DerivedFromRelRow,
     DirectionComputation,
+    InInvestigationRelRow,
     InStudyRelRow,
     InputRowModel,
     InsertableSample,
+    InvestigationNodeRow,
     Metrics,
     NodeRow,
     OfTypeRelRow,
     RowOutcome,
     SampleTypeNodeRow,
+    StudyNodeRow,
 )
 
 log = logging.getLogger(__name__)
@@ -69,6 +72,7 @@ def ensure_constraints(driver, database_name: str) -> None:
         "CREATE CONSTRAINT sample_uuid_unique IF NOT EXISTS FOR (s:Sample) REQUIRE s.uuid IS UNIQUE",
         "CREATE CONSTRAINT sample_type_title_unique IF NOT EXISTS FOR (st:SampleType) REQUIRE st.title IS UNIQUE",
         "CREATE CONSTRAINT study_id_unique IF NOT EXISTS FOR (s:Study) REQUIRE s.id IS UNIQUE",
+        "CREATE CONSTRAINT investigation_id_unique IF NOT EXISTS FOR (inv:Investigation) REQUIRE inv.id IS UNIQUE",
     ]
     for cypher in constraints:
         try:
@@ -222,6 +226,130 @@ def bulk_merge_in_study_relationships(
         if result.records:
             total += result.records[0]["processed"]
 
+    return total
+
+
+def build_study_node_payloads(
+    study_ids: Set[int],
+    sql_conn: Connection,
+) -> Tuple[List[StudyNodeRow], List[InvestigationNodeRow], List[InInvestigationRelRow]]:
+    """Fetch study and investigation data from MySQL, build Neo4j payloads."""
+    if not study_ids:
+        return [], [], []
+
+    study_list = sorted(study_ids)
+    study_rows_out: List[StudyNodeRow] = []
+    inv_ids_needed: Set[int] = set()
+    study_to_inv: Dict[int, int] = {}
+
+    for chunk_start in range(0, len(study_list), 1000):
+        chunk = study_list[chunk_start : chunk_start + 1000]
+        params = {f"s{i}": s for i, s in enumerate(chunk)}
+        placeholders = ", ".join(f":s{i}" for i in range(len(chunk)))
+        result = sql_conn.execute(
+            text(f"SELECT id, title, description, investigation_id FROM studies WHERE id IN ({placeholders})"),
+            params,
+        )
+        for sid, title, description, inv_id in result.fetchall():
+            if title:
+                study_rows_out.append(StudyNodeRow(id=sid, title=title, description=description or ""))
+                if inv_id:
+                    inv_ids_needed.add(inv_id)
+                    study_to_inv[sid] = inv_id
+
+    inv_rows_out: List[InvestigationNodeRow] = []
+    if inv_ids_needed:
+        inv_list = sorted(inv_ids_needed)
+        for chunk_start in range(0, len(inv_list), 1000):
+            chunk = inv_list[chunk_start : chunk_start + 1000]
+            params = {f"i{i}": inv for i, inv in enumerate(chunk)}
+            placeholders = ", ".join(f":i{i}" for i in range(len(chunk)))
+            result = sql_conn.execute(
+                text(f"SELECT id, title, description FROM investigations WHERE id IN ({placeholders})"),
+                params,
+            )
+            for iid, title, description in result.fetchall():
+                if title:
+                    inv_rows_out.append(InvestigationNodeRow(id=iid, title=title, description=description or ""))
+
+    inv_rel_rows = [
+        InInvestigationRelRow(study_id=sid, investigation_id=inv_id)
+        for sid, inv_id in study_to_inv.items()
+    ]
+
+    return study_rows_out, inv_rows_out, inv_rel_rows
+
+
+def bulk_merge_study_nodes(
+    driver, db_name: str, study_rows: List[StudyNodeRow], chunk_size: int = 10_000
+) -> int:
+    """MERGE Study nodes. Returns count created."""
+    created = 0
+    cypher = """
+    UNWIND $rows AS row
+    MERGE (st:Study {id: row.id})
+    SET st.title = row.title, st.description = row.description
+    """
+    for i in range(0, len(study_rows), chunk_size):
+        chunk = study_rows[i : i + chunk_size]
+        rows_data = [r.model_dump() for r in chunk]
+
+        def _run(data=rows_data):
+            return driver.execute_query(cypher, {"rows": data}, database_=db_name)
+
+        result = _retry(_run)
+        summary = result.summary if hasattr(result, "summary") else None
+        if summary and hasattr(summary, "counters"):
+            created += getattr(summary.counters, "nodes_created", 0)
+    return created
+
+
+def bulk_merge_investigation_nodes(
+    driver, db_name: str, inv_rows: List[InvestigationNodeRow], chunk_size: int = 10_000
+) -> int:
+    """MERGE Investigation nodes. Returns count created."""
+    created = 0
+    cypher = """
+    UNWIND $rows AS row
+    MERGE (inv:Investigation {id: row.id})
+    SET inv.title = row.title, inv.description = row.description
+    """
+    for i in range(0, len(inv_rows), chunk_size):
+        chunk = inv_rows[i : i + chunk_size]
+        rows_data = [r.model_dump() for r in chunk]
+
+        def _run(data=rows_data):
+            return driver.execute_query(cypher, {"rows": data}, database_=db_name)
+
+        result = _retry(_run)
+        summary = result.summary if hasattr(result, "summary") else None
+        if summary and hasattr(summary, "counters"):
+            created += getattr(summary.counters, "nodes_created", 0)
+    return created
+
+
+def bulk_merge_in_investigation_relationships(
+    driver, db_name: str, rel_rows: List[InInvestigationRelRow], chunk_size: int = 20_000
+) -> int:
+    """MERGE (Study)-[:IN_INVESTIGATION]->(Investigation). Returns count."""
+    total = 0
+    cypher = """
+    UNWIND $rows AS row
+    MATCH (s:Study {id: row.study_id})
+    MATCH (inv:Investigation {id: row.investigation_id})
+    MERGE (s)-[r:IN_INVESTIGATION]->(inv)
+    RETURN count(r) AS processed
+    """
+    for i in range(0, len(rel_rows), chunk_size):
+        chunk = rel_rows[i : i + chunk_size]
+        rows_data = [r.model_dump() for r in chunk]
+
+        def _run(data=rows_data):
+            return driver.execute_query(cypher, {"rows": data}, database_=db_name)
+
+        result = _retry(_run)
+        if result.records:
+            total += result.records[0]["processed"]
     return total
 
 
@@ -583,6 +711,18 @@ def upload_all(
                 driver, db_name, of_type_rows, neo4j_config.NEO4J_REL_CHUNK
             )
             metrics.of_type_rels_created = ot_count
+
+        # 10.5. Build and MERGE Study + Investigation nodes
+        study_ids = {row.study_id for row in in_study_rows}
+        if study_ids:
+            study_node_rows, inv_node_rows, inv_rel_rows = build_study_node_payloads(study_ids, sql_conn)
+            if study_node_rows:
+                bulk_merge_study_nodes(driver, db_name, study_node_rows, neo4j_config.NEO4J_NODE_CHUNK)
+            if inv_node_rows:
+                bulk_merge_investigation_nodes(driver, db_name, inv_node_rows, neo4j_config.NEO4J_NODE_CHUNK)
+            # IN_INVESTIGATION after both node types exist
+            if inv_rel_rows:
+                bulk_merge_in_investigation_relationships(driver, db_name, inv_rel_rows, neo4j_config.NEO4J_REL_CHUNK)
 
         # 11. MERGE IN_STUDY
         if in_study_rows:
