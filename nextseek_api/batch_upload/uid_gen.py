@@ -371,7 +371,72 @@ def _inject_uid_into_metadata(rows: List[InputRowModel], generated_uids: Set[str
             row.json_metadata = _json_dumps_min(meta)
 
 
-# ── 4e. Main entry point ───────────────────────────────────────────────────
+# ── 4e. Pre-UID-gen idempotence check ─────────────────────────────────────
+
+
+def check_name_exists_in_db(
+    rows: List[InputRowModel],
+    conn: Connection,
+) -> Tuple[List[InputRowModel], Dict[str, dict]]:
+    """Check if Name/File_PrimaryData of null-UID rows already exist in samples.title.
+
+    Case-insensitive global check. Only checks rows where UID is None.
+    Rows with existing UIDs are passed through unchanged.
+
+    Returns:
+        (remaining_rows, name_matches)
+        - remaining_rows: rows that did NOT match (+ rows with UIDs)
+        - name_matches: dict of {identity: {"uid": str, "sample_id": int}} for matched rows
+    """
+    remaining: List[InputRowModel] = []
+    to_check: List[Tuple[int, InputRowModel, str]] = []
+
+    for idx, row in enumerate(rows):
+        if row.UID is not None:
+            remaining.append(row)
+            continue
+        identity = _extract_identity(row)
+        if identity is None:
+            remaining.append(row)
+            continue
+        to_check.append((idx, row, identity))
+
+    if not to_check:
+        return remaining, {}
+
+    # Bulk query: case-insensitive match against samples.title
+    identities = list({item[2] for item in to_check})
+    db_matches: Dict[str, dict] = {}  # lowercase_identity -> {uid, sample_id}
+
+    for chunk_start in range(0, len(identities), 1000):
+        chunk = identities[chunk_start : chunk_start + 1000]
+        params = {f"t{i}": t.lower() for i, t in enumerate(chunk)}
+        placeholders = ", ".join(f":t{i}" for i in range(len(chunk)))
+        result = conn.execute(
+            text(
+                f"SELECT uuid, id, title FROM samples "
+                f"WHERE LOWER(title) IN ({placeholders})"
+            ),
+            params,
+        )
+        for uuid_val, sample_id, title_val in result.fetchall():
+            key = title_val.lower() if title_val else ""
+            if key not in db_matches:
+                db_matches[key] = {"uid": uuid_val, "sample_id": sample_id}
+
+    # Partition: matched vs remaining
+    name_matches: Dict[str, dict] = {}
+    for _idx, row, identity in to_check:
+        key = identity.lower()
+        if key in db_matches:
+            name_matches[identity] = db_matches[key]
+        else:
+            remaining.append(row)
+
+    return remaining, name_matches
+
+
+# ── 4f. Main entry point ───────────────────────────────────────────────────
 
 
 def run_uid_gen(

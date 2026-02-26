@@ -597,3 +597,105 @@ class TestOptionalUid:
                 json_metadata='{"UID":"NHP-260225MIT-DIFFERENT"}',
                 assay_ids=[],
             )
+
+
+# ── check_name_exists_in_db ─────────────────────────────────────────────────
+
+
+@pytest.fixture
+def mock_conn():
+    conn = MagicMock()
+    return conn
+
+
+class TestCheckNameExistsInDb:
+    """Tests for the pre-UID-gen Name/File_PrimaryData idempotence check."""
+
+    def test_name_match_skips_row(self, mock_conn):
+        from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
+        rows = [
+            InputRowModel(SampleType="NHP_blood", json_metadata='{"Name":"Blood Sample A"}'),
+        ]
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("BLD-250101MIT-1", 42, "Blood Sample A"),
+        ]
+        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        assert len(remaining) == 0
+        assert len(matches) == 1
+        assert matches["Blood Sample A"]["uid"] == "BLD-250101MIT-1"
+        assert matches["Blood Sample A"]["sample_id"] == 42
+
+    def test_no_match_keeps_row(self, mock_conn):
+        from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
+        rows = [
+            InputRowModel(SampleType="NHP_blood", json_metadata='{"Name":"New Sample"}'),
+        ]
+        mock_conn.execute.return_value.fetchall.return_value = []
+        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        assert len(remaining) == 1
+        assert len(matches) == 0
+
+    def test_rows_with_uid_skip_check(self, mock_conn):
+        from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
+        rows = [
+            InputRowModel(UID="NHP-250101MIT-1", SampleType="NHP_blood", json_metadata='{"Name":"Existing"}'),
+        ]
+        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        assert len(remaining) == 1
+        assert len(matches) == 0
+        mock_conn.execute.assert_not_called()
+
+    def test_file_primarydata_match_for_d_type(self, mock_conn):
+        from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
+        rows = [
+            InputRowModel(SampleType="D.IMG_files", json_metadata='{"File_PrimaryData":"image001.tif"}'),
+        ]
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("D.IMG-250101MIT-1", 99, "image001.tif"),
+        ]
+        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        assert len(remaining) == 0
+        assert "image001.tif" in matches
+
+    def test_case_insensitive_match(self, mock_conn):
+        from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
+        rows = [
+            InputRowModel(SampleType="NHP_blood", json_metadata='{"Name":"blood SAMPLE a"}'),
+        ]
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("BLD-250101MIT-1", 42, "Blood Sample A"),
+        ]
+        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        assert len(remaining) == 0
+        assert len(matches) == 1
+
+    def test_mixed_rows_uid_and_no_uid(self, mock_conn):
+        from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
+        rows = [
+            InputRowModel(UID="NHP-250101MIT-1", SampleType="NHP_blood", json_metadata='{"Name":"Has UID"}'),
+            InputRowModel(SampleType="NHP_blood", json_metadata='{"Name":"Exists In DB"}'),
+            InputRowModel(SampleType="NHP_blood", json_metadata='{"Name":"Brand New"}'),
+        ]
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("NHP-250101MIT-5", 55, "Exists In DB"),
+        ]
+        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        assert len(remaining) == 2  # UID row + "Brand New"
+        assert len(matches) == 1
+        assert "Exists In DB" in matches
+
+    def test_no_identity_rows_pass_through(self, mock_conn):
+        from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
+        rows = [
+            InputRowModel(SampleType="NHP_blood", json_metadata='{}'),  # no Name
+        ]
+        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        assert len(remaining) == 1
+        assert len(matches) == 0
+        mock_conn.execute.assert_not_called()
+
+    def test_empty_rows_list(self, mock_conn):
+        from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
+        remaining, matches = check_name_exists_in_db([], mock_conn)
+        assert len(remaining) == 0
+        assert len(matches) == 0
