@@ -625,7 +625,8 @@ class TestCheckNameExistsInDb:
         assert matches["Blood Sample A"]["uid"] == "BLD-250101MIT-1"
         assert matches["Blood Sample A"]["sample_id"] == 42
         assert len(matched_rows) == 1
-        assert matched_rows[0] is rows[0]
+        assert matched_rows[0][0] is rows[0]
+        assert matched_rows[0][1] == "Blood Sample A"
 
     def test_no_match_keeps_row(self, mock_conn):
         from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db

@@ -377,17 +377,18 @@ def _inject_uid_into_metadata(rows: List[InputRowModel], generated_uids: Set[str
 def check_name_exists_in_db(
     rows: List[InputRowModel],
     conn: Connection,
-) -> Tuple[List[InputRowModel], Dict[str, dict], List[InputRowModel]]:
+) -> Tuple[List[InputRowModel], Dict[str, dict], List[Tuple[InputRowModel, str]]]:
     """Check if Name/File_PrimaryData of null-UID rows already exist in samples.title.
 
-    Case-insensitive global check. Only checks rows where UID is None.
+    Case-insensitive global check (uses DB collation utf8mb4_unicode_ci).
+    Only checks rows where UID is None.
     Rows with existing UIDs are passed through unchanged.
 
     Returns:
         (remaining_rows, name_matches, matched_rows)
         - remaining_rows: rows that did NOT match (+ rows with UIDs)
         - name_matches: dict of {identity: {"uid": str, "sample_id": int}} for matched rows
-        - matched_rows: the original InputRowModel objects that matched
+        - matched_rows: list of (InputRowModel, identity) tuples for matched rows
     """
     remaining: List[InputRowModel] = []
     to_check: List[Tuple[int, InputRowModel, str]] = []
@@ -406,17 +407,19 @@ def check_name_exists_in_db(
         return remaining, {}, []
 
     # Bulk query: case-insensitive match against samples.title
+    # The DB column uses utf8mb4_unicode_ci collation, so comparison is
+    # already case-insensitive — no need for LOWER() wrappers.
     identities = list({item[2] for item in to_check})
     db_matches: Dict[str, dict] = {}  # lowercase_identity -> {uid, sample_id}
 
     for chunk_start in range(0, len(identities), 1000):
         chunk = identities[chunk_start : chunk_start + 1000]
-        params = {f"t{i}": t.lower() for i, t in enumerate(chunk)}
+        params = {f"t{i}": t for i, t in enumerate(chunk)}
         placeholders = ", ".join(f":t{i}" for i in range(len(chunk)))
         result = conn.execute(
             text(
                 f"SELECT uuid, id, title FROM samples "
-                f"WHERE LOWER(title) IN ({placeholders})"
+                f"WHERE title IN ({placeholders})"
             ),
             params,
         )
@@ -426,13 +429,13 @@ def check_name_exists_in_db(
                 db_matches[key] = {"uid": uuid_val, "sample_id": sample_id}
 
     # Partition: matched vs remaining
-    matched_rows: List[InputRowModel] = []
+    matched_rows: List[Tuple[InputRowModel, str]] = []
     name_matches: Dict[str, dict] = {}
     for _idx, row, identity in to_check:
         key = identity.lower()
         if key in db_matches:
             name_matches[identity] = db_matches[key]
-            matched_rows.append(row)
+            matched_rows.append((row, identity))
         else:
             remaining.append(row)
 

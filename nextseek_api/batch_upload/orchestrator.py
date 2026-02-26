@@ -119,7 +119,7 @@ def run_batch_upload(
     name_matched_outcomes: Dict[str, RowOutcome] = {}
 
     try:
-        from .uid_gen import check_name_exists_in_db, _extract_identity
+        from .uid_gen import check_name_exists_in_db
         with get_connection() as conn:
             valid_rows, name_matches, name_matched_rows = check_name_exists_in_db(valid_rows, conn)
 
@@ -131,13 +131,11 @@ def run_batch_upload(
                     identity.lower(): match_info
                     for identity, match_info in name_matches.items()
                 }
-                for row in name_matched_rows:
-                    identity = _extract_identity(row)
-                    if identity:
-                        match_info = identity_to_match.get(identity.lower())
-                        if match_info:
-                            row.UID = match_info["uid"]
-                            valid_rows.append(row)
+                for row, identity in name_matched_rows:
+                    match_info = identity_to_match.get(identity.lower())
+                    if match_info:
+                        row.UID = match_info["uid"]
+                        valid_rows.append(row)
             else:
                 # In default mode: skip matched rows
                 log.info("NAME_CHECK: %d name matches, skipping as duplicates", len(name_matches))

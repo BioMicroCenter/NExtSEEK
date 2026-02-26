@@ -346,10 +346,11 @@ def process_batches(
             # Post-batch maintenance
             batch_elapsed = time.perf_counter() - batch_start
             actual_rps = len(batch) / batch_elapsed if batch_elapsed > 0 else 0
+            n_success = len(uuid_to_id)
             reporter.update_counts(
-                success=sum(1 for s in batch if outcomes.get(s.uuid, RowOutcome(status="failed")).status == "success"),
+                success=n_success,
                 skipped=0,
-                failed=sum(1 for s in batch if outcomes.get(s.uuid, RowOutcome(status="failed")).status == "failed"),
+                failed=len(batch) - n_success,
             )
 
             if config.adaptive_batching:
