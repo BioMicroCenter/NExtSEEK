@@ -3,6 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
+
+try:
+    import orjson
+    def _json_loads(s): return orjson.loads(s)
+except ImportError:
+    _json_loads = json.loads
 import random
 import re
 import time
@@ -353,6 +359,86 @@ def bulk_merge_in_investigation_relationships(
     return total
 
 
+# ── delete stale relationships ────────────────────────────────────────────
+
+
+def delete_derived_from_for_uuids(
+    driver, db_name: str, uuids: List[str], chunk_size: int = 10_000
+) -> int:
+    """Delete all DERIVED_FROM relationships where child is one of the given UUIDs.
+
+    Returns count of deleted relationships.
+    """
+    if not uuids:
+        return 0
+
+    deleted_total = 0
+    cypher = """
+    UNWIND $uuids AS uuid
+    MATCH (c:Sample {uuid: uuid})-[r:DERIVED_FROM]->()
+    DELETE r
+    RETURN count(r) AS deleted
+    """
+
+    for i in range(0, len(uuids), chunk_size):
+        chunk = uuids[i : i + chunk_size]
+
+        def _run(data=chunk):
+            return driver.execute_query(cypher, {"uuids": data}, database_=db_name)
+
+        result = _retry(_run)
+        if result.records:
+            deleted_total += result.records[0]["deleted"]
+
+    return deleted_total
+
+
+def refresh_assays_for_uuids(
+    uuids: List[str],
+    outcomes: Dict[str, RowOutcome],
+    sql_conn: Connection,
+) -> Dict[str, Set[int]]:
+    """Query actual assay_assets from MySQL for parent-changed samples.
+
+    Instead of using the spreadsheet-derived assays_by_uid, this queries
+    the post-smart-merge state from the assay_assets table.
+
+    Returns {uuid: set(assay_ids)}.
+    """
+    if not uuids:
+        return {}
+
+    # Build sample_id -> uuid mapping from outcomes
+    sid_to_uuid: Dict[int, str] = {}
+    for uid in uuids:
+        outcome = outcomes.get(uid)
+        if outcome and outcome.sample_id is not None:
+            sid_to_uuid[outcome.sample_id] = uid
+
+    if not sid_to_uuid:
+        return {}
+
+    # Chunked IN query on assay_assets
+    result_map: Dict[str, Set[int]] = {uid: set() for uid in uuids}
+    sid_list = list(sid_to_uuid.keys())
+
+    for chunk_start in range(0, len(sid_list), 1000):
+        chunk = sid_list[chunk_start : chunk_start + 1000]
+        params = {f"a{i}": sid for i, sid in enumerate(chunk)}
+        placeholders = ", ".join(f":a{i}" for i in range(len(chunk)))
+        sql = text(
+            f"SELECT asset_id, assay_id FROM assay_assets "
+            f"WHERE asset_id IN ({placeholders}) AND asset_type = 'Sample'"
+        )
+        rows = sql_conn.execute(sql, params).fetchall()
+        for asset_id, assay_id in rows:
+            uid = sid_to_uuid.get(asset_id)
+            if uid:
+                result_map[uid].add(assay_id)
+
+    return result_map
+
+
 # ── payload building ──────────────────────────────────────────────────────
 
 
@@ -375,7 +461,7 @@ def build_payloads(
 
         # Parse properties from json_metadata
         try:
-            props = json.loads(model.json_metadata)
+            props = _json_loads(model.json_metadata)
             if not isinstance(props, dict):
                 props = {}
         except (json.JSONDecodeError, TypeError):
@@ -530,7 +616,7 @@ def build_derived_from_payloads_from_db(
                 continue
 
             try:
-                meta = json.loads(jmeta) if jmeta else {}
+                meta = _json_loads(jmeta) if jmeta else {}
                 protocol_val = meta.get("Protocol") or meta.get("protocol") or ""
                 m = _SOP_URL_RE.search(str(protocol_val))
                 if m:
@@ -554,8 +640,29 @@ def build_derived_from_payloads_from_db(
                 sop_titles[sid] = title
 
     # Step 3: Shared assays — find best internal assay per (child, parent) pair
-    # For each parent-child pair, find assays shared between them
+    # Pre-compute all shared assay IDs needed, then bulk-fetch titles
+    all_shared_assay_ids: Set[int] = set()
+    for child_uid, parent_uids in parent_child_rels.items():
+        child_assays = assays_by_uid.get(child_uid, set())
+        for parent_uid in parent_uids:
+            parent_assays = assays_by_uid.get(parent_uid, set())
+            shared = child_assays & parent_assays
+            if shared:
+                all_shared_assay_ids.add(min(shared))
+
+    # Subtract already-provided titles, bulk-fetch the rest
+    assay_ids_to_fetch = all_shared_assay_ids - set(provided_assay_title_by_id.keys())
     assay_titles: Dict[int, str] = {}
+    if assay_ids_to_fetch:
+        fetch_list = sorted(assay_ids_to_fetch)
+        for chunk_start in range(0, len(fetch_list), 1000):
+            chunk = fetch_list[chunk_start : chunk_start + 1000]
+            params = {f"a_{i}": a for i, a in enumerate(chunk)}
+            placeholders = ", ".join(f":a_{i}" for i in range(len(chunk)))
+            sql = text(f"SELECT id, title FROM assays WHERE id IN ({placeholders})")
+            rows = sql_conn.execute(sql, params).fetchall()
+            for aid, title in rows:
+                assay_titles[aid] = title
 
     results: List[DerivedFromRelRow] = []
     seen: Set[Tuple[int, int]] = set()
@@ -590,12 +697,6 @@ def build_derived_from_payloads_from_db(
                 if internal_assay_id in provided_assay_title_by_id:
                     internal_assay_title = provided_assay_title_by_id.get(internal_assay_id)
                 else:
-                    # Lazy-load assay title from DB
-                    if internal_assay_id not in assay_titles:
-                        sql = text("SELECT id, title FROM assays WHERE id = :aid")
-                        row = sql_conn.execute(sql, {"aid": internal_assay_id}).fetchone()
-                        if row:
-                            assay_titles[row[0]] = row[1]
                     internal_assay_title = assay_titles.get(internal_assay_id)
 
             results.append(DerivedFromRelRow(
@@ -640,6 +741,60 @@ def upload_all(
 
     t0 = time.perf_counter()
     metrics = Metrics()
+    db_name = neo4j_config.NEO4J_DB
+
+    # ── Phase 1: All MySQL fetches (while sql_conn is fresh) ─────────────
+
+    node_rows, _ = build_payloads(outcomes, input_models)
+    metrics.nodes_input = len(node_rows)
+
+    derived_from_rows = build_derived_from_payloads_from_db(
+        direction_computation.parents_of,
+        sql_conn,
+        direction_computation.assays_by_uid,
+        outcomes,
+        input_models,
+    )
+    metrics.rels_input = len(derived_from_rows)
+    metrics.eligible_children = len(direction_computation.parents_of)
+
+    # Handle parent-changed samples (re-resolve DERIVED_FROM with fresh assays)
+    parent_changed_uuids = [
+        uid for uid, outcome in outcomes.items()
+        if outcome.parent_changed and outcome.sample_id is not None
+    ]
+    if parent_changed_uuids:
+        refreshed_assays = refresh_assays_for_uuids(parent_changed_uuids, outcomes, sql_conn)
+        updated_assays_by_uid = dict(direction_computation.assays_by_uid)
+        updated_assays_by_uid.update(refreshed_assays)
+        derived_from_rows = build_derived_from_payloads_from_db(
+            direction_computation.parents_of,
+            sql_conn,
+            updated_assays_by_uid,
+            outcomes,
+            input_models,
+        )
+        metrics.rels_input = len(derived_from_rows)
+
+    st_map: Dict[str, Optional[int]] = {}
+    uid_to_model = {m.UID: m for m in input_models}
+    for uid, outcome in outcomes.items():
+        if outcome.sample_id is not None:
+            model = uid_to_model.get(uid)
+            if model and model.SampleType not in st_map:
+                st_map[model.SampleType] = None
+    st_node_rows = [SampleTypeNodeRow(title=t, id=None) for t in st_map]
+
+    of_type_rows = build_of_type_payloads(outcomes, insertable_samples or [])
+
+    in_study_rows, in_study_warn_count = build_in_study_payloads(outcomes, input_models)
+
+    study_ids = {row.study_id for row in in_study_rows}
+    study_node_rows, inv_node_rows, inv_rel_rows = (
+        build_study_node_payloads(study_ids, sql_conn) if study_ids else ([], [], [])
+    )
+
+    # ── Phase 2: All Neo4j operations (no more MySQL I/O) ───────────────
 
     driver = GraphDatabase.driver(
         neo4j_config.URI,
@@ -647,43 +802,10 @@ def upload_all(
     )
 
     try:
-        db_name = neo4j_config.NEO4J_DB
-
         # 1. Ensure constraints
         ensure_constraints(driver, db_name)
 
-        # 2. Build payloads
-        node_rows, _ = build_payloads(outcomes, input_models)
-        metrics.nodes_input = len(node_rows)
-
-        # 3. Build DERIVED_FROM payloads
-        derived_from_rows = build_derived_from_payloads_from_db(
-            direction_computation.parents_of,
-            sql_conn,
-            direction_computation.assays_by_uid,
-            outcomes,
-            input_models,
-        )
-        metrics.rels_input = len(derived_from_rows)
-        metrics.eligible_children = len(direction_computation.parents_of)
-
-        # 4. Build SampleType node rows
-        st_map: Dict[str, Optional[int]] = {}
-        uid_to_model = {m.UID: m for m in input_models}
-        for uid, outcome in outcomes.items():
-            if outcome.sample_id is not None:
-                model = uid_to_model.get(uid)
-                if model and model.SampleType not in st_map:
-                    st_map[model.SampleType] = None
-        st_node_rows = [SampleTypeNodeRow(title=t, id=None) for t in st_map]
-
-        # 5. Build OF_TYPE rows
-        of_type_rows = build_of_type_payloads(outcomes, insertable_samples or [])
-
-        # 6. Build IN_STUDY rows
-        in_study_rows, in_study_warn_count = build_in_study_payloads(outcomes, input_models)
-
-        # 7. MERGE Sample nodes
+        # 2. MERGE Sample nodes
         if node_rows:
             created, matched = bulk_merge_nodes(
                 driver, db_name, node_rows, neo4j_config.NEO4J_NODE_CHUNK
@@ -691,43 +813,45 @@ def upload_all(
             metrics.nodes_created = created
             metrics.nodes_matched = matched
 
-        # 8. MERGE SampleType nodes
+        # 3. MERGE SampleType nodes
         if st_node_rows:
             st_created = bulk_merge_sample_type_nodes(
                 driver, db_name, st_node_rows, neo4j_config.NEO4J_NODE_CHUNK
             )
             metrics.sample_type_nodes_created = st_created
 
-        # 9. MERGE DERIVED_FROM
+        # 4. Delete stale DERIVED_FROM for parent-changed samples
+        if parent_changed_uuids:
+            deleted_count = delete_derived_from_for_uuids(driver, db_name, parent_changed_uuids)
+            log.info("Neo4j: deleted %d stale DERIVED_FROM for %d parent-changed samples",
+                     deleted_count, len(parent_changed_uuids))
+
+        # 5. MERGE DERIVED_FROM
         if derived_from_rows:
             df_count = bulk_merge_relationships(
                 driver, db_name, derived_from_rows, neo4j_config.NEO4J_REL_CHUNK
             )
             metrics.derived_from_rels_created = df_count
 
-        # 10. MERGE OF_TYPE
+        # 6. MERGE OF_TYPE
         if of_type_rows:
             ot_count = bulk_merge_of_type_relationships(
                 driver, db_name, of_type_rows, neo4j_config.NEO4J_REL_CHUNK
             )
             metrics.of_type_rels_created = ot_count
 
-        # 10.5. Build and MERGE Study + Investigation nodes
-        study_ids = {row.study_id for row in in_study_rows}
-        if study_ids:
-            study_node_rows, inv_node_rows, inv_rel_rows = build_study_node_payloads(study_ids, sql_conn)
-            if study_node_rows:
-                study_created = bulk_merge_study_nodes(driver, db_name, study_node_rows, neo4j_config.NEO4J_NODE_CHUNK)
-                metrics.study_nodes_created = study_created
-            if inv_node_rows:
-                inv_created = bulk_merge_investigation_nodes(driver, db_name, inv_node_rows, neo4j_config.NEO4J_NODE_CHUNK)
-                metrics.investigation_nodes_created = inv_created
-            # IN_INVESTIGATION after both node types exist
-            if inv_rel_rows:
-                inv_rel_count = bulk_merge_in_investigation_relationships(driver, db_name, inv_rel_rows, neo4j_config.NEO4J_REL_CHUNK)
-                metrics.in_investigation_rels_created = inv_rel_count
+        # 7. MERGE Study + Investigation nodes
+        if study_node_rows:
+            study_created = bulk_merge_study_nodes(driver, db_name, study_node_rows, neo4j_config.NEO4J_NODE_CHUNK)
+            metrics.study_nodes_created = study_created
+        if inv_node_rows:
+            inv_created = bulk_merge_investigation_nodes(driver, db_name, inv_node_rows, neo4j_config.NEO4J_NODE_CHUNK)
+            metrics.investigation_nodes_created = inv_created
+        if inv_rel_rows:
+            inv_rel_count = bulk_merge_in_investigation_relationships(driver, db_name, inv_rel_rows, neo4j_config.NEO4J_REL_CHUNK)
+            metrics.in_investigation_rels_created = inv_rel_count
 
-        # 11. MERGE IN_STUDY
+        # 8. MERGE IN_STUDY
         if in_study_rows:
             is_count = bulk_merge_in_study_relationships(
                 driver, db_name, in_study_rows, neo4j_config.NEO4J_REL_CHUNK
