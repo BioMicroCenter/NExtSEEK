@@ -21,6 +21,7 @@ def run_batch_upload_task(
     project_id: int,
     contributor_id: int,
     lababbv: str = "NA",
+    user_id: int = None,
     config_overrides: dict = None,
 ):
     """Celery task entry point for batch upload.
@@ -48,7 +49,7 @@ def run_batch_upload_task(
 
     self.update_state(
         state="STARTED",
-        meta={"stage": "INITIALIZING", "progress_pct": 0},
+        meta={"stage": "INITIALIZING", "progress_pct": 0, "user_id": user_id},
     )
 
     try:

@@ -85,6 +85,7 @@ class TestResolveUserContext:
         }
 
         request = MagicMock()
+        request.data = {}  # No person_id override
         with patch("seek.seekdb.SeekDB", return_value=mock_seekdb_instance):
             result = _resolve_user_context(request)
 
@@ -106,7 +107,8 @@ class TestBatchUploadViewSetAuth:
         assert response.status_code in (401, 403)
 
     @pytest.mark.django_db
-    def test_non_admin_forbidden(self, factory, normal_user):
+    def test_non_admin_allowed(self, factory, normal_user):
+        """Non-admin authenticated users are allowed; request fails validation (file not found)."""
         view = BatchUploadViewSet.as_view({"post": "start"})
         request = factory.post(
             "/api/batch-upload/start/",
@@ -115,7 +117,7 @@ class TestBatchUploadViewSetAuth:
         )
         force_authenticate(request, user=normal_user)
         response = view(request)
-        assert response.status_code == 403
+        assert response.status_code == 400
 
     @pytest.mark.django_db
     def test_admin_missing_params(self, factory, admin_user):
@@ -158,7 +160,8 @@ class TestBatchUploadViewSetStatus:
 
     @pytest.mark.django_db
     @pytest.mark.skipif(not _redis_available(), reason="Redis not running")
-    def test_status_pending_job(self, factory, admin_user):
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=True)
+    def test_status_pending_job(self, mock_owns, factory, admin_user):
         view = BatchUploadViewSet.as_view({"get": "job_status"})
         request = factory.get("/api/batch-upload/status/nonexistent-id/")
         force_authenticate(request, user=admin_user)
@@ -171,9 +174,10 @@ class TestBatchUploadFileUpload:
     """Test client-side Excel file upload."""
 
     @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.register_job")
     @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
     @patch("nextseek_api.batch_upload.views._resolve_user_context", return_value={"contributor_id": 1, "lababbv": "MIT"})
-    def test_upload_xlsx_returns_202(self, mock_contrib, mock_task, factory, admin_user, tmp_path):
+    def test_upload_xlsx_returns_202(self, mock_contrib, mock_task, mock_register, factory, admin_user, tmp_path):
         mock_task.delay.return_value.id = "fake-task-id"
         view = BatchUploadViewSet.as_view({"post": "start"})
         xlsx_file = SimpleUploadedFile(
@@ -191,6 +195,51 @@ class TestBatchUploadFileUpload:
             response = view(request)
         assert response.status_code == 202
         assert response.data["job_id"] == "fake-task-id"
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.register_job")
+    @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
+    @patch("nextseek_api.batch_upload.views._resolve_user_context", return_value={"contributor_id": 1, "lababbv": "MIT"})
+    def test_start_registers_job(self, mock_contrib, mock_task, mock_register, factory, admin_user, tmp_path):
+        """register_job is called with correct user_id, job_id, project_id."""
+        mock_task.delay.return_value.id = "reg-task-id"
+        view = BatchUploadViewSet.as_view({"post": "start"})
+        xlsx_file = SimpleUploadedFile(
+            "samples.xlsx", b"fake", content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        request = factory.post(
+            "/api/batch-upload/start/",
+            data={"file": xlsx_file, "project_id": 42},
+            format="multipart",
+        )
+        force_authenticate(request, user=admin_user)
+        with override_settings(MEDIA_ROOT=str(tmp_path)):
+            view(request)
+        mock_register.assert_called_once_with(
+            user_id=admin_user.pk, job_id="reg-task-id", project_id=42,
+        )
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.register_job")
+    @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
+    @patch("nextseek_api.batch_upload.views._resolve_user_context", return_value={"contributor_id": 1, "lababbv": "MIT"})
+    def test_start_passes_user_id_to_task(self, mock_contrib, mock_task, mock_register, factory, admin_user, tmp_path):
+        """user_id is passed to run_batch_upload_task.delay()."""
+        mock_task.delay.return_value.id = "uid-task-id"
+        view = BatchUploadViewSet.as_view({"post": "start"})
+        xlsx_file = SimpleUploadedFile(
+            "samples.xlsx", b"fake", content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        request = factory.post(
+            "/api/batch-upload/start/",
+            data={"file": xlsx_file, "project_id": 1},
+            format="multipart",
+        )
+        force_authenticate(request, user=admin_user)
+        with override_settings(MEDIA_ROOT=str(tmp_path)):
+            view(request)
+        call_kwargs = mock_task.delay.call_args[1]
+        assert call_kwargs["user_id"] == admin_user.pk
 
     @pytest.mark.django_db
     def test_upload_non_xlsx_rejected(self, factory, admin_user):
@@ -220,6 +269,144 @@ class TestBatchUploadFileUpload:
         assert "upload" in response.data["detail"].lower() or "xlsx_path" in response.data["detail"]
 
 
+class TestOwnershipEnforcement:
+    """Test that non-owners get 404."""
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=True)
+    def test_status_own_job_allowed(self, mock_owns, factory, admin_user):
+        """Owner can access their job status."""
+        view = BatchUploadViewSet.as_view({"get": "job_status"})
+        request = factory.get("/api/batch-upload/status/test-job-123/")
+        force_authenticate(request, user=admin_user)
+        response = view(request, job_id="test-job-123")
+        # Should get through ownership check (200 or whatever Celery returns)
+        assert response.status_code != 404
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=False)
+    def test_status_other_user_404(self, mock_owns, factory, admin_user):
+        view = BatchUploadViewSet.as_view({"get": "job_status"})
+        request = factory.get("/api/batch-upload/status/other-job/")
+        force_authenticate(request, user=admin_user)
+        response = view(request, job_id="other-job")
+        assert response.status_code == 404
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=False)
+    def test_summary_other_user_404(self, mock_owns, factory, admin_user):
+        view = BatchUploadViewSet.as_view({"get": "summary"})
+        request = factory.get("/api/batch-upload/summary/other-job/")
+        force_authenticate(request, user=admin_user)
+        response = view(request, job_id="other-job")
+        assert response.status_code == 404
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=False)
+    def test_cancel_other_user_404(self, mock_owns, factory, admin_user):
+        view = BatchUploadViewSet.as_view({"delete": "cancel"})
+        request = factory.delete("/api/batch-upload/cancel/other-job/")
+        force_authenticate(request, user=admin_user)
+        response = view(request, job_id="other-job")
+        assert response.status_code == 404
+
+
+class TestListEndpoint:
+    """Test the list() endpoint."""
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.list_jobs")
+    def test_list_returns_own_jobs_only(self, mock_list_jobs, factory, admin_user, normal_user):
+        """Each user sees only their own jobs."""
+        # User A
+        mock_list_jobs.return_value = {
+            "jobs": [{"job_id": "a-job", "project_id": 1, "created_at": 1.0}],
+            "total": 1, "page": 1, "page_size": 20,
+        }
+        view = BatchUploadViewSet.as_view({"get": "list"})
+        request = factory.get("/api/batch-upload/")
+        force_authenticate(request, user=admin_user)
+        with patch("nextseek_api.batch_upload.views.AsyncResult") as mock_ar:
+            mock_ar.return_value.state = "SUCCESS"
+            response = view(request)
+        assert response.status_code == 200
+        assert len(response.data["jobs"]) == 1
+        assert response.data["jobs"][0]["job_id"] == "a-job"
+        mock_list_jobs.assert_called_once_with(user_id=admin_user.pk, page=1, page_size=20)
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.list_jobs")
+    def test_list_pagination(self, mock_list_jobs, factory, admin_user):
+        """Pagination params are forwarded correctly."""
+        mock_list_jobs.return_value = {
+            "jobs": [{"job_id": f"j-{i}", "project_id": 1, "created_at": float(i)} for i in range(5)],
+            "total": 25, "page": 2, "page_size": 20,
+        }
+        view = BatchUploadViewSet.as_view({"get": "list"})
+        request = factory.get("/api/batch-upload/?page=2&page_size=20")
+        force_authenticate(request, user=admin_user)
+        with patch("nextseek_api.batch_upload.views.AsyncResult") as mock_ar:
+            mock_ar.return_value.state = "PENDING"
+            response = view(request)
+        assert response.status_code == 200
+        assert response.data["total"] == 25
+        assert response.data["page"] == 2
+        assert len(response.data["jobs"]) == 5
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.list_jobs")
+    def test_list_empty(self, mock_list_jobs, factory, admin_user):
+        """User with no jobs gets empty list."""
+        mock_list_jobs.return_value = {"jobs": [], "total": 0, "page": 1, "page_size": 20}
+        view = BatchUploadViewSet.as_view({"get": "list"})
+        request = factory.get("/api/batch-upload/")
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 200
+        assert response.data["jobs"] == []
+        assert response.data["total"] == 0
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.list_jobs")
+    def test_list_enriches_with_celery_state(self, mock_list_jobs, factory, admin_user):
+        """Each job is enriched with current Celery state."""
+        mock_list_jobs.return_value = {
+            "jobs": [{"job_id": "enrich-job", "project_id": 1, "created_at": 100.0}],
+            "total": 1, "page": 1, "page_size": 20,
+        }
+        view = BatchUploadViewSet.as_view({"get": "list"})
+        request = factory.get("/api/batch-upload/")
+        force_authenticate(request, user=admin_user)
+        with patch("nextseek_api.batch_upload.views.AsyncResult") as mock_ar:
+            mock_ar.return_value.state = "PROGRESS"
+            response = view(request)
+        assert response.status_code == 200
+        assert response.data["jobs"][0]["state"] == "PROGRESS"
+        assert response.data["jobs"][0]["job_id"] == "enrich-job"
+
+
+class TestBasicAuth:
+    """Test basic auth acceptance."""
+
+    @pytest.mark.django_db
+    def test_basic_auth_accepted(self, factory, admin_user):
+        """Basic auth header is accepted by the ViewSet."""
+        import base64
+        admin_user.set_password("testpass123")
+        admin_user.save()
+        credentials = base64.b64encode(b"batch_admin:testpass123").decode("utf-8")
+        view = BatchUploadViewSet.as_view({"get": "list"})
+        request = factory.get(
+            "/api/batch-upload/",
+            HTTP_AUTHORIZATION=f"Basic {credentials}",
+        )
+        with patch("nextseek_api.batch_upload.views.list_jobs") as mock_lj:
+            mock_lj.return_value = {"jobs": [], "total": 0, "page": 1, "page_size": 20}
+            response = view(request)
+        # Should NOT be 401/403
+        assert response.status_code == 200
+
+
 class TestUpdateExistingParameter:
     """Test update_existing parameter handling."""
 
@@ -236,9 +423,10 @@ class TestUpdateExistingParameter:
         assert config.update_existing is False
 
     @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.register_job")
     @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
     @patch("nextseek_api.batch_upload.views._resolve_user_context", return_value={"contributor_id": 1, "lababbv": "MIT"})
-    def test_update_existing_top_level_field(self, mock_contrib, mock_task, factory, admin_user, tmp_path):
+    def test_update_existing_top_level_field(self, mock_contrib, mock_task, mock_register, factory, admin_user, tmp_path):
         """update_existing as a top-level form field should flow into config_overrides."""
         mock_task.delay.return_value.id = "fake-task-id"
         view = BatchUploadViewSet.as_view({"post": "start"})

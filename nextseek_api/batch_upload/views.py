@@ -12,12 +12,16 @@ from django.http import FileResponse
 from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from pydantic import BaseModel, Field
 from rest_framework import serializers, status, viewsets
+from rest_framework.authentication import BasicAuthentication, TokenAuthentication
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
+
 from .celery_app import app as celery_app
+from .job_index import list_jobs, register_job, user_owns_job
 from .tasks import run_batch_upload_task
 from nextseek_api.endpoint_descriptions import (
     BATCH_UPLOAD_START_DESC,
@@ -46,6 +50,7 @@ class BatchUploadStartRequest(BaseModel):
         False,
         description="If true, existing samples (by UUID or Name match) are updated instead of skipped.",
     )
+    person_id: int = Field(..., description="SEEK person ID to set the contributor to for uploaded samples. Optional. Will use the requester's person_id if omitted.")
     config_overrides: dict = Field(
         default_factory=dict,
         description="Optional config overrides (e.g., max_rows_per_batch, enable_auto_permissions)",
@@ -70,12 +75,22 @@ class BatchUploadStatusResponse(BaseModel):
 class BatchUploadViewSet(viewsets.ViewSet):
     """Batch upload pipeline for bulk sample creation.
 
-    Requires admin privileges. Dispatches work to a Celery worker
+    Requires authentication. Dispatches work to a Celery worker
     and provides status tracking, cancellation, and result download.
     """
 
-    permission_classes = [IsAdminUser]
+    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def _check_ownership(self, request, job_id):
+        """Return 404 Response if user doesn't own this job, else None."""
+        if not user_owns_job(request.user.pk, job_id):
+            return Response(
+                {"detail": "Not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return None
 
     @extend_schema(
         request={
@@ -90,6 +105,13 @@ class BatchUploadViewSet(viewsets.ViewSet):
                     "project_id": {
                         "type": "integer",
                         "description": "SEEK project ID to link samples to.",
+                    },
+                    "person_id": {
+                        "type": "integer",
+                        "description": (
+                            "SEEK person ID to set the contributor to for uploaded samples. "
+                            "Optional. Will use the requester's person_id if omitted."
+                        ),
                     },
                     "xlsx_path": {
                         "type": "string",
@@ -194,8 +216,11 @@ class BatchUploadViewSet(viewsets.ViewSet):
             project_id=project_id,
             contributor_id=user_ctx["contributor_id"],
             lababbv=user_ctx["lababbv"],
+            user_id=request.user.pk,
             config_overrides=config_overrides,
         )
+
+        register_job(user_id=request.user.pk, job_id=task.id, project_id=project_id)
 
         return Response(
             {"job_id": task.id, "status": "queued"},
@@ -209,6 +234,9 @@ class BatchUploadViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["get"], url_path=r"status/(?P<job_id>[^/.]+)")
     def job_status(self, request, job_id=None):
         """GET /api/batch-upload/status/{job_id}/ — poll job status."""
+        denied = self._check_ownership(request, job_id)
+        if denied:
+            return denied
         result = AsyncResult(job_id, app=celery_app)
         response = {
             "job_id": job_id,
@@ -233,6 +261,9 @@ class BatchUploadViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["delete"], url_path=r"cancel/(?P<job_id>[^/.]+)")
     def cancel(self, request, job_id=None):
         """DELETE /api/batch-upload/cancel/{job_id}/ — revoke a job."""
+        denied = self._check_ownership(request, job_id)
+        if denied:
+            return denied
         celery_app.control.revoke(job_id, terminate=True)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -243,6 +274,9 @@ class BatchUploadViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["get"], url_path=r"summary/(?P<job_id>[^/.]+)")
     def summary(self, request, job_id=None):
         """GET /api/batch-upload/summary/{job_id}/ — download summary CSV."""
+        denied = self._check_ownership(request, job_id)
+        if denied:
+            return denied
         result = AsyncResult(job_id, app=celery_app)
 
         if result.state != "SUCCESS":
@@ -270,14 +304,41 @@ class BatchUploadViewSet(viewsets.ViewSet):
         description=BATCH_UPLOAD_LIST_DESC,
     )
     def list(self, request):
-        """GET /api/batch-upload/ — list recent jobs."""
-        # Query the result backend for recent tasks
-        # Note: full task listing requires Flower or custom tracking;
-        # this provides a basic check for known job IDs
-        return Response(
-            {"detail": "Use /api/batch-upload/status/{job_id}/ to check specific jobs."},
-            status=status.HTTP_200_OK,
+        """GET /api/batch-upload/ — list user's jobs with pagination."""
+        try:
+            page = int(request.query_params.get("page", 1))
+            page_size = int(request.query_params.get("page_size", 20))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "page and page_size must be integers"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        page_size = min(page_size, 100)  # cap
+
+        result = list_jobs(
+            user_id=request.user.pk,
+            page=page,
+            page_size=page_size,
         )
+
+        # Enrich with current Celery state
+        enriched_jobs = []
+        for job_entry in result["jobs"]:
+            job_id = job_entry["job_id"]
+            celery_result = AsyncResult(job_id, app=celery_app)
+            enriched_jobs.append({
+                "job_id": job_id,
+                "project_id": job_entry.get("project_id"),
+                "created_at": job_entry.get("created_at"),
+                "state": celery_result.state,
+            })
+
+        return Response({
+            "jobs": enriched_jobs,
+            "total": result["total"],
+            "page": result["page"],
+            "page_size": result["page_size"],
+        })
 
 
 # ── helpers ───────────────────────────────────────────────────────────────
@@ -308,6 +369,7 @@ def _resolve_user_context(request) -> dict | None:
     """
     contributor_id = None
     lababbv = "NA"
+    request_person_id = request.data.get("person_id")
 
     try:
         from seek.seekdb import SeekDB
@@ -316,6 +378,17 @@ def _resolve_user_context(request) -> dict | None:
         # Pass True to get full profile including lababbv
         user_info = seekdb.getSeekLogin(request, True)
         if user_info and user_info.get("status"):
+
+            try:
+                # If the request contains a person_id
+                # set uploading user to this id
+                if request_person_id is not None and request_person_id != user_info.get("person_id"):
+                    is_admin = bool(request.user.is_staff or request.user.is_superuser)
+                    if is_admin:
+                        user_info = seekdb.getUserInfo(request_person_id)[0]
+            except:
+                raise Exception("Could not resolve requested person_id.")
+
             person_id = user_info.get("person_id") or user_info.get("id")
             if person_id:
                 contributor_id = int(person_id)
