@@ -42,6 +42,10 @@ class BatchUploadStartRequest(BaseModel):
         ),
     )
     project_id: int = Field(..., description="SEEK project ID to link samples to")
+    update_existing: bool = Field(
+        False,
+        description="If true, existing samples (by UUID or Name match) are updated instead of skipped.",
+    )
     config_overrides: dict = Field(
         default_factory=dict,
         description="Optional config overrides (e.g., max_rows_per_batch, enable_auto_permissions)",
@@ -93,6 +97,11 @@ class BatchUploadViewSet(viewsets.ViewSet):
                             "Fallback: absolute path to an Excel file already on the server. "
                             "Ignored when a file is uploaded."
                         ),
+                    },
+                    "update_existing": {
+                        "type": "boolean",
+                        "description": "If true, existing samples (by UUID or Name match) are updated instead of skipped. Default: false.",
+                        "default": False,
                     },
                     "config_overrides": {
                         "type": "object",
@@ -163,6 +172,14 @@ class BatchUploadViewSet(viewsets.ViewSet):
                         {"detail": "config_overrides must be a JSON object"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
+
+        # Handle update_existing as top-level field or in config_overrides
+        update_existing = request.data.get("update_existing")
+        if update_existing is not None:
+            if isinstance(update_existing, str):
+                config_overrides["update_existing"] = update_existing.strip().lower() in ("1", "true", "yes")
+            elif isinstance(update_existing, bool):
+                config_overrides["update_existing"] = update_existing
 
         # Resolve contributor_id and lababbv from the authenticated user
         user_ctx = _resolve_user_context(request)

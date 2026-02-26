@@ -218,3 +218,44 @@ class TestBatchUploadFileUpload:
         response = view(request)
         assert response.status_code == 400
         assert "upload" in response.data["detail"].lower() or "xlsx_path" in response.data["detail"]
+
+
+class TestUpdateExistingParameter:
+    """Test update_existing parameter handling."""
+
+    def test_update_existing_flows_through_config(self):
+        """update_existing should be usable in config_overrides."""
+        from nextseek_api.batch_upload.config import BatchUploadConfig
+        config = BatchUploadConfig(**{"update_existing": True})
+        assert config.update_existing is True
+
+    def test_update_existing_defaults_false(self):
+        """update_existing should default to False."""
+        from nextseek_api.batch_upload.config import BatchUploadConfig
+        config = BatchUploadConfig()
+        assert config.update_existing is False
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
+    @patch("nextseek_api.batch_upload.views._resolve_user_context", return_value={"contributor_id": 1, "lababbv": "MIT"})
+    def test_update_existing_top_level_field(self, mock_contrib, mock_task, factory, admin_user, tmp_path):
+        """update_existing as a top-level form field should flow into config_overrides."""
+        mock_task.delay.return_value.id = "fake-task-id"
+        view = BatchUploadViewSet.as_view({"post": "start"})
+        xlsx_file = SimpleUploadedFile(
+            "samples.xlsx",
+            b"fake-xlsx-content",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        request = factory.post(
+            "/api/batch-upload/start/",
+            data={"file": xlsx_file, "project_id": 1, "update_existing": "true"},
+            format="multipart",
+        )
+        force_authenticate(request, user=admin_user)
+        with override_settings(MEDIA_ROOT=str(tmp_path)):
+            response = view(request)
+        assert response.status_code == 202
+        # Verify update_existing was passed through config_overrides
+        call_kwargs = mock_task.delay.call_args[1]
+        assert call_kwargs["config_overrides"]["update_existing"] is True
