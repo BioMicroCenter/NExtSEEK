@@ -377,16 +377,17 @@ def _inject_uid_into_metadata(rows: List[InputRowModel], generated_uids: Set[str
 def check_name_exists_in_db(
     rows: List[InputRowModel],
     conn: Connection,
-) -> Tuple[List[InputRowModel], Dict[str, dict]]:
+) -> Tuple[List[InputRowModel], Dict[str, dict], List[InputRowModel]]:
     """Check if Name/File_PrimaryData of null-UID rows already exist in samples.title.
 
     Case-insensitive global check. Only checks rows where UID is None.
     Rows with existing UIDs are passed through unchanged.
 
     Returns:
-        (remaining_rows, name_matches)
+        (remaining_rows, name_matches, matched_rows)
         - remaining_rows: rows that did NOT match (+ rows with UIDs)
         - name_matches: dict of {identity: {"uid": str, "sample_id": int}} for matched rows
+        - matched_rows: the original InputRowModel objects that matched
     """
     remaining: List[InputRowModel] = []
     to_check: List[Tuple[int, InputRowModel, str]] = []
@@ -402,7 +403,7 @@ def check_name_exists_in_db(
         to_check.append((idx, row, identity))
 
     if not to_check:
-        return remaining, {}
+        return remaining, {}, []
 
     # Bulk query: case-insensitive match against samples.title
     identities = list({item[2] for item in to_check})
@@ -425,15 +426,17 @@ def check_name_exists_in_db(
                 db_matches[key] = {"uid": uuid_val, "sample_id": sample_id}
 
     # Partition: matched vs remaining
+    matched_rows: List[InputRowModel] = []
     name_matches: Dict[str, dict] = {}
     for _idx, row, identity in to_check:
         key = identity.lower()
         if key in db_matches:
             name_matches[identity] = db_matches[key]
+            matched_rows.append(row)
         else:
             remaining.append(row)
 
-    return remaining, name_matches
+    return remaining, name_matches, matched_rows
 
 
 # ── 4f. Main entry point ───────────────────────────────────────────────────

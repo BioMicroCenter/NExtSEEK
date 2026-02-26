@@ -20,7 +20,7 @@ class TestNameIdempotenceIntegration:
         conn.execute.return_value.fetchall.return_value = [
             ("NHP-250101MIT-1", 42, "Existing Sample"),
         ]
-        remaining, matches = check_name_exists_in_db(rows, conn)
+        remaining, matches, matched_rows = check_name_exists_in_db(rows, conn)
         assert len(remaining) == 1
         assert remaining[0].json_metadata  # the "New Sample" row
         assert len(matches) == 1

@@ -717,12 +717,15 @@ def upload_all(
         if study_ids:
             study_node_rows, inv_node_rows, inv_rel_rows = build_study_node_payloads(study_ids, sql_conn)
             if study_node_rows:
-                bulk_merge_study_nodes(driver, db_name, study_node_rows, neo4j_config.NEO4J_NODE_CHUNK)
+                study_created = bulk_merge_study_nodes(driver, db_name, study_node_rows, neo4j_config.NEO4J_NODE_CHUNK)
+                metrics.study_nodes_created = study_created
             if inv_node_rows:
-                bulk_merge_investigation_nodes(driver, db_name, inv_node_rows, neo4j_config.NEO4J_NODE_CHUNK)
+                inv_created = bulk_merge_investigation_nodes(driver, db_name, inv_node_rows, neo4j_config.NEO4J_NODE_CHUNK)
+                metrics.investigation_nodes_created = inv_created
             # IN_INVESTIGATION after both node types exist
             if inv_rel_rows:
-                bulk_merge_in_investigation_relationships(driver, db_name, inv_rel_rows, neo4j_config.NEO4J_REL_CHUNK)
+                inv_rel_count = bulk_merge_in_investigation_relationships(driver, db_name, inv_rel_rows, neo4j_config.NEO4J_REL_CHUNK)
+                metrics.in_investigation_rels_created = inv_rel_count
 
         # 11. MERGE IN_STUDY
         if in_study_rows:

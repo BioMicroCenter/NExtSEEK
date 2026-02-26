@@ -333,6 +333,9 @@ class Metrics(BaseModel):
     in_study_rels_created: int = 0
     in_study_warnings: int = 0
     sample_type_nodes_created: int = 0
+    study_nodes_created: int = 0
+    investigation_nodes_created: int = 0
+    in_investigation_rels_created: int = 0
     elapsed_ms_total: float = 0.0
     per_chunk_timings: List[dict] = Field(default_factory=list)
 

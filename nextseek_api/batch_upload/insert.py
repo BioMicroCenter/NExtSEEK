@@ -186,8 +186,8 @@ def process_batches(
             continue
         rows_to_process.append(sample)
 
-    if not rows_to_process:
-        log.info("INSERT: no new rows to process")
+    if not rows_to_process and not rows_to_update:
+        log.info("INSERT: no rows to process or update")
         return BatchResult(
             inserted_count=0,
             linked_project_count=0,

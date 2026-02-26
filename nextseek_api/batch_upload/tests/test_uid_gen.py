@@ -619,11 +619,13 @@ class TestCheckNameExistsInDb:
         mock_conn.execute.return_value.fetchall.return_value = [
             ("BLD-250101MIT-1", 42, "Blood Sample A"),
         ]
-        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 0
         assert len(matches) == 1
         assert matches["Blood Sample A"]["uid"] == "BLD-250101MIT-1"
         assert matches["Blood Sample A"]["sample_id"] == 42
+        assert len(matched_rows) == 1
+        assert matched_rows[0] is rows[0]
 
     def test_no_match_keeps_row(self, mock_conn):
         from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
@@ -631,7 +633,7 @@ class TestCheckNameExistsInDb:
             InputRowModel(SampleType="NHP_blood", json_metadata='{"Name":"New Sample"}'),
         ]
         mock_conn.execute.return_value.fetchall.return_value = []
-        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 1
         assert len(matches) == 0
 
@@ -640,7 +642,7 @@ class TestCheckNameExistsInDb:
         rows = [
             InputRowModel(UID="NHP-250101MIT-1", SampleType="NHP_blood", json_metadata='{"Name":"Existing"}'),
         ]
-        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 1
         assert len(matches) == 0
         mock_conn.execute.assert_not_called()
@@ -653,7 +655,7 @@ class TestCheckNameExistsInDb:
         mock_conn.execute.return_value.fetchall.return_value = [
             ("D.IMG-250101MIT-1", 99, "image001.tif"),
         ]
-        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 0
         assert "image001.tif" in matches
 
@@ -665,7 +667,7 @@ class TestCheckNameExistsInDb:
         mock_conn.execute.return_value.fetchall.return_value = [
             ("BLD-250101MIT-1", 42, "Blood Sample A"),
         ]
-        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 0
         assert len(matches) == 1
 
@@ -679,7 +681,7 @@ class TestCheckNameExistsInDb:
         mock_conn.execute.return_value.fetchall.return_value = [
             ("NHP-250101MIT-5", 55, "Exists In DB"),
         ]
-        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 2  # UID row + "Brand New"
         assert len(matches) == 1
         assert "Exists In DB" in matches
@@ -689,13 +691,13 @@ class TestCheckNameExistsInDb:
         rows = [
             InputRowModel(SampleType="NHP_blood", json_metadata='{}'),  # no Name
         ]
-        remaining, matches = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 1
         assert len(matches) == 0
         mock_conn.execute.assert_not_called()
 
     def test_empty_rows_list(self, mock_conn):
         from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
-        remaining, matches = check_name_exists_in_db([], mock_conn)
+        remaining, matches, matched_rows = check_name_exists_in_db([], mock_conn)
         assert len(remaining) == 0
         assert len(matches) == 0

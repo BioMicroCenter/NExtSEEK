@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import text
@@ -90,7 +90,7 @@ def update_sample_metadata(
     conn: Connection,
 ) -> None:
     """UPDATE samples SET title, json_metadata, updated_at WHERE id = sample_id."""
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     conn.execute(
         text(
             "UPDATE samples SET title = :title, json_metadata = :meta, "
@@ -129,7 +129,7 @@ def smart_merge_assay_assets(
             )
 
     if to_add:
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         for aid in to_add:
             direction = direction_by_pair.get((uid, aid), 0)
             conn.execute(
@@ -164,7 +164,7 @@ def add_permission_for_existing_policy(
     if result.fetchone():
         return False
 
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     conn.execute(
         text(
             "INSERT INTO permissions (contributor_type, contributor_id, policy_id, access_type, "
