@@ -25,6 +25,7 @@ class RowSummary:
     assays_linked_count: Optional[int]
     access_type: Optional[int]
     uid_generated: bool = False
+    topo_level: Optional[int] = None
 
 
 class ProgressReporter:
@@ -112,6 +113,7 @@ def write_summary_csv(
     fieldnames = [
         "row_index", "uid", "status", "reason", "sample_type",
         "sample_id", "assays_linked_count", "access_type", "uid_generated",
+        "topo_level",
     ]
 
     with open(output_path, "w", newline="", encoding="utf-8") as f:
@@ -129,6 +131,7 @@ def write_summary_csv(
                 "assays_linked_count": row.assays_linked_count or 0,
                 "access_type": row.access_type or "",
                 "uid_generated": row.uid_generated,
+                "topo_level": row.topo_level if row.topo_level is not None else "",
             })
 
         # Separator
@@ -205,6 +208,7 @@ def build_row_summaries(
             assays_linked_count=outcome.assays_linked_count,
             access_type=None,
             uid_generated=outcome.uid_generated,
+            topo_level=outcome.topo_level,
         ))
 
     return summaries

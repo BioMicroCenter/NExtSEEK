@@ -126,6 +126,7 @@ def process_batches(
     checkpoint_name: str = "batch_checkpoint.txt",
     resume_uid: Optional[str] = None,
     should_stop: Optional[Callable[[], bool]] = None,
+    existing_samples: Optional[Dict[str, int]] = None,
 ) -> BatchResult:
     """Main batch processing loop.
 
@@ -153,8 +154,12 @@ def process_batches(
 
     # Pre-flight: load existing samples
     all_uuids = [s.uuid for s in insertable_samples]
-    with conn_factory() as conn:
-        existing = load_existing_samples(all_uuids, conn)
+    if existing_samples is not None:
+        all_uuids_set = set(all_uuids)
+        existing = {uid: sid for uid, sid in existing_samples.items() if uid in all_uuids_set}
+    else:
+        with conn_factory() as conn:
+            existing = load_existing_samples(all_uuids, conn)
 
     # Determine resume point
     effective_resume = determine_resume_uid(resume_uid, checkpoint_dir, checkpoint_name)

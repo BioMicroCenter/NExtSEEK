@@ -66,6 +66,7 @@ def _worker_process_chunk(
     config: BatchUploadConfig,
     direction_computation: DirectionComputation,
     should_stop: Optional[Callable[[], bool]] = None,
+    existing_samples: Optional[Dict[str, int]] = None,
 ) -> BatchResult:
     """Process a chunk of rows in a worker thread."""
     log_prefix = f"[Worker-{worker_id}]"
@@ -87,6 +88,7 @@ def _worker_process_chunk(
         checkpoint_name="",
         resume_uid=None,
         should_stop=should_stop,
+        existing_samples=existing_samples,
     )
 
     # Merge outcomes
@@ -109,6 +111,7 @@ def process_batches_parallel(
     error_collector: Optional[ErrorCollector] = None,
     reporter: Optional[ProgressReporter] = None,
     should_stop: Optional[Callable[[], bool]] = None,
+    existing_samples: Optional[Dict[str, int]] = None,
 ) -> BatchResult:
     """Parallel batch processing for large datasets.
 
@@ -159,6 +162,7 @@ def process_batches_parallel(
                 config=config,
                 direction_computation=direction_computation,
                 should_stop=should_stop,
+                existing_samples=existing_samples,
             )
             futures.append(future)
 

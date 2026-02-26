@@ -17,6 +17,8 @@ class ErrorType(Enum):
     DB_CONSTRAINT = "DB_CONSTRAINT"
     DB_CONN = "DB_CONN"
     DUPLICATE = "DUPLICATE"
+    PARENT_FAILED = "PARENT_FAILED"
+    CYCLE_UNRESOLVABLE = "CYCLE_UNRESOLVABLE"
     UNKNOWN = "UNKNOWN"
 
 
@@ -38,6 +40,8 @@ _SEVERITY_MAP: Dict[ErrorType, Severity] = {
     ErrorType.VALIDATION_SAMPLE_TYPE: Severity.WARNING,
     ErrorType.VALIDATION_ASSAY: Severity.INFO,
     ErrorType.DUPLICATE: Severity.INFO,
+    ErrorType.PARENT_FAILED: Severity.ERROR,
+    ErrorType.CYCLE_UNRESOLVABLE: Severity.ERROR,
 }
 
 

@@ -262,6 +262,7 @@ class RowOutcome(BaseModel):
     sample_id: Optional[int] = None
     assays_linked_count: Optional[int] = None
     uid_generated: bool = False
+    topo_level: Optional[int] = None
 
     model_config = ConfigDict(extra="forbid")
 
