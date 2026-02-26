@@ -67,6 +67,7 @@ def _worker_process_chunk(
     direction_computation: DirectionComputation,
     should_stop: Optional[Callable[[], bool]] = None,
     existing_samples: Optional[Dict[str, int]] = None,
+    update_existing: bool = False,
 ) -> BatchResult:
     """Process a chunk of rows in a worker thread."""
     log_prefix = f"[Worker-{worker_id}]"
@@ -89,6 +90,7 @@ def _worker_process_chunk(
         resume_uid=None,
         should_stop=should_stop,
         existing_samples=existing_samples,
+        update_existing=update_existing,
     )
 
     # Merge outcomes
@@ -112,6 +114,7 @@ def process_batches_parallel(
     reporter: Optional[ProgressReporter] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     existing_samples: Optional[Dict[str, int]] = None,
+    update_existing: bool = False,
 ) -> BatchResult:
     """Parallel batch processing for large datasets.
 
@@ -163,6 +166,7 @@ def process_batches_parallel(
                 direction_computation=direction_computation,
                 should_stop=should_stop,
                 existing_samples=existing_samples,
+                update_existing=update_existing,
             )
             futures.append(future)
 
@@ -179,6 +183,7 @@ def process_batches_parallel(
     total_project = sum(r.linked_project_count for r in results)
     total_assays = sum(r.linked_assays_count for r in results)
     total_perms = sum(r.permissions_inserted_count for r in results)
+    total_updated = sum(r.updated_count for r in results)
     all_attempted: Set[str] = set()
     for r in results:
         all_attempted.update(r.attempted_uids)
@@ -191,4 +196,5 @@ def process_batches_parallel(
         attempted_uids=all_attempted,
         stopped_early=any(r.stopped_early for r in results),
         permissions_inserted_count=total_perms,
+        updated_count=total_updated,
     )

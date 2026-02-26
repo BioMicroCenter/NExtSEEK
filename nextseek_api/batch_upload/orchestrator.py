@@ -111,6 +111,41 @@ def run_batch_upload(
     if not valid_rows:
         return _error_result(job_id, summary_path, error_collector, "No valid rows extracted")
 
+    # ── Stage 1.25: NAME_CHECK ──────────────────────────────────────────
+    if should_stop and should_stop():
+        return _cancelled_result(job_id, summary_path)
+
+    log.info("Stage 1.25: NAME_CHECK")
+    name_matched_outcomes: Dict[str, RowOutcome] = {}
+
+    try:
+        from .uid_gen import check_name_exists_in_db
+        with get_connection() as conn:
+            valid_rows, name_matches = check_name_exists_in_db(valid_rows, conn)
+
+        if name_matches:
+            if config.update_existing:
+                # In upsert mode: re-add matched rows with existing UIDs for update processing
+                log.info("NAME_CHECK: %d name matches, update_existing=True — will update", len(name_matches))
+                # The matched rows were removed from valid_rows by check_name_exists_in_db
+                # Store the matches — the INSERT stage will handle update via existing_samples
+            else:
+                # In default mode: skip matched rows
+                log.info("NAME_CHECK: %d name matches, skipping as duplicates", len(name_matches))
+                for identity, match_info in name_matches.items():
+                    uid = match_info["uid"]
+                    name_matched_outcomes[uid] = RowOutcome(
+                        status="skipped",
+                        reason="name_already_exists",
+                        sample_id=match_info["sample_id"],
+                    )
+    except Exception as exc:
+        log.exception("NAME_CHECK failed (non-fatal, continuing)")
+        error_collector.add(
+            row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
+            message=f"NAME_CHECK failed: {exc}",
+        )
+
     # ── Stage 1.5: UID_GEN ───────────────────────────────────────────────
     if should_stop and should_stop():
         return _cancelled_result(job_id, summary_path)
@@ -322,6 +357,7 @@ def run_batch_upload(
                 reporter=reporter,
                 should_stop=should_stop,
                 existing_samples=cumulative_existing,
+                update_existing=config.update_existing,
             )
         else:
             log.info(
@@ -341,6 +377,7 @@ def run_batch_upload(
                 resume_uid=resume_uid if level_num == 0 else None,
                 should_stop=should_stop,
                 existing_samples=cumulative_existing,
+                update_existing=config.update_existing,
             )
 
         # Stamp topo_level on outcomes and track failures/successes
@@ -409,6 +446,7 @@ def run_batch_upload(
                 checkpoint_name="batch_checkpoint_cycle.txt",
                 should_stop=should_stop,
                 existing_samples=cumulative_existing,
+                update_existing=config.update_existing,
             )
             for uid, outcome in cycle_result.outcomes.items():
                 outcome.topo_level = -1
@@ -423,6 +461,15 @@ def run_batch_upload(
             total_permissions += cycle_result.permissions_inserted_count
             total_attempted.update(cycle_result.attempted_uids)
 
+    # Merge name-matched outcomes (skipped duplicates from NAME_CHECK stage)
+    all_outcomes.update(name_matched_outcomes)
+
+    # Count updated samples from all levels
+    total_updated = sum(
+        1 for o in all_outcomes.values()
+        if o.status == "success" and o.reason == "updated"
+    )
+
     batch_result = BatchResult(
         inserted_count=total_inserted,
         linked_project_count=total_project_links,
@@ -431,6 +478,7 @@ def run_batch_upload(
         attempted_uids=total_attempted,
         stopped_early=any_stopped_early,
         permissions_inserted_count=total_permissions,
+        updated_count=total_updated,
     )
 
     log.info(
@@ -483,6 +531,7 @@ def run_batch_upload(
         "throughput_rps": batch_result.inserted_count / elapsed if elapsed > 0 else 0,
         "permissions_inserted": batch_result.permissions_inserted_count,
         "uids_generated": uid_gen_report.get("uids_generated", 0),
+        "updated": batch_result.updated_count,
     }
 
     row_summaries = build_row_summaries(batch_result.outcomes, valid_rows, error_collector)

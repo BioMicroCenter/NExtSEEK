@@ -127,6 +127,7 @@ def process_batches(
     resume_uid: Optional[str] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     existing_samples: Optional[Dict[str, int]] = None,
+    update_existing: bool = False,
 ) -> BatchResult:
     """Main batch processing loop.
 
@@ -166,13 +167,17 @@ def process_batches(
 
     # Filter and mark existing/skipped
     rows_to_process: List[InsertableSample] = []
+    rows_to_update: List[InsertableSample] = []
     for sample in insertable_samples:
         if sample.uuid in existing:
-            outcomes[sample.uuid] = RowOutcome(
-                status="skipped",
-                reason="duplicate",
-                sample_id=existing[sample.uuid],
-            )
+            if update_existing:
+                rows_to_update.append(sample)
+            else:
+                outcomes[sample.uuid] = RowOutcome(
+                    status="skipped",
+                    reason="duplicate",
+                    sample_id=existing[sample.uuid],
+                )
             continue
         if effective_resume and sample.uuid < effective_resume:
             outcomes[sample.uuid] = RowOutcome(
@@ -364,6 +369,90 @@ def process_batches(
         if stopped_early:
             break
 
+    # ── Process updates for existing samples ──────────────────────────────
+    total_updated = 0
+    if rows_to_update:
+        from .update import (
+            deep_merge_metadata,
+            load_existing_sample_details,
+            update_sample_metadata,
+            smart_merge_assay_assets,
+            add_permission_for_existing_policy,
+        )
+
+        update_uuids = [s.uuid for s in rows_to_update]
+        with conn_factory() as conn:
+            details = load_existing_sample_details(update_uuids, conn)
+
+        direction_by_pair = direction_computation.direction_by_pair
+
+        for sample in rows_to_update:
+            if sample.uuid not in details:
+                outcomes[sample.uuid] = RowOutcome(
+                    status="failed", reason="update: sample details not found"
+                )
+                continue
+
+            detail = details[sample.uuid]
+            sample_id = detail["sample_id"]
+
+            try:
+                with conn_factory() as conn:
+                    # 1. Deep merge metadata
+                    merged_meta, changed_keys = deep_merge_metadata(
+                        detail["json_metadata"], sample.json_metadata
+                    )
+
+                    # 2. Update sample row
+                    update_sample_metadata(
+                        uuid=sample.uuid,
+                        sample_id=sample_id,
+                        new_title=sample.title,
+                        merged_metadata=merged_meta,
+                        conn=conn,
+                    )
+
+                    # 3. Smart merge assay links
+                    smart_merge_assay_assets(
+                        sample_id=sample_id,
+                        new_assay_ids=sample.assay_ids,
+                        direction_by_pair=direction_by_pair,
+                        uid=sample.uuid,
+                        conn=conn,
+                    )
+
+                    # 4. Add project link
+                    batch_insert_projects_samples(project_id, [sample_id], conn)
+
+                    # 5. Add permission for existing policy with new project
+                    if config.enable_auto_permissions and detail["policy_id"]:
+                        add_permission_for_existing_policy(
+                            policy_id=detail["policy_id"],
+                            project_id=project_id,
+                            conn=conn,
+                        )
+
+                    outcomes[sample.uuid] = RowOutcome(
+                        status="success",
+                        reason="updated",
+                        sample_id=sample_id,
+                        assays_linked_count=len(sample.assay_ids),
+                    )
+                    total_updated += 1
+
+            except Exception as exc:
+                log.exception("Update failed for %s: %s", sample.uuid, exc)
+                outcomes[sample.uuid] = RowOutcome(
+                    status="failed", reason=f"update failed: {str(exc)[:200]}"
+                )
+                if error_collector:
+                    error_collector.add(
+                        row_index=-1,
+                        uid=sample.uuid,
+                        error_type=ErrorType.DB_CONSTRAINT,
+                        message=f"Update failed: {exc}",
+                    )
+
     return BatchResult(
         inserted_count=total_inserted,
         linked_project_count=total_project_links,
@@ -372,6 +461,7 @@ def process_batches(
         attempted_uids=attempted_uids,
         stopped_early=stopped_early,
         permissions_inserted_count=total_permissions,
+        updated_count=total_updated,
     )
 
 

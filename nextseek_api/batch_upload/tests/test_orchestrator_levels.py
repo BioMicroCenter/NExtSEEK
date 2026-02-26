@@ -438,3 +438,15 @@ class TestOrchestratorLevels:
         error_messages = [e["message"] for e in result["errors"]]
         cycle_msgs = [m for m in error_messages if "cycle" in m.lower()]
         assert len(cycle_msgs) >= 2  # one for X, one for Y
+
+
+class TestUpdateExistingConfig:
+    def test_update_existing_flag_in_config(self):
+        from nextseek_api.batch_upload.config import BatchUploadConfig
+        config = BatchUploadConfig(update_existing=True)
+        assert config.update_existing is True
+
+    def test_default_is_false(self):
+        from nextseek_api.batch_upload.config import BatchUploadConfig
+        config = BatchUploadConfig()
+        assert config.update_existing is False
