@@ -461,6 +461,56 @@ class InStudyRelRow(BaseModel):
         return v.strip()
 
 
+# ── 12c. StudyNodeRow ────────────────────────────────────────────────────
+
+
+class StudyNodeRow(BaseModel):
+    id: int
+    title: str
+    description: str = ""
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("title")
+    @classmethod
+    def non_empty_title(cls, v):
+        if not v or not v.strip():
+            raise ValueError("title must be non-empty")
+        return v.strip()
+
+
+# ── 12d. InvestigationNodeRow ────────────────────────────────────────────
+
+
+class InvestigationNodeRow(BaseModel):
+    id: int
+    title: str
+    description: str = ""
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("title")
+    @classmethod
+    def non_empty_title(cls, v):
+        if not v or not v.strip():
+            raise ValueError("title must be non-empty")
+        return v.strip()
+
+
+# ── 12e. InInvestigationRelRow ───────────────────────────────────────────
+
+
+class InInvestigationRelRow(BaseModel):
+    study_id: int
+    investigation_id: int
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("study_id", "investigation_id")
+    @classmethod
+    def positive_ids(cls, v):
+        if v <= 0:
+            raise ValueError("id must be positive")
+        return v
+
+
 # ── 13. SampleTypeNodeRow ─────────────────────────────────────────────────
 
 
@@ -523,6 +573,7 @@ class BatchResult:
     attempted_uids: Set[str] = field(default_factory=set)
     stopped_early: bool = False
     permissions_inserted_count: int = 0
+    updated_count: int = 0
 
 
 # ── DirectionComputation ──────────────────────────────────────────────────

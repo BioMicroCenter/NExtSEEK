@@ -366,3 +366,95 @@ class TestInStudyRelRow:
     def test_forbids_extra(self):
         with pytest.raises(ValidationError):
             InStudyRelRow(sample_uuid="UID-1", study_id=5, extra_field="bad")
+
+
+# ── StudyNodeRow ─────────────────────────────────────────────────────────
+
+
+class TestStudyNodeRow:
+    def test_valid_study_node(self):
+        from nextseek_api.batch_upload.models import StudyNodeRow
+        row = StudyNodeRow(id=1, title="Study A", description="desc")
+        assert row.id == 1
+        assert row.title == "Study A"
+
+    def test_empty_title_raises(self):
+        from nextseek_api.batch_upload.models import StudyNodeRow
+        with pytest.raises(Exception):
+            StudyNodeRow(id=1, title="", description="")
+
+    def test_whitespace_title_raises(self):
+        from nextseek_api.batch_upload.models import StudyNodeRow
+        with pytest.raises(Exception):
+            StudyNodeRow(id=1, title="   ", description="")
+
+    def test_default_description(self):
+        from nextseek_api.batch_upload.models import StudyNodeRow
+        row = StudyNodeRow(id=1, title="Study A")
+        assert row.description == ""
+
+
+# ── InvestigationNodeRow ─────────────────────────────────────────────────
+
+
+class TestInvestigationNodeRow:
+    def test_valid(self):
+        from nextseek_api.batch_upload.models import InvestigationNodeRow
+        row = InvestigationNodeRow(id=1, title="Inv A", description="desc")
+        assert row.id == 1
+
+    def test_empty_title_raises(self):
+        from nextseek_api.batch_upload.models import InvestigationNodeRow
+        with pytest.raises(Exception):
+            InvestigationNodeRow(id=1, title="")
+
+
+# ── InInvestigationRelRow ────────────────────────────────────────────────
+
+
+class TestInInvestigationRelRow:
+    def test_valid(self):
+        from nextseek_api.batch_upload.models import InInvestigationRelRow
+        row = InInvestigationRelRow(study_id=1, investigation_id=2)
+        assert row.study_id == 1
+        assert row.investigation_id == 2
+
+    def test_zero_study_id_raises(self):
+        from nextseek_api.batch_upload.models import InInvestigationRelRow
+        with pytest.raises(Exception):
+            InInvestigationRelRow(study_id=0, investigation_id=1)
+
+    def test_negative_investigation_id_raises(self):
+        from nextseek_api.batch_upload.models import InInvestigationRelRow
+        with pytest.raises(Exception):
+            InInvestigationRelRow(study_id=1, investigation_id=-1)
+
+
+# ── BatchResult.updated_count ────────────────────────────────────────────
+
+
+class TestBatchResultUpdatedCount:
+    def test_default_updated_count(self):
+        from nextseek_api.batch_upload.models import BatchResult
+        br = BatchResult()
+        assert br.updated_count == 0
+
+    def test_set_updated_count(self):
+        from nextseek_api.batch_upload.models import BatchResult
+        br = BatchResult(updated_count=5)
+        assert br.updated_count == 5
+
+
+# ── BatchUploadConfig.update_existing ────────────────────────────────────
+
+
+class TestUpdateExistingConfig:
+    def test_default_false(self):
+        from nextseek_api.batch_upload.config import BatchUploadConfig
+        config = BatchUploadConfig()
+        assert config.update_existing is False
+
+    def test_override_true(self):
+        from nextseek_api.batch_upload.config import BatchUploadConfig
+        config = BatchUploadConfig(update_existing=True)
+        assert config.update_existing is True

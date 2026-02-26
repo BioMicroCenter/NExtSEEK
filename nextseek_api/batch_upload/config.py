@@ -51,6 +51,9 @@ class BatchUploadConfig:
         )
         # Optional row limit for EXTRACT stage (None = no limit)
         self.limit: Optional[int] = overrides.get("limit", None)
+        self.update_existing: bool = _env_bool(
+            "BATCH_UPLOAD_UPDATE_EXISTING", overrides.get("update_existing", False)
+        )
 
     def to_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
