@@ -237,6 +237,7 @@ def process_batches(
             batch_uids = [s.uuid for s in batch]
             attempted_uids.update(batch_uids)
             batch_start = time.perf_counter()
+            uuid_to_id: Dict[str, int] = {}
 
             try:
                 with conn_factory() as conn:

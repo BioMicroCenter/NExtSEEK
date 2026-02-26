@@ -747,34 +747,26 @@ def upload_all(
 
     node_rows, _ = build_payloads(outcomes, input_models)
     metrics.nodes_input = len(node_rows)
-
-    derived_from_rows = build_derived_from_payloads_from_db(
-        direction_computation.parents_of,
-        sql_conn,
-        direction_computation.assays_by_uid,
-        outcomes,
-        input_models,
-    )
-    metrics.rels_input = len(derived_from_rows)
     metrics.eligible_children = len(direction_computation.parents_of)
 
-    # Handle parent-changed samples (re-resolve DERIVED_FROM with fresh assays)
+    # Handle parent-changed samples: refresh assays before building DERIVED_FROM
     parent_changed_uuids = [
         uid for uid, outcome in outcomes.items()
         if outcome.parent_changed and outcome.sample_id is not None
     ]
+    effective_assays = dict(direction_computation.assays_by_uid)
     if parent_changed_uuids:
         refreshed_assays = refresh_assays_for_uuids(parent_changed_uuids, outcomes, sql_conn)
-        updated_assays_by_uid = dict(direction_computation.assays_by_uid)
-        updated_assays_by_uid.update(refreshed_assays)
-        derived_from_rows = build_derived_from_payloads_from_db(
-            direction_computation.parents_of,
-            sql_conn,
-            updated_assays_by_uid,
-            outcomes,
-            input_models,
-        )
-        metrics.rels_input = len(derived_from_rows)
+        effective_assays.update(refreshed_assays)
+
+    derived_from_rows = build_derived_from_payloads_from_db(
+        direction_computation.parents_of,
+        sql_conn,
+        effective_assays,
+        outcomes,
+        input_models,
+    )
+    metrics.rels_input = len(derived_from_rows)
 
     st_map: Dict[str, Optional[int]] = {}
     uid_to_model = {m.UID: m for m in input_models}

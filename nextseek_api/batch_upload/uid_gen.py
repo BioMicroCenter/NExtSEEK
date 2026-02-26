@@ -245,7 +245,7 @@ def _resolve_parents(
     rows: List[InputRowModel],
     identity_to_uid: Dict[str, str],
     conn: Connection,
-) -> Tuple[List[InputRowModel], List[str]]:
+) -> Tuple[List[InputRowModel], List[str], int]:
     """Resolve Parent field references from Name/File_PrimaryData to UIDs.
 
     Per token in the Parent field:
