@@ -5,9 +5,10 @@ interface MessageListProps {
   messages: Message[];
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onDownload?: (bundleId: number) => void;
+  onArtifactDownload?: (bundleId: number, artifactKey: string) => void;
 }
 
-export function MessageList({ messages, scrollRef, onDownload }: MessageListProps) {
+export function MessageList({ messages, scrollRef, onDownload, onArtifactDownload }: MessageListProps) {
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
       {messages.length === 0 ? (
@@ -19,7 +20,7 @@ export function MessageList({ messages, scrollRef, onDownload }: MessageListProp
       ) : (
         <div className="space-y-2">
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} onDownload={onDownload} />
+            <MessageBubble key={msg.id} message={msg} onDownload={onDownload} onArtifactDownload={onArtifactDownload} />
           ))}
         </div>
       )}

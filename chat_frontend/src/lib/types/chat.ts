@@ -7,7 +7,25 @@ export interface Message {
   messageType?: "text" | "system" | "debug";
   debugEntries?: DebugEntry[];
   bundleId?: number | null;
+  artifacts?: Artifact[] | null;
 }
+
+export interface ArtifactTable {
+  artifact_type: "table";
+  key: string;
+  label: string;
+  columns: string[];
+  data: Record<string, unknown>[];
+}
+
+export interface ArtifactFile {
+  artifact_type: "file";
+  key: string;
+  label: string;
+  file_format: string;
+}
+
+export type Artifact = ArtifactTable | ArtifactFile;
 
 export interface Step {
   index: number;

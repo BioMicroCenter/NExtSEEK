@@ -20,10 +20,13 @@ export interface AgentCompleteData {
   summary: Record<string, unknown> | string | null;
 }
 
+import type { Artifact } from "./chat";
+
 export interface QueryCompleteData {
   reply: string;
-  debug: Record<string, string>;
+  debug: Record<string, unknown>;
   bundle_id: number;
+  artifacts?: Artifact[] | null;
 }
 
 export interface QueryErrorData {

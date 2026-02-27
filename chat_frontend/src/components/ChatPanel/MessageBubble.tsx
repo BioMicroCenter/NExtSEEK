@@ -5,6 +5,7 @@ import type { Message } from "@/lib/types/chat";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MarkdownContent } from "./MarkdownContent";
+import { ReportArtifacts } from "./ReportArtifacts";
 
 /**
  * Strip "NExtSEEK search summary" and "API request preview" sections from
@@ -45,9 +46,10 @@ function stripDebugSections(content: string): {
 interface MessageBubbleProps {
   message: Message;
   onDownload?: (bundleId: number) => void;
+  onArtifactDownload?: (bundleId: number, artifactKey: string) => void;
 }
 
-export function MessageBubble({ message, onDownload }: MessageBubbleProps) {
+export function MessageBubble({ message, onDownload, onArtifactDownload }: MessageBubbleProps) {
   const [debugOpen, setDebugOpen] = useState(false);
 
   // Strip debug sections from assistant messages
@@ -88,6 +90,14 @@ export function MessageBubble({ message, onDownload }: MessageBubbleProps) {
         )}
       >
         {message.isUser ? message.content : <MarkdownContent content={cleanContent} />}
+
+        {/* Inline report tables */}
+        {!message.isUser && message.artifacts && message.artifacts.length > 0 && (
+          <ReportArtifacts
+            artifacts={message.artifacts}
+            onDownloadArtifact={(key) => onArtifactDownload?.(message.bundleId!, key)}
+          />
+        )}
       </div>
 
       {/* Search Details + Download (assistant messages only) */}

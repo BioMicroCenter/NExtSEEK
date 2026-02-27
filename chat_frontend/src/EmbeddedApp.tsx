@@ -66,12 +66,13 @@ export function EmbeddedApp() {
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
-          // Attach accumulated debug entries + bundleId to the assistant message
+          // Attach accumulated debug entries + bundleId + artifacts to the assistant message
           const captured = pendingDebugRef.current.slice();
           const bid = d.bundle_id ?? null;
+          const artifacts = d.artifacts ?? null;
           // Use queueMicrotask to ensure the message is in state before patching
           queueMicrotask(() => {
-            updateLastAssistantMessage({ debugEntries: captured, bundleId: bid });
+            updateLastAssistantMessage({ debugEntries: captured, bundleId: bid, artifacts });
           });
           resetProcessing();
           setDebugData((prev) => ({
@@ -119,8 +120,43 @@ export function EmbeddedApp() {
   const handleInlineDownload = useCallback(
     (bundleId: number) => {
       const sid = serviceRef.current.sessionId;
+      if (!sid) return;
+
+      // Check if message has artifacts (report mode) vs no artifacts (search mode)
+      const msg = messages.find((m) => m.bundleId === bundleId);
+      if (msg?.artifacts && msg.artifacts.length > 0) {
+        // Report mode: download combined xlsx from backend
+        serviceRef.current.downloadArtifact(sid, bundleId, "all_tables");
+      } else {
+        // Search mode: try client-side Excel, fall back to JSON
+        serviceRef.current
+          .fetchBundle(sid, bundleId)
+          .then((bundle) => {
+            const apiResult = bundle?.api_result_full as Record<string, unknown> | undefined;
+            const data = apiResult?.data;
+            if (Array.isArray(data) && data.length > 0) {
+              const rows = data.map((item: Record<string, unknown>) => {
+                const attrs = (item.attributes ?? {}) as Record<string, unknown>;
+                return { id: item.id, type: item.type, ...attrs };
+              });
+              serviceRef.current.downloadSearchAsExcel(rows, `search_results_${bundleId}.xlsx`);
+            } else {
+              serviceRef.current.downloadBundle(sid, bundleId, "json");
+            }
+          })
+          .catch(() => {
+            serviceRef.current.downloadBundle(sid, bundleId, "json");
+          });
+      }
+    },
+    [messages],
+  );
+
+  const handleArtifactDownload = useCallback(
+    (bundleId: number, artifactKey: string) => {
+      const sid = serviceRef.current.sessionId;
       if (sid) {
-        serviceRef.current.downloadBundle(sid, bundleId, "json");
+        serviceRef.current.downloadArtifact(sid, bundleId, artifactKey);
       }
     },
     [],
@@ -147,6 +183,7 @@ export function EmbeddedApp() {
           isDisabled={isQuerying}
           onSendMessage={handleSendMessage}
           onDownload={handleInlineDownload}
+          onArtifactDownload={handleArtifactDownload}
         />
       </div>
       <RightSidebar
