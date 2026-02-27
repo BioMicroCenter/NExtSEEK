@@ -519,11 +519,15 @@ class AssistantViewSet(viewsets.ViewSet):
             workbooks = saved.get("geo_seq_workbooks") or []
             if not workbooks:
                 return _error_response("Not found", "No GEO workbooks found.", status.HTTP_404_NOT_FOUND)
-            filepath = Path(workbooks[0])
+            filepath = Path(workbooks[0]).resolve()
+            # Path traversal protection: only serve files under home directory
+            home_dir = Path.home().resolve()
+            if not str(filepath).startswith(str(home_dir)):
+                return _error_response("Forbidden", "File path not within allowed directory.", status.HTTP_403_FORBIDDEN)
             if not filepath.is_file():
                 return _error_response("Not found", "GEO workbook file not found on disk.", status.HTTP_404_NOT_FOUND)
             return FileResponse(
-                open(filepath, "rb"),
+                filepath.open("rb"),
                 content_type=xlsx_content_type,
                 as_attachment=True,
                 filename=filepath.name,

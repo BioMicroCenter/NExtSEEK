@@ -28,9 +28,13 @@ class DownloadArtifactEndpointTests(TestCase):
         return f"/nextseek_api/assistant/sessions/{self.session.session_id}/bundles/1/artifacts/{artifact_key}/"
 
     def test_geo_workbook_serves_file_from_disk(self):
+        from pathlib import Path
         wb = openpyxl.Workbook()
         wb.active.cell(1, 1, value="test")
-        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        # Create temp file under home dir (path traversal check requires this)
+        home_tmp = Path.home() / ".cache" / "test_artifacts"
+        home_tmp.mkdir(parents=True, exist_ok=True)
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False, dir=str(home_tmp))
         wb.save(tmp.name)
         tmp.close()
         try:
@@ -103,14 +107,26 @@ class DownloadArtifactEndpointTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
     def test_missing_file_returns_404(self):
+        from pathlib import Path
+        missing = str(Path.home() / ".cache" / "nonexistent_workbook.xlsx")
         self._set_bundle({
             "id": 1,
             "mode": "reporter",
-            "report_saved_files": {"geo_seq_workbooks": ["/nonexistent/path.xlsx"]},
+            "report_saved_files": {"geo_seq_workbooks": [missing]},
             "report_writer_output": {"report": {}, "report_type": "GEO", "narrative": "", "notes": ""},
         })
         resp = self.client.get(self._url("geo_seq_workbooks"))
         self.assertEqual(resp.status_code, 404)
+
+    def test_path_traversal_blocked(self):
+        self._set_bundle({
+            "id": 1,
+            "mode": "reporter",
+            "report_saved_files": {"geo_seq_workbooks": ["/etc/passwd"]},
+            "report_writer_output": {"report": {}, "report_type": "GEO", "narrative": "", "notes": ""},
+        })
+        resp = self.client.get(self._url("geo_seq_workbooks"))
+        self.assertEqual(resp.status_code, 403)
 
     def test_other_user_cannot_access(self):
         other = User.objects.create_user("other", password="pass")
