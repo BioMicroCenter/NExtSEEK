@@ -16,6 +16,8 @@ export interface ArtifactTable {
   label: string;
   columns: string[];
   data: Record<string, unknown>[];
+  truncated?: boolean;
+  total_rows?: number;
 }
 
 export interface ArtifactFile {

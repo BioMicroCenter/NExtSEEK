@@ -53,7 +53,7 @@ class ArtifactModelTests(SimpleTestCase):
             ],
         )
         self.assertEqual(len(evt.artifacts), 2)
-        self.assertEqual(evt.artifacts[0]["key"], "samples_table")
+        self.assertEqual(evt.artifacts[0].key, "samples_table")
 
     def test_query_complete_event_without_artifacts(self):
         evt = QueryCompleteEvent(

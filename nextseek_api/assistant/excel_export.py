@@ -16,6 +16,10 @@ from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of rows to include inline in SSE event payloads.
+# Full data is always available via the artifact download endpoint.
+MAX_INLINE_ROWS = 200
+
 
 def flatten_report_to_tables(report_writer_output: dict[str, Any]) -> list[dict[str, Any]]:
     """Convert a report_writer_output dict into a list of table artifact dicts.
@@ -79,13 +83,20 @@ def extract_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(rwo, dict):
         tables = flatten_report_to_tables(rwo)
         for t in tables:
-            artifacts.append({
+            data = t["data"]
+            total_rows = len(data)
+            truncated = total_rows > MAX_INLINE_ROWS
+            artifact: dict[str, Any] = {
                 "artifact_type": "table",
                 "key": t["key"],
                 "label": t["label"],
                 "columns": t["columns"],
-                "data": t["data"],
-            })
+                "data": data[:MAX_INLINE_ROWS] if truncated else data,
+            }
+            if truncated:
+                artifact["truncated"] = True
+                artifact["total_rows"] = total_rows
+            artifacts.append(artifact)
 
     # File artifacts from saved files
     saved = bundle.get("report_saved_files") or {}

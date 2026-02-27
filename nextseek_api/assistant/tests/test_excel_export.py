@@ -80,6 +80,38 @@ class ExtractTableArtifactsTests(SimpleTestCase):
         artifacts = extract_table_artifacts(bundle)
         self.assertEqual(artifacts, [])
 
+    def test_large_table_truncated(self):
+        """Tables exceeding MAX_INLINE_ROWS are truncated in the SSE payload."""
+        from nextseek_api.assistant.excel_export import MAX_INLINE_ROWS
+        rows = [{"uid": f"X-{i}", "title": f"S{i}"} for i in range(500)]
+        bundle = {
+            "mode": "reporter",
+            "report_writer_output": {
+                "report": {"samples": rows},
+            },
+            "report_saved_files": {},
+        }
+        artifacts = extract_table_artifacts(bundle)
+        table = next(a for a in artifacts if a["key"] == "samples")
+        self.assertEqual(len(table["data"]), MAX_INLINE_ROWS)
+        self.assertTrue(table["truncated"])
+        self.assertEqual(table["total_rows"], 500)
+
+    def test_small_table_not_truncated(self):
+        """Tables within MAX_INLINE_ROWS are not truncated."""
+        rows = [{"uid": f"X-{i}", "title": f"S{i}"} for i in range(50)]
+        bundle = {
+            "mode": "reporter",
+            "report_writer_output": {
+                "report": {"samples": rows},
+            },
+            "report_saved_files": {},
+        }
+        artifacts = extract_table_artifacts(bundle)
+        table = next(a for a in artifacts if a["key"] == "samples")
+        self.assertEqual(len(table["data"]), 50)
+        self.assertNotIn("truncated", table)
+
 
 class GenerateTableXlsxTests(SimpleTestCase):
 

@@ -156,10 +156,14 @@ export function EmbeddedApp() {
     (bundleId: number, artifactKey: string) => {
       const sid = serviceRef.current.sessionId;
       if (sid) {
-        serviceRef.current.downloadArtifact(sid, bundleId, artifactKey);
+        serviceRef.current
+          .downloadArtifact(sid, bundleId, artifactKey)
+          .catch((err: Error) => {
+            addSystemMessage(`Download failed: ${err.message}`);
+          });
       }
     },
-    [],
+    [addSystemMessage],
   );
 
   const handleDownload = useCallback(

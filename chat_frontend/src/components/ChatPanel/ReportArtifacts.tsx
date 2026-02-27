@@ -65,6 +65,11 @@ export function ReportArtifacts({ artifacts, onDownloadArtifact }: Props) {
               </tbody>
             </table>
           </div>
+          {table.truncated && table.total_rows && (
+            <div className="border-t border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
+              Showing first {table.data.length} of {table.total_rows} rows. Download for full data.
+            </div>
+          )}
         </div>
       ))}
 

@@ -1,7 +1,7 @@
 """Pydantic request/response models for the Assistant endpoints."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -88,7 +88,7 @@ class QueryCompleteEvent(BaseModel):
     debug: Optional[Dict[str, Any]] = None
     bundle_id: Optional[int] = None
     session_id: Optional[str] = None
-    artifacts: Optional[List[Dict[str, Any]]] = Field(
+    artifacts: Optional[List[Union[ArtifactTable, ArtifactFile]]] = Field(
         None, description="Table data and file download references for the frontend"
     )
 
