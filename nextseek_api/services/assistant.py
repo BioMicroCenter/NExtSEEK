@@ -470,6 +470,109 @@ class AssistantViewSet(viewsets.ViewSet):
         return Response(bundle, status=status.HTTP_200_OK)
 
     # ------------------------------------------------------------------
+    # 8. GET /assistant/sessions/{sid}/bundles/{bid}/artifacts/{key}/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Assistant: Download Artifact",
+        description="Download a specific artifact from a bundle as an Excel file.",
+        tags=["Assistant"],
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r"sessions/(?P<session_id>[0-9a-f-]+)/bundles/(?P<bundle_id>\d+)/artifacts/(?P<artifact_key>[\w]+)",
+    )
+    def download_artifact(self, request, session_id=None, bundle_id=None, artifact_key=None):
+        """Download a specific artifact from a bundle."""
+        import io
+        from pathlib import Path
+        from django.http import FileResponse
+        from nextseek_api.assistant.excel_export import (
+            flatten_report_to_tables,
+            generate_table_xlsx,
+            generate_search_xlsx,
+        )
+
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        try:
+            chat_session = ChatSession.objects.get(session_id=session_id)
+        except ChatSession.DoesNotExist:
+            return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
+
+        if chat_session.user_id != request.user.pk:
+            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+
+        history = chat_session.results_history or []
+        bundle_id_int = int(bundle_id)
+        bundle = next((b for b in history if b.get("id") == bundle_id_int), None)
+        if bundle is None:
+            return _error_response("Not found", f"Bundle {bundle_id} not found.", status.HTTP_404_NOT_FOUND)
+
+        xlsx_content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+        # --- Serve GEO workbook from disk ---
+        if artifact_key == "geo_seq_workbooks":
+            saved = bundle.get("report_saved_files") or {}
+            workbooks = saved.get("geo_seq_workbooks") or []
+            if not workbooks:
+                return _error_response("Not found", "No GEO workbooks found.", status.HTTP_404_NOT_FOUND)
+            filepath = Path(workbooks[0])
+            if not filepath.is_file():
+                return _error_response("Not found", "GEO workbook file not found on disk.", status.HTTP_404_NOT_FOUND)
+            return FileResponse(
+                open(filepath, "rb"),
+                content_type=xlsx_content_type,
+                as_attachment=True,
+                filename=filepath.name,
+            )
+
+        # --- Generate search results xlsx ---
+        if artifact_key == "search_results":
+            mode = bundle.get("mode", "")
+            if mode not in ("new_search", "refine_last_search"):
+                return _error_response("Not found", "Not a search bundle.", status.HTTP_404_NOT_FOUND)
+            xlsx_bytes = generate_search_xlsx(bundle)
+            return FileResponse(
+                io.BytesIO(xlsx_bytes),
+                content_type=xlsx_content_type,
+                as_attachment=True,
+                filename=f"search_results_{bundle_id}.xlsx",
+            )
+
+        # --- Generate all tables combined xlsx ---
+        if artifact_key == "all_tables":
+            rwo = bundle.get("report_writer_output")
+            if not isinstance(rwo, dict):
+                return _error_response("Not found", "No report data.", status.HTTP_404_NOT_FOUND)
+            tables = flatten_report_to_tables(rwo)
+            xlsx_bytes = generate_table_xlsx(tables)
+            return FileResponse(
+                io.BytesIO(xlsx_bytes),
+                content_type=xlsx_content_type,
+                as_attachment=True,
+                filename=f"report_{bundle_id}.xlsx",
+            )
+
+        # --- Generate single table xlsx ---
+        rwo = bundle.get("report_writer_output")
+        if isinstance(rwo, dict):
+            tables = flatten_report_to_tables(rwo)
+            table = next((t for t in tables if t["key"] == artifact_key), None)
+            if table:
+                xlsx_bytes = generate_table_xlsx([table])
+                return FileResponse(
+                    io.BytesIO(xlsx_bytes),
+                    content_type=xlsx_content_type,
+                    as_attachment=True,
+                    filename=f"{artifact_key}_{bundle_id}.xlsx",
+                )
+
+        return _error_response("Not found", f"Artifact '{artifact_key}' not found.", status.HTTP_404_NOT_FOUND)
+
+    # ------------------------------------------------------------------
     # 6. GET /assistant/test-cases/
     # ------------------------------------------------------------------
     @extend_schema(

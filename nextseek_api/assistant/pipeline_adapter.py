@@ -210,12 +210,17 @@ def _emit_complete(
     reply: str,
     debug: dict[str, Any],
     bundle_id: int | None,
+    *,
+    artifacts: list[dict[str, Any]] | None = None,
 ) -> None:
-    send_event("query_complete", {
+    payload: dict[str, Any] = {
         "reply": reply,
         "debug": debug,
         "bundle_id": bundle_id,
-    })
+    }
+    if artifacts:
+        payload["artifacts"] = artifacts
+    send_event("query_complete", payload)
 
 
 def _handle_reporter(
@@ -404,7 +409,9 @@ def _handle_reporter(
     session_adapter["results_history"] = history
     session_adapter["last_debug"] = debug_payload
 
-    _emit_complete(send_event, reply, debug_payload, bundle_id)
+    from nextseek_api.assistant.excel_export import extract_table_artifacts
+    artifacts = extract_table_artifacts(bundle)
+    _emit_complete(send_event, reply, debug_payload, bundle_id, artifacts=artifacts)
 
 
 def _handle_search(
