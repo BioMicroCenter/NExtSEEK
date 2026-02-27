@@ -1,0 +1,200 @@
+<div class="span12">
+	<form id="sample_validation"
+				method="post"
+				enctype="multipart/form-data"
+				action=""
+				hidden>
+	</form>
+	<form id="sample_upload"
+				method="post"
+				enctype="multipart/form-data"
+				hidden>
+	</form>
+	<div class="well">
+		<div class="row show-grid">
+			<table class="table" align="center" style="width:70%">
+				<thead>
+					<tr>
+						<th style="width:40%;">Sample Validation Check</th>
+						<th style="width:60%;">Sample Excel sheet for uploading</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td>
+							<input type="file"
+										 form="sample_validation"
+										 name="samplevalidationfile"
+										 id="id_samplevalidationfile"
+										 style="height:28px;width:220px"
+										 required>
+							<br>
+							<button type="submit"
+											form="sample_validation"
+											class="easyui-linkbutton"
+											data-options="iconCls:'icon-add',plain:true">
+								Validate Samples
+							</button>
+						</td>
+						<td>
+							<input type="file"
+										 form="sample_upload"
+										 name="file"
+										 id="sample_upload_file"
+										 style="height:28px;width:220px"
+										 multiple
+										 required>
+							<br>
+							<label for="project_id">Lab:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</label>
+							<input id="project_id"
+										 form="sample_upload"
+										 class="easyui-combobox"
+										 name="project_id"
+										 style="width:50%;"
+										 data-options="data: lab_options,
+																	 valueField: 'id',
+																	 textField: 'title',
+																	 editable: true,
+																	 filter: function(q, row) {
+																		 var opts = $(this).combobox('options');
+																		 return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;
+																 	 },
+																	 onSelect: function(rec) { setLabUsers(rec); }"
+										 required>
+							<br>
+							<label for="person_id">Creator:&nbsp;&nbsp;</label>
+							<input id="person_id"
+										 form="sample_upload"
+										 class="easyui-combobox"
+										 name="person_id"
+										 style="width:50%;"
+										 data-options="valueField: 'id',
+																	 textField: 'title',
+																	 editable: false">
+							<br>
+							<br>
+							<button type="submit"
+											class="easyui-linkbutton"
+											form="sample_upload"
+											data-options="iconCls:'icon-add',plain:true">
+								Upload Samples
+							</button>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+	</div>
+</div>
+
+<div class="well">
+	<div class="span12">
+		<b>Logs:</b>
+	</div>
+	<div class="span12">
+		<textarea id="messages" style="width:100%; max-width:100%; min-width:600px" rows="20">
+		</textarea>
+	</div>
+</div>
+
+<script defer>
+	const sample_upload_form = document.getElementById("sample_upload");
+	const statusBox = document.getElementById("messages")
+
+	const lab_options = {{ report.lab_options | safe }}.slice(1);
+	const all_lab_users = {{ report.all_lab_users | safe }};
+
+	function setLabUsers(rec) {
+		var users = all_lab_users[rec.id]
+		users[0]['selected'] = true
+		var person_form = $('#person_id').combobox()
+		person_form.combobox('loadData', users)
+	}
+
+	function getCookie(name) {
+		let cookieValue = null;
+		if (document.cookie && document.cookie !== '') {
+			const cookies = document.cookie.split(';');
+			for (let i = 0; i < cookies.length; i++) {
+				const cookie = cookies[i].trim();
+				if (cookie.substring(0, name.length + 1) === (name + '=')) {
+					cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+					break;
+				}
+			}
+		}
+		return cookieValue;
+	}
+
+	function getJobSummary(jobId) {
+    const a = document.createElement('a');
+    a.href = `/nextseek_api/batch-upload/summary/${jobId}`;
+    a.download = `upload_summary_${jobId}.csv`; 
+    a.click();
+	}
+
+	function startPolling(jobId) {
+		const terminalStates = ["SUCCESS", "FAILURE", "REVOKED"];
+
+		statusBox.value += `Job started with ID: ${jobId}\n`
+
+		const intervalId = setInterval(async () => {
+			try {
+				const statusResponse = await fetch(`/nextseek_api/batch-upload/status/${jobId}`);
+
+				if (!statusResponse.ok) {
+					throw new Error('Failed to fetch status');
+				}
+
+				const data = await statusResponse.json();
+				const status = data.state
+				statusBox.value += `Status: ${status}\n`;
+				statusBox.scrollTop = statusBox.scrollHeight;
+
+				if (terminalStates.includes(status)) {
+					clearInterval(intervalId);
+					statusBox.value += `Job finished with status: ${status}\n`;
+					getJobSummary(jobId)
+				}
+
+			} catch (err) {
+				clearInterval(intervalId);
+				statusBox.value += `Polling error: ${err.message}\n`;
+			}
+		}, 1000)};
+
+	async function uploadSamples() {
+		const csrftoken = getCookie('csrftoken');
+		const project_id = document.getElementById('project_id').value
+		const person_id = document.getElementById('person_id').value
+		
+		const formData = new FormData(sample_upload_form);
+		formData.append("csrfmiddlewaretoken", csrftoken)
+		formData.append("project_id", project_id)
+		formData.append("person_id", person_id)
+
+		try {
+			const response = await fetch("/nextseek_api/batch-upload/start/", {
+				method: "POST",
+				body: formData
+			});
+			if (response.ok) {
+				const response_json = await response.json()
+				const job_id = response_json["job_id"]
+			
+				startPolling(job_id)
+			} else {
+				statusBox.value = "Error: Could not submit sample upload job.\n"
+				statusBox.value += `Status code: ${response.status}`
+			}
+		} catch (e) {
+			console.error(e);
+		}
+	}
+
+	sample_upload_form.addEventListener("submit", (event) => {
+		event.preventDefault();
+		statusBox.value = ""
+		uploadSamples()
+	});
+</script>

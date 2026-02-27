@@ -1502,7 +1502,7 @@ class SeekDB(object):
         person_id = self.__getSeekPersonID(username)
         userInfo, status, msg = self.getUserInfo(person_id)
         self.user_seek.update(userInfo)
-        
+       
     def updateCreator(self, instituion_id, creator_id):
         userInfo, status, msg = self.getUserInfo(creator_id)
         self.creator = userInfo

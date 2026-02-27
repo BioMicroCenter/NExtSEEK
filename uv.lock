@@ -1397,7 +1397,6 @@ dependencies = [
     { name = "drf-spectacular-sidecar" },
     { name = "duckdb" },
     { name = "et-xmlfile" },
-    { name = "fastexcel" },
     { name = "filebrowser-safe" },
     { name = "filelock" },
     { name = "fpdf" },
@@ -1437,7 +1436,7 @@ dependencies = [
     { name = "parse" },
     { name = "pathlib" },
     { name = "pillow" },
-    { name = "polars" },
+    { name = "polars", extra = ["calamine"] },
     { name = "psutil" },
     { name = "pydantic" },
     { name = "pydantic-core" },
@@ -1512,7 +1511,6 @@ requires-dist = [
     { name = "drf-spectacular-sidecar" },
     { name = "duckdb" },
     { name = "et-xmlfile" },
-    { name = "fastexcel", specifier = ">=0.19.0" },
     { name = "filebrowser-safe" },
     { name = "filelock" },
     { name = "fpdf" },
@@ -1552,7 +1550,7 @@ requires-dist = [
     { name = "parse" },
     { name = "pathlib" },
     { name = "pillow" },
-    { name = "polars" },
+    { name = "polars", extras = ["calamine"] },
     { name = "psutil" },
     { name = "pydantic" },
     { name = "pydantic-core" },
@@ -1913,6 +1911,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c6/5e/208a24471a433bcd0e9a6889ac49025fd4daad2815c8220c5bd2576e5f1b/polars-1.38.1.tar.gz", hash = "sha256:803a2be5344ef880ad625addfb8f641995cfd777413b08a10de0897345778239", size = 717667, upload-time = "2026-02-06T18:13:23.013Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0a/49/737c1a6273c585719858261753da0b688454d1b634438ccba8a9c4eb5aab/polars-1.38.1-py3-none-any.whl", hash = "sha256:a29479c48fed4984d88b656486d221f638cba45d3e961631a50ee5fdde38cb2c", size = 810368, upload-time = "2026-02-06T18:11:55.819Z" },
+]
+
+[package.optional-dependencies]
+calamine = [
+    { name = "fastexcel" },
 ]
 
 [[package]]

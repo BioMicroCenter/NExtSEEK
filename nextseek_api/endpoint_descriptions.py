@@ -630,9 +630,9 @@ ENTITY_TREE_LINEAGE_DESC = (
 
 BATCH_UPLOAD_START_DESC = (
     "**SUMMARY:** Start a batch upload job for bulk sample creation from an Excel file.\n\n"
-    "**USE WHEN:** An admin wants to bulk-create many samples at once by uploading an Excel spreadsheet.\n\n"
+    "**USE WHEN:** An authenticated user wants to bulk-create many samples at once by uploading an Excel spreadsheet.\n\n"
     "**ACCEPTS:** Excel (.xlsx) file via multipart upload or `xlsx_path` on server; `project_id` (required); "
-    "optional `config_overrides`.\n\n"
+    "; optional person_id; optional `config_overrides`.\n\n"
     "**RETURNS:** `job_id` (Celery task ID) and initial status `queued`.\n\n"
     "**TRIGGER PHRASES:** batch upload, bulk create samples, upload spreadsheet, bulk sample import, batch sample creation\n\n"
     "**EXAMPLES:**\n"
@@ -700,13 +700,20 @@ BATCH_UPLOAD_SUMMARY_DESC = (
 )
 
 BATCH_UPLOAD_LIST_DESC = (
-    "**SUMMARY:** List recent batch upload jobs.\n\n"
-    "**USE WHEN:** The user wants to see what batch upload jobs have been run.\n\n"
-    "**ACCEPTS:** No required parameters.\n\n"
-    "**RETURNS:** Guidance to use the status endpoint with specific job IDs.\n\n"
-    "**TRIGGER PHRASES:** list batch uploads, recent uploads, batch jobs, upload history\n\n"
+    "**SUMMARY:** List the authenticated user's batch upload jobs with pagination and live Celery state.\n\n"
+    "**USE WHEN:** The user wants to see their own batch upload history, check which jobs are running, "
+    "or find a specific job ID without remembering it.\n\n"
+    "**DO NOT USE WHEN:** The user already knows a specific `job_id` and wants detailed progress — "
+    "use `GET batch-upload/status/{job_id}/` instead.\n\n"
+    "**ACCEPTS:** Optional query params: `page` (default `1`), `page_size` (default `20`, max `100`).\n\n"
+    "**RETURNS:** Paginated list of the user's jobs, each with `job_id`, `project_id`, `created_at` (Unix timestamp), "
+    "and current Celery `state` (`PENDING`, `STARTED`, `PROGRESS`, `SUCCESS`, `FAILURE`, `REVOKED`). "
+    "Also includes `total` (total job count), `page`, and `page_size`. Jobs are sorted newest-first. "
+    "Only returns jobs belonging to the requesting user.\n\n"
+    "**TRIGGER PHRASES:** list batch uploads, my uploads, recent uploads, batch jobs, upload history, my jobs\n\n"
     "**EXAMPLES:**\n"
-    "- 'Show me recent batch upload jobs'\n"
-    "- 'List all batch uploads'\n"
-    "- 'What batch jobs have been run?'\n"
+    "- 'Show me my recent batch upload jobs'\n"
+    "- 'List all my batch uploads'\n"
+    "- 'What batch jobs have I run?'\n"
+    "- 'Show page 2 of my upload history'\n"
 )

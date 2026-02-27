@@ -221,6 +221,37 @@ def sampleUpload(request):
     report['lab_options'] = json.dumps(options, default=str)
     
     return render(request,"sampleUpload.html", {'report':report})
+
+def batchUpload(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, True)
+    if not user_seek['status']:
+        err = user_seek['err']
+        return HttpResponseRedirect("/login/?next=/seek/samples/batchupload/")
+
+    isSupervisor = verifySuperUser(request)
+
+    lab_options = seekdb.getObjectsToOptions("/institutions")
+
+    all_lab_users = {}
+    for lab in lab_options:
+        lab_id = int(lab['id'])
+        if lab_id != 0:
+            lab_info = seekdb.getInfoObject("/institutions/", lab_id)
+            if isSupervisor:
+                people = lab_info["relationships"]["people"]["data"]
+                all_people = []
+                for person in people:
+                    all_people.append({'id': person['id'], 'title': seekdb.getUserFullname(person['id'])})
+                all_lab_users[lab_id] = all_people
+            else:
+                all_lab_users = {}
+                all_lab_users[lab_id] = [{'id': user_seek['person_id'], 'title': seekdb.getUserFullname(user_seek['person_id'])}]
+
+    report['lab_options'] = json.dumps(lab_options, default=str)
+    report['all_lab_users'] = json.dumps(all_lab_users, default=str)
+    
+    return render(request,"batchUpload.html", {'report': report})
     
 def sampleUploadAjax(request):
     logger.debug('sampleUploadAjax')

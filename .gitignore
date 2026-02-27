@@ -175,3 +175,5 @@ setup-celery-worker.sh
 outputs 
 CLAUDE.md
 .python-version
+.serena/
+.venv_uv/
