@@ -4,9 +4,10 @@ import { MessageBubble } from "./MessageBubble";
 interface MessageListProps {
   messages: Message[];
   scrollRef: React.RefObject<HTMLDivElement | null>;
+  onDownload?: (bundleId: number) => void;
 }
 
-export function MessageList({ messages, scrollRef }: MessageListProps) {
+export function MessageList({ messages, scrollRef, onDownload }: MessageListProps) {
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
       {messages.length === 0 ? (
@@ -18,7 +19,7 @@ export function MessageList({ messages, scrollRef }: MessageListProps) {
       ) : (
         <div className="space-y-2">
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} />
+            <MessageBubble key={msg.id} message={msg} onDownload={onDownload} />
           ))}
         </div>
       )}

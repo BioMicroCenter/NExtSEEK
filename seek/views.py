@@ -2123,7 +2123,8 @@ def smartSearch(request):
     if not admin:
         data = {'msg': 'You do not have access to this page', 'status': 0, 'link': ''}
         return render(request, 'error.html', {'data': data})
-    return render(request, "smartSearch.html", {"smart_search_url": settings.SMART_SEARCH_URL})
+    active_tab = "assistant" if "/assistant/" in request.path else "salt"
+    return render(request, "smartSearch.html", {"smart_search_url": settings.SMART_SEARCH_URL, "active_tab": active_tab})
 
 def internalAssays(request):
     seekdb = SeekDB(None, None, None)

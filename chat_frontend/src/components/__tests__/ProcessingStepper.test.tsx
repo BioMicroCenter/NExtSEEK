@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ProcessingStepper } from "../ChatPanel/ProcessingStepper";
 import type { Step } from "@/lib/types/chat";
 
@@ -25,9 +25,12 @@ describe("ProcessingStepper", () => {
     ]);
 
     render(<ProcessingStepper steps={steps} />);
-    expect(screen.getByTitle("Extracting entities")).toBeInTheDocument();
-    expect(screen.getByTitle("Building request")).toBeInTheDocument();
-    expect(screen.getByTitle("Summarizing results")).toBeInTheDocument();
+    // Collapsed banner shows the active step label
+    expect(screen.getByText(/Building request/)).toBeInTheDocument();
+    // Expand to see all steps
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByText("Extracting entities")).toBeInTheDocument();
+    expect(screen.getByText("Summarizing results")).toBeInTheDocument();
   });
 
   it("shows active step with spinner", () => {
@@ -45,7 +48,8 @@ describe("ProcessingStepper", () => {
     ]);
 
     const { container } = render(<ProcessingStepper steps={steps} />);
-    // Check icon should be rendered (the text-green class indicates completion)
+    // Expand to reveal completed steps with green check
+    fireEvent.click(screen.getByRole("button"));
     expect(container.querySelector(".text-green-600")).toBeTruthy();
   });
 });

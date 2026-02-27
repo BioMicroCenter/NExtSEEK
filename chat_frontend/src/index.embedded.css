@@ -136,7 +136,7 @@
   --text-sm--line-height: 1.5;
   --text-base: clamp(16px, calc(10.67px + 0.52vw), 21px);
   --text-base--line-height: 1.5;
-  --text-lg: clamp(18px, calc(11.33px + 0.65vw), 24px);
+  --text-lg: clamp(15px, calc(9.5px + 0.55vw), 20px);
   --text-lg--line-height: 1.5;
   --text-xl: clamp(20px, calc(13.33px + 0.65vw), 26px);
   --text-xl--line-height: 1.4;

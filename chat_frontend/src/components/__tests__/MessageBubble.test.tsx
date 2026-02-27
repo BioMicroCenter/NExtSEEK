@@ -21,7 +21,7 @@ describe("MessageBubble", () => {
       <MessageBubble message={makeMsg({ isUser: true, content: "hello" })} />,
     );
     expect(screen.getByText("hello")).toBeInTheDocument();
-    expect(container.querySelector(".justify-end")).toBeTruthy();
+    expect(container.querySelector(".items-end")).toBeTruthy();
   });
 
   it("renders assistant messages left-aligned", () => {
@@ -31,7 +31,7 @@ describe("MessageBubble", () => {
       />,
     );
     expect(screen.getByText("response")).toBeInTheDocument();
-    expect(container.querySelector(".justify-start")).toBeTruthy();
+    expect(container.querySelector(".items-start")).toBeTruthy();
   });
 
   it("renders system messages centered", () => {

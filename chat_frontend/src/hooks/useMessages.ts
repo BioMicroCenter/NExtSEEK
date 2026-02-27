@@ -6,6 +6,7 @@ interface UseMessagesReturn {
   addUserMessage: (content: string) => void;
   addAssistantMessage: (content: string) => void;
   addSystemMessage: (content: string) => void;
+  updateLastAssistantMessage: (patch: Partial<Message>) => void;
   clearMessages: () => void;
 }
 
@@ -43,9 +44,22 @@ export function useMessages(): UseMessagesReturn {
     setMessages((prev) => [...prev, createMessage(nextId(), content, false, "system")]);
   }, []);
 
+  const updateLastAssistantMessage = useCallback((patch: Partial<Message>) => {
+    setMessages((prev) => {
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (!prev[i].isUser && prev[i].messageType === "text") {
+          const updated = [...prev];
+          updated[i] = { ...updated[i], ...patch };
+          return updated;
+        }
+      }
+      return prev;
+    });
+  }, []);
+
   const clearMessages = useCallback(() => {
     setMessages([]);
   }, []);
 
-  return { messages, addUserMessage, addAssistantMessage, addSystemMessage, clearMessages };
+  return { messages, addUserMessage, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, clearMessages };
 }

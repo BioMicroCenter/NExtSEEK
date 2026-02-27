@@ -10,6 +10,7 @@ urlpatterns = [
     # re_path(r'^api/redoc/$', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 
     re_path(r'^salt/', views.smartSearch, name='smartSearch'),
+    re_path(r'^assistant/', views.smartSearch, name='assistant'),
     re_path(r'^remote/', views.remote, name='remote'),
     re_path(r'^samples/upload/', views.sampleUpload, name='sampleUpload'),
     re_path(r'^samples/query/', views.sampleQuery, name='sampleQuery'),

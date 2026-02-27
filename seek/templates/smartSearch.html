@@ -18,4 +18,12 @@
   </div>
 </div>
 {% vite_assets "src/main.embedded.tsx" "js/chat_assistant" %}
+<script>
+$(function() {
+  var tab = "{{ active_tab|default:'salt' }}";
+  if (tab === "assistant") {
+    $('#smart_search_tab').tabs('select', 'Assistant');
+  }
+});
+</script>
 {% endblock %}

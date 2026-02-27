@@ -83,4 +83,31 @@ describe("remarkUidLinks", () => {
     expect(output).toContain("Before ");
     expect(output).toContain(" after");
   });
+
+  // SOP/protocol UID tests
+  it("converts SOP UID with file extension into a /seek/sop/ link", async () => {
+    const input = "See protocol P.ESS-251028-V1_NG_8-GEX.docx for details.";
+    const output = await process(input);
+    // remark-stringify escapes underscores in link text, so match the URL portion
+    expect(output).toContain("(/seek/sop/uid=P.ESS-251028-V1_NG_8-GEX.docx/)");
+  });
+
+  it("converts SOP UID without file extension", async () => {
+    const input = "Protocol P.BIO-260115-V2_extraction_protocol is ready.";
+    const output = await process(input);
+    expect(output).toContain("(/seek/sop/uid=P.BIO-260115-V2_extraction_protocol/)");
+  });
+
+  it("does NOT cross-contaminate SOP and sample UIDs", async () => {
+    const input = "SOP P.ESS-251028-V1_test.pdf and sample NHP-220630FLY-1-PUB";
+    const output = await process(input);
+    expect(output).toContain("/seek/sop/uid=P.ESS-251028-V1_test.pdf/");
+    expect(output).toContain("/seek/sampletree/uid=NHP-220630FLY-1-PUB/");
+  });
+
+  it("does NOT linkify SOP UIDs inside code blocks", async () => {
+    const input = "```\nP.ESS-251028-V1_test.docx\n```";
+    const output = await process(input);
+    expect(output).not.toContain("[P.ESS-251028-V1_test.docx]");
+  });
 });

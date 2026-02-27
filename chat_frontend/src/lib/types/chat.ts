@@ -5,6 +5,8 @@ export interface Message {
   timestamp: Date;
   status?: "sending" | "sent" | "error";
   messageType?: "text" | "system" | "debug";
+  debugEntries?: DebugEntry[];
+  bundleId?: number | null;
 }
 
 export interface Step {

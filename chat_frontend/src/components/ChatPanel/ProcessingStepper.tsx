@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Brain,
   Route,
@@ -8,6 +9,8 @@ import {
   BookOpen,
   Check,
   Loader2,
+  ChevronDown,
+  AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Step } from "@/lib/types/chat";
@@ -27,53 +30,70 @@ interface ProcessingStepperProps {
 }
 
 export function ProcessingStepper({ steps }: ProcessingStepperProps) {
+  const [expanded, setExpanded] = useState(false);
+
   if (steps.length === 0) return null;
 
-  return (
-    <div className="border-t bg-muted/30 px-4 py-3">
-      <div className="flex items-center justify-center gap-1">
-        {steps.map((step, i) => {
-          const Icon = AGENT_ICONS[step.agentName] ?? Globe;
+  const activeStep = steps.find((s) => s.status === "active");
+  const completedCount = steps.filter((s) => s.status === "complete").length;
 
-          return (
-            <div key={step.agentName} className="flex items-center">
-              {i > 0 && (
+  return (
+    <div className="border-b bg-muted/20">
+      {/* Collapsed summary bar */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/40"
+      >
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+        <span className="flex-1 text-left font-medium">
+          {activeStep ? activeStep.label : "Processing"}...
+          <span className="ml-1.5 text-xs opacity-60">
+            ({completedCount}/{steps.length})
+          </span>
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 transition-transform duration-200",
+            expanded && "rotate-180",
+          )}
+        />
+      </button>
+
+      {/* Expanded step list */}
+      {expanded && (
+        <div className="border-t border-border/50 px-4 py-2">
+          <div className="space-y-1">
+            {steps.map((step) => {
+              const Icon = AGENT_ICONS[step.agentName] ?? Globe;
+
+              return (
                 <div
+                  key={step.agentName}
                   className={cn(
-                    "mx-1 h-px w-6",
-                    step.status === "pending"
-                      ? "bg-muted-foreground/30"
-                      : "bg-primary/50",
+                    "flex items-center gap-2 rounded-md px-2 py-1 text-sm",
+                    step.status === "pending" && "text-muted-foreground/50",
+                    step.status === "active" && "bg-primary/5 text-primary font-medium",
+                    step.status === "complete" && "text-muted-foreground",
+                    step.status === "error" && "text-destructive",
                   )}
-                />
-              )}
-              <div
-                className={cn(
-                  "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm transition-colors",
-                  step.status === "pending" &&
-                    "text-muted-foreground/50",
-                  step.status === "active" &&
-                    "bg-primary/10 text-primary font-medium",
-                  step.status === "complete" &&
-                    "text-green-600 dark:text-green-400",
-                  step.status === "error" &&
-                    "text-destructive",
-                )}
-                title={step.label}
-              >
-                {step.status === "active" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : step.status === "complete" ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Icon className="h-4 w-4" />
-                )}
-                <span className="hidden sm:inline">{step.label}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                >
+                  {step.status === "active" ? (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                  ) : step.status === "complete" ? (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-green-600" />
+                  ) : step.status === "error" ? (
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  ) : (
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                  )}
+                  <span>{step.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

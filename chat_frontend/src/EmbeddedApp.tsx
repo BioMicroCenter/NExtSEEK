@@ -11,7 +11,7 @@ import type {
   QueryCompleteData,
   QueryErrorData,
 } from "@/lib/types/api";
-import type { DebugData } from "@/lib/types/chat";
+import type { DebugData, DebugEntry } from "@/lib/types/chat";
 
 export function EmbeddedApp() {
   const [rightOpen, setRightOpen] = useState(false);
@@ -27,8 +27,9 @@ export function EmbeddedApp() {
   const [isQuerying, setIsQuerying] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
-  const { messages, addUserMessage, addAssistantMessage, addSystemMessage } =
+  const { messages, addUserMessage, addAssistantMessage, addSystemMessage, updateLastAssistantMessage } =
     useMessages();
+  const pendingDebugRef = useRef<DebugEntry[]>([]);
   const {
     processingState,
     handleAgentStarted,
@@ -47,25 +48,31 @@ export function EmbeddedApp() {
         case "agent_complete": {
           const d = event.data as AgentCompleteData;
           handleAgentComplete(d.agent);
+          const entry = {
+            agent: d.agent,
+            summary:
+              typeof d.summary === "string"
+                ? d.summary
+                : JSON.stringify(d.summary ?? "", null, 2),
+            timestamp: new Date(),
+          };
+          pendingDebugRef.current.push(entry);
           setDebugData((prev) => ({
             ...prev,
-            entries: [
-              ...prev.entries,
-              {
-                agent: d.agent,
-                summary:
-                  typeof d.summary === "string"
-                    ? d.summary
-                    : JSON.stringify(d.summary ?? "", null, 2),
-                timestamp: new Date(),
-              },
-            ],
+            entries: [...prev.entries, entry],
           }));
           break;
         }
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
+          // Attach accumulated debug entries + bundleId to the assistant message
+          const captured = pendingDebugRef.current.slice();
+          const bid = d.bundle_id ?? null;
+          // Use queueMicrotask to ensure the message is in state before patching
+          queueMicrotask(() => {
+            updateLastAssistantMessage({ debugEntries: captured, bundleId: bid });
+          });
           resetProcessing();
           setDebugData((prev) => ({
             ...prev,
@@ -81,7 +88,7 @@ export function EmbeddedApp() {
         }
       }
     },
-    [handleAgentStarted, handleAgentComplete, addAssistantMessage, addSystemMessage, resetProcessing],
+    [handleAgentStarted, handleAgentComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing],
   );
 
   const handleQueryError = useCallback(
@@ -95,6 +102,7 @@ export function EmbeddedApp() {
   const handleSendMessage = useCallback(
     (text: string) => {
       addUserMessage(text);
+      pendingDebugRef.current = [];
       setDebugData({ entries: [], bundleId: null, query: text });
       setIsQuerying(true);
 
@@ -106,6 +114,16 @@ export function EmbeddedApp() {
         });
     },
     [addUserMessage, handleProgress, handleQueryError],
+  );
+
+  const handleInlineDownload = useCallback(
+    (bundleId: number) => {
+      const sid = serviceRef.current.sessionId;
+      if (sid) {
+        serviceRef.current.downloadBundle(sid, bundleId, "json");
+      }
+    },
+    [],
   );
 
   const handleDownload = useCallback(
@@ -128,6 +146,7 @@ export function EmbeddedApp() {
           processingState={processingState}
           isDisabled={isQuerying}
           onSendMessage={handleSendMessage}
+          onDownload={handleInlineDownload}
         />
       </div>
       <RightSidebar

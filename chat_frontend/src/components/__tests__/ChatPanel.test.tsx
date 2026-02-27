@@ -53,6 +53,7 @@ describe("ChatPanel", () => {
     };
 
     render(<ChatPanel {...defaultProps} processingState={processing} />);
-    expect(screen.getByTitle("Extracting entities")).toBeInTheDocument();
+    // Collapsible banner shows active step label in summary
+    expect(screen.getByText(/Extracting entities/)).toBeInTheDocument();
   });
 });
