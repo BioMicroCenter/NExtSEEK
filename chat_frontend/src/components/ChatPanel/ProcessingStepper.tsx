@@ -30,7 +30,7 @@ interface ProcessingStepperProps {
 }
 
 export function ProcessingStepper({ steps }: ProcessingStepperProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   if (steps.length === 0) return null;
 

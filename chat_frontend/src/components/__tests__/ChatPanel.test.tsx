@@ -53,7 +53,7 @@ describe("ChatPanel", () => {
     };
 
     render(<ChatPanel {...defaultProps} processingState={processing} />);
-    // Collapsible banner shows active step label in summary
-    expect(screen.getByText(/Extracting entities/)).toBeInTheDocument();
+    // Auto-expanded stepper shows step label (may appear in both summary and expanded list)
+    expect(screen.getAllByText(/Extracting entities/).length).toBeGreaterThanOrEqual(1);
   });
 });

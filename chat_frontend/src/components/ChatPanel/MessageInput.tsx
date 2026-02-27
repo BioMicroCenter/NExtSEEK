@@ -44,12 +44,13 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
           rows={1}
         />
         <Button
-          className="h-10 w-10 shrink-0 rounded-lg p-0"
+          className="shrink-0 rounded-lg p-0"
+          style={{ width: 40, height: 40 }}
           onClick={handleSend}
           disabled={disabled || !value.trim()}
           aria-label="Send message"
         >
-          <SendHorizontal className="h-5 w-5" />
+          <SendHorizontal className="!size-5" style={{ width: 20, height: 20 }} />
         </Button>
       </div>
     </div>

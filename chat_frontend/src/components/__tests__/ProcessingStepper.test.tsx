@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { ProcessingStepper } from "../ChatPanel/ProcessingStepper";
 import type { Step } from "@/lib/types/chat";
 
@@ -15,7 +15,7 @@ function makeSteps(
 }
 
 describe("ProcessingStepper", () => {
-  it("renders correct number of steps for new_search", () => {
+  it("renders steps auto-expanded", () => {
     const steps = makeSteps([
       { agentName: "entity", label: "Extracting entities", status: "complete" },
       { agentName: "parser", label: "Planning query", status: "complete" },
@@ -25,12 +25,9 @@ describe("ProcessingStepper", () => {
     ]);
 
     render(<ProcessingStepper steps={steps} />);
-    // Collapsed banner shows the active step label
-    expect(screen.getByText(/Building request/)).toBeInTheDocument();
-    // Expand to see all steps
-    fireEvent.click(screen.getByRole("button"));
-    expect(screen.getByText("Extracting entities")).toBeInTheDocument();
-    expect(screen.getByText("Summarizing results")).toBeInTheDocument();
+    // Expanded by default — all steps visible in the expanded list
+    expect(screen.getAllByText("Extracting entities").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Summarizing results").length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows active step with spinner", () => {
@@ -42,14 +39,13 @@ describe("ProcessingStepper", () => {
     expect(container.querySelector(".animate-spin")).toBeTruthy();
   });
 
-  it("shows completed step with check icon", () => {
+  it("shows completed step with check icon when expanded", () => {
     const steps = makeSteps([
       { agentName: "entity", label: "Extracting entities", status: "complete" },
     ]);
 
     const { container } = render(<ProcessingStepper steps={steps} />);
-    // Expand to reveal completed steps with green check
-    fireEvent.click(screen.getByRole("button"));
+    // Auto-expanded — green check should be visible immediately
     expect(container.querySelector(".text-green-600")).toBeTruthy();
   });
 });
