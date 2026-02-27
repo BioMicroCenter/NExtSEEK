@@ -50,7 +50,10 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
           disabled={disabled || !value.trim()}
           aria-label="Send message"
         >
-          <SendHorizontal className="!size-5" style={{ width: 20, height: 20 }} />
+          {/* Wrap in span to escape Button's [&_svg]:size-4 which forces rem-based sizing */}
+          <span className="flex items-center justify-center" style={{ width: 20, height: 20 }}>
+            <SendHorizontal style={{ width: 20, height: 20 }} />
+          </span>
         </Button>
       </div>
     </div>
