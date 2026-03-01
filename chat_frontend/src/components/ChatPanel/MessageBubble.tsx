@@ -1,9 +1,8 @@
 import { useState, useMemo } from "react";
-import { ChevronDown, Download, Search } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/lib/types/chat";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { MarkdownContent } from "./MarkdownContent";
 import { ReportArtifacts } from "./ReportArtifacts";
 
@@ -45,11 +44,10 @@ function stripDebugSections(content: string): {
 
 interface MessageBubbleProps {
   message: Message;
-  onDownload?: (bundleId: number) => void;
   onArtifactDownload?: (bundleId: number, artifactKey: string) => void;
 }
 
-export function MessageBubble({ message, onDownload, onArtifactDownload }: MessageBubbleProps) {
+export function MessageBubble({ message, onArtifactDownload }: MessageBubbleProps) {
   const [debugOpen, setDebugOpen] = useState(false);
 
   // Strip debug sections from assistant messages
@@ -71,7 +69,6 @@ export function MessageBubble({ message, onDownload, onArtifactDownload }: Messa
   const hasDebug = !message.isUser && message.debugEntries && message.debugEntries.length > 0;
   const hasExtracted = extractedSections.length > 0;
   const hasSearchDetails = hasDebug || hasExtracted;
-  const hasBundleId = !message.isUser && message.bundleId != null;
 
   return (
     <div
@@ -100,39 +97,24 @@ export function MessageBubble({ message, onDownload, onArtifactDownload }: Messa
         )}
       </div>
 
-      {/* Search Details + Download (assistant messages only) */}
-      {(hasSearchDetails || hasBundleId) && (
+      {/* Search Details (assistant messages only) */}
+      {hasSearchDetails && (
         <div className="mt-1.5 flex max-w-[80%] flex-col gap-1.5">
-          {/* Toggle row: Search Details + Download Results side by side */}
           <div className="flex items-center gap-2">
-            {hasSearchDetails && (
-              <button
-                type="button"
-                onClick={() => setDebugOpen((v) => !v)}
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-              >
-                <Search className="h-3 w-3" />
-                <span>Search Details</span>
-                <ChevronDown
-                  className={cn(
-                    "h-3 w-3 transition-transform duration-200",
-                    debugOpen && "rotate-180",
-                  )}
-                />
-              </button>
-            )}
-
-            {hasBundleId && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-fit gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => onDownload?.(message.bundleId!)}
-              >
-                <Download className="h-3 w-3" />
-                Download Results
-              </Button>
-            )}
+            <button
+              type="button"
+              onClick={() => setDebugOpen((v) => !v)}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            >
+              <Search className="h-3 w-3" />
+              <span>Search Details</span>
+              <ChevronDown
+                className={cn(
+                  "h-3 w-3 transition-transform duration-200",
+                  debugOpen && "rotate-180",
+                )}
+              />
+            </button>
           </div>
 
           {/* Collapsible details panel */}

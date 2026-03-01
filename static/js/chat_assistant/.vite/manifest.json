@@ -6,7 +6,7 @@
     "isDynamicEntry": true
   },
   "src/main.embedded.tsx": {
-    "file": "assets/main.embedded-DHD1kmhk.js",
+    "file": "assets/main.embedded-gv2F6KwA.js",
     "name": "main.embedded",
     "src": "src/main.embedded.tsx",
     "isEntry": true,
@@ -14,7 +14,7 @@
       "node_modules/xlsx/xlsx.mjs"
     ],
     "css": [
-      "assets/main-B0kqUOO2.css"
+      "assets/main-CwEG3dow.css"
     ]
   }
 }

@@ -48,14 +48,16 @@ describe("ReportArtifacts", () => {
     expect(screen.getByText("Blood sample")).toBeInTheDocument();
   });
 
-  it("renders zebra-striped rows", () => {
+  it("renders rows with uniform background and bottom borders", () => {
     const { container } = render(
       <ReportArtifacts artifacts={[sampleTable]} onDownloadArtifact={() => {}} />,
     );
     const rows = container.querySelectorAll("tbody tr");
     expect(rows).toHaveLength(2);
     expect(rows[0].className).toContain("bg-background");
-    expect(rows[1].className).toContain("bg-muted/20");
+    expect(rows[0].className).toContain("border-b");
+    expect(rows[1].className).toContain("bg-background");
+    expect(rows[1].className).toContain("border-b");
   });
 
   it("renders a download button per table artifact", () => {

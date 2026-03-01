@@ -57,7 +57,8 @@ class FlattenReportToTablesTests(SimpleTestCase):
 
 class ExtractTableArtifactsTests(SimpleTestCase):
 
-    def test_reporter_bundle_produces_artifacts(self):
+    def test_reporter_bundle_produces_file_artifact(self):
+        """GEO bundles always produce a file artifact for the workbook download."""
         bundle = {
             "mode": "reporter",
             "report_writer_output": {
@@ -69,11 +70,99 @@ class ExtractTableArtifactsTests(SimpleTestCase):
             "report_saved_files": {"geo_seq_workbooks": ["/tmp/geo_workbook.xlsx"]},
         }
         artifacts = extract_table_artifacts(bundle)
-        table_artifacts = [a for a in artifacts if a["artifact_type"] == "table"]
         file_artifacts = [a for a in artifacts if a["artifact_type"] == "file"]
-        self.assertGreaterEqual(len(table_artifacts), 1)
         self.assertEqual(len(file_artifacts), 1)
         self.assertEqual(file_artifacts[0]["key"], "geo_seq_workbooks")
+
+    def test_reporter_bundle_no_preview_when_workbook_missing(self):
+        """GEO bundles with a missing workbook file produce no preview artifact."""
+        bundle = {
+            "mode": "reporter",
+            "report_writer_output": {
+                "report_type": "GEO",
+                "report": {"samples": [{"uid": "X-1", "title": "S1"}]},
+                "narrative": "Done.",
+                "notes": "",
+            },
+            "report_saved_files": {"geo_seq_workbooks": ["/tmp/nonexistent_geo_workbook.xlsx"]},
+        }
+        artifacts = extract_table_artifacts(bundle)
+        preview_artifacts = [a for a in artifacts if a["artifact_type"] == "preview"]
+        self.assertEqual(len(preview_artifacts), 0)
+
+    def test_reporter_bundle_preview_from_real_workbook(self):
+        """GEO bundles with a real workbook produce a preview artifact from the file."""
+        import os
+        import tempfile
+        # Build a minimal workbook mimicking the GEO template structure
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Metadata"
+        # Row 38 = sample headers, row 39+ = data (per _populate_geo_seq_workbook)
+        ws.cell(row=38, column=1, value="sample_name")
+        ws.cell(row=38, column=2, value="title")
+        ws.cell(row=39, column=1, value="Sample1")
+        ws.cell(row=39, column=2, value="My sample")
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+            tmp_path = f.name
+        try:
+            wb.save(tmp_path)
+            bundle = {
+                "mode": "reporter",
+                "report_writer_output": {
+                    "report_type": "GEO",
+                    "report": {},
+                    "narrative": "",
+                    "notes": "",
+                },
+                "report_saved_files": {"geo_seq_workbooks": [tmp_path]},
+            }
+            artifacts = extract_table_artifacts(bundle)
+            preview_artifacts = [a for a in artifacts if a["artifact_type"] == "preview"]
+            self.assertEqual(len(preview_artifacts), 1)
+            preview = preview_artifacts[0]
+            self.assertEqual(preview["key"], "geo_report_preview")
+            self.assertEqual(len(preview["sheets"]), 1)
+            sheet = preview["sheets"][0]
+            self.assertEqual(sheet["name"], "Metadata")
+            self.assertIn("sample_name", sheet["columns"])
+            self.assertEqual(sheet["data"][0]["sample_name"], "Sample1")
+        finally:
+            os.unlink(tmp_path)
+
+    def test_non_geo_reporter_produces_table_artifacts(self):
+        """Non-GEO reporter bundles still produce inline table artifacts."""
+        bundle = {
+            "mode": "reporter",
+            "report_writer_output": {
+                "report_type": "SUBMISSION",
+                "report": {"samples": [{"uid": "X-1", "title": "S1"}]},
+                "narrative": "",
+                "notes": "",
+            },
+        }
+        artifacts = extract_table_artifacts(bundle)
+        table_artifacts = [a for a in artifacts if a["artifact_type"] == "table"]
+        self.assertGreaterEqual(len(table_artifacts), 1)
+
+    def test_reporter_result_uses_streamlit_labels(self):
+        """Impact tables use key/count columns and Streamlit-style labels."""
+        bundle = {
+            "mode": "sql_report",
+            "reporter_result": {
+                "sampletypes_table": {"NHP": 5, "PBMC": 3},
+                "labs_table": {"MIT": 8},
+                "rows_returned": 8,
+            },
+        }
+        artifacts = extract_table_artifacts(bundle)
+        labels = {a["label"] for a in artifacts}
+        self.assertIn("SampleType Summary", labels)
+        self.assertIn("Lab Summary", labels)
+        for a in artifacts:
+            self.assertEqual(a["columns"], ["key", "count"])
+        self.assertEqual(artifacts[0].get("rows_returned"), 8)
 
     def test_search_bundle_returns_empty(self):
         bundle = {"mode": "new_search", "api_result_full": {"data": []}}

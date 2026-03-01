@@ -4,11 +4,10 @@ import { MessageBubble } from "./MessageBubble";
 interface MessageListProps {
   messages: Message[];
   scrollRef: React.RefObject<HTMLDivElement | null>;
-  onDownload?: (bundleId: number) => void;
   onArtifactDownload?: (bundleId: number, artifactKey: string) => void;
 }
 
-export function MessageList({ messages, scrollRef, onDownload, onArtifactDownload }: MessageListProps) {
+export function MessageList({ messages, scrollRef, onArtifactDownload }: MessageListProps) {
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
       {messages.length === 0 ? (
@@ -20,7 +19,7 @@ export function MessageList({ messages, scrollRef, onDownload, onArtifactDownloa
       ) : (
         <div className="space-y-2">
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} onDownload={onDownload} onArtifactDownload={onArtifactDownload} />
+            <MessageBubble key={msg.id} message={msg} onArtifactDownload={onArtifactDownload} />
           ))}
         </div>
       )}

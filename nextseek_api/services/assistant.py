@@ -488,7 +488,7 @@ class AssistantViewSet(viewsets.ViewSet):
         from pathlib import Path
         from django.http import FileResponse
         from nextseek_api.assistant.excel_export import (
-            flatten_report_to_tables,
+            build_tables_from_bundle,
             generate_table_xlsx,
             generate_search_xlsx,
         )
@@ -520,9 +520,10 @@ class AssistantViewSet(viewsets.ViewSet):
             if not workbooks:
                 return _error_response("Not found", "No GEO workbooks found.", status.HTTP_404_NOT_FOUND)
             filepath = Path(workbooks[0]).resolve()
-            # Path traversal protection: only serve files under home directory
-            home_dir = Path.home().resolve()
-            if not str(filepath).startswith(str(home_dir)):
+            # Path traversal protection: only serve files under project dir or home dir
+            from django.conf import settings
+            allowed_dirs = [Path(settings.BASE_DIR).resolve(), Path.home().resolve()]
+            if not any(str(filepath).startswith(str(d)) for d in allowed_dirs):
                 return _error_response("Forbidden", "File path not within allowed directory.", status.HTTP_403_FORBIDDEN)
             if not filepath.is_file():
                 return _error_response("Not found", "GEO workbook file not found on disk.", status.HTTP_404_NOT_FOUND)
@@ -548,11 +549,14 @@ class AssistantViewSet(viewsets.ViewSet):
 
         # --- Generate all tables combined xlsx ---
         if artifact_key == "all_tables":
-            rwo = bundle.get("report_writer_output")
-            if not isinstance(rwo, dict):
+            tables = build_tables_from_bundle(bundle)
+            if not tables:
                 return _error_response("Not found", "No report data.", status.HTTP_404_NOT_FOUND)
-            tables = flatten_report_to_tables(rwo)
-            xlsx_bytes = generate_table_xlsx(tables)
+            try:
+                xlsx_bytes = generate_table_xlsx(tables)
+            except Exception:
+                logger.exception("Failed to generate xlsx for bundle %s", bundle_id)
+                return _error_response("Error", "Failed to generate Excel file.", status.HTTP_500_INTERNAL_SERVER_ERROR)
             return FileResponse(
                 io.BytesIO(xlsx_bytes),
                 content_type=xlsx_content_type,
@@ -561,18 +565,20 @@ class AssistantViewSet(viewsets.ViewSet):
             )
 
         # --- Generate single table xlsx ---
-        rwo = bundle.get("report_writer_output")
-        if isinstance(rwo, dict):
-            tables = flatten_report_to_tables(rwo)
-            table = next((t for t in tables if t["key"] == artifact_key), None)
-            if table:
+        tables = build_tables_from_bundle(bundle)
+        table = next((t for t in tables if t["key"] == artifact_key), None)
+        if table:
+            try:
                 xlsx_bytes = generate_table_xlsx([table])
-                return FileResponse(
-                    io.BytesIO(xlsx_bytes),
-                    content_type=xlsx_content_type,
-                    as_attachment=True,
-                    filename=f"{artifact_key}_{bundle_id}.xlsx",
-                )
+            except Exception:
+                logger.exception("Failed to generate xlsx for artifact %s", artifact_key)
+                return _error_response("Error", "Failed to generate Excel file.", status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return FileResponse(
+                io.BytesIO(xlsx_bytes),
+                content_type=xlsx_content_type,
+                as_attachment=True,
+                filename=f"{artifact_key}_{bundle_id}.xlsx",
+            )
 
         return _error_response("Not found", f"Artifact '{artifact_key}' not found.", status.HTTP_404_NOT_FOUND)
 

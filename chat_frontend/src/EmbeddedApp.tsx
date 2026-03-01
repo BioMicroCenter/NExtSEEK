@@ -117,41 +117,6 @@ export function EmbeddedApp() {
     [addUserMessage, handleProgress, handleQueryError],
   );
 
-  const handleInlineDownload = useCallback(
-    (bundleId: number) => {
-      const sid = serviceRef.current.sessionId;
-      if (!sid) return;
-
-      // Check if message has artifacts (report mode) vs no artifacts (search mode)
-      const msg = messages.find((m) => m.bundleId === bundleId);
-      if (msg?.artifacts && msg.artifacts.length > 0) {
-        // Report mode: download combined xlsx from backend
-        serviceRef.current.downloadArtifact(sid, bundleId, "all_tables");
-      } else {
-        // Search mode: try client-side Excel, fall back to JSON
-        serviceRef.current
-          .fetchBundle(sid, bundleId)
-          .then((bundle) => {
-            const apiResult = bundle?.api_result_full as Record<string, unknown> | undefined;
-            const data = apiResult?.data;
-            if (Array.isArray(data) && data.length > 0) {
-              const rows = data.map((item: Record<string, unknown>) => {
-                const attrs = (item.attributes ?? {}) as Record<string, unknown>;
-                return { id: item.id, type: item.type, ...attrs };
-              });
-              serviceRef.current.downloadSearchAsExcel(rows, `search_results_${bundleId}.xlsx`);
-            } else {
-              serviceRef.current.downloadBundle(sid, bundleId, "json");
-            }
-          })
-          .catch(() => {
-            serviceRef.current.downloadBundle(sid, bundleId, "json");
-          });
-      }
-    },
-    [messages],
-  );
-
   const handleArtifactDownload = useCallback(
     (bundleId: number, artifactKey: string) => {
       const sid = serviceRef.current.sessionId;
@@ -186,7 +151,6 @@ export function EmbeddedApp() {
           processingState={processingState}
           isDisabled={isQuerying}
           onSendMessage={handleSendMessage}
-          onDownload={handleInlineDownload}
           onArtifactDownload={handleArtifactDownload}
         />
       </div>

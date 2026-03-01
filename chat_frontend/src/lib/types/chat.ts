@@ -27,7 +27,21 @@ export interface ArtifactFile {
   file_format: string;
 }
 
-export type Artifact = ArtifactTable | ArtifactFile;
+export interface ArtifactPreviewSheet {
+  name: string;
+  columns: string[];
+  data: Record<string, unknown>[];
+  total_rows: number;
+}
+
+export interface ArtifactPreview {
+  artifact_type: "preview";
+  key: string;
+  label: string;
+  sheets: ArtifactPreviewSheet[];
+}
+
+export type Artifact = ArtifactTable | ArtifactFile | ArtifactPreview;
 
 export interface Step {
   index: number;

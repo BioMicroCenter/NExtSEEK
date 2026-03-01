@@ -29,9 +29,8 @@ class EmitCompleteArtifactTests(SimpleTestCase):
         self.assertEqual(len(events), 1)
         event_type, data = events[0]
         self.assertEqual(event_type, "query_complete")
-        self.assertIn("artifacts", data)
-        self.assertGreaterEqual(len(data["artifacts"]), 1)
-        self.assertEqual(data["artifacts"][0]["artifact_type"], "table")
+        # GEO bundle with no workbook file — graceful fallback, no artifacts key emitted
+        self.assertNotIn("artifacts", data)
 
     def test_emit_complete_no_artifacts_for_search(self):
         events = []
