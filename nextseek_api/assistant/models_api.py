@@ -1,7 +1,7 @@
 """Pydantic request/response models for the Assistant endpoints."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -63,12 +63,34 @@ class AgentCompleteEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ArtifactTable(BaseModel):
+    """Inline table artifact with data for frontend rendering."""
+    artifact_type: Literal["table"] = "table"
+    key: str = Field(..., description="Unique artifact key, e.g. 'samples_table'")
+    label: str = Field(..., description="Human-readable label, e.g. 'Samples'")
+    columns: List[str] = Field(..., description="Column headers in display order")
+    data: List[Dict[str, Any]] = Field(..., description="Row data as list of dicts")
+    model_config = ConfigDict(extra="forbid")
+
+
+class ArtifactFile(BaseModel):
+    """File-based artifact (download only, no inline data)."""
+    artifact_type: Literal["file"] = "file"
+    key: str = Field(..., description="Unique artifact key, e.g. 'geo_seq_workbooks'")
+    label: str = Field(..., description="Human-readable label")
+    file_format: str = Field("xlsx", description="File extension/format")
+    model_config = ConfigDict(extra="forbid")
+
+
 class QueryCompleteEvent(BaseModel):
     """SSE event: query_complete"""
     reply: str
     debug: Optional[Dict[str, Any]] = None
     bundle_id: Optional[int] = None
     session_id: Optional[str] = None
+    artifacts: Optional[List[Union[ArtifactTable, ArtifactFile]]] = Field(
+        None, description="Table data and file download references for the frontend"
+    )
 
     model_config = ConfigDict(extra="forbid")
 

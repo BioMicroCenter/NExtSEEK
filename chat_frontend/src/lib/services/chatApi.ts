@@ -210,4 +210,65 @@ export class NextseekApiService {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
+
+  async downloadArtifact(
+    sessionId: string,
+    bundleId: number,
+    artifactKey: string,
+  ): Promise<void> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const response = await fetch(
+      `${baseUrl}/nextseek_api/assistant/sessions/${sessionId}/bundles/${bundleId}/artifacts/${artifactKey}/`,
+      {
+        headers: { ...this.auth.getAuthHeaders() },
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to download artifact: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition");
+    const filenameMatch = disposition?.match(/filename="?(.+?)"?$/);
+    const filename = filenameMatch?.[1] ?? `${artifactKey}_${bundleId}.xlsx`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async fetchBundle(
+    sessionId: string,
+    bundleId: number,
+  ): Promise<Record<string, unknown>> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const response = await fetch(
+      `${baseUrl}/nextseek_api/assistant/sessions/${sessionId}/bundles/${bundleId}/`,
+      {
+        headers: { ...this.auth.getAuthHeaders() },
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to fetch bundle: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  downloadSearchAsExcel(
+    data: Record<string, unknown>[],
+    filename: string,
+  ): void {
+    import("xlsx").then((XLSX) => {
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Search Results");
+      XLSX.writeFile(wb, filename);
+    });
+  }
 }

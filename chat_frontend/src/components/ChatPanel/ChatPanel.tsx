@@ -9,7 +9,7 @@ interface ChatPanelProps {
   processingState: ProcessingState;
   isDisabled: boolean;
   onSendMessage: (message: string) => void;
-  onDownload?: (bundleId: number) => void;
+  onArtifactDownload?: (bundleId: number, artifactKey: string) => void;
 }
 
 export function ChatPanel({
@@ -17,7 +17,7 @@ export function ChatPanel({
   processingState,
   isDisabled,
   onSendMessage,
-  onDownload,
+  onArtifactDownload,
 }: ChatPanelProps) {
   const { scrollRef } = useAutoScroll([messages, processingState.steps]);
 
@@ -26,7 +26,7 @@ export function ChatPanel({
       {processingState.isProcessing && (
         <ProcessingStepper steps={processingState.steps} />
       )}
-      <MessageList messages={messages} scrollRef={scrollRef} onDownload={onDownload} />
+      <MessageList messages={messages} scrollRef={scrollRef} onArtifactDownload={onArtifactDownload} />
       <MessageInput
         onSend={onSendMessage}
         disabled={isDisabled}

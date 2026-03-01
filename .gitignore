@@ -176,4 +176,4 @@ outputs
 CLAUDE.md
 .python-version
 .serena/
-.venv_uv/
+.venv_uv/data/

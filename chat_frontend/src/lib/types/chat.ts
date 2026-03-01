@@ -7,7 +7,41 @@ export interface Message {
   messageType?: "text" | "system" | "debug";
   debugEntries?: DebugEntry[];
   bundleId?: number | null;
+  artifacts?: Artifact[] | null;
 }
+
+export interface ArtifactTable {
+  artifact_type: "table";
+  key: string;
+  label: string;
+  columns: string[];
+  data: Record<string, unknown>[];
+  truncated?: boolean;
+  total_rows?: number;
+}
+
+export interface ArtifactFile {
+  artifact_type: "file";
+  key: string;
+  label: string;
+  file_format: string;
+}
+
+export interface ArtifactPreviewSheet {
+  name: string;
+  columns: string[];
+  data: Record<string, unknown>[];
+  total_rows: number;
+}
+
+export interface ArtifactPreview {
+  artifact_type: "preview";
+  key: string;
+  label: string;
+  sheets: ArtifactPreviewSheet[];
+}
+
+export type Artifact = ArtifactTable | ArtifactFile | ArtifactPreview;
 
 export interface Step {
   index: number;

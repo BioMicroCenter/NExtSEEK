@@ -40,7 +40,7 @@ export default defineConfig({
           {
             name: "real-embedded",
             testDir: "./e2e/real-backend",
-            testMatch: "test-case-1-embedded.spec.ts",
+            testMatch: /.*-embedded\.spec\.ts/,
             use: {
               ...devices["Desktop Chrome"],
               baseURL: "https://nextseek-dev.mit.edu",
