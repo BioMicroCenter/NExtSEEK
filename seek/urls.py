@@ -40,10 +40,8 @@ urlpatterns = [
     re_path(r'^samples/download/', views.sampleDownload, name='sampleDownload'),
     re_path(r'^samples/export/', views.sampleExport, name='sampleExport'),
     re_path(r'^samples/delete/', views.sampleDelete, name='sampleDelete'),
-    # re_path(r'^samples/publish/', views.samplePublish, name='samplePublish'),
     
     re_path(r'^samplefind/', views.sampleFindAjax, name='sampleFindAjax'),
-    # re_path(r'^samples/publishlist/(?P<sampleids>\d+(,\d+)*)/$',views.publish_samples, name='publish_samples'),
     
     re_path(r'^document/id=(?P<id>\d+)/$', views.document, name='document'),
 
@@ -63,9 +61,6 @@ urlpatterns = [
     
     # get to the upload page of data files to server and to Seek
     re_path(r'^data/upload/', views.datafileUpload, name='datafileUpload'),
-    re_path(r'^datafiles/batchupload/', views.filesBatchUpload, name='filesBatchUpload'),
-    re_path(r'^datafiles/uploadtoseek/', views.uploadToSeek, name='uploadtoseek'),
-    re_path(r'^datafiles/getuids/', views.filesGetUIDs, name='filesGetUIDs'),
     
     re_path(r'^datafile/query/', views.datafileQuery, name='datafileQuery'),
     re_path(r'^sop/query/', views.sopQuery, name='sopQuery'),

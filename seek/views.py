@@ -455,156 +455,39 @@ def remote(request):
 
 def datafileUpload(request):
     seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
+    user_seek = seekdb.getSeekLogin(request, True)
     if not user_seek['status']:
         err = user_seek['err']
         return HttpResponseRedirect("/login/?next=/seek/data/upload/")
-            
-    report = {}
+
     isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        options = []
-        options.append({'id':-1, 'title':'Default','selected':True})
-    else:
-        options = seekdb.getObjectsToOptions("/institutions")
-    
-    report['lab_options'] = json.dumps(options, default=str)
-    return render(request,"datafileUpload.html", {'report':report})
+
+    lab_options = seekdb.getObjectsToOptions("/institutions")
+
+    all_lab_users = {}
+    for lab in lab_options:
+        lab_id = int(lab['id'])
+        if lab_id != 0:
+            lab_info = seekdb.getInfoObject("/institutions/", lab_id)
+            if isSupervisor:
+                people = lab_info["relationships"]["people"]["data"]
+                all_people = []
+                for person in people:
+                    all_people.append({'id': person['id'], 'title': seekdb.getUserFullname(person['id'])})
+                all_lab_users[lab_id] = all_people
+            else:
+                all_lab_users = {}
+                all_lab_users[lab_id] = [{'id': user_seek['person_id'], 'title': seekdb.getUserFullname(user_seek['person_id'])}]
+
+    report['lab_options'] = json.dumps(lab_options, default=str)
+    report['all_lab_users'] = json.dumps(all_lab_users, default=str)
+    report['seek_url'] = settings.SEEK_URL
+
+    return render(request,"dataFileUpload.html", {'report':report})
 
 def __updateLabUser(seekdb, instituion_id, people_id):
     return seekdb
-
-def filesBatchUpload(request):
-    filetype = request.POST.get('filetype')
-    instituion_id = request.POST.get('instituion_id')
-    people_id = request.POST.get('people_id')
-    md5 = request.POST.get('md5')
-    report = {}
-    report['msg'] = "Warning: tStart batch file uploading."
-    report['status'] = 0
-    report['df_info'] = {}            
-    report['newrow'] = {} 
-    
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        report['msg'] = user_seek['err']
-        err = user_seek['err']
-        return HttpResponseRedirect("/login/?next=/seek/data/upload/")
-        
-    if verifySuperUser(request)==1:
-        try:
-            creator_id = int(people_id)
-        except:
-            msg = 'Error: You login as admin and must choose the creator.'
-            status = 0
-            logger.error(msg)
-            report['msg'] = msg
-            report['status'] = 0
-            return HttpResponse(simplejson.dumps(report, default=str))
-
-        if creator_id>0:
-            status, msg = seekdb.updateCreator(instituion_id, people_id)
-            if not status:
-                report['msg'] = msg
-                return HttpResponse(simplejson.dumps(report, default=str))
-        else:
-            msg = 'Error: You login as admin and must choose the creator.'
-            status = 0
-            logger.error(msg)
-            report['msg'] = msg
-            report['status'] = 0
-            return HttpResponse(simplejson.dumps(report, default=str))
-            
-    infile = request.FILES['file']
-    dfrecord = {}
-    dfrecord['uid'] = ''
-    dfrecord['originalname'] = infile.name
-    dfrecord['fileurl'] = 'Not available ' + settings.SEEK_DATAFILE_SERVER
-    dfrecord['notes'] = report['msg']
-    dfrecord['content_type'] = filetype
-    
-    sampleRecord = None
-    if filetype=="DATAFILE":
-        dbsample = DBtable_sample()
-        creator = seekdb.creator
-        sampleRecord, msg = dbsample.searchFileInSample(creator, infile.name, filetype)
-        if sampleRecord is None or sampleRecord['id']<=0:
-            report['msg'] = msg
-            report['status'] = 0
-            dfrecord['notes'] = report['msg']
-            report['newrow'] = dfrecord
-            return HttpResponse(simplejson.dumps(report, default=str))
-
-    if filetype=="DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        sample_uid = sampleRecord['uuid']
-        report = dbdf.uploadDF_toStorage(seekdb.creator, infile, sample_uid, md5)
-    elif filetype=="SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        report = dbsop.uploadSOP_toStorage(seekdb.creator, infile, md5)
-    else:
-        report = {}
-        report['msg'] = "Warning: the file type is not supported yet: " + filetype
-        report['status'] = 0
-        report['df_info'] = {}            
-        report['newrow'] = {}              
-    
-    return HttpResponse(simplejson.dumps(report, default=str))
-    
-    
-def uploadToSeek(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        err = user_seek['err']
-        return HttpResponseRedirect("/login/?next=/seek/data/upload/")
-    
-    ret = request.POST
-    filetype = ret['filetype']
-    instituion_id = ret['instituion_id']
-    people_id = ret['people_id']
-    records = ret['records']
-    diclist = json.loads(records)
-        
-    report = {}
-    report['msg'] = "Warning: to be implemented"
-    report['status'] = 0
-    report['link'] = ""
-    report['newrow'] = {}               
-    if verifySuperUser(request)==1 and int(people_id)>0:
-        logger.debug(f"Logged in user is superuser and uploading on behalf of user {people_id}")
-        status, msg = seekdb.updateCreator(instituion_id, people_id)
-        if not status:
-            report['msg'] = msg
-            return HttpResponse(simplejson.dumps(report, default=str))
-    
-    if filetype=="DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        report = dbdf.uploadDFs_storageToSeek(seekdb, diclist)
-    elif filetype=="SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        report = dbsop.uploadSOPs_storageToSeek(seekdb, diclist)
-        
-    else:
-        report = {}
-        report['msg'] = "Warning: the file type is not supported yet: " + filetype
-        report['status'] = 0
-        report['df_info'] = {}            
-        report['newrow'] = {}              
-    
-    return HttpResponse(simplejson.dumps(report, default=str))
-
-def filesGetUIDs(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    
-    ret = request.GET
-    allFiles = json.loads(ret['allfiles'])
-    dbdf = DBtable_data_files("DEFAULT")
-    data = dbdf.filesGetUIDs(seekdb, allFiles)
-    return HttpResponse(simplejson.dumps(data, default=str))
-   
+  
 #@api_view(http_method_names=['GET'])
 #@authentication_classes((TokenAuthentication,))
 #@permission_classes((IsAuthenticated,))
