@@ -1,176 +1,153 @@
 <script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-filter.js"></script>
-<script type="text/javascript" src="{{STATIC_URL}}js/custom/datagrid-custom.js"></script>
 <script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-export.js"></script>
-<script type="text/javascript">
-var filetype_options = [
-    {filetypeid: '0', filetypename: ''},
-    {filetypeid: '1', filetypename: 'Data file'},
-    {filetypeid: '2', filetypename: 'Sample sheet'},
-    {filetypeid: '3', filetypename: 'SOP file'},
-    {filetypeid: '4', filetypename: 'Documents'},
-    {filetypeid: '5', filetypename: 'Presentation'}
-];
-
-$(document).ready(function(){
-	$('#dgtable').datagrid({
-		onCheck: function(index,row){
-			row.ck = true;
-		},
-		onUncheck: function(index,row){
-			row.ck = false;
-		},
-		onCheckAll: function() {
-			var rows = $(this).datagrid('getRows');
-			for(var i=0; i<rows.length; i++){
-				var row = rows[i];
-				row.ck = true;
-			}
-        },
-        onUncheckAll: function() {
-			var rows = $(this).datagrid('getRows');
-			for(var i=0; i<rows.length; i++){
-				var row = rows[i];
-				row.ck = false;
-			}
-        }
-	})
-});
-
-$(function(){
-    var dg = $('#dgtable').datagrid();
-    dg.datagrid('enableFilter', [{
-		field:'id',
-		type:'label'
-	}]);
-});
-
-
-    function onEndEdit(index, row){
-		var dg = $(this)
-        var ed = dg.datagrid('getEditor', {
-            index: index,
-            field: 'filetypeid'
-        });
-		if(ed){
-			row.filetypename = $(ed.target).combobox('getText');
-		}
-		else{
-			alert('editor false');
-		}
-    }
-	
-    function getRows(target){
-        var state = $(target).data('datagrid');
-        if (state.filterSource){
-            return state.filterSource.rows;
-        } else {
-            return state.data.rows;
-        }
-    }
-    function toHtml(target, rows){
-        rows = rows || getRows(target);
-        var dg = $(target);
-        var data = ['<table border="1" rull="all" style="border-collapse:collapse">'];
-        var fields = dg.datagrid('getColumnFields',true).concat(dg.datagrid('getColumnFields',false));
-        var trStyle = 'height:32px';
-        var tdStyle0 = 'vertical-align:middle;padding:0 4px';
-        data.push('<tr style="'+trStyle+'">');
-        for(var i=0; i<fields.length; i++){
-            var col = dg.datagrid('getColumnOption', fields[i]);
-            var tdStyle = tdStyle0 + ';width:'+col.boxWidth+'px;';
-			
-			var field = fields[i];
-			if(['uid','originalname','fileurl'].includes(field)) {
-				data.push('<th style="'+tdStyle+'">'+col.title+'</th>');
-			}
-        }
-        data.push('</tr>');
-        $.map(rows, function(row){
-            data.push('<tr style="'+trStyle+'">');
-            for(var i=0; i<fields.length; i++){
-                var field = fields[i];
-				if(['uid','originalname','fileurl'].includes(field)) {
-					var value = row[field];
-					var value2 = String(value);
-					if(value2=='undefined'){
-						data.push(
-							'<td style="'+tdStyle0+'"></td>'
-						);
-					} else{
-						data.push(
-							'<td style="'+tdStyle0+'">'+value+'</td>'
-						);
-					}
-				}
-            }
-            data.push('</tr>');
-        });
-        data.push('</table>');
-        return data.join('');
-    }
-
-    function exportDataGrid(dg){
-        var filename = 'datafiles.xls';
-        var rows = null;
-        var worksheet = 'Worksheet';
-        var uri = 'data:application/vnd.ms-excel;base64,'
-        , template = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><meta http-equiv="content-type" content="application/vnd.ms-excel; charset=UTF-8"><head><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>{worksheet}</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body>{table}</body></html>'
-        , base64 = function (s) { return window.btoa(unescape(encodeURIComponent(s))) }
-        , format = function (s, c) { return s.replace(/{(\w+)}/g, function (m, p) { return c[p]; }) }
-        var table = toHtml(dg, rows);
-        var ctx = { worksheet: worksheet, table: table };
-        var data = base64(format(template, ctx));
-        if (window.navigator.msSaveBlob){
-            var blob = b64toBlob(data);
-            window.navigator.msSaveBlob(blob, filename);
-        } else {
-            var alink = $('<a style="display:none"></a>').appendTo('body');
-            alink[0].href = uri + data;
-            alink[0].download = filename;
-            alink[0].click();
-            alink.remove();
-        }
-    }
-</script>
+<script type="text/javascript" src="{{STATIC_URL}}js/custom/datagrid-custom.js"></script>
 <style type="text/css">
-    .datagrid-row-alt{
+  .datagrid-row-alt{
         background: #e6f2ff;
     }
 </style>
-<div id="datafile_table_div" style="height:auto">
+<div id="sample_table_div" style="height:auto">
 	<div style="margin:20px 0;"></div>
-	<table id="dgtable" class="easyui-datagrid" title="" style="width:auto; height:300px;"
-			data-options="
-				iconCls: 'icon-edit',
-				singleSelect: true,
-				selectOnCheck: false,
-				url:'/directory/dblist/',
-				method:'get',
-				toolbar: '#tb_toolbar',
-				striped: true,
-				pagination : true,
-				pageSize:50,
-				showFooter: false,
-				multiSort: true,
-				remoteFilter: true,
-                onClickCell: onClickCell,
-                onEndEdit: onEndEdit
-			">
+	<table id="dgtable" class="easyui-datagrid" title="" style="width:auto; height:680px;"
+			data-options="striped: true,
+										toolbar: '#tb_toolbar',
+										singleSelect: false,
+										checkOnSelect: true,
+										selectOnCheck: true,
+										ctrlCheck: true,
+										pagination: true,
+										pageSize: 50,
+										multiSort: true">
 		<thead>
 			<tr>
-				<th data-options="field:'ck',width:100,align:'center', checkbox:true, editor:{type:'checkbox',options:{on:'Y',off:'N'}}">Select file</th>
+			  <th data-options="field:'ck',width:100,align:'center', checkbox:true, editor:{type:'checkbox',options:{on:'Y',off:'N'}}">Select file</th>
 				<th data-options="field:'id',width:60" sortable="true"><B>ID</B></th>
-				<th data-options="field:'uid',width:250" sortable="true"><B>UID</B></th>
-				<th data-options="field:'originalname',width:250" sortable="true"><B>Original file name</B></th>
-				<th data-options="field:'fileurl',width:350" sortable="true"><B>File URL</B></th>
-				<th data-options="field:'notes',width:300" sortable="true"><B>Status</B></th>
-				<th data-options="field:'size',width:60" sortable="true"><B>Size</B></th>
-				<th data-options="field:'content_type',width:60,align:'left'"><B>File Type</B></th>
-				<th data-options="field:'md5',width:200" sortable="true"><B>MD5 checksum</B></th>
+				<th data-options="field:'title',width:400" sortable="true"><B>UID</B></th>
+				<th data-options="field:'link',width:400" sortable="true"><B>SEEK URL</B></th>
 			</tr>
 		</thead>
 	</table>
 	<div id="tb_toolbar" style="height:auto">
-		<a href="javascript:;" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="exportDataGrid($('#dgtable'))">Export To Excel</a>
+		<a href="javascript:;" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="downloadSops($('#dgtable'))">Download selected</a>			
 	</div>
 </div>
+<script>
+	const seek_url = "{{ report.seek_url }}";
+	
+	function getCookie(name) {
+		let cookieValue = null;
+		if (document.cookie && document.cookie !== '') {
+			const cookies = document.cookie.split(';');
+			for (let i = 0; i < cookies.length; i++) {
+				const cookie = cookies[i].trim();
+				if (cookie.substring(0, name.length + 1) === (name + '=')) {
+					cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+					break;
+				}
+			}
+		}
+		return cookieValue;
+	}
+
+	function downloadBlobToFile(blob, filename) { 
+	  const downloadUrl = URL.createObjectURL(blob);
+	  const a = document.createElement("a");
+	  a.href = downloadUrl;
+	  a.download = filename;
+	  document.body.appendChild(a);
+	  a.click();
+  
+	  a.remove();
+	  URL.revokeObjectURL(downloadUrl);
+	}
+
+	async function downloadDataFiles(dgtable) {
+		const selections = dgtable.datagrid("getSelections")
+		
+		const createPayload = (selections) => {
+			if (selections.length > 1) {
+				return selections.map(sop => {
+					return {"uid_or_id": sop.id}
+				})
+			} else {
+				return {"uid_or_id": selections[0].id}
+			}
+		}
+
+		const payload = createPayload(selections)
+
+		try {
+			const response = await fetch("/nextseek_api/data_files/download/", {
+				method: "POST",
+				headers: {"Content-Type": "application/json",
+									"X-CSRFTOKEN": getCookie("csrftoken")},
+				body: JSON.stringify(payload)
+			});
+
+			if (response.ok) {
+				Date.prototype.yyyymmdd = function() {
+					var mm = this.getMonth() + 1;
+					var dd = this.getDate();
+
+					return [this.getFullYear(),
+	          (mm>9 ? '' : '0') + mm,
+	          (dd>9 ? '' : '0') + dd
+	         ].join('');
+				};
+				const today = new Date();
+				const blob = await response.blob();
+				let filename;
+				if (selections.length == 1) {
+					filename = selections[0]["title"]
+				} else {
+					filename = `${today.yyyymmdd()}-data-files.zip`
+				}
+				downloadBlobToFile(blob, filename)
+			} else {
+				console.log("Error")
+			}
+		}	catch (e) {
+			console.error(e);
+		}
+	}
+	
+	async function listDataFiles() {
+		const csrftoken = getCookie('csrftoken');
+		try {
+			const response = await fetch("/nextseek_api/data_files/", {
+				method: "GET",
+			});
+			if (response.ok) {
+				const dataFiles = await response.json()
+				const dataFilesData = dataFiles.data.map(df => {
+					let newMap = {};
+					let link = seek_url + df.links.self;
+					newMap["id"] = df.id;
+					newMap["title"] = df.attributes.title;
+					newMap["link"] = `<a href="${link}">${link}</a>`;
+					return newMap
+				})
+				return dataFilesData
+			} else {
+				console.log("Could not get data files")
+				return null
+			}
+		} catch (e) {
+			console.error(e);
+			return null
+		}
+	}
+
+	async function loadDataGrid() {
+		dataFiles = await listDataFiles()
+		const dg = $('#dgtable').datagrid({
+			data: dataFiles
+		});
+		dg.datagrid('enableFilter', [{
+			field:'id',
+			type:'label'
+		}]);
+	}
+
+	loadDataGrid()
+</script>

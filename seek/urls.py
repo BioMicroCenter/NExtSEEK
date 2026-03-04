@@ -40,10 +40,10 @@ urlpatterns = [
     re_path(r'^samples/download/', views.sampleDownload, name='sampleDownload'),
     re_path(r'^samples/export/', views.sampleExport, name='sampleExport'),
     re_path(r'^samples/delete/', views.sampleDelete, name='sampleDelete'),
-    re_path(r'^samples/publish/', views.samplePublish, name='samplePublish'),
+    # re_path(r'^samples/publish/', views.samplePublish, name='samplePublish'),
     
     re_path(r'^samplefind/', views.sampleFindAjax, name='sampleFindAjax'),
-    re_path(r'^samples/publishlist/(?P<sampleids>\d+(,\d+)*)/$',views.publish_samples, name='publish_samples'),
+    # re_path(r'^samples/publishlist/(?P<sampleids>\d+(,\d+)*)/$',views.publish_samples, name='publish_samples'),
     
     re_path(r'^document/id=(?P<id>\d+)/$', views.document, name='document'),
 
@@ -66,31 +66,12 @@ urlpatterns = [
     re_path(r'^datafiles/batchupload/', views.filesBatchUpload, name='filesBatchUpload'),
     re_path(r'^datafiles/uploadtoseek/', views.uploadToSeek, name='uploadtoseek'),
     re_path(r'^datafiles/getuids/', views.filesGetUIDs, name='filesGetUIDs'),
-
+    
     re_path(r'^datafile/query/', views.datafileQuery, name='datafileQuery'),
-    re_path(r'^datafiles/publish/(?P<dfids>\d+(,\d+)*)/$',views.publish_datafiles, name='publish_datafiles'),
-
-    re_path(r'^datafile/uid=(?P<uid>[\w.\-()_+]{0,256})/$', views.datafileDownload, name='datafileDownload'),
-
-    re_path(r'^sop/uid=(?P<uid>[\w.\-()_+]{0,256})/$', views.sopDownload, name='sopDownload'),
-    re_path(r'^sops/publish/(?P<sopids>\d+(,\d+)*)/$',views.publish_sops, name='publish_sops'),
-    
     re_path(r'^sop/query/', views.sopQuery, name='sopQuery'),
-    re_path(r'^retrieve/datafiles/', views.retrieveDatafiles, name='retrieveDatafiles'),
-    re_path(r'^retrieve/sops/', views.retrieveSops, name='retrieveSops'),
-    re_path(r'^batchdownload/datafiles/', views.batchdownloadDatafiles, name='batchdownloadDatafiles'),
-    re_path(r'^batchdownload/sops/', views.batchdownloadSops, name='batchdownloadSops'),
-    re_path(r'^batchpublish/datafiles/', views.batchpublishDatafiles, name='batchpublishDatafiles'),
-    re_path(r'^batchpublish/sops/', views.batchpublishSops, name='batchpublishSops'),
     
-    re_path(r'^dropbox/path/', views.getDropboxPath, name='getDropboxPath'),
-    re_path(r'^dropbox/status/', views.getDropboxStatus, name='getDropboxStatus'),
-    
-    re_path(r'^publish/', views.publish, name='publish'),   
     re_path(r'^investigations/id=(?P<id>\d+)/$', views.getStudiesOptions, name='getStudiesOptions'),    
     re_path(r'^studies/id=(?P<id>\d+)/$', views.getAssaysOptions, name='getAssaysOptions'),
-    re_path(r'^searchAssets/', views.publishSearching, name='publishSearching'),
-    re_path(r'^publishAssets/', views.publishAssets, name='publishAssets'),    
     re_path(r'^instituion/id=(?P<id>\d+)/$', views.getInstituionUsers, name='getInstituionUsers'),    
     re_path(r'^search/', views.searchAdvanced, name='searchAdvanced'),
     re_path(r'^searchAdvanced/', views.searchingAdvanced, name='searchingAdvanced'),

@@ -19,3 +19,10 @@ fi
 mkdir -p "$(dirname "$TEMPLATE_DST")"
 ln -sf "$TEMPLATE_SRC" "$TEMPLATE_DST"
 echo "✓ Symlinked seq_template.xlsx → $TEMPLATE_DST"
+
+GEO_JSON_SRC="$DATA_DIR/geo.json"
+GEO_JSON_DST="$CHAT_PKG/reports/geo.json"
+
+# Symlink geo.json template
+ln -sf "$GEO_JSON_SRC" "$GEO_JSON_DST"
+echo "✓ Symlinked geo.json → $GEO_JSON_DST"

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block main %}
+<div id="search_tab" class="easyui-tabs" style="width:auto;height:900px;">
+    <div title="Search" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
+		<div class="easyui-layout" style="width:auto;height:700px;">
+		    <div id="north_div" data-options="region:'north',border:false" style="height: 700px;">
+				{% include "pages/sops_table.embed.html" %}
+	        </div>
+            <div id="center_div" data-options="region:'center',border:false" style="height: 30px;">
+	        </div>
+		</div>
+    </div>
+</div>
+{% endblock %}

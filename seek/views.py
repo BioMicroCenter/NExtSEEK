@@ -604,71 +604,7 @@ def filesGetUIDs(request):
     dbdf = DBtable_data_files("DEFAULT")
     data = dbdf.filesGetUIDs(seekdb, allFiles)
     return HttpResponse(simplejson.dumps(data, default=str))
-
-def sopDownload(request, uid):
-    print("sopDownload: " + uid)
-    return fileDownload(request, uid, "SOP")
-
-
-#@api_view(http_method_names=['GET'])
-#@authentication_classes((TokenAuthentication,))
-#@permission_classes((IsAuthenticated,))
-def datafileDownload(request, uid):
-    return fileDownload(request, uid, "DATAFILE")
-    
-def sopIDDownload(request, id):
-    return fileDownload(request, id, "SOP_ID")
-    
-def fileDownloadEncoded(request, url_redirect, fileInfo):
-    if url_redirect is not None:
-        option = 1
-        terms = url_redirect.split("/")
-        filename = terms[-1]
-    elif fileInfo is not None:
-        option = 4
-    else:
-        option = 1
-        
-    if option==1:
-        HttpResponseRedirect(url_redirect)
-    elif option==2:
-        #https://stackoverflow.com/questions/1156246/having-django-serve-downloadable-files
-        from django.utils.encoding import smart_str
-        
-        file_path = fileInfo['fullfilename']
-        file_name = fileInfo['originalfilename']
-        
-        response = HttpResponse(content_type='application/force-download')
-        response['Content-Disposition'] = 'attachment; filename=%s' % smart_str(file_name)
-        response['X-Sendfile'] = smart_str(file_path)
-        return response
-    elif option==3:
-        from django.views.static import serve
-        file_path = fileInfo['fullfilename']
-        file_name = fileInfo['originalfilename']
-        return serve(request, os.path.basename(file_path), os.path.dirname(file_path))
-    elif option==4:
-        # https://stackoverflow.com/questions/61351609/how-to-allow-users-to-directly-download-a-file-stored-in-my-media-folder-in-djan
-        from django.utils.encoding import smart_str
-        import mimetypes
-        from wsgiref.util import FileWrapper
-        
-        file_path = fileInfo['fullfilename']
-        file_name = fileInfo['originalfilename']
-        
-        file_wrapper = FileWrapper(open(file_path,'rb'))
-        file_mimetype = mimetypes.guess_type(file_path)
-        response = HttpResponse(file_wrapper, content_type=file_mimetype )
-        response['X-Sendfile'] = file_path
-        response['Content-Length'] = os.stat(file_path).st_size
-        response['Content-Disposition'] = 'attachment; filename=%s' % smart_str(file_name) 
-        return response
-    else:
-        HttpResponseRedirect(url_redirect)
-        
-    HttpResponseRedirect(url_redirect)
-    
-    
+   
 #@api_view(http_method_names=['GET'])
 #@authentication_classes((TokenAuthentication,))
 #@permission_classes((IsAuthenticated,))
@@ -683,241 +619,13 @@ def verifyToken(request):
         tokenValidated = True
     
     return tokenValidated
-    
-    
-def fileDownload(request, uid, filetype):
-    print(uid, filetype)
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        err = user_seek['err']
-        logger.error(err)
-        if filetype=="DATAFILE":
-            url_redirect = '/login/?next=/seek/datafiles/uid=' + uid + '/'
-        elif filetype=="SOP":
-            url_redirect = '/login/?next=/seek/sop/uid=' + uid + '/'
-        elif filetype=="SOP_ID":
-            url_redirect = '/login/?next=/seek/sop/download/id=' + uid + '/'
-        else:
-            url_redirect = '/login/'
-        
-        isokay = request.user.is_authenticated
-        isTokenAuthenticated = verifyToken(request)
-        if not isTokenAuthenticated:
-            msg = "Login error: not token authenticated."
-            logger.error(msg)
-            return HttpResponseRedirect(url_redirect)
-    
-    url_redirect = None
-    fileInfo = None
-    if filetype=="DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        msg, status, fileInfo = dbdf.downloadDF_fromStorage(user_seek, uid)
-    elif filetype=="SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        msg, status, fileInfo = dbsop.downloadSOP_fromStorage(user_seek, uid)
-    elif filetype=="SOP_ID":
-        dbsop = DBtable_sops("DEFAULT")
-        sop_id = uid
-        msg, status, fileInfo = dbsop.downloadSOPID_fromStorage(user_seek, sop_id)
-    else:
-        msg = 'Error: file type not supported.'
-        logger.error(msg)
-        status = 0
-        
-    if status==1:
-        if filetype=="DATAFILE":
-            return fileDownloadEncoded(request, url_redirect, fileInfo)
-        elif filetype=="SOP" or filetype=="SOP_ID" :
-            return fileDownloadEncoded(request, url_redirect, fileInfo)
-        else:
-            return HttpResponseRedirect(url_redirect)
-    else:
-        print(msg)
-        return render(request, 'pages/404.html')
-    return HttpResponse("You're downloading file %s." % uid)
- 
-def fileQuery(request, filetype):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        err = user_seek['err']
-        if filetype=="DATAFILE":
-            url_redirect = '/login/?next=/seek/datafile/query/'
-        elif filetype=="SOP":
-            url_redirect = '/login/?next=/seek/sop/query/'
-        else:
-            url_redirect = '/login/'
-        return HttpResponseRedirect(url_redirect)
-
-    pk = 0
-    if filetype=="DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        form, report = dbdf.formInfo(request, pk)
-        report['table_url'] = '/seek/retrieve/datafiles/'
-        report['batchdownload_url'] = '/seek/batchdownload/datafiles/'
-        report['batchpublish_url'] = '/seek/datafiles/publish/'
-    elif filetype=="SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        form, report = dbsop.formInfo(request, pk)
-        report['table_url'] = '/seek/retrieve/sops/'
-        report['batchdownload_url'] = '/seek/batchdownload/sops/'
-        report['batchpublish_url'] = '/seek/sops/publish/'
-    else:
-        msg = 'Error: file type not supported.'
-        status = 0
-        report = {}
-        form= None
-    
-    return render(request,"batchSearch.html", {"report" : report, "form": form})
-
-def datafileQuery(request):
-    return fileQuery(request, "DATAFILE") 
-    
-def sopQuery(request):
-    return fileQuery(request, "SOP") 
-    
-def filelist(request, filetype):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    
-    if filetype=="DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        reportData = dbdf.processRecords(request, user_seek, "retrieve")
-    elif filetype=="SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        reportData = dbsop.processRecords(request, user_seek, "retrieve")
-    elif filetype=="DOWNLOAD_DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        reportData = dbdf.processRecords(request, user_seek, "download")
-    elif filetype=="DOWNLOAD_SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        reportData = dbsop.processRecords(request, user_seek, "download")
-    elif filetype=="PUBLISH_DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        reportData = dbdf.processRecords(request, user_seek, "publish")
-    elif filetype=="PUBLISH_SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        reportData = dbsop.processRecords(request, user_seek, "publish")
-    else:
-        reportData = simplejson.dumps({})
-
-    return HttpResponse(reportData)  
-    
-def retrieveSops(request):
-    return filelist(request, "SOP")
-    
-def retrieveDatafiles(request):
-    return filelist(request, "DATAFILE")
-    
-def batchdownloadSops(request):
-    return filelist(request, "DOWNLOAD_SOP")
-    
-def batchdownloadDatafiles(request):
-    return filelist(request, "DOWNLOAD_DATAFILE")
-    
-def batchpublishSops(request):
-    return filelist(request, "PUBLISH_SOP")
-    
-def batchpublishDatafiles(request):
-    return filelist(request, "PUBLISH_DATAFILE")
-    
-    
+   
 def callCmdline(cmd):
     args = shlex.split(cmd)
     proc = Popen(args, stdout=PIPE, stderr=PIPE)
     out, err = proc.communicate()
     exitcode = proc.returncode
     return exitcode, out, err    
-    
-def __getDropBoxFolders(user_seek, ifMkdir=True):
-    username = user_seek['username']
-    projectname = user_seek['projectname']
-    institutionname = user_seek['institutionname']
-    lababbv = user_seek['lababbv']
-    labfolder = lababbv
-            
-    upload_dropbox_path_labroot = os.path.join(DROPBOX_DIRECTORY, labfolder)
-    if not os.path.exists(upload_dropbox_path_labroot) and ifMkdir:
-        os.makedirs(upload_dropbox_path_labroot)
-        
-    projectfolder = projectname
-    if " " in projectname:
-        projectfolder = projectname.replace(" ", "_")
-            
-    upload_dropbox_path_projectroot = os.path.join(upload_dropbox_path_labroot, projectfolder)
-    if not os.path.exists(upload_dropbox_path_projectroot) and ifMkdir:
-        os.makedirs(upload_dropbox_path_projectroot)
-        
-    upload_dropbox_path = upload_dropbox_path_projectroot
-    dropbox_datafile_folder = os.path.join(upload_dropbox_path, 'for_datafiles')
-    if not os.path.exists(dropbox_datafile_folder) and ifMkdir:
-        os.makedirs(dropbox_datafile_folder)
-    
-    dropbox_sop_folder = os.path.join(upload_dropbox_path, 'for_protocols')
-    if not os.path.exists(dropbox_sop_folder) and ifMkdir:
-        os.makedirs(dropbox_sop_folder)
-        
-    return upload_dropbox_path, dropbox_datafile_folder, dropbox_sop_folder
-    
-def getDropboxPath(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        err = user_seek['err']
-        url_redirect = '/login/?next=/seek/dropbox/path/'
-        return HttpResponseRedirect(url_redirect)
-
-    msg = 'getDropboxPath'
-    ifMkdir = True
-    upload_dropbox_path, dropbox_datafile_folder, dropbox_sop_folder = __getDropBoxFolders(user_seek, ifMkdir)
-        
-    readmefile_root = DROPBOX_DIRECTORY + 'ReadME.html'
-    cmd = 'cp ' + readmefile_root + ' ' + upload_dropbox_path
-    exitcode, out, err = callCmdline(cmd)
-    readmefile = upload_dropbox_path + '/ReadME.html'
-    cmd = 'seek/dropbox.py sharelink ' + readmefile
-    exitcode, out, err = callCmdline(cmd)
-    if exitcode==0:
-        msg = out.strip()
-        return HttpResponseRedirect(msg)
-    else:
-        msg = 'Error: Dropbox not ready ' + str(err)
-        return HttpResponse(msg)
-    
-def getDropboxStatus(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        err = user_seek['err']
-        url_redirect = '/login/?next=/seek/dropbox/status/'
-        return HttpResponseRedirect(url_redirect)
-
-    msg = 'getDropboxStatus'
-    ifMkdir = False
-    upload_dropbox_path, dropbox_datafile_folder, dropbox_sop_folder = __getDropBoxFolders(user_seek, ifMkdir)
-
-    cmd = 'seek/dropbox.py ls ' + dropbox_datafile_folder
-    exitcode, out, err = callCmdline(cmd)
-    if exitcode==0:
-        msg = out
-    elif out is None:
-        msg = 'Error: Dropbox not ready ' + str(err)
-        return HttpResponse(msg)
-    else:
-        msg = 'Error: Dropbox not ready ' + str(err)
-        return HttpResponse(msg)
-    
-    files = out.strip().split(' ')
-    msg = ''
-    for file in files:
-        if file=='<empty>':
-            msg = 'No file is found in the Dropbox folder.'
-            continue
-        else:
-            msg += file + '\n'
-    
-    return HttpResponse(msg)
     
 def retrieveSamples(request):
     seekdb = SeekDB(None, None, None)
@@ -1105,98 +813,6 @@ def __getISA(seekdb, user_seek, whichServer):
     project_options, investigation_options_dic, study_options_dic, assay_options_dic = sdb.getISAOptions()
     return project_options, investigation_options_dic, study_options_dic, assay_options_dic, server
     
-def samplePublish(request):
-    ret = request.POST
-    if 'allids' in ret:
-        allids = ret['allids']
-        sample_ids = json.loads(allids)
-    else:
-        sample_ids = []
-        
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    
-    datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    filename = 'samples-publish' + datenow + '.xlsx'
-    downloadfile = DOWNLOAD_DIRECTORY + filename
-    link = DOWNLOAD_DIRECTORY_LINK + filename
-    
-    templatefile = SAMPLE_TEMPLATE_FILE
-    cmd = 'cp ' + templatefile + ' ' + downloadfile
-    os.system(cmd)
-    
-    project_options, investigation_options_dic, study_options_dic, assay_options_dic, server = __getISA(seekdb, user_seek, "DESTINATION")
-    
-    report = {}
-    report['project_options'] = project_options
-    report['investigation_options_dic'] = investigation_options_dic
-    report['study_options_dic'] = study_options_dic
-    report['assay_options_dic'] = assay_options_dic
-    report['showSamplePage'] = True
-    report['showSearch'] = True
-    return render(request,"publish.html", {'report':report})
-    
-def publish_assets(request, idsstring, assetType):
-    ids = [int(i) for i in idsstring.split(',')]
-    diclist = []
-    for id in ids:
-        dici = {}
-        dici['id'] = id
-        dici['asset_type'] = assetType
-        if int(id)>0:
-            diclist.append(dici)
-    
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        err = user_seek['err']
-        url_redirect = '/login/?next=/seek/publish/'
-        return HttpResponseRedirect(url_redirect)
-    
-    project_options, investigation_options_dic, study_options_dic, assay_options_dic, server = __getISA(seekdb, user_seek, "DESTINATION")
-    print(investigation_options_dic)
-    
-    report = {}
-    report['project_options'] = project_options
-    report['investigation_options_dic'] = investigation_options_dic
-    report['study_options_dic'] = study_options_dic
-    report['assay_options_dic'] = assay_options_dic
-    report['showSamplePage'] = True
-    report['showSearch'] = True
-    report['assetData'] = diclist
-    report['publish_server'] = server
-    return render(request,"publishAssets.html", {'report':report})
-    
-def publish_samples(request, sampleids=None):
-    assetType = 'Sample'
-    return publish_assets(request, sampleids, assetType)
-
-def publish_datafiles(request, dfids=None):
-    assetType = 'Datafile'
-    return publish_assets(request, dfids, assetType)
-
-def publish_sops(request, sopids=None):
-    assetType = 'Sop'
-    return publish_assets(request, sopids, assetType)
-    
-def publish(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        err = user_seek['err']
-        url_redirect = '/login/?next=/seek/publish/'
-        return HttpResponseRedirect(url_redirect)
-    
-    project_title = user_seek['projectname']
-    investigations = seekdb.getInvestigations(project_title)
-    investigation_options = json.dumps(convertDicToOptions(investigations), default=str)
-    
-    report = {}
-    report['investigation_options'] = investigation_options
-    report['showSamplePage'] = True
-    report['showSearch'] = True
-    return render(request,"publish.html", {'report':report})
-    
 def getStudiesOptions(request, id):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
@@ -1216,77 +832,6 @@ def getAssaysOptions(request, id):
     assay_options = convertDicToOptions(assays)
     data = {'msg':'okay', 'status': 1, 'assay_options':assay_options}
     return HttpResponse(simplejson.dumps(data, default=str))
-    
-def publishSearching(request):
-    ret = request.GET
-    assay_id = ret['assay_id']
-    investigation = ret['investigation']
-    study = ret['study']
-    assay = ret['assay']
-    
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    
-    diclist = seekdb.getAssayDFs(assay_id, investigation, study, assay)
-    data = {}
-    data['rows'] = diclist
-    data['total'] = len(diclist)
-    data['msg'] = 'okay'
-    data['status'] = 1 
-    sdata = simplejson.dumps(data, default=str)
-    return HttpResponse(sdata)    
-    
-def publishAssets(request):
-    ret = request.GET
-    project = ret['project']
-    investigation = ret['investigation']
-    study = ret['study']
-    assay = ret['assay']
-    project_id = ret['project_id']
-    investigation_id = ret['investigation_id']
-    study_id = ret['study_id']
-    assay_id = ret['assay_id']
-    allids = ret['allids']
-    df_ids = json.loads(allids)
-    ids = df_ids
-    
-    assettypes = ret['assettypes']
-    types = json.loads(assettypes)
-    
-    seekdb = SeekDB(None, None, None)
-    
-    iddic = {}
-    for i, type in enumerate(types):
-        if type in iddic:
-            idlist = iddic[type]
-        else:
-            idlist = []
-            
-        id = ids[i]
-        idlist.append(id)
-        iddic[type] = idlist
-        
-    for type in iddic:
-        if type=='Sample':
-            sample_ids = iddic[type]
-            user_seek = seekdb.getSeekLogin(request, False)
-            return publishSamples(user_seek, sample_ids, assay_id, project_id)
-        elif type.upper()=='SOP':
-            user_seek = seekdb.getSeekLogin(request)
-            sdb, user = __definePublishServer(seekdb, user_seek)
-            sop_ids = iddic[type]
-            dbsop = DBtable_sops("DEFAULT")
-            sdata = dbsop.publishSOPs(user_seek, sdb, user, sop_ids, assay_id, project_id)
-            return HttpResponse(sdata)
-        elif type=='Datafile':
-            user_seek = seekdb.getSeekLogin(request)
-            sdb, user = __definePublishServer(seekdb, user_seek)
-            df_ids = iddic[type]
-            dbdf = DBtable_data_files("DEFAULT")
-            sdata = dbdf.publishDFs(user_seek, sdb, user, df_ids, assay_id, project_id)
-            return HttpResponse(sdata)
-    
-    return None
     
 def sampleAttributes(request):
     seekdb = SeekDB(None, None, None)
@@ -2310,3 +1855,24 @@ def syncInternalAssays(request):
     
     return HttpResponse({})
 
+def sopQuery(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        url_redirect = '/login/'
+        return HttpResponseRedirect(url_redirect)
+    
+    report["seek_url"] = settings.SEEK_URL
+
+    return render(request, "sopsPage.html", {"report" : report})
+
+def datafileQuery(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        url_redirect = '/login/'
+        return HttpResponseRedirect(url_redirect)
+    
+    report["seek_url"] = settings.SEEK_URL
+
+    return render(request, "dataFilesPage.html", {"report" : report})
