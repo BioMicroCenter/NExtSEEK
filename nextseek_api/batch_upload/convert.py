@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import List, Literal
 
 import polars as pl
 from pydantic import TypeAdapter, ValidationError
@@ -115,60 +115,82 @@ def _read_sheet(
 
 
 def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
-    """Parse a traditional 4-sheet Excel file into a ConvertedBatch of InputRowModels."""
+    """Parse a traditional 4-sheet Excel file into a ConvertedBatch of InputRowModels.
+
+    Contract:
+    - Traditional files are sample-type-specific (exactly ONE sample type).
+    - INSTRUCTIONS maps column headers to SampleType::Attribute.
+    - If >1 sample type found in INSTRUCTIONS, the file is rejected.
+    - If duplicate Field headers exist in INSTRUCTIONS, the file is rejected.
+    - All non-empty SAMPLES columns become json_metadata key-value pairs.
+    - One SAMPLES row = one InputRowModel.
+    """
     sheet_names = _get_sheet_names(xlsx_path)
     name_by_upper = {s.strip().upper(): s for s in sheet_names}
 
     def _sheet(s: str) -> str:
         return name_by_upper.get(s, s)
 
-    # Read all 4 sheets with Polars (calamine)
+    # ── Phase 1: Read & validate INSTRUCTIONS only (cheap early rejection) ──
     df_ins = _read_sheet(xlsx_path, _sheet("INSTRUCTIONS"), raise_if_empty=True)
+
+    ins_dicts = [_normalize_instruction_row(d) for d in df_ins.to_dicts()]
+    instructions = _instruction_adapter.validate_python(ins_dicts)
+
+    if not instructions:
+        return ConvertedBatch(
+            rows=[],
+            source_files=[xlsx_path],
+            warnings=["No instructions found in INSTRUCTIONS sheet."],
+        )
+
+    # Concern 1: Enforce exactly ONE sample type per file (reject before reading other sheets)
+    unique_types = {ins.sample_type for ins in instructions}
+    if len(unique_types) != 1:
+        return ConvertedBatch(
+            rows=[],
+            source_files=[xlsx_path],
+            warnings=[
+                f"Traditional files must contain exactly one sample type. "
+                f"Found {len(unique_types)}: {', '.join(sorted(unique_types))}."
+            ],
+        )
+    sample_type = unique_types.pop()
+
+    # Concern 2: Reject duplicate Field headers (still before reading other sheets)
+    seen_fields: set = set()
+    for ins in instructions:
+        if ins.field in seen_fields:
+            return ConvertedBatch(
+                rows=[],
+                source_files=[xlsx_path],
+                warnings=[f"Duplicate Field header in INSTRUCTIONS: '{ins.field}'."],
+            )
+        seen_fields.add(ins.field)
+
+    # ── Phase 2: Read remaining sheets (only reached if INSTRUCTIONS is valid) ──
     df_samples = _read_sheet(xlsx_path, _sheet("SAMPLES"), raise_if_empty=False)
     df_assay = _read_sheet(xlsx_path, _sheet("ASSAY"), raise_if_empty=False)
     df_ont = _read_sheet(xlsx_path, _sheet("ONTOLOGY"), raise_if_empty=False)
 
-    # Bulk-validate INSTRUCTIONS
-    ins_dicts = [_normalize_instruction_row(d) for d in df_ins.to_dicts()]
-    instructions = _instruction_adapter.validate_python(ins_dicts)
-
     # Bulk-validate ASSAY
     assay_dicts = [_normalize_assay_row(d) for d in df_assay.to_dicts()]
     assay_rows = _assay_adapter.validate_python(assay_dicts)
-    assay_map: Dict[str, List[int]] = {}
+    assay_ids: List[int] = []
     for row in assay_rows:
-        assay_map.setdefault(row.sample_type, []).append(row.assay_id)
+        if row.sample_type == sample_type:
+            assay_ids.append(row.assay_id)
 
-    # Field mapping: SampleType -> { human_field_name -> db_attribute }
-    sample_type_field_map: Dict[str, Dict[str, str]] = {}
-    sample_types_order: List[str] = []
-    for ins in instructions:
-        st = ins.sample_type
-        attr = ins.attribute_name
-        sample_type_field_map.setdefault(st, {})[ins.field] = attr
-        if st not in sample_types_order:
-            sample_types_order.append(st)
-
-    if not sample_types_order:
-        return ConvertedBatch(
-            rows=[],
-            source_files=[xlsx_path],
-            warnings=["No sample types found in INSTRUCTIONS sheet."],
-        )
-
-    # Ontology validation (4-sheet only): one dict per SAMPLES row, keys = db attribute names
+    # Ontology validation
     specs = load_ontology_from_sheet(instructions, df_ont)
     samples_dicts = df_samples.to_dicts()
     if specs:
         row_dicts_for_ont = []
         for row_dict in samples_dicts:
             mapped = {}
-            for st in sample_types_order:
-                field_map = sample_type_field_map[st]
-                for field_name, db_attr in field_map.items():
-                    val = row_dict.get(field_name)
-                    if val is not None and str(val).strip():
-                        mapped[db_attr] = val
+            for col, val in row_dict.items():
+                if val is not None and str(val).strip():
+                    mapped[col] = val
             row_dicts_for_ont.append(mapped)
         ont_result = validate_ontology_bulk(row_dicts_for_ont, specs)
         if not ont_result.is_valid:
@@ -179,25 +201,25 @@ def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
                 warnings=[f"Ontology validation failed: {len(ont_result.violations)} violation(s)."],
             )
 
-    # Convert SAMPLES to InputRowModel list (one record per (row, sample_type) with data)
+    # Convert SAMPLES to InputRowModel list (one record per row)
     all_input_rows: List[dict] = []
-    for row_dict in samples_dicts:
-        for st in sample_types_order:
-            field_map = sample_type_field_map[st]
-            meta = {}
-            for field_name, db_attr in field_map.items():
-                val = row_dict.get(field_name)
-                if val is not None and str(val).strip() != "":
-                    meta[db_attr] = val
-            if not meta:
+    warnings: List[str] = []
+    for row_idx, row_dict in enumerate(samples_dicts, start=2):  # Excel row 2+
+        meta = {}
+        for col, val in row_dict.items():
+            if val is None or str(val).strip() == "":
                 continue
-            assay_ids = assay_map.get(st, [])
-            all_input_rows.append({
-                "UID": None,
-                "SampleType": st,
-                "json_metadata": _json_dumps_min(meta),
-                "assay_ids": assay_ids,
-            })
+            meta[col] = val
+
+        if not meta:
+            continue  # empty row
+
+        all_input_rows.append({
+            "UID": None,
+            "SampleType": sample_type,
+            "json_metadata": _json_dumps_min(meta),
+            "assay_ids": assay_ids,
+        })
 
     try:
         validated = _input_row_adapter.validate_python(all_input_rows)
@@ -208,7 +230,7 @@ def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
             warnings=[f"Input row validation failed: {e}"],
         )
 
-    return ConvertedBatch(rows=validated, source_files=[xlsx_path])
+    return ConvertedBatch(rows=validated, source_files=[xlsx_path], warnings=warnings)
 
 
 def convert_file(xlsx_path: str) -> ConvertedBatch:
