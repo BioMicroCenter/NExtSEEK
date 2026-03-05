@@ -590,3 +590,95 @@ class DirectionComputation:
     assays_by_uid: Dict[str, Set[int]]  # uid -> set(assay_ids)
     child_uids_by_assay: Dict[int, Set[str]]  # assay_id -> set(child_uids)
     conflicts_by_assay: Dict[int, Set[str]]  # assay_id -> set(uids with conflict)
+
+
+# ── 18. InstructionRow ────────────────────────────────────────────────────
+
+
+class InstructionRow(BaseModel):
+    """One row from the INSTRUCTIONS sheet of a traditional 4-sheet upload."""
+    field: str = Field(..., description="Human-readable column name in SAMPLES sheet")
+    database_field: str = Field(..., description="SampleType::AttributeName format")
+    field_type: Optional[str] = Field(None, description="Text, Number, Date, or Controlled Ontology")
+    ontology: Optional[str] = Field(None, description="Ontology column name in ONTOLOGY sheet")
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("database_field")
+    @classmethod
+    def must_contain_delimiter(cls, v):
+        if "::" not in v:
+            raise ValueError("database_field must be in 'SampleType::AttributeName' format")
+        return v
+
+    @property
+    def sample_type(self) -> str:
+        return self.database_field.split("::")[0]
+
+    @property
+    def attribute_name(self) -> str:
+        return self.database_field.split("::")[1]
+
+
+# ── 19. AssaySheetRow ─────────────────────────────────────────────────────
+
+
+class AssaySheetRow(BaseModel):
+    """One row from the ASSAY sheet. 'Assay' column contains the integer assay_id."""
+    sample_type: str = Field(..., alias="SampleType")
+    assay_type: Optional[str] = Field(None, alias="AssayType")
+    assay_id: int = Field(..., alias="Assay")
+    direction: int = Field(..., alias="Direction")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    @field_validator("direction")
+    @classmethod
+    def valid_direction(cls, v):
+        if v not in (0, 1):
+            raise ValueError("direction must be 0 or 1")
+        return v
+
+
+# ── 20. OntologySpec ──────────────────────────────────────────────────────
+
+
+class OntologySpec(BaseModel):
+    """Maps a sample attribute to its allowed controlled vocabulary terms."""
+    attribute_name: str
+    vocab_name: str
+    allowed_terms: List[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+
+# ── 21. OntologyViolation ────────────────────────────────────────────────
+
+
+class OntologyViolation(BaseModel):
+    """One ontology validation failure."""
+    row_index: int
+    attribute: str
+    value: str
+    vocab_name: str
+    allowed_terms: List[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+
+# ── 22. OntologyValidationResult ─────────────────────────────────────────
+
+
+class OntologyValidationResult(BaseModel):
+    """Aggregated result of ontology validation across all rows."""
+    is_valid: bool = True
+    violations: List[OntologyViolation] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+
+# ── 23. ConvertedBatch ───────────────────────────────────────────────────
+
+
+class ConvertedBatch(BaseModel):
+    """Output of converting one or more files into InputRowModel lists."""
+    rows: List[InputRowModel] = Field(default_factory=list)
+    source_files: List[str] = Field(default_factory=list)
+    ontology_result: Optional[OntologyValidationResult] = None
+    warnings: List[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")

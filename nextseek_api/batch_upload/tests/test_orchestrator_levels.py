@@ -18,8 +18,7 @@ import pytest
 from nextseek_api.batch_upload.orchestrator import run_batch_upload
 from nextseek_api.batch_upload.config import BatchUploadConfig
 from nextseek_api.batch_upload.insert import process_batches as _real_process_batches
-from nextseek_api.batch_upload.models import InputRowModel
-from nextseek_api.batch_upload.extract import StreamResult
+from nextseek_api.batch_upload.models import ConvertedBatch, InputRowModel
 
 
 # ── FakeDB ──────────────────────────────────────────────────────────────
@@ -251,10 +250,6 @@ def _make_row(uid: str, parent_uid: str | None = None, sample_type: str = "NHP_b
     return InputRowModel(UID=uid, SampleType=sample_type, json_metadata=meta, assay_ids=[])
 
 
-def _make_stream_result(row: InputRowModel, idx: int) -> StreamResult:
-    return StreamResult(row_index=idx, data=row, errors=[])
-
-
 def _run_orchestrator(
     rows: List[InputRowModel],
     db: FakeDB,
@@ -262,14 +257,14 @@ def _run_orchestrator(
 ) -> Dict:
     """Run the full orchestrator with a FakeDB.
 
-    Patches: get_connection, get_engine, stream_rows, Neo4j, checkpoint I/O,
+    Patches: get_connection, get_engine, merge_files (CONVERT stage), Neo4j, checkpoint I/O,
     write_summary_csv, Django settings.
     """
     if config is None:
         config = BatchUploadConfig()
 
-    # Build stream results for stream_rows mock
-    stream_results = [_make_stream_result(r, i) for i, r in enumerate(rows)]
+    def _mock_merge_files(paths):
+        return ConvertedBatch(rows=rows, source_files=paths or ["dummy"])
 
     @contextmanager
     def fake_conn():
@@ -296,10 +291,8 @@ def _run_orchestrator(
             "nextseek_api.batch_upload.db_engine.get_engine": MagicMock(),
             # process_batches wrapper to inject conn_factory
             "nextseek_api.batch_upload.orchestrator.process_batches": _wrapped_process_batches,
-            # EXTRACT stage: return our test rows
-            "nextseek_api.batch_upload.orchestrator.stream_rows": MagicMock(
-                return_value=([], iter(stream_results))
-            ),
+            # CONVERT stage: return our test rows (run_batch_upload_multi uses merge_files)
+            "nextseek_api.batch_upload.orchestrator.merge_files": _mock_merge_files,
             # NEO4J: disabled
             "nextseek_api.batch_upload.orchestrator.Neo4jConfig.from_django_settings": MagicMock(
                 return_value=MagicMock(NEO4J_UPLOAD_ENABLED=False, MISSING_KEYS=["all"]),
