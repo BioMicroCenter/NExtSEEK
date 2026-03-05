@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block main %}
+<div id="search_tab" class="easyui-tabs" style="width:auto;height:1400px;">
+	<div title="Sample Search" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
+		<div class="easyui-layout" style="width:auto;height:900px;">
+			<div id="north_div" data-options="region:'north',border:false" style="height: 200px;">
+				{% include "pages/samples_newsearch.embed.html" %}
+			</div>
+			<div id="center_div" data-options="region:'center',border:false" style="height: 300px;">
+				{% include "pages/samples_new_stable.embed.html" %}
+			</div>
+			<div id="center_div" data-options="region:'south',border:false" style="height: 300px;">
+			</div>
+		</div>
+	</div>
+	<div title="Advanced Sample Search" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
+		<div class="easyui-layout" style="width:auto;height:1100px;">
+			<div id="north_div" data-options="region:'north',border:false" style="width:auto; height: 330px;">
+				{% include "pages/searchAdvanced_newsearch.embed.html" %}
+			</div>
+			<div id="center_div" data-options="region:'center',border:false,split:true" style="width:auto; height: 800px;">
+				{% include "pages/searchAdvanced_new_stable.embed.html" %}
+			</div>
+			<div id="center_div" data-options="region:'south',border:false" style="height: 20px;">
+			</div>
+		</div>
+	</div>
+	<!-- <div title="Sample Retrieval" data-options="closable:false" style="overflow:auto;padding:20px;display:none;"> -->
+	<!-- <div class="easyui-layout" style="width:auto;height:1700px;"> -->
+	<!-- <div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;"> -->
+	<!-- {% include "pages/searchAdvanced_retrieval.embed.html" %} -->
+	<!-- </div> -->
+	<!-- <div id="center_div2" data-options="region:'center',border:true,split:true" style="height: 800px;"> -->
+	<!-- {% include "pages/searchAdvanced_tree.embed.html" %} -->
+	<!-- </div> -->
+	<!-- <div id="south_div2" data-options="region:'south',border:true,split:true" style="height: 500px;"> -->
+	<!-- {% include "pages/searchAdvanced_rtable.embed.html" %} -->
+	<!-- </div> -->
+	<!-- </div> -->
+	<!-- </div> -->
+	<!-- <div title="New Sample Retrieval" data-options="closable:false" style="overflow:auto;padding:20px;display:none;"> -->
+	<!-- <div class="easyui-layout" style="width:auto;height:1700px;"> -->
+	<!-- <div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;"> -->
+	<!-- <form action="/seek/admin/retrieve/" method="POST"> -->
+	<!-- {% csrf_token %} -->
+	<!-- <label for="retrieval_uids">UIDs to retrieve:</label> -->
+	<!-- <input id="retrieval_uids" class="easyui-textbox" label="" name="retrieval_uids" multiline="true" style="width:100%;height:120px"> -->
+	<!-- <button type="submit">Retrieve Samples</button> -->
+	<!-- </form> -->
+	<!-- </div> -->
+	<!-- </div> -->
+	<!-- </div> -->
+	<!-- <div title="Sample Deletion" data-options="closable:false" style="overflow:auto;padding:20px;display:none;"> -->
+	<!-- <div class="easyui-layout" style="width:auto;height:1700px;"> -->
+	<!-- <div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;"> -->
+	<!-- {% include "pages/searchAdvanced_deletion.embed.html" %} -->
+	<!-- </div> -->
+	<!-- </div> -->
+	<!-- </div> -->
+</div>
+<script>
+	function getCookie(name) {
+		let cookieValue = null;
+		if (document.cookie && document.cookie !== '') {
+			const cookies = document.cookie.split(';');
+			for (let i = 0; i < cookies.length; i++) {
+				const cookie = cookies[i].trim();
+				if (cookie.substring(0, name.length + 1) === (name + '=')) {
+					cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+					break;
+				}
+			}
+		}
+		return cookieValue;
+	}
+	
+	async function getSampleTypes() {
+		try {
+			const response = await fetch(`/nextseek_api/sample_types/`)
+			if (response.ok) {
+				const response_json = await response.json()
+				const st_data = response_json.data.map(st => {
+					let id = st.id
+					let title = st.attributes.title
+					return {"id": id, "title": title}
+					})
+					return st_data.sort((a, b) => a.title.localeCompare(b.title));
+				}
+				} catch (e) {
+					console.error(e)
+				}
+			}
+			
+			async function loadSampleTypes() {
+				const st_data = await getSampleTypes()
+				const simpleSampleTypeComboBox = $('#sampletype').combobox({
+					data: st_data
+					})
+					
+					const advancedSampleTypeComboBox = $('#advanced_sample_type').combobox({
+						data: st_data
+						})
+					}
+					
+					loadSampleTypes()
+</script>
+{% endblock %}

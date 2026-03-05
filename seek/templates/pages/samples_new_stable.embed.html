@@ -1,0 +1,57 @@
+<script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-filter.js"></script>
+<script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-export.js"></script>
+<script type="text/javascript" src="{{STATIC_URL}}js/custom/datagrid-custom.js"></script>
+<style type="text/css">
+	.datagrid-row-alt {
+		background: #e6f2ff;
+	}
+	
+	.icon-timeline {
+		background: url('{{STATIC_URL}}img/timeline-icon-external-link.png') no-repeat center center;
+		width: 16px;
+		/* Adjust size as needed */
+		height: 16px;
+		display: inline-block;
+	}
+</style>
+<div id="sample_table_div" style="height: auto">
+	<div style="margin: 20px 0;"></div>
+	<table id="simple_dgtable" class="easyui - datagrid" title="" style="width: auto;height: 380px;" data-options="
+				iconCls: 'icon-edit',
+				singleSelect: true,
+				selectOnCheck: false,
+				toolbar: '#simple_tb_toolbar',
+				striped: true,
+				pagination: false,
+				pageSize: 50,
+				showFooter: false,
+				multiSort: true,
+				remoteFilter: false
+			">
+		<thead>
+			<tr>
+				<th data-options="field: 'ck', width: 100, align: 'center', checkbox: true, editor: { type: 'checkbox', options: { on: 'Y', off: 'N' } }">
+					Select file
+				</th>
+				<th data-options="field: 'id', width: 30" sortable=" true"><b>ID</b></th>
+				<th data-options="field: 'uid', width: 200, editor: 'text'" sortable=" true"><b>UID</b></th>
+				<th data-options="field: 'created_at', align: 'left', width: 60"><b>Updated</b></th>
+				<th data-options="field: 'sample_type', width: 100" sortable=" true"><b>Sample Type</b></th>
+				<th data-options="field: 'assays', width: 120" sortable=" true"><b>Assays</b></th>
+				<th data-options="field: 'first_name', align: 'left', width: 100"><b>Contributor</b></th>
+				<th data-options="field: 'attributeValue',align:'left',width:900"><b>Attribute:Value</b></th>
+			</tr>
+		</thead>
+	</table>
+
+	<div id="simple_tb_toolbar" style="height: auto">
+		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true" onclick="simple_downloadSamples($('#simple_dgtable'), '/seek/samples/download/')">Download samples</a>
+		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-remove', plain: true" onclick="simple_deleteSamples($('#simple_dgtable'), '/seek/samples/delete/')">Delete samples</a>
+		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-timeline', plain: true" onclick="showTimeline($('#simple_dgtable'))">View Timeline</a>
+	</div>
+</div>
+<script>
+	window.onload = function() {
+		$('#simple_dgtable').datagrid()
+	}
+</script>
