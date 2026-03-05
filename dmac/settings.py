@@ -491,3 +491,11 @@ SCHEMA_RAG_EXCLUDED_PATH_PATTERNS = [
 # Ensure Schema RAG directories exist
 os.makedirs(SCHEMA_RAG_DUCKDB_DIR, exist_ok=True)
 os.makedirs(SCHEMA_RAG_EMBEDDING_MODEL_PATH, exist_ok=True)
+
+############################
+# BATCH UPLOAD SETTINGS    #
+############################
+
+# Maximum total size (in bytes) for all files in a single batch upload request.
+# Default: 200 MB. Override via environment variable.
+BATCH_UPLOAD_MAX_TOTAL_BYTES = int(os.getenv("BATCH_UPLOAD_MAX_TOTAL_BYTES", 200 * 1024 * 1024))
