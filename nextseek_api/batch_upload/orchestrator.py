@@ -8,10 +8,10 @@ import uuid as uuid_mod
 from typing import Callable, Dict, List, Optional, Set
 
 from .config import BatchUploadConfig, Neo4jConfig
+from .convert import merge_files
 from .dag import build_relationships, compute_directions, detect_cycles
 from .db_engine import get_connection
 from .errors import ErrorCollector, ErrorType, _classify_validation_error
-from .extract import stream_rows
 from .insert import process_batches
 from .levels import LevelAssignment, cascade_failures, compute_levels
 from .models import (
@@ -47,11 +47,35 @@ def run_batch_upload(
     should_stop: Optional[Callable[[], bool]] = None,
     output_dir: Optional[str] = None,
 ) -> Dict:
-    """Execute the full 7-stage batch upload pipeline.
+    """Execute the batch upload pipeline for a single file (delegates to run_batch_upload_multi)."""
+    return run_batch_upload_multi(
+        xlsx_paths=[xlsx_path],
+        project_id=project_id,
+        contributor_id=contributor_id,
+        lababbv=lababbv,
+        config=config,
+        checkpoint_dir=checkpoint_dir,
+        resume_uid=resume_uid,
+        should_stop=should_stop,
+        output_dir=output_dir,
+    )
 
-    Stages: EXTRACT -> DAG -> PREFETCH -> TRANSFORM -> INSERT -> NEO4J -> REPORT
 
-    Returns a result dict with job_id, summary_path, and totals.
+def run_batch_upload_multi(
+    xlsx_paths: List[str],
+    project_id: int,
+    contributor_id: int,
+    lababbv: str = "NA",
+    config: Optional[BatchUploadConfig] = None,
+    checkpoint_dir: str = "",
+    resume_uid: Optional[str] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
+    output_dir: Optional[str] = None,
+) -> Dict:
+    """Execute the full batch upload pipeline for one or more files.
+
+    Stage 0 CONVERT (format detection + merge) -> NAME_CHECK -> UID_GEN -> DAG -> LEVELS
+    -> PREFETCH -> TRANSFORM -> INSERT -> NEO4J -> REPORT.
     """
     if config is None:
         config = BatchUploadConfig()
@@ -63,7 +87,6 @@ def run_batch_upload(
     generated_uids: set = set()
     uid_gen_report: dict = {"uids_generated": 0}
 
-    # Determine output directory
     if not output_dir:
         from django.conf import settings
         output_dir = os.path.join(
@@ -74,42 +97,44 @@ def run_batch_upload(
     summary_path = os.path.join(output_dir, f"summary_{job_id}.csv")
 
     log.info("=== BATCH UPLOAD START (job=%s) ===", job_id)
-    log.info("Input: %s | project_id=%d | contributor_id=%d", xlsx_path, project_id, contributor_id)
+    log.info("Input: %s | project_id=%d | contributor_id=%d", xlsx_paths, project_id, contributor_id)
 
-    # ── Stage 1: EXTRACT ──────────────────────────────────────────────────
+    # ── Stage 0: CONVERT (format detection, multi-file merge, ontology) ───
     if should_stop and should_stop():
         return _cancelled_result(job_id, summary_path)
 
-    log.info("Stage 1/7: EXTRACT")
+    log.info("Stage 0: CONVERT")
     valid_rows: List[InputRowModel] = []
     warnings: Dict[str, object] = {}
     try:
-        unknown_columns, row_iter = stream_rows(xlsx_path, limit=config.limit)
-        if unknown_columns:
-            warnings["unknown_columns"] = unknown_columns
-        for sr in row_iter:
-            if sr.data is not None:
-                valid_rows.append(sr.data)
-            else:
-                for err_msg in sr.errors:
-                    error_collector.add(
-                        row_index=sr.row_index,
-                        uid=None,
-                        error_type=_classify_validation_error(err_msg),
-                        message=err_msg,
-                    )
+        converted = merge_files(xlsx_paths)
+        if converted.ontology_result and not converted.ontology_result.is_valid:
+            msg = (
+                f"Ontology validation failed: {len(converted.ontology_result.violations)} violation(s)."
+            )
+            for v in converted.ontology_result.violations[:10]:
+                error_collector.add(
+                    row_index=v.row_index,
+                    uid=None,
+                    error_type=ErrorType.VALIDATION_JSON,
+                    message=f"{v.attribute}={v.value!r} not in allowed terms for {v.vocab_name}",
+                )
+            return _error_result(job_id, summary_path, error_collector, msg)
+        valid_rows = converted.rows
+        if converted.warnings:
+            warnings["convert_warnings"] = converted.warnings
     except Exception as exc:
-        log.exception("EXTRACT failed")
+        log.exception("CONVERT failed")
         error_collector.add(
             row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
-            message=f"EXTRACT failed: {exc}",
+            message=f"CONVERT failed: {exc}",
         )
         return _error_result(job_id, summary_path, error_collector, str(exc))
 
-    log.info("EXTRACT: %d valid rows, %d errors", len(valid_rows), len(error_collector.all_errors()))
+    log.info("CONVERT: %d valid rows", len(valid_rows))
 
     if not valid_rows:
-        return _error_result(job_id, summary_path, error_collector, "No valid rows extracted")
+        return _error_result(job_id, summary_path, error_collector, "No valid rows after CONVERT")
 
     # ── Stage 1.25: NAME_CHECK ──────────────────────────────────────────
     if should_stop and should_stop():

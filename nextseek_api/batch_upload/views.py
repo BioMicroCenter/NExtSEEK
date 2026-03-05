@@ -140,31 +140,35 @@ class BatchUploadViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"], url_path="start")
     def start(self, request):
-        """POST /api/batch-upload/start/ — dispatch a batch upload job."""
-        uploaded_file = request.FILES.get("file")
-        xlsx_path = None
+        """POST /api/batch-upload/start/ — dispatch a batch upload job (single or multiple files)."""
+        uploaded_files = request.FILES.getlist("file")
+        xlsx_paths = []
 
-        if uploaded_file:
-            if not (uploaded_file.name or "").lower().endswith(".xlsx"):
+        if uploaded_files:
+            for uf in uploaded_files:
+                if not (uf.name or "").lower().endswith(".xlsx"):
+                    return Response(
+                        {"detail": "Only .xlsx files are accepted."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                xlsx_paths.append(_save_uploaded_file(uf))
+        else:
+            fallback = request.data.get("xlsx_path")
+            if fallback:
+                xlsx_paths = [fallback]
+
+        if not xlsx_paths:
+            return Response(
+                {"detail": "Either upload .xlsx file(s) or provide xlsx_path."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for p in xlsx_paths:
+            if not os.path.isfile(p):
                 return Response(
-                    {"detail": "Only .xlsx files are accepted."},
+                    {"detail": f"File not found: {p}"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            xlsx_path = _save_uploaded_file(uploaded_file)
-        else:
-            xlsx_path = request.data.get("xlsx_path")
-
-        if not xlsx_path:
-            return Response(
-                {"detail": "Either upload a .xlsx file or provide xlsx_path."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not os.path.isfile(xlsx_path):
-            return Response(
-                {"detail": f"File not found: {xlsx_path}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         project_id = request.data.get("project_id")
         if project_id is None:
@@ -212,7 +216,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
             )
 
         task = run_batch_upload_task.delay(
-            xlsx_path=xlsx_path,
+            xlsx_paths=xlsx_paths,
             project_id=project_id,
             contributor_id=user_ctx["contributor_id"],
             lababbv=user_ctx["lababbv"],

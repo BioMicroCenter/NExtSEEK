@@ -165,9 +165,15 @@
 
 	async function uploadSamples() {
 		const csrftoken = getCookie('csrftoken');
-		const project_id = document.getElementById('project_id').value
-		const person_id = document.getElementById('person_id').value
-		
+		const project_id = document.getElementById('project_id').value;
+		const person_id = document.getElementById('person_id').value;
+		const fileInput = document.getElementById("sample_upload_file");
+
+		statusBox.value = "Uploading files:\n";
+		for (let i = 0; i < fileInput.files.length; i++) {
+			statusBox.value += "  - " + fileInput.files[i].name + "\n";
+		}
+
 		const formData = new FormData(sample_upload_form);
 		formData.append("csrfmiddlewaretoken", csrftoken)
 		formData.append("project_id", project_id)
@@ -192,9 +198,21 @@
 		}
 	}
 
+	const fileInput = document.getElementById("sample_upload_file");
+	fileInput.addEventListener("change", () => {
+		const count = fileInput.files.length;
+		if (count > 1) {
+			statusBox.value = count + " files selected for upload\n";
+		} else if (count === 1) {
+			statusBox.value = "1 file selected: " + fileInput.files[0].name + "\n";
+		} else {
+			statusBox.value = "";
+		}
+	});
+
 	sample_upload_form.addEventListener("submit", (event) => {
 		event.preventDefault();
-		statusBox.value = ""
-		uploadSamples()
+		statusBox.value = "";
+		uploadSamples();
 	});
 </script>

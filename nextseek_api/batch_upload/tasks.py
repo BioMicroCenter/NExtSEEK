@@ -9,7 +9,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 
 from .celery_app import app
 from .config import BatchUploadConfig
-from .orchestrator import run_batch_upload
+from .orchestrator import run_batch_upload_multi
 
 log = logging.getLogger(__name__)
 
@@ -17,18 +17,21 @@ log = logging.getLogger(__name__)
 @app.task(bind=True, queue="batch_upload", name="batch_upload.run")
 def run_batch_upload_task(
     self,
-    xlsx_path: str,
-    project_id: int,
-    contributor_id: int,
+    xlsx_paths: list = None,
+    xlsx_path: str = None,
+    project_id: int = None,
+    contributor_id: int = None,
     lababbv: str = "NA",
     user_id: int = None,
     config_overrides: dict = None,
 ):
-    """Celery task entry point for batch upload.
+    """Celery task entry point for batch upload (single or multiple files).
 
-    Receives xlsx_path, project_id, contributor_id from the DRF view.
+    Receives xlsx_paths (or legacy xlsx_path), project_id, contributor_id from the DRF view.
     Updates Celery state with progress metadata.
     """
+    if xlsx_paths is None:
+        xlsx_paths = [xlsx_path] if xlsx_path else []
     config = BatchUploadConfig(**(config_overrides or {}))
 
     # Checkpoint directory under MEDIA_ROOT
@@ -53,8 +56,8 @@ def run_batch_upload_task(
     )
 
     try:
-        result = run_batch_upload(
-            xlsx_path=xlsx_path,
+        result = run_batch_upload_multi(
+            xlsx_paths=xlsx_paths,
             project_id=project_id,
             contributor_id=contributor_id,
             lababbv=lababbv,
