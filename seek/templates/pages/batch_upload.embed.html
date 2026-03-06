@@ -111,21 +111,6 @@
 		person_form.combobox('loadData', users)
 	}
 
-	function getCookie(name) {
-		let cookieValue = null;
-		if (document.cookie && document.cookie !== '') {
-			const cookies = document.cookie.split(';');
-			for (let i = 0; i < cookies.length; i++) {
-				const cookie = cookies[i].trim();
-				if (cookie.substring(0, name.length + 1) === (name + '=')) {
-					cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-					break;
-				}
-			}
-		}
-		return cookieValue;
-	}
-
 	function getJobSummary(jobId) {
     const a = document.createElement('a');
     a.href = `/nextseek_api/batch-upload/summary/${jobId}`;
@@ -164,7 +149,6 @@
 		}, 1000)};
 
 	async function uploadSamples() {
-		const csrftoken = getCookie('csrftoken');
 		const project_id = document.getElementById('project_id').value;
 		const person_id = document.getElementById('person_id').value;
 		const fileInput = document.getElementById("sample_upload_file");
@@ -175,7 +159,6 @@
 		}
 
 		const formData = new FormData(sample_upload_form);
-		formData.append("csrfmiddlewaretoken", csrftoken)
 		formData.append("project_id", project_id)
 		formData.append("person_id", person_id)
 

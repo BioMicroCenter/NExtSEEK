@@ -18,18 +18,22 @@ log = logging.getLogger(__name__)
 def run_batch_upload_task(
     self,
     xlsx_paths: list = None,
-    xlsx_path: str = None,
+    xlsx_path: str = None,  # DEPRECATED: kept for in-flight message compat
+    rows: list = None,
     project_id: int = None,
     contributor_id: int = None,
     lababbv: str = "NA",
     user_id: int = None,
     config_overrides: dict = None,
 ):
-    """Celery task entry point for batch upload (single or multiple files).
+    """Celery task entry point for batch upload.
 
-    Receives xlsx_paths (or legacy xlsx_path), project_id, contributor_id from the DRF view.
+    Receives either rows (direct input) or xlsx_paths (file upload).
+    xlsx_path (singular) is a deprecated alias for backwards compatibility.
     Updates Celery state with progress metadata.
     """
+    if xlsx_path is not None and xlsx_paths is None:
+        log.warning("xlsx_path (singular) is deprecated; use xlsx_paths or rows")
     if xlsx_paths is None:
         xlsx_paths = [xlsx_path] if xlsx_path else []
     config = BatchUploadConfig(**(config_overrides or {}))
@@ -64,6 +68,7 @@ def run_batch_upload_task(
             config=config,
             checkpoint_dir=checkpoint_dir,
             should_stop=should_stop,
+            rows=rows,
         )
 
         self.update_state(

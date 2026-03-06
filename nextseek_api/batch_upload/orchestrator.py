@@ -71,8 +71,13 @@ def run_batch_upload_multi(
     resume_uid: Optional[str] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     output_dir: Optional[str] = None,
+    rows: Optional[List[dict]] = None,
 ) -> Dict:
     """Execute the full batch upload pipeline for one or more files.
+
+    If ``rows`` is provided (list of InputRowModel dicts), Stage 0 (CONVERT) is
+    skipped entirely.  Ontology validation only applies to file upload mode;
+    in rows mode it is not performed (deferred).
 
     Stage 0 CONVERT (format detection + merge) -> NAME_CHECK -> UID_GEN -> DAG -> LEVELS
     -> PREFETCH -> TRANSFORM -> INSERT -> NEO4J -> REPORT.
@@ -103,33 +108,40 @@ def run_batch_upload_multi(
     if should_stop and should_stop():
         return _cancelled_result(job_id, summary_path)
 
-    log.info("Stage 0: CONVERT")
     valid_rows: List[InputRowModel] = []
     warnings: Dict[str, object] = {}
-    try:
-        converted = merge_files(xlsx_paths)
-        if converted.ontology_result and not converted.ontology_result.is_valid:
-            msg = (
-                f"Ontology validation failed: {len(converted.ontology_result.violations)} violation(s)."
-            )
-            for v in converted.ontology_result.violations[:10]:
-                error_collector.add(
-                    row_index=v.row_index,
-                    uid=None,
-                    error_type=ErrorType.VALIDATION_JSON,
-                    message=f"{v.attribute}={v.value!r} not in allowed terms for {v.vocab_name}",
+
+    if rows is not None:
+        log.info("Stage 0: CONVERT (skipped -- %d rows provided directly)", len(rows))
+        from pydantic import TypeAdapter
+        adapter = TypeAdapter(List[InputRowModel])
+        valid_rows = adapter.validate_python(rows)
+    else:
+        log.info("Stage 0: CONVERT")
+        try:
+            converted = merge_files(xlsx_paths)
+            if converted.ontology_result and not converted.ontology_result.is_valid:
+                msg = (
+                    f"Ontology validation failed: {len(converted.ontology_result.violations)} violation(s)."
                 )
-            return _error_result(job_id, summary_path, error_collector, msg)
-        valid_rows = converted.rows
-        if converted.warnings:
-            warnings["convert_warnings"] = converted.warnings
-    except Exception as exc:
-        log.exception("CONVERT failed")
-        error_collector.add(
-            row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
-            message=f"CONVERT failed: {exc}",
-        )
-        return _error_result(job_id, summary_path, error_collector, str(exc))
+                for v in converted.ontology_result.violations[:10]:
+                    error_collector.add(
+                        row_index=v.row_index,
+                        uid=None,
+                        error_type=ErrorType.VALIDATION_JSON,
+                        message=f"{v.attribute}={v.value!r} not in allowed terms for {v.vocab_name}",
+                    )
+                return _error_result(job_id, summary_path, error_collector, msg)
+            valid_rows = converted.rows
+            if converted.warnings:
+                warnings["convert_warnings"] = converted.warnings
+        except Exception as exc:
+            log.exception("CONVERT failed")
+            error_collector.add(
+                row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
+                message=f"CONVERT failed: {exc}",
+            )
+            return _error_result(job_id, summary_path, error_collector, str(exc))
 
     log.info("CONVERT: %d valid rows", len(valid_rows))
 

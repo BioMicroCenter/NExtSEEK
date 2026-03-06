@@ -158,7 +158,8 @@ class TestConvertSamplesToInputRows:
             if os.path.isfile(path):
                 os.unlink(path)
 
-    def test_multi_sample_type_from_single_row(self):
+    def test_multi_sample_type_rejected(self):
+        """Multi-type files are now rejected with a warning."""
         path = _make_traditional_xlsx(
             instructions_rows=[
                 {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
@@ -172,10 +173,8 @@ class TestConvertSamplesToInputRows:
         )
         try:
             batch = parse_traditional_file(path)
-            assert len(batch.rows) == 2
-            types = {r.SampleType for r in batch.rows}
-            assert "A.Sample" in types
-            assert "B.Sample" in types
+            assert len(batch.rows) == 0
+            assert any("exactly one sample type" in w for w in batch.warnings)
         finally:
             if os.path.isfile(path):
                 os.unlink(path)
@@ -231,3 +230,89 @@ class TestMultiFileMerge:
         assert len(batch.rows) == 0
         assert batch.source_files == []
         assert "No files" in (batch.warnings or [""])[0] or not batch.rows
+
+
+class TestSingleTypeEnforcement:
+    """Test single sample type enforcement in parse_traditional_file."""
+
+    def test_single_type_enforcement(self):
+        """More than one sample type in INSTRUCTIONS should reject."""
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
+                {"Field": "Name", "Database Field": "B.Sample::Name", "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[{"Name": "shared"}],
+            assay_rows=[],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert len(batch.rows) == 0
+            assert any("exactly one sample type" in w for w in batch.warnings)
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+    def test_duplicate_field_rejection(self):
+        """Duplicate Field headers in INSTRUCTIONS should reject."""
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
+                {"Field": "Name", "Database Field": "A.Sample::Alias", "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[{"Name": "s1"}],
+            assay_rows=[],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert len(batch.rows) == 0
+            assert any("Duplicate Field header" in w for w in batch.warnings)
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+    def test_single_type_one_row_one_record(self):
+        """Single type, multiple rows: each row becomes one InputRowModel."""
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
+                {"Field": "Tissue", "Database Field": "A.Sample::Tissue", "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[
+                {"Name": "s1", "Tissue": "Brain"},
+                {"Name": "s2", "Tissue": "Liver"},
+            ],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 0}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert len(batch.rows) == 2
+            assert batch.rows[0].SampleType == "A.Sample"
+            assert batch.rows[1].SampleType == "A.Sample"
+            import json
+            meta0 = json.loads(batch.rows[0].json_metadata)
+            assert meta0["Name"] == "s1"
+            assert meta0["Tissue"] == "Brain"
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+    def test_empty_row_skipped(self):
+        """Rows with all empty values should be skipped."""
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[
+                {"Name": "s1"},
+                {"Name": ""},  # empty row
+                {"Name": "s3"},
+            ],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 0}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert len(batch.rows) == 2  # empty row skipped
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)

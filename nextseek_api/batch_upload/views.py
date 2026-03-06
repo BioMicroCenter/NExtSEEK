@@ -9,9 +9,9 @@ import time
 from celery.result import AsyncResult
 from django.conf import settings
 from django.http import FileResponse
-from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from pydantic import BaseModel, Field
-from rest_framework import serializers, status, viewsets
+from rest_framework import status, viewsets
 from rest_framework.authentication import BasicAuthentication, TokenAuthentication
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -22,6 +22,7 @@ from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 
 from .celery_app import app as celery_app
 from .job_index import list_jobs, register_job, user_owns_job
+from .models import InputRowModel
 from .tasks import run_batch_upload_task
 from nextseek_api.endpoint_descriptions import (
     BATCH_UPLOAD_START_DESC,
@@ -38,19 +39,25 @@ log = logging.getLogger(__name__)
 
 
 class BatchUploadStartRequest(BaseModel):
-    xlsx_path: str | None = Field(
+    rows: list[InputRowModel] | None = Field(
         None,
         description=(
-            "Absolute path to an Excel file already on the server. "
-            "Only used as a fallback when no file is uploaded via multipart/form-data."
+            "List of InputRowModel objects for direct programmatic upload. "
+            "Bypasses Excel file parsing. Each object must have at minimum: "
+            "SampleType (str), json_metadata (str or dict). "
+            "Optional: UID, assay_ids, project_id (overrides top-level), "
+            "study_title, study_id, sop_id, assay_titles."
         ),
     )
-    project_id: int = Field(..., description="SEEK project ID to link samples to")
+    project_id: int = Field(..., description="SEEK project ID to link samples to.")
     update_existing: bool = Field(
         False,
         description="If true, existing samples (by UUID or Name match) are updated instead of skipped.",
     )
-    person_id: int = Field(..., description="SEEK person ID to set the contributor to for uploaded samples. Optional. Will use the requester's person_id if omitted.")
+    person_id: int | None = Field(
+        None,
+        description="SEEK person ID for contributor. Optional; defaults to authenticated user.",
+    )
     config_overrides: dict = Field(
         default_factory=dict,
         description="Optional config overrides (e.g., max_rows_per_batch, enable_auto_permissions)",
@@ -98,9 +105,9 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 "type": "object",
                 "properties": {
                     "file": {
-                        "type": "string",
-                        "format": "binary",
-                        "description": "Excel (.xlsx) file containing samples to upload.",
+                        "type": "array",
+                        "items": {"type": "string", "format": "binary"},
+                        "description": "One or more Excel (.xlsx) files to upload.",
                     },
                     "project_id": {
                         "type": "integer",
@@ -108,21 +115,11 @@ class BatchUploadViewSet(viewsets.ViewSet):
                     },
                     "person_id": {
                         "type": "integer",
-                        "description": (
-                            "SEEK person ID to set the contributor to for uploaded samples. "
-                            "Optional. Will use the requester's person_id if omitted."
-                        ),
-                    },
-                    "xlsx_path": {
-                        "type": "string",
-                        "description": (
-                            "Fallback: absolute path to an Excel file already on the server. "
-                            "Ignored when a file is uploaded."
-                        ),
+                        "description": "SEEK person ID for contributor. Optional; defaults to authenticated user.",
                     },
                     "update_existing": {
                         "type": "boolean",
-                        "description": "If true, existing samples (by UUID or Name match) are updated instead of skipped. Default: false.",
+                        "description": "If true, update existing samples instead of skipping. Default: false.",
                         "default": False,
                     },
                     "config_overrides": {
@@ -135,48 +132,87 @@ class BatchUploadViewSet(viewsets.ViewSet):
             },
             "application/json": BatchUploadStartRequest.model_json_schema(),
         },
-        responses={202: BatchUploadStartResponse.model_json_schema()},
+        responses={
+            202: BatchUploadStartResponse.model_json_schema(),
+            400: OpenApiResponse(description="Missing input or structural error"),
+            401: OpenApiResponse(description="Authentication required"),
+            413: OpenApiResponse(description="Total upload size exceeds limit"),
+            422: OpenApiResponse(description="Pydantic validation error on rows or request body"),
+        },
         description=BATCH_UPLOAD_START_DESC,
     )
     @action(detail=False, methods=["post"], url_path="start")
     def start(self, request):
-        """POST /api/batch-upload/start/ — dispatch a batch upload job (single or multiple files)."""
-        uploaded_files = request.FILES.getlist("file")
-        xlsx_paths = []
+        """POST /api/batch-upload/start/ -- dispatch a batch upload job.
 
-        if uploaded_files:
+        Two input modes:
+        1. Direct rows: JSON body with 'rows' containing List[InputRowModel]
+        2. File upload: multipart/form-data with one or more .xlsx files under 'file' key
+
+        If both are provided, rows takes priority (files are ignored with a warning).
+        """
+        uploaded_files = request.FILES.getlist("file")
+        raw_rows = request.data.get("rows")
+        xlsx_paths = []
+        validated_rows = None
+        input_warnings = []
+
+        # ── Mode 1: Direct rows (JSON, checked first -- rows wins) ──
+        if raw_rows is not None:
+            # Validate entire JSON body via request model
+            from pydantic import ValidationError as PydanticValidationError
+
+            try:
+                req = BatchUploadStartRequest.model_validate(request.data)
+            except PydanticValidationError as e:
+                return Response(
+                    {"detail": f"Request validation failed: {e.error_count()} error(s)", "errors": e.errors()},
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
+            validated_rows = req.rows
+            if not validated_rows:
+                return Response(
+                    {"detail": "rows must be a non-empty list of InputRowModel objects."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if uploaded_files:
+                input_warnings.append("Both 'rows' and file uploads provided; using rows, ignoring files.")
+
+        # ── Mode 2: File upload (multipart) ──
+        elif uploaded_files:
+            total_size = 0
             for uf in uploaded_files:
                 if not (uf.name or "").lower().endswith(".xlsx"):
                     return Response(
                         {"detail": "Only .xlsx files are accepted."},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
+                total_size += uf.size
+            max_bytes = getattr(settings, "BATCH_UPLOAD_MAX_TOTAL_BYTES", 200 * 1024 * 1024)
+            if total_size > max_bytes:
+                mb_limit = max_bytes / (1024 * 1024)
+                mb_actual = total_size / (1024 * 1024)
+                return Response(
+                    {"detail": f"Total upload size ({mb_actual:.1f} MB) exceeds limit ({mb_limit:.0f} MB)."},
+                    status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                )
+            for uf in uploaded_files:
                 xlsx_paths.append(_save_uploaded_file(uf))
-        else:
-            fallback = request.data.get("xlsx_path")
-            if fallback:
-                xlsx_paths = [fallback]
 
-        if not xlsx_paths:
+        # ── Neither provided ──
+        else:
             return Response(
-                {"detail": "Either upload .xlsx file(s) or provide xlsx_path."},
+                {"detail": "Either upload .xlsx file(s) or provide rows in JSON body."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        for p in xlsx_paths:
-            if not os.path.isfile(p):
-                return Response(
-                    {"detail": f"File not found: {p}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
+        # Validate project_id
         project_id = request.data.get("project_id")
         if project_id is None:
             return Response(
                 {"detail": "project_id is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
         try:
             project_id = int(project_id)
         except (TypeError, ValueError):
@@ -185,6 +221,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # config_overrides + update_existing handling
         config_overrides = request.data.get("config_overrides", {})
         if isinstance(config_overrides, str):
             s = config_overrides.strip()
@@ -199,7 +236,6 @@ class BatchUploadViewSet(viewsets.ViewSet):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-        # Handle update_existing as top-level field or in config_overrides
         update_existing = request.data.get("update_existing")
         if update_existing is not None:
             if isinstance(update_existing, str):
@@ -215,15 +251,23 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        task = run_batch_upload_task.delay(
-            xlsx_paths=xlsx_paths,
+        # Dispatch to Celery
+        task_kwargs = dict(
             project_id=project_id,
             contributor_id=user_ctx["contributor_id"],
             lababbv=user_ctx["lababbv"],
             user_id=request.user.pk,
             config_overrides=config_overrides,
         )
+        if validated_rows is not None:
+            task_kwargs["rows"] = [r.model_dump() for r in validated_rows]
+        else:
+            task_kwargs["xlsx_paths"] = xlsx_paths
 
+        if input_warnings:
+            task_kwargs.setdefault("config_overrides", {})["_input_warnings"] = input_warnings
+
+        task = run_batch_upload_task.delay(**task_kwargs)
         register_job(user_id=request.user.pk, job_id=task.id, project_id=project_id)
 
         return Response(
