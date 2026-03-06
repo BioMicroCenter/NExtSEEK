@@ -5,7 +5,8 @@ import logging
 import os
 import time
 import uuid as uuid_mod
-from typing import Callable, Dict, List, Optional, Set
+import json
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from .config import BatchUploadConfig, Neo4jConfig
 from .convert import merge_files
@@ -563,6 +564,9 @@ def run_batch_upload_multi(
     else:
         log.info("NEO4J: disabled (missing: %s)", neo4j_config.MISSING_KEYS)
 
+    # ── Build identity map for orphan resolution ────────────────────────
+    identity_map, parent_info = build_identity_map(valid_rows, batch_result.outcomes)
+
     # ── Stage 7: REPORT ───────────────────────────────────────────────────
     log.info("Stage 7/7: REPORT")
     elapsed = time.perf_counter() - t0
@@ -595,6 +599,8 @@ def run_batch_upload_multi(
             {"type": e.error_type.value, "message": e.message}
             for e in error_collector.all_errors()[:50]
         ],
+        "_identity_map": identity_map,
+        "_parent_info": {uid: info for uid, info in parent_info.items()},
     }
 
 
@@ -619,3 +625,74 @@ def _error_result(
             for e in error_collector.all_errors()[:50]
         ],
     }
+
+
+# ── orphan resolution helpers ────────────────────────────────────────────
+
+try:
+    import orjson as _orjson
+
+    def _json_loads_orch(s: str) -> dict:
+        return _orjson.loads(s)
+except ImportError:
+    def _json_loads_orch(s: str) -> dict:  # type: ignore[misc]
+        return json.loads(s)
+
+
+_FILE_BASED_PREFIXES_ORCH = ("D.", "A.")
+_FILE_PRIMARY_FIELDS_ORCH = (
+    "File_PrimaryData", "File_PrimartyData",
+    "File_PrimaryData_Forward", "File_PrimartyData_Forward",
+    "File_PrimaryData_Reverse", "File_PrimartyData_Reverse",
+)
+
+
+def _extract_identity_for_orphan(model: InputRowModel) -> Optional[str]:
+    """Extract Name or File_PrimaryData from InputRowModel for orphan identity map."""
+    try:
+        meta = _json_loads_orch(model.json_metadata) if model.json_metadata else {}
+    except Exception:
+        return None
+    if not isinstance(meta, dict):
+        return None
+    if any(model.SampleType.startswith(p) for p in _FILE_BASED_PREFIXES_ORCH):
+        for field in _FILE_PRIMARY_FIELDS_ORCH:
+            val = meta.get(field)
+            if val and str(val).strip():
+                return str(val).strip()
+        return None
+    name = meta.get("Name") or meta.get("name")
+    if name is not None:
+        s = str(name).strip()
+        return s if s else None
+    return None
+
+
+def build_identity_map(
+    input_models: List[InputRowModel],
+    outcomes: Dict[str, RowOutcome],
+) -> Tuple[Dict[str, str], Dict[str, dict]]:
+    """Build identity->UID map and parent_info from successful inserts.
+
+    Returns:
+        identity_map: {identity: UID} where identity is Name or File_PrimaryData
+        parent_info: {UID: {"sample_id": int, "uuid": str}}
+    """
+    identity_map: Dict[str, str] = {}
+    parent_info: Dict[str, dict] = {}
+
+    for model in input_models:
+        uid = model.UID
+        if uid is None:
+            continue
+        outcome = outcomes.get(uid)
+        if outcome is None or outcome.sample_id is None:
+            continue
+
+        identity = _extract_identity_for_orphan(model)
+        if identity and identity not in identity_map:
+            identity_map[identity] = uid
+
+        parent_info[uid] = {"sample_id": outcome.sample_id, "uuid": uid}
+
+    return identity_map, parent_info

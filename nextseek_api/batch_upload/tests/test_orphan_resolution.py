@@ -1,6 +1,6 @@
 """Tests for orphan_resolution module."""
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from nextseek_api.batch_upload.orphan_resolution import discover_orphans
 
 
@@ -226,3 +226,78 @@ class TestResolveOrphans:
         )
 
         assert stats["resolved"] == 1
+
+
+class TestResolveOrphansTask:
+    def test_task_runs_discovery_and_resolution(self):
+        from nextseek_api.batch_upload.tasks import resolve_orphans_task
+
+        with patch("nextseek_api.batch_upload.orphan_resolution.discover_orphans") as mock_discover, \
+             patch("nextseek_api.batch_upload.orphan_resolution.resolve_orphans") as mock_resolve, \
+             patch("neo4j.GraphDatabase") as mock_gdb, \
+             patch("nextseek_api.batch_upload.config.Neo4jConfig.from_django_settings") as mock_config_cls, \
+             patch("nextseek_api.batch_upload.db_engine.get_connection") as mock_get_conn:
+
+            mock_config = MagicMock(
+                NEO4J_UPLOAD_ENABLED=True, URI="bolt://localhost",
+                NEO4J_USER="u", PASSWORD="p", NEO4J_DB="db",
+            )
+            mock_config_cls.return_value = mock_config
+
+            mock_driver = MagicMock()
+            mock_gdb.driver.return_value = mock_driver
+
+            mock_discover.return_value = [{"id": 1, "uuid": "A", "matched_tokens": {"X": "Y"}}]
+            mock_resolve.return_value = {"resolved": 1, "edges_created": 1}
+
+            mock_conn = MagicMock()
+            mock_get_conn.return_value.__enter__ = MagicMock(return_value=mock_conn)
+            mock_get_conn.return_value.__exit__ = MagicMock(return_value=False)
+
+            result = resolve_orphans_task(
+                identity_map={"X": "Y"},
+                parent_info={"Y": {"sample_id": 1, "uuid": "Y"}},
+            )
+
+            mock_discover.assert_called_once()
+            mock_resolve.assert_called_once()
+            assert result["resolved"] == 1
+
+    def test_empty_identity_map_returns_zero(self):
+        from nextseek_api.batch_upload.tasks import resolve_orphans_task
+
+        result = resolve_orphans_task(identity_map={}, parent_info={})
+        assert result == {"resolved": 0}
+
+    def test_neo4j_disabled_returns_zero(self):
+        from nextseek_api.batch_upload.tasks import resolve_orphans_task
+
+        with patch("neo4j.GraphDatabase"), \
+             patch("nextseek_api.batch_upload.config.Neo4jConfig.from_django_settings") as mock_config_cls:
+
+            mock_config_cls.return_value = MagicMock(NEO4J_UPLOAD_ENABLED=False)
+
+            result = resolve_orphans_task(
+                identity_map={"X": "Y"},
+                parent_info={"Y": {"sample_id": 1, "uuid": "Y"}},
+            )
+            assert result == {"resolved": 0}
+
+    def test_exception_returns_error_dict(self):
+        from nextseek_api.batch_upload.tasks import resolve_orphans_task
+
+        with patch("neo4j.GraphDatabase") as mock_gdb, \
+             patch("nextseek_api.batch_upload.config.Neo4jConfig.from_django_settings") as mock_config_cls:
+
+            mock_config_cls.return_value = MagicMock(
+                NEO4J_UPLOAD_ENABLED=True, URI="bolt://localhost",
+                NEO4J_USER="u", PASSWORD="p", NEO4J_DB="db",
+            )
+            mock_gdb.driver.side_effect = RuntimeError("connection failed")
+
+            result = resolve_orphans_task(
+                identity_map={"X": "Y"},
+                parent_info={"Y": {"sample_id": 1, "uuid": "Y"}},
+            )
+            assert result["resolved"] == 0
+            assert "error" in result
