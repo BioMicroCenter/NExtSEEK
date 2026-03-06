@@ -26,9 +26,10 @@ def run_batch_upload_task(
     user_id: int = None,
     config_overrides: dict = None,
 ):
-    """Celery task entry point for batch upload (single or multiple files).
+    """Celery task entry point for batch upload.
 
-    Receives xlsx_paths (or legacy xlsx_path), project_id, contributor_id from the DRF view.
+    Receives either rows (direct input) or xlsx_paths (file upload).
+    xlsx_path (singular) is a deprecated alias for backwards compatibility.
     Updates Celery state with progress metadata.
     """
     if xlsx_path is not None and xlsx_paths is None:

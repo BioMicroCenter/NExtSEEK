@@ -75,6 +75,10 @@ def run_batch_upload_multi(
 ) -> Dict:
     """Execute the full batch upload pipeline for one or more files.
 
+    If ``rows`` is provided (list of InputRowModel dicts), Stage 0 (CONVERT) is
+    skipped entirely.  Ontology validation only applies to file upload mode;
+    in rows mode it is not performed (deferred).
+
     Stage 0 CONVERT (format detection + merge) -> NAME_CHECK -> UID_GEN -> DAG -> LEVELS
     -> PREFETCH -> TRANSFORM -> INSERT -> NEO4J -> REPORT.
     """
