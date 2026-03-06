@@ -442,7 +442,7 @@ def refresh_assays_for_uuids(
 # ── parent_titles enrichment ──────────────────────────────────────────────
 
 _UID_RE = re.compile(r"^([AD]\.)?[A-Z]{3,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?$")
-_PARENT_SPLIT_RE = re.compile(r"[;\,\s]+")
+_PARENT_SPLIT_RE = re.compile(r";")  # semicolons only — Names may contain spaces/commas
 _FILE_BASED_PREFIXES = ("D.", "A.")
 _FILE_PRIMARY_FIELDS = (
     "File_PrimaryData",
@@ -571,8 +571,7 @@ def enrich_parent_titles(
                 if identity:
                     titles.append(identity)
                 else:
-                    # Fallback: use the UID itself if identity not found
-                    titles.append(token)
+                    log.debug("Could not resolve identity for parent UID %s", token)
             else:
                 # Unresolved token — IS the identity
                 titles.append(token)

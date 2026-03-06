@@ -227,6 +227,15 @@ class TestResolveOrphans:
 
         assert stats["resolved"] == 1
 
+        # Verify the SQL UPDATE replaced Mouse-A with UID but kept StillUnresolved
+        # Calls: [0]=FETCH metadata, [1]=UPDATE metadata (no Protocol → no SOP lookup)
+        update_call = mock_conn.execute.call_args_list[1]  # 2nd call = UPDATE
+        update_params = update_call[0][1]
+        updated_meta = update_params["meta"]
+        assert "MUS-260305MIT-1" in updated_meta, "Mouse-A should be replaced with UID"
+        assert "StillUnresolved" in updated_meta, "StillUnresolved should be kept"
+        assert "Mouse-A" not in updated_meta, "Mouse-A identity token should be gone"
+
 
 class TestResolveOrphansTask:
     def test_task_runs_discovery_and_resolution(self):
@@ -301,3 +310,65 @@ class TestResolveOrphansTask:
             )
             assert result["resolved"] == 0
             assert "error" in result
+
+
+class TestOrphanResolutionIntegration:
+    """End-to-end test with mocked MariaDB and Neo4j."""
+
+    def test_full_orphan_resolution_flow(self):
+        """Upload orphan → upload parent → verify resolution."""
+        from nextseek_api.batch_upload.orphan_resolution import discover_orphans, resolve_orphans
+
+        mock_driver = MagicMock()
+        mock_conn = MagicMock()
+
+        # Orphan: child1 with unresolved Parent="Mouse-A" (preserved by Task 1)
+        orphan_meta = '{"UID":"CHD-260101MIT-1","Name":"child1","Parent":"Mouse-A","Protocol":"https://fairdata-dev.mit.edu/sops/57"}'
+
+        # New batch: Mouse-A uploaded as MUS-260305MIT-1
+        identity_map = {"Mouse-A": "MUS-260305MIT-1"}
+        parent_info = {"MUS-260305MIT-1": {"sample_id": 200, "uuid": "MUS-260305MIT-1"}}
+
+        # Mock discovery query result
+        orphan_record = MagicMock()
+        orphan_record.data.return_value = {
+            "id": 500,
+            "uuid": "CHD-260101MIT-1",
+            "parent_titles": ["Mouse-A"],
+        }
+        discover_result = MagicMock()
+        discover_result.records = [orphan_record]
+
+        # Mock resolve: SQL fetch + SOP lookup + update
+        fetch_result = MagicMock()
+        fetch_result.fetchone.return_value = (orphan_meta,)
+        sop_result = MagicMock()
+        sop_result.fetchone.return_value = ("CD8 Depletion Protocol",)
+        mock_conn.execute.side_effect = [fetch_result, sop_result, MagicMock()]
+
+        neo4j_edge_result = MagicMock()
+        neo4j_edge_result.records = []
+        mock_driver.execute_query.side_effect = [discover_result, neo4j_edge_result]
+
+        # Run discovery
+        orphans = discover_orphans(mock_driver, "testdb", identity_map)
+        assert len(orphans) == 1
+        assert orphans[0]["matched_tokens"] == {"Mouse-A": "MUS-260305MIT-1"}
+
+        # Run resolution
+        stats = resolve_orphans(
+            orphans=orphans, parent_info=parent_info,
+            sql_conn=mock_conn, neo4j_driver=mock_driver, neo4j_database="testdb",
+        )
+
+        assert stats["resolved"] == 1
+        assert stats["edges_created"] == 1
+
+        # Verify DERIVED_FROM was created
+        derived_calls = [c for c in mock_driver.execute_query.call_args_list
+                         if "DERIVED_FROM" in str(c)]
+        assert len(derived_calls) >= 1
+
+        # Verify parent_titles NOT modified
+        for call in mock_driver.execute_query.call_args_list:
+            assert "SET s.parent_titles" not in str(call)
