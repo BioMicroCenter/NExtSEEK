@@ -357,7 +357,45 @@ class TestResolveParents:
         identity_map = {}
         conn = self._mock_conn(db_results=[])  # nothing found
         rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
-        assert any("unresolvable" in w.lower() for w in warnings)
+        assert any("unresolved" in w.lower() for w in warnings)
+
+    def test_unresolved_name_token_preserved_in_parent(self):
+        """Unresolved Name-based parent tokens should remain in Parent field."""
+        rows = [
+            _make_row(uid="CHD-260101MIT-1", sample_type="CHD",
+                      meta='{"UID":"CHD-260101MIT-1","Name":"child1","Parent":"FutureParent"}'),
+        ]
+        identity_map = {}
+        conn = self._mock_conn(db_results=[])
+        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        meta = json.loads(rows[0].json_metadata)
+        assert meta.get("Parent") == "FutureParent", (
+            "Unresolved identity token should be preserved, not dropped"
+        )
+
+    def test_unresolved_file_primary_data_token_preserved(self):
+        """Unresolved File_PrimaryData parent tokens should also be preserved."""
+        rows = [
+            _make_row(uid="A.GEX-260101MIT-1", sample_type="A.GEX",
+                      meta='{"UID":"A.GEX-260101MIT-1","File_PrimaryData":"child_file.csv","Parent":"future_parent_file.fastq"}'),
+        ]
+        identity_map = {}
+        conn = self._mock_conn(db_results=[])
+        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        meta = json.loads(rows[0].json_metadata)
+        assert meta.get("Parent") == "future_parent_file.fastq"
+
+    def test_mixed_resolved_and_unresolved_parents(self):
+        """Resolved UIDs kept, unresolved identity tokens preserved."""
+        rows = [
+            _make_row(uid="CHD-260101MIT-1", sample_type="CHD",
+                      meta='{"UID":"CHD-260101MIT-1","Name":"child1","Parent":"NHP-260101MIT-1;FutureParent"}'),
+        ]
+        identity_map = {}
+        conn = self._mock_conn(db_results=[])
+        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        meta = json.loads(rows[0].json_metadata)
+        assert meta.get("Parent") == "NHP-260101MIT-1;FutureParent"
 
     def test_no_parent_field(self):
         """Rows without Parent field should pass through unchanged."""

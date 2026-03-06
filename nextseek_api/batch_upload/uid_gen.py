@@ -300,11 +300,12 @@ def _resolve_parents(
                 resolved_tokens.append(db_title_to_uid[token])
                 parents_resolved += 1
             else:
+                # Identity-based token not resolvable now — preserve for orphan resolution
+                resolved_tokens.append(token)
                 warnings.append(
-                    f"Row {idx}: unresolvable parent reference '{token}'; "
-                    f"inserting sample without this parent link"
+                    f"Row {idx}: unresolved parent reference '{token}'; "
+                    f"preserving for future orphan resolution"
                 )
-                # Don't include unresolvable tokens in the resolved parent field
 
         row = rows[idx]
         if resolved_tokens:

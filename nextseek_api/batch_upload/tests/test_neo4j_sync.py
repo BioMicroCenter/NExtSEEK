@@ -7,6 +7,7 @@ from nextseek_api.batch_upload.models import (
     InStudyRelRow,
     InputRowModel,
     InsertableSample,
+    NodeRow,
     OfTypeRelRow,
     RowOutcome,
 )
@@ -18,6 +19,7 @@ from nextseek_api.batch_upload.neo4j_sync import (
     build_payloads,
     bulk_merge_in_study_relationships,
     delete_derived_from_for_uuids,
+    enrich_parent_titles,
     refresh_assays_for_uuids,
 )
 
@@ -607,3 +609,157 @@ class TestBulkAssayTitleFetch:
         assert rows[0].internal_assay_title is None
         # Only 2 SQL calls (parent lookup + child metadata)
         assert conn.execute.call_count == 2
+
+
+# ── TestEnrichParentTitles ─────────────────────────────────────────────────
+
+
+def _node_row(sample_id, uuid, sample_type, props):
+    """Helper to create a NodeRow with given properties."""
+    return NodeRow(sample_id=sample_id, sample_uuid=uuid, sample_type=sample_type, properties=props)
+
+
+def _input_model(uid, sample_type="Blood", meta=None):
+    """Helper to create an InputRowModel."""
+    if meta is None:
+        meta = "{}"
+    return InputRowModel(UID=uid, SampleType=sample_type, json_metadata=meta)
+
+
+class TestEnrichParentTitles:
+    """Tests for enrich_parent_titles: resolves parent identities for Neo4j."""
+
+    def test_resolved_uid_parent_gets_title_from_in_batch(self):
+        """Parent has a UID that exists in current batch -> use that sample's Name as identity."""
+        child_props = {"Name": "Child_Sample", "Parent": "NHP-260225MIT-1"}
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-2", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-2", "Blood", json.dumps({"Name": "Child_Sample", "Parent": "NHP-260225MIT-1"})),
+            _input_model("NHP-260225MIT-1", "NHP", json.dumps({"Name": "Parent_Sample"})),
+        ]
+        enrich_parent_titles(node_rows, input_models, sql_conn=None)
+        assert node_rows[0].parent_titles == ["Parent_Sample"]
+        assert node_rows[0].properties["parent_titles"] == ["Parent_Sample"]
+
+    def test_unresolved_name_parent_is_identity_itself(self):
+        """Parent has a non-UID token (unresolved name) -> use token as-is."""
+        child_props = {"Name": "Child_Sample", "Parent": "My_Parent_Name"}
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-1", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-1", "Blood", json.dumps({"Name": "Child_Sample", "Parent": "My_Parent_Name"})),
+        ]
+        enrich_parent_titles(node_rows, input_models, sql_conn=None)
+        assert node_rows[0].parent_titles == ["My_Parent_Name"]
+        assert node_rows[0].properties["parent_titles"] == ["My_Parent_Name"]
+
+    def test_external_uid_parent_gets_title_from_sql(self):
+        """Parent has a UID NOT in batch -> SQL lookup returns its Name."""
+        child_props = {"Name": "Child_Sample", "Parent": "NHP-260225MIT-99"}
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-1", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-1", "Blood", json.dumps({"Name": "Child_Sample", "Parent": "NHP-260225MIT-99"})),
+        ]
+        # Mock SQL connection: returns json_metadata for the external parent
+        conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("NHP-260225MIT-99", json.dumps({"Name": "External_Parent"})),
+        ]
+        conn.execute.return_value = mock_result
+
+        enrich_parent_titles(node_rows, input_models, sql_conn=conn)
+        assert node_rows[0].parent_titles == ["External_Parent"]
+        assert node_rows[0].properties["parent_titles"] == ["External_Parent"]
+        # Verify SQL was called
+        assert conn.execute.call_count == 1
+
+    def test_file_based_parent_uses_file_primary_data(self):
+        """D./A. prefix parents use File_PrimaryData for identity."""
+        child_props = {"Name": "Child_Sample", "Parent": "D.IMG-260225MIT-5"}
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-1", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-1", "Blood", json.dumps({"Name": "Child_Sample", "Parent": "D.IMG-260225MIT-5"})),
+            _input_model("D.IMG-260225MIT-5", "D.IMG_files", json.dumps({"File_PrimaryData": "image_data.tiff"})),
+        ]
+        enrich_parent_titles(node_rows, input_models, sql_conn=None)
+        assert node_rows[0].parent_titles == ["image_data.tiff"]
+        assert node_rows[0].properties["parent_titles"] == ["image_data.tiff"]
+
+    def test_mixed_parents_resolved_and_unresolved(self):
+        """Parent field with UID + unresolved Name -> both identities."""
+        child_props = {"Name": "Child", "Parent": "NHP-260225MIT-3;Unresolved_Name"}
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-1", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-1", "Blood", json.dumps({"Name": "Child", "Parent": "NHP-260225MIT-3;Unresolved_Name"})),
+            _input_model("NHP-260225MIT-3", "NHP", json.dumps({"Name": "Resolved_Parent"})),
+        ]
+        enrich_parent_titles(node_rows, input_models, sql_conn=None)
+        assert node_rows[0].parent_titles == ["Resolved_Parent", "Unresolved_Name"]
+        assert node_rows[0].properties["parent_titles"] == ["Resolved_Parent", "Unresolved_Name"]
+
+    def test_no_parents_no_parent_titles(self):
+        """No Parent field -> empty parent_titles, NOT in properties."""
+        child_props = {"Name": "Lonely_Sample"}
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-1", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-1", "Blood", json.dumps({"Name": "Lonely_Sample"})),
+        ]
+        enrich_parent_titles(node_rows, input_models, sql_conn=None)
+        assert node_rows[0].parent_titles == []
+        assert "parent_titles" not in node_rows[0].properties
+
+
+class TestParentTitlesIndex:
+    """Tests for auto-creation of parent_titles index in upload_all."""
+
+    @patch("neo4j.GraphDatabase")
+    def test_upload_all_creates_parent_titles_index(self, mock_gdb):
+        """upload_all should CREATE INDEX IF NOT EXISTS on Sample.parent_titles."""
+        from nextseek_api.batch_upload.neo4j_sync import upload_all
+        from nextseek_api.batch_upload.models import DirectionComputation
+
+        mock_driver = MagicMock()
+        mock_gdb.driver.return_value = mock_driver
+        mock_driver.execute_query.return_value = MagicMock(
+            counters=MagicMock(nodes_created=0, nodes_matched=0, relationships_created=0),
+            records=[],
+        )
+
+        neo4j_config = MagicMock(
+            NEO4J_UPLOAD_ENABLED=True,
+            URI="bolt://localhost",
+            NEO4J_USER="u",
+            PASSWORD="p",
+            NEO4J_DB="testdb",
+            NEO4J_NODE_CHUNK=500,
+            NEO4J_REL_CHUNK=500,
+        )
+
+        upload_all(
+            outcomes={},
+            input_models=[],
+            sql_conn=MagicMock(),
+            neo4j_config=neo4j_config,
+            direction_computation=DirectionComputation(
+                parents_of={}, assays_by_uid={},
+                direction_by_pair={}, child_uids_by_assay={},
+                conflicts_by_assay={},
+            ),
+        )
+
+        calls = [str(c) for c in mock_driver.execute_query.call_args_list]
+        assert any("parent_titles" in c and "CREATE INDEX" in c for c in calls), (
+            f"Expected CREATE INDEX for parent_titles in calls: {calls}"
+        )

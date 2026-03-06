@@ -439,6 +439,148 @@ def refresh_assays_for_uuids(
     return result_map
 
 
+# ── parent_titles enrichment ──────────────────────────────────────────────
+
+_UID_RE = re.compile(r"^([AD]\.)?[A-Z]{3,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?$")
+_PARENT_SPLIT_RE = re.compile(r"[;\,\s]+")
+_FILE_BASED_PREFIXES = ("D.", "A.")
+_FILE_PRIMARY_FIELDS = (
+    "File_PrimaryData",
+    "File_PrimartyData",
+    "File_PrimaryData_Forward",
+    "File_PrimartyData_Forward",
+    "File_PrimaryData_Reverse",
+    "File_PrimartyData_Reverse",
+)
+
+
+def _extract_identity_from_meta(meta: dict, sample_type: str) -> Optional[str]:
+    """Extract Name or File_PrimaryData from a parsed json_metadata dict.
+
+    Mirrors uid_gen._extract_identity logic without importing it (avoids circular deps).
+    For D./A. sample types: uses File_PrimaryData (or typo variants).
+    For other types: uses Name.
+    """
+    if not meta:
+        return None
+
+    if any(sample_type.startswith(p) for p in _FILE_BASED_PREFIXES):
+        for field in _FILE_PRIMARY_FIELDS:
+            val = meta.get(field)
+            if val and str(val).strip():
+                return str(val).strip()
+        return None
+
+    name = meta.get("Name") or meta.get("name")
+    if name is not None:
+        s = str(name).strip()
+        return s if s else None
+    return None
+
+
+def _is_file_based_uid(uid: str) -> bool:
+    """Infer whether a UID belongs to a file-based type from its prefix."""
+    return uid.startswith("D.") or uid.startswith("A.")
+
+
+def enrich_parent_titles(
+    node_rows: List[NodeRow],
+    input_models: List[InputRowModel],
+    sql_conn: Optional[Any],
+) -> None:
+    """Enrich NodeRow objects with parent_titles: the human-readable identities of all parents.
+
+    For each node's Parent field tokens:
+    - UID tokens in-batch: look up identity from that model's json_metadata
+    - UID tokens external: bulk SQL lookup
+    - Non-UID tokens (unresolved names): the token IS the identity
+
+    Mutates node_rows in-place: sets parent_titles field and properties["parent_titles"].
+    If no parents, does NOT set properties["parent_titles"].
+    """
+    # 1. Build uid_to_identity from in-batch models
+    uid_to_meta: Dict[str, dict] = {}
+    uid_to_sample_type: Dict[str, str] = {}
+    for model in input_models:
+        if model.UID is None:
+            continue
+        try:
+            meta = _json_loads(model.json_metadata) if model.json_metadata else {}
+            if not isinstance(meta, dict):
+                meta = {}
+        except (json.JSONDecodeError, TypeError):
+            meta = {}
+        uid_to_meta[model.UID] = meta
+        uid_to_sample_type[model.UID] = model.SampleType
+
+    uid_to_identity: Dict[str, Optional[str]] = {}
+    for uid, meta in uid_to_meta.items():
+        uid_to_identity[uid] = _extract_identity_from_meta(meta, uid_to_sample_type[uid])
+
+    # 2. First pass: collect parent tokens, identify external UIDs
+    external_uids: Set[str] = set()
+    node_parent_tokens: List[List[str]] = []
+
+    for node in node_rows:
+        parent_raw = node.properties.get("Parent") or node.properties.get("parent") or ""
+        if not parent_raw or not isinstance(parent_raw, str):
+            node_parent_tokens.append([])
+            continue
+        tokens = [t.strip() for t in _PARENT_SPLIT_RE.split(parent_raw) if t.strip()]
+        node_parent_tokens.append(tokens)
+        for token in tokens:
+            if _UID_RE.match(token) and token not in uid_to_identity:
+                external_uids.add(token)
+
+    # 3. Bulk SQL for external UIDs (chunked at 1000)
+    if external_uids and sql_conn is not None:
+        ext_list = sorted(external_uids)
+        for chunk_start in range(0, len(ext_list), 1000):
+            chunk = ext_list[chunk_start : chunk_start + 1000]
+            params = {f"u{i}": u for i, u in enumerate(chunk)}
+            placeholders = ", ".join(f":u{i}" for i in range(len(chunk)))
+            sql = text(
+                f"SELECT uuid, json_metadata FROM samples WHERE uuid IN ({placeholders})"
+            )
+            rows = sql_conn.execute(sql, params).fetchall()
+            for uuid_val, jmeta in rows:
+                try:
+                    meta = _json_loads(jmeta) if jmeta else {}
+                    if not isinstance(meta, dict):
+                        meta = {}
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
+                # Infer sample_type from UUID prefix for file-based detection
+                if _is_file_based_uid(uuid_val):
+                    identity = _extract_identity_from_meta(meta, uuid_val)
+                else:
+                    identity = _extract_identity_from_meta(meta, "")
+                uid_to_identity[uuid_val] = identity
+
+    # 4. Second pass: build parent_titles for each node
+    for i, node in enumerate(node_rows):
+        tokens = node_parent_tokens[i]
+        if not tokens:
+            continue
+
+        titles: List[str] = []
+        for token in tokens:
+            if _UID_RE.match(token):
+                # Resolved UID — look up its identity
+                identity = uid_to_identity.get(token)
+                if identity:
+                    titles.append(identity)
+                else:
+                    # Fallback: use the UID itself if identity not found
+                    titles.append(token)
+            else:
+                # Unresolved token — IS the identity
+                titles.append(token)
+
+        node.parent_titles = titles
+        node.properties["parent_titles"] = titles
+
+
 # ── payload building ──────────────────────────────────────────────────────
 
 
@@ -746,6 +888,7 @@ def upload_all(
     # ── Phase 1: All MySQL fetches (while sql_conn is fresh) ─────────────
 
     node_rows, _ = build_payloads(outcomes, input_models)
+    enrich_parent_titles(node_rows, input_models, sql_conn)
     metrics.nodes_input = len(node_rows)
     metrics.eligible_children = len(direction_computation.parents_of)
 
@@ -796,6 +939,16 @@ def upload_all(
     try:
         # 1. Ensure constraints
         ensure_constraints(driver, db_name)
+
+        # 1b. Ensure parent_titles index (no-op after first run)
+        try:
+            driver.execute_query(
+                "CREATE INDEX sample_parent_titles IF NOT EXISTS "
+                "FOR (s:Sample) ON (s.parent_titles)",
+                database_=db_name,
+            )
+        except Exception as exc:
+            log.warning("Failed to create parent_titles index (non-fatal): %s", exc)
 
         # 2. MERGE Sample nodes
         if node_rows:
