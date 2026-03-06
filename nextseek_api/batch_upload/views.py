@@ -206,6 +206,18 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # ── Require person_id for Basic Auth ──
+        is_basic_auth = isinstance(
+            getattr(request, "successful_authenticator", None),
+            BasicAuthentication,
+        )
+        if is_basic_auth:
+            if request.data.get("person_id") is None:
+                return Response(
+                    {"detail": "person_id is required for Basic Auth requests (needed for UID generation)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         # Validate project_id
         project_id = request.data.get("project_id")
         if project_id is None:
@@ -410,8 +422,9 @@ def _save_uploaded_file(uploaded_file) -> str:
 def _resolve_user_context(request) -> dict | None:
     """Resolve contributor_id and lababbv from the authenticated user.
 
-    Uses SeekDB.getSeekLogin to get person_id and lab abbreviation,
-    falling back to request.user.pk for Django-authenticated users.
+    Uses SeekDB.getSeekLogin to get person_id and lab abbreviation.
+    Falls back to getUserInfo(person_id) when getSeekLogin fails (e.g., Basic Auth)
+    and person_id is provided in the request body.
 
     Returns {"contributor_id": int, "lababbv": str} or None.
     """
@@ -444,7 +457,50 @@ def _resolve_user_context(request) -> dict | None:
     except Exception:
         log.debug("Could not resolve user context from SeekDB", exc_info=True)
 
-    # Fallback: use Django user pk
+    # Fallback: getSeekLogin failed (e.g., Basic Auth) but person_id provided
+    if contributor_id is None and request_person_id is not None:
+        try:
+            from seek.seekdb import SeekDB
+            from seek.models import Users
+
+            # Admin check: look up caller's SEEK person_id from Django username
+            if hasattr(request, "user") and request.user.is_authenticated:
+                is_admin = bool(request.user.is_staff or request.user.is_superuser)
+                if not is_admin:
+                    try:
+                        seek_user = Users.objects.using(
+                            getattr(Users, "_DATABASE", "default")
+                        ).get(login=request.user.username)
+                        caller_person_id = seek_user.person_id
+                        if int(request_person_id) != caller_person_id:
+                            log.warning(
+                                "Non-admin user %s attempted person_id=%s but SEEK person_id=%s",
+                                request.user.username,
+                                request_person_id,
+                                caller_person_id,
+                            )
+                            return None  # View returns 401
+                    except Users.DoesNotExist:
+                        log.warning(
+                            "Could not find SEEK user for Django username %s",
+                            request.user.username,
+                        )
+                        # Can't verify — reject to be safe
+                        return None
+
+            seekdb = SeekDB(None, None, None)
+            user_info, seek_status, msg = seekdb.getUserInfo(int(request_person_id))
+            if seek_status and user_info.get("lababbv"):
+                contributor_id = int(request_person_id)
+                lababbv = user_info["lababbv"]
+            else:
+                log.warning("getUserInfo failed for person_id=%s: %s", request_person_id, msg)
+                return None  # View returns 400 "Could not resolve contributor"
+        except Exception:
+            log.debug("getUserInfo fallback failed for person_id=%s", request_person_id, exc_info=True)
+            return None
+
+    # Final fallback: no person_id, no getSeekLogin — use Django user pk
     if contributor_id is None:
         if hasattr(request, "user") and request.user.is_authenticated:
             contributor_id = request.user.pk

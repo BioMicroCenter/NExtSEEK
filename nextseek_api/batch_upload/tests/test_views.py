@@ -53,6 +53,7 @@ class TestResolveUserContext:
         )
         request = MagicMock()
         request.user = user  # Real Django user (is_authenticated is True by default)
+        request.data = {}  # No person_id override
 
         with patch("seek.seekdb.SeekDB", side_effect=Exception("no seekdb")):
             result = _resolve_user_context(request)
@@ -605,3 +606,115 @@ class TestUpdateExistingParameter:
         # Verify update_existing was passed through config_overrides
         call_kwargs = mock_task.delay.call_args[1]
         assert call_kwargs["config_overrides"]["update_existing"] is True
+
+
+class TestBasicAuthPersonId:
+    """Test person_id requirement for Basic Auth requests."""
+
+    @pytest.mark.django_db
+    def test_basic_auth_without_person_id_rejected(self, factory, admin_user):
+        """Basic Auth request without person_id should return 400."""
+        import base64
+        admin_user.set_password("testpass123")
+        admin_user.save()
+        credentials = base64.b64encode(b"batch_admin:testpass123").decode("utf-8")
+        view = BatchUploadViewSet.as_view({"post": "start"})
+        request = factory.post(
+            "/api/batch-upload/start/",
+            data={
+                "project_id": 1,
+                "rows": [
+                    {"SampleType": "M.Mice", "json_metadata": {"Name": "m1"}},
+                ],
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Basic {credentials}",
+        )
+        response = view(request)
+        assert response.status_code == 400
+        assert "person_id" in response.data["detail"].lower()
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.register_job")
+    @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
+    @patch("nextseek_api.batch_upload.views._resolve_user_context", return_value={"contributor_id": 42, "lababbv": "MIT"})
+    def test_basic_auth_with_person_id_accepted(self, mock_contrib, mock_task, mock_register, factory, admin_user):
+        """Basic Auth request with person_id should be accepted."""
+        import base64
+        mock_task.delay.return_value.id = "basic-auth-pid-task"
+        admin_user.set_password("testpass123")
+        admin_user.save()
+        credentials = base64.b64encode(b"batch_admin:testpass123").decode("utf-8")
+        view = BatchUploadViewSet.as_view({"post": "start"})
+        request = factory.post(
+            "/api/batch-upload/start/",
+            data={
+                "project_id": 1,
+                "person_id": 42,
+                "rows": [
+                    {"SampleType": "M.Mice", "json_metadata": {"Name": "m1"}},
+                ],
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Basic {credentials}",
+        )
+        response = view(request)
+        assert response.status_code == 202
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.register_job")
+    @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
+    @patch("nextseek_api.batch_upload.views._resolve_user_context", return_value={"contributor_id": 1, "lababbv": "MIT"})
+    def test_session_auth_without_person_id_allowed(self, mock_contrib, mock_task, mock_register, factory, admin_user):
+        """Session auth (non-Basic) without person_id should still work."""
+        mock_task.delay.return_value.id = "session-no-pid-task"
+        view = BatchUploadViewSet.as_view({"post": "start"})
+        request = factory.post(
+            "/api/batch-upload/start/",
+            data={
+                "project_id": 1,
+                "rows": [
+                    {"SampleType": "M.Mice", "json_metadata": {"Name": "m1"}},
+                ],
+            },
+            format="json",
+        )
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 202
+
+
+class TestResolveUserContextFallback:
+    """Test _resolve_user_context getUserInfo fallback path."""
+
+    @pytest.mark.django_db
+    def test_fallback_resolves_lababbv_from_person_id(self):
+        """When getSeekLogin fails but person_id provided, getUserInfo resolves lababbv."""
+        from nextseek_api.batch_upload.views import _resolve_user_context
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username="fallback_user", defaults={"is_staff": True}
+        )
+        request = MagicMock()
+        request.user = user
+        request.data = {"person_id": 42}
+
+        mock_user_info = (
+            {"person_id": 42, "lababbv": "MIT", "institutionid": 1, "institutionname": "MIT"},
+            True,
+            "",
+        )
+
+        with patch("seek.seekdb.SeekDB") as MockSeekDB:
+            instance = MockSeekDB.return_value
+            instance.getSeekLogin.side_effect = Exception("no session credentials")
+            instance.getUserInfo.return_value = mock_user_info
+
+            # Mock the Users query for admin check (admin user, so skip check)
+            result = _resolve_user_context(request)
+
+        assert result is not None
+        assert result["contributor_id"] == 42
+        assert result["lababbv"] == "MIT"
