@@ -279,3 +279,152 @@ class SopCreateWithUploadTest(TestCase):
         response = vs.create(drf_request)
         self.assertEqual(response.status_code, 201)
         mock_client.create_sop.assert_called_once()
+
+
+def _valid_datafile_response(content_blobs=None):
+    """Build a minimal valid DataFileSingleResponse dict for test mocks."""
+    return {
+        "data": {
+            "id": "560", "type": "data_files",
+            "attributes": {
+                "title": "Test DataFile",
+                "content_blobs": content_blobs or [],
+            },
+            "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}},
+            "links": {"self": "/data_files/560"},
+            "meta": {"created": "2026-01-01", "modified": "2026-01-01", "uuid": "def"},
+        },
+        "jsonapi": {"version": "1.0"},
+    }
+
+
+class DataFileCreateWithUploadTest(TestCase):
+    """Test DataFile create handles multipart upload."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    @patch("nextseek_api.services.content_blobs.SeekAPIClient.upload_content_blob")
+    def test_create_with_file_uploads_to_seek(self, mock_upload):
+        seek_response = json.dumps(_valid_datafile_response(
+            content_blobs=[{"link": "http://seek/data_files/560/content_blobs/88",
+                            "original_filename": "data.csv",
+                            "content_type": "text/csv"}]
+        )).encode()
+
+        mock_upload.return_value = (200, {}, MagicMock())
+
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+
+        factory = APIRequestFactory()
+        metadata = json.dumps({
+            "data": {
+                "type": "data_files",
+                "attributes": {
+                    "title": "Test DataFile",
+                    "content_blobs": [
+                        {"original_filename": "data.csv", "content_type": "text/csv"}
+                    ]
+                },
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        })
+        django_request = factory.post('/nextseek_api/data_files/', {
+            'metadata': metadata,
+            'file': SimpleUploadedFile("data.csv", b"col1,col2\n1,2", content_type="text/csv"),
+        }, format='multipart')
+
+        vs = DataFileProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.create_data_file.return_value = (seek_response, 201, {"Content-Type": "application/json"}, MagicMock())
+        vs.client = mock_client
+        response = vs.create(drf_request)
+        mock_client.create_data_file.assert_called_once()
+        self.assertIn(response.status_code, (201, 207))
+
+    def test_create_without_files_backward_compat(self):
+        seek_response = json.dumps(_valid_datafile_response()).encode()
+
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+
+        factory = APIRequestFactory()
+        django_request = factory.post('/nextseek_api/data_files/', {
+            "data": {
+                "type": "data_files",
+                "attributes": {
+                    "title": "Test DataFile",
+                    "content_blobs": [{"original_filename": "data.csv", "content_type": "text/csv"}]
+                },
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }, format='json')
+
+        vs = DataFileProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.create_data_file.return_value = (seek_response, 201, {"Content-Type": "application/json"}, MagicMock())
+        vs.client = mock_client
+        response = vs.create(drf_request)
+        self.assertEqual(response.status_code, 201)
+        mock_client.create_data_file.assert_called_once()
+
+
+class UploadFlowIntegrationTest(TestCase):
+    """Test the full upload_content_blobs flow with mocked SEEK."""
+
+    def test_upload_matches_files_to_blobs_by_filename(self):
+        """Files are matched to blob placeholders by original_filename."""
+        client = SeekAPIClient()
+        blobs = [
+            {"link": "http://seek/sops/1/content_blobs/10", "original_filename": "a.pdf", "content_type": "application/pdf"},
+            {"link": "http://seek/sops/1/content_blobs/11", "original_filename": "b.csv", "content_type": "text/csv"},
+        ]
+        files = [
+            SimpleUploadedFile("a.pdf", b"pdf content", content_type="application/pdf"),
+            SimpleUploadedFile("b.csv", b"csv content", content_type="text/csv"),
+        ]
+        with patch.object(client, "upload_content_blob", return_value=(200, {}, MagicMock())) as mock_upload:
+            results = upload_content_blobs(client, MagicMock(), "sops", "1", blobs, files)
+            self.assertEqual(len(results), 2)
+            self.assertTrue(all(r.status == "uploaded" for r in results))
+            self.assertEqual(mock_upload.call_count, 2)
+
+    def test_upload_unmatched_file_is_skipped(self):
+        """Files with no matching placeholder are ignored."""
+        client = SeekAPIClient()
+        blobs = [
+            {"link": "http://seek/sops/1/content_blobs/10", "original_filename": "a.pdf", "content_type": "application/pdf"},
+        ]
+        files = [
+            SimpleUploadedFile("unmatched.txt", b"text", content_type="text/plain"),
+        ]
+        with patch.object(client, "upload_content_blob") as mock_upload:
+            results = upload_content_blobs(client, MagicMock(), "sops", "1", blobs, files)
+            self.assertEqual(len(results), 0)
+            mock_upload.assert_not_called()
+
+    def test_upload_partial_failure_returns_mixed_status(self):
+        """If one blob upload fails, results reflect mixed status."""
+        client = SeekAPIClient()
+        blobs = [
+            {"link": "http://seek/sops/1/content_blobs/10", "original_filename": "a.pdf", "content_type": "application/pdf"},
+            {"link": "http://seek/sops/1/content_blobs/11", "original_filename": "b.csv", "content_type": "text/csv"},
+        ]
+        files = [
+            SimpleUploadedFile("a.pdf", b"pdf content", content_type="application/pdf"),
+            SimpleUploadedFile("b.csv", b"csv content", content_type="text/csv"),
+        ]
+        with patch.object(client, "upload_content_blob", side_effect=[(200, {}, MagicMock()), (500, {}, MagicMock())]):
+            results = upload_content_blobs(client, MagicMock(), "sops", "1", blobs, files)
+            self.assertEqual(results[0].status, "uploaded")
+            self.assertEqual(results[1].status, "failed")

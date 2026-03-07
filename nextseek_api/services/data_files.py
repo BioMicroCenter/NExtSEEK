@@ -1,9 +1,11 @@
 from typing import Optional
 
 import json
+from django.conf import settings
 from django.http import HttpResponse
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
@@ -22,11 +24,13 @@ from nextseek_api.models import (
     DataFileCreateRequest,
     DataFileUpdateRequest,
     DataFileDownloadRequest,
+    ContentBlobUploadResponse,
 )
 from nextseek_api.services.content_blobs import (
     _resolve_uid_to_seek_id as _resolve_uid,
     download_single,
     download_batch,
+    upload_content_blobs,
 )
 
 
@@ -37,6 +41,7 @@ def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
 
 class DataFileProxyViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     client = SeekAPIClient()
     lookup_field = 'uid'
     lookup_url_kwarg = 'uid'
@@ -166,10 +171,27 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         ],
     )
     def create(self, request):
-        try:
-            payload = DataFileCreateRequest.model_validate(request.data).to_seek_payload()
-        except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+        has_files = bool(request.FILES)
+
+        if has_files:
+            metadata_str = request.data.get('metadata', '{}')
+            try:
+                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+                payload = DataFileCreateRequest.model_validate(metadata).to_seek_payload()
+            except Exception:
+                return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
+
+            max_bytes = getattr(settings, 'BATCH_UPLOAD_MAX_TOTAL_BYTES', 200 * 1024 * 1024)
+            total_size = sum(f.size for f in request.FILES.getlist('file'))
+            if total_size > max_bytes:
+                return HttpResponse(
+                    json.dumps({"errors": [{"title": f"Total upload size {total_size} exceeds limit {max_bytes}"}]}).encode(),
+                    status=413, content_type='application/json')
+        else:
+            try:
+                payload = DataFileCreateRequest.model_validate(request.data).to_seek_payload()
+            except Exception:
+                return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
         body, code, headers, resp = self.client.create_data_file(request, payload)
         if code == 401:
@@ -184,8 +206,26 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
-        ct = headers.get('Content-Type', 'application/json')
-        return HttpResponse(body, status=code, content_type=ct)
+        if not has_files or code >= 400:
+            ct = headers.get('Content-Type', 'application/json')
+            return HttpResponse(body, status=code, content_type=ct)
+
+        # Upload files to content blob endpoints
+        asset_id = data.get("data", {}).get("id")
+        content_blobs_meta = data.get("data", {}).get("attributes", {}).get("content_blobs", [])
+        files = request.FILES.getlist('file')
+
+        blob_results = upload_content_blobs(self.client, request, "data_files", asset_id, content_blobs_meta, files)
+
+        any_failed = any(r.status == "failed" for r in blob_results)
+        upload_resp = ContentBlobUploadResponse(
+            asset_id=asset_id, asset_type="data_files",
+            blob_uploads=blob_results, asset_data=data)
+
+        resp_status = 207 if any_failed else 201
+        return HttpResponse(
+            upload_resp.model_dump_json(), status=resp_status,
+            content_type='application/json')
 
     # PATCH /data_files/{uid}
     @extend_schema(
