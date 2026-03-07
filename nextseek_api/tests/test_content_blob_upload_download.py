@@ -249,6 +249,48 @@ class SopCreateWithUploadTest(TestCase):
         mock_client.create_sop.assert_called_once()
         self.assertIn(response.status_code, (201, 207))
 
+    def test_create_rejects_unmatched_files(self):
+        """Files that don't match any content_blob placeholder get 400."""
+        seek_response = json.dumps(_valid_sop_response(
+            content_blobs=[{"link": "http://seek/sops/42/content_blobs/99",
+                            "original_filename": "expected.pdf",
+                            "content_type": "application/pdf"}]
+        )).encode()
+
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.sops import SopProxyViewSet
+
+        factory = APIRequestFactory()
+        metadata = json.dumps({
+            "data": {
+                "type": "sops",
+                "attributes": {
+                    "title": "Test SOP",
+                    "content_blobs": [
+                        {"original_filename": "expected.pdf", "content_type": "application/pdf"}
+                    ]
+                },
+                "relationships": {"projects": {"data": [{"id": "2558", "type": "projects"}]}}
+            }
+        })
+        django_request = factory.post('/nextseek_api/sops/', {
+            'metadata': metadata,
+            'file': SimpleUploadedFile("wrong_name.pdf", b"content", content_type="application/pdf"),
+        }, format='multipart')
+
+        vs = SopProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.create_sop.return_value = (seek_response, 201, {"Content-Type": "application/json"}, MagicMock())
+        vs.client = mock_client
+        response = vs.create(drf_request)
+        self.assertEqual(response.status_code, 400)
+        body = json.loads(response.content)
+        self.assertIn("wrong_name.pdf", body["errors"][0]["detail"])
+
     def test_create_without_files_backward_compat(self):
         """Pure JSON create still works (no multipart)."""
         seek_response = json.dumps(_valid_sop_response(content_blobs=[])).encode()
@@ -399,8 +441,8 @@ class UploadFlowIntegrationTest(TestCase):
             self.assertTrue(all(r.status == "uploaded" for r in results))
             self.assertEqual(mock_upload.call_count, 2)
 
-    def test_upload_unmatched_file_is_skipped(self):
-        """Files with no matching placeholder are ignored."""
+    def test_upload_unmatched_file_is_skipped_at_low_level(self):
+        """At the upload_content_blobs level, unmatched files are silently skipped."""
         client = SeekAPIClient()
         blobs = [
             {"link": "http://seek/sops/1/content_blobs/10", "original_filename": "a.pdf", "content_type": "application/pdf"},
@@ -412,6 +454,24 @@ class UploadFlowIntegrationTest(TestCase):
             results = upload_content_blobs(client, MagicMock(), "sops", "1", blobs, files)
             self.assertEqual(len(results), 0)
             mock_upload.assert_not_called()
+
+    def test_check_unmatched_files_detects_extras(self):
+        """check_unmatched_files returns filenames that don't match any blob."""
+        from nextseek_api.services.content_blobs import check_unmatched_files
+        blobs = [{"original_filename": "a.pdf"}, {"original_filename": "b.csv"}]
+        files = [
+            SimpleUploadedFile("a.pdf", b"pdf", content_type="application/pdf"),
+            SimpleUploadedFile("extra.txt", b"text", content_type="text/plain"),
+        ]
+        unmatched = check_unmatched_files(blobs, files)
+        self.assertEqual(unmatched, ["extra.txt"])
+
+    def test_check_unmatched_files_all_match(self):
+        """check_unmatched_files returns empty list when all files match."""
+        from nextseek_api.services.content_blobs import check_unmatched_files
+        blobs = [{"original_filename": "a.pdf"}]
+        files = [SimpleUploadedFile("a.pdf", b"pdf", content_type="application/pdf")]
+        self.assertEqual(check_unmatched_files(blobs, files), [])
 
     def test_upload_partial_failure_returns_mixed_status(self):
         """If one blob upload fails, results reflect mixed status."""

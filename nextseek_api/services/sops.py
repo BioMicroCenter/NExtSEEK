@@ -35,6 +35,7 @@ from nextseek_api.services.content_blobs import (
     download_single,
     download_batch,
     upload_content_blobs,
+    check_unmatched_files,
 )
 
 log = logging.getLogger(__name__)
@@ -212,6 +213,13 @@ class SopProxyViewSet(viewsets.ViewSet):
         asset_id = data.get("data", {}).get("id")
         content_blobs_meta = data.get("data", {}).get("attributes", {}).get("content_blobs", [])
         files = request.FILES.getlist('file')
+
+        unmatched = check_unmatched_files(content_blobs_meta, files)
+        if unmatched:
+            return HttpResponse(
+                json.dumps({"errors": [{"title": "Uploaded files do not match any content_blob placeholder",
+                                        "detail": f"Unmatched filenames: {unmatched}"}]}).encode(),
+                status=400, content_type='application/json')
 
         blob_results = upload_content_blobs(self.client, request, "sops", asset_id, content_blobs_meta, files)
 

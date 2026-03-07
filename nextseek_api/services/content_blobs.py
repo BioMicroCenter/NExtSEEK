@@ -376,6 +376,12 @@ def download_batch(client, request, asset_type: str, data: list):
     return response
 
 
+def check_unmatched_files(content_blobs_meta: list, files: list) -> list:
+    """Return list of filenames in files that don't match any blob placeholder."""
+    blob_filenames = {b.get("original_filename") for b in content_blobs_meta}
+    return [f.name for f in files if f.name not in blob_filenames]
+
+
 def upload_content_blobs(client, request, asset_type: str, asset_id: str,
                          content_blobs_meta: list, files: list):
     """Upload file(s) to SEEK content blob endpoints.
