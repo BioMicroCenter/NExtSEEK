@@ -2148,27 +2148,79 @@ class SopDownloadRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
 
-class SopBatchDownloadManifestEntry(BaseModel):
+class BatchDownloadManifestEntry(BaseModel):
     """Single entry (success) in the batch download manifest."""
     filename: str
     seek_id: str
     uid_or_id: str
     model_config = ConfigDict(extra='forbid')
 
+SopBatchDownloadManifestEntry = BatchDownloadManifestEntry
 
-class SopBatchDownloadManifestFailure(BaseModel):
+
+class BatchDownloadManifestFailure(BaseModel):
     """Single failure entry in the batch download manifest."""
     uid_or_id: str
     error: str
     model_config = ConfigDict(extra='forbid')
 
+SopBatchDownloadManifestFailure = BatchDownloadManifestFailure
 
-class SopBatchDownloadManifest(BaseModel):
+
+class BatchDownloadManifest(BaseModel):
     """manifest.json written inside the zip."""
     generated_at: str
     total_requested: int
     total_success: int
     total_failed: int
-    successes: List[SopBatchDownloadManifestEntry] = Field(default_factory=list)
-    failures: List[SopBatchDownloadManifestFailure] = Field(default_factory=list)
+    successes: List[BatchDownloadManifestEntry] = Field(default_factory=list)
+    failures: List[BatchDownloadManifestFailure] = Field(default_factory=list)
+    model_config = ConfigDict(extra='forbid')
+
+SopBatchDownloadManifest = BatchDownloadManifest
+
+
+# -----------------------------
+# DataFile Download: request model
+# -----------------------------
+
+class DataFileDownloadRequest(BaseModel):
+    """Public request body for ``POST /data_files/download``."""
+    uid_or_id: str = Field(
+        ...,
+        description="DataFile identifier: numeric SEEK ID or NExtSEEK UID/title.",
+    )
+    output_format: Optional[Literal["original", "csv", "json", "binary"]] = Field(
+        None,
+        description="Desired output format (same semantics as SOP download).",
+    )
+    asset_types: Optional[str] = Field(
+        None,
+        description="Override for SEEK path param. Default: 'data_files'.",
+    )
+    seek_id: Optional[int] = Field(None, description="Override SEEK numeric ID.")
+    blob_id: Optional[int] = Field(None, description="Override content blob ID.")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# Content blob upload: response model
+# -----------------------------
+
+class ContentBlobUploadStatus(BaseModel):
+    """Status of a single content blob upload."""
+    blob_id: str
+    original_filename: Optional[str] = None
+    status: Literal["uploaded", "failed"]
+    error: Optional[str] = None
+    model_config = ConfigDict(extra='forbid')
+
+
+class ContentBlobUploadResponse(BaseModel):
+    """Response when file upload accompanies asset creation."""
+    asset_id: str
+    asset_type: str
+    blob_uploads: List[ContentBlobUploadStatus] = Field(default_factory=list)
+    asset_data: Optional[Dict[str, Any]] = None
     model_config = ConfigDict(extra='forbid')

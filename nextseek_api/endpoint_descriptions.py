@@ -163,6 +163,20 @@ DATAFILE_UPDATE_DESC = (
     "- 'Update data file 560 title'\n"
 )
 
+DATAFILE_DOWNLOAD_DESC = (
+    "**SUMMARY:** Download DataFile content blobs — supports single and batch modes.\n\n"
+    "**USE WHEN:** The user wants to download actual file(s) attached to one or more data files.\n\n"
+    "**ACCEPTS:** Single mode (JSON object): one request with `uid_or_id`, optional `blob_id` and `output_format`. "
+    "Batch mode (JSON array): multiple request objects.\n\n"
+    "**RETURNS:** Single mode: streaming binary file download. "
+    "Batch mode: zip archive containing all downloaded files plus a `manifest.json`.\n\n"
+    "**TRIGGER PHRASES:** download data file, get data, fetch file content, download experiment data, batch download files\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Download the sequencing results for sample NHP-260225MIT-1'\n"
+    "- 'Get the CSV data file for the water study'\n"
+    "- 'Download multiple data files as a zip'\n"
+)
+
 # =============================================================================
 # ProjectProxyViewSet (4 endpoints)
 # =============================================================================

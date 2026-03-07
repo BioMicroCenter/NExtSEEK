@@ -308,6 +308,39 @@ class SeekAPIClient:
 
         return resp.status_code, dict(resp.headers), resp
 
+    # ---- Upload content blob ----
+
+    def upload_content_blob(self, request, path: str, file_data: bytes,
+                            content_type: str):
+        """PUT binary content to a SEEK content blob endpoint.
+
+        path: e.g. /sops/42/content_blobs/99
+        Returns: (status_code, headers_dict, response_or_None)
+        """
+        basic_tuple, extra_headers = resolve_seek_auth(request)
+        if not basic_tuple and not extra_headers:
+            return 401, {'Content-Type': JSONAPI_ACCEPT}, None
+
+        url = f"{self.base_url}{path}"
+        headers = {'Content-Type': 'application/octet-stream'}
+        if extra_headers:
+            headers.update(extra_headers)
+
+        t0 = time.time()
+        resp = self.session.request(
+            method='PUT',
+            url=url,
+            auth=basic_tuple,
+            headers=headers,
+            data=file_data,
+            timeout=(10, 300),
+        )
+        dt_ms = (time.time() - t0) * 1000.0
+        log.info("seek_upload path=%s status=%d latency_ms=%.1f bytes=%d",
+                 path, resp.status_code, dt_ms, len(file_data))
+
+        return resp.status_code, dict(resp.headers), resp
+
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 100
     page_size_query_param = 'page_size'
