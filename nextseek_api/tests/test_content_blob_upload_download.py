@@ -52,3 +52,67 @@ class SeekAPIClientUploadTest(TestCase):
         )
         self.assertEqual(status, 401)
         self.assertIsNone(resp)
+
+
+from nextseek_api.services.content_blobs import (
+    resolve_asset_and_blobs,
+    download_single,
+    download_batch,
+    upload_content_blobs,
+    deduplicate_filename,
+)
+
+
+class ResolveAssetAndBlobsTest(TestCase):
+    """Test resolve_asset_and_blobs for both asset types."""
+
+    @patch("nextseek_api.services.content_blobs._resolve_uid_to_seek_id")
+    def test_resolve_returns_404_when_not_found(self, mock_resolve):
+        mock_resolve.return_value = None
+        mock_req = MagicMock()
+        mock_req.seek_id = None
+        mock_req.uid_or_id = "nonexistent"
+        client = SeekAPIClient()
+        result = resolve_asset_and_blobs(client, MagicMock(), "sops", mock_req)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], 404)
+
+    @patch("nextseek_api.services.content_blobs._resolve_uid_to_seek_id")
+    def test_resolve_single_blob_success(self, mock_resolve):
+        mock_resolve.return_value = "42"
+        client = SeekAPIClient()
+        sop_response = json.dumps({
+            "data": {
+                "attributes": {
+                    "version": 1,
+                    "latest_version": 1,
+                    "content_blobs": [
+                        {"link": "http://seek/sops/42/content_blobs/99",
+                         "original_filename": "test.pdf",
+                         "content_type": "application/pdf"}
+                    ],
+                }
+            }
+        }).encode()
+        with patch.object(client, "get_sop", return_value=(sop_response, 200, {}, MagicMock())):
+            mock_req = MagicMock()
+            mock_req.seek_id = None
+            mock_req.uid_or_id = "42"
+            mock_req.blob_id = None
+            mock_req.asset_types = None
+            mock_req.output_format = None
+            result = resolve_asset_and_blobs(client, MagicMock(), "sops", mock_req)
+            self.assertTrue(result["success"])
+            self.assertEqual(result["seek_id"], "42")
+
+
+class DeduplicateFilenameTest(TestCase):
+
+    def test_unique_filename_returned_as_is(self):
+        used = set()
+        self.assertEqual(deduplicate_filename("file.pdf", "1", used), "file.pdf")
+        self.assertIn("file.pdf", used)
+
+    def test_duplicate_gets_seek_id_suffix(self):
+        used = {"file.pdf"}
+        self.assertEqual(deduplicate_filename("file.pdf", "42", used), "file_42.pdf")
