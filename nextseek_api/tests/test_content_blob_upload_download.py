@@ -9,6 +9,31 @@ from django.test import TestCase
 
 from nextseek_api.helpers import SeekAPIClient
 
+_EMPTY_REF = {"data": []}
+
+
+def _valid_sop_response(content_blobs=None):
+    """Build a minimal valid SopSingleResponse dict for test mocks."""
+    return {
+        "data": {
+            "id": "42", "type": "sops",
+            "attributes": {
+                "title": "Test SOP",
+                "content_blobs": content_blobs or [],
+            },
+            "relationships": {
+                "creators": _EMPTY_REF, "submitter": _EMPTY_REF,
+                "people": _EMPTY_REF, "projects": _EMPTY_REF,
+                "investigations": _EMPTY_REF, "studies": _EMPTY_REF,
+                "assays": _EMPTY_REF, "publications": _EMPTY_REF,
+                "workflows": _EMPTY_REF,
+            },
+            "links": {"self": "/sops/42"},
+            "meta": {"created": "2026-01-01", "modified": "2026-01-01", "uuid": "abc"},
+        },
+        "jsonapi": {"version": "1.0"},
+    }
+
 
 class SeekAPIClientUploadTest(TestCase):
     """Test SeekAPIClient.upload_content_blob method."""
@@ -116,3 +141,141 @@ class DeduplicateFilenameTest(TestCase):
     def test_duplicate_gets_seek_id_suffix(self):
         used = {"file.pdf"}
         self.assertEqual(deduplicate_filename("file.pdf", "42", used), "file_42.pdf")
+
+
+class SopDownloadDelegationTest(TestCase):
+    """Verify SOP download delegates to shared module."""
+
+    @patch("nextseek_api.services.sops.download_single")
+    def test_single_download_delegates(self, mock_dl):
+        mock_dl.return_value = HttpResponse(b"file content", status=200)
+        from nextseek_api.services.sops import SopProxyViewSet
+        vs = SopProxyViewSet()
+        vs.client = SeekAPIClient()
+        mock_request = MagicMock()
+        mock_request.data = {"uid_or_id": "42"}
+        resp = vs.download(mock_request)
+        mock_dl.assert_called_once()
+        self.assertEqual(mock_dl.call_args[0][2], "sops")
+
+    @patch("nextseek_api.services.sops.download_batch")
+    def test_batch_download_delegates(self, mock_dl):
+        mock_dl.return_value = HttpResponse(b"zip", status=200)
+        from nextseek_api.services.sops import SopProxyViewSet
+        vs = SopProxyViewSet()
+        vs.client = SeekAPIClient()
+        mock_request = MagicMock()
+        mock_request.data = [{"uid_or_id": "42"}]
+        resp = vs.download(mock_request)
+        mock_dl.assert_called_once()
+        self.assertEqual(mock_dl.call_args[0][2], "sops")
+
+
+class DataFileDownloadTest(TestCase):
+    """Test DataFile download action exists and delegates to shared module."""
+
+    @patch("nextseek_api.services.data_files.download_single")
+    def test_single_download(self, mock_dl):
+        mock_dl.return_value = HttpResponse(b"csv data", status=200)
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+        vs = DataFileProxyViewSet()
+        mock_request = MagicMock()
+        mock_request.data = {"uid_or_id": "560"}
+        resp = vs.download(mock_request)
+        mock_dl.assert_called_once()
+        self.assertEqual(mock_dl.call_args[0][2], "data_files")
+
+    @patch("nextseek_api.services.data_files.download_batch")
+    def test_batch_download(self, mock_dl):
+        mock_dl.return_value = HttpResponse(b"zip", status=200)
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+        vs = DataFileProxyViewSet()
+        mock_request = MagicMock()
+        mock_request.data = [{"uid_or_id": "560"}, {"uid_or_id": "561"}]
+        resp = vs.download(mock_request)
+        mock_dl.assert_called_once()
+        self.assertEqual(mock_dl.call_args[0][2], "data_files")
+
+
+class SopCreateWithUploadTest(TestCase):
+    """Test SOP create handles multipart upload."""
+
+    def _make_drf_request(self, django_request, vs):
+        """Wrap a Django WSGIRequest in DRF's Request with the viewset's parsers."""
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    @patch("nextseek_api.services.content_blobs.SeekAPIClient.upload_content_blob")
+    def test_create_with_file_uploads_to_seek(self, mock_upload):
+        """When files are present, create should POST metadata then PUT each file."""
+        seek_response = json.dumps(_valid_sop_response(
+            content_blobs=[{"link": "http://seek/sops/42/content_blobs/99",
+                            "original_filename": "test.pdf",
+                            "content_type": "application/pdf"}]
+        )).encode()
+
+        mock_upload.return_value = (200, {}, MagicMock())
+
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.sops import SopProxyViewSet
+
+        factory = APIRequestFactory()
+        metadata = json.dumps({
+            "data": {
+                "type": "sops",
+                "attributes": {
+                    "title": "Test SOP",
+                    "content_blobs": [
+                        {"original_filename": "test.pdf", "content_type": "application/pdf"}
+                    ]
+                },
+                "relationships": {"projects": {"data": [{"id": "2558", "type": "projects"}]}}
+            }
+        })
+        django_request = factory.post('/nextseek_api/sops/', {
+            'metadata': metadata,
+            'file': SimpleUploadedFile("test.pdf", b"fake pdf content", content_type="application/pdf"),
+        }, format='multipart')
+
+        vs = SopProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.create_sop.return_value = (seek_response, 201, {"Content-Type": "application/json"}, MagicMock())
+        vs.client = mock_client
+        response = vs.create(drf_request)
+        mock_client.create_sop.assert_called_once()
+        self.assertIn(response.status_code, (201, 207))
+
+    def test_create_without_files_backward_compat(self):
+        """Pure JSON create still works (no multipart)."""
+        seek_response = json.dumps(_valid_sop_response(content_blobs=[])).encode()
+
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.sops import SopProxyViewSet
+
+        factory = APIRequestFactory()
+        django_request = factory.post('/nextseek_api/sops/', {
+            "data": {
+                "type": "sops",
+                "attributes": {
+                    "title": "Test SOP",
+                    "content_blobs": [{"original_filename": "test.pdf", "content_type": "application/pdf"}]
+                },
+                "relationships": {"projects": {"data": [{"id": "2558", "type": "projects"}]}}
+            }
+        }, format='json')
+
+        vs = SopProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.create_sop.return_value = (seek_response, 201, {"Content-Type": "application/json"}, MagicMock())
+        vs.client = mock_client
+        response = vs.create(drf_request)
+        self.assertEqual(response.status_code, 201)
+        mock_client.create_sop.assert_called_once()

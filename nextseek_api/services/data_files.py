@@ -3,8 +3,10 @@ from typing import Optional
 import json
 from django.http import HttpResponse
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+from drf_spectacular.types import OpenApiTypes
 
 from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.endpoint_descriptions import (
@@ -12,46 +14,25 @@ from nextseek_api.endpoint_descriptions import (
     DATAFILE_FETCH_DESC,
     DATAFILE_CREATE_DESC,
     DATAFILE_UPDATE_DESC,
+    DATAFILE_DOWNLOAD_DESC,
 )
 from nextseek_api.models import (
     DataFileListResponse,
     DataFileSingleResponse,
     DataFileCreateRequest,
     DataFileUpdateRequest,
+    DataFileDownloadRequest,
 )
-from seek.dbtable_data_files import DBtable_data_files
-from django.db.models import Q
+from nextseek_api.services.content_blobs import (
+    _resolve_uid_to_seek_id as _resolve_uid,
+    download_single,
+    download_batch,
+)
 
 
 def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
-    s = str(uid_or_id)
-    if s.isdigit():
-        return s
-    try:
-        dbdf = DBtable_data_files("DEFAULT")
-        # 1) Exact title match
-        exact = dbdf.queryRecordsByConstraint({"title": s}) or []
-        if isinstance(exact, list) and len(exact) == 1 and exact[0].get('id') is not None:
-            return str(exact[0]['id'])
-
-        # 2) If input looks like a sample UID (no underscore), try prefix match on title
-        if "_" not in s:
-            prefix_rows = dbdf.queryRecordsCustom(Q(title__startswith=s + "_")) or []
-            if len(prefix_rows) == 1 and prefix_rows[0].get('id') is not None:
-                return str(prefix_rows[0]['id'])
-            if len(prefix_rows) > 1:
-                # Deterministic tie-breaker: choose the highest numeric id
-                def _to_int(v):
-                    try:
-                        return int(v)
-                    except Exception:
-                        return -1
-                best = max(prefix_rows, key=lambda r: _to_int(r.get('id')))
-                if best and best.get('id') is not None:
-                    return str(best['id'])
-    except Exception:
-        return None
-    return None
+    """Backward-compat wrapper — delegates to shared resolver."""
+    return _resolve_uid(uid_or_id, "data_files")
 
 
 class DataFileProxyViewSet(viewsets.ViewSet):
@@ -265,4 +246,36 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
 
-
+    # POST /data_files/download
+    @extend_schema(
+        operation_id="Download DataFile content blob",
+        description=DATAFILE_DOWNLOAD_DESC,
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiTypes.BINARY},
+        tags=['DataFiles'],
+        examples=[
+            OpenApiExample(
+                name="Download by SEEK ID",
+                value={"uid_or_id": "560"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Batch download (zip)",
+                value=[{"uid_or_id": "560"}, {"uid_or_id": "561"}],
+                request_only=True,
+            ),
+        ],
+    )
+    @action(detail=False, methods=["post"], url_path="download")
+    def download(self, request):
+        """Dispatcher: single dict → streaming file; list → zip archive."""
+        data = request.data
+        if isinstance(data, dict):
+            return download_single(self.client, request, "data_files", data)
+        elif isinstance(data, list):
+            return download_batch(self.client, request, "data_files", data)
+        else:
+            return HttpResponse(
+                b'{"errors":[{"title":"Request body must be a JSON object or array"}]}',
+                status=422, content_type='application/json',
+            )
