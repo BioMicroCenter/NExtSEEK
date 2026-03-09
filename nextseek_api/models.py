@@ -106,7 +106,7 @@ class SopPostAttributes(BaseModel):
     tags: Optional[List[str]] = None
     license: Optional[str] = None
     policy: Optional[Policy] = None
-    content_blobs: List[ContentBlobSlot]
+    content_blobs: Optional[List[ContentBlobSlot]] = None
     other_creators: Optional[str] = None
     creators: Optional[List[Dict[str, Any]]] = None
     discussion_links: Optional[List[Dict[str, Any]]] = None
@@ -300,7 +300,7 @@ ContentBlobSlotUnion = Union[RemoteContentBlob, ContentBlobPlaceholder]
 
 class DataFilePostAttributes(BaseModel):
     title: str
-    content_blobs: List[ContentBlobSlotUnion]
+    content_blobs: Optional[List[ContentBlobSlotUnion]] = None
     description: Optional[str] = None
     tags: Optional[List[str]] = None
     data_type_annotations: Optional[List[str]] = None
