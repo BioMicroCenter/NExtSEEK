@@ -32,6 +32,7 @@ from nextseek_api.services.content_blobs import (
     download_batch,
     upload_content_blobs,
     check_unmatched_files,
+    auto_populate_content_blobs,
 )
 
 
@@ -150,12 +151,34 @@ class DataFileProxyViewSet(viewsets.ViewSet):
     @extend_schema(
         operation_id="Create a DataFile",
         description=DATAFILE_CREATE_DESC,
-        request=DataFileCreateRequest,
-        responses={201: DataFileSingleResponse, 200: DataFileSingleResponse},
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "array",
+                        "items": {"type": "string", "format": "binary"},
+                        "description": "One or more files to upload as content blobs.",
+                    },
+                    "metadata": {
+                        "type": "string",
+                        "description": (
+                            'JSON string with DataFile metadata. Minimum: '
+                            '{"data":{"type":"data_files","attributes":{"title":"..."},'
+                            '"relationships":{"projects":{"data":[{"id":"...","type":"projects"}]}}}}'
+                            ' — content_blobs are auto-generated from uploaded files if omitted.'
+                        ),
+                    },
+                },
+                "required": ["metadata"],
+            },
+            "application/json": DataFileCreateRequest,
+        },
+        responses={201: DataFileSingleResponse, 207: ContentBlobUploadResponse, 200: DataFileSingleResponse},
         tags=['DataFiles'],
         examples=[
             OpenApiExample(
-                name="Create DataFile",
+                name="Create DataFile (JSON only, no file)",
                 value={
                     "data": {
                         "type": "data_files",
@@ -167,8 +190,9 @@ class DataFileProxyViewSet(viewsets.ViewSet):
                         },
                         "relationships": {"projects": {"data": [{"id": "560", "type": "projects"}]}}
                     }
-                }
-            )
+                },
+                media_type="application/json",
+            ),
         ],
     )
     def create(self, request):
@@ -178,6 +202,7 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             metadata_str = request.data.get('metadata', '{}')
             try:
                 metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+                metadata = auto_populate_content_blobs(metadata, request.FILES.getlist('file'))
                 payload = DataFileCreateRequest.model_validate(metadata).to_seek_payload()
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
