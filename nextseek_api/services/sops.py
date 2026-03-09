@@ -224,13 +224,18 @@ class SopProxyViewSet(viewsets.ViewSet):
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
+        # Forward SEEK errors before attempting response validation
+        if code >= 400:
+            ct = headers.get('Content-Type', 'application/json')
+            return HttpResponse(body, status=code, content_type=ct)
+
         try:
             data = json.loads(body or b"{}")
             SopSingleResponse.model_validate(data)
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
-        if not has_files or code >= 400:
+        if not has_files:
             ct = headers.get('Content-Type', 'application/json')
             return HttpResponse(body, status=code, content_type=ct)
 
@@ -338,6 +343,11 @@ class SopProxyViewSet(viewsets.ViewSet):
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
+        # Forward SEEK errors before attempting response validation
+        if code >= 400:
+            ct = headers.get('Content-Type', 'application/json')
+            return HttpResponse(body, status=code, content_type=ct)
+
         # Validate response
         try:
             ct = (headers.get('Content-Type') or '').lower()
@@ -348,7 +358,7 @@ class SopProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
-        if not has_files or code >= 400:
+        if not has_files:
             ct = headers.get('Content-Type', 'application/json')
             return HttpResponse(body, status=code, content_type=ct)
 

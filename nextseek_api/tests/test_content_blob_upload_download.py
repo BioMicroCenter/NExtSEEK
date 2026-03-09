@@ -916,3 +916,205 @@ class DataFileUpdateWithUploadTest(TestCase):
         self.assertEqual(len(blobs), 1)
         self.assertEqual(blobs[0]["original_filename"], "updated.csv")
         self.assertIn(response.status_code, (200, 207))
+
+
+class SopCreateErrorHandlingTest(TestCase):
+    """Verify SEEK error responses are forwarded, not masked as 502."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    def test_seek_422_forwarded_not_502(self):
+        """When SEEK returns 422, we should forward it, not return 502."""
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.sops import SopProxyViewSet
+
+        factory = APIRequestFactory()
+        seek_error = json.dumps({
+            "errors": [{"title": "Unprocessable Entity", "detail": "content_blobs is required"}]
+        }).encode()
+
+        django_request = factory.post('/nextseek_api/sops/', data=json.dumps({
+            "data": {
+                "type": "sops",
+                "attributes": {"title": "Test SOP"},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }), content_type='application/json')
+
+        vs = SopProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.create_sop.return_value = (seek_error, 422, {'Content-Type': 'application/vnd.api+json'}, None)
+        vs.client = mock_client
+
+        response = vs.create(drf_request)
+        self.assertEqual(response.status_code, 422)  # Not 502
+        body = json.loads(response.content)
+        self.assertIn("errors", body)
+
+    def test_seek_500_forwarded_not_502(self):
+        """When SEEK returns 500, we should forward it, not return 502."""
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.sops import SopProxyViewSet
+
+        factory = APIRequestFactory()
+        seek_error = json.dumps({"errors": [{"title": "Internal Server Error"}]}).encode()
+
+        django_request = factory.post('/nextseek_api/sops/', data=json.dumps({
+            "data": {
+                "type": "sops",
+                "attributes": {"title": "Test SOP"},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }), content_type='application/json')
+
+        vs = SopProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.create_sop.return_value = (seek_error, 500, {'Content-Type': 'application/vnd.api+json'}, None)
+        vs.client = mock_client
+
+        response = vs.create(drf_request)
+        self.assertEqual(response.status_code, 500)
+
+
+class SopUpdateErrorHandlingTest(TestCase):
+    """Verify SEEK error responses on PATCH are forwarded, not masked as 502."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    @patch("nextseek_api.services.content_blobs._resolve_uid_to_seek_id", return_value="144")
+    def test_seek_422_forwarded_not_502(self, mock_resolve):
+        """When SEEK returns 422, we should forward it, not return 502."""
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.sops import SopProxyViewSet
+
+        factory = APIRequestFactory()
+        seek_error = json.dumps({"errors": [{"title": "Unprocessable Entity"}]}).encode()
+
+        django_request = factory.patch('/nextseek_api/sops/144/', data=json.dumps({
+            "data": {"type": "sops", "id": "144", "attributes": {"title": "Updated"}}
+        }), content_type='application/json')
+
+        vs = SopProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.update_sop.return_value = (seek_error, 422, {'Content-Type': 'application/vnd.api+json'}, None)
+        vs.client = mock_client
+
+        response = vs.partial_update(drf_request, uid="144")
+        self.assertEqual(response.status_code, 422)
+
+
+class DataFileCreateErrorHandlingTest(TestCase):
+    """Verify SEEK error responses on DataFile create are forwarded, not masked as 502."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    def test_seek_422_forwarded_not_502(self):
+        """When SEEK returns 422, we should forward it, not return 502."""
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+
+        factory = APIRequestFactory()
+        seek_error = json.dumps({
+            "errors": [{"title": "Unprocessable Entity", "detail": "content_blobs is required"}]
+        }).encode()
+
+        django_request = factory.post('/nextseek_api/data_files/', data=json.dumps({
+            "data": {
+                "type": "data_files",
+                "attributes": {"title": "Test DF"},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }), content_type='application/json')
+
+        vs = DataFileProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.create_data_file.return_value = (seek_error, 422, {'Content-Type': 'application/vnd.api+json'}, None)
+        vs.client = mock_client
+
+        response = vs.create(drf_request)
+        self.assertEqual(response.status_code, 422)
+        body = json.loads(response.content)
+        self.assertIn("errors", body)
+
+    def test_seek_500_forwarded_not_502(self):
+        """When SEEK returns 500, we should forward it, not return 502."""
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+
+        factory = APIRequestFactory()
+        seek_error = json.dumps({"errors": [{"title": "Internal Server Error"}]}).encode()
+
+        django_request = factory.post('/nextseek_api/data_files/', data=json.dumps({
+            "data": {
+                "type": "data_files",
+                "attributes": {"title": "Test DF"},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }), content_type='application/json')
+
+        vs = DataFileProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.create_data_file.return_value = (seek_error, 500, {'Content-Type': 'application/vnd.api+json'}, None)
+        vs.client = mock_client
+
+        response = vs.create(drf_request)
+        self.assertEqual(response.status_code, 500)
+
+
+class DataFileUpdateErrorHandlingTest(TestCase):
+    """Verify SEEK error responses on DataFile PATCH are forwarded, not masked as 502."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    @patch("nextseek_api.services.data_files._resolve_uid_to_seek_id", return_value="560")
+    def test_seek_422_forwarded_not_502(self, mock_resolve):
+        """When SEEK returns 422, we should forward it, not return 502."""
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+
+        factory = APIRequestFactory()
+        seek_error = json.dumps({"errors": [{"title": "Unprocessable Entity"}]}).encode()
+
+        django_request = factory.patch('/nextseek_api/data_files/560/', data=json.dumps({
+            "data": {"type": "data_files", "id": "560", "attributes": {"title": "Updated"}}
+        }), content_type='application/json')
+
+        vs = DataFileProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.update_data_file.return_value = (seek_error, 422, {'Content-Type': 'application/vnd.api+json'}, None)
+        vs.client = mock_client
+
+        response = vs.partial_update(drf_request, uid="560")
+        self.assertEqual(response.status_code, 422)

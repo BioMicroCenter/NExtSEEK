@@ -223,6 +223,11 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
+        # Forward SEEK errors before attempting response validation
+        if code >= 400:
+            ct = headers.get('Content-Type', 'application/json')
+            return HttpResponse(body, status=code, content_type=ct)
+
         try:
             ct = (headers.get('Content-Type') or '').lower()
             if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
@@ -232,7 +237,7 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
-        if not has_files or code >= 400:
+        if not has_files:
             ct = headers.get('Content-Type', 'application/json')
             return HttpResponse(body, status=code, content_type=ct)
 
@@ -344,6 +349,11 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
+        # Forward SEEK errors before attempting response validation
+        if code >= 400:
+            ct = headers.get('Content-Type', 'application/json')
+            return HttpResponse(body, status=code, content_type=ct)
+
         try:
             ct = (headers.get('Content-Type') or '').lower()
             if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
@@ -353,7 +363,7 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
-        if not has_files or code >= 400:
+        if not has_files:
             ct = headers.get('Content-Type', 'application/json')
             return HttpResponse(body, status=code, content_type=ct)
 
