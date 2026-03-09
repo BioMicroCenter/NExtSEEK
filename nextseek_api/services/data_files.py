@@ -267,29 +267,66 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or NExtSEEK UID (string)')
         ],
-        request=DataFileUpdateRequest,
-        responses={200: DataFileSingleResponse},
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "array",
+                        "items": {"type": "string", "format": "binary"},
+                        "description": "One or more files to replace content blobs.",
+                    },
+                    "metadata": {
+                        "type": "string",
+                        "description": 'JSON string with DataFile patch metadata. content_blobs auto-generated from files.',
+                    },
+                },
+                "required": ["metadata"],
+            },
+            "application/json": DataFileUpdateRequest,
+        },
+        responses={200: DataFileSingleResponse, 207: ContentBlobUploadResponse},
         tags=['DataFiles'],
         examples=[
             OpenApiExample(
-                name="Patch DataFile",
+                name="Patch DataFile (JSON only)",
                 value={
                     "data": {
                         "type": "data_files",
                         "id": "560",
                         "attributes": {"description": "Updated description"}
                     }
-                }
+                },
+                media_type="application/json",
             )
         ],
     )
     def partial_update(self, request, uid=None, pk=None):
         uid = uid or pk
-        try:
-            update_req = DataFileUpdateRequest.model_validate(request.data)
-            payload = update_req.to_seek_payload()
-        except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+        has_files = bool(request.FILES)
+
+        if has_files:
+            metadata_str = request.data.get('metadata', '{}')
+            try:
+                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+                metadata = auto_populate_content_blobs(metadata, request.FILES.getlist('file'))
+                update_req = DataFileUpdateRequest.model_validate(metadata)
+                payload = update_req.to_seek_payload()
+            except Exception:
+                return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
+
+            max_bytes = getattr(settings, 'BATCH_UPLOAD_MAX_TOTAL_BYTES', 200 * 1024 * 1024)
+            total_size = sum(f.size for f in request.FILES.getlist('file'))
+            if total_size > max_bytes:
+                return HttpResponse(
+                    json.dumps({"errors": [{"title": f"Total upload size {total_size} exceeds limit {max_bytes}"}]}).encode(),
+                    status=413, content_type='application/json')
+        else:
+            try:
+                update_req = DataFileUpdateRequest.model_validate(request.data)
+                payload = update_req.to_seek_payload()
+            except Exception:
+                return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
         seek_id = _resolve_uid_to_seek_id(uid)
 
@@ -316,8 +353,33 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
-        ct = headers.get('Content-Type', 'application/json')
-        return HttpResponse(body, status=code, content_type=ct)
+        if not has_files or code >= 400:
+            ct = headers.get('Content-Type', 'application/json')
+            return HttpResponse(body, status=code, content_type=ct)
+
+        # Upload files to content blob endpoints
+        asset_id = data.get("data", {}).get("id")
+        content_blobs_meta = data.get("data", {}).get("attributes", {}).get("content_blobs", [])
+        files = request.FILES.getlist('file')
+
+        unmatched = check_unmatched_files(content_blobs_meta, files)
+        if unmatched:
+            return HttpResponse(
+                json.dumps({"errors": [{"title": "Uploaded files do not match any content_blob placeholder",
+                                        "detail": f"Unmatched filenames: {unmatched}"}]}).encode(),
+                status=400, content_type='application/json')
+
+        blob_results = upload_content_blobs(self.client, request, "data_files", asset_id, content_blobs_meta, files)
+
+        any_failed = any(r.status == "failed" for r in blob_results)
+        upload_resp = ContentBlobUploadResponse(
+            asset_id=asset_id, asset_type="data_files",
+            blob_uploads=blob_results, asset_data=data)
+
+        resp_status = 207 if any_failed else 200
+        return HttpResponse(
+            upload_resp.model_dump_json(), status=resp_status,
+            content_type='application/json')
 
     # POST /data_files/download
     @extend_schema(
