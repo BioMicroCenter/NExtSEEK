@@ -382,6 +382,38 @@ def check_unmatched_files(content_blobs_meta: list, files: list) -> list:
     return [f.name for f in files if f.name not in blob_filenames]
 
 
+def auto_populate_content_blobs(metadata: dict, files: list) -> dict:
+    """Merge uploaded files into metadata's content_blobs array.
+
+    - If content_blobs is missing or empty, generate entries from all files.
+    - If content_blobs has explicit entries, keep them and add entries for any
+      files not already covered by original_filename match.
+    - Returns a new dict (does not mutate the original).
+    """
+    import copy
+    if not files:
+        return metadata
+
+    result = copy.deepcopy(metadata)
+    attrs = result.get("data", {}).get("attributes", {})
+    existing_blobs = attrs.get("content_blobs") or []
+
+    covered_filenames = {b.get("original_filename") for b in existing_blobs}
+
+    for f in files:
+        if f.name not in covered_filenames:
+            existing_blobs.append({
+                "original_filename": f.name,
+                "content_type": getattr(f, "content_type", "application/octet-stream"),
+            })
+            covered_filenames.add(f.name)
+
+    attrs["content_blobs"] = existing_blobs
+    result["data"]["attributes"] = attrs
+
+    return result
+
+
 def upload_content_blobs(client, request, asset_type: str, asset_id: str,
                          content_blobs_meta: list, files: list):
     """Upload file(s) to SEEK content blob endpoints.

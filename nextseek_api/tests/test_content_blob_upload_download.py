@@ -85,6 +85,7 @@ from nextseek_api.services.content_blobs import (
     download_batch,
     upload_content_blobs,
     deduplicate_filename,
+    auto_populate_content_blobs,
 )
 
 
@@ -488,3 +489,171 @@ class UploadFlowIntegrationTest(TestCase):
             results = upload_content_blobs(client, MagicMock(), "sops", "1", blobs, files)
             self.assertEqual(results[0].status, "uploaded")
             self.assertEqual(results[1].status, "failed")
+
+
+from nextseek_api.models import SopCreateRequest, DataFileCreateRequest
+
+
+class OptionalContentBlobsTest(TestCase):
+    """content_blobs should be optional when files provide them."""
+
+    def test_sop_create_without_content_blobs(self):
+        data = {
+            "data": {
+                "type": "sops",
+                "attributes": {"title": "My SOP"},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }
+        req = SopCreateRequest.model_validate(data)
+        self.assertEqual(req.data.attributes.title, "My SOP")
+        self.assertIsNone(req.data.attributes.content_blobs)
+
+    def test_sop_create_with_content_blobs_still_works(self):
+        data = {
+            "data": {
+                "type": "sops",
+                "attributes": {
+                    "title": "My SOP",
+                    "content_blobs": [{"original_filename": "a.pdf", "content_type": "application/pdf"}]
+                },
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }
+        req = SopCreateRequest.model_validate(data)
+        self.assertEqual(len(req.data.attributes.content_blobs), 1)
+
+    def test_datafile_create_without_content_blobs(self):
+        data = {
+            "data": {
+                "type": "data_files",
+                "attributes": {"title": "My DataFile"},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }
+        req = DataFileCreateRequest.model_validate(data)
+        self.assertEqual(req.data.attributes.title, "My DataFile")
+        self.assertIsNone(req.data.attributes.content_blobs)
+
+    def test_datafile_create_with_content_blobs_still_works(self):
+        data = {
+            "data": {
+                "type": "data_files",
+                "attributes": {
+                    "title": "My DataFile",
+                    "content_blobs": [{"original_filename": "data.csv", "content_type": "text/csv"}]
+                },
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }
+        req = DataFileCreateRequest.model_validate(data)
+        self.assertEqual(len(req.data.attributes.content_blobs), 1)
+
+
+class AutoPopulateContentBlobsTest(TestCase):
+    """Test auto_populate_content_blobs merges files into metadata."""
+
+    def setUp(self):
+        from nextseek_api.services.content_blobs import auto_populate_content_blobs
+        self.auto_populate = auto_populate_content_blobs
+
+    def test_no_blobs_generates_from_files(self):
+        metadata = {
+            "data": {
+                "type": "sops",
+                "attributes": {"title": "My SOP"},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }
+        files = [
+            SimpleUploadedFile("report.pdf", b"pdf", content_type="application/pdf"),
+            SimpleUploadedFile("data.csv", b"csv", content_type="text/csv"),
+        ]
+        result = self.auto_populate(metadata, files)
+        blobs = result["data"]["attributes"]["content_blobs"]
+        self.assertEqual(len(blobs), 2)
+        self.assertEqual(blobs[0]["original_filename"], "report.pdf")
+        self.assertEqual(blobs[0]["content_type"], "application/pdf")
+        self.assertEqual(blobs[1]["original_filename"], "data.csv")
+        self.assertEqual(blobs[1]["content_type"], "text/csv")
+
+    def test_empty_blobs_list_generates_from_files(self):
+        metadata = {
+            "data": {
+                "type": "sops",
+                "attributes": {"title": "My SOP", "content_blobs": []},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }
+        files = [SimpleUploadedFile("report.pdf", b"pdf", content_type="application/pdf")]
+        result = self.auto_populate(metadata, files)
+        blobs = result["data"]["attributes"]["content_blobs"]
+        self.assertEqual(len(blobs), 1)
+        self.assertEqual(blobs[0]["original_filename"], "report.pdf")
+
+    def test_explicit_blobs_preserved(self):
+        metadata = {
+            "data": {
+                "type": "sops",
+                "attributes": {
+                    "title": "My SOP",
+                    "content_blobs": [
+                        {"original_filename": "report.pdf", "content_type": "application/pdf"}
+                    ]
+                },
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }
+        files = [SimpleUploadedFile("report.pdf", b"pdf", content_type="application/pdf")]
+        result = self.auto_populate(metadata, files)
+        blobs = result["data"]["attributes"]["content_blobs"]
+        self.assertEqual(len(blobs), 1)
+        self.assertEqual(blobs[0]["original_filename"], "report.pdf")
+        self.assertEqual(blobs[0]["content_type"], "application/pdf")
+
+    def test_merge_explicit_and_auto(self):
+        metadata = {
+            "data": {
+                "type": "sops",
+                "attributes": {
+                    "title": "My SOP",
+                    "content_blobs": [
+                        {"original_filename": "report.pdf", "content_type": "application/pdf"}
+                    ]
+                },
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }
+        files = [
+            SimpleUploadedFile("report.pdf", b"pdf", content_type="application/pdf"),
+            SimpleUploadedFile("extra.csv", b"csv", content_type="text/csv"),
+        ]
+        result = self.auto_populate(metadata, files)
+        blobs = result["data"]["attributes"]["content_blobs"]
+        self.assertEqual(len(blobs), 2)
+        filenames = {b["original_filename"] for b in blobs}
+        self.assertEqual(filenames, {"report.pdf", "extra.csv"})
+
+    def test_no_files_returns_unchanged(self):
+        metadata = {
+            "data": {
+                "type": "sops",
+                "attributes": {"title": "My SOP", "content_blobs": []},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }
+        result = self.auto_populate(metadata, [])
+        self.assertEqual(result, metadata)
+
+    def test_does_not_mutate_original(self):
+        metadata = {
+            "data": {
+                "type": "sops",
+                "attributes": {"title": "My SOP"},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }
+        files = [SimpleUploadedFile("file.pdf", b"pdf", content_type="application/pdf")]
+        result = self.auto_populate(metadata, files)
+        self.assertNotIn("content_blobs", metadata["data"]["attributes"])
+        self.assertIn("content_blobs", result["data"]["attributes"])
