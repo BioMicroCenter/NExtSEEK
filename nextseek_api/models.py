@@ -136,6 +136,7 @@ class SopPatchAttributes(BaseModel):
     tags: Optional[List[str]] = None
     license: Optional[str] = None
     policy: Optional[Policy] = None
+    content_blobs: Optional[List[ContentBlobSlot]] = None
     other_creators: Optional[str] = None
     creators: Optional[List[Dict[str, Any]]] = None
     discussion_links: Optional[List[Dict[str, Any]]] = None
@@ -350,6 +351,7 @@ class DataFilePatchAttributes(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     tags: Optional[List[str]] = None
+    content_blobs: Optional[List[ContentBlobSlotUnion]] = None
     data_type_annotations: Optional[List[str]] = None
     data_format_annotations: Optional[List[str]] = None
     license: Optional[str] = None

@@ -810,3 +810,109 @@ class DataFileCreateAutoPopulateTest(TestCase):
         self.assertEqual(len(blobs), 1)
         self.assertEqual(blobs[0]["original_filename"], "data.csv")
         self.assertIn(response.status_code, (201, 207))
+
+
+class SopUpdateWithUploadTest(TestCase):
+    """Test SOP PATCH handles multipart file upload (replace-all semantics)."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    @patch("nextseek_api.services.content_blobs.SeekAPIClient.upload_content_blob")
+    @patch("nextseek_api.services.content_blobs._resolve_uid_to_seek_id")
+    def test_patch_with_files_uploads_blobs(self, mock_resolve, mock_upload):
+        """PATCH with files replaces content blobs and uploads new files."""
+        mock_resolve.return_value = "42"
+        seek_response = json.dumps(_valid_sop_response(
+            content_blobs=[{"link": "http://seek/sops/42/content_blobs/101",
+                            "original_filename": "new_doc.pdf",
+                            "content_type": "application/pdf"}]
+        )).encode()
+        mock_upload.return_value = (200, {}, MagicMock())
+
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.sops import SopProxyViewSet
+
+        factory = APIRequestFactory()
+        metadata = json.dumps({
+            "data": {
+                "type": "sops",
+                "id": "42",
+                "attributes": {"title": "Updated SOP"}
+            }
+        })
+        django_request = factory.patch('/nextseek_api/sops/42/', {
+            'metadata': metadata,
+            'file': SimpleUploadedFile("new_doc.pdf", b"new content", content_type="application/pdf"),
+        }, format='multipart')
+
+        vs = SopProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.update_sop.return_value = (seek_response, 200, {"Content-Type": "application/json"}, MagicMock())
+        vs.client = mock_client
+        response = vs.partial_update(drf_request, uid="42")
+
+        mock_client.update_sop.assert_called_once()
+        call_payload = mock_client.update_sop.call_args[0][2]
+        blobs = call_payload["data"]["attributes"]["content_blobs"]
+        self.assertEqual(len(blobs), 1)
+        self.assertEqual(blobs[0]["original_filename"], "new_doc.pdf")
+        self.assertIn(response.status_code, (200, 207))
+
+
+class DataFileUpdateWithUploadTest(TestCase):
+    """Test DataFile PATCH handles multipart file upload."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    @patch("nextseek_api.services.content_blobs.SeekAPIClient.upload_content_blob")
+    @patch("nextseek_api.services.data_files._resolve_uid")
+    def test_patch_with_files_uploads_blobs(self, mock_resolve, mock_upload):
+        """PATCH with files replaces content blobs and uploads new files."""
+        mock_resolve.return_value = "560"
+        seek_response = json.dumps(_valid_datafile_response(
+            content_blobs=[{"link": "http://seek/data_files/560/content_blobs/90",
+                            "original_filename": "updated.csv",
+                            "content_type": "text/csv"}]
+        )).encode()
+        mock_upload.return_value = (200, {}, MagicMock())
+
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+
+        factory = APIRequestFactory()
+        metadata = json.dumps({
+            "data": {
+                "type": "data_files",
+                "id": "560",
+                "attributes": {"title": "Updated DataFile"}
+            }
+        })
+        django_request = factory.patch('/nextseek_api/data_files/560/', {
+            'metadata': metadata,
+            'file': SimpleUploadedFile("updated.csv", b"new,data", content_type="text/csv"),
+        }, format='multipart')
+
+        vs = DataFileProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.update_data_file.return_value = (seek_response, 200, {"Content-Type": "application/json"}, MagicMock())
+        vs.client = mock_client
+        response = vs.partial_update(drf_request, uid="560")
+
+        mock_client.update_data_file.assert_called_once()
+        call_payload = mock_client.update_data_file.call_args[0][2]
+        blobs = call_payload["data"]["attributes"]["content_blobs"]
+        self.assertEqual(len(blobs), 1)
+        self.assertEqual(blobs[0]["original_filename"], "updated.csv")
+        self.assertIn(response.status_code, (200, 207))

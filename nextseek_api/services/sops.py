@@ -265,12 +265,29 @@ class SopProxyViewSet(viewsets.ViewSet):
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or NExtSEEK UID (string)')
         ],
-        request=SopUpdateRequest,
-        responses={200: SopSingleResponse},
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "array",
+                        "items": {"type": "string", "format": "binary"},
+                        "description": "One or more files to replace content blobs.",
+                    },
+                    "metadata": {
+                        "type": "string",
+                        "description": 'JSON string with SOP patch metadata (e.g., {"data":{"type":"sops","id":"42","attributes":{"title":"..."}}}). content_blobs auto-generated from files.',
+                    },
+                },
+                "required": ["metadata"],
+            },
+            "application/json": SopUpdateRequest,
+        },
+        responses={200: SopSingleResponse, 207: ContentBlobUploadResponse},
         tags=['SOPs'],
         examples=[
             OpenApiExample(
-                name="Patch Sop",
+                name="Patch SOP (JSON only)",
                 value={
                     "data": {
                         "type": "sops",
@@ -278,18 +295,37 @@ class SopProxyViewSet(viewsets.ViewSet):
                         "attributes": {"title": "A Maximally Patched SOP"},
                         "relationships": {"projects": {"data": [{"id": "2653", "type": "projects"}]}}
                     }
-                }
+                },
+                media_type="application/json",
             )
         ],
     )
     def partial_update(self, request, uid=None, pk=None):
         uid = uid or pk
-        # Validate and normalize body (allows uid in body)
-        try:
-            update_req = SopUpdateRequest.model_validate(request.data)
-            payload = update_req.to_seek_payload()
-        except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+        has_files = bool(request.FILES)
+
+        if has_files:
+            metadata_str = request.data.get('metadata', '{}')
+            try:
+                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+                metadata = auto_populate_content_blobs(metadata, request.FILES.getlist('file'))
+                update_req = SopUpdateRequest.model_validate(metadata)
+                payload = update_req.to_seek_payload()
+            except Exception:
+                return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
+
+            max_bytes = getattr(settings, 'BATCH_UPLOAD_MAX_TOTAL_BYTES', 200 * 1024 * 1024)
+            total_size = sum(f.size for f in request.FILES.getlist('file'))
+            if total_size > max_bytes:
+                return HttpResponse(
+                    json.dumps({"errors": [{"title": f"Total upload size {total_size} exceeds limit {max_bytes}"}]}).encode(),
+                    status=413, content_type='application/json')
+        else:
+            try:
+                update_req = SopUpdateRequest.model_validate(request.data)
+                payload = update_req.to_seek_payload()
+            except Exception:
+                return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
         # Resolve path param to SEEK id
         seek_id = _resolve_uid_to_seek_id(uid, "sops")
@@ -312,8 +348,33 @@ class SopProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
-        ct = headers.get('Content-Type', 'application/json')
-        return HttpResponse(body, status=code, content_type=ct)
+        if not has_files or code >= 400:
+            ct = headers.get('Content-Type', 'application/json')
+            return HttpResponse(body, status=code, content_type=ct)
+
+        # Upload files to content blob endpoints
+        asset_id = data.get("data", {}).get("id")
+        content_blobs_meta = data.get("data", {}).get("attributes", {}).get("content_blobs", [])
+        files = request.FILES.getlist('file')
+
+        unmatched = check_unmatched_files(content_blobs_meta, files)
+        if unmatched:
+            return HttpResponse(
+                json.dumps({"errors": [{"title": "Uploaded files do not match any content_blob placeholder",
+                                        "detail": f"Unmatched filenames: {unmatched}"}]}).encode(),
+                status=400, content_type='application/json')
+
+        blob_results = upload_content_blobs(self.client, request, "sops", asset_id, content_blobs_meta, files)
+
+        any_failed = any(r.status == "failed" for r in blob_results)
+        upload_resp = ContentBlobUploadResponse(
+            asset_id=asset_id, asset_type="sops",
+            blob_uploads=blob_results, asset_data=data)
+
+        resp_status = 207 if any_failed else 200
+        return HttpResponse(
+            upload_resp.model_dump_json(), status=resp_status,
+            content_type='application/json')
 
     # POST /sops/download
     @extend_schema(
