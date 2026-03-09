@@ -46,6 +46,8 @@ class Meta(BaseModel):
     base_url: Optional[str] = None
     api_version: Optional[str] = None
     created: Optional[Any] = None
+    modified: Optional[Any] = None
+    uuid: Optional[str] = None
 
 
 class JsonApiErrorSource(BaseModel):
@@ -436,14 +438,10 @@ class DataFileResponseData(BaseModel):
     links: Links
     meta: Meta
 
-    model_config = ConfigDict(extra='forbid', validate_default=True)
-
 
 class DataFileSingleResponse(BaseModel):
     data: DataFileResponseData
     jsonapi: Optional[JsonApiVersion] = None
-
-    model_config = ConfigDict(extra='forbid', validate_default=True)
 
 
 # -----------------------------

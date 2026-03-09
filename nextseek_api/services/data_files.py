@@ -79,6 +79,10 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
+        if code >= 400:
+            ct = headers.get('Content-Type', 'application/json')
+            return HttpResponse(body, status=code, content_type=ct)
+
         try:
             ct = (headers.get('Content-Type') or '').lower()
             if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
@@ -134,6 +138,10 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         body, code, headers, resp = self.client.get_data_file(request, seek_id, version_int)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+
+        if code >= 400:
+            ct = headers.get('Content-Type', 'application/json')
+            return HttpResponse(body, status=code, content_type=ct)
 
         try:
             ct = (headers.get('Content-Type') or '').lower()
@@ -218,6 +226,13 @@ class DataFileProxyViewSet(viewsets.ViewSet):
                 payload = DataFileCreateRequest.model_validate(request.data).to_seek_payload()
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+
+        # SEEK requires at least one content_blob for create
+        blobs = payload.get('data', {}).get('attributes', {}).get('content_blobs')
+        if not blobs:
+            return HttpResponse(
+                b'{"errors":[{"title":"content_blobs required: provide at least one content_blob or upload a file"}]}',
+                status=422, content_type='application/json')
 
         body, code, headers, resp = self.client.create_data_file(request, payload)
         if code == 401:

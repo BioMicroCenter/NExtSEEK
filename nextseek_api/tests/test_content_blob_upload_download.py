@@ -938,7 +938,10 @@ class SopCreateErrorHandlingTest(TestCase):
         django_request = factory.post('/nextseek_api/sops/', data=json.dumps({
             "data": {
                 "type": "sops",
-                "attributes": {"title": "Test SOP"},
+                "attributes": {
+                    "title": "Test SOP",
+                    "content_blobs": [{"original_filename": "test.pdf", "content_type": "application/pdf"}],
+                },
                 "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
             }
         }), content_type='application/json')
@@ -968,7 +971,10 @@ class SopCreateErrorHandlingTest(TestCase):
         django_request = factory.post('/nextseek_api/sops/', data=json.dumps({
             "data": {
                 "type": "sops",
-                "attributes": {"title": "Test SOP"},
+                "attributes": {
+                    "title": "Test SOP",
+                    "content_blobs": [{"original_filename": "test.pdf", "content_type": "application/pdf"}],
+                },
                 "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
             }
         }), content_type='application/json')
@@ -1039,7 +1045,10 @@ class DataFileCreateErrorHandlingTest(TestCase):
         django_request = factory.post('/nextseek_api/data_files/', data=json.dumps({
             "data": {
                 "type": "data_files",
-                "attributes": {"title": "Test DF"},
+                "attributes": {
+                    "title": "Test DF",
+                    "content_blobs": [{"url": "https://example.com/file.csv", "content_type": "text/csv"}],
+                },
                 "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
             }
         }), content_type='application/json')
@@ -1069,7 +1078,10 @@ class DataFileCreateErrorHandlingTest(TestCase):
         django_request = factory.post('/nextseek_api/data_files/', data=json.dumps({
             "data": {
                 "type": "data_files",
-                "attributes": {"title": "Test DF"},
+                "attributes": {
+                    "title": "Test DF",
+                    "content_blobs": [{"url": "https://example.com/file.csv", "content_type": "text/csv"}],
+                },
                 "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
             }
         }), content_type='application/json')
@@ -1118,3 +1130,200 @@ class DataFileUpdateErrorHandlingTest(TestCase):
 
         response = vs.partial_update(drf_request, uid="560")
         self.assertEqual(response.status_code, 422)
+
+
+class SopListErrorHandlingTest(TestCase):
+    """Verify SEEK error responses on SOP list are forwarded, not masked as 502."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    def test_seek_500_forwarded(self):
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.sops import SopProxyViewSet
+
+        factory = APIRequestFactory()
+        django_request = factory.get('/nextseek_api/sops/')
+
+        vs = SopProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.list_sops.return_value = (
+            b'{"errors":[{"title":"Internal Error"}]}', 500,
+            {'Content-Type': 'application/vnd.api+json'}, None)
+        vs.client = mock_client
+
+        response = vs.list(drf_request)
+        self.assertEqual(response.status_code, 500)
+
+
+class SopRetrieveErrorHandlingTest(TestCase):
+    """Verify SEEK error responses on SOP retrieve are forwarded, not masked as 502."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    @patch("nextseek_api.services.content_blobs._resolve_uid_to_seek_id", return_value="999")
+    def test_seek_404_forwarded(self, mock_resolve):
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.sops import SopProxyViewSet
+
+        factory = APIRequestFactory()
+        django_request = factory.get('/nextseek_api/sops/999/')
+
+        vs = SopProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.get_sop.return_value = (
+            b'{"errors":[{"title":"Not found"}]}', 404,
+            {'Content-Type': 'application/vnd.api+json'}, None)
+        vs.client = mock_client
+
+        response = vs.retrieve(drf_request, uid="999")
+        self.assertEqual(response.status_code, 404)
+
+
+class DataFileListErrorHandlingTest(TestCase):
+    """Verify SEEK error responses on DataFile list are forwarded, not masked as 502."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    def test_seek_500_forwarded(self):
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+
+        factory = APIRequestFactory()
+        django_request = factory.get('/nextseek_api/data_files/')
+
+        vs = DataFileProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.list_data_files.return_value = (
+            b'{"errors":[{"title":"Internal Error"}]}', 500,
+            {'Content-Type': 'application/vnd.api+json'}, None)
+        vs.client = mock_client
+
+        response = vs.list(drf_request)
+        self.assertEqual(response.status_code, 500)
+
+
+class DataFileRetrieveErrorHandlingTest(TestCase):
+    """Verify SEEK error responses on DataFile retrieve are forwarded, not masked as 502."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    @patch("nextseek_api.services.data_files._resolve_uid_to_seek_id", return_value="999")
+    def test_seek_404_forwarded(self, mock_resolve):
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+
+        factory = APIRequestFactory()
+        django_request = factory.get('/nextseek_api/data_files/999/')
+
+        vs = DataFileProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.get_data_file.return_value = (
+            b'{"errors":[{"title":"Not found"}]}', 404,
+            {'Content-Type': 'application/vnd.api+json'}, None)
+        vs.client = mock_client
+
+        response = vs.retrieve(drf_request, uid="999")
+        self.assertEqual(response.status_code, 404)
+
+
+class SopCreateContentBlobsRequiredTest(TestCase):
+    """Verify JSON-only SOP create without content_blobs returns 422."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    def test_json_create_without_content_blobs_returns_422(self):
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.sops import SopProxyViewSet
+
+        factory = APIRequestFactory()
+        django_request = factory.post('/nextseek_api/sops/', data=json.dumps({
+            "data": {
+                "type": "sops",
+                "attributes": {"title": "Missing blobs"},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }), content_type='application/json')
+
+        vs = SopProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        # No need to mock client — validation should reject before SEEK call
+        response = vs.create(drf_request)
+        self.assertEqual(response.status_code, 422)
+        body = json.loads(response.content)
+        self.assertIn("content_blobs", body["errors"][0]["title"].lower())
+
+
+class DataFileCreateContentBlobsRequiredTest(TestCase):
+    """Verify JSON-only DataFile create without content_blobs returns 422."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    def test_json_create_without_content_blobs_returns_422(self):
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+
+        factory = APIRequestFactory()
+        django_request = factory.post('/nextseek_api/data_files/', data=json.dumps({
+            "data": {
+                "type": "data_files",
+                "attributes": {"title": "Missing blobs"},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        }), content_type='application/json')
+
+        vs = DataFileProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        response = vs.create(drf_request)
+        self.assertEqual(response.status_code, 422)
+        body = json.loads(response.content)
+        self.assertIn("content_blobs", body["errors"][0]["title"].lower())
+
+
+class MetaModelConsistencyTest(TestCase):
+    """Verify Meta model accepts all fields returned by SEEK API."""
+
+    def test_meta_accepts_modified_and_uuid(self):
+        from nextseek_api.models import Meta
+        meta = Meta.model_validate({
+            "created": "2026-03-06T15:15:18.000Z",
+            "modified": "2026-03-06T15:15:18.000Z",
+            "api_version": "0.3",
+            "base_url": "http://localhost:3000",
+            "uuid": "35d31290-fb9d-013e-3195-005056822fb3"
+        })
+        self.assertEqual(meta.base_url, "http://localhost:3000")
+        self.assertEqual(meta.uuid, "35d31290-fb9d-013e-3195-005056822fb3")
