@@ -36,6 +36,7 @@ from nextseek_api.services.content_blobs import (
     download_batch,
     upload_content_blobs,
     check_unmatched_files,
+    auto_populate_content_blobs,
 )
 
 log = logging.getLogger(__name__)
@@ -150,12 +151,34 @@ class SopProxyViewSet(viewsets.ViewSet):
     @extend_schema(
         operation_id="Create a SOP",
         description=SOP_CREATE_DESC,
-        request=SopCreateRequest,
-        responses={201: SopSingleResponse, 200: SopSingleResponse},
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "array",
+                        "items": {"type": "string", "format": "binary"},
+                        "description": "One or more files to upload as content blobs.",
+                    },
+                    "metadata": {
+                        "type": "string",
+                        "description": (
+                            'JSON string with SOP metadata. Minimum: '
+                            '{"data":{"type":"sops","attributes":{"title":"..."},'
+                            '"relationships":{"projects":{"data":[{"id":"...","type":"projects"}]}}}}'
+                            ' — content_blobs are auto-generated from uploaded files if omitted.'
+                        ),
+                    },
+                },
+                "required": ["metadata"],
+            },
+            "application/json": SopCreateRequest,
+        },
+        responses={201: SopSingleResponse, 207: ContentBlobUploadResponse, 200: SopSingleResponse},
         tags=['SOPs'],
         examples=[
             OpenApiExample(
-                name="Create Sop",
+                name="Create SOP (JSON only, no file)",
                 value={
                     "data": {
                         "type": "sops",
@@ -168,8 +191,9 @@ class SopProxyViewSet(viewsets.ViewSet):
                         },
                         "relationships": {"projects": {"data": [{"id": "2558", "type": "projects"}]}}
                     }
-                }
-            )
+                },
+                media_type="application/json",
+            ),
         ],
     )
     def create(self, request):
@@ -179,6 +203,7 @@ class SopProxyViewSet(viewsets.ViewSet):
             metadata_str = request.data.get('metadata', '{}')
             try:
                 metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+                metadata = auto_populate_content_blobs(metadata, request.FILES.getlist('file'))
                 payload = SopCreateRequest.model_validate(metadata).model_dump(exclude_none=True)
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')

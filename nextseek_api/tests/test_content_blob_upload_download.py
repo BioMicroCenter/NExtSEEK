@@ -657,3 +657,156 @@ class AutoPopulateContentBlobsTest(TestCase):
         result = self.auto_populate(metadata, files)
         self.assertNotIn("content_blobs", metadata["data"]["attributes"])
         self.assertIn("content_blobs", result["data"]["attributes"])
+
+
+class SopCreateAutoPopulateTest(TestCase):
+    """Test SOP create auto-populates content_blobs from uploaded files."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    @patch("nextseek_api.services.content_blobs.SeekAPIClient.upload_content_blob")
+    def test_create_auto_populates_blobs_from_files(self, mock_upload):
+        """When metadata omits content_blobs, they are auto-generated from files."""
+        seek_response = json.dumps(_valid_sop_response(
+            content_blobs=[{"link": "http://seek/sops/42/content_blobs/99",
+                            "original_filename": "report.pdf",
+                            "content_type": "application/pdf"}]
+        )).encode()
+        mock_upload.return_value = (200, {}, MagicMock())
+
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.sops import SopProxyViewSet
+
+        factory = APIRequestFactory()
+        metadata = json.dumps({
+            "data": {
+                "type": "sops",
+                "attributes": {"title": "Test SOP"},
+                "relationships": {"projects": {"data": [{"id": "2558", "type": "projects"}]}}
+            }
+        })
+        django_request = factory.post('/nextseek_api/sops/', {
+            'metadata': metadata,
+            'file': SimpleUploadedFile("report.pdf", b"pdf content", content_type="application/pdf"),
+        }, format='multipart')
+
+        vs = SopProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.create_sop.return_value = (seek_response, 201, {"Content-Type": "application/json"}, MagicMock())
+        vs.client = mock_client
+        response = vs.create(drf_request)
+
+        call_payload = mock_client.create_sop.call_args[0][1]
+        blobs = call_payload["data"]["attributes"]["content_blobs"]
+        self.assertEqual(len(blobs), 1)
+        self.assertEqual(blobs[0]["original_filename"], "report.pdf")
+        self.assertIn(response.status_code, (201, 207))
+
+    @patch("nextseek_api.services.content_blobs.SeekAPIClient.upload_content_blob")
+    def test_create_merges_explicit_and_auto_blobs(self, mock_upload):
+        """Explicit blobs are kept; extra files get auto-generated entries."""
+        seek_response = json.dumps(_valid_sop_response(
+            content_blobs=[
+                {"link": "http://seek/sops/42/content_blobs/99",
+                 "original_filename": "report.pdf", "content_type": "application/pdf"},
+                {"link": "http://seek/sops/42/content_blobs/100",
+                 "original_filename": "extra.csv", "content_type": "text/csv"},
+            ]
+        )).encode()
+        mock_upload.return_value = (200, {}, MagicMock())
+
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.sops import SopProxyViewSet
+
+        factory = APIRequestFactory()
+        metadata = json.dumps({
+            "data": {
+                "type": "sops",
+                "attributes": {
+                    "title": "Test SOP",
+                    "content_blobs": [
+                        {"original_filename": "report.pdf", "content_type": "application/pdf"}
+                    ]
+                },
+                "relationships": {"projects": {"data": [{"id": "2558", "type": "projects"}]}}
+            }
+        })
+        django_request = factory.post('/nextseek_api/sops/', {
+            'metadata': metadata,
+            'file': [
+                SimpleUploadedFile("report.pdf", b"pdf", content_type="application/pdf"),
+                SimpleUploadedFile("extra.csv", b"csv", content_type="text/csv"),
+            ],
+        }, format='multipart')
+
+        vs = SopProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.create_sop.return_value = (seek_response, 201, {"Content-Type": "application/json"}, MagicMock())
+        vs.client = mock_client
+        response = vs.create(drf_request)
+
+        call_payload = mock_client.create_sop.call_args[0][1]
+        blobs = call_payload["data"]["attributes"]["content_blobs"]
+        filenames = {b["original_filename"] for b in blobs}
+        self.assertEqual(filenames, {"report.pdf", "extra.csv"})
+        self.assertIn(response.status_code, (201, 207))
+
+
+class DataFileCreateAutoPopulateTest(TestCase):
+    """Test DataFile create auto-populates content_blobs from uploaded files."""
+
+    def _make_drf_request(self, django_request, vs):
+        from rest_framework.request import Request
+        return Request(django_request, parsers=[p() for p in vs.parser_classes])
+
+    @patch("nextseek_api.services.content_blobs.SeekAPIClient.upload_content_blob")
+    def test_create_auto_populates_blobs_from_files(self, mock_upload):
+        """When metadata omits content_blobs, they are auto-generated from files."""
+        seek_response = json.dumps(_valid_datafile_response(
+            content_blobs=[{"link": "http://seek/data_files/560/content_blobs/88",
+                            "original_filename": "data.csv",
+                            "content_type": "text/csv"}]
+        )).encode()
+        mock_upload.return_value = (200, {}, MagicMock())
+
+        from rest_framework.test import APIRequestFactory
+        from nextseek_api.services.data_files import DataFileProxyViewSet
+
+        factory = APIRequestFactory()
+        metadata = json.dumps({
+            "data": {
+                "type": "data_files",
+                "attributes": {"title": "Test DataFile"},
+                "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}
+            }
+        })
+        django_request = factory.post('/nextseek_api/data_files/', {
+            'metadata': metadata,
+            'file': SimpleUploadedFile("data.csv", b"col1,col2\n1,2", content_type="text/csv"),
+        }, format='multipart')
+
+        vs = DataFileProxyViewSet()
+        drf_request = self._make_drf_request(django_request, vs)
+        drf_request.user = MagicMock()
+        drf_request.auth = "token"
+
+        mock_client = MagicMock()
+        mock_client.create_data_file.return_value = (seek_response, 201, {"Content-Type": "application/json"}, MagicMock())
+        vs.client = mock_client
+        response = vs.create(drf_request)
+
+        call_payload = mock_client.create_data_file.call_args[0][1]
+        blobs = call_payload["data"]["attributes"]["content_blobs"]
+        self.assertEqual(len(blobs), 1)
+        self.assertEqual(blobs[0]["original_filename"], "data.csv")
+        self.assertIn(response.status_code, (201, 207))
