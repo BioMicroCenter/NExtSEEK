@@ -253,6 +253,8 @@ class SopSingleResponse(BaseModel):
     data: SopResponseData
     jsonapi: Optional[JsonApiVersion] = None
 
+class SopMultiResponse(BaseModel):
+    data: List[SopSingleResponse]
 
 class SopIndexAttributes(BaseModel):
     title: str
@@ -442,6 +444,9 @@ class DataFileResponseData(BaseModel):
 class DataFileSingleResponse(BaseModel):
     data: DataFileResponseData
     jsonapi: Optional[JsonApiVersion] = None
+
+class DataFileMultiResponse(BaseModel):
+    data: List[DataFileSingleResponse]
 
 
 # -----------------------------
