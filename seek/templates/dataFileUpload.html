@@ -1,10 +1,7 @@
 {% extends "base.html" %}
 {% block main %}
 <div class="span12">
-	<form id="file_upload"
-				method="post"
-				enctype="multipart/form-data"
-				hidden>
+	<form id="file_upload" method="post" enctype="multipart/form-data" hidden>
 	</form>
 	<div class="well">
 		<div class="row show-grid">
@@ -17,35 +14,19 @@
 				<tbody>
 					<tr>
 						<td>
-							<input type="file"
-										 form="file_upload"
-										 name="file"
-										 id="upload_file"
-										 style="height:28px;width:220px"
-										 required>
+							<input type="file" form="file_upload" name="file" id="upload_file" style="height:28px;width:220px" multiple required>
 							<br>
 							<label for="upload_type">Type:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</label>
-							<input id="upload_type"
-										 form="file_upload"
-										 class="easyui-combobox"
-										 name="upload_type"
-										 style="width:50%"
-										 data-options="
+							<input id="upload_type" form="file_upload" class="easyui-combobox" name="upload_type" style="width:50%" data-options="
 											data: [{'text': 'SOP',
 															'type': 'sops'},
 														 {'text': 'Data File',
 															'type': 'data_files'}],
 											valueField: 'type',
-											textField: 'text'"
-										 required>
+											textField: 'text'" required>
 							<br>
 							<label for="project_id">Lab:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</label>
-							<input id="project_id"
-										 form="file_upload"
-										 class="easyui-combobox"
-										 name="project_id"
-										 style="width:50%;"
-										 data-options="data: lab_options,
+							<input id="project_id" form="file_upload" class="easyui-combobox" name="project_id" style="width:50%;" data-options="data: lab_options,
 																	 valueField: 'id',
 																	 textField: 'title',
 																	 editable: true,
@@ -53,24 +34,15 @@
 																		 var opts = $(this).combobox('options');
 																		 return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;
 																 	 },
-																	 onSelect: function(rec) { setLabUsers(rec); }"
-										 required>
+																	 onSelect: function(rec) { setLabUsers(rec); }" required>
 							<br>
 							<label for="person_id">Creator:&nbsp;&nbsp;</label>
-							<input id="person_id"
-										 form="file_upload"
-										 class="easyui-combobox"
-										 name="person_id"
-										 style="width:50%;"
-										 data-options="valueField: 'id',
+							<input id="person_id" form="file_upload" class="easyui-combobox" name="person_id" style="width:50%;" data-options="valueField: 'id',
 																	 textField: 'title',
 																	 editable: false">
 							<br>
 							<br>
-							<button type="submit"
-											class="easyui-linkbutton"
-											form="file_upload"
-											data-options="iconCls:'icon-add',plain:true">
+							<button type="submit" class="easyui-linkbutton" form="file_upload" data-options="iconCls:'icon-add',plain:true">
 								Upload Files
 							</button>
 						</td>
@@ -95,19 +67,19 @@
 	const file_upload_form = document.getElementById("file_upload");
 	const file = document.getElementById("upload_file");
 	const statusBox = document.getElementById("messages")
-
+	
 	const lab_options = {{ report.lab_options | safe }}.slice(1);
 	const all_lab_users = {{ report.all_lab_users | safe }};
-
+	
 	const seek_url = "{{ report.seek_url }}";
-
+	
 	function setLabUsers(rec) {
 		var users = all_lab_users[rec.id]
 		users[0]['selected'] = true
 		var person_form = $('#person_id').combobox()
 		person_form.combobox('loadData', users)
 	}
-
+	
 	function getCookie(name) {
 		let cookieValue = null;
 		if (document.cookie && document.cookie !== '') {
@@ -122,60 +94,104 @@
 		}
 		return cookieValue;
 	}
-
+	
 	async function uploadFiles() {
-		const upload_file = document.getElementById('upload_file').files[0]
+		const upload_file = document.getElementById('upload_file').files
 		const project_id = document.getElementById('project_id').value
 		const person_id = document.getElementById('person_id').value
 		const upload_type = document.getElementById('upload_type').value
-	  let payload = {
-			"data": {
-		    "type": `${upload_type}`,
-		    "attributes": {
-		      "title": `${upload_file.name}`,
-		      "content_blobs": [
-		        {
-		          "original_filename": `${upload_file.name}`,
-		          "content_type": `${upload_file.type}`
-		        }
-		      ]
-		    },
-		    "relationships": {
-		      "projects": {
-		        "data": [
-		          {
-		            "id": `${project_id}`,
-		            "type": "projects"
-		          }
-		        ]
-		      }
-		    }
-		  }
-		}
 		
-		try {
-			const response = await fetch(`/nextseek_api/${upload_type}/`, {
-				method: "POST",
-				headers: {"X-CSRFTOKEN": getCookie("csrftoken"),
-									"Content-Type": "application/json"},
-				body: JSON.stringify(payload)
-			});
-			if (response.ok) {
-				const response_json = await response.json()
-				const link = seek_url + response_json.data.links.self
-				statusBox.innerHTML += `<p>The file was successfully uploaded: <a href="${link}">${link}</a></p>`
-			} else {
-				statusBox.innerHTML += "Could not upload file."
+		if (upload_file.length > 1) {
+			var metadata = {
+				"data": {
+					"type": `${upload_type}`,
+					"attributes": {
+						"title": `${upload_file[0].name}`,
+						},
+						"relationships": {
+							"projects": {
+								"data": [
+								{
+									"id": `${project_id}`,
+									"type": "projects"
+								}
+								]
+							}
+						}
+					}
+				}
 			}
-		} catch (e) {
-			console.error(e);
-			statusBox.innerHTML += "Could not upload file due to error."
-		}
-	}
-
-	file_upload_form.addEventListener("submit", (event) => {
-		event.preventDefault();
-		uploadFiles()
-	});
+			
+			if (upload_file.length == 1) {
+				var metadata = {
+					"data": {
+						"type": `${upload_type}`,
+						"attributes": {
+							"title": `${upload_file[0].name}`,
+							"content_blobs": [
+							{
+								"original_filename": `${upload_file[0].name}`,
+								"content_type": `${upload_file[0].type}`
+							}
+							]
+							},
+							"relationships": {
+								"projects": {
+									"data": [
+									{
+										"id": `${project_id}`,
+										"type": "projects"
+									}
+									]
+								}
+							}
+						}
+					}
+				}
+				const formData = new FormData()
+				if (upload_file.length == 1) {
+					formData.append("file", upload_file[0])
+				}
+				if (upload_file.length > 1) {
+					for (let i = 0; i < upload_file.length; i++) {
+						formData.append('file', upload_file[i]);
+					}
+				}
+				formData.append("metadata", JSON.stringify(metadata))
+				
+				try {
+					$.messager.progress({
+						title: "Please wait",
+						msg: "Uploading files..."
+						})
+						const response = await fetch(`/nextseek_api/${upload_type}/`, {
+							method: "POST",
+							headers: {"X-CSRFTOKEN": getCookie("csrftoken")},
+							body: formData
+							});
+							if (response.ok) {
+								$.messager.progress('close')
+								const response_json = await response.json()
+								for (i=0; i<response_json["data"].length; i++) {
+									const link = seek_url + response_json["data"][i].data.links.self
+									const name = response_json["data"][i].data.attributes.title
+									statusBox.innerHTML += `<p>${name} was successfully uploaded: <a href="${link}">${link}</a></p>`
+								}
+								} else {
+									$.messager.progress('close')
+									statusBox.innerHTML += "Could not parse response from server. Please verify whether the file was uploaded and try again."
+								}
+								} catch (e) {
+									$.messager.progress('close')
+									console.error(e);
+									statusBox.innerHTML += "<p>Could not upload file due to error.</p>"
+									statusBox.innerHTML += `<p>${e}</p>`
+								}
+							}
+							
+							file_upload_form.addEventListener("submit", (event) => {
+								event.preventDefault();
+								uploadFiles()
+								});
 </script>
 {% endblock %}
