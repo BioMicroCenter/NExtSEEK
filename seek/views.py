@@ -1214,8 +1214,8 @@ def get_children_uids(sample_uids, user_project_ids, admin):
         r,s,k = driver.execute_query("""
 		UNWIND $sample_uids AS sample_uid
         MATCH (s:Sample {uuid: sample_uid})
-        MATCH parents=(s)-[:CHILD_OF*0..]->(parent)
-        MATCH children=(s)<-[:CHILD_OF*0..]-(child)
+        MATCH parents=(s)-[:DERIVED_FROM*0..]->(parent)
+        MATCH children=(s)<-[:DERIVED_FROM*0..]-(child)
         RETURN collect(DISTINCT s.uuid) + collect(DISTINCT parent.uuid) + collect(DISTINCT child.uuid) AS uuids
         """,
         sample_uids=sample_uids,
@@ -1759,3 +1759,12 @@ def datafileQuery(request):
     report["seek_url"] = settings.SEEK_URL
 
     return render(request, "dataFilesPage.html", {"report" : report})
+
+def newSearch(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        url_redirect = '/login/'
+        return HttpResponseRedirect(url_redirect)
+
+    return render(request, "newSearch.html")
