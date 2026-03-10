@@ -13,7 +13,6 @@ urlpatterns = [
     re_path(r'^assistant/', views.smartSearch, name='assistant'),
     re_path(r'^remote/', views.remote, name='remote'),
     re_path(r'^samples/upload/', views.sampleUpload, name='sampleUpload'),
-    re_path(r'^samples/batchupload/', views.batchUpload, name='sampleUpload'),
     re_path(r'^samples/query/', views.sampleQuery, name='sampleQuery'),
     re_path(r'^samples/search/', views.sampleSearch, name='sampleSearch'),
     re_path(r'^samples/searching/', views.sampleSearching, name='sampleSearching'),
@@ -58,13 +57,7 @@ urlpatterns = [
     re_path(r'^samplesvalidate/', views.samplesValidate, name='samplesValidate'),
     
     re_path(r'^url/(?P<url>[\w-]+)/$', views.seek, name='seek'),
-    
-    # get to the upload page of data files to server and to Seek
-    re_path(r'^data/upload/', views.datafileUpload, name='datafileUpload'),
-    
-    re_path(r'^datafile/query/', views.datafileQuery, name='datafileQuery'),
-    re_path(r'^sop/query/', views.sopQuery, name='sopQuery'),
-    
+        
     re_path(r'^investigations/id=(?P<id>\d+)/$', views.getStudiesOptions, name='getStudiesOptions'),    
     re_path(r'^studies/id=(?P<id>\d+)/$', views.getAssaysOptions, name='getAssaysOptions'),
     re_path(r'^instituion/id=(?P<id>\d+)/$', views.getInstituionUsers, name='getInstituionUsers'),    
@@ -80,5 +73,17 @@ urlpatterns = [
     re_path(r'^eventdata/(?P<nhp_name>[\w-]+)/(?P<event_type>[\w.-]+)/(?P<date>[\w-]+)/$', views.fetch_event_data, name='event_data'),
     re_path(r'^sample_timeline/.*$', TemplateView.as_view(template_name="sample_timeline.html")),
 
+    # New pages. These are testing ground for using the nextseek_api endpoints
+    # and will replace some existing URLs
+
+    # SOPs + Data Files
+    re_path(r'^datafile/query/', views.datafileQuery, name='datafileQuery'),
+    re_path(r'^sop/query/', views.sopQuery, name='sopQuery'),
+
+    re_path(r'^data/upload/', views.datafileUpload, name='datafileUpload'),
+
+    # Samples
+    re_path(r'^samples/batchupload/', views.batchUpload, name='sampleUpload'),
+    # re_path(r'^newsearch/', views.newSearch, name='newSearch')
 ]
 
