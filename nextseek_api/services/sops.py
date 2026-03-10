@@ -24,6 +24,7 @@ from nextseek_api.models import (
     SopCreateRequest,
     SopUpdateRequest,
     SopSingleResponse,
+    SopMultiResponse,
     SopListResponse,
     SopDownloadRequest,
     SeekContentBlobPathParams,
@@ -182,101 +183,130 @@ class SopProxyViewSet(viewsets.ViewSet):
             },
             "application/json": SopCreateRequest,
         },
-        responses={201: SopSingleResponse, 207: ContentBlobUploadResponse, 200: SopSingleResponse},
+        responses={
+            200: SopMultiResponse,
+            201: SopMultiResponse,
+        },
         tags=['SOPs'],
         examples=[
             OpenApiExample(
                 name="Create SOP (JSON only, no file)",
-                value={
-                    "data": {
-                        "type": "sops",
-                        "attributes": {
-                            "title": "A Maximal SOP",
-                            "content_blobs": [
-                                {"original_filename": "a_pdf_file.pdf", "content_type": "application/pdf"}
-                            ],
-                            "policy": {"access": "download", "permissions": [{"resource": {"id": "2558", "type": "projects"}, "access": "edit"}]}
-                        },
-                        "relationships": {"projects": {"data": [{"id": "2558", "type": "projects"}]}}
-                    }
+                value={"data": [{
+                        "data": {
+                            "type": "sops",
+                            "attributes": {
+                                "title": "A Maximal SOP",
+                                "content_blobs": [
+                                    {"original_filename": "a_pdf_file.pdf", "content_type": "application/pdf"}
+                                ],
+                                "policy": {"access": "download", "permissions": [{"resource": {"id": "2558", "type": "projects"}, "access": "edit"}]}
+                            },
+                            "relationships": {"projects": {"data": [{"id": "2558", "type": "projects"}]}}
+                        }
+                    }]
                 },
                 media_type="application/json",
             ),
         ],
     )
     def create(self, request):
+        # Steps:
+        # 1. Check if there are files
+        #    1a. Yes? Use that info to create SOPs then content_blobs
+        #    1b. No? Only create SOPs
+        # 2. Check if there are multiple files
+        #   2a. Yes? Set the attribute title and content_blob for each file
+        #   2b. No? Accept the metadata as is
+        # 3. Create SOPs
+        # 4. Create content blobs
+
+        metadata_str = request.data.get('metadata', '{}')
+        metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+
+        # 1. Check if there are files
         has_files = bool(request.FILES)
 
-        if has_files:
-            metadata_str = request.data.get('metadata', '{}')
+        # 1b. No? Only create SOPs. Metadata should be complete
+        if not has_files:
             try:
-                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-                metadata = auto_populate_content_blobs(metadata, request.FILES.getlist('file'))
                 payload = SopCreateRequest.model_validate(metadata).model_dump(exclude_none=True)
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
 
+            body, code, headers, resp = self.client.create_sop(request, payload)
+            if code == 401:
+                return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+
+            # Forward SEEK errors before attempting response validation
+            if code >= 400:
+                ct = headers.get('Content-Type', 'application/json')
+                return HttpResponse(body, status=code, content_type=ct)
+
+            try:
+                data = json.loads(body or b"{}")
+                SopSingleResponse.model_validate(data)
+            except Exception:
+                return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+
+            return HttpResponse({"data": [body]}, status=code, content_type=ct)
+
+        # 1a. Yes? Use that info to create SOPs then content blobs
+        else:
+            files = request.FILES.getlist("file")
             max_bytes = getattr(settings, 'BATCH_UPLOAD_MAX_TOTAL_BYTES', 200 * 1024 * 1024)
-            total_size = sum(f.size for f in request.FILES.getlist('file'))
+            l_size = sum(f.size for f in files)
             if total_size > max_bytes:
                 return HttpResponse(
                     json.dumps({"errors": [{"title": f"Total upload size {total_size} exceeds limit {max_bytes}"}]}).encode(),
                     status=413, content_type='application/json')
-        else:
-            try:
-                payload = SopCreateRequest.model_validate(request.data).model_dump(exclude_none=True)
-            except Exception:
-                return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+            
+            sop_results = []
+            blob_results = []
+            for file in files:
+                metadata = auto_populate_content_blobs(metadata, [file])
+                # 2. Check if there are multiple files
+                # 2a. Yes? Set the attribute title and content_blob for each file
+                if len(files) > 1:
+                    metadata["data"]["attributes"]["title"] = file.name
+ 
+                # 2b. No? Accept the metadata as is
+                try:
+                    payload = SopCreateRequest.model_validate(metadata).model_dump(exclude_none=True)
+                except Exception:
+                    return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
 
-        # SEEK requires at least one content_blob for create
-        blobs = payload.get('data', {}).get('attributes', {}).get('content_blobs')
-        if not blobs:
+                # 3. Create SOPs
+                body, code, headers, resp = self.client.create_sop(request, payload)
+                if code == 401:
+                    return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+
+                # Forward SEEK errors before attempting response validation
+                if code >= 400:
+                    ct = headers.get('Content-Type', 'application/json')
+                    return HttpResponse(body, status=code, content_type=ct)
+
+                try:
+                    data = json.loads(body or b"{}")
+                    sop_data = SopSingleResponse.model_validate(data).model_dump(exclude_none=True)
+                    sop_results.append(sop_data)
+                except Exception:
+                    return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+                
+                asset_id = data.get("data", {}).get("id")
+                content_blobs_meta = data.get("data", {}).get("attributes", {}).get("content_blobs", [])
+
+                # 4. Create content blobs
+                blob_result = upload_content_blobs(self.client, request, "sops", asset_id, content_blobs_meta, [file])
+                blob_results.append(blob_result)
+
+            # Flatten blob_results
+            blob_results = [x for xs in blob_results for x in xs]
+            any_failed = any(r.status == "failed" for r in blob_results)
+
+            resp_status = 207 if any_failed else 201
             return HttpResponse(
-                b'{"errors":[{"title":"content_blobs required: provide at least one content_blob or upload a file"}]}',
-                status=422, content_type='application/json')
-
-        body, code, headers, resp = self.client.create_sop(request, payload)
-        if code == 401:
-            return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
-
-        # Forward SEEK errors before attempting response validation
-        if code >= 400:
-            ct = headers.get('Content-Type', 'application/json')
-            return HttpResponse(body, status=code, content_type=ct)
-
-        try:
-            data = json.loads(body or b"{}")
-            SopSingleResponse.model_validate(data)
-        except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
-
-        if not has_files:
-            ct = headers.get('Content-Type', 'application/json')
-            return HttpResponse(body, status=code, content_type=ct)
-
-        # Upload files to content blob endpoints
-        asset_id = data.get("data", {}).get("id")
-        content_blobs_meta = data.get("data", {}).get("attributes", {}).get("content_blobs", [])
-        files = request.FILES.getlist('file')
-
-        unmatched = check_unmatched_files(content_blobs_meta, files)
-        if unmatched:
-            return HttpResponse(
-                json.dumps({"errors": [{"title": "Uploaded files do not match any content_blob placeholder",
-                                        "detail": f"Unmatched filenames: {unmatched}"}]}).encode(),
-                status=400, content_type='application/json')
-
-        blob_results = upload_content_blobs(self.client, request, "sops", asset_id, content_blobs_meta, files)
-
-        any_failed = any(r.status == "failed" for r in blob_results)
-        upload_resp = ContentBlobUploadResponse(
-            asset_id=asset_id, asset_type="sops",
-            blob_uploads=blob_results, asset_data=data)
-
-        resp_status = 207 if any_failed else 201
-        return HttpResponse(
-            upload_resp.model_dump_json(), status=resp_status,
-            content_type='application/json')
+                json.dumps({"data": sop_results}).encode(), status=resp_status,
+                content_type='application/json')
 
     # PATCH /sops/{uid}
     @extend_schema(
