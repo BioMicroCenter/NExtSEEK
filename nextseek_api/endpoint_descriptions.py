@@ -257,6 +257,16 @@ PEOPLE_FETCH_DESC = (
     "- 'Get person 1652'\n"
 )
 
+PEOPLE_FETCH_CURRENT_DESC = (
+    "**SUMMARY:** Fetch profile details for the currently authenticated user.\n\n"
+    "**USE WHEN:** The user wants to view full details for themselves.\n\n"
+    "**RETURNS:** Full person metadata including name, email, institution, and all linked projects, studies, assays, data files, and publications.\n\n"
+    "**TRIGGER PHRASES:** get current person, fetch my profile, current person details, current profile, show my account\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Show me details about my profile'\n"
+    "- 'What studies have I contributed to?'\n"
+)
+
 PEOPLE_CREATE_DESC = (
     "**SUMMARY:** Register a new researcher or user in the system.\n\n"
     "**USE WHEN:** The user wants to add a new person (researcher, collaborator) to the system.\n\n"

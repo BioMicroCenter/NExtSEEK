@@ -3,6 +3,7 @@ from typing import Optional
 import json
 from django.http import HttpResponse
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 
@@ -10,6 +11,7 @@ from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.endpoint_descriptions import (
     PEOPLE_LIST_DESC,
     PEOPLE_FETCH_DESC,
+    PEOPLE_FETCH_CURRENT_DESC,
     PEOPLE_CREATE_DESC,
     PEOPLE_UPDATE_DESC,
 )
@@ -119,6 +121,61 @@ class PeopleProxyViewSet(viewsets.ViewSet):
             return HttpResponse(b'{"errors":[{"title":"Invalid id: must be numeric SEEK id"}]}', status=422, content_type='application/json')
 
         body, code, headers, resp = self.client.get_person(request, str(seek_id))
+        if code == 401:
+            return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+
+        try:
+            ct = (headers.get('Content-Type') or '').lower()
+            if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
+                return HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json')
+            data = json.loads(body or b"{}")
+            PersonSingleResponse.model_validate(data)
+        except Exception:
+            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+
+        ct = headers.get('Content-Type', 'application/json')
+        return HttpResponse(body, status=code, content_type=ct)
+
+    @extend_schema(
+        description=PEOPLE_FETCH_CURRENT_DESC,
+        operation_id="Fetch the currently authenticated Person",
+        responses={200: PersonSingleResponse},
+        tags=['People'],
+        examples=[
+            OpenApiExample(
+                name="Get Current Person",
+                value={
+                    "data": {
+                        "id": "1652",
+                        "type": "people",
+                        "attributes": {"title": "Doe, John"},
+                        "relationships": {
+                            "projects": {"data": []},
+                            "institutions": {"data": []},
+                            "investigations": {"data": []},
+                            "studies": {"data": []},
+                            "assays": {"data": []},
+                            "data_files": {"data": []},
+                            "documents": {"data": []},
+                            "models": {"data": []},
+                            "sops": {"data": []},
+                            "publications": {"data": []},
+                            "events": {"data": []},
+                            "presentations": {"data": []},
+                            "collections": {"data": []},
+                            "workflows": {"data": []}
+                        },
+                        "links": {"self": "/people/1652"},
+                        "meta": {}
+                    },
+                    "jsonapi": {"version": "1.0"}
+                }
+            )
+        ],
+    )
+    @action(detail=False, methods=["get"], name="Current Psrson", url_path='current')
+    def current(self, request):
+        body, code, headers, resp = self.client.get_current_person(request)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 

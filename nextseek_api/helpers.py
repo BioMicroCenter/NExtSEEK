@@ -196,6 +196,9 @@ class SeekAPIClient:
     def get_person(self, request, person_id: str):
         return self._request('GET', f'/people/{person_id}', request)
 
+    def get_current_person(self, request):
+        return self._request('GET', f'/people/current', request)
+
     def create_person(self, request, payload: Dict[str, Any]):
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
         return self._request('POST', '/people', request, json=payload)
