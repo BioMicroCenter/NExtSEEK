@@ -12,7 +12,7 @@ urlpatterns = [
     re_path(r'^salt/', views.smartSearch, name='smartSearch'),
     re_path(r'^assistant/', views.smartSearch, name='assistant'),
     re_path(r'^remote/', views.remote, name='remote'),
-    re_path(r'^samples/upload/', views.sampleUpload, name='sampleUpload'),
+    # re_path(r'^samples/upload/', views.sampleUpload, name='sampleUpload'),
     re_path(r'^samples/query/', views.sampleQuery, name='sampleQuery'),
     re_path(r'^samples/search/', views.sampleSearch, name='sampleSearch'),
     re_path(r'^samples/searching/', views.sampleSearching, name='sampleSearching'),
@@ -83,7 +83,7 @@ urlpatterns = [
     re_path(r'^data/upload/', views.datafileUpload, name='datafileUpload'),
 
     # Samples
-    re_path(r'^samples/batchupload/', views.batchUpload, name='sampleUpload'),
+    re_path(r'^samples/upload/', views.batchUpload, name='sampleUpload'),
     # re_path(r'^newsearch/', views.newSearch, name='newSearch')
 ]
 
