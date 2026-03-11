@@ -7,6 +7,10 @@ NEVERCACHE_KEY = "YOUR KEY"
 # See https://docs.djangoproject.com/en/dev/ref/settings/#allowed-hosts
 ALLOWED_HOSTS = [u'servername']
 
+# List of project IDs for projects that allow
+# for the assistant endpoint
+ASSISTANT_PARTICIPATING_PROJECTS = set(["1"])
+
 #############
 # DATABASES #
 #############

@@ -23,12 +23,15 @@ from typing import Any
 from django.http import StreamingHttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, BasePermission
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from pydantic import ValidationError
 
-from dmac.settings import TEST_CASES
+from django.conf import settings
+
+ASSISTANT_PARTICIPATING_PROJECTS = settings.ASSISTANT_PARTICIPATING_PROJECTS
+TEST_CASES = settings.TEST_CASES
 
 from nextseek_api.assistant.descriptions import (
     ASSISTANT_BUNDLE_DOWNLOAD_DESC,
@@ -58,10 +61,27 @@ from rest_framework.authentication import (
     TokenAuthentication,
 )
 
-from nextseek_api.helpers import resolve_seek_auth
+from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
 
 logger = logging.getLogger(__name__)
 
+class UserInParticipatingProject(BasePermission):
+    message = "User needs to be in a participating project to use assistant"
+    def has_permission(self, request, view):
+        try:
+            client = SeekAPIClient()
+            person = json.loads(client.get_current_person(request)[0])
+            projects = person['data']['relationships']['projects']['data']
+            project_ids = set(map(lambda project: project['id'], projects))
+            if project_ids & ASSISTANT_PARTICIPATING_PROJECTS != set():
+                return True
+            else:
+                return False
+        except Exception:
+            return False
+        
+    def has_object_permission(self, request, view):
+        return self.has_permissions(request, view)
 
 class CsrfExemptSessionAuthentication(SessionAuthentication):
     """SessionAuthentication without CSRF enforcement.
@@ -91,7 +111,7 @@ class AssistantViewSet(viewsets.ViewSet):
     """ViewSet for the NExtSEEK Assistant (multi-agent chat)."""
 
     authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, UserInParticipatingProject]
 
     def _check_auth(self, request):
         """Check authentication via BASIC, SESSION, or TOKEN."""
