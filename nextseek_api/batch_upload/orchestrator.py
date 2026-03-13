@@ -13,7 +13,7 @@ from .convert import merge_files
 from .dag import build_relationships, compute_directions, detect_cycles
 from .db_engine import get_connection
 from .errors import ErrorCollector, ErrorType, _classify_validation_error
-from .insert import process_batches
+from .insert import load_existing_samples, process_batches
 from .levels import LevelAssignment, cascade_failures, compute_levels
 from .models import (
     BatchResult,
@@ -47,6 +47,7 @@ def run_batch_upload(
     resume_uid: Optional[str] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     output_dir: Optional[str] = None,
+    neo4j_only: bool = False,
 ) -> Dict:
     """Execute the batch upload pipeline for a single file (delegates to run_batch_upload_multi)."""
     return run_batch_upload_multi(
@@ -59,6 +60,63 @@ def run_batch_upload(
         resume_uid=resume_uid,
         should_stop=should_stop,
         output_dir=output_dir,
+        neo4j_only=neo4j_only,
+    )
+
+
+def _build_neo4j_only_outcomes(
+    insertable_samples: List[InsertableSample],
+    error_collector: ErrorCollector,
+) -> BatchResult:
+    """Build synthetic outcomes for neo4j-only mode via batch DB lookup.
+
+    Reuses load_existing_samples() — chunked WHERE IN, 1000/chunk.
+    Outcomes built via dict comprehensions over set operations.
+    """
+    all_uids_list = [s.uuid for s in insertable_samples]
+
+    with get_connection() as conn:
+        uid_to_sample_id = load_existing_samples(all_uids_list, conn)
+
+    # Set operations — O(n), no per-row DB queries
+    all_uids_set = set(all_uids_list)
+    found_uids = set(uid_to_sample_id.keys())
+    missing_uids = all_uids_set - found_uids
+
+    # Batch-construct outcomes via dict comprehensions
+    all_outcomes: Dict[str, RowOutcome] = {
+        uid: RowOutcome(status="success", sample_id=uid_to_sample_id[uid])
+        for uid in found_uids
+    }
+    all_outcomes.update({
+        uid: RowOutcome(status="failed", reason="uid_not_found_in_db")
+        for uid in missing_uids
+    })
+
+    if missing_uids:
+        log.warning("INSERT (neo4j_only): %d UIDs not found in DB", len(missing_uids))
+        for uid in missing_uids:
+            error_collector.add(
+                row_index=-1,
+                uid=uid,
+                error_type=ErrorType.VALIDATION_JSON,
+                message="uid_not_found_in_db",
+            )
+
+    log.info(
+        "INSERT (neo4j_only): resolved=%d, missing=%d",
+        len(found_uids), len(missing_uids),
+    )
+
+    return BatchResult(
+        inserted_count=0,
+        linked_project_count=0,
+        linked_assays_count=0,
+        outcomes=all_outcomes,
+        attempted_uids=all_uids_set,
+        stopped_early=False,
+        permissions_inserted_count=0,
+        updated_count=0,
     )
 
 
@@ -73,6 +131,7 @@ def run_batch_upload_multi(
     should_stop: Optional[Callable[[], bool]] = None,
     output_dir: Optional[str] = None,
     rows: Optional[List[dict]] = None,
+    neo4j_only: bool = False,
 ) -> Dict:
     """Execute the full batch upload pipeline for one or more files.
 
@@ -153,71 +212,100 @@ def run_batch_upload_multi(
     if should_stop and should_stop():
         return _cancelled_result(job_id, summary_path)
 
-    log.info("Stage 1.25: NAME_CHECK")
     name_matched_outcomes: Dict[str, RowOutcome] = {}
 
-    try:
-        from .uid_gen import check_name_exists_in_db
-        with get_connection() as conn:
-            valid_rows, name_matches, name_matched_rows = check_name_exists_in_db(valid_rows, conn)
+    if neo4j_only:
+        log.info("Stage 1.25: NAME_CHECK (skipped -- neo4j_only mode)")
+    else:
+        log.info("Stage 1.25: NAME_CHECK")
 
-        if name_matches:
-            if config.update_existing:
-                # In upsert mode: re-inject matched rows with their existing UIDs
-                log.info("NAME_CHECK: %d name matches, update_existing=True — re-injecting with existing UIDs", len(name_matches))
-                identity_to_match = {
-                    identity.lower(): match_info
-                    for identity, match_info in name_matches.items()
-                }
-                for row, identity in name_matched_rows:
-                    match_info = identity_to_match.get(identity.lower())
-                    if match_info:
-                        row.UID = match_info["uid"]
-                        valid_rows.append(row)
-            else:
-                # In default mode: skip matched rows
-                log.info("NAME_CHECK: %d name matches, skipping as duplicates", len(name_matches))
-                for identity, match_info in name_matches.items():
-                    uid = match_info["uid"]
-                    name_matched_outcomes[uid] = RowOutcome(
-                        status="skipped",
-                        reason="name_already_exists",
-                        sample_id=match_info["sample_id"],
-                    )
-    except Exception as exc:
-        log.exception("NAME_CHECK failed (non-fatal, continuing)")
-        error_collector.add(
-            row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
-            message=f"NAME_CHECK failed: {exc}",
-        )
+        try:
+            from .uid_gen import check_name_exists_in_db
+            with get_connection() as conn:
+                valid_rows, name_matches, name_matched_rows = check_name_exists_in_db(valid_rows, conn)
+
+            if name_matches:
+                if config.update_existing:
+                    # In upsert mode: re-inject matched rows with their existing UIDs
+                    log.info("NAME_CHECK: %d name matches, update_existing=True — re-injecting with existing UIDs", len(name_matches))
+                    identity_to_match = {
+                        identity.lower(): match_info
+                        for identity, match_info in name_matches.items()
+                    }
+                    for row, identity in name_matched_rows:
+                        match_info = identity_to_match.get(identity.lower())
+                        if match_info:
+                            row.UID = match_info["uid"]
+                            valid_rows.append(row)
+                else:
+                    # In default mode: skip matched rows
+                    log.info("NAME_CHECK: %d name matches, skipping as duplicates", len(name_matches))
+                    for identity, match_info in name_matches.items():
+                        uid = match_info["uid"]
+                        name_matched_outcomes[uid] = RowOutcome(
+                            status="skipped",
+                            reason="name_already_exists",
+                            sample_id=match_info["sample_id"],
+                        )
+        except Exception as exc:
+            log.exception("NAME_CHECK failed (non-fatal, continuing)")
+            error_collector.add(
+                row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
+                message=f"NAME_CHECK failed: {exc}",
+            )
 
     # ── Stage 1.5: UID_GEN ───────────────────────────────────────────────
     if should_stop and should_stop():
         return _cancelled_result(job_id, summary_path)
 
-    log.info("Stage 1.5: UID_GEN")
-    # Track which rows need UID generation so we can flag them in outcomes
-    uids_before_gen = {r.UID for r in valid_rows if r.UID is not None}
-    try:
-        with get_connection() as conn:
-            valid_rows, uid_gen_report = run_uid_gen(
-                rows=valid_rows,
-                lababbv=lababbv,
-                conn=conn,
-                error_collector=error_collector,
+    if neo4j_only:
+        log.info("Stage 1.5: UID_GEN (skipped -- neo4j_only mode)")
+        # Batch-validate: all rows must have pre-assigned UIDs.
+        # Boolean mask — single O(n) pass.
+        all_uids = [r.UID for r in valid_rows]
+        has_uid_mask = [uid is not None and uid.strip() != "" for uid in all_uids]
+        if not all(has_uid_mask):
+            # Partition in single O(n) pass via zip
+            rows_with_uid = []
+            for row, has in zip(valid_rows, has_uid_mask):
+                if has:
+                    rows_with_uid.append(row)
+                else:
+                    error_collector.add(
+                        row_index=-1,
+                        uid=None,
+                        error_type=ErrorType.VALIDATION_JSON,
+                        message="neo4j_only mode requires pre-assigned UID",
+                    )
+            log.warning(
+                "UID_GEN (neo4j_only): %d rows lack UIDs, removed",
+                len(valid_rows) - len(rows_with_uid),
             )
-        generated_uids = {r.UID for r in valid_rows if r.UID is not None} - uids_before_gen
-        if uid_gen_report.get("uids_generated", 0) > 0:
-            log.info("UID_GEN: generated %d UIDs", uid_gen_report["uids_generated"])
-        if uid_gen_report.get("duplicates_removed", 0) > 0:
-            log.info("UID_GEN: removed %d duplicates", uid_gen_report["duplicates_removed"])
-    except Exception as exc:
-        log.exception("UID_GEN failed")
-        error_collector.add(
-            row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
-            message=f"UID_GEN failed: {exc}",
-        )
-        return _error_result(job_id, summary_path, error_collector, str(exc))
+            valid_rows = rows_with_uid
+    else:
+        log.info("Stage 1.5: UID_GEN")
+        # Track which rows need UID generation so we can flag them in outcomes
+        uids_before_gen = {r.UID for r in valid_rows if r.UID is not None}
+        try:
+            with get_connection() as conn:
+                valid_rows, uid_gen_report = run_uid_gen(
+                    rows=valid_rows,
+                    lababbv=lababbv,
+                    conn=conn,
+                    error_collector=error_collector,
+                )
+            generated_uids = {r.UID for r in valid_rows if r.UID is not None} - uids_before_gen
+            if uid_gen_report.get("uids_generated", 0) > 0:
+                log.info("UID_GEN: generated %d UIDs", uid_gen_report["uids_generated"])
+            if uid_gen_report.get("duplicates_removed", 0) > 0:
+                log.info("UID_GEN: removed %d duplicates", uid_gen_report["duplicates_removed"])
+        except Exception as exc:
+            log.exception("UID_GEN failed")
+            error_collector.add(
+                row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
+                message=f"UID_GEN failed: {exc}",
+            )
+            return _error_result(job_id, summary_path, error_collector, str(exc))
 
     if not valid_rows:
         return _error_result(job_id, summary_path, error_collector, "No valid rows after UID_GEN")
@@ -319,212 +407,219 @@ def run_batch_upload_multi(
         return _error_result(job_id, summary_path, error_collector, "No samples after transform")
 
     # ── Stage 5: INSERT (level-by-level) ────────────────────────────────
-    if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path)
-
-    log.info("Stage 5/7: INSERT")
-    reporter = ProgressReporter(total_rows=len(insertable_samples))
-
-    # Build uid -> InsertableSample lookup
-    uid_to_insertable: Dict[str, InsertableSample] = {s.uuid: s for s in insertable_samples}
-
-    # Seed cumulative_existing with external parents AND pre-existing spreadsheet UIDs
-    cumulative_existing: Dict[str, int] = dict(level_assignment.external_parents)
-    cumulative_existing.update(level_assignment.preexisting_uids)
-
-    all_outcomes: Dict[str, RowOutcome] = {}
-    failed_uids: Set[str] = set()
-    total_inserted = 0
-    total_project_links = 0
-    total_assay_links = 0
-    total_permissions = 0
-    total_attempted: Set[str] = set()
-    any_stopped_early = False
-
-    for level_num in range(level_assignment.max_level + 1):
+    if neo4j_only:
+        log.info("Stage 5/7: INSERT (skipped -- neo4j_only mode)")
+        batch_result = _build_neo4j_only_outcomes(
+            insertable_samples=insertable_samples,
+            error_collector=error_collector,
+        )
+    else:
         if should_stop and should_stop():
-            any_stopped_early = True
-            break
+            return _cancelled_result(job_id, summary_path)
 
-        # Get UIDs at this level
-        level_uids = [
-            uid for uid, lvl in level_assignment.levels.items()
-            if lvl == level_num
-        ]
-        level_uids_set = set(level_uids)
+        log.info("Stage 5/7: INSERT")
+        reporter = ProgressReporter(total_rows=len(insertable_samples))
 
-        # Cascade: fail any UIDs whose parent failed at a prior level
-        cascaded = cascade_failures(failed_uids, children_of, level_uids_set)
+        # Build uid -> InsertableSample lookup
+        uid_to_insertable: Dict[str, InsertableSample] = {s.uuid: s for s in insertable_samples}
 
-        level_samples: List[InsertableSample] = []
-        for uid in level_uids:
-            if uid in cascaded:
-                all_outcomes[uid] = RowOutcome(
-                    status="failed",
-                    reason=cascaded[uid],
-                    topo_level=level_num,
-                )
-                failed_uids.add(uid)
-                error_collector.add(
-                    row_index=-1,
-                    uid=uid,
-                    error_type=ErrorType.PARENT_FAILED,
-                    message=cascaded[uid],
-                )
+        # Seed cumulative_existing with external parents AND pre-existing spreadsheet UIDs
+        cumulative_existing: Dict[str, int] = dict(level_assignment.external_parents)
+        cumulative_existing.update(level_assignment.preexisting_uids)
+
+        all_outcomes: Dict[str, RowOutcome] = {}
+        failed_uids: Set[str] = set()
+        total_inserted = 0
+        total_project_links = 0
+        total_assay_links = 0
+        total_permissions = 0
+        total_attempted: Set[str] = set()
+        any_stopped_early = False
+
+        for level_num in range(level_assignment.max_level + 1):
+            if should_stop and should_stop():
+                any_stopped_early = True
+                break
+
+            # Get UIDs at this level
+            level_uids = [
+                uid for uid, lvl in level_assignment.levels.items()
+                if lvl == level_num
+            ]
+            level_uids_set = set(level_uids)
+
+            # Cascade: fail any UIDs whose parent failed at a prior level
+            cascaded = cascade_failures(failed_uids, children_of, level_uids_set)
+
+            level_samples: List[InsertableSample] = []
+            for uid in level_uids:
+                if uid in cascaded:
+                    all_outcomes[uid] = RowOutcome(
+                        status="failed",
+                        reason=cascaded[uid],
+                        topo_level=level_num,
+                    )
+                    failed_uids.add(uid)
+                    error_collector.add(
+                        row_index=-1,
+                        uid=uid,
+                        error_type=ErrorType.PARENT_FAILED,
+                        message=cascaded[uid],
+                    )
+                    continue
+                sample = uid_to_insertable.get(uid)
+                if sample:
+                    level_samples.append(sample)
+
+            if not level_samples:
+                log.info("INSERT level %d: 0 eligible samples", level_num)
                 continue
-            sample = uid_to_insertable.get(uid)
-            if sample:
-                level_samples.append(sample)
 
-        if not level_samples:
-            log.info("INSERT level %d: 0 eligible samples", level_num)
-            continue
-
-        # Decide parallel vs sequential PER LEVEL
-        use_parallel = (
-            len(level_samples) >= PARALLEL_THRESHOLD
-            and resume_uid is None
-        )
-        checkpoint_name_level = f"batch_checkpoint_L{level_num}.txt"
-
-        if use_parallel:
-            log.info(
-                "INSERT level %d: parallel mode (%d rows)",
-                level_num, len(level_samples),
+            # Decide parallel vs sequential PER LEVEL
+            use_parallel = (
+                len(level_samples) >= PARALLEL_THRESHOLD
+                and resume_uid is None
             )
-            level_result = process_batches_parallel(
-                rows=level_samples,
-                project_id=project_id,
-                contributor_id=contributor_id,
-                config=config,
-                direction_computation=direction_computation,
-                error_collector=error_collector,
-                reporter=reporter,
-                should_stop=should_stop,
-                existing_samples=cumulative_existing,
-                update_existing=config.update_existing,
-            )
-        else:
-            log.info(
-                "INSERT level %d: sequential mode (%d rows)",
-                level_num, len(level_samples),
-            )
-            level_result = process_batches(
-                insertable_samples=level_samples,
-                project_id=project_id,
-                contributor_id=contributor_id,
-                config=config,
-                direction_computation=direction_computation,
-                error_collector=error_collector,
-                reporter=reporter,
-                checkpoint_dir=checkpoint_dir,
-                checkpoint_name=checkpoint_name_level,
-                resume_uid=resume_uid if level_num == 0 else None,
-                should_stop=should_stop,
-                existing_samples=cumulative_existing,
-                update_existing=config.update_existing,
-            )
+            checkpoint_name_level = f"batch_checkpoint_L{level_num}.txt"
 
-        # Stamp topo_level on outcomes and track failures/successes
-        for uid, outcome in level_result.outcomes.items():
-            outcome.topo_level = level_num
-            all_outcomes[uid] = outcome
-            if outcome.status == "failed":
-                failed_uids.add(uid)
-            elif outcome.status in ("success", "skipped") and outcome.sample_id is not None:
-                cumulative_existing[uid] = outcome.sample_id
-
-        total_inserted += level_result.inserted_count
-        total_project_links += level_result.linked_project_count
-        total_assay_links += level_result.linked_assays_count
-        total_permissions += level_result.permissions_inserted_count
-        total_attempted.update(level_result.attempted_uids)
-        if level_result.stopped_early:
-            any_stopped_early = True
-
-        log.info(
-            "INSERT level %d: inserted=%d, failed=%d, cascaded=%d",
-            level_num,
-            level_result.inserted_count,
-            sum(1 for o in level_result.outcomes.values() if o.status == "failed"),
-            len(cascaded),
-        )
-
-    # Final pass: cycle UIDs (after all normal levels)
-    if level_assignment.cycle_uids and not any_stopped_early:
-        cycle_samples: List[InsertableSample] = []
-        for uid in sorted(level_assignment.cycle_uids):
-            if uid in failed_uids:
-                continue
-            # Check if all parents are now resolved
-            uid_parents = parents_of.get(uid, set())
-            all_resolved = all(
-                p in cumulative_existing for p in uid_parents
-            )
-            if all_resolved and uid in uid_to_insertable:
-                cycle_samples.append(uid_to_insertable[uid])
+            if use_parallel:
+                log.info(
+                    "INSERT level %d: parallel mode (%d rows)",
+                    level_num, len(level_samples),
+                )
+                level_result = process_batches_parallel(
+                    rows=level_samples,
+                    project_id=project_id,
+                    contributor_id=contributor_id,
+                    config=config,
+                    direction_computation=direction_computation,
+                    error_collector=error_collector,
+                    reporter=reporter,
+                    should_stop=should_stop,
+                    existing_samples=cumulative_existing,
+                    update_existing=config.update_existing,
+                )
             else:
-                all_outcomes[uid] = RowOutcome(
-                    status="failed",
-                    reason="cycle: parent(s) could not be resolved",
-                    topo_level=-1,
+                log.info(
+                    "INSERT level %d: sequential mode (%d rows)",
+                    level_num, len(level_samples),
                 )
-                failed_uids.add(uid)
-                error_collector.add(
-                    row_index=-1,
-                    uid=uid,
-                    error_type=ErrorType.CYCLE_UNRESOLVABLE,
-                    message="cycle: parent(s) could not be resolved",
+                level_result = process_batches(
+                    insertable_samples=level_samples,
+                    project_id=project_id,
+                    contributor_id=contributor_id,
+                    config=config,
+                    direction_computation=direction_computation,
+                    error_collector=error_collector,
+                    reporter=reporter,
+                    checkpoint_dir=checkpoint_dir,
+                    checkpoint_name=checkpoint_name_level,
+                    resume_uid=resume_uid if level_num == 0 else None,
+                    should_stop=should_stop,
+                    existing_samples=cumulative_existing,
+                    update_existing=config.update_existing,
                 )
 
-        if cycle_samples:
-            log.info("INSERT cycle pass: %d samples", len(cycle_samples))
-            cycle_result = process_batches(
-                insertable_samples=cycle_samples,
-                project_id=project_id,
-                contributor_id=contributor_id,
-                config=config,
-                direction_computation=direction_computation,
-                error_collector=error_collector,
-                reporter=reporter,
-                checkpoint_dir=checkpoint_dir,
-                checkpoint_name="batch_checkpoint_cycle.txt",
-                should_stop=should_stop,
-                existing_samples=cumulative_existing,
-                update_existing=config.update_existing,
-            )
-            for uid, outcome in cycle_result.outcomes.items():
-                outcome.topo_level = -1
+            # Stamp topo_level on outcomes and track failures/successes
+            for uid, outcome in level_result.outcomes.items():
+                outcome.topo_level = level_num
                 all_outcomes[uid] = outcome
                 if outcome.status == "failed":
                     failed_uids.add(uid)
                 elif outcome.status in ("success", "skipped") and outcome.sample_id is not None:
                     cumulative_existing[uid] = outcome.sample_id
-            total_inserted += cycle_result.inserted_count
-            total_project_links += cycle_result.linked_project_count
-            total_assay_links += cycle_result.linked_assays_count
-            total_permissions += cycle_result.permissions_inserted_count
-            total_attempted.update(cycle_result.attempted_uids)
 
-    # Merge name-matched outcomes (skipped duplicates from NAME_CHECK stage)
-    all_outcomes.update(name_matched_outcomes)
+            total_inserted += level_result.inserted_count
+            total_project_links += level_result.linked_project_count
+            total_assay_links += level_result.linked_assays_count
+            total_permissions += level_result.permissions_inserted_count
+            total_attempted.update(level_result.attempted_uids)
+            if level_result.stopped_early:
+                any_stopped_early = True
 
-    # Count updated samples from all levels
-    total_updated = sum(
-        1 for o in all_outcomes.values()
-        if o.status == "success" and o.reason == "updated"
-    )
+            log.info(
+                "INSERT level %d: inserted=%d, failed=%d, cascaded=%d",
+                level_num,
+                level_result.inserted_count,
+                sum(1 for o in level_result.outcomes.values() if o.status == "failed"),
+                len(cascaded),
+            )
 
-    batch_result = BatchResult(
-        inserted_count=total_inserted,
-        linked_project_count=total_project_links,
-        linked_assays_count=total_assay_links,
-        outcomes=all_outcomes,
-        attempted_uids=total_attempted,
-        stopped_early=any_stopped_early,
-        permissions_inserted_count=total_permissions,
-        updated_count=total_updated,
-    )
+        # Final pass: cycle UIDs (after all normal levels)
+        if level_assignment.cycle_uids and not any_stopped_early:
+            cycle_samples: List[InsertableSample] = []
+            for uid in sorted(level_assignment.cycle_uids):
+                if uid in failed_uids:
+                    continue
+                # Check if all parents are now resolved
+                uid_parents = parents_of.get(uid, set())
+                all_resolved = all(
+                    p in cumulative_existing for p in uid_parents
+                )
+                if all_resolved and uid in uid_to_insertable:
+                    cycle_samples.append(uid_to_insertable[uid])
+                else:
+                    all_outcomes[uid] = RowOutcome(
+                        status="failed",
+                        reason="cycle: parent(s) could not be resolved",
+                        topo_level=-1,
+                    )
+                    failed_uids.add(uid)
+                    error_collector.add(
+                        row_index=-1,
+                        uid=uid,
+                        error_type=ErrorType.CYCLE_UNRESOLVABLE,
+                        message="cycle: parent(s) could not be resolved",
+                    )
+
+            if cycle_samples:
+                log.info("INSERT cycle pass: %d samples", len(cycle_samples))
+                cycle_result = process_batches(
+                    insertable_samples=cycle_samples,
+                    project_id=project_id,
+                    contributor_id=contributor_id,
+                    config=config,
+                    direction_computation=direction_computation,
+                    error_collector=error_collector,
+                    reporter=reporter,
+                    checkpoint_dir=checkpoint_dir,
+                    checkpoint_name="batch_checkpoint_cycle.txt",
+                    should_stop=should_stop,
+                    existing_samples=cumulative_existing,
+                    update_existing=config.update_existing,
+                )
+                for uid, outcome in cycle_result.outcomes.items():
+                    outcome.topo_level = -1
+                    all_outcomes[uid] = outcome
+                    if outcome.status == "failed":
+                        failed_uids.add(uid)
+                    elif outcome.status in ("success", "skipped") and outcome.sample_id is not None:
+                        cumulative_existing[uid] = outcome.sample_id
+                total_inserted += cycle_result.inserted_count
+                total_project_links += cycle_result.linked_project_count
+                total_assay_links += cycle_result.linked_assays_count
+                total_permissions += cycle_result.permissions_inserted_count
+                total_attempted.update(cycle_result.attempted_uids)
+
+        # Merge name-matched outcomes (skipped duplicates from NAME_CHECK stage)
+        all_outcomes.update(name_matched_outcomes)
+
+        # Count updated samples from all levels
+        total_updated = sum(
+            1 for o in all_outcomes.values()
+            if o.status == "success" and o.reason == "updated"
+        )
+
+        batch_result = BatchResult(
+            inserted_count=total_inserted,
+            linked_project_count=total_project_links,
+            linked_assays_count=total_assay_links,
+            outcomes=all_outcomes,
+            attempted_uids=total_attempted,
+            stopped_early=any_stopped_early,
+            permissions_inserted_count=total_permissions,
+            updated_count=total_updated,
+        )
 
     log.info(
         "INSERT: inserted=%d, linked_project=%d, linked_assays=%d, permissions=%d",

@@ -54,6 +54,13 @@ class BatchUploadStartRequest(BaseModel):
         False,
         description="If true, existing samples (by UUID or Name match) are updated instead of skipped.",
     )
+    neo4j_only: bool = Field(
+        False,
+        description=(
+            "If true, skip SQL INSERT/UPDATE stages and only sync existing samples to Neo4j. "
+            "Assumes all samples already exist in the database. Rows must have pre-assigned UIDs."
+        ),
+    )
     person_id: int | None = Field(
         None,
         description="SEEK person ID for contributor. Optional; defaults to authenticated user.",
@@ -120,6 +127,11 @@ class BatchUploadViewSet(viewsets.ViewSet):
                     "update_existing": {
                         "type": "boolean",
                         "description": "If true, update existing samples instead of skipping. Default: false.",
+                        "default": False,
+                    },
+                    "neo4j_only": {
+                        "type": "boolean",
+                        "description": "If true, skip SQL INSERT/UPDATE and only sync existing samples to Neo4j. Default: false.",
                         "default": False,
                     },
                     "config_overrides": {
@@ -255,6 +267,15 @@ class BatchUploadViewSet(viewsets.ViewSet):
             elif isinstance(update_existing, bool):
                 config_overrides["update_existing"] = update_existing
 
+        neo4j_only = request.data.get("neo4j_only")
+        if neo4j_only is not None:
+            if isinstance(neo4j_only, str):
+                neo4j_only = neo4j_only.strip().lower() in ("1", "true", "yes")
+            elif not isinstance(neo4j_only, bool):
+                neo4j_only = False
+        else:
+            neo4j_only = False
+
         # Resolve contributor_id and lababbv from the authenticated user
         user_ctx = _resolve_user_context(request)
         if user_ctx is None:
@@ -270,6 +291,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
             lababbv=user_ctx["lababbv"],
             user_id=request.user.pk,
             config_overrides=config_overrides,
+            neo4j_only=neo4j_only,
         )
         if validated_rows is not None:
             task_kwargs["rows"] = [r.model_dump() for r in validated_rows]

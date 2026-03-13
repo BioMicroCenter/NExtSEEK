@@ -25,6 +25,7 @@ def run_batch_upload_task(
     lababbv: str = "NA",
     user_id: int = None,
     config_overrides: dict = None,
+    neo4j_only: bool = False,
 ):
     """Celery task entry point for batch upload.
 
@@ -69,6 +70,7 @@ def run_batch_upload_task(
             checkpoint_dir=checkpoint_dir,
             should_stop=should_stop,
             rows=rows,
+            neo4j_only=neo4j_only,
         )
 
         self.update_state(
