@@ -35,7 +35,9 @@ from nextseek_api.schema_rag.db import (
     insert_endpoints,
     load_all_minimal_endpoints,
     load_all_full_endpoints,
+    load_full_endpoints_by_ids,
 )
+from nextseek_api.schema_rag.schema_processor import OpenAPISchemaProcessor
 from nextseek_api.schema_rag.models import FullAPIEndpoint, MinimalAPIEndpoint, SessionInfo
 from nextseek_api.schema_rag.errors import (
     SCHEMA_FETCH_FAILED,
@@ -1221,4 +1223,292 @@ class SchemaRAGFilterTests(SchemaRAGTestCase):
                 filter_by="METHOD",
                 filter_terms=["INVALID"],
             )
+
+
+# ---------------------------------------------------------------------------
+# Response Schema in Full Mode Tests (Task 1 RED)
+# ---------------------------------------------------------------------------
+
+class ResponseSchemaTests(SchemaRAGTestCase):
+    """Tests that response_schema is returned in full mode retrieve."""
+
+    def _setup_session_with_response_schema(self) -> SessionInfo:
+        """Create session with endpoints that have response_schema populated."""
+        session = create_session(
+            schema_url="https://example.com/api.json",
+            ttl_minutes=60,
+            num_endpoints=2,
+        )
+        init_session_db(session)
+
+        endpoints = [
+            FullAPIEndpoint(
+                operationId="listSamples",
+                method="GET",
+                path="/samples",
+                tags=["Samples"],
+                description="List all samples",
+                request_schema={},
+                response_schema={"data": [{"id": "integer", "title": "string"}]},
+            ),
+            FullAPIEndpoint(
+                operationId="createSample",
+                method="POST",
+                path="/samples",
+                tags=["Samples"],
+                description="Create a sample",
+                request_schema={"title": "string"},
+                response_schema={"id": "integer", "title": "string"},
+            ),
+        ]
+        insert_endpoints(session, endpoints)
+        return session
+
+    def test_load_all_full_endpoints_returns_response_schema(self):
+        """load_all_full_endpoints should populate response_schema from DuckDB."""
+        session = self._setup_session_with_response_schema()
+        endpoints = load_all_full_endpoints(session)
+
+        list_ep = next(ep for ep in endpoints if ep.operationId == "listSamples")
+        self.assertIsNotNone(list_ep.response_schema)
+        self.assertIn("data", list_ep.response_schema)
+
+        create_ep = next(ep for ep in endpoints if ep.operationId == "createSample")
+        self.assertIsNotNone(create_ep.response_schema)
+        self.assertIn("id", create_ep.response_schema)
+
+    def test_load_full_endpoints_by_ids_returns_response_schema(self):
+        """load_full_endpoints_by_ids should populate response_schema from DuckDB."""
+        session = self._setup_session_with_response_schema()
+        endpoints = load_full_endpoints_by_ids(session, ["listSamples"])
+
+        self.assertEqual(len(endpoints), 1)
+        self.assertIsNotNone(endpoints[0].response_schema)
+        self.assertIn("data", endpoints[0].response_schema)
+
+    @patch('nextseek_api.schema_rag.service.embed_texts')
+    def test_retrieve_full_mode_includes_response_schema(self, mock_embed):
+        """Full-mode retrieve should include response_schema in endpoint output."""
+        session = self._setup_session_with_response_schema()
+
+        def embed_side_effect(texts):
+            n = len(texts)
+            emb = np.abs(np.random.randn(n, 384)) + 0.1
+            norms = np.linalg.norm(emb, axis=1, keepdims=True)
+            return emb / norms
+
+        mock_embed.side_effect = embed_side_effect
+
+        req = RetrieveRequest(
+            session_id=session.session_id,
+            query="list samples",
+            mode="full",
+            top_k=5,
+            min_score=0.0,
+            include_debug=True,
+        )
+        response = schema_rag_service.retrieve_endpoints(req)
+
+        self.assertIsNotNone(response.endpoints_full)
+        # At least one endpoint should have a non-None response_schema
+        has_response_schema = any(
+            ep.response_schema is not None for ep in response.endpoints_full
+        )
+        self.assertTrue(
+            has_response_schema,
+            "Expected at least one endpoint with non-None response_schema in full mode"
+        )
+
+    def test_load_full_endpoints_null_response_schema(self):
+        """Endpoints with no response_schema should return None, not crash."""
+        session = create_session(
+            schema_url="https://example.com/api.json",
+            ttl_minutes=60,
+            num_endpoints=1,
+        )
+        init_session_db(session)
+
+        endpoints = [
+            FullAPIEndpoint(
+                operationId="deleteItem",
+                method="DELETE",
+                path="/items/{id}",
+                tags=["Items"],
+                description="Delete an item",
+                request_schema={},
+                response_schema=None,
+            ),
+        ]
+        insert_endpoints(session, endpoints)
+
+        loaded = load_all_full_endpoints(session)
+        self.assertEqual(len(loaded), 1)
+        self.assertIsNone(loaded[0].response_schema)
+
+
+# ---------------------------------------------------------------------------
+# anyOf/oneOf Preservation Tests (Task 3 RED)
+# ---------------------------------------------------------------------------
+
+class SimplifySchemaUnionTests(TestCase):
+    """Tests that simplify_schema preserves anyOf/oneOf as $anyOf/$oneOf."""
+
+    def setUp(self):
+        self.processor = OpenAPISchemaProcessor()
+
+    def test_simplify_anyof_string_or_array(self):
+        """anyOf with string and array of strings -> $anyOf wrapper."""
+        schema = {
+            "anyOf": [
+                {"type": "string"},
+                {"type": "array", "items": {"type": "string"}},
+            ]
+        }
+        result = self.processor.simplify_schema(schema)
+        self.assertEqual(result, {"$anyOf": ["string", ["string"]]})
+
+    def test_simplify_oneof_string_or_integer(self):
+        """oneOf with string and integer -> $oneOf wrapper."""
+        schema = {
+            "oneOf": [
+                {"type": "string"},
+                {"type": "integer"},
+            ]
+        }
+        result = self.processor.simplify_schema(schema)
+        self.assertEqual(result, {"$oneOf": ["string", "integer"]})
+
+    def test_simplify_anyof_single_variant_collapses(self):
+        """Single-variant anyOf collapses to the base type (no wrapper)."""
+        schema = {
+            "anyOf": [
+                {"type": "string"},
+            ]
+        }
+        result = self.processor.simplify_schema(schema)
+        self.assertEqual(result, "string")
+
+    def test_simplify_oneof_single_variant_collapses(self):
+        """Single-variant oneOf collapses to the base type (no wrapper)."""
+        schema = {
+            "oneOf": [
+                {"type": "integer"},
+            ]
+        }
+        result = self.processor.simplify_schema(schema)
+        self.assertEqual(result, "integer")
+
+    def test_simplify_anyof_with_objects(self):
+        """anyOf with object variants preserves nested structure."""
+        schema = {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                },
+                {
+                    "type": "object",
+                    "properties": {"id": {"type": "integer"}},
+                },
+            ]
+        }
+        result = self.processor.simplify_schema(schema)
+        self.assertEqual(result, {"$anyOf": [{"name": "string"}, {"id": "integer"}]})
+
+    def test_simplify_anyof_nullable(self):
+        """anyOf with null type -> $anyOf with 'null' as variant."""
+        schema = {
+            "anyOf": [
+                {"type": "string"},
+                {"type": "null"},
+            ]
+        }
+        result = self.processor.simplify_schema(schema)
+        self.assertEqual(result, {"$anyOf": ["string", "null"]})
+
+    def test_simplify_allof_with_anyof_child(self):
+        """allOf containing an anyOf child preserves the $anyOf in merge."""
+        schema = {
+            "allOf": [
+                {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                },
+                {
+                    "anyOf": [
+                        {"type": "string"},
+                        {"type": "integer"},
+                    ]
+                },
+            ]
+        }
+        result = self.processor.simplify_schema(schema)
+        # The merged dict should contain both the property and the $anyOf
+        self.assertIn("name", result)
+        self.assertEqual(result["name"], "string")
+        self.assertIn("$anyOf", result)
+        self.assertEqual(result["$anyOf"], ["string", "integer"])
+
+    def test_simplify_anyof_inside_property(self):
+        """anyOf nested inside an object property is preserved."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "sample_type": {
+                    "anyOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ]
+                },
+                "name": {"type": "string"},
+            },
+        }
+        result = self.processor.simplify_schema(schema)
+        self.assertEqual(result["name"], "string")
+        self.assertEqual(
+            result["sample_type"],
+            {"$anyOf": ["string", ["string"]]},
+        )
+
+    def test_flatten_endpoints_preserves_anyof_in_request_schema(self):
+        """End-to-end: flatten_endpoints produces $anyOf in request_schema."""
+        openapi_doc = {
+            "openapi": "3.0.0",
+            "info": {"title": "Test", "version": "1.0"},
+            "paths": {
+                "/search": {
+                    "post": {
+                        "operationId": "advancedSearch",
+                        "summary": "Search",
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "sample_type": {
+                                                "anyOf": [
+                                                    {"type": "string"},
+                                                    {"type": "array", "items": {"type": "string"}},
+                                                ]
+                                            },
+                                        },
+                                    }
+                                }
+                            }
+                        },
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+        }
+        processor = OpenAPISchemaProcessor()
+        endpoints = schema_rag_service.flatten_endpoints(openapi_doc, processor)
+
+        self.assertEqual(len(endpoints), 1)
+        ep = endpoints[0]
+        self.assertEqual(
+            ep.request_schema["sample_type"],
+            {"$anyOf": ["string", ["string"]]},
+        )
 

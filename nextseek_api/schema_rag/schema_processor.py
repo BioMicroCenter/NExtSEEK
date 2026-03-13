@@ -160,10 +160,13 @@ class OpenAPISchemaProcessor:
                 merged["$required"] = list(set(merged_required))
             return merged if merged else {}
 
-        # Handle anyOf, oneOf - take first (unchanged behavior)
+        # Handle anyOf, oneOf - simplify all variants, wrap with $ prefix
         for combiner in ("anyOf", "oneOf"):
             if combiner in schema and isinstance(schema[combiner], list) and schema[combiner]:
-                return self.simplify_schema(schema[combiner][0])
+                variants = [self.simplify_schema(s) for s in schema[combiner]]
+                if len(variants) == 1:
+                    return variants[0]
+                return {f"${combiner}": variants}
 
         schema_type = schema.get("type")
 

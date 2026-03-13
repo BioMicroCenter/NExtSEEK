@@ -266,18 +266,12 @@ def load_minimal_endpoints_by_ids(
 def load_all_full_endpoints(session: SessionInfo) -> List[FullAPIEndpoint]:
     """
     Return FullAPIEndpoint list for all rows.
-    
-    NOTE:
-    - response_schema is stored in DuckDB for completeness,
-      but is NOT exposed to the LLM in RetrieveResponse.
-    - When constructing FullAPIEndpoint objects for outward responses,
-      response_schema is set to None.
-    
+
     Args:
         session: SessionInfo containing the db_path for the DuckDB file.
-    
+
     Returns:
-        List of FullAPIEndpoint objects with response_schema=None.
+        List of FullAPIEndpoint objects with response_schema populated.
     
     Raises:
         duckdb.Error: If DuckDB operations fail.
@@ -287,16 +281,16 @@ def load_all_full_endpoints(session: SessionInfo) -> List[FullAPIEndpoint]:
         result = conn.execute(
             """
             SELECT operationId, method, tags, description, path,
-                   parameters, request_schema, examples
+                   parameters, request_schema, response_schema, examples
             FROM endpoints
             """
         ).fetchall()
-        
+
         endpoints = []
         for row in result:
             (operationId, method, tags, description, path,
-             parameters, request_schema, examples) = row
-            
+             parameters, request_schema, response_schema, examples) = row
+
             endpoints.append(FullAPIEndpoint(
                 operationId=operationId,
                 method=method,
@@ -305,10 +299,10 @@ def load_all_full_endpoints(session: SessionInfo) -> List[FullAPIEndpoint]:
                 path=path,
                 parameters=json.loads(parameters) if parameters else None,
                 request_schema=json.loads(request_schema) if request_schema else {},
-                response_schema=None,  # Excluded from LLM responses
+                response_schema=json.loads(response_schema) if response_schema else None,
                 examples=list(examples) if examples else None,
             ))
-        
+
         return endpoints
     finally:
         conn.close()
@@ -320,19 +314,16 @@ def load_full_endpoints_by_ids(
 ) -> List[FullAPIEndpoint]:
     """
     Return FullAPIEndpoint objects for given endpoint_ids.
-    
+
     Used for final materialization after scoring - only loads
     the endpoints whose IDs were selected.
-    
-    NOTE:
-    - response_schema is NOT included when returning to callers.
-    
+
     Args:
         session: SessionInfo containing the db_path for the DuckDB file.
         endpoint_ids: List of endpoint IDs to retrieve.
-    
+
     Returns:
-        List of FullAPIEndpoint objects with response_schema=None.
+        List of FullAPIEndpoint objects with response_schema populated.
     
     Raises:
         duckdb.Error: If DuckDB operations fail.
@@ -346,18 +337,18 @@ def load_full_endpoints_by_ids(
         placeholders = ", ".join(["?" for _ in endpoint_ids])
         query = f"""
             SELECT operationId, method, tags, description, path,
-                   parameters, request_schema, examples
+                   parameters, request_schema, response_schema, examples
             FROM endpoints
             WHERE endpoint_id IN ({placeholders})
         """
-        
+
         result = conn.execute(query, endpoint_ids).fetchall()
-        
+
         endpoints = []
         for row in result:
             (operationId, method, tags, description, path,
-             parameters, request_schema, examples) = row
-            
+             parameters, request_schema, response_schema, examples) = row
+
             endpoints.append(FullAPIEndpoint(
                 operationId=operationId,
                 method=method,
@@ -366,7 +357,7 @@ def load_full_endpoints_by_ids(
                 path=path,
                 parameters=json.loads(parameters) if parameters else None,
                 request_schema=json.loads(request_schema) if request_schema else {},
-                response_schema=None,  # Excluded from LLM responses
+                response_schema=json.loads(response_schema) if response_schema else None,
                 examples=list(examples) if examples else None,
             ))
         
