@@ -108,3 +108,81 @@ class TestComputeFirstLetter:
 
     def test_whitespace_returns_empty(self):
         assert compute_first_letter("   ") == ""
+
+
+# ── Tests for _build_neo4j_only_outcomes helper ──────────────────────────
+
+from unittest.mock import patch, MagicMock
+from contextlib import contextmanager
+
+from nextseek_api.batch_upload.orchestrator import _build_neo4j_only_outcomes
+from nextseek_api.batch_upload.errors import ErrorCollector, ErrorType
+
+
+class TestBuildNeo4jOnlyOutcomes:
+    """Unit tests for the neo4j-only INSERT-bypass helper."""
+
+    UID_A = "NHP-260101TST-1"
+    UID_B = "NHP-260101TST-2"
+    UID_C = "NHP-260101TST-3"
+
+    def _make_sample(self, uuid: str) -> InsertableSample:
+        return InsertableSample(
+            uuid=uuid, title="T", sample_type_id=1,
+            json_metadata="{}", assay_ids=[],
+        )
+
+    @contextmanager
+    def _mock_conn(self):
+        yield MagicMock()
+
+    def test_all_uids_found(self):
+        """All UIDs exist in DB -> all outcomes success, inserted_count=0."""
+        samples = [self._make_sample(uid) for uid in (self.UID_A, self.UID_B, self.UID_C)]
+        uid_map = {self.UID_A: 10, self.UID_B: 20, self.UID_C: 30}
+        ec = ErrorCollector()
+
+        with patch("nextseek_api.batch_upload.orchestrator.load_existing_samples", return_value=uid_map), \
+             patch("nextseek_api.batch_upload.orchestrator.get_connection", self._mock_conn):
+            result = _build_neo4j_only_outcomes(samples, ec)
+
+        assert result.inserted_count == 0
+        assert result.updated_count == 0
+        assert len(result.outcomes) == 3
+        for uid, sid in uid_map.items():
+            assert result.outcomes[uid].status == "success"
+            assert result.outcomes[uid].sample_id == sid
+        assert len(ec.all_errors()) == 0
+
+    def test_some_uids_missing(self):
+        """2 of 3 UIDs in DB -> 2 success, 1 failed with uid_not_found_in_db."""
+        samples = [self._make_sample(uid) for uid in (self.UID_A, self.UID_B, self.UID_C)]
+        uid_map = {self.UID_A: 10, self.UID_B: 20}  # UID_C missing
+        ec = ErrorCollector()
+
+        with patch("nextseek_api.batch_upload.orchestrator.load_existing_samples", return_value=uid_map), \
+             patch("nextseek_api.batch_upload.orchestrator.get_connection", self._mock_conn):
+            result = _build_neo4j_only_outcomes(samples, ec)
+
+        assert result.outcomes[self.UID_A].status == "success"
+        assert result.outcomes[self.UID_B].status == "success"
+        assert result.outcomes[self.UID_C].status == "failed"
+        assert result.outcomes[self.UID_C].reason == "uid_not_found_in_db"
+        assert self.UID_C in result.attempted_uids
+        errors = ec.all_errors()
+        assert len(errors) == 1
+        assert errors[0].error_type == ErrorType.VALIDATION_JSON
+        assert "uid_not_found_in_db" in errors[0].message
+
+    def test_all_uids_missing(self):
+        """No UIDs in DB -> all failed, attempted_uids has both."""
+        samples = [self._make_sample(uid) for uid in (self.UID_A, self.UID_B)]
+        ec = ErrorCollector()
+
+        with patch("nextseek_api.batch_upload.orchestrator.load_existing_samples", return_value={}), \
+             patch("nextseek_api.batch_upload.orchestrator.get_connection", self._mock_conn):
+            result = _build_neo4j_only_outcomes(samples, ec)
+
+        assert all(o.status == "failed" for o in result.outcomes.values())
+        assert result.attempted_uids == {self.UID_A, self.UID_B}
+        assert len(ec.all_errors()) == 2

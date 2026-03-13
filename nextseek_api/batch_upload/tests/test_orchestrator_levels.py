@@ -254,6 +254,7 @@ def _run_orchestrator(
     rows: List[InputRowModel],
     db: FakeDB,
     config: BatchUploadConfig | None = None,
+    neo4j_only: bool = False,
 ) -> Dict:
     """Run the full orchestrator with a FakeDB.
 
@@ -325,6 +326,7 @@ def _run_orchestrator(
                 lababbv="TST",
                 config=config,
                 output_dir=tmpdir,
+                neo4j_only=neo4j_only,
             )
         finally:
             for p in stack:
@@ -433,3 +435,50 @@ class TestOrchestratorLevels:
         assert len(cycle_msgs) >= 2  # one for X, one for Y
 
 
+class TestNeo4jOnlyMode:
+    """Integration tests for neo4j_only mode: skip INSERT, resolve from DB."""
+
+    UID_A = "NHP-260101TST-1"
+    UID_B = "NHP-260101TST-2"
+    UID_C = "NHP-260101TST-3"
+
+    def test_neo4j_only_skips_insert(self):
+        """Pre-existing samples: all resolve, no INSERT calls."""
+        rows = [_make_row(self.UID_A), _make_row(self.UID_B), _make_row(self.UID_C)]
+        db = FakeDB(existing_samples={self.UID_A: 10, self.UID_B: 20, self.UID_C: 30})
+
+        result = _run_orchestrator(rows, db, neo4j_only=True)
+
+        assert result["totals"]["success"] == 3
+        assert result["totals"]["failed"] == 0
+        # No INSERT calls — neo4j_only bypasses INSERT stage
+        assert db.insert_sample_calls == []
+        assert db.inserted_samples == {}
+
+    def test_neo4j_only_rejects_rows_without_uids(self):
+        """Rows without UIDs are rejected with error, rows with UIDs succeed."""
+        row_with_uid = _make_row(self.UID_A)
+        row_without_uid = InputRowModel(
+            UID=None, SampleType="NHP_blood", json_metadata="{}", assay_ids=[],
+        )
+        db = FakeDB(existing_samples={self.UID_A: 10})
+
+        result = _run_orchestrator([row_with_uid, row_without_uid], db, neo4j_only=True)
+
+        assert result["totals"]["success"] == 1
+        error_messages = [e["message"] for e in result["errors"]]
+        uid_msgs = [m for m in error_messages if "neo4j_only mode requires pre-assigned UID" in m]
+        assert len(uid_msgs) >= 1
+
+    def test_neo4j_only_marks_missing_uids_as_failed(self):
+        """UID not in DB is marked failed with uid_not_found_in_db."""
+        rows = [_make_row(self.UID_A), _make_row(self.UID_B)]
+        db = FakeDB(existing_samples={self.UID_A: 10})  # UID_B missing
+
+        result = _run_orchestrator(rows, db, neo4j_only=True)
+
+        assert result["totals"]["success"] == 1
+        assert result["totals"]["failed"] == 1
+        error_messages = [e["message"] for e in result["errors"]]
+        missing_msgs = [m for m in error_messages if "uid_not_found_in_db" in m]
+        assert len(missing_msgs) >= 1
