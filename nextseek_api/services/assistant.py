@@ -32,6 +32,7 @@ from django.conf import settings
 
 ASSISTANT_PARTICIPATING_PROJECTS = settings.ASSISTANT_PARTICIPATING_PROJECTS
 TEST_CASES = settings.TEST_CASES
+CHAT_NEXTSEEK_CONFIG = settings.CHAT_NEXTSEEK_CONFIG
 
 from nextseek_api.assistant.descriptions import (
     ASSISTANT_BUNDLE_DOWNLOAD_DESC,
@@ -62,6 +63,11 @@ from rest_framework.authentication import (
 )
 
 from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
+
+from chat_nextseek.agents import run_query
+from chat_nextseek.config import ChatConfig
+from nextseek_api.assistant.session_adapter import DictSessionAdapter
+from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
 
 logger = logging.getLogger(__name__)
 
@@ -231,9 +237,6 @@ class AssistantViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"], url_path="query")
     def query(self, request):
-        from nextseek_api.assistant.pipeline_adapter import run_query
-        from nextseek_api.assistant.session_adapter import DictSessionAdapter
-
         authed, err = self._check_auth(request)
         if not authed:
             return err
@@ -283,7 +286,10 @@ class AssistantViewSet(viewsets.ViewSet):
 
         def _run_pipeline() -> None:
             try:
-                run_query(adapter, req.query, send_event)
+                chat_config = ChatConfig(CHAT_NEXTSEEK_CONFIG)
+                chat_config.API_USER = request.session.get("username")
+                chat_config.API_PASS = request.session.get("password")
+                run_query(adapter, chat_config, req.query, send_event)
             except Exception:
                 logger.exception("Unhandled pipeline error")
                 send_event("query_error", {
@@ -333,9 +339,6 @@ class AssistantViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"], url_path="query/async")
     def query_async(self, request):
-        from nextseek_api.assistant.pipeline_adapter import make_db_event_callback, run_query
-        from nextseek_api.assistant.session_adapter import DictSessionAdapter
-
         authed, err = self._check_auth(request)
         if not authed:
             return err
@@ -388,7 +391,10 @@ class AssistantViewSet(viewsets.ViewSet):
 
         def _run_pipeline() -> None:
             try:
-                run_query(adapter, req.query, send_event)
+                chat_config = ChatConfig(CHAT_NEXTSEEK_CONFIG)
+                chat_config.API_USER = request.session.get("username")
+                chat_config.API_PASS = request.session.get("password")
+                run_query(adapter, chat_config, req.query, send_event)
             except Exception:
                 logger.exception("Unhandled pipeline error (async)")
                 send_event("query_error", {

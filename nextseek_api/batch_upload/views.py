@@ -130,10 +130,10 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 },
                 "required": ["project_id"],
             },
-            "application/json": BatchUploadStartRequest.model_json_schema(),
+            "application/json": BatchUploadStartRequest,
         },
         responses={
-            202: BatchUploadStartResponse.model_json_schema(),
+            202: BatchUploadStartResponse,
             400: OpenApiResponse(description="Missing input or structural error"),
             401: OpenApiResponse(description="Authentication required"),
             413: OpenApiResponse(description="Total upload size exceeds limit"),
@@ -288,7 +288,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
         )
 
     @extend_schema(
-        responses={200: BatchUploadStatusResponse.model_json_schema()},
+        responses={200: BatchUploadStatusResponse},
         description=BATCH_UPLOAD_STATUS_DESC,
     )
     @action(detail=False, methods=["get"], url_path=r"status/(?P<job_id>[^/.]+)")
