@@ -13,6 +13,7 @@ from nextseek_api.batch_upload.models import (
 )
 from nextseek_api.batch_upload.neo4j_sync import (
     _json_loads,
+    _resolve_internal_assays,
     build_derived_from_payloads_from_db,
     build_in_study_payloads,
     build_of_type_payloads,
@@ -515,9 +516,15 @@ class TestJsonLoads:
 
 
 class TestBulkAssayTitleFetch:
-    """Verify assay titles are bulk-fetched, not lazy-loaded one-by-one."""
+    """Verify assay titles are bulk-fetched, not lazy-loaded one-by-one.
 
-    def test_bulk_fetches_assay_titles_single_query(self):
+    These tests focus on bulk fetch behaviour and fallback title resolution,
+    so we patch _resolve_internal_assays (junction-table lookup) to isolate
+    the fallback path.
+    """
+
+    @patch("nextseek_api.batch_upload.neo4j_sync._resolve_internal_assays", return_value={})
+    def test_bulk_fetches_assay_titles_single_query(self, _mock_resolve):
         """Multiple shared assay IDs should be fetched in one bulk query, not N queries."""
         conn = MagicMock()
         # Step 0: parent UUID lookup — two parents
@@ -527,7 +534,8 @@ class TestBulkAssayTitleFetch:
         child_result = MagicMock()
         child_result.fetchall.return_value = [(101, "{}"), (102, "{}")]
         # Step 2: no sop_ids -> no sop query needed
-        # Step 3 (bulk): assay titles for IDs 10, 20
+        # Step 3: _resolve_internal_assays patched out -> empty
+        # Step 4 (fallback bulk): assay titles for IDs 10, 20
         assay_result = MagicMock()
         assay_result.fetchall.return_value = [(10, "Assay A"), (20, "Assay B")]
 
@@ -552,15 +560,19 @@ class TestBulkAssayTitleFetch:
         )
         assert len(rows) == 2
 
-        # Verify: exactly 3 SQL calls (parent lookup, child metadata, bulk assay titles)
-        # NOT 4+ calls (which would indicate lazy per-assay queries)
+        # Verify: exactly 3 SQL calls (parent lookup, child metadata, fallback assay titles)
+        # Junction table lookup is patched out, so no extra SQL call for it.
         assert conn.execute.call_count == 3
 
-        # Verify the assay titles were resolved
+        # Verify the assay titles were resolved via fallback
         titles = {r.internal_assay_title for r in rows}
         assert titles == {"Assay A", "Assay B"}
 
-    def test_provided_assay_titles_skip_db_fetch(self):
+    @patch(
+        "nextseek_api.batch_upload.neo4j_sync._resolve_internal_assays",
+        return_value={10: (10, "DB Resolved Title")},
+    )
+    def test_provided_assay_titles_skip_db_fetch(self, _mock_resolve):
         """Assay IDs with user-provided titles should not trigger DB fetch."""
         conn = MagicMock()
         parent_result = MagicMock()
@@ -582,8 +594,12 @@ class TestBulkAssayTitleFetch:
             parent_child_rels, conn, assays_by_uid, outcomes, [model],
         )
         assert len(rows) == 1
+        # User-provided title overrides the DB-resolved title
         assert rows[0].internal_assay_title == "User Assay"
-        # Only 2 SQL calls (parent lookup + child metadata), no assay title fetch
+        # internal_assay_id comes from junction table resolution
+        assert rows[0].internal_assay_id == 10
+        # Only 2 SQL calls (parent lookup + child metadata) — junction table is patched,
+        # and all assay_ids resolved via primary mapping so no fallback query needed.
         assert conn.execute.call_count == 2
 
     def test_no_shared_assays_skips_bulk_fetch(self):
@@ -609,6 +625,241 @@ class TestBulkAssayTitleFetch:
         assert rows[0].internal_assay_title is None
         # Only 2 SQL calls (parent lookup + child metadata)
         assert conn.execute.call_count == 2
+
+
+# ── TestInternalAssayResolution ──────────────────────────────────────────────
+
+
+class TestInternalAssayResolution:
+    """Verify _resolve_internal_assays() junction table lookup and its integration
+    with build_derived_from_payloads_from_db().
+    """
+
+    # ── _resolve_internal_assays() unit tests (mocked SQL) ──────────────
+
+    @patch("django.conf.settings")
+    def test_resolve_normal_case(self, mock_settings):
+        """Normal case: returns correct mapping assay_id -> (internal_assay_id, title)."""
+        mock_settings.NEXTSEEK_DATABASE = "default"
+        mock_settings.DATABASES = {"default": {"NAME": "testdb"}}
+
+        conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            (50, 10, "Internal Assay Alpha"),
+            (60, 20, "Internal Assay Beta"),
+        ]
+        conn.execute.return_value = mock_result
+
+        result = _resolve_internal_assays({10, 20}, conn)
+        assert result == {
+            10: (50, "Internal Assay Alpha"),
+            20: (60, "Internal Assay Beta"),
+        }
+        assert conn.execute.call_count == 1
+
+    def test_resolve_empty_input(self):
+        """Empty input returns empty dict without executing SQL."""
+        conn = MagicMock()
+        result = _resolve_internal_assays(set(), conn)
+        assert result == {}
+        conn.execute.assert_not_called()
+
+    @patch("django.conf.settings")
+    def test_resolve_1_to_n_keeps_smallest(self, mock_settings):
+        """1:N junction mapping: multiple internal_assay_ids per assay_id -> keeps smallest."""
+        mock_settings.NEXTSEEK_DATABASE = "default"
+        mock_settings.DATABASES = {"default": {"NAME": "testdb"}}
+
+        conn = MagicMock()
+        mock_result = MagicMock()
+        # assay_id=10 maps to internal_assay_id 200 and 50 — should keep 50
+        mock_result.fetchall.return_value = [
+            (200, 10, "IA 200"),
+            (50, 10, "IA 50"),
+        ]
+        conn.execute.return_value = mock_result
+
+        result = _resolve_internal_assays({10}, conn)
+        assert result == {10: (50, "IA 50")}
+
+    # ── End-to-end through build_derived_from_payloads_from_db() ────────
+
+    @patch("django.conf.settings")
+    def test_e2e_all_resolved_via_junction(self, mock_settings):
+        """All shared assay_ids have junction mapping -> uses real internal_assay_id."""
+        mock_settings.NEXTSEEK_DATABASE = "default"
+        mock_settings.DATABASES = {"default": {"NAME": "testdb"}}
+
+        conn = MagicMock()
+        # Step 0: parent UUID lookup
+        parent_result = MagicMock()
+        parent_result.fetchall.return_value = [("P-1", 201)]
+        # Step 1: child metadata
+        child_result = MagicMock()
+        child_result.fetchall.return_value = [(101, "{}")]
+        # Step 3b: junction table query -> assay_id=10 maps to internal_assay_id=50
+        junction_result = MagicMock()
+        junction_result.fetchall.return_value = [(50, 10, "Internal Assay X")]
+        # No fallback needed (all resolved)
+        conn.execute.side_effect = [parent_result, child_result, junction_result]
+
+        outcomes = {"C-1": _outcome("success", sample_id=101)}
+        models = [_input("C-1")]
+        parent_child_rels = {"C-1": {"P-1"}}
+        assays_by_uid = {"C-1": {10}, "P-1": {10}}
+
+        rows = build_derived_from_payloads_from_db(
+            parent_child_rels, conn, assays_by_uid, outcomes, models,
+        )
+        assert len(rows) == 1
+        assert rows[0].internal_assay_id == 50
+        assert rows[0].internal_assay_title == "Internal Assay X"
+        # 3 SQL calls: parent lookup, child metadata, junction table
+        assert conn.execute.call_count == 3
+
+    @patch("django.conf.settings")
+    def test_e2e_no_junction_mapping_falls_back(self, mock_settings):
+        """No junction mapping -> falls back to assay_id as internal_assay_id, assays.title as title."""
+        mock_settings.NEXTSEEK_DATABASE = "default"
+        mock_settings.DATABASES = {"default": {"NAME": "testdb"}}
+
+        conn = MagicMock()
+        parent_result = MagicMock()
+        parent_result.fetchall.return_value = [("P-1", 201)]
+        child_result = MagicMock()
+        child_result.fetchall.return_value = [(101, "{}")]
+        # Junction table returns nothing for assay_id=10
+        junction_result = MagicMock()
+        junction_result.fetchall.return_value = []
+        # Fallback: fetch from assays table
+        fallback_result = MagicMock()
+        fallback_result.fetchall.return_value = [(10, "Fallback Assay Title")]
+        conn.execute.side_effect = [parent_result, child_result, junction_result, fallback_result]
+
+        outcomes = {"C-1": _outcome("success", sample_id=101)}
+        models = [_input("C-1")]
+        parent_child_rels = {"C-1": {"P-1"}}
+        assays_by_uid = {"C-1": {10}, "P-1": {10}}
+
+        rows = build_derived_from_payloads_from_db(
+            parent_child_rels, conn, assays_by_uid, outcomes, models,
+        )
+        assert len(rows) == 1
+        # Fallback: internal_assay_id == assay_id, title from assays table
+        assert rows[0].internal_assay_id == 10
+        assert rows[0].internal_assay_title == "Fallback Assay Title"
+        # 4 SQL calls: parent, child, junction (empty), fallback
+        assert conn.execute.call_count == 4
+
+    @patch("django.conf.settings")
+    def test_e2e_mixed_resolution(self, mock_settings):
+        """Mixed: some assay_ids have junction mapping, some don't -> correct resolution for each."""
+        mock_settings.NEXTSEEK_DATABASE = "default"
+        mock_settings.DATABASES = {"default": {"NAME": "testdb"}}
+
+        conn = MagicMock()
+        parent_result = MagicMock()
+        parent_result.fetchall.return_value = [("P-1", 201), ("P-2", 202)]
+        child_result = MagicMock()
+        child_result.fetchall.return_value = [(101, "{}"), (102, "{}")]
+        # Junction: assay_id=10 resolved, assay_id=20 not
+        junction_result = MagicMock()
+        junction_result.fetchall.return_value = [(50, 10, "IA via Junction")]
+        # Fallback: assay_id=20 only (10 is already resolved)
+        fallback_result = MagicMock()
+        fallback_result.fetchall.return_value = [(20, "Fallback Title")]
+        conn.execute.side_effect = [parent_result, child_result, junction_result, fallback_result]
+
+        outcomes = {
+            "C-1": _outcome("success", sample_id=101),
+            "C-2": _outcome("success", sample_id=102),
+        }
+        models = [_input("C-1"), _input("C-2")]
+        parent_child_rels = {"C-1": {"P-1"}, "C-2": {"P-2"}}
+        assays_by_uid = {
+            "C-1": {10},
+            "P-1": {10},
+            "C-2": {20},
+            "P-2": {20},
+        }
+
+        rows = build_derived_from_payloads_from_db(
+            parent_child_rels, conn, assays_by_uid, outcomes, models,
+        )
+        assert len(rows) == 2
+
+        row_map = {r.child_uuid: r for r in rows}
+        # C-1 -> junction-resolved
+        assert row_map["C-1"].internal_assay_id == 50
+        assert row_map["C-1"].internal_assay_title == "IA via Junction"
+        # C-2 -> fallback (assay_id as internal_assay_id)
+        assert row_map["C-2"].internal_assay_id == 20
+        assert row_map["C-2"].internal_assay_title == "Fallback Title"
+        # 4 SQL calls: parent, child, junction, fallback
+        assert conn.execute.call_count == 4
+
+    def test_e2e_empty_shared_assays(self):
+        """Empty shared assays -> internal_assay_id = None."""
+        conn = MagicMock()
+        parent_result = MagicMock()
+        parent_result.fetchall.return_value = [("P-1", 201)]
+        child_result = MagicMock()
+        child_result.fetchall.return_value = [(101, "{}")]
+        conn.execute.side_effect = [parent_result, child_result]
+
+        outcomes = {"C-1": _outcome("success", sample_id=101)}
+        models = [_input("C-1")]
+        parent_child_rels = {"C-1": {"P-1"}}
+        # No shared assays at all
+        assays_by_uid = {"C-1": {10}, "P-1": {20}}
+
+        rows = build_derived_from_payloads_from_db(
+            parent_child_rels, conn, assays_by_uid, outcomes, models,
+        )
+        assert len(rows) == 1
+        assert rows[0].internal_assay_id is None
+        assert rows[0].internal_assay_title is None
+        # Only 2 SQL calls (parent + child), no junction or fallback
+        assert conn.execute.call_count == 2
+
+    @patch("django.conf.settings")
+    def test_e2e_min_internal_assay_id_not_min_assay_id(self, mock_settings):
+        """min(internal_assay_id) is selected, not min(assay_id).
+
+        assay_id=100 maps to internal_assay_id=5,
+        assay_id=50 maps to internal_assay_id=200
+        -> picks internal_assay_id=5 (from assay_id=100), not assay_id=50.
+        """
+        mock_settings.NEXTSEEK_DATABASE = "default"
+        mock_settings.DATABASES = {"default": {"NAME": "testdb"}}
+
+        conn = MagicMock()
+        parent_result = MagicMock()
+        parent_result.fetchall.return_value = [("P-1", 201)]
+        child_result = MagicMock()
+        child_result.fetchall.return_value = [(101, "{}")]
+        # Junction: both assay_ids resolve via junction table
+        junction_result = MagicMock()
+        junction_result.fetchall.return_value = [
+            (5, 100, "IA Five"),       # assay_id=100 -> internal_assay_id=5
+            (200, 50, "IA Two Hundred"),  # assay_id=50 -> internal_assay_id=200
+        ]
+        conn.execute.side_effect = [parent_result, child_result, junction_result]
+
+        outcomes = {"C-1": _outcome("success", sample_id=101)}
+        models = [_input("C-1")]
+        parent_child_rels = {"C-1": {"P-1"}}
+        # Both assay_ids 50 and 100 are shared
+        assays_by_uid = {"C-1": {50, 100}, "P-1": {50, 100}}
+
+        rows = build_derived_from_payloads_from_db(
+            parent_child_rels, conn, assays_by_uid, outcomes, models,
+        )
+        assert len(rows) == 1
+        # Should pick internal_assay_id=5 (smallest), NOT 200 (from smaller assay_id=50)
+        assert rows[0].internal_assay_id == 5
+        assert rows[0].internal_assay_title == "IA Five"
 
 
 # ── TestEnrichParentTitles ─────────────────────────────────────────────────

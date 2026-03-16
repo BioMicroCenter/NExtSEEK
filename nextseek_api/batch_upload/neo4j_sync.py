@@ -668,6 +668,44 @@ def build_of_type_payloads(
     return rows
 
 
+def _resolve_internal_assays(
+    assay_ids: Set[int],
+    sql_conn: Connection,
+) -> Dict[int, Tuple[int, str]]:
+    """Resolve assay_ids to (internal_assay_id, internal_assay_title) via junction table.
+
+    Queries assays_internal_assays JOIN internal_assays in the nextseek (dmac) database.
+    Returns mapping: assay_id -> (internal_assay_id, internal_assay_title).
+    Only assay_ids that have a non-NULL internal_assay mapping are included.
+    """
+    if not assay_ids:
+        return {}
+
+    from django.conf import settings as django_settings
+    nextseek_db = django_settings.DATABASES[django_settings.NEXTSEEK_DATABASE]["NAME"]
+
+    result_map: Dict[int, Tuple[int, str]] = {}
+    assay_list = sorted(assay_ids)
+
+    for chunk_start in range(0, len(assay_list), 1000):
+        chunk = assay_list[chunk_start : chunk_start + 1000]
+        params = {f"a_{i}": a for i, a in enumerate(chunk)}
+        placeholders = ", ".join(f":a_{i}" for i in range(len(chunk)))
+        sql = text(
+            f"SELECT ia.id, aia.assay_id, ia.internal_assay_title "
+            f"FROM {nextseek_db}.assays_internal_assays aia "
+            f"JOIN {nextseek_db}.internal_assays ia ON aia.internal_assay_id = ia.id "
+            f"WHERE aia.assay_id IN ({placeholders})"
+        )
+        rows = sql_conn.execute(sql, params).fetchall()
+        for ia_id, assay_id, ia_title in rows:
+            # Keep smallest internal_assay_id per assay_id (deterministic for 1:N)
+            if assay_id not in result_map or ia_id < result_map[assay_id][0]:
+                result_map[assay_id] = (ia_id, ia_title)
+
+    return result_map
+
+
 def build_derived_from_payloads_from_db(
     parent_child_rels: Dict[str, Set[str]],
     sql_conn: Connection,
@@ -780,22 +818,25 @@ def build_derived_from_payloads_from_db(
             for sid, title in rows:
                 sop_titles[sid] = title
 
-    # Step 3: Shared assays — find best internal assay per (child, parent) pair
-    # Pre-compute all shared assay IDs needed, then bulk-fetch titles
+    # Step 3: Shared assays — resolve real internal_assay_id via junction table
+    # 3a. Collect ALL shared assay_ids across all (child, parent) pairs
     all_shared_assay_ids: Set[int] = set()
     for child_uid, parent_uids in parent_child_rels.items():
         child_assays = assays_by_uid.get(child_uid, set())
         for parent_uid in parent_uids:
             parent_assays = assays_by_uid.get(parent_uid, set())
             shared = child_assays & parent_assays
-            if shared:
-                all_shared_assay_ids.add(min(shared))
+            all_shared_assay_ids.update(shared)
 
-    # Subtract already-provided titles, bulk-fetch the rest
-    assay_ids_to_fetch = all_shared_assay_ids - set(provided_assay_title_by_id.keys())
-    assay_titles: Dict[int, str] = {}
-    if assay_ids_to_fetch:
-        fetch_list = sorted(assay_ids_to_fetch)
+    # 3b. Primary resolution: assays_internal_assays JOIN internal_assays
+    primary_mapping = _resolve_internal_assays(all_shared_assay_ids, sql_conn)
+
+    # 3c. Fallback: for assay_ids NOT resolved via junction table,
+    #     use assay_id as internal_assay_id with assays.title as title
+    fallback_assay_ids = all_shared_assay_ids - set(primary_mapping.keys())
+    fallback_mapping: Dict[int, Tuple[int, str]] = {}
+    if fallback_assay_ids:
+        fetch_list = sorted(fallback_assay_ids)
         for chunk_start in range(0, len(fetch_list), 1000):
             chunk = fetch_list[chunk_start : chunk_start + 1000]
             params = {f"a_{i}": a for i, a in enumerate(chunk)}
@@ -803,7 +844,12 @@ def build_derived_from_payloads_from_db(
             sql = text(f"SELECT id, title FROM assays WHERE id IN ({placeholders})")
             rows = sql_conn.execute(sql, params).fetchall()
             for aid, title in rows:
-                assay_titles[aid] = title
+                fallback_mapping[aid] = (aid, title or "")
+
+    # 3d. Combined mapping: primary overrides fallback
+    combined_mapping: Dict[int, Tuple[int, str]] = {}
+    combined_mapping.update(fallback_mapping)
+    combined_mapping.update(primary_mapping)
 
     results: List[DerivedFromRelRow] = []
     seen: Set[Tuple[int, int]] = set()
@@ -827,18 +873,35 @@ def build_derived_from_payloads_from_db(
             protocol_id = child_protocol_map.get(child_id)
             protocol_title = sop_titles.get(protocol_id) if protocol_id else None
 
-            # Find shared assay (lowest ID)
+            # Find shared assays and resolve to real internal_assay_id
             parent_assays = assays_by_uid.get(parent_uid, set())
             shared = child_assays & parent_assays
-            internal_assay_id = min(shared) if shared else None
 
-            internal_assay_title = None
-            if internal_assay_id:
-                # Prefer user-provided assay_titles when available
-                if internal_assay_id in provided_assay_title_by_id:
-                    internal_assay_title = provided_assay_title_by_id.get(internal_assay_id)
-                else:
-                    internal_assay_title = assay_titles.get(internal_assay_id)
+            internal_assay_id: Optional[int] = None
+            internal_assay_title: Optional[str] = None
+
+            if shared:
+                # Resolve each shared assay_id to its internal_assay_id,
+                # then pick the minimum internal_assay_id
+                best_ia_id: Optional[int] = None
+                best_ia_title: Optional[str] = None
+                best_assay_id: Optional[int] = None
+                for assay_id in shared:
+                    resolved = combined_mapping.get(assay_id)
+                    if resolved is None:
+                        continue
+                    ia_id, ia_title = resolved
+                    if best_ia_id is None or ia_id < best_ia_id:
+                        best_ia_id = ia_id
+                        best_ia_title = ia_title
+                        best_assay_id = assay_id
+
+                if best_ia_id is not None:
+                    internal_assay_id = best_ia_id
+                    # User-provided titles override the resolved title only
+                    # (internal_assay_id still comes from junction table lookup)
+                    user_title = provided_assay_title_by_id.get(best_assay_id)
+                    internal_assay_title = user_title if user_title is not None else best_ia_title
 
             results.append(DerivedFromRelRow(
                 child_id=child_id,
