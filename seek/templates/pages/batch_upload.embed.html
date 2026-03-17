@@ -2,7 +2,6 @@
 	<form id="sample_validation"
 				method="post"
 				enctype="multipart/form-data"
-				action=""
 				hidden>
 	</form>
 	<form id="sample_upload"
@@ -24,8 +23,8 @@
 						<td>
 							<input type="file"
 										 form="sample_validation"
-										 name="samplevalidationfile"
-										 id="id_samplevalidationfile"
+										 name="excelfile_upload"
+										 id="sample_validation_file"
 										 style="height:28px;width:220px"
 										 required>
 							<br>
@@ -99,10 +98,26 @@
 
 <script defer>
 	const sample_upload_form = document.getElementById("sample_upload");
+	const sample_validation_form = document.getElementById("sample_validation")
 	const statusBox = document.getElementById("messages")
 
 	const lab_options = {{ report.lab_options | safe }}.slice(1);
 	const all_lab_users = {{ report.all_lab_users | safe }};
+	
+	function getCookie(name) {
+		let cookieValue = null;
+		if (document.cookie && document.cookie !== '') {
+			const cookies = document.cookie.split(';');
+			for (let i = 0; i < cookies.length; i++) {
+				const cookie = cookies[i].trim();
+				if (cookie.substring(0, name.length + 1) === (name + '=')) {
+					cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+					break;
+				}
+			}
+		}
+		return cookieValue;
+	}
 
 	function setLabUsers(rec) {
 		var users = all_lab_users[rec.id]
@@ -147,6 +162,36 @@
 				statusBox.value += `Polling error: ${err.message}\n`;
 			}
 		}, 1000)};
+
+	async function validateSampleSheet() {
+		statusBox.value = "Validating file\n";
+
+		const formData = new FormData(sample_validation_form);
+		
+		try {
+			$.messager.progress({
+				title: "Please wait",
+				msg: "Uploading file for validation..."
+			})
+			const response = await fetch("/seek/samplesvalidate/", {
+				method: "POST",
+				headers: {"X-CSRFTOKEN": getCookie("csrftoken")},
+				body: formData
+			});
+			if (response.ok) {
+				$.messager.progress("close")
+				const response_json = await response.json()
+				statusBox.value += response_json['msg']
+			} else {
+				$.messager.progress("close")
+				statusBox.value = "Error: Could not submit sample upload job.\n"
+				statusBox.value += `Status code: ${response.status}`
+			}
+		} catch (e) {
+			$.messager.progress("close")
+			console.error(e);
+		}
+	}
 
 	async function uploadSamples() {
 		const project_id = document.getElementById('project_id').value;
@@ -193,9 +238,17 @@
 		}
 	});
 
+	statusBox.value = ""
+
 	sample_upload_form.addEventListener("submit", (event) => {
 		event.preventDefault();
 		statusBox.value = "";
 		uploadSamples();
 	});
+
+	sample_validation_form.addEventListener("submit", (event) => {
+		event.preventDefault();
+		statusBox.value = "";
+		validateSampleSheet()
+	})
 </script>
