@@ -264,6 +264,16 @@ class BatchUploadViewSet(viewsets.ViewSet):
         else:
             neo4j_only = False
 
+        # Sanitize person_id: empty string → None (defense in depth;
+        # _resolve_user_context also sanitizes, but guard here in case
+        # future code between this point and that call reads person_id).
+        _raw_pid = request.data.get("person_id")
+        if isinstance(_raw_pid, str) and not _raw_pid.strip():
+            try:
+                request.data["person_id"] = None  # works for JSON (dict)
+            except AttributeError:
+                pass  # QueryDict (multipart) is immutable; _resolve_user_context handles it
+
         # Resolve contributor_id and lababbv from the authenticated user
         user_ctx = _resolve_user_context(request)
         if user_ctx is None:
@@ -521,7 +531,11 @@ def _resolve_user_context(request) -> dict | None:
     person_id_ignored = False
 
     if is_admin and request_person_id is not None:
-        effective_person_id = int(request_person_id)
+        try:
+            effective_person_id = int(request_person_id)
+        except (TypeError, ValueError):
+            log.warning("Invalid person_id value: %r", request_person_id)
+            return None
     elif not is_admin and request_person_id is not None:
         # Non-admin tried to override — silently ignore, use own identity
         effective_person_id = authenticated_person_id
