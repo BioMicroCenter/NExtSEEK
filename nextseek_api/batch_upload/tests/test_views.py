@@ -43,7 +43,11 @@ class TestResolveUserContext:
 
     @pytest.mark.django_db
     def test_fallback_to_django_user(self):
-        """When SeekDB fails, should fall back to Django user pk."""
+        """When all SEEK lookups fail, should return None (NOT Django user pk).
+
+        Old behavior (REMOVED): fell back to Django user pk.
+        New behavior: returns None so caller returns 401.
+        """
         from nextseek_api.batch_upload.views import _resolve_user_context
         from django.contrib.auth import get_user_model
 
@@ -55,12 +59,12 @@ class TestResolveUserContext:
         request.user = user  # Real Django user (is_authenticated is True by default)
         request.data = {}  # No person_id override
 
-        with patch("seek.seekdb.SeekDB", side_effect=Exception("no seekdb")):
+        with patch("seek.seekdb.SeekDB", side_effect=Exception("no seekdb")), \
+             patch("nextseek_api.helpers.resolve_seek_auth", return_value=(None, None)):
             result = _resolve_user_context(request)
 
-        assert result is not None
-        assert result["contributor_id"] == user.pk
-        assert result["lababbv"] == "NA"
+        # New behavior: no Django pk fallback — returns None
+        assert result is None
 
     def test_unauthenticated_returns_none(self):
         """Unauthenticated request should return None."""
@@ -612,9 +616,13 @@ class TestBasicAuthPersonId:
     """Test person_id requirement for Basic Auth requests."""
 
     @pytest.mark.django_db
-    def test_basic_auth_without_person_id_rejected(self, factory, admin_user):
-        """Basic Auth request without person_id should return 400."""
+    @patch("nextseek_api.batch_upload.views.register_job")
+    @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
+    @patch("nextseek_api.batch_upload.views._resolve_user_context", return_value={"contributor_id": 42, "lababbv": "MIT"})
+    def test_basic_auth_without_person_id_auto_resolves(self, mock_contrib, mock_task, mock_register, factory, admin_user):
+        """Basic Auth request without person_id should auto-resolve (no longer requires person_id)."""
         import base64
+        mock_task.delay.return_value.id = "basic-no-pid-task"
         admin_user.set_password("testpass123")
         admin_user.save()
         credentials = base64.b64encode(b"batch_admin:testpass123").decode("utf-8")
@@ -630,9 +638,9 @@ class TestBasicAuthPersonId:
             format="json",
             HTTP_AUTHORIZATION=f"Basic {credentials}",
         )
+        # Basic Auth guard removed — should get 202 (no person_id required)
         response = view(request)
-        assert response.status_code == 400
-        assert "person_id" in response.data["detail"].lower()
+        assert response.status_code == 202
 
     @pytest.mark.django_db
     @patch("nextseek_api.batch_upload.views.register_job")
@@ -682,6 +690,268 @@ class TestBasicAuthPersonId:
         force_authenticate(request, user=admin_user)
         response = view(request)
         assert response.status_code == 202
+
+
+class TestResolveUserContextV2:
+    """Tests for the rewritten _resolve_user_context behavior.
+
+    New behavior:
+    - Auth resolution chain: resolve_seek_auth() → getSeekLogin() → SEEK Users model → fail (no Django pk)
+    - Admin can override person_id; non-admin cannot (warning flag set, own identity used)
+    - lababbv always from effective person; admin override fallback to admin's own lababbv
+    - Empty string person_id sanitized to None
+    - Return dict includes person_id_ignored flag when non-admin tries to override
+    """
+
+    @pytest.mark.django_db
+    def test_resolve_seek_auth_basic_auth_path(self):
+        """resolve_seek_auth returns credentials → Users ORM lookup → getUserInfo → result dict."""
+        from nextseek_api.batch_upload.views import _resolve_user_context
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username="v2_basic_user",
+            defaults={"is_staff": False, "is_superuser": False},
+        )
+        request = MagicMock()
+        request.user = user
+        request.data = {}  # No person_id override
+
+        mock_seek_user = MagicMock()
+        mock_seek_user.person_id = 42
+
+        mock_user_info = {"person_id": 42, "lababbv": "MIT"}
+
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("testuser", "testpass"), {})) as mock_rsa, \
+             patch("seek.models.Users") as MockUsers, \
+             patch("seek.seekdb.SeekDB") as MockSeekDB:
+            MockUsers.objects.using.return_value.get.return_value = mock_seek_user
+            MockUsers._DATABASE = "default"
+            instance = MockSeekDB.return_value
+            instance.getUserInfo.return_value = (mock_user_info, True, "")
+            # getSeekLogin fails (Basic Auth path)
+            instance.getSeekLogin.side_effect = Exception("no session")
+
+            result = _resolve_user_context(request)
+
+        assert result is not None
+        assert result["contributor_id"] == 42
+        assert result["lababbv"] == "MIT"
+
+    @pytest.mark.django_db
+    def test_non_admin_person_id_ignored_with_warning(self):
+        """Non-admin providing a different person_id gets own identity + person_id_ignored=True flag."""
+        from nextseek_api.batch_upload.views import _resolve_user_context
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username="v2_nonadmin",
+            defaults={"is_staff": False, "is_superuser": False},
+        )
+        request = MagicMock()
+        request.user = user
+        request.data = {"person_id": 99}  # Tries to override
+
+        mock_seek_user = MagicMock()
+        mock_seek_user.person_id = 42
+
+        mock_own_info = {"person_id": 42, "lababbv": "MIT"}
+
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("v2_nonadmin", "pass"), {})), \
+             patch("seek.models.Users") as MockUsers, \
+             patch("seek.seekdb.SeekDB") as MockSeekDB:
+            MockUsers.objects.using.return_value.get.return_value = mock_seek_user
+            MockUsers._DATABASE = "default"
+            instance = MockSeekDB.return_value
+            instance.getSeekLogin.side_effect = Exception("no session")
+            instance.getUserInfo.return_value = (mock_own_info, True, "")
+
+            result = _resolve_user_context(request)
+
+        assert result is not None
+        assert result["contributor_id"] == 42  # Own identity, NOT 99
+        assert result.get("person_id_ignored") is True
+
+    @pytest.mark.django_db
+    def test_admin_no_person_id_uses_own(self):
+        """Admin with no person_id override uses their own identity via getSeekLogin/Users lookup."""
+        from nextseek_api.batch_upload.views import _resolve_user_context
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username="v2_admin_own",
+            defaults={"is_staff": True, "is_superuser": True},
+        )
+        request = MagicMock()
+        request.user = user
+        request.data = {}  # No override
+
+        mock_seek_user = MagicMock()
+        mock_seek_user.person_id = 42
+
+        mock_own_info = {"person_id": 42, "lababbv": "MIT"}
+
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("v2_admin_own", "pass"), {})), \
+             patch("seek.models.Users") as MockUsers, \
+             patch("seek.seekdb.SeekDB") as MockSeekDB:
+            MockUsers.objects.using.return_value.get.return_value = mock_seek_user
+            MockUsers._DATABASE = "default"
+            instance = MockSeekDB.return_value
+            instance.getSeekLogin.side_effect = Exception("no session")
+            instance.getUserInfo.return_value = (mock_own_info, True, "")
+
+            result = _resolve_user_context(request)
+
+        assert result is not None
+        assert result["contributor_id"] == 42
+        assert result["lababbv"] == "MIT"
+
+    @pytest.mark.django_db
+    def test_admin_with_person_id_overrides(self):
+        """Admin providing person_id=99 gets contributor_id=99 with lababbv from getUserInfo(99)."""
+        from nextseek_api.batch_upload.views import _resolve_user_context
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username="v2_admin_override",
+            defaults={"is_staff": True, "is_superuser": True},
+        )
+        request = MagicMock()
+        request.user = user
+        request.data = {"person_id": 99}
+
+        # Admin's own identity
+        mock_seek_user = MagicMock()
+        mock_seek_user.person_id = 42
+        own_info = {"person_id": 42, "lababbv": "MIT"}
+
+        # Target person's info
+        override_info = {"person_id": 99, "lababbv": "BMC"}
+
+        def fake_get_user_info(pid):
+            if int(pid) == 99:
+                return (override_info, True, "")
+            return (own_info, True, "")
+
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("v2_admin_override", "pass"), {})), \
+             patch("seek.models.Users") as MockUsers, \
+             patch("seek.seekdb.SeekDB") as MockSeekDB:
+            MockUsers.objects.using.return_value.get.return_value = mock_seek_user
+            MockUsers._DATABASE = "default"
+            instance = MockSeekDB.return_value
+            instance.getSeekLogin.side_effect = Exception("no session")
+            instance.getUserInfo.side_effect = fake_get_user_info
+
+            result = _resolve_user_context(request)
+
+        assert result is not None
+        assert result["contributor_id"] == 99
+        assert result["lababbv"] == "BMC"
+
+    @pytest.mark.django_db
+    def test_admin_override_lababbv_fallback(self):
+        """Admin with person_id=99 but getUserInfo(99) fails → contributor_id=99, lababbv from admin's own."""
+        from nextseek_api.batch_upload.views import _resolve_user_context
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username="v2_admin_labfallback",
+            defaults={"is_staff": True, "is_superuser": True},
+        )
+        request = MagicMock()
+        request.user = user
+        request.data = {"person_id": 99}
+
+        mock_seek_user = MagicMock()
+        mock_seek_user.person_id = 42
+        own_info = {"person_id": 42, "lababbv": "MIT"}
+
+        def fake_get_user_info(pid):
+            if int(pid) == 99:
+                return ({}, False, "not found")  # override target fails
+            return (own_info, True, "")
+
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("v2_admin_labfallback", "pass"), {})), \
+             patch("seek.models.Users") as MockUsers, \
+             patch("seek.seekdb.SeekDB") as MockSeekDB:
+            MockUsers.objects.using.return_value.get.return_value = mock_seek_user
+            MockUsers._DATABASE = "default"
+            instance = MockSeekDB.return_value
+            instance.getSeekLogin.side_effect = Exception("no session")
+            instance.getUserInfo.side_effect = fake_get_user_info
+
+            result = _resolve_user_context(request)
+
+        assert result is not None
+        assert result["contributor_id"] == 99
+        assert result["lababbv"] == "MIT"  # Fallback to admin's own lababbv
+
+    @pytest.mark.django_db
+    def test_empty_person_id_treated_as_none(self):
+        """person_id='' in request data is sanitized to None, uses own identity (no ValueError)."""
+        from nextseek_api.batch_upload.views import _resolve_user_context
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username="v2_empty_pid",
+            defaults={"is_staff": False, "is_superuser": False},
+        )
+        request = MagicMock()
+        request.user = user
+        request.data = {"person_id": ""}  # Empty string
+
+        mock_seek_user = MagicMock()
+        mock_seek_user.person_id = 42
+        own_info = {"person_id": 42, "lababbv": "MIT"}
+
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("v2_empty_pid", "pass"), {})), \
+             patch("seek.models.Users") as MockUsers, \
+             patch("seek.seekdb.SeekDB") as MockSeekDB:
+            MockUsers.objects.using.return_value.get.return_value = mock_seek_user
+            MockUsers._DATABASE = "default"
+            instance = MockSeekDB.return_value
+            instance.getSeekLogin.side_effect = Exception("no session")
+            instance.getUserInfo.return_value = (own_info, True, "")
+
+            result = _resolve_user_context(request)
+
+        # Should NOT raise ValueError; should succeed using own identity
+        assert result is not None
+        assert result["contributor_id"] == 42
+        assert result["lababbv"] == "MIT"
+
+    @pytest.mark.django_db
+    def test_no_seek_identity_returns_none(self):
+        """When all resolution paths fail, returns None (NOT Django user pk)."""
+        from nextseek_api.batch_upload.views import _resolve_user_context
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username="v2_no_seek",
+            defaults={"is_staff": True, "is_superuser": True},
+        )
+        request = MagicMock()
+        request.user = user
+        request.data = {}
+
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(None, None)), \
+             patch("seek.seekdb.SeekDB") as MockSeekDB, \
+             patch("seek.models.Users") as MockUsers:
+            instance = MockSeekDB.return_value
+            instance.getSeekLogin.side_effect = Exception("no session")
+            MockUsers.objects.using.return_value.get.side_effect = Exception("no SEEK user")
+
+            result = _resolve_user_context(request)
+
+        # New behavior: returns None instead of Django pk fallback
+        assert result is None
 
 
 class TestResolveUserContextFallback:
