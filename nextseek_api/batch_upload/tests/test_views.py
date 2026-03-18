@@ -1169,3 +1169,37 @@ class TestResolveUserContextSeekDBInit:
         # lababbv in task kwargs should be "BMC" (from request), not "MIT" (from resolution)
         call_kwargs = mock_task.delay.call_args[1]
         assert call_kwargs["lababbv"] == "BMC"
+
+    @pytest.mark.django_db
+    def test_explicit_lababbv_ignored_for_non_admin(self):
+        """Non-admin user providing lababbv override is silently ignored."""
+        from nextseek_api.batch_upload.views import BatchUploadViewSet
+
+        request = MagicMock()
+        request.user = MagicMock(pk=2, is_staff=False, is_superuser=False, is_authenticated=True)
+        request.method = "POST"
+        request.data = {
+            "project_id": "1",
+            "person_id": "42",
+            "lababbv": "EVIL",
+        }
+        request.FILES = MagicMock()
+        request.FILES.getlist.return_value = [
+            MagicMock(name="test.xlsx", size=100),
+        ]
+        request.FILES.getlist.return_value[0].name = "test.xlsx"
+
+        with patch("nextseek_api.batch_upload.views._resolve_user_context",
+                    return_value={"contributor_id": 42, "lababbv": "MIT"}), \
+             patch("nextseek_api.batch_upload.views._save_uploaded_file", return_value="/tmp/test.xlsx"), \
+             patch("nextseek_api.batch_upload.views.run_batch_upload_task") as mock_task, \
+             patch("nextseek_api.batch_upload.views.register_job"):
+            mock_task.delay.return_value = MagicMock(id="test-job-id")
+
+            view = BatchUploadViewSet()
+            response = view.start(request)
+
+        assert response.status_code == 202
+        # Non-admin: lababbv override ignored, uses resolved value
+        call_kwargs = mock_task.delay.call_args[1]
+        assert call_kwargs["lababbv"] == "MIT"

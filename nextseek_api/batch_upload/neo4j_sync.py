@@ -164,6 +164,7 @@ def bulk_merge_relationships(
     MATCH (p:Sample {uuid: row.parent_uuid})
     MERGE (c)-[r:DERIVED_FROM]->(p)
     SET r.protocol_id = row.protocol_id, r.protocol_title = row.protocol_title,
+        r.assay_id = row.assay_id,
         r.internal_assay_id = row.internal_assay_id, r.internal_assay_title = row.internal_assay_title,
         r.child_id = row.child_id, r.parent_id = row.parent_id
     RETURN count(r) AS processed

@@ -282,9 +282,13 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        # Optional explicit lababbv override (bypasses _resolve_user_context lababbv)
+        # Optional explicit lababbv override — admin only (non-admin silently ignored)
         explicit_lababbv = request.data.get("lababbv")
-        if isinstance(explicit_lababbv, str) and explicit_lababbv.strip():
+        is_admin = bool(
+            getattr(request.user, "is_authenticated", False)
+            and (request.user.is_staff or request.user.is_superuser)
+        )
+        if is_admin and isinstance(explicit_lababbv, str) and explicit_lababbv.strip():
             effective_lababbv = explicit_lababbv.strip().upper()
         else:
             effective_lababbv = user_ctx["lababbv"]
