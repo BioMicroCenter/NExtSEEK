@@ -77,6 +77,23 @@ class TestExtractParentsRegexVariants:
         assert "D.IMG-260225MIT-3" in extract_parents(meta)
 
 
+class TestExtractParentsNameWithSpaces:
+    """Names with spaces must not be fragmented by the split regex."""
+
+    def test_name_with_spaces_not_split(self):
+        """Parent name with spaces is not a valid UID, so result is empty — but NOT split into fragments."""
+        extract_parents.cache_clear()
+        meta = '{"Parent":"UtEC - 2015010902"}'
+        assert extract_parents(meta) == frozenset()
+
+    def test_name_with_spaces_alongside_uid(self):
+        """A UID semicolon-separated from a name: only the UID survives filtering."""
+        extract_parents.cache_clear()
+        meta = '{"Parent":"NHP-260225MIT-1;UtEC - 2015010902"}'
+        result = extract_parents(meta)
+        assert result == frozenset({"NHP-260225MIT-1"})
+
+
 class TestBuildRelationships:
     def _make_row(self, uid, parent_meta="{}"):
         return InputRowModel(

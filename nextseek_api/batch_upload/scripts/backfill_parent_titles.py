@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 
 import django
 
@@ -33,14 +32,13 @@ from sqlalchemy import text
 
 from nextseek_api.batch_upload.config import Neo4jConfig
 from nextseek_api.batch_upload.db_engine import get_connection
+from nextseek_api.batch_upload.helpers import UID_RE, split_parent_field
 
 log = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
 )
 
-_UID_RE = re.compile(r"^([AD]\.)?[A-Z]{3,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?$")
-_PARENT_SPLIT_RE = re.compile(r";")  # semicolons only — Names may contain spaces/commas
 _FILE_BASED_PREFIXES = ("D.", "A.")
 _FILE_PRIMARY_FIELDS = (
     "File_PrimaryData",
@@ -122,13 +120,13 @@ def backfill() -> None:
         parent_str = meta.get("Parent") or meta.get("parent") or ""
         if not parent_str or not isinstance(parent_str, str):
             continue
-        tokens = [t.strip() for t in _PARENT_SPLIT_RE.split(parent_str) if t.strip()]
+        tokens = split_parent_field(parent_str)
         if not tokens:
             continue
 
         titles: list[str] = []
         for token in tokens:
-            if _UID_RE.match(token):
+            if UID_RE.match(token):
                 identity = uid_to_identity.get(token)
                 if identity:
                     titles.append(identity)

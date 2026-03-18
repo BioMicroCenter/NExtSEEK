@@ -19,6 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from .config import Neo4jConfig
+from .helpers import UID_RE, split_parent_field
 from .models import (
     DerivedFromRelRow,
     DirectionComputation,
@@ -441,8 +442,6 @@ def refresh_assays_for_uuids(
 
 # ── parent_titles enrichment ──────────────────────────────────────────────
 
-_UID_RE = re.compile(r"^([AD]\.)?[A-Z]{3,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?$")
-_PARENT_SPLIT_RE = re.compile(r";")  # semicolons only — Names may contain spaces/commas
 _FILE_BASED_PREFIXES = ("D.", "A.")
 _FILE_PRIMARY_FIELDS = (
     "File_PrimaryData",
@@ -526,10 +525,10 @@ def enrich_parent_titles(
         if not parent_raw or not isinstance(parent_raw, str):
             node_parent_tokens.append([])
             continue
-        tokens = [t.strip() for t in _PARENT_SPLIT_RE.split(parent_raw) if t.strip()]
+        tokens = split_parent_field(parent_raw)
         node_parent_tokens.append(tokens)
         for token in tokens:
-            if _UID_RE.match(token) and token not in uid_to_identity:
+            if UID_RE.match(token) and token not in uid_to_identity:
                 external_uids.add(token)
 
     # 3. Bulk SQL for external UIDs (chunked at 1000)
@@ -565,7 +564,7 @@ def enrich_parent_titles(
 
         titles: List[str] = []
         for token in tokens:
-            if _UID_RE.match(token):
+            if UID_RE.match(token):
                 # Resolved UID — look up its identity
                 identity = uid_to_identity.get(token)
                 if identity:

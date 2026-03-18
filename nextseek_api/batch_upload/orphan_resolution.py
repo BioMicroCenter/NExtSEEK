@@ -25,9 +25,9 @@ except ImportError:
         return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-log = logging.getLogger(__name__)
+from .helpers import split_parent_field
 
-_UID_RE = re.compile(r"^([AD]\.)?[A-Z]{3,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?$")
+log = logging.getLogger(__name__)
 
 _DISCOVER_CYPHER = """
 MATCH (child:Sample)
@@ -172,7 +172,7 @@ def resolve_orphans(
 
         meta = _json_loads(row[0])
         parent_field = meta.get("Parent") or meta.get("parent") or ""
-        parent_parts = [p.strip() for p in parent_field.split(";")]
+        parent_parts = split_parent_field(parent_field)
 
         # Replace matched tokens with UIDs
         any_replaced = False

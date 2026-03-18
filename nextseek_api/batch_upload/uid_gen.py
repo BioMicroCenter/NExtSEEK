@@ -4,13 +4,13 @@ from __future__ import annotations
 import datetime
 import json
 import logging
-import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from .errors import ErrorCollector, ErrorType, Severity
+from .helpers import UID_RE, split_parent_field
 from .models import InputRowModel
 
 try:
@@ -31,11 +31,6 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
-# UID regex matching the full UID format (same as dag.py but compiled once)
-_UID_RE = re.compile(r"^([AD]\.)?[A-Z]{3,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?$")
-
-# Parent field token splitter (same as dag.py)
-_PARENT_SPLIT_RE = re.compile(r"[;\,\s]+")
 
 # File_PrimaryData field names (including legacy typo variants)
 _FILE_PRIMARY_FIELDS = (
@@ -268,14 +263,14 @@ def _resolve_parents(
         if not parent_raw or not isinstance(parent_raw, str):
             continue
 
-        tokens = [t.strip() for t in _PARENT_SPLIT_RE.split(parent_raw.strip()) if t.strip()]
+        tokens = split_parent_field(parent_raw)
         if not tokens:
             continue
 
         rows_with_parents.append((idx, meta, tokens))
 
         for token in tokens:
-            if _UID_RE.match(token):
+            if UID_RE.match(token):
                 continue
             if token in identity_to_uid:
                 continue
@@ -291,7 +286,7 @@ def _resolve_parents(
     for idx, meta, tokens in rows_with_parents:
         resolved_tokens = []
         for token in tokens:
-            if _UID_RE.match(token):
+            if UID_RE.match(token):
                 resolved_tokens.append(token)
             elif token in identity_to_uid:
                 resolved_tokens.append(identity_to_uid[token])

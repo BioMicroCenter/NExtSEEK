@@ -420,6 +420,29 @@ class TestResolveParents:
         assert count == 2
         assert len(warnings) == 0
 
+    def test_name_with_spaces_resolved(self):
+        """Parent name with spaces must be treated as a single token and resolved."""
+        rows = [
+            _make_row(uid="NHP-260225MIT-2", meta='{"Parent":"UtEC - 2015010902"}'),
+        ]
+        identity_map = {"UtEC - 2015010902": "NHP-260225MIT-1"}
+        conn = self._mock_conn()
+        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        meta = json.loads(rows[0].json_metadata)
+        assert meta["Parent"] == "NHP-260225MIT-1"
+        assert count == 1
+
+    def test_name_with_spaces_unresolved_preserved(self):
+        """Unresolvable name with spaces must be preserved as a single token."""
+        rows = [
+            _make_row(uid="NHP-260225MIT-2", meta='{"Parent":"272 ESC 260C passage 5"}'),
+        ]
+        identity_map = {}
+        conn = self._mock_conn(db_results=[])
+        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        meta = json.loads(rows[0].json_metadata)
+        assert meta["Parent"] == "272 ESC 260C passage 5"
+
 
 # ── _inject_uid_into_metadata ───────────────────────────────────────────────
 

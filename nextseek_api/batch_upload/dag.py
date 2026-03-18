@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import sys
 from functools import lru_cache
 from typing import Dict, FrozenSet, List, Optional, Set, Tuple
@@ -16,12 +15,10 @@ try:
 except ImportError:
     _json_loads = json.loads
 
+from .helpers import UID_RE, split_parent_field
 from .models import DirectionComputation, InputRowModel
 
 log = logging.getLogger(__name__)
-
-_PARENT_SPLIT_RE = re.compile(r"[;\,\s]+")
-_VALID_PARENT_UID_RE = re.compile(r"^([AD]\.)?[A-Z]{3,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?$")
 
 # DuckDB fallback threshold (combined rows in assays_df + edges_df)
 _DUCKDB_THRESHOLD = 250_000
@@ -42,11 +39,10 @@ def extract_parents(json_metadata_str: str) -> FrozenSet[str]:
     if not parent_raw or not isinstance(parent_raw, str):
         return frozenset()
 
-    tokens = _PARENT_SPLIT_RE.split(parent_raw.strip())
+    tokens = split_parent_field(parent_raw)
     valid = set()
     for token in tokens:
-        token = token.strip()
-        if token and _VALID_PARENT_UID_RE.match(token):
+        if UID_RE.match(token):
             valid.add(token)
     return frozenset(valid)
 
