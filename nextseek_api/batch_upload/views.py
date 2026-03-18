@@ -218,18 +218,6 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ── Require person_id for Basic Auth ──
-        is_basic_auth = isinstance(
-            getattr(request, "successful_authenticator", None),
-            BasicAuthentication,
-        )
-        if is_basic_auth:
-            if request.data.get("person_id") is None:
-                return Response(
-                    {"detail": "person_id is required for Basic Auth requests (needed for UID generation)."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
         # Validate project_id
         project_id = request.data.get("project_id")
         if project_id is None:
@@ -444,90 +432,143 @@ def _save_uploaded_file(uploaded_file) -> str:
 def _resolve_user_context(request) -> dict | None:
     """Resolve contributor_id and lababbv from the authenticated user.
 
-    Uses SeekDB.getSeekLogin to get person_id and lab abbreviation.
-    Falls back to getUserInfo(person_id) when getSeekLogin fails (e.g., Basic Auth)
-    and person_id is provided in the request body.
+    Three-phase resolution:
+      Phase 1 — Resolve authenticated user's SEEK identity (person_id + lababbv)
+                via resolve_seek_auth, getSeekLogin, or Users ORM lookup.
+      Phase 2 — Determine effective person_id (admin override vs own identity).
+      Phase 3 — Resolve lababbv for the effective person.
 
     Returns {"contributor_id": int, "lababbv": str} or None.
+    May include "person_id_ignored": True when a non-admin's override was rejected.
     """
-    contributor_id = None
-    lababbv = "NA"
-    request_person_id = request.data.get("person_id")
+    # ── PHASE 1: Resolve authenticated user's SEEK identity ──────────────
+    authenticated_person_id = None
+    authenticated_lababbv = "NA"
 
+    # 1a. resolve_seek_auth → Users ORM → getUserInfo
     try:
+        from nextseek_api.helpers import resolve_seek_auth
+        from seek.models import Users
         from seek.seekdb import SeekDB
 
-        seekdb = SeekDB(None, None, None)
-        # Pass True to get full profile including lababbv
-        user_info = seekdb.getSeekLogin(request, True)
-        if user_info and user_info.get("status"):
-
-            try:
-                # If the request contains a person_id
-                # set uploading user to this id
-                if request_person_id is not None and request_person_id != user_info.get("person_id"):
-                    is_admin = bool(request.user.is_staff or request.user.is_superuser)
-                    if is_admin:
-                        user_info = seekdb.getUserInfo(request_person_id)[0]
-            except:
-                raise Exception("Could not resolve requested person_id.")
-
-            person_id = user_info.get("person_id") or user_info.get("id")
-            if person_id:
-                contributor_id = int(person_id)
-            lababbv = user_info.get("lababbv", "NA") or "NA"
+        creds, _headers = resolve_seek_auth(request)
+        if creds is not None:
+            username, _password = creds
+            seek_user = Users.objects.using(
+                getattr(Users, "_DATABASE", "default")
+            ).get(login=username)
+            authenticated_person_id = int(seek_user.person_id)
+            seekdb = SeekDB(None, None, None)
+            user_info, ui_status, _msg = seekdb.getUserInfo(authenticated_person_id)
+            if ui_status and user_info.get("lababbv"):
+                authenticated_lababbv = user_info["lababbv"]
+            log.debug("Phase 1a resolved person_id=%s via resolve_seek_auth", authenticated_person_id)
     except Exception:
-        log.debug("Could not resolve user context from SeekDB", exc_info=True)
+        log.debug("Phase 1a (resolve_seek_auth) failed", exc_info=True)
 
-    # Fallback: getSeekLogin failed (e.g., Basic Auth) but person_id provided
-    if contributor_id is None and request_person_id is not None:
+    # 1b. SeekDB.getSeekLogin (session auth)
+    if authenticated_person_id is None:
         try:
             from seek.seekdb import SeekDB
-            from seek.models import Users
-
-            # Admin check: look up caller's SEEK person_id from Django username
-            if hasattr(request, "user") and request.user.is_authenticated:
-                is_admin = bool(request.user.is_staff or request.user.is_superuser)
-                if not is_admin:
-                    try:
-                        seek_user = Users.objects.using(
-                            getattr(Users, "_DATABASE", "default")
-                        ).get(login=request.user.username)
-                        caller_person_id = seek_user.person_id
-                        if int(request_person_id) != caller_person_id:
-                            log.warning(
-                                "Non-admin user %s attempted person_id=%s but SEEK person_id=%s",
-                                request.user.username,
-                                request_person_id,
-                                caller_person_id,
-                            )
-                            return None  # View returns 401
-                    except Users.DoesNotExist:
-                        log.warning(
-                            "Could not find SEEK user for Django username %s",
-                            request.user.username,
-                        )
-                        # Can't verify — reject to be safe
-                        return None
 
             seekdb = SeekDB(None, None, None)
-            user_info, seek_status, msg = seekdb.getUserInfo(int(request_person_id))
-            if seek_status and user_info.get("lababbv"):
-                contributor_id = int(request_person_id)
-                lababbv = user_info["lababbv"]
-            else:
-                log.warning("getUserInfo failed for person_id=%s: %s", request_person_id, msg)
-                return None  # View returns 400 "Could not resolve contributor"
+            login_info = seekdb.getSeekLogin(request, True)
+            if login_info and login_info.get("status"):
+                pid = login_info.get("person_id") or login_info.get("id")
+                if pid:
+                    authenticated_person_id = int(pid)
+                    authenticated_lababbv = login_info.get("lababbv", "NA") or "NA"
+                    log.debug("Phase 1b resolved person_id=%s via getSeekLogin", authenticated_person_id)
         except Exception:
-            log.debug("getUserInfo fallback failed for person_id=%s", request_person_id, exc_info=True)
-            return None
+            log.debug("Phase 1b (getSeekLogin) failed", exc_info=True)
 
-    # Final fallback: no person_id, no getSeekLogin — use Django user pk
-    if contributor_id is None:
-        if hasattr(request, "user") and request.user.is_authenticated:
-            contributor_id = request.user.pk
+    # 1c. Users ORM lookup by Django username → getUserInfo
+    if authenticated_person_id is None:
+        try:
+            from seek.models import Users
+            from seek.seekdb import SeekDB
 
-    if contributor_id is None:
+            if hasattr(request, "user") and request.user.is_authenticated:
+                seek_user = Users.objects.using(
+                    getattr(Users, "_DATABASE", "default")
+                ).get(login=request.user.username)
+                authenticated_person_id = int(seek_user.person_id)
+                seekdb = SeekDB(None, None, None)
+                user_info, ui_status, _msg = seekdb.getUserInfo(authenticated_person_id)
+                if ui_status and user_info.get("lababbv"):
+                    authenticated_lababbv = user_info["lababbv"]
+                log.debug("Phase 1c resolved person_id=%s via Users ORM", authenticated_person_id)
+        except Exception:
+            log.debug("Phase 1c (Users ORM) failed", exc_info=True)
+
+    # 1d. All resolution paths failed — NO Django pk fallback
+    if authenticated_person_id is None:
+        log.debug("Phase 1 failed: could not resolve SEEK identity")
+
+    # ── PHASE 2: Determine effective person_id ───────────────────────────
+    # Sanitize person_id: empty string → None
+    raw_person_id = request.data.get("person_id")
+    if isinstance(raw_person_id, str) and not raw_person_id.strip():
+        request_person_id = None
+    else:
+        request_person_id = raw_person_id
+
+    is_admin = (
+        hasattr(request, "user")
+        and getattr(request.user, "is_authenticated", False)
+        and bool(request.user.is_staff or request.user.is_superuser)
+    )
+    person_id_ignored = False
+
+    if is_admin and request_person_id is not None:
+        effective_person_id = int(request_person_id)
+    elif not is_admin and request_person_id is not None:
+        # Non-admin tried to override — silently ignore, use own identity
+        effective_person_id = authenticated_person_id
+        person_id_ignored = True
+        log.warning(
+            "Non-admin user %s attempted person_id override=%s; using own identity %s",
+            getattr(request.user, "username", "?"),
+            request_person_id,
+            authenticated_person_id,
+        )
+    else:
+        effective_person_id = authenticated_person_id
+
+    # If we have no effective person, we cannot proceed
+    if effective_person_id is None:
         return None
 
-    return {"contributor_id": contributor_id, "lababbv": lababbv}
+    # ── PHASE 3: Resolve lababbv for effective person ────────────────────
+    if effective_person_id == authenticated_person_id:
+        lababbv = authenticated_lababbv
+    else:
+        # Admin override — resolve target's lababbv
+        try:
+            from seek.seekdb import SeekDB
+
+            seekdb = SeekDB(None, None, None)
+            target_info, t_status, _msg = seekdb.getUserInfo(effective_person_id)
+            if t_status and target_info.get("lababbv"):
+                lababbv = target_info["lababbv"]
+            else:
+                # Target's lababbv unavailable — fall back to admin's own
+                lababbv = authenticated_lababbv
+                log.debug(
+                    "getUserInfo(%s) returned no lababbv; using admin's lababbv=%s",
+                    effective_person_id,
+                    authenticated_lababbv,
+                )
+        except Exception:
+            lababbv = authenticated_lababbv
+            log.debug(
+                "getUserInfo(%s) failed; using admin's lababbv=%s",
+                effective_person_id,
+                authenticated_lababbv,
+                exc_info=True,
+            )
+
+    result = {"contributor_id": effective_person_id, "lababbv": lababbv}
+    if person_id_ignored:
+        result["person_id_ignored"] = True
+    return result
