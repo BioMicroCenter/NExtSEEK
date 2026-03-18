@@ -879,6 +879,8 @@ def build_derived_from_payloads_from_db(
             internal_assay_id: Optional[int] = None
             internal_assay_title: Optional[str] = None
 
+            assay_id: Optional[int] = None
+
             if shared:
                 # Resolve each shared assay_id to its internal_assay_id,
                 # then pick the minimum internal_assay_id
@@ -895,6 +897,8 @@ def build_derived_from_payloads_from_db(
                         best_ia_title = ia_title
                         best_assay_id = assay_id
 
+                assay_id = best_assay_id
+
                 if best_ia_id is not None:
                     internal_assay_id = best_ia_id
                     # User-provided titles override the resolved title only
@@ -909,6 +913,7 @@ def build_derived_from_payloads_from_db(
                 parent_uuid=parent_uid,
                 protocol_id=protocol_id,
                 protocol_title=protocol_title,
+                assay_id=assay_id,
                 internal_assay_id=internal_assay_id,
                 internal_assay_title=internal_assay_title,
             ))

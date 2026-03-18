@@ -405,6 +405,7 @@ class DerivedFromRelRow(BaseModel):
     parent_uuid: str
     protocol_id: Optional[int] = None
     protocol_title: Optional[str] = None
+    assay_id: Optional[int] = None
     internal_assay_id: Optional[int] = None
     internal_assay_title: Optional[str] = None
 

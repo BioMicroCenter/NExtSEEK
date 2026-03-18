@@ -282,11 +282,18 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # Optional explicit lababbv override (bypasses _resolve_user_context lababbv)
+        explicit_lababbv = request.data.get("lababbv")
+        if isinstance(explicit_lababbv, str) and explicit_lababbv.strip():
+            effective_lababbv = explicit_lababbv.strip().upper()
+        else:
+            effective_lababbv = user_ctx["lababbv"]
+
         # Dispatch to Celery
         task_kwargs = dict(
             project_id=project_id,
             contributor_id=user_ctx["contributor_id"],
-            lababbv=user_ctx["lababbv"],
+            lababbv=effective_lababbv,
             user_id=request.user.pk,
             config_overrides=config_overrides,
             neo4j_only=neo4j_only,
@@ -455,58 +462,72 @@ def _resolve_user_context(request) -> dict | None:
     authenticated_person_id = None
     authenticated_lababbv = "NA"
 
-    # 1a. resolve_seek_auth → Users ORM → getUserInfo
+    # 1a. resolve_seek_auth → Users ORM (person_id only; lababbv via Phase 1b)
+    _auth_creds = None  # Store creds from resolve_seek_auth for fallback
     try:
         from nextseek_api.helpers import resolve_seek_auth
         from seek.models import Users
-        from seek.seekdb import SeekDB
 
         creds, _headers = resolve_seek_auth(request)
         if creds is not None:
+            _auth_creds = creds
             username, _password = creds
             seek_user = Users.objects.using(
                 getattr(Users, "_DATABASE", "default")
             ).get(login=username)
             authenticated_person_id = int(seek_user.person_id)
-            seekdb = SeekDB(None, None, None)
-            user_info, ui_status, _msg = seekdb.getUserInfo(authenticated_person_id)
-            if ui_status and user_info.get("lababbv"):
-                authenticated_lababbv = user_info["lababbv"]
             log.debug("Phase 1a resolved person_id=%s via resolve_seek_auth", authenticated_person_id)
     except Exception:
         log.debug("Phase 1a (resolve_seek_auth) failed", exc_info=True)
 
-    # 1b. SeekDB.getSeekLogin (session auth)
-    if authenticated_person_id is None:
+    # 1b. SeekDB.getSeekLogin (session auth) — also initializes __seekapi for Phase 3
+    _seekdb = None  # Will hold an initialized SeekDB if getSeekLogin succeeds
+    if authenticated_lababbv == "NA":
         try:
             from seek.seekdb import SeekDB
 
             seekdb = SeekDB(None, None, None)
             login_info = seekdb.getSeekLogin(request, True)
             if login_info and login_info.get("status"):
+                _seekdb = seekdb  # Store for Phase 3 getUserInfo calls
                 pid = login_info.get("person_id") or login_info.get("id")
-                if pid:
+                if pid and authenticated_person_id is None:
                     authenticated_person_id = int(pid)
-                    authenticated_lababbv = login_info.get("lababbv", "NA") or "NA"
-                    log.debug("Phase 1b resolved person_id=%s via getSeekLogin", authenticated_person_id)
+                authenticated_lababbv = login_info.get("lababbv", "NA") or "NA"
+                log.debug("Phase 1b resolved lababbv=%s via getSeekLogin", authenticated_lababbv)
         except Exception:
             log.debug("Phase 1b (getSeekLogin) failed", exc_info=True)
 
-    # 1c. Users ORM lookup by Django username → getUserInfo
+    # 1b-fallback: Phase 1a got creds but 1b failed (e.g., Basic Auth, no session).
+    # Initialize SeekDB with the credentials directly so getUserInfo works.
+    if authenticated_lababbv == "NA" and _auth_creds is not None and authenticated_person_id is not None:
+        try:
+            from seek.seekdb import SeekDB
+            from django.conf import settings
+
+            username, password = _auth_creds
+            seekdb = SeekDB(settings.SEEK_URL, username, password)
+            _seekdb = seekdb
+            user_info, ui_status, _msg = seekdb.getUserInfo(authenticated_person_id)
+            if ui_status and user_info.get("lababbv"):
+                authenticated_lababbv = user_info["lababbv"]
+                log.debug(
+                    "Phase 1b-fallback resolved lababbv=%s via creds from resolve_seek_auth",
+                    authenticated_lababbv,
+                )
+        except Exception:
+            log.debug("Phase 1b-fallback (creds-based SeekDB) failed", exc_info=True)
+
+    # 1c. Users ORM lookup by Django username (person_id only; lababbv via Phase 1b)
     if authenticated_person_id is None:
         try:
             from seek.models import Users
-            from seek.seekdb import SeekDB
 
             if hasattr(request, "user") and request.user.is_authenticated:
                 seek_user = Users.objects.using(
                     getattr(Users, "_DATABASE", "default")
                 ).get(login=request.user.username)
                 authenticated_person_id = int(seek_user.person_id)
-                seekdb = SeekDB(None, None, None)
-                user_info, ui_status, _msg = seekdb.getUserInfo(authenticated_person_id)
-                if ui_status and user_info.get("lababbv"):
-                    authenticated_lababbv = user_info["lababbv"]
                 log.debug("Phase 1c resolved person_id=%s via Users ORM", authenticated_person_id)
         except Exception:
             log.debug("Phase 1c (Users ORM) failed", exc_info=True)
@@ -557,29 +578,31 @@ def _resolve_user_context(request) -> dict | None:
     if effective_person_id == authenticated_person_id:
         lababbv = authenticated_lababbv
     else:
-        # Admin override — resolve target's lababbv
-        try:
-            from seek.seekdb import SeekDB
-
-            seekdb = SeekDB(None, None, None)
-            target_info, t_status, _msg = seekdb.getUserInfo(effective_person_id)
-            if t_status and target_info.get("lababbv"):
-                lababbv = target_info["lababbv"]
-            else:
-                # Target's lababbv unavailable — fall back to admin's own
-                lababbv = authenticated_lababbv
+        # Admin override — resolve target's lababbv using initialized SeekDB
+        lababbv = authenticated_lababbv  # default fallback
+        if _seekdb is not None:
+            try:
+                target_info, t_status, _msg = _seekdb.getUserInfo(effective_person_id)
+                if t_status and target_info.get("lababbv"):
+                    lababbv = target_info["lababbv"]
+                else:
+                    log.debug(
+                        "getUserInfo(%s) returned no lababbv; using admin's lababbv=%s",
+                        effective_person_id,
+                        authenticated_lababbv,
+                    )
+            except Exception:
                 log.debug(
-                    "getUserInfo(%s) returned no lababbv; using admin's lababbv=%s",
+                    "getUserInfo(%s) failed; using admin's lababbv=%s",
                     effective_person_id,
                     authenticated_lababbv,
+                    exc_info=True,
                 )
-        except Exception:
-            lababbv = authenticated_lababbv
+        else:
             log.debug(
-                "getUserInfo(%s) failed; using admin's lababbv=%s",
+                "No initialized SeekDB for getUserInfo(%s); using lababbv=%s",
                 effective_person_id,
                 authenticated_lababbv,
-                exc_info=True,
             )
 
     result = {"contributor_id": effective_person_id, "lababbv": lababbv}

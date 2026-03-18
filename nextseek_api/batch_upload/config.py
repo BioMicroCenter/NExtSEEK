@@ -126,8 +126,8 @@ def get_sqlalchemy_url() -> str:
     from django.conf import settings
 
     db = settings.DATABASES["seek"]
-    host = db.get("HOST", "127.0.0.1")
-    port = db.get("PORT", "3306")
+    host = db.get("HOST") or "127.0.0.1"
+    port = db.get("PORT") or "3306"
     user = db.get("USER", "")
     password = db.get("PASSWORD", "")
     name = db.get("NAME", "")

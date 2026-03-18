@@ -955,11 +955,13 @@ class TestResolveUserContextV2:
 
 
 class TestResolveUserContextFallback:
-    """Test _resolve_user_context getUserInfo fallback path."""
+    """Test _resolve_user_context fallback paths."""
 
     @pytest.mark.django_db
-    def test_fallback_resolves_lababbv_from_person_id(self):
-        """When getSeekLogin fails but person_id provided, getUserInfo resolves lababbv."""
+    def test_basic_auth_creds_fallback_resolves_lababbv(self):
+        """When getSeekLogin fails (no session) but resolve_seek_auth returns creds,
+        Phase 1b-fallback initializes SeekDB with those creds and resolves lababbv.
+        """
         from nextseek_api.batch_upload.views import _resolve_user_context
         from django.contrib.auth import get_user_model
 
@@ -971,20 +973,199 @@ class TestResolveUserContextFallback:
         request.user = user
         request.data = {"person_id": 42}
 
+        mock_seek_user = MagicMock()
+        mock_seek_user.person_id = 42
+
         mock_user_info = (
             {"person_id": 42, "lababbv": "MIT", "institutionid": 1, "institutionname": "MIT"},
             True,
             "",
         )
 
-        with patch("seek.seekdb.SeekDB") as MockSeekDB:
-            instance = MockSeekDB.return_value
-            instance.getSeekLogin.side_effect = Exception("no session credentials")
-            instance.getUserInfo.return_value = mock_user_info
+        # SeekDB(None,None,None) via getSeekLogin fails (no session)
+        # SeekDB(server,user,pass) via 1b-fallback succeeds (has __seekapi)
+        def seekdb_factory(*args, **kwargs):
+            inst = MagicMock()
+            server, username, password = args if len(args) == 3 else (None, None, None)
+            if username is not None:
+                # Properly initialized — getUserInfo works
+                inst.getUserInfo.return_value = mock_user_info
+            else:
+                # Bare instance — getSeekLogin will fail
+                inst.getSeekLogin.side_effect = Exception("no session credentials")
+                inst.getUserInfo.side_effect = AttributeError("no __seekapi")
+            return inst
 
-            # Mock the Users query for admin check (admin user, so skip check)
+        with patch("nextseek_api.helpers.resolve_seek_auth",
+                    return_value=(("fallback_user", "pass"), {})), \
+             patch("seek.models.Users") as MockUsers, \
+             patch("seek.seekdb.SeekDB", side_effect=seekdb_factory):
+            MockUsers.objects.using.return_value.get.return_value = mock_seek_user
+            MockUsers._DATABASE = "default"
+
             result = _resolve_user_context(request)
 
         assert result is not None
         assert result["contributor_id"] == 42
         assert result["lababbv"] == "MIT"
+
+
+class TestResolveUserContextSeekDBInit:
+    """Regression tests for SeekDB initialization bug.
+
+    Production bug: Phase 1a creates SeekDB(None,None,None) and calls getUserInfo()
+    without initializing __seekapi (which requires getSeekLogin() first).
+    Phase 1a partially succeeds (sets person_id), then crashes on getUserInfo.
+    This poisons the Phase 1b guard (person_id is not None), so Phase 1b is skipped,
+    and lababbv stays as "NA".
+
+    These tests simulate the REAL production behavior where each SeekDB() call
+    creates an independent instance — unlike other tests that mock at class level
+    (returning one shared mock for all calls).
+    """
+
+    @pytest.mark.django_db
+    def test_phase1a_getUserInfo_crash_does_not_block_lababbv(self):
+        """Phase 1a sets person_id via Users ORM, but getUserInfo fails.
+        Phase 1b must still run and resolve lababbv via getSeekLogin.
+
+        Simulates real production: getUserInfo only works on a SeekDB instance
+        that has had getSeekLogin called first (__seekapi initialized).
+        """
+        from nextseek_api.batch_upload.views import _resolve_user_context
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username="seekdb_init_test", defaults={"is_staff": False, "is_superuser": False}
+        )
+        request = MagicMock()
+        request.user = user
+        request.data = {}
+
+        mock_seek_user = MagicMock()
+        mock_seek_user.person_id = 42
+
+        # Each SeekDB() call returns an independent instance that mimics production:
+        # getUserInfo crashes unless getSeekLogin was called on THAT instance first.
+        def make_seekdb_instance():
+            inst = MagicMock()
+            inst._initialized = False
+
+            def fake_getSeekLogin(req, full=True):
+                inst._initialized = True
+                return {"status": True, "person_id": 42, "lababbv": "MIT"}
+
+            def fake_getUserInfo(pid):
+                if not inst._initialized:
+                    raise AttributeError("'SeekDB' object has no attribute '_SeekDB__seekapi'")
+                return ({"person_id": int(pid), "lababbv": "MIT"}, True, "")
+
+            inst.getSeekLogin.side_effect = fake_getSeekLogin
+            inst.getUserInfo.side_effect = fake_getUserInfo
+            return inst
+
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("testuser", "testpass"), {})), \
+             patch("seek.models.Users") as MockUsers, \
+             patch("seek.seekdb.SeekDB", side_effect=lambda *a, **kw: make_seekdb_instance()):
+            MockUsers.objects.using.return_value.get.return_value = mock_seek_user
+            MockUsers._DATABASE = "default"
+
+            result = _resolve_user_context(request)
+
+        assert result is not None
+        assert result["contributor_id"] == 42
+        # BUG: current code returns "NA" because Phase 1b is skipped
+        assert result["lababbv"] == "MIT"
+
+    @pytest.mark.django_db
+    def test_admin_override_phase3_uses_initialized_seekdb(self):
+        """Admin overrides person_id=99. Phase 3 must call getUserInfo(99) on an
+        initialized SeekDB (from Phase 1b), not a fresh bare one.
+
+        Simulates real production: getUserInfo only works after getSeekLogin on
+        the same instance. Each SeekDB() creates independent instances.
+        """
+        from nextseek_api.batch_upload.views import _resolve_user_context
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            username="seekdb_admin_override", defaults={"is_staff": True, "is_superuser": True}
+        )
+        request = MagicMock()
+        request.user = user
+        request.data = {"person_id": 99}
+
+        mock_seek_user = MagicMock()
+        mock_seek_user.person_id = 42  # Admin's own person_id
+
+        admin_info = {"person_id": 42, "lababbv": "MIT"}
+        target_info = {"person_id": 99, "lababbv": "BMC"}
+
+        def make_seekdb_instance():
+            inst = MagicMock()
+            inst._initialized = False
+
+            def fake_getSeekLogin(req, full=True):
+                inst._initialized = True
+                return {"status": True, "person_id": 42, "lababbv": "MIT"}
+
+            def fake_getUserInfo(pid):
+                if not inst._initialized:
+                    raise AttributeError("'SeekDB' object has no attribute '_SeekDB__seekapi'")
+                if int(pid) == 99:
+                    return (target_info, True, "")
+                return (admin_info, True, "")
+
+            inst.getSeekLogin.side_effect = fake_getSeekLogin
+            inst.getUserInfo.side_effect = fake_getUserInfo
+            return inst
+
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("admin", "pass"), {})), \
+             patch("seek.models.Users") as MockUsers, \
+             patch("seek.seekdb.SeekDB", side_effect=lambda *a, **kw: make_seekdb_instance()):
+            MockUsers.objects.using.return_value.get.return_value = mock_seek_user
+            MockUsers._DATABASE = "default"
+
+            result = _resolve_user_context(request)
+
+        assert result is not None
+        assert result["contributor_id"] == 99
+        # BUG: current code returns "NA" — Phase 3 creates bare SeekDB, getUserInfo crashes
+        assert result["lababbv"] == "BMC"
+
+    @pytest.mark.django_db
+    def test_explicit_lababbv_overrides_resolution(self):
+        """When start endpoint receives explicit lababbv, it bypasses _resolve_user_context's lababbv."""
+        from nextseek_api.batch_upload.views import BatchUploadViewSet
+
+        request = MagicMock()
+        request.user = MagicMock(pk=1, is_staff=True, is_superuser=True, is_authenticated=True)
+        request.method = "POST"
+        request.data = {
+            "project_id": "1",
+            "person_id": "42",
+            "lababbv": "BMC",
+        }
+        request.FILES = MagicMock()
+        request.FILES.getlist.return_value = [
+            MagicMock(name="test.xlsx", size=100),
+        ]
+        # Make the file name check pass
+        request.FILES.getlist.return_value[0].name = "test.xlsx"
+
+        with patch("nextseek_api.batch_upload.views._resolve_user_context",
+                    return_value={"contributor_id": 42, "lababbv": "MIT"}), \
+             patch("nextseek_api.batch_upload.views._save_uploaded_file", return_value="/tmp/test.xlsx"), \
+             patch("nextseek_api.batch_upload.views.run_batch_upload_task") as mock_task, \
+             patch("nextseek_api.batch_upload.views.register_job"):
+            mock_task.delay.return_value = MagicMock(id="test-job-id")
+
+            view = BatchUploadViewSet()
+            response = view.start(request)
+
+        assert response.status_code == 202
+        # lababbv in task kwargs should be "BMC" (from request), not "MIT" (from resolution)
+        call_kwargs = mock_task.delay.call_args[1]
+        assert call_kwargs["lababbv"] == "BMC"
