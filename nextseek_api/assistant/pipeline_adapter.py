@@ -44,3 +44,18 @@ def make_db_event_callback(task_id: str, session_id: str) -> SendEvent:
         task.save(update_fields=update_fields)
 
     return send_event
+
+
+def _emit_complete(
+    send_event: SendEvent,
+    reply: str,
+    debug: dict[str, Any],
+    bundle_id: int | None,
+    *,
+    artifacts: list[dict[str, Any]] | None = None,
+) -> None:
+    """Emit a ``query_complete`` event, optionally attaching artifacts."""
+    data: dict[str, Any] = {"reply": reply, "debug": debug, "bundle_id": bundle_id}
+    if artifacts:
+        data["artifacts"] = artifacts
+    send_event("query_complete", data)

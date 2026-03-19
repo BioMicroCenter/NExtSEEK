@@ -255,9 +255,9 @@ class SopProxyViewSet(viewsets.ViewSet):
             files = request.FILES.getlist("file")
             max_bytes = getattr(settings, 'BATCH_UPLOAD_MAX_TOTAL_BYTES', 200 * 1024 * 1024)
             l_size = sum(f.size for f in files)
-            if total_size > max_bytes:
+            if l_size > max_bytes:
                 return HttpResponse(
-                    json.dumps({"errors": [{"title": f"Total upload size {total_size} exceeds limit {max_bytes}"}]}).encode(),
+                    json.dumps({"errors": [{"title": f"Total upload size {l_size} exceeds limit {max_bytes}"}]}).encode(),
                     status=413, content_type='application/json')
             
             sop_results = []

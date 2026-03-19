@@ -18,6 +18,7 @@ class ChatSession(models.Model):
 
     class Meta:
         db_table = "assistant_chat_session"
+        app_label = 'nextseek_api'
         ordering = ["-created_at"]
 
     def __str__(self):
@@ -59,6 +60,7 @@ class QueryTask(models.Model):
 
     class Meta:
         db_table = "assistant_query_task"
+        app_label = 'nextseek_api'
         ordering = ["-created_at"]
 
     def __str__(self):
