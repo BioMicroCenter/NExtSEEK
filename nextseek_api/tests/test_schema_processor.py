@@ -179,7 +179,7 @@ class TestOpenAPISchemaProcessor(TestCase):
         self.assertEqual(self.processor.simplify_schema({"type": "boolean"}), "boolean")
 
     def test_simplify_anyof_takes_first(self):
-        """Test that anyOf takes first schema (unchanged behavior)."""
+        """Test that anyOf with multiple variants returns $anyOf wrapper."""
         schema = {
             "anyOf": [
                 {"type": "string"},
@@ -187,10 +187,10 @@ class TestOpenAPISchemaProcessor(TestCase):
             ]
         }
         result = self.processor.simplify_schema(schema)
-        self.assertEqual(result, "string")
+        self.assertEqual(result, {"$anyOf": ["string", "integer"]})
 
     def test_simplify_oneof_takes_first(self):
-        """Test that oneOf takes first schema (unchanged behavior)."""
+        """Test that oneOf with multiple variants returns $oneOf wrapper."""
         schema = {
             "oneOf": [
                 {"type": "boolean"},
@@ -198,7 +198,7 @@ class TestOpenAPISchemaProcessor(TestCase):
             ]
         }
         result = self.processor.simplify_schema(schema)
-        self.assertEqual(result, "boolean")
+        self.assertEqual(result, {"$oneOf": ["boolean", "string"]})
 
     def test_simplify_empty_object(self):
         """Test that object without properties returns type indicator."""

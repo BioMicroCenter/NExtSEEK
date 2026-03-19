@@ -2,6 +2,7 @@
 import io
 import os
 import tempfile
+from unittest.mock import patch
 
 import openpyxl
 from django.contrib.auth.models import User
@@ -19,6 +20,9 @@ class DownloadArtifactEndpointTests(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
         self.session = ChatSession.objects.create(user=self.user)
+        patcher = patch('nextseek_api.services.assistant.UserInParticipatingProject.has_permission', return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _set_bundle(self, bundle):
         self.session.results_history = [bundle]
