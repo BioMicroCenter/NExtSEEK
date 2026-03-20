@@ -16,9 +16,11 @@ from nextseek_api.batch_upload.neo4j_sync import (
     _resolve_internal_assays,
     build_derived_from_payloads_from_db,
     build_in_study_payloads,
+    build_in_study_payloads_enriched,
     build_of_type_payloads,
     build_payloads,
     build_sample_type_node_payloads,
+    build_study_node_payloads,
     bulk_merge_in_study_relationships,
     delete_derived_from_for_uuids,
     enrich_parent_titles,
@@ -1118,3 +1120,162 @@ class TestParentTitlesIndex:
         assert any("parent_titles" in c and "CREATE INDEX" in c for c in calls), (
             f"Expected CREATE INDEX for parent_titles in calls: {calls}"
         )
+
+
+# ── TestBuildInStudyPayloadsEnriched ──────────────────────────────────────
+
+
+class TestBuildInStudyPayloadsEnriched:
+    """Tests for build_in_study_payloads_enriched."""
+
+    def test_uses_input_model_study_id(self):
+        """Route 1: Uses study_id from InputRowModel when provided."""
+        outcomes = {"UID-1": _outcome("success", sample_id=100)}
+        models = [InputRowModel(UID="UID-1", SampleType="Blood", json_metadata="{}", study_id=5, study_title="MyStudy")]
+        conn = MagicMock()
+        rows, warnings, fallback = build_in_study_payloads_enriched(outcomes, models, conn)
+        assert len(rows) == 1
+        assert rows[0].sample_uuid == "UID-1"
+        assert rows[0].study_id == 5
+        assert fallback == {5: "MyStudy"}
+        conn.execute.assert_not_called()  # no assay lookup needed
+
+    def test_assay_route_when_no_study_id(self):
+        """Route 2: Looks up study_id via assay_ids when study_id not provided."""
+        outcomes = {"UID-1": _outcome("success", sample_id=100)}
+        models = [InputRowModel(UID="UID-1", SampleType="Blood", json_metadata="{}", assay_ids=[55, 58])]
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [(55, 6), (58, 6)]
+        rows, warnings, fallback = build_in_study_payloads_enriched(outcomes, models, conn)
+        assert len(rows) == 1
+        assert rows[0].study_id == 6
+        assert warnings == 0
+
+    def test_assay_route_multiple_studies(self):
+        """Sample with assays in different studies gets IN_STUDY rel to each."""
+        outcomes = {"UID-1": _outcome("success", sample_id=100)}
+        models = [InputRowModel(UID="UID-1", SampleType="Blood", json_metadata="{}", assay_ids=[55, 60])]
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [(55, 6), (60, 12)]
+        rows, warnings, fallback = build_in_study_payloads_enriched(outcomes, models, conn)
+        assert len(rows) == 2
+        study_ids = {r.study_id for r in rows}
+        assert study_ids == {6, 12}
+
+    def test_both_routes_deduplication(self):
+        """Sample with study_id=6 AND assay pointing to study 6 -> one row, not two."""
+        outcomes = {"UID-1": _outcome("success", sample_id=100)}
+        models = [InputRowModel(UID="UID-1", SampleType="Blood", json_metadata="{}", study_id=6, study_title="MetNet", assay_ids=[55])]
+        conn = MagicMock()
+        # Assay route not needed since study_id is provided, but if it were:
+        rows, warnings, fallback = build_in_study_payloads_enriched(outcomes, models, conn)
+        assert len(rows) == 1
+        assert rows[0].study_id == 6
+
+    def test_collects_fallback_titles(self):
+        """study_title from InputRowModel collected in fallback dict."""
+        outcomes = {
+            "UID-1": _outcome("success", sample_id=100),
+            "UID-2": _outcome("success", sample_id=200),
+        }
+        models = [
+            InputRowModel(UID="UID-1", SampleType="Blood", json_metadata="{}", study_id=6, study_title="MetNet"),
+            InputRowModel(UID="UID-2", SampleType="Blood", json_metadata="{}", study_id=12, study_title="GBM"),
+        ]
+        conn = MagicMock()
+        rows, warnings, fallback = build_in_study_payloads_enriched(outcomes, models, conn)
+        assert fallback == {6: "MetNet", 12: "GBM"}
+
+    def test_skips_failed_outcomes(self):
+        """Failed outcomes excluded from both routes."""
+        outcomes = {"UID-1": _outcome("failed", sample_id=None)}
+        models = [InputRowModel(UID="UID-1", SampleType="Blood", json_metadata="{}", study_id=5)]
+        conn = MagicMock()
+        rows, warnings, fallback = build_in_study_payloads_enriched(outcomes, models, conn)
+        assert rows == []
+
+    def test_empty_outcomes(self):
+        """Empty outcomes -> empty result, no SQL."""
+        conn = MagicMock()
+        rows, warnings, fallback = build_in_study_payloads_enriched({}, [], conn)
+        assert rows == []
+        assert fallback == {}
+        conn.execute.assert_not_called()
+
+    def test_assay_with_null_study_id(self):
+        """Assay exists but study_id is NULL -> sample gets warning."""
+        outcomes = {"UID-1": _outcome("success", sample_id=100)}
+        models = [InputRowModel(UID="UID-1", SampleType="Blood", json_metadata="{}", assay_ids=[55])]
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [(55, None)]  # null study_id
+        rows, warnings, fallback = build_in_study_payloads_enriched(outcomes, models, conn)
+        assert len(rows) == 0
+        assert warnings == 1
+
+    def test_no_study_id_no_assays_warns(self):
+        """Sample with no study_id and no assay_ids -> warning."""
+        outcomes = {"UID-1": _outcome("success", sample_id=100)}
+        models = [InputRowModel(UID="UID-1", SampleType="Blood", json_metadata="{}")]
+        conn = MagicMock()
+        rows, warnings, fallback = build_in_study_payloads_enriched(outcomes, models, conn)
+        assert len(rows) == 0
+        assert warnings == 1
+
+    def test_chunking_assays(self):
+        """More than 1000 assay_ids -> multiple SQL queries."""
+        assay_ids = list(range(1, 1501))
+        outcomes = {"UID-1": _outcome("success", sample_id=100)}
+        models = [InputRowModel(UID="UID-1", SampleType="Blood", json_metadata="{}", assay_ids=assay_ids)]
+        conn = MagicMock()
+        chunk1 = [(i, 6) for i in range(1, 1001)]
+        chunk2 = [(i, 6) for i in range(1001, 1501)]
+        r1 = MagicMock(); r1.fetchall.return_value = chunk1
+        r2 = MagicMock(); r2.fetchall.return_value = chunk2
+        conn.execute.side_effect = [r1, r2]
+        rows, warnings, fallback = build_in_study_payloads_enriched(outcomes, models, conn)
+        assert len(rows) == 1  # deduplicated to one study
+        assert rows[0].study_id == 6
+        assert conn.execute.call_count == 2
+
+
+# ── TestBuildStudyNodePayloadsFallback ────────────────────────────────────
+
+
+class TestBuildStudyNodePayloadsFallback:
+    """Tests for build_study_node_payloads with fallback_titles."""
+
+    def test_fallback_title_used_when_db_missing(self):
+        """Study not in DB but in fallback -> StudyNodeRow created with fallback title."""
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = []  # not in DB
+        fallback = {6: "MetNet"}
+        study_rows, inv_rows, inv_rels = build_study_node_payloads({6}, conn, fallback_titles=fallback)
+        assert len(study_rows) == 1
+        assert study_rows[0].id == 6
+        assert study_rows[0].title == "MetNet"
+
+    def test_db_title_preferred_over_fallback(self):
+        """Study found in DB -> DB title used, not fallback."""
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [(6, "Full DB Title", "desc", None)]
+        fallback = {6: "MetNet"}
+        study_rows, inv_rows, inv_rels = build_study_node_payloads({6}, conn, fallback_titles=fallback)
+        assert len(study_rows) == 1
+        assert study_rows[0].title == "Full DB Title"
+
+    def test_no_fallback_dict(self):
+        """No fallback provided -> same behavior as before."""
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [(6, "Title", "desc", None)]
+        study_rows, inv_rows, inv_rels = build_study_node_payloads({6}, conn)
+        assert len(study_rows) == 1
+        assert study_rows[0].title == "Title"
+
+    def test_db_empty_title_uses_fallback(self):
+        """Study in DB with empty title -> fallback title used."""
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [(6, "", "desc", None)]
+        fallback = {6: "MetNet"}
+        study_rows, inv_rows, inv_rels = build_study_node_payloads({6}, conn, fallback_titles=fallback)
+        assert len(study_rows) == 1
+        assert study_rows[0].title == "MetNet"
