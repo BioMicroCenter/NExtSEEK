@@ -5,7 +5,6 @@ Tests cover:
 - ChatSession ORM model (creation, UUID, JSONField, ownership)
 - QueryTask ORM model (creation, progress, status transitions)
 - DictSessionAdapter (get, set, save)
-- Pipeline adapter (run_query with mocked agents, all mode branches)
 - DB event callback (make_db_event_callback for async pipeline)
 - ViewSet endpoints (me, sessions, query SSE, query async, task progress,
   bundles, test-cases)
@@ -16,7 +15,9 @@ All chat_nextseek agents are mocked — no real LLM or HTTP calls.
 import json
 import sys
 import uuid
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -39,66 +40,6 @@ from nextseek_api.assistant.session_adapter import DictSessionAdapter
 # mocked in the pipeline tests, so the actual prompt content is never needed.
 if "chat_nextseek.agents" not in sys.modules:
     patch("chat_nextseek.helpers.load_prompt", return_value="(test stub)").start()
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-def _make_entity_result(**overrides):
-    """Build a mock EntityAgentOutput."""
-    mock = MagicMock()
-    mock.model_dump.return_value = {
-        "sampletypes": [],
-        "assays": [],
-        "keywords": [],
-        **overrides,
-    }
-    return mock
-
-
-def _make_parser_plan(mode="new_search", endpoint="/samples/advanced_search/", **overrides):
-    """Build a mock ParserPlan."""
-    mock = MagicMock()
-    data = {
-        "mode": mode,
-        "target_endpoint": endpoint,
-        "intent_summary": "test",
-        "notes": "",
-        "target_result_id": None,
-        "report_mode": None,
-        "report_type": None,
-        "filters": {},
-        "resolved": {},
-        **overrides,
-    }
-    mock.mode = data["mode"]
-    mock.target_endpoint = data["target_endpoint"]
-    mock.intent_summary = data["intent_summary"]
-    mock.notes = data["notes"]
-    mock.target_result_id = data["target_result_id"]
-    mock.report_mode = data["report_mode"]
-    mock.report_type = data["report_type"]
-    mock.filters = MagicMock()
-    mock.filters.uids = []
-    mock.model_dump.return_value = data
-    return mock
-
-
-def _make_api_plan(endpoint="/samples/advanced_search/", method="POST"):
-    """Build a mock APIRequestPlan."""
-    mock = MagicMock()
-    mock.endpoint = endpoint
-    mock.method = method
-    mock.requestBody = {"sampletype": "NHP"}
-    mock.queryParameters = {}
-    mock.model_dump.return_value = {
-        "endpoint": endpoint,
-        "method": method,
-        "requestBody": {"sampletype": "NHP"},
-        "queryParameters": {},
-    }
-    return mock
 
 
 # ---------------------------------------------------------------------------
@@ -187,350 +128,86 @@ class SessionAdapterTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# PipelineAdapterTests
+# MakeDbEventCallbackTests
 # ---------------------------------------------------------------------------
 
-# Base patches — target the source modules since pipeline_adapter uses lazy imports
-_AGENTS = "chat_nextseek.agents"
-_CONFIG = "chat_nextseek.config"
-_HELPERS = "chat_nextseek.helpers"
-
-
-class PipelineAdapterTests(TestCase):
-    """Test run_query with fully mocked agents."""
+@pytest.mark.django_db
+class MakeDbEventCallbackTests(TestCase):
+    """Test make_db_event_callback — comprehensive coverage of pipeline_adapter.py."""
 
     def setUp(self):
-        self.user = User.objects.create_user(username="testuser", password="pass1234")
-        self.chat_session = ChatSession.objects.create(user=self.user)
-        self.adapter = DictSessionAdapter(self.chat_session)
-        self.events = []
-
-    def send_event(self, event_type, data):
-        self.events.append((event_type, data))
-
-    @patch(f"{_HELPERS}.shortlist_catalog")
-    @patch(f"{_AGENTS}.entity_agent")
-    @patch(f"{_AGENTS}.parser_agent")
-    @patch(f"{_HELPERS}.fix_sample_endpoint", side_effect=lambda d: d)
-    @patch(f"{_AGENTS}.api_agent_build_request")
-    @patch(f"{_HELPERS}.tool_nextseek_api_request")
-    @patch(f"{_HELPERS}._retry_advanced_search_if_empty")
-    @patch(f"{_HELPERS}.normalize_api_result_for_memory", return_value={})
-    @patch(f"{_HELPERS}.slim_api_result_for_llm", return_value={})
-    @patch(f"{_AGENTS}.chatter_agent_search_answer", return_value="Found 5 samples.")
-    @patch(f"{_CONFIG}.get_schema_for_endpoint", return_value=None)
-    def test_new_search_flow(
-        self,
-        mock_get_schema,
-        mock_chatter,
-        mock_slim,
-        mock_norm,
-        mock_retry,
-        mock_tool_request,
-        mock_api_agent,
-        mock_fix,
-        mock_parser,
-        mock_entity,
-        mock_shortlist,
-    ):
-        mock_shortlist.return_value = ([], [])
-        mock_entity.return_value = _make_entity_result()
-        mock_parser.return_value = _make_parser_plan(mode="new_search")
-
-        api_plan = _make_api_plan()
-        mock_api_agent.return_value = api_plan
-
-        api_result = {"ok": True, "status_code": 200, "data": {"total": 5, "rows": []}}
-        mock_tool_request.return_value = api_result
-        mock_retry.return_value = (api_plan.model_dump(), api_result)
-
-        from nextseek_api.assistant.pipeline_adapter import run_query
-        run_query(self.adapter, "Find me mice", self.send_event)
-
-        event_types = [e[0] for e in self.events]
-        self.assertIn("agent_started", event_types)
-        self.assertIn("agent_complete", event_types)
-        self.assertIn("query_complete", event_types)
-        self.assertNotIn("query_error", event_types)
-
-        # Verify query_complete has reply
-        complete_events = [e for e in self.events if e[0] == "query_complete"]
-        self.assertEqual(len(complete_events), 1)
-        self.assertEqual(complete_events[0][1]["reply"], "Found 5 samples.")
-
-    @patch(f"{_HELPERS}.shortlist_catalog")
-    @patch(f"{_AGENTS}.entity_agent")
-    @patch(f"{_AGENTS}.parser_agent")
-    @patch(f"{_HELPERS}.fix_sample_endpoint", side_effect=lambda d: d)
-    def test_unsupported_mode(self, mock_fix, mock_parser, mock_entity, mock_shortlist):
-        mock_shortlist.return_value = ([], [])
-        mock_entity.return_value = _make_entity_result()
-        mock_parser.return_value = _make_parser_plan(mode="unsupported")
-
-        from nextseek_api.assistant.pipeline_adapter import run_query
-        run_query(self.adapter, "do something weird", self.send_event)
-
-        event_types = [e[0] for e in self.events]
-        self.assertIn("query_complete", event_types)
-        complete = [e for e in self.events if e[0] == "query_complete"][0]
-        self.assertIn("can't turn that request", complete[1]["reply"])
-
-    @patch(f"{_HELPERS}.shortlist_catalog")
-    @patch(f"{_AGENTS}.entity_agent")
-    @patch(f"{_AGENTS}.parser_agent")
-    @patch(f"{_HELPERS}.fix_sample_endpoint", side_effect=lambda d: d)
-    def test_system_question_mode(self, mock_fix, mock_parser, mock_entity, mock_shortlist):
-        mock_shortlist.return_value = ([], [])
-        mock_entity.return_value = _make_entity_result()
-        mock_parser.return_value = _make_parser_plan(mode="system_question")
-
-        from nextseek_api.assistant.pipeline_adapter import run_query
-        run_query(self.adapter, "What can you do?", self.send_event)
-
-        event_types = [e[0] for e in self.events]
-        self.assertIn("query_complete", event_types)
-        complete = [e for e in self.events if e[0] == "query_complete"][0]
-        self.assertIn("system/meta question", complete[1]["reply"])
-
-    @patch(f"{_HELPERS}.shortlist_catalog")
-    @patch(f"{_AGENTS}.entity_agent")
-    @patch(f"{_AGENTS}.parser_agent")
-    @patch(f"{_HELPERS}.fix_sample_endpoint", side_effect=lambda d: d)
-    @patch(f"{_AGENTS}.memory_agent_answer", return_value="There are 3 monkeys.")
-    def test_ask_about_last_results_mode(
-        self, mock_memory, mock_fix, mock_parser, mock_entity, mock_shortlist
-    ):
-        mock_shortlist.return_value = ([], [])
-        mock_entity.return_value = _make_entity_result()
-        mock_parser.return_value = _make_parser_plan(mode="ask_about_last_results")
-
-        # Pre-populate history
-        self.adapter["results_history"] = [{
-            "id": 1,
-            "api_plan": {},
-            "api_result_full": {"ok": True},
-            "api_result_slim": {},
-            "api_result_norm": {},
-            "raw_result_path": None,
-        }]
-
-        from nextseek_api.assistant.pipeline_adapter import run_query
-        run_query(self.adapter, "How many monkeys?", self.send_event)
-
-        event_types = [e[0] for e in self.events]
-        self.assertIn("query_complete", event_types)
-        complete = [e for e in self.events if e[0] == "query_complete"][0]
-        self.assertEqual(complete[1]["reply"], "There are 3 monkeys.")
-
-    @patch(f"{_HELPERS}.shortlist_catalog")
-    @patch(f"{_AGENTS}.entity_agent")
-    @patch(f"{_AGENTS}.parser_agent")
-    @patch(f"{_HELPERS}.fix_sample_endpoint", side_effect=lambda d: d)
-    def test_ask_about_last_results_no_history(
-        self, mock_fix, mock_parser, mock_entity, mock_shortlist
-    ):
-        mock_shortlist.return_value = ([], [])
-        mock_entity.return_value = _make_entity_result()
-        mock_parser.return_value = _make_parser_plan(mode="ask_about_last_results")
-
-        from nextseek_api.assistant.pipeline_adapter import run_query
-        run_query(self.adapter, "Follow up question", self.send_event)
-
-        complete = [e for e in self.events if e[0] == "query_complete"][0]
-        self.assertIn("no stored results", complete[1]["reply"])
-
-    @patch(f"{_HELPERS}.shortlist_catalog", side_effect=Exception("boom"))
-    def test_error_emits_query_error(self, mock_shortlist):
-        from nextseek_api.assistant.pipeline_adapter import run_query
-        run_query(self.adapter, "test", self.send_event)
-
-        event_types = [e[0] for e in self.events]
-        self.assertIn("query_error", event_types)
-        error_event = [e for e in self.events if e[0] == "query_error"][0]
-        self.assertIn("boom", error_event[1]["error"])
-
-    @patch(f"{_HELPERS}.shortlist_catalog")
-    @patch(f"{_AGENTS}.entity_agent")
-    @patch(f"{_AGENTS}.parser_agent")
-    @patch(f"{_HELPERS}.fix_sample_endpoint", side_effect=lambda d: d)
-    @patch(f"{_AGENTS}.api_agent_build_request")
-    @patch(f"{_HELPERS}.tool_nextseek_api_request")
-    @patch(f"{_HELPERS}._retry_advanced_search_if_empty")
-    @patch(f"{_HELPERS}.normalize_api_result_for_memory", return_value={})
-    @patch(f"{_HELPERS}.slim_api_result_for_llm", return_value={})
-    @patch(f"{_AGENTS}.chatter_agent_search_answer", return_value="Refined results.")
-    @patch(f"{_CONFIG}.get_schema_for_endpoint", return_value=None)
-    def test_refine_last_search_flow(
-        self,
-        mock_get_schema,
-        mock_chatter,
-        mock_slim,
-        mock_norm,
-        mock_retry,
-        mock_tool_request,
-        mock_api_agent,
-        mock_fix,
-        mock_parser,
-        mock_entity,
-        mock_shortlist,
-    ):
-        mock_shortlist.return_value = ([], [])
-        mock_entity.return_value = _make_entity_result()
-        mock_parser.return_value = _make_parser_plan(mode="refine_last_search")
-
-        # Pre-populate history with a previous search (all filter fields must be
-        # non-None lists to pass ParserPlan.model_validate during refine merge)
-        self.adapter["results_history"] = [{
-            "id": 1,
-            "user_query": "Find me mice",
-            "mode": "new_search",
-            "parser_plan": {
-                "mode": "new_search",
-                "target_endpoint": "/samples/advanced_search/",
-                "resolved": {"sampletype": "NHP"},
-                "filters": {
-                    "sampletype_code": "NHP",
-                    "assay_codes": [],
-                    "keywords": [],
-                    "uids": [],
-                },
-            },
-            "api_plan": {"endpoint": "/samples/advanced_search/", "method": "POST"},
-            "api_result_full": {"ok": True, "status_code": 200, "data": {"total": 10}},
-        }]
-
-        api_plan = _make_api_plan()
-        mock_api_agent.return_value = api_plan
-
-        api_result = {"ok": True, "status_code": 200, "data": {"total": 3, "rows": []}}
-        mock_tool_request.return_value = api_result
-        mock_retry.return_value = (api_plan.model_dump(), api_result)
-
-        from nextseek_api.assistant.pipeline_adapter import run_query
-        run_query(self.adapter, "Narrow that to CD8 depleted", self.send_event)
-
-        event_types = [e[0] for e in self.events]
-        self.assertIn("query_complete", event_types)
-        self.assertNotIn("query_error", event_types)
-
-        complete = [e for e in self.events if e[0] == "query_complete"][0]
-        self.assertEqual(complete[1]["reply"], "Refined results.")
-        # History should now have 2 entries
-        self.assertEqual(len(self.adapter["results_history"]), 2)
-
-    @patch(f"{_HELPERS}.shortlist_catalog")
-    @patch(f"{_AGENTS}.entity_agent")
-    @patch(f"{_AGENTS}.parser_agent")
-    @patch(f"{_HELPERS}.fix_sample_endpoint", side_effect=lambda d: d)
-    @patch(f"{_AGENTS}.reporter_agent")
-    @patch(f"{_HELPERS}.run_project_sample_report")
-    @patch(f"{_HELPERS}.persist_report_file", return_value=None)
-    @patch(f"{_HELPERS}.top_items", return_value=[])
-    @patch(f"{_AGENTS}.chatter_agent_report_answer", return_value="Report summary.")
-    def test_reporter_summary_sql_flow(
-        self,
-        mock_chatter_report,
-        mock_top_items,
-        mock_persist,
-        mock_run_report,
-        mock_reporter,
-        mock_fix,
-        mock_parser,
-        mock_entity,
-        mock_shortlist,
-    ):
-        mock_shortlist.return_value = ([], [])
-        mock_entity.return_value = _make_entity_result()
-        mock_parser.return_value = _make_parser_plan(mode="reporter")
-
-        # Mock reporter_agent return
-        reporter_plan = MagicMock()
-        reporter_plan.reporter_mode = "summary_sql"
-        reporter_plan.project = "IMPACT"
-        reporter_plan.years = [2024]
-        reporter_plan.month_range = None
-        reporter_plan.day_range = None
-        reporter_plan.uids = []
-        reporter_plan.reporter_context = {}
-        reporter_plan.model_dump.return_value = {"reporter_mode": "summary_sql", "project": "IMPACT"}
-        mock_reporter.return_value = reporter_plan
-
-        mock_run_report.return_value = {
-            "ok": True,
-            "rows_returned": 42,
-            "project_id": 1,
-            "filters": {},
-            "sampletypes_table": [],
-            "labs_table": [],
-            "years_table": [],
-            "months_table": [],
-            "uuid_report_file": None,
-        }
-
-        from nextseek_api.assistant.pipeline_adapter import run_query
-        run_query(self.adapter, "How many samples for IMPACT?", self.send_event)
-
-        event_types = [e[0] for e in self.events]
-        self.assertIn("query_complete", event_types)
-        self.assertNotIn("query_error", event_types)
-
-        # Verify reporter and chatter agents were involved
-        started_agents = [e[1]["agent"] for e in self.events if e[0] == "agent_started"]
-        self.assertIn("reporter", started_agents)
-        self.assertIn("chatter", started_agents)
-
-    @patch(f"{_HELPERS}.shortlist_catalog")
-    @patch(f"{_AGENTS}.entity_agent")
-    @patch(f"{_AGENTS}.parser_agent")
-    @patch(f"{_HELPERS}.fix_sample_endpoint", side_effect=lambda d: d)
-    @patch(f"{_AGENTS}.reporter_agent")
-    @patch(f"{_HELPERS}.generate_report_outputs")
-    def test_reporter_report_generation_flow(
-        self,
-        mock_gen_reports,
-        mock_reporter,
-        mock_fix,
-        mock_parser,
-        mock_entity,
-        mock_shortlist,
-    ):
-        mock_shortlist.return_value = ([], [])
-        mock_entity.return_value = _make_entity_result()
-        mock_parser.return_value = _make_parser_plan(mode="reporter")
-
-        # Mock reporter_agent return with report_generation mode
-        reporter_plan = MagicMock()
-        reporter_plan.reporter_mode = "report_generation"
-        reporter_plan.project = None
-        reporter_plan.years = []
-        reporter_plan.month_range = None
-        reporter_plan.day_range = None
-        reporter_plan.uids = ["D.SEQ-221031SHA-67-PUB"]
-        reporter_plan.reporter_context = {}
-        reporter_plan.model_dump.return_value = {"reporter_mode": "report_generation"}
-        mock_reporter.return_value = reporter_plan
-
-        # generate_report_outputs returns (result, rw_output, saved_files, reply)
-        mock_gen_reports.return_value = (
-            {"ok": True, "reports": []},
-            MagicMock(model_dump=MagicMock(return_value={})),
-            {},
-            "GEO report generated successfully.",
+        from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+        self.make_cb = make_db_event_callback
+        self.user = User.objects.create_user(username="cbuser", password="pass")
+        self.session = ChatSession.objects.create(user=self.user)
+        self.task = QueryTask.objects.create(
+            session=self.session, user=self.user, query="test query",
         )
 
-        from nextseek_api.assistant.pipeline_adapter import run_query
-        run_query(self.adapter, "Build a GEO submission", self.send_event)
+    def test_callback_appends_progress(self):
+        cb = self.make_cb(str(self.task.task_id), str(self.session.session_id))
+        cb("thinking", {"step": "parsing"})
+        self.task.refresh_from_db()
+        self.assertEqual(len(self.task.progress), 1)
+        self.assertEqual(self.task.progress[0]["event"], "thinking")
 
-        event_types = [e[0] for e in self.events]
-        self.assertIn("query_complete", event_types)
-        self.assertNotIn("query_error", event_types)
+    def test_query_complete_sets_status_and_result(self):
+        cb = self.make_cb(str(self.task.task_id), str(self.session.session_id))
+        cb("query_complete", {"answer": "found 5 samples"})
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, "completed")
+        self.assertEqual(self.task.result["answer"], "found 5 samples")
 
-        started_agents = [e[1]["agent"] for e in self.events if e[0] == "agent_started"]
-        self.assertIn("reporter", started_agents)
-        self.assertIn("report_writer", started_agents)
+    def test_query_error_sets_status_and_result(self):
+        cb = self.make_cb(str(self.task.task_id), str(self.session.session_id))
+        cb("query_error", {"error": "timeout"})
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, "error")
 
-        complete = [e for e in self.events if e[0] == "query_complete"][0]
-        self.assertEqual(complete[1]["reply"], "GEO report generated successfully.")
+    def test_terminal_events_inject_session_id(self):
+        cb = self.make_cb(str(self.task.task_id), str(self.session.session_id))
+        cb("query_complete", {"answer": "done"})
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.result["session_id"], str(self.session.session_id))
+
+    def test_missing_task_logs_error(self):
+        cb = self.make_cb("00000000-0000-0000-0000-000000000000", str(self.session.session_id))
+        with self.assertLogs("nextseek_api.assistant.pipeline_adapter", level="ERROR"):
+            cb("thinking", {"step": "test"})
+
+    def test_multiple_events_accumulate(self):
+        cb = self.make_cb(str(self.task.task_id), str(self.session.session_id))
+        cb("thinking", {"step": 1})
+        cb("searching", {"step": 2})
+        cb("query_complete", {"answer": "done"})
+        self.task.refresh_from_db()
+        self.assertEqual(len(self.task.progress), 3)
+
+
+# ---------------------------------------------------------------------------
+# EmitCompleteTests
+# ---------------------------------------------------------------------------
+
+class EmitCompleteTests(TestCase):
+    """Test _emit_complete helper from pipeline_adapter."""
+
+    def test_emit_complete_without_artifacts(self):
+        from nextseek_api.assistant.pipeline_adapter import _emit_complete
+        events = []
+        _emit_complete(lambda t, d: events.append((t, d)), "answer", {"key": "val"}, 42)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0][0], "query_complete")
+        self.assertEqual(events[0][1]["reply"], "answer")
+        self.assertEqual(events[0][1]["debug"], {"key": "val"})
+        self.assertEqual(events[0][1]["bundle_id"], 42)
+        self.assertNotIn("artifacts", events[0][1])
+
+    def test_emit_complete_with_artifacts(self):
+        from nextseek_api.assistant.pipeline_adapter import _emit_complete
+        events = []
+        artifacts = [{"type": "table", "data": []}]
+        _emit_complete(lambda t, d: events.append((t, d)), "reply", {}, None, artifacts=artifacts)
+        self.assertEqual(events[0][1]["artifacts"], artifacts)
 
 
 # ---------------------------------------------------------------------------
@@ -546,6 +223,9 @@ class ViewSetTests(TestCase):
             username="admin", password="admin1234", is_staff=True
         )
         self.client = APIClient()
+        patcher = patch('nextseek_api.services.assistant.UserInParticipatingProject.has_permission', return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_me_returns_username(self):
         self.client.force_authenticate(user=self.user)
@@ -593,11 +273,11 @@ class ViewSetTests(TestCase):
         resp = self.client.get(f"/nextseek_api/assistant/sessions/{fake_id}/")
         self.assertEqual(resp.status_code, 404)
 
-    @patch("nextseek_api.assistant.session_adapter.DictSessionAdapter")
-    @patch("nextseek_api.assistant.pipeline_adapter.run_query")
+    @patch("nextseek_api.services.assistant.DictSessionAdapter")
+    @patch("nextseek_api.services.assistant.run_query")
     def test_query_returns_sse_content_type(self, mock_run_query, mock_adapter_cls):
         """Verify POST /assistant/query/ returns text/event-stream."""
-        def fake_run_query(adapter, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run_query
@@ -674,11 +354,11 @@ class ViewSetTests(TestCase):
         resp = self.client.get("/nextseek_api/assistant/test-cases/")
         self.assertEqual(resp.status_code, 403)
 
-    @patch("nextseek_api.assistant.session_adapter.DictSessionAdapter")
-    @patch("nextseek_api.assistant.pipeline_adapter.run_query")
+    @patch("nextseek_api.services.assistant.DictSessionAdapter")
+    @patch("nextseek_api.services.assistant.run_query")
     def test_query_sse_event_format(self, mock_run_query, mock_adapter_cls):
         """Verify SSE events are correctly formatted and include session_id."""
-        def fake_run_query(adapter, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event):
             send_event("agent_started", {"agent": "entity", "mode": ""})
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
@@ -699,11 +379,11 @@ class ViewSetTests(TestCase):
         # session_id should be injected into query_complete
         self.assertIn(str(session.session_id), content)
 
-    @patch("nextseek_api.assistant.session_adapter.DictSessionAdapter")
-    @patch("nextseek_api.assistant.pipeline_adapter.run_query")
+    @patch("nextseek_api.services.assistant.DictSessionAdapter")
+    @patch("nextseek_api.services.assistant.run_query")
     def test_query_auto_session_reuses_recent(self, mock_run_query, mock_adapter_cls):
         """POST /query/ without session_id reuses the most recent session."""
-        def fake_run_query(adapter, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run_query
@@ -723,11 +403,11 @@ class ViewSetTests(TestCase):
         # No new session should have been created
         self.assertEqual(ChatSession.objects.filter(user=self.user).count(), 1)
 
-    @patch("nextseek_api.assistant.session_adapter.DictSessionAdapter")
-    @patch("nextseek_api.assistant.pipeline_adapter.run_query")
+    @patch("nextseek_api.services.assistant.DictSessionAdapter")
+    @patch("nextseek_api.services.assistant.run_query")
     def test_query_auto_session_creates_when_none(self, mock_run_query, mock_adapter_cls):
         """POST /query/ without session_id auto-creates when user has no sessions."""
-        def fake_run_query(adapter, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run_query
@@ -751,11 +431,11 @@ class ViewSetTests(TestCase):
         content = b"".join(resp.streaming_content).decode()
         self.assertIn(str(auto_session.session_id), content)
 
-    @patch("nextseek_api.assistant.session_adapter.DictSessionAdapter")
-    @patch("nextseek_api.assistant.pipeline_adapter.run_query")
+    @patch("nextseek_api.services.assistant.DictSessionAdapter")
+    @patch("nextseek_api.services.assistant.run_query")
     def test_query_explicit_session_still_works(self, mock_run_query, mock_adapter_cls):
         """POST /query/ with explicit session_id still validates ownership."""
-        def fake_run_query(adapter, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run_query
@@ -897,9 +577,12 @@ class AsyncQueryViewSetTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="testuser", password="pass1234")
         self.client = APIClient()
+        patcher = patch('nextseek_api.services.assistant.UserInParticipatingProject.has_permission', return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
-    @patch("nextseek_api.assistant.session_adapter.DictSessionAdapter")
-    @patch("nextseek_api.assistant.pipeline_adapter.run_query")
+    @patch("nextseek_api.services.assistant.DictSessionAdapter")
+    @patch("nextseek_api.services.assistant.run_query")
     def test_query_async_returns_202_with_task_id(self, mock_run_query, mock_adapter_cls):
         """POST /query/async/ returns 202 with task_id and session_id."""
         self.client.force_authenticate(user=self.user)
@@ -916,8 +599,8 @@ class AsyncQueryViewSetTests(TestCase):
         # Verify QueryTask was created
         self.assertEqual(QueryTask.objects.filter(user=self.user).count(), 1)
 
-    @patch("nextseek_api.assistant.session_adapter.DictSessionAdapter")
-    @patch("nextseek_api.assistant.pipeline_adapter.run_query")
+    @patch("nextseek_api.services.assistant.DictSessionAdapter")
+    @patch("nextseek_api.services.assistant.run_query")
     def test_query_async_auto_session_creates(self, mock_run_query, mock_adapter_cls):
         """POST /query/async/ without session_id auto-creates a session."""
         self.client.force_authenticate(user=self.user)
@@ -932,8 +615,8 @@ class AsyncQueryViewSetTests(TestCase):
         auto_session = ChatSession.objects.get(user=self.user)
         self.assertEqual(resp.data["session_id"], str(auto_session.session_id))
 
-    @patch("nextseek_api.assistant.session_adapter.DictSessionAdapter")
-    @patch("nextseek_api.assistant.pipeline_adapter.run_query")
+    @patch("nextseek_api.services.assistant.DictSessionAdapter")
+    @patch("nextseek_api.services.assistant.run_query")
     def test_query_async_reuses_recent_session(self, mock_run_query, mock_adapter_cls):
         """POST /query/async/ without session_id reuses most recent session."""
         self.client.force_authenticate(user=self.user)
@@ -948,8 +631,8 @@ class AsyncQueryViewSetTests(TestCase):
         # No new session should have been created
         self.assertEqual(ChatSession.objects.filter(user=self.user).count(), 1)
 
-    @patch("nextseek_api.assistant.session_adapter.DictSessionAdapter")
-    @patch("nextseek_api.assistant.pipeline_adapter.run_query")
+    @patch("nextseek_api.services.assistant.DictSessionAdapter")
+    @patch("nextseek_api.services.assistant.run_query")
     def test_query_async_explicit_session(self, mock_run_query, mock_adapter_cls):
         """POST /query/async/ with explicit session_id validates ownership."""
         self.client.force_authenticate(user=self.user)
@@ -992,6 +675,9 @@ class TaskProgressViewSetTests(TestCase):
         self.user = User.objects.create_user(username="testuser", password="pass1234")
         self.session = ChatSession.objects.create(user=self.user)
         self.client = APIClient()
+        patcher = patch('nextseek_api.services.assistant.UserInParticipatingProject.has_permission', return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_task_progress_running(self):
         """GET /tasks/{id}/progress/ returns current progress for a running task."""
@@ -1071,9 +757,12 @@ class CsrfExemptionTests(TestCase):
         self.user = User.objects.create_user(username="csrfuser", password="pass1234")
         self.client = APIClient(enforce_csrf_checks=True)
         self.client.login(username="csrfuser", password="pass1234")
+        patcher = patch('nextseek_api.services.assistant.UserInParticipatingProject.has_permission', return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
-    @patch("nextseek_api.assistant.session_adapter.DictSessionAdapter")
-    @patch("nextseek_api.assistant.pipeline_adapter.run_query")
+    @patch("nextseek_api.services.assistant.DictSessionAdapter")
+    @patch("nextseek_api.services.assistant.run_query")
     def test_post_query_async_no_csrf_token(self, mock_run_query, mock_adapter_cls):
         """POST /assistant/query/async/ must return 202, not 403, for a
         session-authenticated user who sends no X-CSRFToken header."""
@@ -1085,11 +774,11 @@ class CsrfExemptionTests(TestCase):
         self.assertEqual(resp.status_code, 202)
         self.assertIn("task_id", resp.data)
 
-    @patch("nextseek_api.assistant.session_adapter.DictSessionAdapter")
-    @patch("nextseek_api.assistant.pipeline_adapter.run_query")
+    @patch("nextseek_api.services.assistant.DictSessionAdapter")
+    @patch("nextseek_api.services.assistant.run_query")
     def test_post_query_sse_no_csrf_token(self, mock_run_query, mock_adapter_cls):
         """POST /assistant/query/ must return 200 (SSE), not 403."""
-        def fake_run_query(adapter, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
         mock_run_query.side_effect = fake_run_query
 

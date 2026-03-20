@@ -119,6 +119,8 @@ dependencies = [
   "pytest-django",
   "channels>=4.3.2",
   "daphne>=4.2.1",
+  "pytest-cov>=7.0.0",
+  "coverage>=7.13.5",
 ]
 
 [tool.uv.sources]
