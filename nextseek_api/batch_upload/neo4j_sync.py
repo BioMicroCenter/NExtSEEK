@@ -240,8 +240,14 @@ def bulk_merge_in_study_relationships(
 def build_study_node_payloads(
     study_ids: Set[int],
     sql_conn: Connection,
+    fallback_titles: Optional[Dict[int, str]] = None,
 ) -> Tuple[List[StudyNodeRow], List[InvestigationNodeRow], List[InInvestigationRelRow]]:
-    """Fetch study and investigation data from MySQL, build Neo4j payloads."""
+    """Fetch study and investigation data from MySQL, build Neo4j payloads.
+
+    Args:
+        fallback_titles: Optional mapping of study_id -> title from InputRowModel.
+            Used when the DB has no row or an empty title for a study_id.
+    """
     if not study_ids:
         return [], [], []
 
@@ -249,6 +255,7 @@ def build_study_node_payloads(
     study_rows_out: List[StudyNodeRow] = []
     inv_ids_needed: Set[int] = set()
     study_to_inv: Dict[int, int] = {}
+    found_study_ids: Set[int] = set()
 
     for chunk_start in range(0, len(study_list), 1000):
         chunk = study_list[chunk_start : chunk_start + 1000]
@@ -259,11 +266,26 @@ def build_study_node_payloads(
             params,
         )
         for sid, title, description, inv_id in result.fetchall():
-            if title:
-                study_rows_out.append(StudyNodeRow(id=sid, title=title, description=description or ""))
+            effective_title = title
+            # If DB title is empty/missing, try fallback
+            if not effective_title and fallback_titles and sid in fallback_titles:
+                effective_title = fallback_titles[sid]
+                log.info("Study id=%d created from fallback title '%s'", sid, effective_title)
+            if effective_title:
+                found_study_ids.add(sid)
+                study_rows_out.append(StudyNodeRow(id=sid, title=effective_title, description=description or ""))
                 if inv_id:
                     inv_ids_needed.add(inv_id)
                     study_to_inv[sid] = inv_id
+
+    # Fallback: for study_ids not found in DB at all, use fallback_titles
+    if fallback_titles:
+        for sid in study_ids:
+            if sid not in found_study_ids and sid in fallback_titles:
+                title = fallback_titles[sid]
+                if title and title.strip():
+                    study_rows_out.append(StudyNodeRow(id=sid, title=title.strip(), description=""))
+                    log.info("Study id=%d created from fallback title '%s'", sid, title)
 
     inv_rows_out: List[InvestigationNodeRow] = []
     if inv_ids_needed:
@@ -642,6 +664,81 @@ def build_in_study_payloads(
             continue
         rows.append(InStudyRelRow(sample_uuid=uid, study_id=model.study_id))
     return rows, warnings
+
+
+def build_in_study_payloads_enriched(
+    outcomes: Dict[str, RowOutcome],
+    input_models: List[InputRowModel],
+    sql_conn: Connection,
+) -> Tuple[List[InStudyRelRow], int, Dict[int, str]]:
+    """Build IN_STUDY payloads via two routes + collect fallback study titles.
+
+    Route 1: Use InputRowModel.study_id when provided.
+    Route 2: For samples without study_id, look up via assay_ids -> assays.study_id.
+
+    Returns:
+        (in_study_rows, warning_count, fallback_titles)
+        fallback_titles: study_id -> study_title from InputRowModel (for Study node fallback)
+    """
+    uid_to_model = {m.UID: m for m in input_models}
+    seen: Set[Tuple[str, int]] = set()
+    rows: List[InStudyRelRow] = []
+    warnings = 0
+    fallback_titles: Dict[int, str] = {}
+
+    need_assay_lookup: Dict[str, List[int]] = {}
+
+    for uid, outcome in outcomes.items():
+        if outcome.sample_id is None:
+            continue
+        model = uid_to_model.get(uid)
+        if not model:
+            continue
+
+        if model.study_id is not None:
+            key = (uid, model.study_id)
+            if key not in seen:
+                seen.add(key)
+                rows.append(InStudyRelRow(sample_uuid=uid, study_id=model.study_id))
+            if model.study_title and model.study_id not in fallback_titles:
+                fallback_titles[model.study_id] = model.study_title
+        else:
+            if model.assay_ids:
+                need_assay_lookup[uid] = list(model.assay_ids)
+            else:
+                warnings += 1
+                log.warning("IN_STUDY: skipping UID=%s — no study_id or assay_ids", uid)
+
+    if need_assay_lookup:
+        all_assay_ids: Set[int] = set()
+        for aids in need_assay_lookup.values():
+            all_assay_ids.update(aids)
+
+        assay_to_study: Dict[int, int] = {}
+        assay_list = sorted(all_assay_ids)
+        for chunk_start in range(0, len(assay_list), 1000):
+            chunk = assay_list[chunk_start : chunk_start + 1000]
+            params = {f"a_{i}": a for i, a in enumerate(chunk)}
+            placeholders = ", ".join(f":a_{i}" for i in range(len(chunk)))
+            sql = text(f"SELECT id, study_id FROM assays WHERE id IN ({placeholders})")
+            result = sql_conn.execute(sql, params).fetchall()
+            for aid, sid in result:
+                if sid is not None:
+                    assay_to_study[aid] = sid
+
+        for uid, assay_ids in need_assay_lookup.items():
+            study_ids_for_sample = {assay_to_study[a] for a in assay_ids if a in assay_to_study}
+            if not study_ids_for_sample:
+                warnings += 1
+                log.warning("IN_STUDY: skipping UID=%s — assay lookup returned no study_id", uid)
+                continue
+            for sid in study_ids_for_sample:
+                key = (uid, sid)
+                if key not in seen:
+                    seen.add(key)
+                    rows.append(InStudyRelRow(sample_uuid=uid, study_id=sid))
+
+    return rows, warnings, fallback_titles
 
 
 def build_of_type_payloads(
@@ -1028,11 +1125,14 @@ def upload_all(
 
     of_type_rows = build_of_type_payloads(outcomes, insertable_samples or [])
 
-    in_study_rows, in_study_warn_count = build_in_study_payloads(outcomes, input_models)
+    in_study_rows, in_study_warn_count, fallback_study_titles = build_in_study_payloads_enriched(
+        outcomes, input_models, sql_conn
+    )
 
     study_ids = {row.study_id for row in in_study_rows}
     study_node_rows, inv_node_rows, inv_rel_rows = (
-        build_study_node_payloads(study_ids, sql_conn) if study_ids else ([], [], [])
+        build_study_node_payloads(study_ids, sql_conn, fallback_titles=fallback_study_titles)
+        if study_ids else ([], [], [])
     )
 
     # ── Phase 2: All Neo4j operations (no more MySQL I/O) ───────────────
