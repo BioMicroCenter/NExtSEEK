@@ -18,6 +18,7 @@ from nextseek_api.batch_upload.neo4j_sync import (
     build_in_study_payloads,
     build_of_type_payloads,
     build_payloads,
+    build_sample_type_node_payloads,
     bulk_merge_in_study_relationships,
     delete_derived_from_for_uuids,
     enrich_parent_titles,
@@ -198,6 +199,109 @@ class TestBuildOfTypePayloads:
         insertables = [_insertable("UID-1", 10), _insertable("UID-2", 20)]
         rows = build_of_type_payloads(outcomes, insertables)
         assert len(rows) == 2
+
+
+# ── TestBuildSampleTypeNodePayloads ─────────────────────────────────────────
+
+
+class TestBuildSampleTypeNodePayloads:
+    """Tests for build_sample_type_node_payloads."""
+
+    def test_basic_single_type(self):
+        outcomes = {"UID-1": _outcome("success", sample_id=100)}
+        models = [_input("UID-1")]
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [(10, "Blood")]
+        rows = build_sample_type_node_payloads(outcomes, models, conn)
+        assert len(rows) == 1
+        assert rows[0].title == "Blood"
+        assert rows[0].id == 10
+
+    def test_multiple_types(self):
+        outcomes = {
+            "UID-1": _outcome("success", sample_id=100),
+            "UID-2": _outcome("success", sample_id=200),
+        }
+        models = [
+            InputRowModel(UID="UID-1", SampleType="Blood", json_metadata="{}"),
+            InputRowModel(UID="UID-2", SampleType="Tissue", json_metadata="{}"),
+        ]
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [(10, "Blood"), (20, "Tissue")]
+        rows = build_sample_type_node_payloads(outcomes, models, conn)
+        assert len(rows) == 2
+        id_by_title = {r.title: r.id for r in rows}
+        assert id_by_title["Blood"] == 10
+        assert id_by_title["Tissue"] == 20
+
+    def test_deduplication(self):
+        outcomes = {
+            "UID-1": _outcome("success", sample_id=100),
+            "UID-2": _outcome("success", sample_id=200),
+        }
+        models = [_input("UID-1"), _input("UID-2")]
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [(10, "Blood")]
+        rows = build_sample_type_node_payloads(outcomes, models, conn)
+        assert len(rows) == 1
+        assert rows[0].title == "Blood"
+        assert rows[0].id == 10
+
+    def test_missing_sample_type_in_db(self):
+        outcomes = {"UID-1": _outcome("success", sample_id=100)}
+        models = [_input("UID-1")]
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = []
+        with patch("nextseek_api.batch_upload.neo4j_sync.log") as mock_log:
+            rows = build_sample_type_node_payloads(outcomes, models, conn)
+        assert len(rows) == 1
+        assert rows[0].title == "Blood"
+        assert rows[0].id is None
+        mock_log.warning.assert_called_once()
+
+    def test_empty_outcomes(self):
+        outcomes = {}
+        models = []
+        conn = MagicMock()
+        rows = build_sample_type_node_payloads(outcomes, models, conn)
+        assert rows == []
+        conn.execute.assert_not_called()
+
+    def test_skips_failed_outcomes(self):
+        outcomes = {
+            "UID-1": _outcome("failed", sample_id=None),
+            "UID-2": _outcome("success", sample_id=200),
+        }
+        models = [
+            InputRowModel(UID="UID-1", SampleType="Blood", json_metadata="{}"),
+            InputRowModel(UID="UID-2", SampleType="Tissue", json_metadata="{}"),
+        ]
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [(20, "Tissue")]
+        rows = build_sample_type_node_payloads(outcomes, models, conn)
+        assert len(rows) == 1
+        assert rows[0].title == "Tissue"
+        assert rows[0].id == 20
+
+    def test_chunking(self):
+        titles = [f"Type_{i}" for i in range(1500)]
+        outcomes = {f"UID-{i}": _outcome("success", sample_id=i+1) for i in range(1500)}
+        models = [
+            InputRowModel(UID=f"UID-{i}", SampleType=titles[i], json_metadata="{}")
+            for i in range(1500)
+        ]
+        conn = MagicMock()
+        chunk1_results = [(i+1, titles[i]) for i in range(1000)]
+        chunk2_results = [(i+1, titles[i]) for i in range(1000, 1500)]
+        result_mock_1 = MagicMock()
+        result_mock_1.fetchall.return_value = chunk1_results
+        result_mock_2 = MagicMock()
+        result_mock_2.fetchall.return_value = chunk2_results
+        conn.execute.side_effect = [result_mock_1, result_mock_2]
+        rows = build_sample_type_node_payloads(outcomes, models, conn)
+        assert len(rows) == 1500
+        assert conn.execute.call_count == 2
+        assert all(r.id is not None for r in rows)
 
 
 # ── TestBuildStudyNodePayloads ────────────────────────────────────────────
