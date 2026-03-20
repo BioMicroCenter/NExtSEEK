@@ -668,6 +668,52 @@ def build_of_type_payloads(
     return rows
 
 
+def build_sample_type_node_payloads(
+    outcomes: Dict[str, RowOutcome],
+    input_models: List[InputRowModel],
+    sql_conn: Connection,
+) -> List[SampleTypeNodeRow]:
+    """Build SampleType node payloads with real IDs from bulk DB lookup.
+
+    Collects unique SampleType titles from successful outcomes,
+    queries the sample_types table for their IDs, and returns
+    SampleTypeNodeRow objects with correct integer IDs.
+    """
+    uid_to_model = {m.UID: m for m in input_models}
+    titles: Set[str] = set()
+    for uid, outcome in outcomes.items():
+        if outcome.sample_id is None:
+            continue
+        model = uid_to_model.get(uid)
+        if model and model.SampleType:
+            titles.add(model.SampleType)
+
+    if not titles:
+        return []
+
+    # Bulk DB lookup: title -> id
+    title_to_id: Dict[str, int] = {}
+    title_list = sorted(titles)
+    for chunk_start in range(0, len(title_list), 1000):
+        chunk = title_list[chunk_start : chunk_start + 1000]
+        params = {f"t_{i}": t for i, t in enumerate(chunk)}
+        placeholders = ", ".join(f":t_{i}" for i in range(len(chunk)))
+        sql = text(f"SELECT id, title FROM sample_types WHERE title IN ({placeholders})")
+        rows = sql_conn.execute(sql, params).fetchall()
+        for st_id, title in rows:
+            title_to_id[title] = st_id
+
+    # Build SampleTypeNodeRow list
+    result: List[SampleTypeNodeRow] = []
+    for title in sorted(titles):
+        st_id = title_to_id.get(title)
+        if st_id is None:
+            log.warning("SampleType '%s' not found in sample_types table", title)
+        result.append(SampleTypeNodeRow(title=title, id=st_id))
+
+    return result
+
+
 def _resolve_internal_assays(
     assay_ids: Set[int],
     sql_conn: Connection,
@@ -978,14 +1024,7 @@ def upload_all(
     )
     metrics.rels_input = len(derived_from_rows)
 
-    st_map: Dict[str, Optional[int]] = {}
-    uid_to_model = {m.UID: m for m in input_models}
-    for uid, outcome in outcomes.items():
-        if outcome.sample_id is not None:
-            model = uid_to_model.get(uid)
-            if model and model.SampleType not in st_map:
-                st_map[model.SampleType] = None
-    st_node_rows = [SampleTypeNodeRow(title=t, id=None) for t in st_map]
+    st_node_rows = build_sample_type_node_payloads(outcomes, input_models, sql_conn)
 
     of_type_rows = build_of_type_payloads(outcomes, insertable_samples or [])
 
