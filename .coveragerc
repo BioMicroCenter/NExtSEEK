@@ -1,0 +1,23 @@
+[run]
+source = nextseek_api
+omit =
+    nextseek_api/tests.py
+    nextseek_api/tests/*
+    nextseek_api/*/tests/*
+    nextseek_api/migrations/*
+    */conftest.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if __name__ == .__main__
+    raise NotImplementedError
+    pass
+    \.\.\.
+
+fail_under = 0
+show_missing = True
+
+[html]
+directory = htmlcov
