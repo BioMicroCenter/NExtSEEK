@@ -6,6 +6,8 @@ omit =
     nextseek_api/*/tests/*
     nextseek_api/migrations/*
     */conftest.py
+    nextseek_api/example.py
+    nextseek_api/batch_upload/scripts/*
 
 [report]
 exclude_lines =
@@ -15,6 +17,8 @@ exclude_lines =
     raise NotImplementedError
     pass
     \.\.\.
+    except ImportError
+    if TYPE_CHECKING
 
 fail_under = 0
 show_missing = True
