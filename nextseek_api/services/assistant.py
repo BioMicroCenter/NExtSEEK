@@ -32,7 +32,6 @@ from django.conf import settings
 
 ASSISTANT_PARTICIPATING_PROJECTS = settings.ASSISTANT_PARTICIPATING_PROJECTS
 TEST_CASES = settings.TEST_CASES
-CHAT_NEXTSEEK_CONFIG = settings.CHAT_NEXTSEEK_CONFIG
 
 from nextseek_api.assistant.descriptions import (
     ASSISTANT_BUNDLE_DOWNLOAD_DESC,
@@ -64,7 +63,7 @@ from rest_framework.authentication import (
 
 from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
 
-from chat_nextseek.agents import run_query
+from chat_nextseek.orchestrator import run_query
 from chat_nextseek.config import ChatConfig
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
@@ -286,10 +285,9 @@ class AssistantViewSet(viewsets.ViewSet):
 
         def _run_pipeline() -> None:
             try:
-                chat_config = ChatConfig(CHAT_NEXTSEEK_CONFIG)
-                chat_config.API_USER = request.session.get("username")
-                chat_config.API_PASS = request.session.get("password")
-                run_query(adapter, chat_config, req.query, send_event)
+                API_USER = request.session.get("username")
+                API_PASS = request.session.get("password")
+                run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
             except Exception:
                 logger.exception("Unhandled pipeline error")
                 send_event("query_error", {
@@ -391,10 +389,9 @@ class AssistantViewSet(viewsets.ViewSet):
 
         def _run_pipeline() -> None:
             try:
-                chat_config = ChatConfig(CHAT_NEXTSEEK_CONFIG)
-                chat_config.API_USER = request.session.get("username")
-                chat_config.API_PASS = request.session.get("password")
-                run_query(adapter, chat_config, req.query, send_event)
+                API_USER = request.session.get("username")
+                API_PASS = request.session.get("password")
+                run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
             except Exception:
                 logger.exception("Unhandled pipeline error (async)")
                 send_event("query_error", {
