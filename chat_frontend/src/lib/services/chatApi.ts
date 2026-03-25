@@ -22,6 +22,7 @@ export class NextseekApiService {
 
   async submitQuery(
     query: string,
+    plan: boolean,
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
   ): Promise<void> {
@@ -38,7 +39,7 @@ export class NextseekApiService {
             "Content-Type": "application/json",
             ...this.auth.getAuthHeaders(),
           },
-          body: JSON.stringify({ query }),
+          body: JSON.stringify({ "query": query, "plan": plan }),
         },
       );
 

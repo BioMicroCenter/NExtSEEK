@@ -78,7 +78,7 @@ describe("NextseekApiService", () => {
     const onError = vi.fn();
 
     // Fire and forget — we just want to verify the POST was made
-    service.submitQuery("test query", onProgress, onError);
+    service.submitQuery("test query", false, onProgress, onError);
 
     // Let microtasks run so fetch resolves and WS opens
     await vi.advanceTimersByTimeAsync(10);
@@ -113,7 +113,7 @@ describe("NextseekApiService", () => {
     const onProgress = vi.fn();
     const onError = vi.fn();
 
-    await service.submitQuery("test", onProgress, onError);
+    await service.submitQuery("test", false, onProgress, onError);
 
     expect(onError).toHaveBeenCalledWith("Query submission failed: 500");
     expect(onProgress).not.toHaveBeenCalled();
@@ -128,7 +128,7 @@ describe("NextseekApiService", () => {
     const onProgress = vi.fn();
     const onError = vi.fn();
 
-    await service.submitQuery("test", onProgress, onError);
+    await service.submitQuery("test", false, onProgress, onError);
 
     expect(onError).toHaveBeenCalledWith("Network error");
   });

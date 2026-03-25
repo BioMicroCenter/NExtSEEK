@@ -96,10 +96,10 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
   );
 
   const handleSendMessage = useCallback(
-    (text: string) => {
+    (text: string, plan: boolean) => {
       addUserMessage(text);
       setDebugData({ entries: [], bundleId: null, query: text });
-      submitQuery(text, handleProgress, handleQueryError);
+      submitQuery(text, plan, handleProgress, handleQueryError);
     },
     [addUserMessage, submitQuery, handleProgress, handleQueryError],
   );
