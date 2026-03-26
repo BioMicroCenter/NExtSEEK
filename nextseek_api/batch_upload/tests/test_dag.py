@@ -164,22 +164,22 @@ class TestComputeDirections:
         )
 
     def test_source_direction(self):
-        """Child has assay, parent doesn't -> direction 0 (source)."""
+        """Child has assay, parent doesn't -> direction 1 (parent/input)."""
         rows = [
             self._make_row("NHP-220630FLY-1-PUB", []),  # parent, no assays
             self._make_row("NHP-220630FLY-2-PUB", [100], '{"Parent":"NHP-220630FLY-1-PUB"}'),
         ]
         dc = compute_directions(rows)
-        assert dc.direction_by_pair.get(("NHP-220630FLY-2-PUB", 100)) == 0
+        assert dc.direction_by_pair.get(("NHP-220630FLY-2-PUB", 100)) == 1
 
     def test_target_direction(self):
-        """Both have same assay -> direction 1 (target)."""
+        """Both have same assay -> direction 2 (child/output)."""
         rows = [
             self._make_row("NHP-220630FLY-1-PUB", [100]),  # parent has assay
             self._make_row("NHP-220630FLY-2-PUB", [100], '{"Parent":"NHP-220630FLY-1-PUB"}'),
         ]
         dc = compute_directions(rows)
-        assert dc.direction_by_pair.get(("NHP-220630FLY-2-PUB", 100)) == 1
+        assert dc.direction_by_pair.get(("NHP-220630FLY-2-PUB", 100)) == 2
 
     def test_empty_rows(self):
         dc = compute_directions([])

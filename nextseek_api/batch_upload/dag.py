@@ -85,8 +85,8 @@ def compute_directions(rows: List[InputRowModel]) -> DirectionComputation:
     4. Vectorized join (Pandas or DuckDB)
     5. Build output indices
 
-    Direction semantics: 0 = source (child has assay, parent doesn't),
-                         1 = target (both have assay).
+    Direction semantics: 1 = parent/input (child has assay, parent doesn't),
+                         2 = child/output (both have assay).
     """
     import pandas as pd
 
@@ -164,8 +164,8 @@ def _pandas_path(
         indicator=True,
     )
 
-    # direction: 1 if both have assay (target), 0 if only child (source)
-    merged["direction"] = (merged["_merge"] == "both").astype("int8")
+    # direction: 2 if both have assay (child/output), 1 if only child (parent/input)
+    merged["direction"] = (merged["_merge"] == "both").astype("int8") + 1
 
     direction_by_pair: Dict[Tuple[str, int], int] = {}
     child_uids_by_assay: Dict[int, Set[str]] = {}
@@ -209,7 +209,7 @@ def _duckdb_path(
         ),
         parent_hits AS (
             SELECT ca.parent, ca.child, ca.assay,
-                   CASE WHEN pa.uid IS NOT NULL THEN 1 ELSE 0 END AS direction
+                   CASE WHEN pa.uid IS NOT NULL THEN 2 ELSE 1 END AS direction
             FROM child_assays ca
             LEFT JOIN assays_tbl pa ON ca.parent = pa.uid AND ca.assay = pa.assay
         )
