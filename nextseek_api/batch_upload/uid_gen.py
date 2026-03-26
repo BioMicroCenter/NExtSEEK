@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from .errors import ErrorCollector, ErrorType, Severity
-from .helpers import UID_RE, split_parent_field
+from .helpers import UID_RE, collect_parent_tokens, split_parent_field
 from .models import InputRowModel
 
 try:
@@ -259,11 +259,7 @@ def _resolve_parents(
 
     for idx, row in enumerate(rows):
         meta = _parse_meta(row)
-        parent_raw = meta.get("Parent") or meta.get("parent") or ""
-        if not parent_raw or not isinstance(parent_raw, str):
-            continue
-
-        tokens = split_parent_field(parent_raw)
+        tokens = collect_parent_tokens(meta)
         if not tokens:
             continue
 
@@ -304,7 +300,14 @@ def _resolve_parents(
 
         row = rows[idx]
         if resolved_tokens:
-            meta["Parent"] = ";".join(resolved_tokens)
+            # Deduplicate while preserving order
+            seen_wb: set = set()
+            deduped: list = []
+            for t in resolved_tokens:
+                if t not in seen_wb:
+                    seen_wb.add(t)
+                    deduped.append(t)
+            meta["Parent"] = ";".join(deduped)
         else:
             meta.pop("Parent", None)
             meta.pop("parent", None)

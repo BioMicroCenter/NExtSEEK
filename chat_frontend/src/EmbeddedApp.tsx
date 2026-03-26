@@ -101,14 +101,14 @@ export function EmbeddedApp() {
   );
 
   const handleSendMessage = useCallback(
-    (text: string) => {
+    (text: string, plan: boolean) => {
       addUserMessage(text);
       pendingDebugRef.current = [];
       setDebugData({ entries: [], bundleId: null, query: text });
       setIsQuerying(true);
 
       serviceRef.current
-        .submitQuery(text, handleProgress, handleQueryError)
+        .submitQuery(text, plan, handleProgress, handleQueryError)
         .finally(() => {
           setSessionId(serviceRef.current.sessionId);
           setIsQuerying(false);

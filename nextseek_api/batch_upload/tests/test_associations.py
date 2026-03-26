@@ -26,7 +26,7 @@ class TestBatchInsertAssayAssets:
         conn.execute.side_effect = [select_result, MagicMock()]
 
         records = [
-            (100, 1, "Sample", 0, None, None),  # (assay_id, asset_id, asset_type, direction, rel_type_id, version)
+            (100, 1, "Sample", 1, None, None),  # (assay_id, asset_id, asset_type, direction, rel_type_id, version)
         ]
         result = batch_insert_assay_assets(records, conn)
         assert result == 1

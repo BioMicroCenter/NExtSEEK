@@ -19,3 +19,26 @@ def split_parent_field(parent_raw: str) -> List[str]:
     Returns only non-empty tokens.
     """
     return [t.strip() for t in _PARENT_SPLIT_RE.split(parent_raw.strip()) if t.strip()]
+
+
+def collect_parent_tokens(meta: dict) -> List[str]:
+    """Collect parent tokens from all keys containing 'parent' (case-insensitive).
+
+    Scans all keys in the metadata dict. For each key whose name contains
+    'parent' (case-insensitive), splits the value on semicolons using
+    ``split_parent_field`` and collects the tokens.
+
+    Returns a deduplicated list preserving first-seen order.
+    """
+    seen: set = set()
+    result: List[str] = []
+    for key, value in meta.items():
+        if "parent" not in key.lower():
+            continue
+        if not value or not isinstance(value, str):
+            continue
+        for token in split_parent_field(value):
+            if token not in seen:
+                seen.add(token)
+                result.append(token)
+    return result

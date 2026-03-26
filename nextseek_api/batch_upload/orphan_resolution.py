@@ -25,7 +25,7 @@ except ImportError:
         return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-from .helpers import split_parent_field
+from .helpers import collect_parent_tokens, split_parent_field
 
 log = logging.getLogger(__name__)
 
@@ -171,8 +171,7 @@ def resolve_orphans(
             continue
 
         meta = _json_loads(row[0])
-        parent_field = meta.get("Parent") or meta.get("parent") or ""
-        parent_parts = split_parent_field(parent_field)
+        parent_parts = collect_parent_tokens(meta)
 
         # Replace matched tokens with UIDs
         any_replaced = False
@@ -198,7 +197,14 @@ def resolve_orphans(
         if any_replaced:
             # Update Parent field in json_metadata
             parent_key = "Parent" if "Parent" in meta else "parent"
-            meta[parent_key] = ";".join(parent_parts)
+            # Deduplicate while preserving order
+            seen_wb: set = set()
+            deduped: list = []
+            for t in parent_parts:
+                if t not in seen_wb:
+                    seen_wb.add(t)
+                    deduped.append(t)
+            meta[parent_key] = ";".join(deduped)
             sql_conn.execute(
                 _UPDATE_METADATA_SQL,
                 {"meta": _json_dumps(meta), "sample_id": sample_id},

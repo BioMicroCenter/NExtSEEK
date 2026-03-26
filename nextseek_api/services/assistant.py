@@ -63,7 +63,7 @@ from rest_framework.authentication import (
 
 from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
 
-from chat_nextseek.orchestrator import run_query
+from chat_nextseek.orchestrator import run_query, run_query_plan
 from chat_nextseek.config import ChatConfig
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
@@ -287,7 +287,10 @@ class AssistantViewSet(viewsets.ViewSet):
             try:
                 API_USER = request.session.get("username")
                 API_PASS = request.session.get("password")
-                run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
+                if req.plan:
+                    run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
+                else:
+                    run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
             except Exception:
                 logger.exception("Unhandled pipeline error")
                 send_event("query_error", {
@@ -391,7 +394,10 @@ class AssistantViewSet(viewsets.ViewSet):
             try:
                 API_USER = request.session.get("username")
                 API_PASS = request.session.get("password")
-                run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
+                if req.plan:
+                    run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
+                else:
+                    run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
             except Exception:
                 logger.exception("Unhandled pipeline error (async)")
                 send_event("query_error", {

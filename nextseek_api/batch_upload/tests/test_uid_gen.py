@@ -444,6 +444,96 @@ class TestResolveParents:
         assert meta["Parent"] == "272 ESC 260C passage 5"
 
 
+class TestResolveParentsVariantKeys:
+    """Test that _resolve_parents reads ALL parent-containing keys."""
+
+    @staticmethod
+    def _mock_conn(db_results=None):
+        conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = db_results or []
+        conn.execute.return_value = mock_result
+        return conn
+
+    def test_treatment1parent_tokens_resolved(self):
+        """Tokens from Treatment1Parent should be resolved like Parent tokens."""
+        rows = [
+            _make_row(uid="NHP-260225MIT-2",
+                      meta='{"Name":"child","Treatment1Parent":"Sample_A"}'),
+        ]
+        identity_map = {"Sample_A": "NHP-260225MIT-1"}
+        conn = self._mock_conn()
+        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        meta = json.loads(rows[0].json_metadata)
+        assert "NHP-260225MIT-1" in meta.get("Parent", "")
+        assert count == 1
+
+    def test_antibody_parent_tokens_resolved(self):
+        """Tokens from AntibodyParent should be resolved."""
+        rows = [
+            _make_row(uid="NHP-260225MIT-2",
+                      meta='{"Name":"child","AntibodyParent":"AB_Sample"}'),
+        ]
+        identity_map = {"AB_Sample": "ABP-230327BOO-3"}
+        conn = self._mock_conn()
+        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        meta = json.loads(rows[0].json_metadata)
+        assert "ABP-230327BOO-3" in meta.get("Parent", "")
+        assert count == 1
+
+    def test_variant_key_preserved_after_writeback(self):
+        """Variant keys should NOT be modified by write-back."""
+        rows = [
+            _make_row(uid="NHP-260225MIT-2",
+                      meta='{"Name":"child","Treatment1Parent":"Sample_A"}'),
+        ]
+        identity_map = {"Sample_A": "NHP-260225MIT-1"}
+        conn = self._mock_conn()
+        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        meta = json.loads(rows[0].json_metadata)
+        assert meta.get("Treatment1Parent") == "Sample_A"
+
+    def test_parent_and_variant_merged(self):
+        """Parent + Treatment1Parent tokens should both be resolved."""
+        rows = [
+            _make_row(uid="NHP-260225MIT-3",
+                      meta='{"Name":"child","Parent":"Sample_A","Treatment1Parent":"Sample_B"}'),
+        ]
+        identity_map = {"Sample_A": "NHP-260225MIT-1", "Sample_B": "NHP-260225MIT-2"}
+        conn = self._mock_conn()
+        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        meta = json.loads(rows[0].json_metadata)
+        parent_val = meta.get("Parent", "")
+        assert "NHP-260225MIT-1" in parent_val
+        assert "NHP-260225MIT-2" in parent_val
+        assert count == 2
+
+    def test_writeback_deduplicates_tokens(self):
+        """Duplicate tokens across Parent and variant key should be deduplicated in write-back."""
+        rows = [
+            _make_row(uid="NHP-260225MIT-2",
+                      meta='{"Name":"child","Parent":"NHP-260225MIT-1","Treatment1Parent":"NHP-260225MIT-1"}'),
+        ]
+        identity_map = {}
+        conn = self._mock_conn()
+        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        meta = json.loads(rows[0].json_metadata)
+        assert meta.get("Parent") == "NHP-260225MIT-1"
+
+    def test_unresolved_variant_token_preserved(self):
+        """Unresolved tokens from variant keys should be preserved for orphan resolution."""
+        rows = [
+            _make_row(uid="NHP-260225MIT-2",
+                      meta='{"Name":"child","Treatment1Parent":"FutureSample"}'),
+        ]
+        identity_map = {}
+        conn = self._mock_conn()
+        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        meta = json.loads(rows[0].json_metadata)
+        assert "FutureSample" in meta.get("Parent", "")
+        assert any("unresolved" in w.lower() for w in warnings)
+
+
 # ── _inject_uid_into_metadata ───────────────────────────────────────────────
 
 

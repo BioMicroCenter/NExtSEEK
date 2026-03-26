@@ -75,7 +75,7 @@ class TestDuckdbPath:
         ]
         direction_by_pair, child_uids_by_assay, conflicts = _duckdb_path(assays_records, edges_records)
         assert ("B", 1) in direction_by_pair
-        assert direction_by_pair[("B", 1)] == 1  # Both have assay -> target
+        assert direction_by_pair[("B", 1)] == 2  # Both have assay -> child/output
 
     def test_child_only_assay(self):
         from nextseek_api.batch_upload.dag import _duckdb_path
@@ -87,7 +87,7 @@ class TestDuckdbPath:
         ]
         direction_by_pair, child_uids_by_assay, conflicts = _duckdb_path(assays_records, edges_records)
         assert ("B", 2) in direction_by_pair
-        assert direction_by_pair[("B", 2)] == 0  # Only child has assay -> source
+        assert direction_by_pair[("B", 2)] == 1  # Only child has assay -> parent/input
 
     def test_no_matching_edges(self):
         from nextseek_api.batch_upload.dag import _duckdb_path

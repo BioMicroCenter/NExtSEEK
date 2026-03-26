@@ -19,7 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from .config import Neo4jConfig
-from .helpers import UID_RE, split_parent_field
+from .helpers import UID_RE, collect_parent_tokens, split_parent_field
 from .models import (
     DerivedFromRelRow,
     DirectionComputation,
@@ -544,11 +544,10 @@ def enrich_parent_titles(
     node_parent_tokens: List[List[str]] = []
 
     for node in node_rows:
-        parent_raw = node.properties.get("Parent") or node.properties.get("parent") or ""
-        if not parent_raw or not isinstance(parent_raw, str):
+        tokens = collect_parent_tokens(node.properties)
+        if not tokens:
             node_parent_tokens.append([])
             continue
-        tokens = split_parent_field(parent_raw)
         node_parent_tokens.append(tokens)
         for token in tokens:
             if UID_RE.match(token) and token not in uid_to_identity:

@@ -8,6 +8,7 @@ interface UseChatApiReturn {
   sessionId: string | null;
   submitQuery: (
     query: string,
+    plan: boolean,
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
   ) => void;
@@ -23,13 +24,14 @@ export function useChatApi(): UseChatApiReturn {
   const submitQuery = useCallback(
     (
       query: string,
+      plan: boolean,
       onProgress: (event: ProgressEvent) => void,
       onError: (error: string) => void,
     ) => {
       setIsQuerying(true);
 
       serviceRef.current
-        .submitQuery(query, onProgress, onError)
+        .submitQuery(query, plan, onProgress, onError)
         .finally(() => {
           setSessionId(serviceRef.current.sessionId);
           setIsQuerying(false);

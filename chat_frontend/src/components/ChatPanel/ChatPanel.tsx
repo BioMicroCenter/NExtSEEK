@@ -8,7 +8,7 @@ interface ChatPanelProps {
   messages: Message[];
   processingState: ProcessingState;
   isDisabled: boolean;
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string, plan: boolean) => void;
   onArtifactDownload?: (bundleId: number, artifactKey: string) => void;
 }
 

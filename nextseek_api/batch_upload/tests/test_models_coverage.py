@@ -376,12 +376,12 @@ class TestInstructionRow:
 class TestAssaySheetRow:
 
     def test_invalid_direction_raises(self):
-        with pytest.raises(Exception, match="direction must be 0 or 1"):
-            AssaySheetRow(SampleType="NHP", Assay=1, Direction=2)
+        with pytest.raises(Exception, match="direction must be 1 or 2"):
+            AssaySheetRow(SampleType="NHP", Assay=1, Direction=3)
 
     def test_valid_row(self):
-        row = AssaySheetRow(SampleType="NHP", Assay=1, Direction=0)
-        assert row.direction == 0
+        row = AssaySheetRow(SampleType="NHP", Assay=1, Direction=1)
+        assert row.direction == 1
 
 
 # ---------------------------------------------------------------------------

@@ -372,3 +372,106 @@ class TestOrphanResolutionIntegration:
         # Verify parent_titles NOT modified
         for call in mock_driver.execute_query.call_args_list:
             assert "SET s.parent_titles" not in str(call)
+
+
+class TestResolveOrphansVariantKeys:
+    """Test that resolve_orphans reads ALL parent-containing keys."""
+
+    def test_matched_token_in_variant_key_resolved(self):
+        """If the matched token is in a variant key (not Parent), it should still be resolved."""
+        import json
+        from nextseek_api.batch_upload.orphan_resolution import resolve_orphans
+
+        mock_conn = MagicMock()
+        mock_driver = MagicMock()
+
+        orphan_meta = '{"UID":"CHD-260101MIT-1","Name":"child1","Treatment1Parent":"Mouse-A"}'
+        mock_fetch = MagicMock()
+        mock_fetch.fetchone.return_value = (orphan_meta,)
+        sop_result = MagicMock()
+        sop_result.fetchone.return_value = None
+        mock_conn.execute.side_effect = [mock_fetch, sop_result, MagicMock()]
+        mock_driver.execute_query.return_value = MagicMock(records=[])
+
+        orphans = [{
+            "id": 500, "uuid": "CHD-260101MIT-1",
+            "parent_titles": ["Mouse-A"],
+            "matched_tokens": {"Mouse-A": "MUS-260305MIT-1"},
+        }]
+        parent_info = {"MUS-260305MIT-1": {"sample_id": 200, "uuid": "MUS-260305MIT-1"}}
+
+        stats = resolve_orphans(
+            orphans=orphans, parent_info=parent_info,
+            sql_conn=mock_conn, neo4j_driver=mock_driver, neo4j_database="testdb",
+        )
+
+        assert stats["resolved"] == 1
+        assert stats["edges_created"] >= 1
+
+    def test_variant_key_not_modified_by_resolution(self):
+        """Variant keys should NOT be modified — only Parent key is updated."""
+        import json
+        from nextseek_api.batch_upload.orphan_resolution import resolve_orphans
+
+        mock_conn = MagicMock()
+        mock_driver = MagicMock()
+
+        orphan_meta = '{"UID":"CHD-260101MIT-1","Name":"child1","Treatment1Parent":"Mouse-A"}'
+        mock_fetch = MagicMock()
+        mock_fetch.fetchone.return_value = (orphan_meta,)
+        sop_result = MagicMock()
+        sop_result.fetchone.return_value = None
+        mock_conn.execute.side_effect = [mock_fetch, sop_result, MagicMock()]
+        mock_driver.execute_query.return_value = MagicMock(records=[])
+
+        orphans = [{
+            "id": 500, "uuid": "CHD-260101MIT-1",
+            "parent_titles": ["Mouse-A"],
+            "matched_tokens": {"Mouse-A": "MUS-260305MIT-1"},
+        }]
+        parent_info = {"MUS-260305MIT-1": {"sample_id": 200, "uuid": "MUS-260305MIT-1"}}
+
+        resolve_orphans(
+            orphans=orphans, parent_info=parent_info,
+            sql_conn=mock_conn, neo4j_driver=mock_driver, neo4j_database="testdb",
+        )
+
+        # Check the SQL UPDATE call — written meta should still have Treatment1Parent unchanged
+        # execute() is called with positional args: execute(sql_text, params_dict)
+        for call in mock_conn.execute.call_args_list:
+            positional = call[0]
+            if len(positional) >= 2 and isinstance(positional[1], dict) and "meta" in positional[1]:
+                written_meta = json.loads(positional[1]["meta"])
+                assert written_meta.get("Treatment1Parent") == "Mouse-A"
+                break
+
+    def test_parent_and_variant_both_contribute_tokens(self):
+        """Tokens from Parent + variant key should both be available for matching."""
+        import json
+        from nextseek_api.batch_upload.orphan_resolution import resolve_orphans
+
+        mock_conn = MagicMock()
+        mock_driver = MagicMock()
+
+        orphan_meta = '{"UID":"CHD-260101MIT-1","Name":"child1","Parent":"Unresolved_A","Treatment1Parent":"Mouse-A"}'
+        mock_fetch = MagicMock()
+        mock_fetch.fetchone.return_value = (orphan_meta,)
+        sop_result = MagicMock()
+        sop_result.fetchone.return_value = None
+        mock_conn.execute.side_effect = [mock_fetch, sop_result, MagicMock()]
+        mock_driver.execute_query.return_value = MagicMock(records=[])
+
+        orphans = [{
+            "id": 500, "uuid": "CHD-260101MIT-1",
+            "parent_titles": ["Mouse-A"],
+            "matched_tokens": {"Mouse-A": "MUS-260305MIT-1"},
+        }]
+        parent_info = {"MUS-260305MIT-1": {"sample_id": 200, "uuid": "MUS-260305MIT-1"}}
+
+        stats = resolve_orphans(
+            orphans=orphans, parent_info=parent_info,
+            sql_conn=mock_conn, neo4j_driver=mock_driver, neo4j_database="testdb",
+        )
+
+        assert stats["resolved"] == 1
+        assert stats["edges_created"] >= 1

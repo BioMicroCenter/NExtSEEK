@@ -415,7 +415,7 @@ class TestBulkUpdateSamples:
                 rows=rows,
                 details=details,
                 project_id=99,
-                direction_by_pair={("U1", 30): 1},
+                direction_by_pair={("U1", 30): 2},
                 conn=conn,
             )
 
@@ -432,7 +432,7 @@ class TestBulkUpdateSamples:
         assert len(records) == 1
         assert records[0][0] == 30  # assay_id
         assert records[0][1] == 1   # sample_id
-        assert records[0][3] == 1   # direction from direction_by_pair
+        assert records[0][3] == 2   # direction from direction_by_pair
 
     def test_no_permissions_when_disabled(self):
         """No permission INSERT when enable_auto_permissions=False."""
