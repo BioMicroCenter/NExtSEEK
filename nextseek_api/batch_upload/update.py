@@ -134,7 +134,7 @@ def smart_merge_assay_assets(
     if to_add:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         for aid in to_add:
-            direction = direction_by_pair.get((uid, aid), 0)
+            direction = direction_by_pair.get((uid, aid), 1)
             conn.execute(
                 text(
                     "INSERT INTO assay_assets (assay_id, asset_id, version, created_at, updated_at, "
@@ -387,7 +387,7 @@ def bulk_update_samples(
         for aid in to_remove:
             removals.append((aid, sid))
         for aid in to_add:
-            direction = direction_by_pair.get((sample.uuid, aid), 0)
+            direction = direction_by_pair.get((sample.uuid, aid), 1)
             additions.append((aid, sid, "Sample", direction, None, None))
 
     # ── Step 5: Bulk DELETE removed assay links ──────────────────────────

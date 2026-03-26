@@ -280,7 +280,7 @@ def process_batches(
                         sid = uuid_to_id.get(sample.uuid)
                         if sid and sample.assay_ids:
                             for aid in sample.assay_ids:
-                                direction = direction_by_pair.get((sample.uuid, aid), 0)
+                                direction = direction_by_pair.get((sample.uuid, aid), 1)
                                 assay_records.append((aid, sid, "Sample", direction, None, None))
                     assay_link_count = batch_insert_assay_assets(
                         assay_records, conn
