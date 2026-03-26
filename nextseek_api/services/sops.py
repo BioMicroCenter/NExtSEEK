@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional
 
 import json
 import logging
+import datetime
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -178,6 +179,13 @@ class SopProxyViewSet(viewsets.ViewSet):
                             ' — content_blobs are auto-generated from uploaded files if omitted.'
                         ),
                     },
+                    "institution": {
+                      "type": "string",
+                      "description": (
+                          '3-letter institution code.'
+                          'Example: "WHI"'
+                      )  
+                    },
                 },
                 "required": ["metadata"],
             },
@@ -210,23 +218,13 @@ class SopProxyViewSet(viewsets.ViewSet):
         ],
     )
     def create(self, request):
-        # Steps:
-        # 1. Check if there are files
-        #    1a. Yes? Use that info to create SOPs then content_blobs
-        #    1b. No? Only create SOPs
-        # 2. Check if there are multiple files
-        #   2a. Yes? Set the attribute title and content_blob for each file
-        #   2b. No? Accept the metadata as is
-        # 3. Create SOPs
-        # 4. Create content blobs
-
         metadata_str = request.data.get('metadata', '{}')
         metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
 
-        # 1. Check if there are files
+        institution_code = request.data.get('institution', '')
+
         has_files = bool(request.FILES)
 
-        # 1b. No? Only create SOPs. Metadata should be complete
         if not has_files:
             try:
                 payload = SopCreateRequest.model_validate(metadata).model_dump(exclude_none=True)
@@ -237,7 +235,6 @@ class SopProxyViewSet(viewsets.ViewSet):
             if code == 401:
                 return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
-            # Forward SEEK errors before attempting response validation
             if code >= 400:
                 ct = headers.get('Content-Type', 'application/json')
                 return HttpResponse(body, status=code, content_type=ct)
@@ -250,7 +247,6 @@ class SopProxyViewSet(viewsets.ViewSet):
 
             return HttpResponse({"data": [body]}, status=code, content_type=ct)
 
-        # 1a. Yes? Use that info to create SOPs then content blobs
         else:
             files = request.FILES.getlist("file")
             max_bytes = getattr(settings, 'BATCH_UPLOAD_MAX_TOTAL_BYTES', 200 * 1024 * 1024)
@@ -264,23 +260,22 @@ class SopProxyViewSet(viewsets.ViewSet):
             blob_results = []
             for file in files:
                 metadata = auto_populate_content_blobs(metadata, [file])
-                # 2. Check if there are multiple files
-                # 2a. Yes? Set the attribute title and content_blob for each file
-                if len(files) > 1:
-                    metadata["data"]["attributes"]["title"] = file.name
+
+                formatted_date = datetime.datetime.now().strftime("%y%m%d")
+                if institution_code != "":
+                    metadata["data"]["attributes"]["title"] = f"P.{institution_code}-{formatted_date}-V1_{file.name}"
+                else:
+                    metadata["data"]["attributes"]["title"] = f"{formatted_date}-V1_{file.name}"
  
-                # 2b. No? Accept the metadata as is
                 try:
                     payload = SopCreateRequest.model_validate(metadata).model_dump(exclude_none=True)
                 except Exception:
                     return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
 
-                # 3. Create SOPs
                 body, code, headers, resp = self.client.create_sop(request, payload)
                 if code == 401:
                     return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
-                # Forward SEEK errors before attempting response validation
                 if code >= 400:
                     ct = headers.get('Content-Type', 'application/json')
                     return HttpResponse(body, status=code, content_type=ct)
@@ -295,11 +290,9 @@ class SopProxyViewSet(viewsets.ViewSet):
                 asset_id = data.get("data", {}).get("id")
                 content_blobs_meta = data.get("data", {}).get("attributes", {}).get("content_blobs", [])
 
-                # 4. Create content blobs
                 blob_result = upload_content_blobs(self.client, request, "sops", asset_id, content_blobs_meta, [file])
                 blob_results.append(blob_result)
 
-            # Flatten blob_results
             blob_results = [x for xs in blob_results for x in xs]
             any_failed = any(r.status == "failed" for r in blob_results)
 
