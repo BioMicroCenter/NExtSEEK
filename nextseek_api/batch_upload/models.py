@@ -587,7 +587,7 @@ class BatchResult:
 
 @dataclass(frozen=True)
 class DirectionComputation:
-    direction_by_pair: Dict[Tuple[str, int], int]  # (uid, assay_id) -> 0|1
+    direction_by_pair: Dict[Tuple[str, int], int]  # (uid, assay_id) -> 1|2
     parents_of: Dict[str, Set[str]]  # child_uid -> set(parent_uids)
     assays_by_uid: Dict[str, Set[int]]  # uid -> set(assay_ids)
     child_uids_by_assay: Dict[int, Set[str]]  # assay_id -> set(child_uids)
@@ -635,8 +635,8 @@ class AssaySheetRow(BaseModel):
     @field_validator("direction")
     @classmethod
     def valid_direction(cls, v):
-        if v not in (0, 1):
-            raise ValueError("direction must be 0 or 1")
+        if v not in (1, 2):
+            raise ValueError("direction must be 1 or 2")
         return v
 
 
