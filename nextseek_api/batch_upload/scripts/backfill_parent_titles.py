@@ -32,7 +32,7 @@ from sqlalchemy import text
 
 from nextseek_api.batch_upload.config import Neo4jConfig
 from nextseek_api.batch_upload.db_engine import get_connection
-from nextseek_api.batch_upload.helpers import UID_RE, split_parent_field
+from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens, split_parent_field
 
 log = logging.getLogger(__name__)
 logging.basicConfig(
@@ -117,10 +117,9 @@ def backfill() -> None:
     updates: list[dict] = []
 
     for uuid_val, meta in uid_to_meta.items():
-        parent_str = meta.get("Parent") or meta.get("parent") or ""
-        if not parent_str or not isinstance(parent_str, str):
+        tokens = collect_parent_tokens(meta)
+        if not tokens:
             continue
-        tokens = split_parent_field(parent_str)
         if not tokens:
             continue
 

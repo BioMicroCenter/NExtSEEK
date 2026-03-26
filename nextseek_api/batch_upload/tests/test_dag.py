@@ -94,6 +94,48 @@ class TestExtractParentsNameWithSpaces:
         assert result == frozenset({"NHP-260225MIT-1"})
 
 
+class TestExtractParentsVariantKeys:
+    """Test that extract_parents reads ALL parent-containing keys, not just 'Parent'."""
+
+    def test_treatment1parent_key(self):
+        extract_parents.cache_clear()
+        meta = '{"Treatment1Parent":"NHP-260225MIT-1"}'
+        assert extract_parents(meta) == frozenset({"NHP-260225MIT-1"})
+
+    def test_antibody_parent_key(self):
+        extract_parents.cache_clear()
+        meta = '{"AntibodyParent":"ABP-230327BOO-3"}'
+        assert extract_parents(meta) == frozenset({"ABP-230327BOO-3"})
+
+    def test_parent_m_key(self):
+        extract_parents.cache_clear()
+        meta = '{"ParentM":"NHP-260225MIT-1"}'
+        assert extract_parents(meta) == frozenset({"NHP-260225MIT-1"})
+
+    def test_multiple_variant_keys_merged(self):
+        extract_parents.cache_clear()
+        meta = '{"Parent":"NHP-260225MIT-1","Treatment1Parent":"NHP-260225MIT-2"}'
+        result = extract_parents(meta)
+        assert result == frozenset({"NHP-260225MIT-1", "NHP-260225MIT-2"})
+
+    def test_variant_key_with_invalid_uid_filtered(self):
+        extract_parents.cache_clear()
+        meta = '{"Treatment1Parent":"not-a-valid-uid"}'
+        assert extract_parents(meta) == frozenset()
+
+    def test_variant_key_semicolon_values(self):
+        extract_parents.cache_clear()
+        meta = '{"Treatment1Parent":"NHP-260225MIT-1;NHP-260225MIT-2"}'
+        result = extract_parents(meta)
+        assert result == frozenset({"NHP-260225MIT-1", "NHP-260225MIT-2"})
+
+    def test_dedup_across_parent_and_variant(self):
+        extract_parents.cache_clear()
+        meta = '{"Parent":"NHP-260225MIT-1","Treatment1Parent":"NHP-260225MIT-1"}'
+        result = extract_parents(meta)
+        assert result == frozenset({"NHP-260225MIT-1"})
+
+
 class TestBuildRelationships:
     def _make_row(self, uid, parent_meta="{}"):
         return InputRowModel(

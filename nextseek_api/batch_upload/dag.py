@@ -15,7 +15,7 @@ try:
 except ImportError:
     _json_loads = json.loads
 
-from .helpers import UID_RE, split_parent_field
+from .helpers import UID_RE, collect_parent_tokens, split_parent_field
 from .models import DirectionComputation, InputRowModel
 
 log = logging.getLogger(__name__)
@@ -35,11 +35,9 @@ def extract_parents(json_metadata_str: str) -> FrozenSet[str]:
     except (json.JSONDecodeError, TypeError, ValueError):
         return frozenset()
 
-    parent_raw = meta.get("Parent") or meta.get("parent") or ""
-    if not parent_raw or not isinstance(parent_raw, str):
+    tokens = collect_parent_tokens(meta)
+    if not tokens:
         return frozenset()
-
-    tokens = split_parent_field(parent_raw)
     valid = set()
     for token in tokens:
         if UID_RE.match(token):

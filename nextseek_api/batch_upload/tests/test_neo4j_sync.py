@@ -1078,6 +1078,61 @@ class TestEnrichParentTitles:
         assert "parent_titles" not in node_rows[0].properties
 
 
+class TestEnrichParentTitlesVariantKeys:
+    """Test that enrich_parent_titles reads ALL parent-containing keys."""
+
+    def test_treatment1parent_gets_title(self):
+        """Treatment1Parent variant key should contribute to parent_titles."""
+        child_props = {"Name": "Child_Sample", "Treatment1Parent": "NHP-260225MIT-1"}
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-2", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-2", "Blood", json.dumps({"Name": "Child_Sample", "Treatment1Parent": "NHP-260225MIT-1"})),
+            _input_model("NHP-260225MIT-1", "NHP", json.dumps({"Name": "Treatment_Parent"})),
+        ]
+        enrich_parent_titles(node_rows, input_models, sql_conn=None)
+        assert node_rows[0].parent_titles == ["Treatment_Parent"]
+        assert node_rows[0].properties["parent_titles"] == ["Treatment_Parent"]
+
+    def test_multiple_variant_keys_merged_in_titles(self):
+        """Parent + Treatment1Parent both contribute to parent_titles."""
+        child_props = {
+            "Name": "Child_Sample",
+            "Parent": "NHP-260225MIT-1",
+            "Treatment1Parent": "NHP-260225MIT-3",
+        }
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-2", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-2", "Blood", json.dumps({
+                "Name": "Child_Sample",
+                "Parent": "NHP-260225MIT-1",
+                "Treatment1Parent": "NHP-260225MIT-3",
+            })),
+            _input_model("NHP-260225MIT-1", "NHP", json.dumps({"Name": "Parent_A"})),
+            _input_model("NHP-260225MIT-3", "NHP", json.dumps({"Name": "Parent_B"})),
+        ]
+        enrich_parent_titles(node_rows, input_models, sql_conn=None)
+        assert set(node_rows[0].parent_titles) == {"Parent_A", "Parent_B"}
+        assert len(node_rows[0].parent_titles) == 2
+
+    def test_variant_key_unresolved_name_as_identity(self):
+        """Unresolved name in variant key should be used as-is in parent_titles."""
+        child_props = {"Name": "Child_Sample", "AntibodyParent": "My_Antibody_Parent"}
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-1", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-1", "Blood", json.dumps({
+                "Name": "Child_Sample", "AntibodyParent": "My_Antibody_Parent",
+            })),
+        ]
+        enrich_parent_titles(node_rows, input_models, sql_conn=None)
+        assert node_rows[0].parent_titles == ["My_Antibody_Parent"]
+
+
 class TestParentTitlesIndex:
     """Tests for auto-creation of parent_titles index in upload_all."""
 

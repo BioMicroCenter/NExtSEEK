@@ -1,7 +1,7 @@
 """Tests for nextseek_api.batch_upload.helpers."""
 import pytest
 
-from nextseek_api.batch_upload.helpers import UID_RE, split_parent_field
+from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens, split_parent_field
 
 
 class TestSplitParentField:
@@ -60,3 +60,127 @@ class TestUidRe:
 
     def test_name_not_uid(self):
         assert not UID_RE.match("UtEC - 2015010902")
+
+
+class TestCollectParentTokens:
+    """Tests for collect_parent_tokens: extracts parent tokens from all parent-containing keys."""
+
+    def test_single_parent_key(self):
+        """Standard 'Parent' key — same as legacy behavior."""
+        meta = {"Parent": "NHP-260225MIT-1"}
+        assert collect_parent_tokens(meta) == ["NHP-260225MIT-1"]
+
+    def test_lowercase_parent_key(self):
+        """Lowercase 'parent' key."""
+        meta = {"parent": "NHP-260225MIT-1"}
+        assert collect_parent_tokens(meta) == ["NHP-260225MIT-1"]
+
+    def test_treatment_parent_variant(self):
+        """Treatment1Parent variant key should be captured."""
+        meta = {"Treatment1Parent": "NHP-260225MIT-1"}
+        assert collect_parent_tokens(meta) == ["NHP-260225MIT-1"]
+
+    def test_antibody_parent_variant(self):
+        """AntibodyParent variant key should be captured."""
+        meta = {"AntibodyParent": "AB-230327BOO-3"}
+        assert collect_parent_tokens(meta) == ["AB-230327BOO-3"]
+
+    def test_parent_m_and_parent_f_variants(self):
+        """ParentM and ParentF should both be captured."""
+        meta = {"ParentM": "NHP-260225MIT-1", "ParentF": "NHP-260225MIT-2"}
+        result = collect_parent_tokens(meta)
+        assert set(result) == {"NHP-260225MIT-1", "NHP-260225MIT-2"}
+        assert len(result) == 2
+
+    def test_multiple_variant_keys_merged(self):
+        """Tokens from Parent + Treatment1Parent + AntibodyParent are merged."""
+        meta = {
+            "Parent": "NHP-260225MIT-1",
+            "Treatment1Parent": "NHP-260225MIT-2",
+            "AntibodyParent": "AB-230327BOO-3",
+        }
+        result = collect_parent_tokens(meta)
+        assert set(result) == {"NHP-260225MIT-1", "NHP-260225MIT-2", "AB-230327BOO-3"}
+        assert len(result) == 3
+
+    def test_semicolon_values_split(self):
+        """Semicolon-separated values in a variant key should be split."""
+        meta = {"Treatment1Parent": "NHP-260225MIT-1; NHP-260225MIT-2"}
+        result = collect_parent_tokens(meta)
+        assert result == ["NHP-260225MIT-1", "NHP-260225MIT-2"]
+
+    def test_deduplication_across_keys(self):
+        """Same token in Parent and variant key should appear once."""
+        meta = {"Parent": "NHP-260225MIT-1", "Treatment1Parent": "NHP-260225MIT-1"}
+        result = collect_parent_tokens(meta)
+        assert result == ["NHP-260225MIT-1"]
+
+    def test_deduplication_preserves_order(self):
+        """First-seen order preserved during deduplication."""
+        meta = {
+            "Parent": "BBB-260225MIT-2;AAA-260225MIT-1",
+            "Treatment1Parent": "AAA-260225MIT-1;CCC-260225MIT-3",
+        }
+        result = collect_parent_tokens(meta)
+        assert result == ["BBB-260225MIT-2", "AAA-260225MIT-1", "CCC-260225MIT-3"]
+
+    def test_case_insensitive_key_matching(self):
+        """PARENT, Parent, parent, pArEnT should all match."""
+        meta = {"PARENT": "NHP-260225MIT-1"}
+        assert collect_parent_tokens(meta) == ["NHP-260225MIT-1"]
+
+    def test_compensation_fcs_parent_variant(self):
+        """CompensationFCSParent variant key."""
+        meta = {"CompensationFCSParent": "NHP-260225MIT-1"}
+        assert collect_parent_tokens(meta) == ["NHP-260225MIT-1"]
+
+    def test_bacteria_parent_variant(self):
+        """BacteriaParent variant key."""
+        meta = {"BacteriaParent": "NHP-260225MIT-1"}
+        assert collect_parent_tokens(meta) == ["NHP-260225MIT-1"]
+
+    def test_antibody_panel_parent_variant(self):
+        """AntibodyPanelParent variant key."""
+        meta = {"AntibodyPanelParent": "AB-230327BOO-3"}
+        assert collect_parent_tokens(meta) == ["AB-230327BOO-3"]
+
+    def test_non_string_value_skipped(self):
+        """Non-string values (int, bool, None) are silently skipped."""
+        meta = {"Parent": 12345, "Treatment1Parent": "NHP-260225MIT-1"}
+        assert collect_parent_tokens(meta) == ["NHP-260225MIT-1"]
+
+    def test_none_value_skipped(self):
+        """None values are silently skipped."""
+        meta = {"Parent": None, "Treatment1Parent": "NHP-260225MIT-1"}
+        assert collect_parent_tokens(meta) == ["NHP-260225MIT-1"]
+
+    def test_empty_string_value_skipped(self):
+        """Empty string values contribute no tokens."""
+        meta = {"Parent": "", "Treatment1Parent": "NHP-260225MIT-1"}
+        assert collect_parent_tokens(meta) == ["NHP-260225MIT-1"]
+
+    def test_empty_dict(self):
+        """Empty metadata returns empty list."""
+        assert collect_parent_tokens({}) == []
+
+    def test_no_parent_keys(self):
+        """Dict with no parent-containing keys returns empty list."""
+        meta = {"Name": "test", "Protocol": "http://example.com"}
+        assert collect_parent_tokens(meta) == []
+
+    def test_non_parent_keys_ignored(self):
+        """Keys that don't contain 'parent' are ignored."""
+        meta = {"Name": "test", "Parent": "NHP-260225MIT-1", "Protocol": "http://example.com"}
+        assert collect_parent_tokens(meta) == ["NHP-260225MIT-1"]
+
+    def test_names_with_spaces_preserved(self):
+        """Name tokens with spaces are not fragmented."""
+        meta = {"Parent": "UtEC - 2015010902;272 ESC 260C passage 5"}
+        result = collect_parent_tokens(meta)
+        assert result == ["UtEC - 2015010902", "272 ESC 260C passage 5"]
+
+    def test_mixed_uids_and_names(self):
+        """UIDs and name tokens coexist."""
+        meta = {"Parent": "NHP-260225MIT-1;FutureSample", "Treatment1Parent": "AnotherName"}
+        result = collect_parent_tokens(meta)
+        assert result == ["NHP-260225MIT-1", "FutureSample", "AnotherName"]
