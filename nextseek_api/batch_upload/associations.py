@@ -123,7 +123,7 @@ def batch_insert_assay_assets(
                 params[f"cau_{i}"] = now
                 params[f"rtid_{i}"] = None if rel_type_id is None else int(rel_type_id)
                 params[f"atype_{i}"] = str(asset_type) if asset_type else "Sample"
-                params[f"dir_{i}"] = int(direction) if direction is not None else 0
+                params[f"dir_{i}"] = int(direction) if direction is not None else 1
 
             sql = text(
                 "INSERT INTO assay_assets "
