@@ -80,7 +80,7 @@ class TestDetectFormat:
         path = _make_traditional_xlsx(
             instructions_rows=[{"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None}],
             samples_rows=[{"Name": "s1"}],
-            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 0}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 1}],
         )
         try:
             assert detect_format(path) == "traditional"
@@ -126,15 +126,15 @@ class TestBulkValidateAssayRows:
         from nextseek_api.batch_upload.convert import _assay_adapter
 
         rows = [
-            {"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 0},
-            {"SampleType": "A.Sample", "AssayType": "Seq", "Assay": 2, "Direction": 1},
+            {"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 1},
+            {"SampleType": "A.Sample", "AssayType": "Seq", "Assay": 2, "Direction": 2},
         ]
         result = _assay_adapter.validate_python(rows)
         assert len(result) == 2
         assert result[0].assay_id == 1
-        assert result[0].direction == 0
+        assert result[0].direction == 1
         assert result[1].assay_id == 2
-        assert result[1].direction == 1
+        assert result[1].direction == 2
 
 
 class TestConvertSamplesToInputRows:
@@ -144,7 +144,7 @@ class TestConvertSamplesToInputRows:
                 {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
             ],
             samples_rows=[{"Name": "s1"}, {"Name": "s2"}],
-            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 42, "Direction": 0}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 42, "Direction": 1}],
         )
         try:
             batch = parse_traditional_file(path)
@@ -167,8 +167,8 @@ class TestConvertSamplesToInputRows:
             ],
             samples_rows=[{"Name": "shared"}],
             assay_rows=[
-                {"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 0},
-                {"SampleType": "B.Sample", "AssayType": None, "Assay": 2, "Direction": 0},
+                {"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 1},
+                {"SampleType": "B.Sample", "AssayType": None, "Assay": 2, "Direction": 1},
             ],
         )
         try:
@@ -185,12 +185,12 @@ class TestMultiFileMerge:
         path1 = _make_traditional_xlsx(
             instructions_rows=[{"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None}],
             samples_rows=[{"Name": "a1"}],
-            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 0}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 1}],
         )
         path2 = _make_traditional_xlsx(
             instructions_rows=[{"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None}],
             samples_rows=[{"Name": "a2"}],
-            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 0}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 1}],
         )
         try:
             batch = merge_files([path1, path2])
@@ -214,7 +214,7 @@ class TestMultiFileMerge:
         trad_path = _make_traditional_xlsx(
             instructions_rows=[{"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None}],
             samples_rows=[{"Name": "trad1"}],
-            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 0}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 1}],
         )
         try:
             batch = merge_files([flat_path, trad_path])
@@ -282,7 +282,7 @@ class TestSingleTypeEnforcement:
                 {"Name": "s1", "Tissue": "Brain"},
                 {"Name": "s2", "Tissue": "Liver"},
             ],
-            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 0}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 1}],
         )
         try:
             batch = parse_traditional_file(path)
@@ -308,7 +308,7 @@ class TestSingleTypeEnforcement:
                 {"Name": ""},  # empty row
                 {"Name": "s3"},
             ],
-            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 0}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 1, "Direction": 1}],
         )
         try:
             batch = parse_traditional_file(path)
