@@ -73,10 +73,13 @@ def _build_neo4j_only_outcomes(
     Reuses load_existing_samples() — chunked WHERE IN, 1000/chunk.
     Outcomes built via dict comprehensions over set operations.
     """
-    all_uids_list = [s.uuid for s in insertable_samples]
+    all_uids_list = [s.uuid.strip() for s in insertable_samples]
 
     with get_connection() as conn:
         uid_to_sample_id = load_existing_samples(all_uids_list, conn)
+
+    # Normalize both sides: strip whitespace from DB-returned keys and input UIDs
+    uid_to_sample_id = {uid.strip(): sid for uid, sid in uid_to_sample_id.items()}
 
     # Set operations — O(n), no per-row DB queries
     all_uids_set = set(all_uids_list)

@@ -124,7 +124,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-chat_nextseek = { git = "git+ssh://github.com/cdemurjian/chat_nextseek", rev = "62b7b5bdafe184ac0c815430d64b4d8c927b2641" }
+chat_nextseek = { git = "git+ssh://github.com/cdemurjian/chat_nextseek", rev = "729c8ed1aa0ff30c58e7de1d97e4838b6b103a2d" }
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "dmac.settings"

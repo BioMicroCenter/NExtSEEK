@@ -84,6 +84,6 @@ urlpatterns = [
 
     # Samples
     re_path(r'^samples/upload/', views.batchUpload, name='sampleUpload'),
-    # re_path(r'^newsearch/', views.newSearch, name='newSearch')
+    re_path(r'^newsearch/', views.newSearch, name='newSearch')
 ]
 

@@ -1,47 +1,121 @@
 {
-  "_comment": "Per-agent model config. provider: null=primary LLM_CLIENT, 'gcp'=GeminiClient, 'anth'=BedrockClient, 'oai'=OpenAIClient. model: null=use config.LLM_MODEL. thinking_level: null=off, 'low'=4000, 'medium'=8000, 'high'=16000 budget tokens.",
+  "_comment": "Per-agent model config. provider: null=primary LLM_CLIENT, 'gcp'=GeminiClient, 'anth'=BedrockClient, 'oai'=OpenAIClient. model: null=use config.LLM_MODEL. thinking_level: null=off, 'low'=4000, 'medium'=8000, 'high'=16000 budget tokens. Special grouped key '__default__' sets model=null (inherit from LLM_MODEL).",
   "default": {
     "_comment": "Mixed profile (no -m flag): GCP flash for most agents, Anthropic Opus+high-thinking for parser and report_writer.",
-    "entity":        {"provider": "gcp",  "model": "gemini-3.1-flash-lite-preview",   "thinking_level": null},
-    "parser":        {"provider": "anth", "model": "us.anthropic.claude-opus-4-6-v1", "thinking_level": "high"},
-    "api":           {"provider": "gcp",  "model": "gemini-3.1-flash-lite-preview",   "thinking_level": null},
-    "reporter":      {"provider": "gcp",  "model": "gemini-3.1-flash-lite-preview",   "thinking_level": null},
-    "report_writer": {"provider": "anth", "model": "us.anthropic.claude-opus-4-6-v1", "thinking_level": "high"},
-    "chatter":       {"provider": "gcp",  "model": "gemini-3.1-flash-lite-preview",   "thinking_level": null},
-    "memory":        {"provider": "gcp",  "model": "gemini-3.1-flash-lite-preview",   "thinking_level": null},
-    "graph":         {"provider": "gcp",  "model": "gemini-3.1-flash-lite-preview",   "thinking_level": null}
+    "models": {
+      "gemini-3.1-flash-lite-preview": {
+        "provider": "gcp",
+        "thinking_level": null,
+        "agents": ["api", "reporter", "chatter", "graph", "system", "planner_assistant", "context_engineer"]
+      },
+      "us.anthropic.claude-sonnet-4-6": [
+        {
+          "provider": "anth",
+          "thinking_level": "low",
+          "agents": ["entity"]
+        },
+        {
+          "provider": "anth",
+          "thinking_level": null,
+          "agents": ["memory"]
+        }
+      ],
+      "us.anthropic.claude-opus-4-6-v1": [
+        {
+          "provider": "anth",
+          "thinking_level": "high",
+          "agents": ["parser", "report_writer", "multi_parser"]
+        },
+        {
+          "provider": "anth",
+          "thinking_level": null,
+          "agents": ["planner"]
+        }
+      ]
+    }
   },
-  "gcp": {
-    "_comment": "Pure GCP (-m gcp): flash for most, pro-preview for parser and report_writer.",
-    "entity":        {"provider": "gcp",  "model": "gemini-3.1-flash-lite-preview",   "thinking_level": null},
-    "parser":        {"provider": "gcp",  "model": "gemini-3.1-pro-preview",          "thinking_level": "high"},
-    "api":           {"provider": "gcp",  "model": "gemini-3.1-flash-lite-preview",   "thinking_level": null},
-    "reporter":      {"provider": "gcp",  "model": "gemini-3.1-flash-lite-preview",   "thinking_level": null},
-    "report_writer": {"provider": "gcp",  "model": "gemini-3.1-pro-preview",          "thinking_level": "high"},
-    "chatter":       {"provider": "gcp",  "model": "gemini-3.1-flash-lite-preview",   "thinking_level": null},
-    "memory":        {"provider": "gcp",  "model": "gemini-3.1-flash-lite-preview",   "thinking_level": null},
-    "graph":         {"provider": "gcp",  "model": "gemini-3.1-flash-lite-preview",   "thinking_level": null}
+  "gcp:current": {
+    "_comment": "Pure GCP current-gen (-m gcp:current): flash-lite for most, pro-preview for heavy reasoning agents.",
+    "models": {
+      "gemini-3.1-flash-lite-preview": {
+        "provider": "gcp",
+        "thinking_level": null,
+        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "planner_assistant", "context_engineer"]
+      },
+      "gemini-3.1-pro-preview": {
+        "provider": "gcp",
+        "thinking_level": "high",
+        "agents": ["parser", "report_writer", "multi_parser", "planner"]
+      }
+    }
   },
-  "anth": {
-    "_comment": "-m anth: all Anthropic Bedrock, sonnet for most, opus+thinking for parser.",
-    "entity":        {"provider": null, "model": "us.anthropic.claude-sonnet-4-6",  "thinking_level": null},
-    "parser":        {"provider": null, "model": "us.anthropic.claude-opus-4-6-v1", "thinking_level": "high"},
-    "api":           {"provider": null, "model": "us.anthropic.claude-sonnet-4-6",  "thinking_level": null},
-    "report_writer":      {"provider": null, "model": "us.anthropic.claude-opus-4-6-v1", "thinking_level": "high"},
-    "reporter": 	{"provider": null, "model": "us.anthropic.claude-sonnet-4-6",  "thinking_level": null},
-    "chatter":       {"provider": null, "model": "us.anthropic.claude-sonnet-4-6",  "thinking_level": null},
-    "memory":        {"provider": null, "model": "us.anthropic.claude-sonnet-4-6",  "thinking_level": null},
-    "graph":         {"provider": null, "model": "us.anthropic.claude-sonnet-4-6",  "thinking_level": null}
+  "gcp:lite": {
+    "_comment": "GCP lite gen (-m gcp:lite): gemini-2.5-flash for most, gemini-2.5-pro for heavy reasoning agents.",
+    "models": {
+      "gemini-2.5-flash": {
+        "provider": "gcp",
+        "thinking_level": null,
+        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "planner_assistant", "context_engineer"]
+      },
+      "gemini-2.5-pro": {
+        "provider": "gcp",
+        "thinking_level": "high",
+        "agents": ["parser", "report_writer", "multi_parser", "planner"]
+      }
+    }
+  },
+  "anth:current": {
+    "_comment": "Anthropic Bedrock current-gen (-m anth:current): Sonnet 4.6 for most, Opus 4.6+thinking for heavy agents.",
+    "models": {
+      "us.anthropic.claude-sonnet-4-6": {
+        "provider": "anth",
+        "thinking_level": null,
+        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "planner_assistant", "context_engineer"]
+      },
+      "us.anthropic.claude-opus-4-6-v1": [
+        {
+          "provider": "anth",
+          "thinking_level": "high",
+          "agents": ["parser", "report_writer", "multi_parser"]
+        },
+        {
+          "provider": "anth",
+          "thinking_level": null,
+          "agents": ["planner"]
+        }
+      ]
+    }
+  },
+  "anth:lite": {
+    "_comment": "Anthropic Bedrock lite-gen (-m anth:lite): Sonnet 4.5 for most, Opus 4.5 for heavy reasoning agents.",
+    "models": {
+      "anthropic.claude-sonnet-4-5-20250929-v1:0": {
+        "provider": "anth",
+        "thinking_level": null,
+        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "planner_assistant", "context_engineer"]
+      },
+      "anthropic.claude-opus-4-5-20251101-v1:0": [
+        {
+          "provider": "anth",
+          "thinking_level": "high",
+          "agents": ["parser", "report_writer", "multi_parser"]
+        },
+        {
+          "provider": "anth",
+          "thinking_level": null,
+          "agents": ["planner"]
+        }
+      ]
+    }
   },
   "aws": {
-    "_comment": "-m aws:* (son/opus/ds/qwen-nxt/glm): single model for all agents, no cross-provider. model: null uses LLM_MODEL set by the mode alias.",
-    "entity":        {"provider": null, "model": null, "thinking_level": null},
-    "parser":        {"provider": null, "model": null, "thinking_level": null},
-    "api":           {"provider": null, "model": null, "thinking_level": null},
-    "reporter":      {"provider": null, "model": null, "thinking_level": null},
-    "report_writer": {"provider": null, "model": null, "thinking_level": null},
-    "chatter":       {"provider": null, "model": null, "thinking_level": null},
-    "memory":        {"provider": null, "model": null, "thinking_level": null},
-    "graph":         {"provider": null, "model": null, "thinking_level": null}
+    "_comment": "-m aws:* (son/opus/ds/qwen-nxt/glm): single model for all agents via LLM_MODEL, no cross-provider.",
+    "models": {
+      "__default__": {
+        "provider": null,
+        "thinking_level": null,
+        "agents": ["entity", "parser", "api", "reporter", "report_writer", "chatter", "memory", "graph", "system", "multi_parser", "planner", "planner_assistant", "context_engineer"]
+      }
+    }
   }
 }

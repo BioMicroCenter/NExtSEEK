@@ -1,31 +1,31 @@
 <div class="span12">
 	<form method="post" id="advanced_search" enctype="multipart/form-data" action="">
-		<div class="well">
-			<div class="row show-grid">
-				<div class="col-xs-14 col-sm-7 col-md-7">
-					<table class="table2" align="center" style="width:100%">
-						<thead>
-							<tr>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-							</tr>
-						</thead>
-						<tbody>
-							<tr>
-								<td>Search Value<a style="color:red;">*</a>:</td>
-								<td id="search_text_container">
-									<input id="input_searchValue" form="advanced_search" name="filter_searchText" label="" labelposition="left" value="" placeholder="Enter a search term" style="width:250px;height:40px">
-									<button type="button" onclick="newSearchText()">ADD</button>
-								</td>
-								<td>
-								</td>
-								<td></td>
-							</tr>
-							<tr>
-								<td>Logic:</td>
-								<td><input id="input_logic" form="advanced_search" class="easyui-combobox" name="searchText_logic" style="width:150px;" data-options="
+	</form>
+	<div class="well">
+		<div class="row show-grid">
+			<div class="col-xs-14 col-sm-7 col-md-7">
+				<p><b>Add terms to the query box:</b></p>
+				<table class="table2" align="center" style="width:100%">
+					<thead>
+						<tr>
+							<th></th>
+							<th></th>
+							<th></th>
+							<th></th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td>Search Value<a style="color:red;">*</a>:</td>
+							<td id="search_text_container">
+								<input id="input_searchValue" name="filter_searchText" label="" labelposition="left" value="" placeholder="Enter a search term" style="width:250px;height:40px">
+							</td>
+							<td></td>
+							<td></td>
+						</tr>
+						<tr>
+							<td>Logic:</td>
+							<td><input id="input_logic" class="easyui-combobox" name="searchText_logic" style="width:150px;" data-options="
 									data: logic_options,
 									showItemIcon: true,
 									valueField:'logicid',
@@ -36,46 +36,52 @@
 									labelPosition: 'top',
 									onSelect: function(rec){}
 								"></td>
-								<td>&nbsp;&nbsp;</td>
-								<!-- <td><a href="#" class="easyui-linkbutton" style="width:80px; height:40px; font-size:16px;" data-options="" onclick="searchAdd()"><b>Add&nbsp;&nbsp;</b></a></td> -->
-								<td></td>
-							</tr>
-							<tr>
-								<td>Sample Type (optional, multiple can be selected):</td>
-								<td><input id="advanced_sample_type" form="advanced_search" class="easyui-combobox" name="sampletype" style="width:250px;" data-options="showItemIcon: true,
+							<td>&nbsp;&nbsp;</td>
+							<td><a href="#" class="easyui-linkbutton" style="width:80px; height:40px; font-size:16px;" data-options="" onclick="searchAdd()"><b>Add&nbsp;&nbsp;</b></a></td>
+							<td></td>
+						</tr>
+						<tr>
+							<td>Sample Type (optional):</td>
+							<td><input id="advanced_sample_type" class="easyui-combobox" name="sampletype" style="width:250px;" data-options="showItemIcon: true,
 																				 valueField:'title',
 																				 textField:'title',
 																				 editable: true,
-																				 multiple: true,
 																				 filter: function(q, row) { var opts = $(this).combobox('options'); return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;},
 																				 panelHeight:'auto',
 																				 label: '',
 																				 labelPosition: 'top'"></td>
-								<td></td>
-								<td></td>
-							</tr>
+							<td></td>
+							<td></td>
+						</tr>
 
-							<tr>
-								<td><br>
-								Match to Attribute Value:</td>
-								<td><br>
-								<input type="radio" form="advanced_search" id="id_partial" name="filter_matchType" value="PARTIAL" checked>
-								<label for="html">Partial</label><br>
-								<input type="radio" id="id_exact" form="advanced_search" name="filter_matchType" value="EXACT">
-								<label for="css">Exact</label><br></td>
-								<td><br></td>
-								<td></td>
-							</tr>
-						</tbody>
-					</table>
-				</div>
+						<tr>
+							<td><br>
+							Match to Attribute Value:</td>
+							<td><br>
+							<input type="radio" form="advanced_search" id="id_partial" name="filter_matchType" value="PARTIAL" checked>
+							<label for="html">Partial</label><br>
+							<input type="radio" id="id_exact" form="advanced_search" name="filter_matchType" value="EXACT">
+							<label for="css">Exact</label><br></td>
+							<td><br></td>
+							<td></td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
 
-				<div class="col-xs-10 col-sm-5 col-md-5">
-					<button type="submit" form="advanced_search" class="easyui-linkbutton" style="width:100px; height:40px; font-size:16px;"><span class="glyphicon glyphicon-search">&nbsp;</span><b>Search</b></button>
-				</div>
+			<div class="col-xs-10 col-sm-5 col-md-5">
+				<b>Current query box:</b><br>
+				<input id="input_searchText" form="advanced_search" class="easyui-textbox" name="filter_searchText" multiline="true" style="width:320px;height:120px">
 			</div>
 		</div>
-	</form>
+	</div>
+	<div class="row show-grid">
+		<div class="col-xs-10 col-sm-5 col-md-5"></div>
+		<div class="col-xs-4 col-sm-2 col-md-2">
+			<button type="submit" form="advanced_search" class="easyui-linkbutton" style="width:100px; height:40px; font-size:16px;"><span class="glyphicon glyphicon-search">&nbsp;</span><b>Search</b></button>
+		</div>
+		<div class="col-xs-10 col-sm-5 col-md-5"></div>
+	</div>
 </div>
 <script>
 	var logic_options = [{
@@ -85,63 +91,74 @@
 			logicid: 'OR',
 			}];
 			
-			function newSearchText() {
-				const searchText = document.getElementById("input_searchValue")
-				const newSearchText = searchText.cloneNode(true)
-				newSearchText.removeAttribute('id')
-				const searchTextContainer = document.getElementById("search_text_container")
-				searchTextContainer.appendChild(newSearchText)
-			}
-			
-			function formDataToJSON(formData) {
-				const result = {};
-				
-				for (const [key, value] of formData.entries()) {
-					if (result[key]) {
-						if (Array.isArray(result[key])) {
-							result[key].push(value);
-							} else {
-								result[key] = [result[key], value];
-							}
-							} else {
-								result[key] = value;
-							}
-						}
-						
-						return result;
+			function searchAdd() {
+				var sampletype_id = $('#advanced_sample_type').combobox('getText');
+				var attribute = 'none';
+				var filter_logic = $('#input_logic').combobox('getValue');
+				var filter_searchValue = document.getElementById("input_searchValue").value;
+				if (!filter_searchValue) {
+					alert('No search keyword entered.');
+					return;
+				}
+				var keywords = filter_searchValue;
+				if (sampletype_id) {
+					keywords = keywords + "[" + sampletype_id + "]"
+				}
+				var curText = $("#input_searchText").textbox('getText');
+				if (keywords.indexOf(' ') >= 0) {
+					if (curText) {
+						keywords = "(" + keywords + ")";
+					}
+				}
+				if (curText) {
+					if (curText.indexOf(' ') >= 0) {
+						curText = "(" + curText + ")";
 					}
 					
-					async function advancedSearch(form) {
-						const csrftoken = getCookie('csrftoken');
-						const formData = new FormData(form);
-						const json = formDataToJSON(formData)
+					keywords = curText + " " + filter_logic + " " + keywords;
+					} else {
+						keywords = keywords
+					}
+					
+					$("#input_searchText").textbox('setText', keywords);
+					return;
+				}
+				
+				async function advancedSearch(form) {
+					const csrftoken = getCookie('csrftoken');
+					const formData = new FormData(form);
+					const searchText = document.getElementById("input_searchText").value
+					const json = {
+						"filter_matchType": formData.get("filter_matchType"),
+						"filter_searchText": searchText
+					}
+					
+					const messangerWindow = $.messager.progress({
+						title: "Please wait",
+						msg: "Searching for samples..."
+						});
 						
-						const messangerWindow = $.messager.progress({
-							title: "Please wait",
-							msg: "Searching for samples..."
-							});
-							
-							try {
-								const response = await fetch("/nextseek_api/samples/advanced_search/", {
-									method: "POST",
-									headers: {"Content-Type": "application/json",
-									"X-CSRFTOKEN": csrftoken},
-									body: JSON.stringify(json)
-									});
-									
-									if (response.ok) {
-										$.messager.progress('close')
-										const response_json = await response.json()
-										$('#advanced_dgtable').datagrid('loadData', response_json.rows);
-									}
-									} catch (e) {
-										console.error(e)
-									}
-								}
+						try {
+							const response = await fetch("/nextseek_api/samples/advanced_search/", {
+								method: "POST",
+								headers: {"Content-Type": "application/json",
+								"X-CSRFTOKEN": csrftoken},
+								body: JSON.stringify(json)
+								});
 								
-								const advanced_search_form = document.getElementById("advanced_search")
-								advanced_search_form.addEventListener("submit", (event) => {
-									event.preventDefault();
-									advancedSearch(event.target);
-									})
+								if (response.ok) {
+									$.messager.progress('close')
+									const response_json = await response.json()
+									$('#advanced_dgtable').datagrid('loadData', response_json.rows);
+								}
+								} catch (e) {
+									console.error(e)
+								}
+							}
+							
+							const advanced_search_form = document.getElementById("advanced_search")
+							advanced_search_form.addEventListener("submit", (event) => {
+								event.preventDefault();
+								advancedSearch(event.target);
+								})
 </script>
