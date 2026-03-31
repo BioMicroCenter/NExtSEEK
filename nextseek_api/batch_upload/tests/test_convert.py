@@ -1,4 +1,5 @@
 """Tests for convert.py: format detection, 4-sheet parsing, multi-file merge."""
+import json
 import os
 import tempfile
 
@@ -154,6 +155,112 @@ class TestConvertSamplesToInputRows:
             assert "Name" in batch.rows[0].json_metadata or '"Name"' in batch.rows[0].json_metadata
             assert batch.rows[0].assay_ids == [42]
             assert batch.source_files == [path]
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+    def test_traditional_uid_preserved_and_undeclared_columns_dropped(self):
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[{"UID": "A.Sample-260331MIT-7", "Name": "s1", "Ignored": "drop-me"}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 42, "Direction": 1}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert len(batch.rows) == 1
+            assert batch.rows[0].UID == "A.Sample-260331MIT-7"
+            meta = json.loads(batch.rows[0].json_metadata)
+            assert meta["UID"] == "A.Sample-260331MIT-7"
+            assert meta["Name"] == "s1"
+            assert "Ignored" not in meta
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+    def test_blank_uid_path_unchanged(self):
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[{"UID": "", "Name": "s1"}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 42, "Direction": 1}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert len(batch.rows) == 1
+            assert batch.rows[0].UID is None
+            meta = json.loads(batch.rows[0].json_metadata)
+            assert meta["Name"] == "s1"
+            assert "UID" not in meta
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+    def test_rows_with_only_undeclared_fields_are_skipped(self):
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[{"Ignored": "drop-me"}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 42, "Direction": 1}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert batch.rows == []
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+    def test_ontology_uses_attribute_name_when_field_differs(self):
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {
+                    "Field": "Displayed Tissue",
+                    "Database Field": "A.Sample::Tissue",
+                    "Field Type": "Controlled Ontology",
+                    "Ontology": "Tissue",
+                },
+                {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[{"Name": "s1", "Displayed Tissue": "brain"}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 42, "Direction": 1}],
+            ontology_rows=[{"Tissue": "Brain"}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert len(batch.rows) == 1
+            meta = json.loads(batch.rows[0].json_metadata)
+            assert meta["Displayed Tissue"] == "brain"
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+    def test_ontology_failure_survives_field_filtering(self):
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {
+                    "Field": "Displayed Tissue",
+                    "Database Field": "A.Sample::Tissue",
+                    "Field Type": "Controlled Ontology",
+                    "Ontology": "Tissue",
+                },
+                {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[{"Name": "s1", "Displayed Tissue": "Lung"}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 42, "Direction": 1}],
+            ontology_rows=[{"Tissue": "Brain"}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert batch.rows == []
+            assert batch.ontology_result is not None
+            assert batch.ontology_result.is_valid is False
+            assert len(batch.ontology_result.violations) == 1
+            violation = batch.ontology_result.violations[0]
+            assert violation.attribute == "Tissue"
+            assert violation.value == "Lung"
         finally:
             if os.path.isfile(path):
                 os.unlink(path)

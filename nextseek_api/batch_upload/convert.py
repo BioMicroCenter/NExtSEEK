@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Literal
+from typing import Dict, List, Literal, Tuple
 
 import polars as pl
 from pydantic import TypeAdapter, ValidationError
@@ -100,6 +100,62 @@ def _normalize_assay_row(row: dict) -> dict:
     return out
 
 
+def _normalize_field_name(value: object) -> str:
+    """Normalize traditional sheet headers with trim-only matching."""
+    return str(value).strip() if value is not None else ""
+
+
+def _build_instruction_field_maps(
+    instructions: List[InstructionRow],
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Build trimmed Field lookups for metadata and ontology preparation."""
+    field_name_by_normalized: Dict[str, str] = {}
+    attr_name_by_normalized: Dict[str, str] = {}
+    for ins in instructions:
+        normalized = _normalize_field_name(ins.field)
+        field_name_by_normalized[normalized] = normalized
+        attr_name_by_normalized[normalized] = ins.attribute_name
+    return field_name_by_normalized, attr_name_by_normalized
+
+
+def _prepare_traditional_row(
+    row_dict: dict,
+    field_name_by_normalized: Dict[str, str],
+    attr_name_by_normalized: Dict[str, str],
+) -> Tuple[str | None, dict, dict]:
+    """Extract row UID plus filtered metadata and ontology views."""
+    row_uid: str | None = None
+    metadata: dict = {}
+    ontology_row: dict = {}
+
+    for col, val in row_dict.items():
+        if val is None:
+            continue
+        value_text = str(val).strip()
+        if not value_text:
+            continue
+
+        normalized_col = _normalize_field_name(col)
+        if not normalized_col:
+            continue
+
+        if normalized_col.lower() == "uid":
+            row_uid = value_text
+            metadata["UID"] = value_text
+            continue
+
+        canonical_field = field_name_by_normalized.get(normalized_col)
+        if canonical_field is None:
+            continue
+
+        metadata[canonical_field] = val
+        ontology_attr = attr_name_by_normalized.get(normalized_col)
+        if ontology_attr:
+            ontology_row[ontology_attr] = val
+
+    return row_uid, metadata, ontology_row
+
+
 def _read_sheet(
     xlsx_path: str,
     sheet_name: str,
@@ -122,7 +178,10 @@ def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
     - INSTRUCTIONS maps column headers to SampleType::Attribute.
     - If >1 sample type found in INSTRUCTIONS, the file is rejected.
     - If duplicate Field headers exist in INSTRUCTIONS, the file is rejected.
-    - All non-empty SAMPLES columns become json_metadata key-value pairs.
+    - Non-empty SAMPLES columns whose headers match INSTRUCTIONS Field values
+      become json_metadata key-value pairs.
+    - A non-empty UID column is preserved on InputRowModel.UID and mirrored into
+      json_metadata["UID"].
     - One SAMPLES row = one InputRowModel.
     """
     sheet_names = _get_sheet_names(xlsx_path)
@@ -160,13 +219,16 @@ def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
     # Concern 2: Reject duplicate Field headers (still before reading other sheets)
     seen_fields: set = set()
     for ins in instructions:
-        if ins.field in seen_fields:
+        normalized_field = _normalize_field_name(ins.field)
+        if normalized_field in seen_fields:
             return ConvertedBatch(
                 rows=[],
                 source_files=[xlsx_path],
-                warnings=[f"Duplicate Field header in INSTRUCTIONS: '{ins.field}'."],
+                warnings=[f"Duplicate Field header in INSTRUCTIONS: '{normalized_field}'."],
             )
-        seen_fields.add(ins.field)
+        seen_fields.add(normalized_field)
+
+    field_name_by_normalized, attr_name_by_normalized = _build_instruction_field_maps(instructions)
 
     # ── Phase 2: Read remaining sheets (only reached if INSTRUCTIONS is valid) ──
     df_samples = _read_sheet(xlsx_path, _sheet("SAMPLES"), raise_if_empty=False)
@@ -184,14 +246,12 @@ def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
     # Ontology validation
     specs = load_ontology_from_sheet(instructions, df_ont)
     samples_dicts = df_samples.to_dicts()
+    prepared_rows = [
+        _prepare_traditional_row(row_dict, field_name_by_normalized, attr_name_by_normalized)
+        for row_dict in samples_dicts
+    ]
     if specs:
-        row_dicts_for_ont = []
-        for row_dict in samples_dicts:
-            mapped = {}
-            for col, val in row_dict.items():
-                if val is not None and str(val).strip():
-                    mapped[col] = val
-            row_dicts_for_ont.append(mapped)
+        row_dicts_for_ont = [ontology_row for _uid, _meta, ontology_row in prepared_rows]
         ont_result = validate_ontology_bulk(row_dicts_for_ont, specs)
         if not ont_result.is_valid:
             return ConvertedBatch(
@@ -204,18 +264,12 @@ def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
     # Convert SAMPLES to InputRowModel list (one record per row)
     all_input_rows: List[dict] = []
     warnings: List[str] = []
-    for row_idx, row_dict in enumerate(samples_dicts, start=2):  # Excel row 2+
-        meta = {}
-        for col, val in row_dict.items():
-            if val is None or str(val).strip() == "":
-                continue
-            meta[col] = val
-
+    for row_uid, meta, _ontology_row in prepared_rows:
         if not meta:
             continue  # empty row
 
         all_input_rows.append({
-            "UID": None,
+            "UID": row_uid,
             "SampleType": sample_type,
             "json_metadata": _json_dumps_min(meta),
             "assay_ids": assay_ids,
