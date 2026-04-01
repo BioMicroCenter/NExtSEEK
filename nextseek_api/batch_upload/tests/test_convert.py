@@ -284,6 +284,38 @@ class TestConvertSamplesToInputRows:
             if os.path.isfile(path):
                 os.unlink(path)
 
+    def test_trailing_non_instruction_row_is_ignored(self):
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {
+                    "Field": "Name",
+                    "Database Field": "NHP::Name",
+                    "Field Type": "Text",
+                    "Ontology": None,
+                    "Required?": None,
+                    "Notes / Examples": None,
+                },
+                {
+                    "Field": None,
+                    "Database Field": None,
+                    "Field Type": None,
+                    "Ontology": None,
+                    "Required?": None,
+                    "Notes / Examples": "Other data that you have is also encouraged to be added",
+                },
+            ],
+            samples_rows=[{"Name": "10225"}],
+            assay_rows=[{"SampleType": "NHP", "AssayType": "Patient Visit", "Assay": 16, "Direction": 1}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert len(batch.rows) == 1
+            meta = json.loads(batch.rows[0].json_metadata)
+            assert meta["Name"] == "10225"
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
     def test_multi_sample_type_rejected(self):
         """Multi-type files are now rejected with a warning."""
         path = _make_traditional_xlsx(

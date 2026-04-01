@@ -91,6 +91,11 @@ def _normalize_instruction_row(row: dict) -> dict:
     return out
 
 
+def _has_instruction_mapping(row: dict) -> bool:
+    """Return True when a normalized row contains real instruction mapping data."""
+    return bool(str(row.get("field") or "").strip() or str(row.get("database_field") or "").strip())
+
+
 def _normalize_assay_row(row: dict) -> dict:
     """Map Excel row to AssaySheetRow alias names."""
     out = {}
@@ -206,7 +211,12 @@ def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
     # ── Phase 1: Read & validate INSTRUCTIONS only (cheap early rejection) ──
     df_ins = _read_sheet(xlsx_path, _sheet("INSTRUCTIONS"), raise_if_empty=True)
 
-    ins_dicts = [_normalize_instruction_row(d) for d in df_ins.to_dicts()]
+    ins_dicts = [
+        normalized
+        for d in df_ins.to_dicts()
+        for normalized in [_normalize_instruction_row(d)]
+        if _has_instruction_mapping(normalized)
+    ]
     instructions = _instruction_adapter.validate_python(ins_dicts)
 
     if not instructions:
