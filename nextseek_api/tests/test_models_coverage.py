@@ -510,3 +510,81 @@ class TestSeekContentBlobReadRequestAcceptHeader:
             path={"asset_types": "data_files", "id": 1, "blob_id": 10},
         )
         assert req.accept_header() == "*/*"
+
+
+# ---------------------------------------------------------------------------
+# BatchDelete* shared HTTP models
+# ---------------------------------------------------------------------------
+
+class TestBatchDeleteStartRequest:
+
+    def test_scalar_identifier_normalizes_to_list(self):
+        from nextseek_api.models import BatchDeleteStartRequest
+        req = BatchDeleteStartRequest(sample_identifiers="NHP-001")
+        assert req.sample_identifiers == ["NHP-001"]
+
+    def test_mixed_identifiers_preserved_as_strings(self):
+        from nextseek_api.models import BatchDeleteStartRequest
+        req = BatchDeleteStartRequest(sample_identifiers=["NHP-001", "123", "NHP-002"])
+        assert req.sample_identifiers == ["NHP-001", "123", "NHP-002"]
+
+    def test_empty_normalized_identifier_input_rejected(self):
+        from nextseek_api.models import BatchDeleteStartRequest
+        with pytest.raises(Exception):
+            BatchDeleteStartRequest(sample_identifiers=[" ", ""])
+
+    def test_extra_fields_rejected(self):
+        from nextseek_api.models import BatchDeleteStartRequest
+        with pytest.raises(Exception):
+            BatchDeleteStartRequest(sample_identifiers=["NHP-001"], unexpected=True)
+
+    def test_non_list_non_string_identifier_input_rejected(self):
+        from nextseek_api.models import BatchDeleteStartRequest
+        with pytest.raises(Exception):
+            BatchDeleteStartRequest(sample_identifiers=123)
+
+    def test_non_mapping_input_rejected(self):
+        from nextseek_api.models import BatchDeleteStartRequest
+        with pytest.raises(Exception):
+            BatchDeleteStartRequest.model_validate("NHP-001")
+
+
+class TestBatchDeleteStartResponse:
+
+    def test_defaults_status_to_queued(self):
+        from nextseek_api.models import BatchDeleteStartResponse
+        resp = BatchDeleteStartResponse(job_id="job-123")
+        assert resp.status == "queued"
+
+
+class TestBatchDeleteStatusResponse:
+
+    def test_defaults_meta_and_allows_result_none(self):
+        from nextseek_api.models import BatchDeleteStatusResponse
+        resp = BatchDeleteStatusResponse(job_id="job-123", state="PENDING")
+        assert resp.meta == {}
+        assert resp.result is None
+
+    def test_rejects_invalid_state(self):
+        from nextseek_api.models import BatchDeleteStatusResponse
+        with pytest.raises(Exception):
+            BatchDeleteStatusResponse(job_id="job-123", state="queued")
+
+
+class TestBatchDeleteResponse:
+
+    def test_validates_aggregate_only_output(self):
+        from nextseek_api.models import BatchDeleteResponse
+        resp = BatchDeleteResponse(summary={"requested": 2, "deleted": 1, "failed": 1})
+        assert resp.summary.requested == 2
+        assert resp.report_available is False
+
+    def test_does_not_expose_report_format(self):
+        from nextseek_api.models import BatchDeleteResponse
+        with pytest.raises(Exception):
+            BatchDeleteResponse(
+                summary={"requested": 1},
+                report_available=True,
+                report_name="delete-summary.csv",
+                report_format="csv",
+            )

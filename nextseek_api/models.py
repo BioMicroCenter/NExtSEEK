@@ -2229,3 +2229,79 @@ class ContentBlobUploadResponse(BaseModel):
     blob_uploads: List[ContentBlobUploadStatus] = Field(default_factory=list)
     asset_data: Optional[Dict[str, Any]] = None
     model_config = ConfigDict(extra='forbid')
+
+
+# -----------------------------
+# Batch delete: request/response models
+# -----------------------------
+
+class BatchDeleteStartRequest(BaseModel):
+    sample_identifiers: List[str]
+    dry_run: bool = False
+    include_report: bool = True
+    config_overrides: Dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    @model_validator(mode='before')
+    @classmethod
+    def _normalize_sample_identifiers(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        raw = data.get('sample_identifiers')
+        if isinstance(raw, str):
+            raw_items = [raw]
+        elif isinstance(raw, list):
+            raw_items = raw
+        else:
+            return data
+        data = dict(data)
+        data['sample_identifiers'] = [str(item).strip() for item in raw_items if str(item).strip()]
+        return data
+
+    @model_validator(mode='after')
+    def _validate_sample_identifiers(self):
+        if not self.sample_identifiers:
+            raise ValueError('sample_identifiers must contain at least one non-empty identifier')
+        return self
+
+
+class BatchDeleteStartResponse(BaseModel):
+    job_id: str
+    status: str = 'queued'
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class BatchDeleteStatusResponse(BaseModel):
+    job_id: str
+    state: Literal['PENDING', 'STARTED', 'PROGRESS', 'SUCCESS', 'FAILURE', 'REVOKED']
+    meta: Dict[str, Any] = Field(default_factory=dict)
+    result: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class BatchDeleteSummaryPublic(BaseModel):
+    requested: int = Field(0, ge=0)
+    resolved: int = Field(0, ge=0)
+    eligible: int = Field(0, ge=0)
+    deleted: int = Field(0, ge=0)
+    skipped: int = Field(0, ge=0)
+    failed: int = Field(0, ge=0)
+    not_found: int = Field(0, ge=0)
+    forbidden: int = Field(0, ge=0)
+    has_children: int = Field(0, ge=0)
+    sql_failed: int = Field(0, ge=0)
+    neo4j_failed: int = Field(0, ge=0)
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class BatchDeleteResponse(BaseModel):
+    summary: BatchDeleteSummaryPublic
+    report_available: bool = False
+    report_name: Optional[str] = None
+    warnings: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
