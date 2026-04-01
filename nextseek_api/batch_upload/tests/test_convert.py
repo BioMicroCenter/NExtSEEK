@@ -1,4 +1,5 @@
 """Tests for convert.py: format detection, 4-sheet parsing, multi-file merge."""
+from datetime import datetime
 import json
 import os
 import tempfile
@@ -261,6 +262,24 @@ class TestConvertSamplesToInputRows:
             violation = batch.ontology_result.violations[0]
             assert violation.attribute == "Tissue"
             assert violation.value == "Lung"
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+    def test_traditional_date_cell_is_json_serialized(self):
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "Name", "Database Field": "NHP::Name", "Field Type": "Text", "Ontology": None},
+                {"Field": "DateOfBirth", "Database Field": "NHP::DateOfBirth", "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[{"Name": "10225", "DateOfBirth": datetime(2020, 9, 27)}],
+            assay_rows=[{"SampleType": "NHP", "AssayType": "Patient Visit", "Assay": 16, "Direction": 1}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert len(batch.rows) == 1
+            meta = json.loads(batch.rows[0].json_metadata)
+            assert meta["DateOfBirth"] == "2020-09-27"
         finally:
             if os.path.isfile(path):
                 os.unlink(path)

@@ -1,6 +1,7 @@
 """Format detection, 4-sheet conversion, and multi-file merge for batch upload."""
 from __future__ import annotations
 
+import datetime
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -105,6 +106,17 @@ def _normalize_field_name(value: object) -> str:
     return str(value).strip() if value is not None else ""
 
 
+def _coerce_traditional_cell_value(value: object) -> object:
+    """Convert traditional Excel cell values into JSON-safe scalars."""
+    if value is None:
+        return None
+    if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+        return value.isoformat()
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
 def _build_instruction_field_maps(
     instructions: List[InstructionRow],
 ) -> Tuple[Dict[str, str], Dict[str, str]]:
@@ -148,10 +160,11 @@ def _prepare_traditional_row(
         if canonical_field is None:
             continue
 
-        metadata[canonical_field] = val
+        json_safe_value = _coerce_traditional_cell_value(val)
+        metadata[canonical_field] = json_safe_value
         ontology_attr = attr_name_by_normalized.get(normalized_col)
         if ontology_attr:
-            ontology_row[ontology_attr] = val
+            ontology_row[ontology_attr] = json_safe_value
 
     return row_uid, metadata, ontology_row
 
