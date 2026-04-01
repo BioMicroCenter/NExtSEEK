@@ -4,25 +4,23 @@ import { Button } from "@/components/ui/button";
 import { useAutoResize } from "@/hooks/useAutoResize";
 
 interface MessageInputProps {
-  onSend: (message: string, plan: boolean) => void;
+  onSend: (message: string, mode: string) => void;
   disabled?: boolean;
 }
 
 export function MessageInput({ onSend, disabled }: MessageInputProps) {
   const [value, setValue] = useState("");
-  const [isChecked, setIsChecked] = useState(false);
+  const [mode, setMode] = useState("standard");
   const { textareaRef, handleInput, resetHeight } = useAutoResize();
 
-  const handleCheck = () => {
-    setIsChecked(!isChecked);
-  };
+  const handleModeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    setMode(event.target.value)
+  }
 
   const handleSend = () => {
     const trimmed = value.trim();
-    const checkboxElement = document.getElementById("plan") as HTMLInputElement;
-    const isChecked: boolean = checkboxElement.checked;
     if (!trimmed) return;
-    onSend(trimmed, isChecked);
+    onSend(trimmed, mode);
     setValue("");
     resetHeight();
   };
@@ -50,17 +48,17 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
           disabled={disabled}
           rows={1}
         />
-        <label
-          htmlFor="plan">
-          Plan mode?
+        <label>
+          Mode:
+          <select
+            id="mode"
+            name="mode"
+            defaultValue={mode}
+            onChange={handleModeChange}>
+            <option value="standard">Standard</option>
+            <option value="plan">Plan</option>
+          </select>
         </label>
-        <input
-          type="checkbox"
-          name="plan"
-          id="plan"
-          checked={isChecked}
-          onChange={handleCheck}
-          />
         <Button
           className="shrink-0 rounded-lg p-0"
           style={{ width: 40, height: 40 }}

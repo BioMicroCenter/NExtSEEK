@@ -36,6 +36,13 @@ function stripDebugSections(content: string): {
     return "";
   });
 
+  const debugPattern =
+    /(?:^|\n)(#{1,3}\s+Debug Info|\*\*Debug Info\*\*)\s*\n```[\s\S]*?```/gi;
+  clean = clean.replace(debugPattern, (match) => {
+    extracted.push(match.trim());
+    return ""
+  })
+
   // Clean up excess blank lines left behind
   clean = clean.replace(/\n{3,}/g, "\n\n").trim();
 

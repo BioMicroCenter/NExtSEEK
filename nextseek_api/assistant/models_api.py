@@ -13,7 +13,7 @@ class QueryRequest(BaseModel):
     """POST /assistant/query/ request body."""
     session_id: Optional[UUID] = Field(None, description="Chat session UUID. If omitted, reuses the most recently updated session or auto-creates one.")
     query: str = Field(..., min_length=1, max_length=4000, description="Natural language query")
-    plan: bool = Field(..., description="Whether to execute query in plan mode")
+    mode: str = Field(..., description="What mode to execute the query as. E.g. standard, plan, etc.")
 
     model_config = ConfigDict(extra="forbid")
 

@@ -287,10 +287,11 @@ class AssistantViewSet(viewsets.ViewSet):
             try:
                 API_USER = request.session.get("username")
                 API_PASS = request.session.get("password")
-                if req.plan:
-                    run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
-                else:
-                    run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
+                match getattr(req, "mode", "standard"):
+                    case "plan":
+                        run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
+                    case _:
+                        run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
             except Exception:
                 logger.exception("Unhandled pipeline error")
                 send_event("query_error", {
@@ -394,10 +395,11 @@ class AssistantViewSet(viewsets.ViewSet):
             try:
                 API_USER = request.session.get("username")
                 API_PASS = request.session.get("password")
-                if req.plan:
-                    run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
-                else:
-                    run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
+                match getattr(req, "mode", "standard"):
+                    case "plan":
+                        run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
+                    case _:
+                        run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
             except Exception:
                 logger.exception("Unhandled pipeline error (async)")
                 send_event("query_error", {
