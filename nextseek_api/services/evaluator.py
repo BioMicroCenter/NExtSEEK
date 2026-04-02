@@ -16,16 +16,19 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional, Tuple
 
+from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.authentication import BasicAuthentication, TokenAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 
 from nextseek_api.assistant.descriptions_evaluator import (
     EVALUATOR_RETRY_CONTEXT_BY_BUNDLE_DESC,
     EVALUATOR_RETRY_CONTEXT_BY_TASK_DESC,
+    EVALUATOR_RUNS_LIST_DESC,
 )
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.models_evaluator import (
@@ -35,7 +38,10 @@ from nextseek_api.assistant.models_evaluator import (
     EvaluatorRetryContextResponse,
     EvaluatorRouting,
     EvaluatorRunMeta,
+    EvaluatorRunSummary,
+    EvaluatorRunsListResponse,
 )
+from nextseek_api.helpers import StandardResultsSetPagination
 from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 
 logger = logging.getLogger(__name__)
@@ -115,6 +121,17 @@ def _build_retry_signals(
     if not reply:
         signals.append("empty_reply")
     return signals
+
+
+# ---------------------------------------------------------------------------
+# Helper: _task_has_bundle
+# ---------------------------------------------------------------------------
+
+def _task_has_bundle(task: QueryTask) -> bool:
+    """Return True if the task's result contains a non-None bundle_id."""
+    if task.result is None:
+        return False
+    return task.result.get("bundle_id") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -331,3 +348,84 @@ class EvaluatorViewSet(viewsets.ViewSet):
             resp.model_dump(mode="json"),
             status=status.HTTP_200_OK,
         )
+
+    # ------------------------------------------------------------------
+    # GET /evaluator/runs/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Evaluator: List Runs",
+        description=EVALUATOR_RUNS_LIST_DESC,
+        tags=["evaluator"],
+        parameters=[
+            OpenApiParameter("session_id", OpenApiTypes.UUID, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("task_id", OpenApiTypes.UUID, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("status", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("has_bundle", OpenApiTypes.BOOL, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("created_after", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("created_before", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("user_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("page", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("page_size", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: EvaluatorRunsListResponse},
+    )
+    @action(detail=False, methods=["get"], url_path="runs")
+    def runs_list(self, request):
+        """List and filter historical query task runs for evaluator analysis."""
+        qs = QueryTask.objects.select_related("session").order_by("-created_at")
+
+        # Apply filters
+        session_id = request.query_params.get("session_id")
+        if session_id:
+            qs = qs.filter(session__session_id=session_id)
+
+        task_id = request.query_params.get("task_id")
+        if task_id:
+            qs = qs.filter(task_id=task_id)
+
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        user_id = request.query_params.get("user_id")
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+
+        created_after = request.query_params.get("created_after")
+        if created_after:
+            qs = qs.filter(created_at__gte=created_after)
+
+        created_before = request.query_params.get("created_before")
+        if created_before:
+            qs = qs.filter(created_at__lte=created_before)
+
+        # has_bundle filter: Python-level filtering since JSON field lookups
+        # for nested keys are not reliably supported across all DB backends
+        has_bundle_param = request.query_params.get("has_bundle")
+
+        paginator = StandardResultsSetPagination()
+
+        if has_bundle_param is not None:
+            want_bundle = has_bundle_param.lower() in ("true", "1")
+            # Materialise to list and filter in Python for SQLite compat
+            all_tasks = list(qs)
+            filtered = [t for t in all_tasks if _task_has_bundle(t) == want_bundle]
+            # Paginate the filtered list
+            page = paginator.paginate_queryset(filtered, request)
+        else:
+            page = paginator.paginate_queryset(qs, request)
+
+        results = [
+            EvaluatorRunSummary(
+                task_id=t.task_id,
+                session_id=t.session.session_id,
+                status=t.status,
+                query=t.query,
+                has_bundle=_task_has_bundle(t),
+                user_id=t.user_id,
+                created_at=t.created_at,
+            ).model_dump(mode="json")
+            for t in page
+        ]
+
+        return paginator.get_paginated_response(results)
