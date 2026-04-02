@@ -17,11 +17,14 @@
 																 valueField: 'id',
 																 textField:'title',
 																 editable: true,
-																 filter: function(q, row){ var opts = $(this).combobox('options'); return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;},
+																 filter: function(q, row) {
+																		var opts = $(this).combobox('options');
+																		return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;
+																 },
 																 panelHeight:'auto',
 																 label: '',
 																 labelPosition: 'top',
-																 onSelect: function(rec){ loadSampleAttributes(); },
+																 onSelect: function(rec){ loadSampleAttributes(rec); },
 																 onFocus: function() {$(this).combobox('showPanel');}">
 							</td>
 							<td>
@@ -51,62 +54,61 @@
 	</form>
 </div>
 <script defer>
-	async function getSampleAttributes(id) {try {
-		const response = await fetch(`/seek/attributes/id=${id}`)
-		if (response.ok) {
-			const response_json = await response.json()
-			return response_json
-		}
-		} catch (e) {
-			console.error(e)
-		}
-	}
-	
-	async function loadSampleAttributes() {
-		const sampleTypeComboBox = document.getElementById('sampletype')
-		const sampleTypeId = sampleTypeComboBox.value
-		
-		const sampleAttributes = await getSampleAttributes(sampleTypeId);
-		
-		$('#attribute').combobox({
-			data: sampleAttributes.attrOptions
-			})
+	async function getSampleAttributes(id) {
+		try {
+			const response = await fetch(`/seek/attributes/id=${id}`)
+			if (response.ok) {
+				const response_json = await response.json()
+				return response_json
+			}
+			} catch (e) {
+				console.error(e)
+			}
 		}
 		
-		async function simpleSearch(form) {
-			const csrftoken = getCookie('csrftoken');
-			const formData = new FormData(form);
-			formData.append("filter_matchType", "PARTIAL")
-			let object = {};
-			formData.forEach((value, key) => object[key] = value);
-			const json = JSON.stringify(object);
+		async function loadSampleAttributes(rec) {
+			const sampleAttributes = await getSampleAttributes(rec.id);
 			
-			const messangerWindow = $.messager.progress({
-				title: "Please wait",
-				msg: "Searching for samples..."
-				});
+			$('#attribute').combobox({
+				data: sampleAttributes.attrOptions
+				})
+			}
+			
+			async function simpleSearch(form) {
+				const csrftoken = getCookie('csrftoken');
+				const formData = new FormData(form);
+				formData.append("filter_matchType", "PARTIAL")
+				let object = {};
+				formData.forEach((value, key) => object[key] = value);
+				const json = JSON.stringify(object);
 				
-				try {
-					const response = await fetch("/nextseek_api/samples/advanced_search/", {
-						method: "POST",
-						headers: {"Content-Type": "application/json",
-						"X-CSRFTOKEN": csrftoken},
-						body: json
-						});
-						
-						if (response.ok) {
-							$.messager.progress('close')
-							const response_json = await response.json()
-							$('#simple_dgtable').datagrid('loadData', response_json.rows);
-						}
-						} catch (e) {
-							console.error(e)
-						}
-					}
+				const messangerWindow = $.messager.progress({
+					title: "Please wait",
+					msg: "Searching for samples..."
+					});
 					
-					const simple_search_form = document.getElementById("simple_search")
-					simple_search_form.addEventListener("submit", (event) => {
-						event.preventDefault();
-						simpleSearch(event.target);
-						})
+					try {
+						const response = await fetch("/nextseek_api/samples/advanced_search/", {
+							method: "POST",
+							headers: {"Content-Type": "application/json",
+							"X-CSRFTOKEN": csrftoken},
+							body: json
+							});
+							
+							if (response.ok) {
+								$.messager.progress('close')
+								const response_json = await response.json()
+								const rows = response_json.rows.sort((a, b) => sortSamplesByUUID(a.uuid, b.uuid))
+								$('#simple_dgtable').datagrid('loadData', rows);
+							}
+							} catch (e) {
+								console.error(e)
+							}
+						}
+						
+						const simple_search_form = document.getElementById("simple_search")
+						simple_search_form.addEventListener("submit", (event) => {
+							event.preventDefault();
+							simpleSearch(event.target);
+							})
 </script>

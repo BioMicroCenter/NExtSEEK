@@ -1,0 +1,18 @@
+<div class="span12">
+	<h4>Delete a list of sample UIDs. Values are delimited by new lines.</h4>
+	<form id="sample_deletion" method="post" enctype="multipart/form-data">
+		<textarea id="sample_deletion_uids" name="sample_deletion_uids" style="width: 70%;" rows=10 cols=20></textarea>
+		<button type="submit" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true">Delete</button>
+	</form>
+</div>
+<script>
+	const sample_deletion_form = document.getElementById("sample_deletion")
+	
+	sample_deletion_form.addEventListener("submit", (event) => {
+		event.preventDefault()
+		const formData = new FormData(sample_deletion_form)
+		const samplesText = formData.get("sample_deletion_uids")
+		const samples = samplesText.trim().split("\n")
+		deleteSamples(samples, kind="alluids")
+		})
+</script>

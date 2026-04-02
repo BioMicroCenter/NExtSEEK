@@ -18,8 +18,10 @@
 	<div style="margin: 20px 0;"></div>
 	<table id="simple_dgtable" class="easyui - datagrid" title="" style="width: auto;height: 380px;" data-options="
 				iconCls: 'icon-edit',
-				singleSelect: true,
-				selectOnCheck: false,
+				singleSelect: false,
+				selectOnCheck: true,
+				checkOnSelect: true,
+				ctrlCheck: true,
 				toolbar: '#simple_tb_toolbar',
 				striped: true,
 				pagination: false,
@@ -33,8 +35,8 @@
 				<th data-options="field: 'ck', width: 100, align: 'center', checkbox: true, editor: { type: 'checkbox', options: { on: 'Y', off: 'N' } }">
 					Select file
 				</th>
-				<th data-options="field: 'id', width: 30" sortable=" true"><b>ID</b></th>
-				<th data-options="field: 'uid', width: 200, editor: 'text'" sortable=" true"><b>UID</b></th>
+				<th data-options="field: 'idlink', width: 30" sortable=" true"><b>ID</b></th>
+				<th data-options="field: 'uuid', width: 200, editor: 'text'" sortable=" true"><b>UID</b></th>
 				<th data-options="field: 'created_at', align: 'left', width: 60"><b>Updated</b></th>
 				<th data-options="field: 'sample_type', width: 100" sortable=" true"><b>Sample Type</b></th>
 				<th data-options="field: 'assays', width: 120" sortable=" true"><b>Assays</b></th>
@@ -45,9 +47,9 @@
 	</table>
 
 	<div id="simple_tb_toolbar" style="height: auto">
-		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true" onclick="simple_downloadSamples($('#simple_dgtable'), '/seek/samples/download/')">Download samples</a>
-		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-remove', plain: true" onclick="simple_deleteSamples($('#simple_dgtable'), '/seek/samples/delete/')">Delete samples</a>
-		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-timeline', plain: true" onclick="showTimeline($('#simple_dgtable'))">View Timeline</a>
+		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true" onclick="downloadSamples($('#simple_dgtable'))">Download samples</a>
+		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-remove', plain: true" onclick="gridDeleteSamples($('#simple_dgtable'))">Delete samples</a>
+		<!-- <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-timeline', plain: true" onclick="showTimeline($('#simple_dgtable'))">View Timeline</a> -->
 	</div>
 </div>
 <script>

@@ -71,7 +71,7 @@
 
 			<div class="col-xs-10 col-sm-5 col-md-5">
 				<b>Current query box:</b><br>
-				<input id="input_searchText" form="advanced_search" class="easyui-textbox" name="filter_searchText" multiline="true" style="width:320px;height:120px">
+				<input id="input_searchText" form="advanced_search" name="filter_searchText" style="width:320px;height:120px">
 			</div>
 		</div>
 	</div>
@@ -96,6 +96,7 @@
 				var attribute = 'none';
 				var filter_logic = $('#input_logic').combobox('getValue');
 				var filter_searchValue = document.getElementById("input_searchValue").value;
+				var searchTextElement = document.getElementById("input_searchText")
 				if (!filter_searchValue) {
 					alert('No search keyword entered.');
 					return;
@@ -104,7 +105,7 @@
 				if (sampletype_id) {
 					keywords = keywords + "[" + sampletype_id + "]"
 				}
-				var curText = $("#input_searchText").textbox('getText');
+				var curText = searchTextElement.value
 				if (keywords.indexOf(' ') >= 0) {
 					if (curText) {
 						keywords = "(" + keywords + ")";
@@ -120,45 +121,62 @@
 						keywords = keywords
 					}
 					
-					$("#input_searchText").textbox('setText', keywords);
+					searchTextElement.value = keywords
 					return;
 				}
 				
-				async function advancedSearch(form) {
-					const csrftoken = getCookie('csrftoken');
-					const formData = new FormData(form);
-					const searchText = document.getElementById("input_searchText").value
-					const json = {
-						"filter_matchType": formData.get("filter_matchType"),
-						"filter_searchText": searchText
-					}
+				function formDataToJSON(formData) {
+					const result = {};
 					
-					const messangerWindow = $.messager.progress({
-						title: "Please wait",
-						msg: "Searching for samples..."
-						});
-						
-						try {
-							const response = await fetch("/nextseek_api/samples/advanced_search/", {
-								method: "POST",
-								headers: {"Content-Type": "application/json",
-								"X-CSRFTOKEN": csrftoken},
-								body: JSON.stringify(json)
-								});
-								
-								if (response.ok) {
-									$.messager.progress('close')
-									const response_json = await response.json()
-									$('#advanced_dgtable').datagrid('loadData', response_json.rows);
+					for (const [key, value] of formData.entries()) {
+						if (result[key]) {
+							if (Array.isArray(result[key])) {
+								result[key].push(value);
+								} else {
+									result[key] = [result[key], value];
 								}
-								} catch (e) {
-									console.error(e)
+								} else {
+									result[key] = value;
 								}
 							}
 							
-							const advanced_search_form = document.getElementById("advanced_search")
-							advanced_search_form.addEventListener("submit", (event) => {
-								event.preventDefault();
-								advancedSearch(event.target);
-								})
+							return result;
+						}
+						
+						async function advancedSearch(form) {
+							const csrftoken = getCookie('csrftoken');
+							const formData = new FormData(form);
+							const json = formDataToJSON(formData)
+							
+							const messangerWindow = $.messager.progress({
+								title: "Please wait",
+								msg: "Searching for samples..."
+								});
+								
+								try {
+									const response = await fetch("/nextseek_api/samples/advanced_search/", {
+										method: "POST",
+										headers: {"Content-Type": "application/json",
+										"X-CSRFTOKEN": csrftoken},
+										body: JSON.stringify(json)
+										});
+										
+										if (response.ok) {
+											$.messager.progress('close')
+											const response_json = await response.json()
+											const rows = response_json.rows.sort((a, b) => sortSamplesByUUID(a.uuid, b.uuid))
+											$('#advanced_dgtable').datagrid('loadData', response_json.rows);
+											document.getElementById("numberSamplesFound").innerHTML = response_json.total
+											document.getElementById("numberSampleTypesFound").innerHTML = response_json.noSampleTypes
+										}
+										} catch (e) {
+											console.error(e)
+										}
+									}
+									
+									const advanced_search_form = document.getElementById("advanced_search")
+									advanced_search_form.addEventListener("submit", (event) => {
+										event.preventDefault();
+										advancedSearch(event.target);
+										})
 </script>

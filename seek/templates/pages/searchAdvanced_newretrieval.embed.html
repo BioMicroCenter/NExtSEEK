@@ -1,0 +1,48 @@
+<div class="span12">
+	<h4>Retrieve a list of sample UIDs. Values are delimited by new lines.</h4>
+	<form id="sample_retrieval" method="post" enctype="multipart/form-data">
+		<textarea id="input_searchUIDs" name="input_searchUIDs" style="width: 70%;" rows=10 cols=20></textarea>
+		<button type="submit" class="easyui-linkbutton" data-options="iconCls:'icon-search',plain:true">Retrieve</button>
+	</form>
+</div>
+<script>
+	async function retrieveSamples(form) {
+		const formData = new FormData(form)
+		const samplesText = formData.get("input_searchUIDs")
+		const samples = samplesText.trim().split("\n")
+		
+		try {
+			const response = await fetch(`/nextseek_api/admin/samples/retrieve/`, {
+				method: "POST",
+				headers: {"X-CSRFTOKEN": getCookie("csrftoken"),
+				"Content-Type": "application/json"},
+				body: JSON.stringify({"identifiers": samples, "output_format": "excel"})
+				})
+				$.messager.progress({
+					"title": "Please wait",
+					"msg": "Retrieving samples..."
+					})
+					if (response.ok) {
+						$.messager.progress("close")
+						const blob = await response.blob()
+						const a = document.createElement("a")
+						a.href = window.URL.createObjectURL(blob)
+						a.download = `sample_retrieval.xlsx`
+						a.click()
+						} else {
+							$.messager.progress("close")
+							alert("Could not send request. Please try again.")
+						}
+						} catch (e) {
+							$.messager.progress("close")
+							alert(`Error: ${e}`)
+						}
+					}
+					
+					const sample_retrieval_form = document.getElementById("sample_retrieval")
+					
+					sample_retrieval_form.addEventListener("submit", (event) => {
+						event.preventDefault()
+						retrieveSamples(sample_retrieval_form)
+						})
+</script>

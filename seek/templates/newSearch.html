@@ -25,38 +25,20 @@
 			</div>
 		</div>
 	</div>
-	<!-- <div title="Sample Retrieval" data-options="closable:false" style="overflow:auto;padding:20px;display:none;"> -->
-	<!-- <div class="easyui-layout" style="width:auto;height:1700px;"> -->
-	<!-- <div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;"> -->
-	<!-- {% include "pages/searchAdvanced_retrieval.embed.html" %} -->
-	<!-- </div> -->
-	<!-- <div id="center_div2" data-options="region:'center',border:true,split:true" style="height: 800px;"> -->
-	<!-- {% include "pages/searchAdvanced_tree.embed.html" %} -->
-	<!-- </div> -->
-	<!-- <div id="south_div2" data-options="region:'south',border:true,split:true" style="height: 500px;"> -->
-	<!-- {% include "pages/searchAdvanced_rtable.embed.html" %} -->
-	<!-- </div> -->
-	<!-- </div> -->
-	<!-- </div> -->
-	<!-- <div title="New Sample Retrieval" data-options="closable:false" style="overflow:auto;padding:20px;display:none;"> -->
-	<!-- <div class="easyui-layout" style="width:auto;height:1700px;"> -->
-	<!-- <div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;"> -->
-	<!-- <form action="/seek/admin/retrieve/" method="POST"> -->
-	<!-- {% csrf_token %} -->
-	<!-- <label for="retrieval_uids">UIDs to retrieve:</label> -->
-	<!-- <input id="retrieval_uids" class="easyui-textbox" label="" name="retrieval_uids" multiline="true" style="width:100%;height:120px"> -->
-	<!-- <button type="submit">Retrieve Samples</button> -->
-	<!-- </form> -->
-	<!-- </div> -->
-	<!-- </div> -->
-	<!-- </div> -->
-	<!-- <div title="Sample Deletion" data-options="closable:false" style="overflow:auto;padding:20px;display:none;"> -->
-	<!-- <div class="easyui-layout" style="width:auto;height:1700px;"> -->
-	<!-- <div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;"> -->
-	<!-- {% include "pages/searchAdvanced_deletion.embed.html" %} -->
-	<!-- </div> -->
-	<!-- </div> -->
-	<!-- </div> -->
+	<div title="Sample Retrieval" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
+		<div class="easyui-layout" style="width:auto;height:1700px;">
+			<div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;">
+				{% include "pages/searchAdvanced_newretrieval.embed.html" %}
+			</div>
+		</div>
+	</div>
+	<div title="Sample Deletion" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
+		<div class="easyui-layout" style="width:auto;height:1700px;">
+			<div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;">
+				{% include "pages/searchAdvanced_newdeletion.embed.html" %}
+			</div>
+		</div>
+	</div>
 </div>
 <script>
 	function getCookie(name) {
@@ -74,34 +56,172 @@
 		return cookieValue;
 	}
 	
-	async function getSampleTypes() {
-		try {
-			const response = await fetch(`/nextseek_api/sample_types/`)
-			if (response.ok) {
-				const response_json = await response.json()
-				const st_data = response_json.data.map(st => {
-					let id = st.id
-					let title = st.attributes.title
-					return {"id": id, "title": title}
-					})
-					return st_data.sort((a, b) => a.title.localeCompare(b.title));
-				}
-				} catch (e) {
-					console.error(e)
-				}
+	function sortSamplesByUUID(a, b) {
+		const parse = (val) => {
+			const parts = val.split('-');
+			let end = parts.pop()
+			if (end == "PUB") {
+				end = parts.pop()
+			}
+			const num = parseInt(end, 10);
+			return {
+				prefix: parts.join('-'),
+				num: isNaN(num) ? 0 : num
+				};
+				};
+				
+				const pa = parse(a);
+				const pb = parse(b);
+				
+				if (pa.prefix < pb.prefix) return -1;
+				if (pa.prefix > pb.prefix) return 1;
+				
+				return pa.num - pb.num;
 			}
 			
-			async function loadSampleTypes() {
-				const st_data = await getSampleTypes()
-				const simpleSampleTypeComboBox = $('#sampletype').combobox({
-					data: st_data
-					})
-					
-					const advancedSampleTypeComboBox = $('#advanced_sample_type').combobox({
-						data: st_data
+			async function deleteSamplesExecute(samples, kind) {
+				const params = new URLSearchParams();
+				params.append(kind, JSON.stringify(samples));
+				
+				try {
+					const response = await fetch(`/seek/samples/delete/?${params}`, {
+						method: "GET",
+						headers: {"X-CSRFTOKEN": getCookie("csrftoken")},
 						})
-					}
-					
-					loadSampleTypes()
+						$.messager.progress({
+							title: "Please wait",
+							msg: "Deleting samples..."
+							})
+							
+							if (response.ok) {
+								$.messager.progress('close')
+								const obj = await response.json()
+								var msg = obj.msg;
+								var status = obj.status;
+								var link = obj.link;
+								var diclist = obj.diclist;
+								var row = dg.datagrid('getSelected');
+								var rows = dg.datagrid('getRows');
+								for (var j = 0, len = rows.length; j < len; j++) {
+									row = rows[j];
+									var index = dg.datagrid('getRowIndex', row);
+									for (var i = 0; i < diclist.length; i++) {
+										var dici = diclist[i];
+										var id = dici.id;
+										var statusi = dici.statusi;
+										if (rows[j]['id'] == id) {
+											if (statusi == 'DELETED') {
+												dg.datagrid('deleteRow', index);
+												} else {
+													dg.datagrid('updateRow', {
+														index: index,
+														row: {
+															'json_metadata': dici.json_metadata
+														}
+														})
+													}
+												}
+											}
+											if (status == 1) {
+												window.location.href = link;
+												} else {
+													alert(msg);
+												}
+											}
+											} else {
+												$.messager.progress('close')
+												alert("Error, try again.")
+											}
+											} catch (e) {
+												$.messager.progress("close")
+												alert("Error, try again.")
+											}
+										}
+										
+										async function deleteSamples(samples, kind) {
+											$.messager.confirm({
+												title: "Delete samples?",
+												msg: "Are you sure you'd like to delete these samples?",
+												ok: "Yes",
+												cancel: "No",
+												fn: function(r) {
+													if (r) {
+														deleteSamplesExecute(samples, kind)
+														} else {
+															alert("Aborting deletion")
+														}
+													}
+													})
+												}
+												
+												async function gridDeleteSamples(dg) {
+													const selections = dg.datagrid("getSelections")
+													if (selections.length == 0) {
+														alert("No samples have been selected for deletion")
+														return;
+													}
+													const ids = selections.map(({ id }) => id)
+													deleteSamples(ids, kind="allids")
+												}
+												
+												async function downloadSamples(dg) {
+													const selections = dg.datagrid("getSelections")
+													if (selections.length == 0) {
+														alert("No samples have been selected for download")
+														return;
+													}
+													
+													const formData = new FormData()
+													formData.append("includeSampleTree", "0")
+													formData.append("allids", JSON.stringify(selections.map(({ id }) => id)))
+													formData.append("sampletype_id", "")
+													
+													try {
+														const response = await fetch("/seek/samples/download/", {
+															method: "POST",
+															headers: {"X-CSRFTOKEN": getCookie("csrftoken")},
+															body: formData
+															})
+															
+															if (response.ok) {
+																const response_json = await response.json()
+																console.log(response_json)
+																window.location.href = response_json.link
+															}
+															} catch (e) {
+																console.error(e)
+															}
+														}
+														
+														async function getSampleTypes() {
+															try {
+																const response = await fetch(`/nextseek_api/sample_types/`)
+																if (response.ok) {
+																	const response_json = await response.json()
+																	const st_data = response_json.data.map(st => {
+																		let id = st.id
+																		let title = st.attributes.title
+																		return {"id": id, "title": title}
+																		})
+																		return st_data.sort((a, b) => a.title.localeCompare(b.title));
+																	}
+																	} catch (e) {
+																		console.error(e)
+																	}
+																}
+																
+																async function loadSampleTypes() {
+																	const st_data = await getSampleTypes()
+																	console.log(st_data)
+																	const simpleSampleTypeComboBox = $('#sampletype').combobox({
+																		data: st_data
+																		})
+																		
+																		const advancedSampleTypeComboBox = $('#advanced_sample_type').combobox({
+																			data: st_data
+																			})
+																		}
+																		
+																		loadSampleTypes()
 </script>
 {% endblock %}

@@ -18,8 +18,10 @@
 	<div style="margin:20px 0;"></div>
 	<table id="advanced_dgtable" class="easyui-datagrid" title="" style="width:100%; height:480px;" data-options="
 		iconCls: 'icon-edit',
-		singleSelect: true,
-		selectOnCheck: false,
+		singleSelect: false,
+		checkOnSelect: true,
+		selectOnCheck: true,
+		ctrlCheck: true,
 		url:'',
 		method:'get',
 		toolbar: '#advanced_tb_toolbar',
@@ -43,8 +45,7 @@
 	</table>
 
 	<div id="advanced_tb_toolbar" style="height:auto">
-		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="downloadSamples0($('#advanced_dgtable'), '/seek/samples/download/')">Download samples</a>
-		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="deleteSamples($('#advanced_dgtable'), '/seek/samples/delete/')">Delete samples</a>
-		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="sendSamples($('#advanced_dgtable'), ' ')">Send to Sample Retrieval</a>
+		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="downloadSamples($('#advanced_dgtable'))">Download samples</a>
+		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="gridDeleteSamples($('#advanced_dgtable'))">Delete samples</a>
 	</div>
 </div>

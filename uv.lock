@@ -337,7 +337,7 @@ wheels = [
 [[package]]
 name = "chat-nextseek"
 version = "0.1.0"
-source = { git = "ssh://github.com/cdemurjian/chat_nextseek?rev=729c8ed1aa0ff30c58e7de1d97e4838b6b103a2d#729c8ed1aa0ff30c58e7de1d97e4838b6b103a2d" }
+source = { git = "ssh://github.com/cdemurjian/chat_nextseek?rev=39e1e4104392a47c70dc967fd7aa3dc6b8b12a83#39e1e4104392a47c70dc967fd7aa3dc6b8b12a83" }
 dependencies = [
     { name = "anthropic" },
     { name = "boto3" },
@@ -1606,7 +1606,7 @@ requires-dist = [
     { name = "channels", specifier = ">=4.3.2" },
     { name = "chardet" },
     { name = "charset-normalizer" },
-    { name = "chat-nextseek", git = "ssh://github.com/cdemurjian/chat_nextseek?rev=729c8ed1aa0ff30c58e7de1d97e4838b6b103a2d" },
+    { name = "chat-nextseek", git = "ssh://github.com/cdemurjian/chat_nextseek?rev=39e1e4104392a47c70dc967fd7aa3dc6b8b12a83" },
     { name = "coverage", specifier = ">=7.13.5" },
     { name = "daphne", specifier = ">=4.2.1" },
     { name = "deepmerge" },
