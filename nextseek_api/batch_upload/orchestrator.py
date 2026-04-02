@@ -169,7 +169,7 @@ def run_batch_upload_multi(
 
     # ── Stage 0: CONVERT (format detection, multi-file merge, ontology) ───
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path)
+        return _cancelled_result(job_id, summary_path, error_collector=error_collector)
 
     valid_rows: List[InputRowModel] = []
     warnings: Dict[str, object] = {}
@@ -194,7 +194,7 @@ def run_batch_upload_multi(
                         error_type=ErrorType.VALIDATION_JSON,
                         message=f"{v.attribute}={v.value!r} not in allowed terms for {v.vocab_name}",
                     )
-                return _error_result(job_id, summary_path, error_collector, msg)
+                return _error_result(job_id, summary_path, error_collector, msg, valid_rows=valid_rows)
             valid_rows = converted.rows
             if converted.warnings:
                 warnings["convert_warnings"] = converted.warnings
@@ -204,16 +204,16 @@ def run_batch_upload_multi(
                 row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
                 message=f"CONVERT failed: {exc}",
             )
-            return _error_result(job_id, summary_path, error_collector, str(exc))
+            return _error_result(job_id, summary_path, error_collector, str(exc), valid_rows=valid_rows)
 
     log.info("CONVERT: %d valid rows", len(valid_rows))
 
     if not valid_rows:
-        return _error_result(job_id, summary_path, error_collector, "No valid rows after CONVERT")
+        return _error_result(job_id, summary_path, error_collector, "No valid rows after CONVERT", valid_rows=valid_rows)
 
     # ── Stage 1.25: NAME_CHECK ──────────────────────────────────────────
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path)
+        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
 
     name_matched_outcomes: Dict[str, RowOutcome] = {}
 
@@ -259,7 +259,7 @@ def run_batch_upload_multi(
 
     # ── Stage 1.5: UID_GEN ───────────────────────────────────────────────
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path)
+        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
 
     if neo4j_only:
         log.info("Stage 1.5: UID_GEN (skipped -- neo4j_only mode)")
@@ -308,14 +308,14 @@ def run_batch_upload_multi(
                 row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
                 message=f"UID_GEN failed: {exc}",
             )
-            return _error_result(job_id, summary_path, error_collector, str(exc))
+            return _error_result(job_id, summary_path, error_collector, str(exc), valid_rows=valid_rows)
 
     if not valid_rows:
-        return _error_result(job_id, summary_path, error_collector, "No valid rows after UID_GEN")
+        return _error_result(job_id, summary_path, error_collector, "No valid rows after UID_GEN", valid_rows=valid_rows)
 
     # ── Stage 2: DAG ──────────────────────────────────────────────────────
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path)
+        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
 
     log.info("Stage 2/7: DAG")
     direction_computation = compute_directions(valid_rows)
@@ -326,7 +326,7 @@ def run_batch_upload_multi(
 
     # ── Stage 2.5: LEVELS ────────────────────────────────────────────────
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path)
+        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
 
     log.info("Stage 2.5: LEVELS")
     level_assignment = compute_levels(
@@ -354,7 +354,7 @@ def run_batch_upload_multi(
 
     # ── Stage 3: PREFETCH ─────────────────────────────────────────────────
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path)
+        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
 
     log.info("Stage 3/7: PREFETCH")
     all_titles = list({r.SampleType for r in valid_rows})
@@ -372,7 +372,7 @@ def run_batch_upload_multi(
 
     # ── Stage 4: TRANSFORM ────────────────────────────────────────────────
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path)
+        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
 
     log.info("Stage 4/7: TRANSFORM")
     insertable_samples: List[InsertableSample] = []
@@ -407,7 +407,7 @@ def run_batch_upload_multi(
     )
 
     if not insertable_samples:
-        return _error_result(job_id, summary_path, error_collector, "No samples after transform")
+        return _error_result(job_id, summary_path, error_collector, "No samples after transform", valid_rows=valid_rows)
 
     # ── Stage 5: INSERT (level-by-level) ────────────────────────────────
     if neo4j_only:
@@ -418,7 +418,7 @@ def run_batch_upload_multi(
         )
     else:
         if should_stop and should_stop():
-            return _cancelled_result(job_id, summary_path)
+            return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
 
         log.info("Stage 5/7: INSERT")
         reporter = ProgressReporter(total_rows=len(insertable_samples))
@@ -640,7 +640,7 @@ def run_batch_upload_multi(
 
     # ── Stage 6: NEO4J ────────────────────────────────────────────────────
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path)
+        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector, outcomes=batch_result.outcomes)
 
     log.info("Stage 6/7: NEO4J")
     neo4j_config = Neo4jConfig.from_django_settings()
@@ -702,7 +702,44 @@ def run_batch_upload_multi(
     }
 
 
-def _cancelled_result(job_id: str, summary_path: str) -> Dict:
+def _ensure_summary_csv(
+    summary_path: str,
+    valid_rows: Optional[List[InputRowModel]] = None,
+    outcomes: Optional[Dict[str, RowOutcome]] = None,
+    error_collector: Optional[ErrorCollector] = None,
+    extra_totals: Optional[dict] = None,
+) -> None:
+    """Write a fallback summary CSV if one has not been written yet."""
+    if valid_rows is None:
+        return
+    if os.path.isfile(summary_path):
+        return
+    try:
+        ec = error_collector or ErrorCollector()
+        row_summaries = build_row_summaries(outcomes or {}, valid_rows, ec)
+        totals: dict = {
+            "processed": len(valid_rows),
+            "success": 0, "skipped": 0, "failed": 0,
+            "elapsed_s": 0.0, "throughput_rps": 0.0,
+        }
+        if extra_totals:
+            totals.update(extra_totals)
+        write_summary_csv(summary_path, row_summaries, totals)
+    except Exception:
+        log.warning("Failed to write fallback summary CSV", exc_info=True)
+
+
+def _cancelled_result(
+    job_id: str,
+    summary_path: str,
+    valid_rows: Optional[List[InputRowModel]] = None,
+    error_collector: Optional[ErrorCollector] = None,
+    outcomes: Optional[Dict[str, RowOutcome]] = None,
+) -> Dict:
+    _ensure_summary_csv(
+        summary_path, valid_rows=valid_rows, outcomes=outcomes,
+        error_collector=error_collector, extra_totals={"cancelled": True},
+    )
     return {
         "job_id": job_id,
         "summary_path": summary_path,
@@ -712,8 +749,17 @@ def _cancelled_result(job_id: str, summary_path: str) -> Dict:
 
 
 def _error_result(
-    job_id: str, summary_path: str, error_collector: ErrorCollector, message: str
+    job_id: str,
+    summary_path: str,
+    error_collector: ErrorCollector,
+    message: str,
+    valid_rows: Optional[List[InputRowModel]] = None,
+    outcomes: Optional[Dict[str, RowOutcome]] = None,
 ) -> Dict:
+    _ensure_summary_csv(
+        summary_path, valid_rows=valid_rows, outcomes=outcomes,
+        error_collector=error_collector, extra_totals={"error": message},
+    )
     return {
         "job_id": job_id,
         "summary_path": summary_path,

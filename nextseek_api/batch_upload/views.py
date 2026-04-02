@@ -370,7 +370,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
             return denied
         result = AsyncResult(job_id, app=celery_app)
 
-        if result.state != "SUCCESS":
+        if result.state not in {"SUCCESS", "FAILURE"}:
             return Response(
                 {"detail": f"Job not complete (state={result.state})"},
                 status=status.HTTP_404_NOT_FOUND,
