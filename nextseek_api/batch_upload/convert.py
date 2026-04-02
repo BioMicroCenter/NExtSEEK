@@ -287,7 +287,7 @@ def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
     # Convert SAMPLES to InputRowModel list (one record per row)
     all_input_rows: List[dict] = []
     warnings: List[str] = []
-    for row_uid, meta, _ontology_row in prepared_rows:
+    for idx, (row_uid, meta, _ontology_row) in enumerate(prepared_rows):
         if not meta:
             continue  # empty row
 
@@ -296,6 +296,7 @@ def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
             "SampleType": sample_type,
             "json_metadata": _json_dumps_min(meta),
             "assay_ids": assay_ids,
+            "original_row_index": idx,
         })
 
     try:
@@ -322,6 +323,7 @@ def convert_file(xlsx_path: str) -> ConvertedBatch:
     rows: List[InputRowModel] = []
     for sr in stream:
         if sr.data is not None:
+            sr.data.original_row_index = sr.row_index
             rows.append(sr.data)
     return ConvertedBatch(
         rows=rows,

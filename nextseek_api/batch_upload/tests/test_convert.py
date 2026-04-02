@@ -474,3 +474,40 @@ class TestSingleTypeEnforcement:
         finally:
             if os.path.isfile(path):
                 os.unlink(path)
+
+
+class TestOriginalRowIndex:
+    def test_traditional_parse_sets_original_row_index(self):
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "Name", "Database Field": "A.Sample::Name",
+                 "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[{"Name": "s1"}, {"Name": "s2"}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None,
+                         "Assay": 42, "Direction": 1}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert len(batch.rows) == 2
+            assert batch.rows[0].original_row_index == 0
+            assert batch.rows[1].original_row_index == 1
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+    def test_flat_parse_sets_original_row_index(self):
+        path = _make_flat_xlsx([
+            {"uid": "U1", "SampleType": "A.Sample",
+             "json_metadata": '{"Name":"f1"}', "assay_ids": "1"},
+            {"uid": "U2", "SampleType": "A.Sample",
+             "json_metadata": '{"Name":"f2"}', "assay_ids": "2"},
+        ])
+        try:
+            batch = convert_file(path)
+            assert len(batch.rows) == 2
+            assert batch.rows[0].original_row_index == 0
+            assert batch.rows[1].original_row_index == 1
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)

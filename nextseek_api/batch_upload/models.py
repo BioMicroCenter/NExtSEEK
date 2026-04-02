@@ -111,6 +111,7 @@ class InputRowModel(BaseModel):
     study_id: Optional[int] = None
     sop_id: Optional[int] = None
     assay_titles: Optional[List[str]] = None
+    original_row_index: Optional[int] = None
 
     model_config = ConfigDict(extra="allow")
 
