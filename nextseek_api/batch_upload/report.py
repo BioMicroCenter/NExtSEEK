@@ -26,6 +26,9 @@ class RowSummary:
     access_type: Optional[int]
     uid_generated: bool = False
     topo_level: Optional[int] = None
+    json_metadata: str = ""
+    assay_ids: str = ""
+    original_row_index: Optional[int] = None
 
 
 class ProgressReporter:
@@ -113,7 +116,7 @@ def write_summary_csv(
     fieldnames = [
         "row_index", "uid", "status", "reason", "sample_type",
         "sample_id", "assays_linked_count", "access_type", "uid_generated",
-        "topo_level",
+        "topo_level", "json_metadata", "assay_ids", "original_row_index",
     ]
 
     with open(output_path, "w", newline="", encoding="utf-8") as f:
@@ -132,6 +135,9 @@ def write_summary_csv(
                 "access_type": row.access_type or "",
                 "uid_generated": row.uid_generated,
                 "topo_level": row.topo_level if row.topo_level is not None else "",
+                "json_metadata": row.json_metadata,
+                "assay_ids": row.assay_ids,
+                "original_row_index": row.original_row_index if row.original_row_index is not None else "",
             })
 
         # Separator
@@ -184,26 +190,74 @@ def build_row_summaries(
     input_models: List[InputRowModel],
     error_collector: ErrorCollector,
 ) -> List[RowSummary]:
-    """Build RowSummary list from outcomes and input models."""
-    uid_to_model = {m.UID: m for m in input_models}
+    """Build RowSummary list from outcomes and input models.
+
+    Iterates input_models first (preserving parse order) so rows without
+    outcomes still appear.  Then appends any remaining outcomes whose UIDs
+    are not in input_models (e.g. name-matched rows removed earlier).
+    """
+    seen_uids: set = set()
     summaries: List[RowSummary] = []
 
-    for idx, (uid, outcome) in enumerate(outcomes.items()):
-        model = uid_to_model.get(uid)
-        sample_type = model.SampleType if model else ""
+    for idx, model in enumerate(input_models):
+        uid = model.UID or ""
+        if uid:
+            seen_uids.add(uid)
 
-        # Check for errors
+        outcome = outcomes.get(uid) if uid else None
+        row_index = model.original_row_index if model.original_row_index is not None else idx
+        assay_ids_str = "; ".join(str(a) for a in model.assay_ids) if model.assay_ids else ""
+
+        if outcome:
+            errors = error_collector.errors_for_uid(uid)
+            reason = outcome.reason or ""
+            if errors and not reason:
+                reason = "; ".join(e.message for e in errors[:3])
+            summaries.append(RowSummary(
+                row_index=row_index,
+                uid=uid,
+                status=outcome.status,
+                reason=reason,
+                sample_type=model.SampleType,
+                sample_id=outcome.sample_id,
+                assays_linked_count=outcome.assays_linked_count,
+                access_type=None,
+                uid_generated=outcome.uid_generated,
+                topo_level=outcome.topo_level,
+                json_metadata=model.json_metadata,
+                assay_ids=assay_ids_str,
+                original_row_index=model.original_row_index,
+            ))
+        else:
+            errors = error_collector.errors_for_uid(uid) if uid else []
+            reason = "; ".join(e.message for e in errors[:3]) if errors else ""
+            summaries.append(RowSummary(
+                row_index=row_index,
+                uid=uid,
+                status="not_processed",
+                reason=reason,
+                sample_type=model.SampleType,
+                sample_id=None,
+                assays_linked_count=None,
+                access_type=None,
+                json_metadata=model.json_metadata,
+                assay_ids=assay_ids_str,
+                original_row_index=model.original_row_index,
+            ))
+
+    for uid, outcome in outcomes.items():
+        if uid in seen_uids:
+            continue
         errors = error_collector.errors_for_uid(uid)
         reason = outcome.reason or ""
         if errors and not reason:
             reason = "; ".join(e.message for e in errors[:3])
-
         summaries.append(RowSummary(
-            row_index=idx,
+            row_index=len(summaries),
             uid=uid,
             status=outcome.status,
             reason=reason,
-            sample_type=sample_type,
+            sample_type="",
             sample_id=outcome.sample_id,
             assays_linked_count=outcome.assays_linked_count,
             access_type=None,
