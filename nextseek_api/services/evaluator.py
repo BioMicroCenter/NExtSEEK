@@ -14,9 +14,12 @@ Plus helper functions:
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Dict, Optional, Tuple
 
+from django.conf import settings
 from django.db.models import Q
+from pydantic import ValidationError
 from rest_framework import status, viewsets
 from rest_framework.authentication import BasicAuthentication, TokenAuthentication
 from rest_framework.decorators import action
@@ -28,6 +31,7 @@ from drf_spectacular.types import OpenApiTypes
 from nextseek_api.assistant.descriptions_evaluator import (
     EVALUATOR_RETRY_CONTEXT_BY_BUNDLE_DESC,
     EVALUATOR_RETRY_CONTEXT_BY_TASK_DESC,
+    EVALUATOR_RETRY_EXECUTE_DESC,
     EVALUATOR_RUNS_LIST_DESC,
 )
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
@@ -40,8 +44,12 @@ from nextseek_api.assistant.models_evaluator import (
     EvaluatorRunMeta,
     EvaluatorRunSummary,
     EvaluatorRunsListResponse,
+    RetryRequest,
+    RetryResponse,
 )
-from nextseek_api.helpers import StandardResultsSetPagination
+from nextseek_api.helpers import resolve_seek_auth, StandardResultsSetPagination
+from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 
 logger = logging.getLogger(__name__)
@@ -264,6 +272,26 @@ def normalize_from_bundle(
 
 
 # ---------------------------------------------------------------------------
+# Helper: _get_orchestrator (lazy import)
+# ---------------------------------------------------------------------------
+
+def _get_orchestrator():
+    """Lazy-import orchestrator functions to avoid import-time side effects."""
+    from chat_nextseek.orchestrator import run_query, run_query_plan
+    return run_query, run_query_plan
+
+
+# ---------------------------------------------------------------------------
+# Helper: _find_bundle
+# ---------------------------------------------------------------------------
+
+def _find_bundle(session: ChatSession, bundle_id: int) -> Optional[Dict[str, Any]]:
+    """Find a bundle by id in the session's results_history."""
+    history = session.results_history or []
+    return next((b for b in history if b.get("id") == bundle_id), None)
+
+
+# ---------------------------------------------------------------------------
 # EvaluatorViewSet
 # ---------------------------------------------------------------------------
 
@@ -429,3 +457,159 @@ class EvaluatorViewSet(viewsets.ViewSet):
         ]
 
         return paginator.get_paginated_response(results)
+
+    # ------------------------------------------------------------------
+    # POST /evaluator/retry/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Evaluator: Execute Retry",
+        description=EVALUATOR_RETRY_EXECUTE_DESC,
+        tags=["evaluator"],
+        request=RetryRequest,
+        responses={202: RetryResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="retry")
+    def retry_execute(self, request):
+        """Submit a retry query through the assistant pipeline."""
+        try:
+            req = RetryRequest.model_validate(request.data)
+        except ValidationError as e:
+            return _error_response(
+                "Validation error", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
+
+        # --- Source identifier validation ---
+        has_task = req.task_id is not None
+        has_bundle = req.session_id is not None and req.bundle_id is not None
+        has_session_only = req.session_id is not None and req.bundle_id is None
+
+        if has_session_only:
+            return _error_response(
+                "Invalid source",
+                "session_id requires bundle_id.",
+                status.HTTP_400_BAD_REQUEST,
+            )
+        if not has_task and not has_bundle:
+            return _error_response(
+                "Invalid source",
+                "Provide either task_id OR session_id + bundle_id.",
+                status.HTTP_400_BAD_REQUEST,
+            )
+        if has_task and has_bundle:
+            return _error_response(
+                "Invalid source",
+                "Provide either task_id OR session_id + bundle_id, not both.",
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --- Resolve source ---
+        source_task_id = None
+        source_bundle_id = None
+
+        if has_task:
+            try:
+                source_task = QueryTask.objects.select_related("session").get(
+                    task_id=req.task_id,
+                )
+            except QueryTask.DoesNotExist:
+                return _error_response(
+                    "Not found",
+                    "Source task not found.",
+                    status.HTTP_404_NOT_FOUND,
+                )
+            chat_session = source_task.session
+            source_task_id = source_task.task_id
+            if source_task.result:
+                source_bundle_id = source_task.result.get("bundle_id")
+        else:
+            try:
+                chat_session = ChatSession.objects.get(session_id=req.session_id)
+            except ChatSession.DoesNotExist:
+                return _error_response(
+                    "Not found",
+                    "Source session not found.",
+                    status.HTTP_404_NOT_FOUND,
+                )
+            bundle = _find_bundle(chat_session, req.bundle_id)
+            if bundle is None:
+                return _error_response(
+                    "Not found",
+                    "Source bundle not found.",
+                    status.HTTP_404_NOT_FOUND,
+                )
+            source_bundle_id = req.bundle_id
+
+        # --- Resolve credentials ---
+        basic_tuple, extra_headers = resolve_seek_auth(
+            request, ["BASIC", "SESSION"]
+        )
+        if basic_tuple and basic_tuple[0] and basic_tuple[1]:
+            api_user, api_pass = basic_tuple
+            credential_source = "basic_auth"
+        else:
+            api_user, api_pass = None, None
+            credential_source = "service_account"
+
+        # --- Create new QueryTask ---
+        query_task = QueryTask.objects.create(
+            session=chat_session,
+            user=request.user,
+            query=req.query,
+            status="running",
+        )
+
+        # --- Spawn background pipeline thread ---
+        task_id_str = str(query_task.task_id)
+        session_id_str = str(chat_session.session_id)
+        send_event = make_db_event_callback(task_id_str, session_id_str)
+        adapter = DictSessionAdapter(chat_session)
+
+        def _run_pipeline():
+            try:
+                run_query, run_query_plan = _get_orchestrator()
+                creds = {"api_user": api_user, "api_pass": api_pass}
+                if req.mode == "plan":
+                    run_query_plan(
+                        adapter,
+                        settings.NEXTSEEK_CHAT_CONFIG,
+                        req.query,
+                        send_event,
+                        credentials=creds,
+                    )
+                else:
+                    run_query(
+                        adapter,
+                        settings.NEXTSEEK_CHAT_CONFIG,
+                        req.query,
+                        send_event,
+                        credentials=creds,
+                    )
+            except Exception:
+                logger.exception(
+                    "Unhandled pipeline error (evaluator retry)"
+                )
+                send_event(
+                    "query_error",
+                    {
+                        "error": "Internal pipeline error",
+                        "agent": "unknown",
+                        "session_id": session_id_str,
+                    },
+                )
+            finally:
+                adapter.save()
+
+        thread = threading.Thread(target=_run_pipeline, daemon=True)
+        thread.start()
+
+        return Response(
+            RetryResponse(
+                task_id=query_task.task_id,
+                session_id=chat_session.session_id,
+                source_task_id=source_task_id,
+                source_session_id=chat_session.session_id,
+                source_bundle_id=source_bundle_id,
+                credential_source=credential_source,
+            ).model_dump(mode="json"),
+            status=status.HTTP_202_ACCEPTED,
+        )
