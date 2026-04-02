@@ -28,9 +28,9 @@ def insert_policies_for_uids(
     if not uids:
         return []
 
-    # Build a single VALUES clause with constant name and access_type=4 for every row
+    # Create sample policies as private-by-default; project access is granted separately.
     values_sql = ", ".join(["(:name, :access_type, NOW(), NOW())"] * len(uids))
-    params = {"name": name, "access_type": 4}
+    params = {"name": name, "access_type": 0}
 
     # Fast path: INSERT ... RETURNING (MariaDB 10.5+); skip in tests/mocks
     is_testing_env = str(os.getenv("TESTING", "0")).lower() in {"1", "true", "yes"}

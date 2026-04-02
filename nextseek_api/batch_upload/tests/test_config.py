@@ -31,7 +31,7 @@ class TestBatchUploadConfig:
         assert cfg.gc_every_n_batches == 10
         assert cfg.clear_caches_every_n_batches == 20
         assert cfg.mem_limit_mb is None
-        assert cfg.enable_auto_permissions is False
+        assert cfg.enable_auto_permissions is True
         assert cfg.permissions_default_access_type == 4
         assert cfg.permissions_default_contributor_type == "Project"
         assert cfg.assay_cache_max == 10_000

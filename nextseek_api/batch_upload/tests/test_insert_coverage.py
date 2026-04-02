@@ -162,6 +162,44 @@ class TestProcessBatchesUpdatePath:
                 conn_factory=lambda: mock_conn,
             )
             assert result.outcomes["UID-1"].status == "success"
+            assert mock_bulk.call_args.kwargs["enable_auto_permissions"] is True
+
+
+class TestProcessBatchesPermissions:
+
+    @patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
+    def test_new_insert_path_creates_project_permissions_by_default(self, mock_resume):
+        """New inserts should create project permission rows by default."""
+        from nextseek_api.batch_upload.insert import process_batches
+
+        config = BatchUploadConfig()
+        samples = [_make_sample("UID-NEW")]
+
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+
+        with patch("nextseek_api.batch_upload.insert.insert_policies_for_uids", return_value=[("UID-NEW", 501)]), \
+             patch("nextseek_api.batch_upload.insert.insert_samples", return_value=[(100, "UID-NEW")]), \
+             patch("nextseek_api.batch_upload.insert.batch_insert_projects_samples", return_value=1), \
+             patch("nextseek_api.batch_upload.insert.batch_insert_assay_assets", return_value=0), \
+             patch("nextseek_api.batch_upload.insert.write_checkpoint"), \
+             patch("nextseek_api.batch_upload.insert.PermissionsInserter.insert_for_policy_ids", return_value=1) as mock_insert_permissions:
+
+            result = process_batches(
+                insertable_samples=samples,
+                project_id=1,
+                contributor_id=1,
+                config=config,
+                direction_computation=_make_direction_computation(),
+                error_collector=ErrorCollector(),
+                existing_samples={},
+                conn_factory=lambda: mock_conn,
+            )
+
+        assert result.outcomes["UID-NEW"].status == "success"
+        assert result.permissions_inserted_count == 1
+        assert mock_insert_permissions.call_args.args[0] == [501]
 
     @patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
     def test_update_exception_path(self, mock_resume):

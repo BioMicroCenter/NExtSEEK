@@ -353,8 +353,8 @@ class TestBulkUpdateSamples:
             if hasattr(c[0][0], "text") and "INSERT IGNORE" in c[0][0].text
         ]
         assert len(insert_ignore_calls) == 1, "Expected exactly one INSERT IGNORE call for permissions"
-        # No SELECT for permissions — only UPDATE + prefetch + INSERT IGNORE = 3 calls
-        assert conn.execute.call_count == 3
+        # No SELECT for permissions — only sample UPDATE + prefetch + policy repair + INSERT IGNORE = 4 calls
+        assert conn.execute.call_count == 4
 
     def test_missing_details_produces_failed_outcome(self):
         """Rows without details get failed outcome."""
@@ -460,6 +460,35 @@ class TestBulkUpdateSamples:
             if hasattr(c[0][0], "text") and "INSERT IGNORE" in c[0][0].text
         ]
         assert len(insert_ignore_calls) == 0
+
+    def test_existing_manage_policy_is_repaired_to_private_when_permissions_enabled(self):
+        """update_existing should repair bad public policy defaults on touched samples."""
+        from nextseek_api.batch_upload.update import bulk_update_samples
+
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = []
+
+        rows = [_make_sample("U1")]
+        details = _make_details(("U1", 1, 5, '{}', "T1"))
+
+        with patch("nextseek_api.batch_upload.update.batch_insert_assay_assets", return_value=0), \
+             patch("nextseek_api.batch_upload.update.batch_insert_projects_samples", return_value=0):
+            bulk_update_samples(
+                rows=rows,
+                details=details,
+                project_id=99,
+                direction_by_pair={},
+                conn=conn,
+                enable_auto_permissions=True,
+            )
+
+        repair_calls = [
+            c for c in conn.execute.call_args_list
+            if hasattr(c[0][0], "text")
+            and "UPDATE policies" in c[0][0].text
+            and c[0][1].get("access_type") == 0
+        ]
+        assert len(repair_calls) == 1
 
 
 class TestRowOutcomeParentChanged:

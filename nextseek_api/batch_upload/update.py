@@ -286,6 +286,44 @@ def _bulk_insert_permissions_ignore(
     return len(unique)
 
 
+def _bulk_restore_private_policy_defaults(
+    policy_ids: List[int],
+    conn: Connection,
+    now: str,
+    access_type: int = 0,
+) -> int:
+    """Repair touched policies back to private-by-default access."""
+    if not policy_ids:
+        return 0
+
+    seen: Set[int] = set()
+    unique: List[int] = []
+    for pid in policy_ids:
+        if pid and pid not in seen:
+            seen.add(pid)
+            unique.append(pid)
+    if not unique:
+        return 0
+
+    for chunk_start in range(0, len(unique), 1000):
+        chunk = unique[chunk_start : chunk_start + 1000]
+        params: Dict[str, int | str] = {"access_type": access_type, "now": now}
+        placeholders = []
+        for i, pid in enumerate(chunk):
+            key = f"pid_{i}"
+            params[key] = pid
+            placeholders.append(f":{key}")
+        conn.execute(
+            text(
+                "UPDATE policies "
+                "SET access_type = :access_type, updated_at = :now "
+                f"WHERE id IN ({', '.join(placeholders)})"
+            ),
+            params,
+        )
+    return len(unique)
+
+
 def bulk_update_samples(
     rows: List[InsertableSample],
     details: Dict[str, dict],
@@ -406,6 +444,7 @@ def bulk_update_samples(
             for s in valid_rows
             if details[s.uuid].get("policy_id")
         ]
+        _bulk_restore_private_policy_defaults(policy_ids, conn, now)
         _bulk_insert_permissions_ignore(policy_ids, project_id, conn, now)
 
     # ── Build outcomes ───────────────────────────────────────────────────

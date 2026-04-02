@@ -54,13 +54,13 @@ class TestInsertPoliciesForUids:
         assert "sharing_scope" not in sql_str
         assert "use_allowlist" not in sql_str
 
-    def test_access_type_is_four(self):
-        """access_type should be 4 (local override, not remote's 0)."""
+    def test_access_type_is_zero(self):
+        """Batch upload should create private-by-default policies."""
         conn = MagicMock()
         insert_policies_for_uids(["UID-1"], name="default policy", conn=conn)
         first_call_params = conn.execute.call_args_list[0]
         params = first_call_params[0][1] if len(first_call_params[0]) > 1 else first_call_params[1].get("parameters", {})
-        assert params.get("access_type") == 4
+        assert params.get("access_type") == 0
 
     def test_returns_uid_id_pairs(self):
         """Under pytest, synthetic IDs are generated when LAST_INSERT_ID returns None."""

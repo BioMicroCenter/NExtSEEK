@@ -33,7 +33,7 @@ class BatchUploadConfig:
             "BATCH_UPLOAD_MEM_LIMIT_MB", overrides.get("mem_limit_mb")
         )
         self.enable_auto_permissions: bool = _env_bool(
-            "ENABLE_AUTO_PERMISSIONS", overrides.get("enable_auto_permissions", False)
+            "ENABLE_AUTO_PERMISSIONS", overrides.get("enable_auto_permissions", True)
         )
         self.permissions_default_access_type: int = int(
             os.environ.get("PERMISSIONS_DEFAULT_ACCESS_TYPE",
