@@ -17,7 +17,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from nextseek_api.batch_upload.models import InputRowModel, RowOutcome
-from nextseek_api.batch_upload.errors import ErrorCollector
+from nextseek_api.batch_upload.errors import ErrorCollector, ErrorType
 
 
 # ---------------------------------------------------------------------------
@@ -361,3 +361,184 @@ class TestBuildNeo4jOnlyOutcomes:
         assert result.outcomes["UID-1"].status == "success"
         assert result.outcomes["UID-MISSING"].status == "failed"
         assert len(ec.all_errors()) == 1
+
+
+# ---------------------------------------------------------------------------
+# _ensure_summary_csv
+# ---------------------------------------------------------------------------
+
+class TestEnsureSummaryCsv:
+
+    def test_writes_csv_when_not_exists(self, tmp_path):
+        from nextseek_api.batch_upload.orchestrator import _ensure_summary_csv
+        path = str(tmp_path / "summary.csv")
+        valid_rows = [
+            InputRowModel(UID="UID-001", SampleType="NHP", json_metadata='{}'),
+        ]
+        ec = ErrorCollector()
+        _ensure_summary_csv(path, valid_rows=valid_rows, error_collector=ec)
+        assert os.path.isfile(path)
+        with open(path) as f:
+            content = f.read()
+        assert "UID-001" in content
+        assert "TOTALS" in content
+
+    def test_skips_when_file_exists(self, tmp_path):
+        from nextseek_api.batch_upload.orchestrator import _ensure_summary_csv
+        path = str(tmp_path / "summary.csv")
+        with open(path, "w") as f:
+            f.write("existing content")
+        _ensure_summary_csv(path, valid_rows=[])
+        with open(path) as f:
+            assert f.read() == "existing content"
+
+    def test_skips_when_valid_rows_is_none(self, tmp_path):
+        from nextseek_api.batch_upload.orchestrator import _ensure_summary_csv
+        path = str(tmp_path / "summary.csv")
+        _ensure_summary_csv(path, valid_rows=None)
+        assert not os.path.isfile(path)
+
+    def test_empty_valid_rows_writes_headers_and_totals(self, tmp_path):
+        from nextseek_api.batch_upload.orchestrator import _ensure_summary_csv
+        path = str(tmp_path / "summary.csv")
+        _ensure_summary_csv(path, valid_rows=[], error_collector=ErrorCollector())
+        assert os.path.isfile(path)
+        with open(path) as f:
+            content = f.read()
+        assert "TOTALS" in content
+        assert "row_index" in content
+
+    def test_extra_totals_merged(self, tmp_path):
+        from nextseek_api.batch_upload.orchestrator import _ensure_summary_csv
+        path = str(tmp_path / "summary.csv")
+        _ensure_summary_csv(
+            path, valid_rows=[], error_collector=ErrorCollector(),
+            extra_totals={"error": "CONVERT failed"},
+        )
+        with open(path) as f:
+            content = f.read()
+        assert "TOTALS" in content
+
+    def test_with_outcomes(self, tmp_path):
+        from nextseek_api.batch_upload.orchestrator import _ensure_summary_csv
+        path = str(tmp_path / "summary.csv")
+        valid_rows = [
+            InputRowModel(UID="UID-001", SampleType="NHP", json_metadata='{}'),
+        ]
+        outcomes = {"UID-001": RowOutcome(status="success", sample_id=100)}
+        _ensure_summary_csv(
+            path, valid_rows=valid_rows, outcomes=outcomes,
+            error_collector=ErrorCollector(),
+        )
+        with open(path) as f:
+            content = f.read()
+        assert "success" in content
+
+
+# ---------------------------------------------------------------------------
+# _error_result writes CSV
+# ---------------------------------------------------------------------------
+
+class TestErrorResultWritesCsv:
+
+    def test_error_result_with_valid_rows_writes_csv(self, tmp_path):
+        from nextseek_api.batch_upload.orchestrator import _error_result
+        path = str(tmp_path / "summary.csv")
+        ec = ErrorCollector()
+        valid_rows = [
+            InputRowModel(UID="UID-001", SampleType="NHP", json_metadata='{}'),
+        ]
+        result = _error_result("job-1", path, ec, "some error", valid_rows=valid_rows)
+        assert os.path.isfile(path)
+        assert result["totals"]["error"] == "some error"
+
+    def test_error_result_without_valid_rows_no_csv(self, tmp_path):
+        from nextseek_api.batch_upload.orchestrator import _error_result
+        path = str(tmp_path / "summary.csv")
+        ec = ErrorCollector()
+        result = _error_result("job-1", path, ec, "some error")
+        assert not os.path.isfile(path)
+        assert result["totals"]["error"] == "some error"
+
+    def test_error_result_csv_contains_error_info(self, tmp_path):
+        from nextseek_api.batch_upload.orchestrator import _error_result
+        path = str(tmp_path / "summary.csv")
+        ec = ErrorCollector()
+        ec.add(0, "UID-001", ErrorType.UNKNOWN, "bad thing happened")
+        valid_rows = [
+            InputRowModel(UID="UID-001", SampleType="NHP", json_metadata='{}'),
+        ]
+        _error_result("job-1", path, ec, "pipeline error", valid_rows=valid_rows)
+        with open(path) as f:
+            content = f.read()
+        assert "bad thing happened" in content
+
+
+# ---------------------------------------------------------------------------
+# _cancelled_result writes CSV
+# ---------------------------------------------------------------------------
+
+class TestCancelledResultWritesCsv:
+
+    def test_cancelled_result_with_valid_rows_writes_csv(self, tmp_path):
+        from nextseek_api.batch_upload.orchestrator import _cancelled_result
+        path = str(tmp_path / "summary.csv")
+        valid_rows = [
+            InputRowModel(UID="UID-001", SampleType="NHP", json_metadata='{}'),
+        ]
+        result = _cancelled_result("job-1", path, valid_rows=valid_rows)
+        assert os.path.isfile(path)
+        assert result["totals"]["cancelled"] is True
+
+    def test_cancelled_result_without_valid_rows_no_csv(self, tmp_path):
+        from nextseek_api.batch_upload.orchestrator import _cancelled_result
+        path = str(tmp_path / "summary.csv")
+        result = _cancelled_result("job-1", path)
+        assert not os.path.isfile(path)
+        assert result["totals"]["cancelled"] is True
+
+    def test_cancelled_result_with_outcomes(self, tmp_path):
+        from nextseek_api.batch_upload.orchestrator import _cancelled_result
+        path = str(tmp_path / "summary.csv")
+        valid_rows = [
+            InputRowModel(UID="UID-001", SampleType="NHP", json_metadata='{}'),
+        ]
+        outcomes = {"UID-001": RowOutcome(status="success", sample_id=100)}
+        _cancelled_result("job-1", path, valid_rows=valid_rows, outcomes=outcomes)
+        with open(path) as f:
+            content = f.read()
+        assert "success" in content
+
+
+# ---------------------------------------------------------------------------
+# Pipeline error paths produce summary CSV
+# ---------------------------------------------------------------------------
+
+class TestPipelineErrorPathsSummary:
+
+    @patch("nextseek_api.batch_upload.orchestrator.merge_files")
+    def test_convert_exception_produces_summary(self, mock_merge):
+        from nextseek_api.batch_upload.orchestrator import run_batch_upload_multi
+        mock_merge.side_effect = RuntimeError("bad file")
+        with tempfile.TemporaryDirectory() as td:
+            result = run_batch_upload_multi(
+                xlsx_paths=["fake.xlsx"],
+                project_id=1,
+                contributor_id=1,
+                output_dir=td,
+            )
+            summary_path = result.get("summary_path", "")
+            assert os.path.isfile(summary_path)
+
+    def test_empty_rows_produces_summary(self):
+        from nextseek_api.batch_upload.orchestrator import run_batch_upload_multi
+        with tempfile.TemporaryDirectory() as td:
+            result = run_batch_upload_multi(
+                xlsx_paths=[],
+                project_id=1,
+                contributor_id=1,
+                rows=[],
+                output_dir=td,
+            )
+            summary_path = result.get("summary_path", "")
+            assert os.path.isfile(summary_path)

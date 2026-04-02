@@ -280,6 +280,50 @@ class TestBatchUploadViewSetSummary:
         finally:
             os.unlink(temp_path)
 
+    @patch("nextseek_api.batch_upload.views.AsyncResult")
+    def test_summary_failure_state_with_file(self, mock_async):
+        from nextseek_api.batch_upload.views import BatchUploadViewSet
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w") as f:
+            f.write("uid,status\nUID-1,failed\n")
+            temp_path = f.name
+        try:
+            mock_async.return_value.state = "FAILURE"
+            mock_async.return_value.result = {"summary_path": temp_path}
+            factory = APIRequestFactory()
+            view = self._get_view()
+            request = factory.get("/batch-upload/summary/job-123/")
+            force_authenticate(request, user=_make_user())
+            with patch.object(BatchUploadViewSet, "_check_ownership", return_value=None):
+                response = view(request, job_id="job-123")
+            assert response.status_code == 200
+        finally:
+            os.unlink(temp_path)
+
+    @patch("nextseek_api.batch_upload.views.AsyncResult")
+    def test_summary_started_state_returns_404(self, mock_async):
+        from nextseek_api.batch_upload.views import BatchUploadViewSet
+        mock_async.return_value.state = "STARTED"
+        factory = APIRequestFactory()
+        view = self._get_view()
+        request = factory.get("/batch-upload/summary/job-123/")
+        force_authenticate(request, user=_make_user())
+        with patch.object(BatchUploadViewSet, "_check_ownership", return_value=None):
+            response = view(request, job_id="job-123")
+        assert response.status_code == 404
+
+    @patch("nextseek_api.batch_upload.views.AsyncResult")
+    def test_summary_failure_no_file_returns_404(self, mock_async):
+        from nextseek_api.batch_upload.views import BatchUploadViewSet
+        mock_async.return_value.state = "FAILURE"
+        mock_async.return_value.result = {"summary_path": "/tmp/nonexistent.csv"}
+        factory = APIRequestFactory()
+        view = self._get_view()
+        request = factory.get("/batch-upload/summary/job-123/")
+        force_authenticate(request, user=_make_user())
+        with patch.object(BatchUploadViewSet, "_check_ownership", return_value=None):
+            response = view(request, job_id="job-123")
+        assert response.status_code == 404
+
 
 class TestBatchUploadViewSetList:
     """Test the list endpoint."""
