@@ -225,28 +225,44 @@ def normalize_from_bundle(
 ) -> EvaluatorRetryContextResponse:
     """Normalize a historical bundle into the unified evaluator response.
 
-    No task info is available (task_progress=None, task_result=None).
+    Cross-references the QueryTask that produced this bundle to recover
+    the LLM reply, which is stored in task.result, not in the bundle.
     """
     mode = bundle.get("mode")
     # Production bundles may use "parser_plan" instead of "debug"
     debug = bundle.get("debug") or bundle.get("parser_plan") or {}
     # Production bundles use "user_query" instead of "query"
     query = bundle.get("query") or bundle.get("user_query")
-    # Bundles store API results, not LLM replies — reply may not exist
-    reply = bundle.get("reply")
     bundle_id = bundle.get("id")
+
+    # Cross-reference: find the QueryTask that produced this bundle
+    # to recover the LLM reply (stored in task.result, not in bundle)
+    reply = bundle.get("reply")  # try bundle first
+    linked_task = None
+    task_result = None
+    task_progress = None
+    if bundle_id is not None and not reply:
+        linked_task = (
+            QueryTask.objects
+            .filter(session=session, result__bundle_id=bundle_id)
+            .order_by("-created_at")
+            .first()
+        )
+        if linked_task and linked_task.result:
+            reply = linked_task.result.get("reply")
+            task_result = linked_task.result
+            task_progress = linked_task.progress if linked_task.progress else None
 
     execution_mode, path_mode, path_subtype = classify_path(mode, debug)
 
     # Bundle-based: always "completed" status, retryable if recognized path
     retryable = path_mode != "unsupported"
 
-    # Don't flag empty_reply for bundles — they don't store LLM replies
-    retry_signals: list[str] = []
+    retry_signals = _build_retry_signals("completed", reply)
 
     return EvaluatorRetryContextResponse(
         lookup=EvaluatorLookup(
-            task_id=None,
+            task_id=linked_task.task_id if linked_task else None,
             session_id=session.session_id,
             bundle_id=bundle_id,
             source="bundle",
@@ -255,7 +271,7 @@ def normalize_from_bundle(
             status="completed",
             query=query,
             reply=reply,
-            created_at=session.created_at,
+            created_at=linked_task.created_at if linked_task else session.created_at,
             user_id=session.user_id,
         ),
         routing=EvaluatorRouting(
@@ -269,8 +285,8 @@ def normalize_from_bundle(
             assistant_context=None,
         ),
         raw=EvaluatorRawPayloads(
-            task_progress=None,
-            task_result=None,
+            task_progress=task_progress,
+            task_result=task_result,
             bundle=bundle,
             last_debug=session.last_debug or None,
         ),
