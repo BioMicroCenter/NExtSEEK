@@ -27,6 +27,7 @@ from nextseek_api.assistant.models_evaluator import (
     EvaluatorRunMeta,
     EvaluatorRouting,
     EvaluatorRetryContext,
+    EvaluatorRetrySignals,
     EvaluatorRawPayloads,
     EvaluatorRetryContextResponse,
     RetryRequest,
@@ -184,6 +185,89 @@ class TestEvaluatorRouting:
 
 
 # ---------------------------------------------------------------------------
+# EvaluatorRetrySignals
+# ---------------------------------------------------------------------------
+
+class TestEvaluatorRetrySignals:
+
+    def test_default_construction(self):
+        """All fields have defaults -- can construct with no args."""
+        signals = EvaluatorRetrySignals()
+        assert signals.assistant_status is None
+        assert signals.query_error_present is False
+        assert signals.bundle_present is False
+        assert signals.api_ok is None
+        assert signals.graph_ok is None
+        assert signals.rows_returned is None
+        assert signals.has_prior_context is False
+
+    def test_search_mode_observables(self):
+        signals = EvaluatorRetrySignals(
+            assistant_status="completed",
+            bundle_present=True,
+            path_mode="new_search",
+            api_ok=True,
+            api_status_code=200,
+            rows_returned=195,
+        )
+        assert signals.api_ok is True
+        assert signals.rows_returned == 195
+        assert signals.graph_ok is None  # not applicable
+
+    def test_graph_mode_observables(self):
+        signals = EvaluatorRetrySignals(
+            assistant_status="completed",
+            bundle_present=True,
+            path_mode="graph_query",
+            graph_ok=True,
+            rows_returned=3,
+        )
+        assert signals.graph_ok is True
+        assert signals.api_ok is None  # not applicable
+
+    def test_plan_mode_observables(self):
+        signals = EvaluatorRetrySignals(
+            assistant_status="completed",
+            bundle_present=True,
+            path_mode="plan",
+            plan_steps_total=3,
+            plan_steps_executed=3,
+            plan_steps_ok=2,
+            plan_steps_failed=1,
+            plan_stop_reason=None,
+        )
+        assert signals.plan_steps_total == 3
+        assert signals.plan_steps_failed == 1
+
+    def test_error_observables(self):
+        signals = EvaluatorRetrySignals(
+            assistant_status="error",
+            query_error_present=True,
+            raw_error_excerpt="LLM timeout after 30s",
+        )
+        assert signals.query_error_present is True
+        assert signals.raw_error_excerpt == "LLM timeout after 30s"
+
+    def test_extra_fields_rejected(self):
+        with pytest.raises(ValidationError):
+            EvaluatorRetrySignals(unknown_field="bad")
+
+    def test_round_trip_json(self):
+        signals = EvaluatorRetrySignals(
+            assistant_status="completed",
+            bundle_present=True,
+            path_mode="new_search",
+            api_ok=True,
+            api_status_code=200,
+            rows_returned=10,
+            has_prior_context=True,
+        )
+        data = signals.model_dump(mode="json")
+        reconstructed = EvaluatorRetrySignals.model_validate(data)
+        assert reconstructed.api_status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # EvaluatorRetryContext
 # ---------------------------------------------------------------------------
 
@@ -192,20 +276,30 @@ class TestEvaluatorRetryContext:
     def test_retryable_with_signals(self):
         ctx = EvaluatorRetryContext(
             retryable=True,
-            retry_signals=["empty_result", "partial_data"],
-            assistant_context="Search returned 0 results for mice query",
+            retry_signals=EvaluatorRetrySignals(
+                assistant_status="completed",
+                bundle_present=True,
+                path_mode="new_search",
+                api_ok=True,
+                rows_returned=5,
+            ),
+            assistant_context="Search returned few results",
         )
         assert ctx.retryable is True
-        assert len(ctx.retry_signals) == 2
+        assert ctx.retry_signals.rows_returned == 5
 
-    def test_not_retryable_empty_signals(self):
+    def test_not_retryable_with_error(self):
         ctx = EvaluatorRetryContext(
             retryable=False,
-            retry_signals=[],
+            retry_signals=EvaluatorRetrySignals(
+                assistant_status="error",
+                query_error_present=True,
+                raw_error_excerpt="timeout",
+            ),
             assistant_context=None,
         )
         assert ctx.retryable is False
-        assert ctx.retry_signals == []
+        assert ctx.retry_signals.query_error_present is True
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +356,13 @@ class TestEvaluatorRetryContextResponse:
             ),
             retry_context=EvaluatorRetryContext(
                 retryable=True,
-                retry_signals=["low_result_count"],
+                retry_signals=EvaluatorRetrySignals(
+                    assistant_status="completed",
+                    bundle_present=True,
+                    path_mode="new_search",
+                    api_ok=True,
+                    rows_returned=5,
+                ),
                 assistant_context="Search returned few results",
             ),
             raw=EvaluatorRawPayloads(
@@ -301,7 +401,9 @@ class TestEvaluatorRetryContextResponse:
                 execution_mode="standard", path_mode="graph_query", path_subtype=None,
             ),
             retry_context=EvaluatorRetryContext(
-                retryable=False, retry_signals=[], assistant_context=None,
+                retryable=False,
+                retry_signals=EvaluatorRetrySignals(),
+                assistant_context=None,
             ),
             raw=EvaluatorRawPayloads(
                 task_progress=None, task_result=None,

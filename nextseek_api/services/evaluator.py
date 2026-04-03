@@ -40,6 +40,7 @@ from nextseek_api.assistant.models_evaluator import (
     EvaluatorRawPayloads,
     EvaluatorRetryContext,
     EvaluatorRetryContextResponse,
+    EvaluatorRetrySignals,
     EvaluatorRouting,
     EvaluatorRunMeta,
     EvaluatorRunSummary,
@@ -120,16 +121,102 @@ def _error_response(title: str, detail: str, http_status: int) -> Response:
 # ---------------------------------------------------------------------------
 
 def _build_retry_signals(
-    task_status: str,
-    reply: Optional[str],
-) -> list[str]:
-    """Build the retry_signals list based on task/bundle state."""
-    signals: list[str] = []
-    if task_status == "error":
-        signals.append("error_status")
-    if not reply:
-        signals.append("empty_reply")
-    return signals
+    task_status: Optional[str],
+    result: Optional[Dict[str, Any]],
+    bundle: Optional[Dict[str, Any]],
+    session: Optional[ChatSession],
+) -> EvaluatorRetrySignals:
+    """Extract normalized observables from run state for the evaluator client."""
+    mode = bundle.get("mode") if bundle else None
+
+    # Task-level
+    query_error_present = bool(result.get("error")) if result else False
+    raw_error = result.get("error") if result else None
+    raw_error_excerpt = str(raw_error)[:200] if raw_error else None
+
+    # Defaults
+    api_ok = None
+    api_status_code = None
+    rows_returned = None
+    graph_ok = None
+    has_artifacts = False
+    plan_steps_total = None
+    plan_steps_executed = None
+    plan_steps_ok = None
+    plan_steps_failed = None
+    plan_stop_reason = None
+
+    if bundle:
+        if mode in ("new_search", "refine_last_search"):
+            api_full = bundle.get("api_result_full") or {}
+            api_slim = bundle.get("api_result_slim") or {}
+            api_ok = api_full.get("ok")
+            api_status_code = api_full.get("status_code")
+            full_data = api_full.get("data") or {}
+            slim_data = api_slim.get("data") or {}
+            rows_returned = (
+                full_data.get("total")
+                or slim_data.get("total")
+                or full_data.get("count")
+            )
+
+        elif mode == "graph_query":
+            graph_result = bundle.get("graph_result") or {}
+            graph_ok = graph_result.get("ok")
+            rows_returned = graph_result.get("count")
+
+        elif mode == "reporter":
+            reporter_result = bundle.get("reporter_result") or {}
+            api_ok = reporter_result.get("ok")
+            rows_returned = reporter_result.get("rows_returned")
+
+        elif mode == "plan":
+            step_results = bundle.get("step_results") or {}
+            planned_steps = (bundle.get("plan") or {}).get("steps") or []
+            plan_steps_total = len(planned_steps)
+            plan_steps_executed = len(step_results)
+            plan_steps_ok = sum(1 for s in step_results.values() if s.get("ok"))
+            plan_steps_failed = sum(
+                1 for s in step_results.values() if not s.get("ok")
+            )
+            if plan_steps_executed < plan_steps_total:
+                sorted_ids = sorted(step_results.keys())
+                last_id = sorted_ids[-1] if sorted_ids else None
+                if last_id and not step_results[last_id].get("ok"):
+                    plan_stop_reason = step_results[last_id].get(
+                        "error", "step_failed"
+                    )
+                else:
+                    plan_stop_reason = "incomplete"
+
+        has_artifacts = bool(
+            bundle.get("report_saved_files") or bundle.get("files")
+        )
+
+    has_prior_context = (
+        len(session.results_history) > 1
+        if session and session.results_history
+        else False
+    )
+
+    return EvaluatorRetrySignals(
+        assistant_status=task_status,
+        query_error_present=query_error_present,
+        raw_error_excerpt=raw_error_excerpt,
+        bundle_present=bundle is not None,
+        path_mode=mode,
+        api_ok=api_ok,
+        api_status_code=api_status_code,
+        rows_returned=rows_returned,
+        graph_ok=graph_ok,
+        has_artifacts=has_artifacts,
+        plan_steps_total=plan_steps_total,
+        plan_steps_executed=plan_steps_executed,
+        plan_steps_ok=plan_steps_ok,
+        plan_steps_failed=plan_steps_failed,
+        plan_stop_reason=plan_stop_reason,
+        has_prior_context=has_prior_context,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +267,7 @@ def normalize_from_task(task: QueryTask) -> EvaluatorRetryContextResponse:
         and path_mode != "unsupported"
     )
 
-    retry_signals = _build_retry_signals(task.status, reply)
+    retry_signals = _build_retry_signals(task.status, result, bundle, session)
 
     return EvaluatorRetryContextResponse(
         lookup=EvaluatorLookup(
@@ -258,7 +345,12 @@ def normalize_from_bundle(
     # Bundle-based: always "completed" status, retryable if recognized path
     retryable = path_mode != "unsupported"
 
-    retry_signals = _build_retry_signals("completed", reply)
+    retry_signals = _build_retry_signals(
+        "completed",
+        linked_task.result if linked_task else None,
+        bundle,
+        session,
+    )
 
     return EvaluatorRetryContextResponse(
         lookup=EvaluatorLookup(
