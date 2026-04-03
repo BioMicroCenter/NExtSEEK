@@ -52,12 +52,48 @@ class EvaluatorRouting(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class EvaluatorRetrySignals(BaseModel):
+    """Normalized observables for the evaluator client. Facts, not conclusions."""
+
+    # Task-level
+    assistant_status: Optional[str] = Field(None, description="pending | running | completed | error")
+    query_error_present: bool = Field(False, description="True if task.result contains an error")
+    raw_error_excerpt: Optional[str] = Field(None, description="First 200 chars of error message")
+
+    # Bundle-level
+    bundle_present: bool = Field(False, description="Whether a result bundle exists")
+    path_mode: Optional[str] = Field(None, description="new_search | graph_query | reporter | plan | ...")
+
+    # API search observables (new_search, refine_last_search)
+    api_ok: Optional[bool] = Field(None, description="HTTP success from SEEK API call")
+    api_status_code: Optional[int] = Field(None, description="HTTP status code from SEEK API call")
+    rows_returned: Optional[int] = Field(None, description="Result count from API, graph, or reporter")
+
+    # Graph observables (graph_query)
+    graph_ok: Optional[bool] = Field(None, description="Neo4j query success")
+
+    # Artifact observables
+    has_artifacts: bool = Field(False, description="Whether saved artifact files exist (any mode)")
+
+    # Plan observables
+    plan_steps_total: Optional[int] = Field(None, description="Number of planned steps")
+    plan_steps_executed: Optional[int] = Field(None, description="Number of steps that ran")
+    plan_steps_ok: Optional[int] = Field(None, description="Steps that succeeded")
+    plan_steps_failed: Optional[int] = Field(None, description="Steps that failed")
+    plan_stop_reason: Optional[str] = Field(None, description="Why plan stopped early, if applicable")
+
+    # Session-level
+    has_prior_context: bool = Field(False, description="Whether session has prior result bundles")
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class EvaluatorRetryContext(BaseModel):
     """Compact evaluator-focused retry inputs."""
     retryable: bool = Field(..., description="Whether this run is retryable")
-    retry_signals: List[str] = Field(
-        default_factory=list,
-        description="Signals indicating why a retry may be warranted",
+    retry_signals: EvaluatorRetrySignals = Field(
+        default_factory=EvaluatorRetrySignals,
+        description="Normalized observables for evaluator analysis",
     )
     assistant_context: Optional[str] = Field(
         None, description="Normalized debug/bundle summary for evaluator"

@@ -27,6 +27,7 @@ from rest_framework.test import APIClient
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.models_evaluator import (
     EvaluatorRetryContextResponse,
+    EvaluatorRetrySignals,
     EvaluatorRouting,
 )
 
@@ -249,6 +250,9 @@ class TestNormalizeFromTask(TestCase):
         self.assertEqual(resp.routing.execution_mode, "standard")
         self.assertEqual(resp.routing.path_mode, "new_search")
         self.assertTrue(resp.retry_context.retryable)
+        self.assertEqual(resp.retry_context.retry_signals.assistant_status, "completed")
+        self.assertTrue(resp.retry_context.retry_signals.bundle_present)
+        self.assertEqual(resp.retry_context.retry_signals.path_mode, "new_search")
         self.assertEqual(resp.raw.task_result, result)
 
     def test_completed_task_no_bundle(self):
@@ -277,7 +281,8 @@ class TestNormalizeFromTask(TestCase):
         resp = normalize_from_task(task)
 
         self.assertEqual(resp.run.status, "error")
-        self.assertIn("error_status", resp.retry_context.retry_signals)
+        self.assertEqual(resp.retry_context.retry_signals.assistant_status, "error")
+        self.assertTrue(resp.retry_context.retry_signals.query_error_present)
         self.assertFalse(resp.retry_context.retryable)
 
     def test_pending_task(self):
@@ -285,6 +290,8 @@ class TestNormalizeFromTask(TestCase):
         resp = normalize_from_task(task)
 
         self.assertEqual(resp.run.status, "pending")
+        self.assertEqual(resp.retry_context.retry_signals.assistant_status, "pending")
+        self.assertFalse(resp.retry_context.retry_signals.bundle_present)
         self.assertFalse(resp.retry_context.retryable)
 
     def test_running_task(self):
@@ -302,20 +309,24 @@ class TestNormalizeFromTask(TestCase):
         self.assertFalse(resp.retry_context.retryable)
 
     def test_task_with_empty_reply_signal(self):
-        """A completed task with empty reply should signal empty_reply."""
+        """A completed task with empty reply -- signals reflect bundle state."""
         result = {"reply": "", "bundle_id": 1}
         task = self._make_task(status="completed", result=result)
         resp = normalize_from_task(task)
 
-        self.assertIn("empty_reply", resp.retry_context.retry_signals)
+        self.assertIsInstance(resp.retry_context.retry_signals, EvaluatorRetrySignals)
+        self.assertEqual(resp.retry_context.retry_signals.assistant_status, "completed")
+        self.assertTrue(resp.retry_context.retry_signals.bundle_present)
 
     def test_task_with_none_reply_signal(self):
-        """A completed task with None reply should signal empty_reply."""
+        """A completed task with None reply -- signals reflect bundle state."""
         result = {"reply": None, "bundle_id": 1}
         task = self._make_task(status="completed", result=result)
         resp = normalize_from_task(task)
 
-        self.assertIn("empty_reply", resp.retry_context.retry_signals)
+        self.assertIsInstance(resp.retry_context.retry_signals, EvaluatorRetrySignals)
+        self.assertEqual(resp.retry_context.retry_signals.assistant_status, "completed")
+        self.assertTrue(resp.retry_context.retry_signals.bundle_present)
 
     def test_task_progress_included(self):
         progress = [{"event": "agent_started", "data": {"agent": "entity"}}]
@@ -477,22 +488,27 @@ class TestNormalizeFromBundle(TestCase):
         self.assertTrue(resp.retry_context.retryable)
 
     def test_empty_reply_signal_when_no_linked_task(self):
-        """When bundle has empty reply and no linked task, signal empty_reply."""
+        """When bundle has empty reply and no linked task -- signals reflect bundle."""
         session = ChatSession.objects.create(
             user=self.user,
             results_history=[BUNDLE_EMPTY_REPLY],
         )
         resp = normalize_from_bundle(session, BUNDLE_EMPTY_REPLY)
-        self.assertIn("empty_reply", resp.retry_context.retry_signals)
+        self.assertIsInstance(resp.retry_context.retry_signals, EvaluatorRetrySignals)
+        self.assertEqual(resp.retry_context.retry_signals.assistant_status, "completed")
+        self.assertTrue(resp.retry_context.retry_signals.bundle_present)
+        self.assertEqual(resp.retry_context.retry_signals.path_mode, "new_search")
 
     def test_none_reply_signal_when_no_linked_task(self):
-        """When bundle has no reply and no linked task, signal empty_reply."""
+        """When bundle has no reply and no linked task -- signals reflect bundle."""
         session = ChatSession.objects.create(
             user=self.user,
             results_history=[BUNDLE_NO_REPLY],
         )
         resp = normalize_from_bundle(session, BUNDLE_NO_REPLY)
-        self.assertIn("empty_reply", resp.retry_context.retry_signals)
+        self.assertIsInstance(resp.retry_context.retry_signals, EvaluatorRetrySignals)
+        self.assertEqual(resp.retry_context.retry_signals.assistant_status, "completed")
+        self.assertTrue(resp.retry_context.retry_signals.bundle_present)
 
     def test_user_id_from_session(self):
         session = ChatSession.objects.create(
@@ -616,7 +632,9 @@ class TestRetryContextByTaskEndpoint(TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["run"]["status"], "error")
-        self.assertIn("error_status", data["retry_context"]["retry_signals"])
+        signals = data["retry_context"]["retry_signals"]
+        self.assertEqual(signals["assistant_status"], "error")
+        self.assertTrue(signals["query_error_present"])
 
     def test_admin_can_see_other_users_task(self):
         """Admin endpoint allows access to any user's task."""
@@ -756,3 +774,195 @@ class TestRetryContextByBundleEndpoint(TestCase):
         data = resp.json()
         self.assertEqual(data["routing"]["execution_mode"], "plan")
         self.assertEqual(data["routing"]["path_mode"], "plan")
+
+
+# ===========================================================================
+# _build_retry_signals() unit tests
+# ===========================================================================
+
+class TestBuildRetrySignals(TestCase):
+    """Test _build_retry_signals() with production-like fixtures."""
+
+    def test_search_bundle_extracts_api_observables(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        bundle = {
+            "mode": "new_search",
+            "api_result_full": {"ok": True, "status_code": 200, "data": {"total": 195}},
+            "api_result_slim": {"ok": True, "status_code": 200, "data": {"total": 195}},
+            "files": [{"key": "api_result"}],
+        }
+        signals = _build_retry_signals("completed", None, bundle, None)
+        self.assertTrue(signals.api_ok)
+        self.assertEqual(signals.api_status_code, 200)
+        self.assertEqual(signals.rows_returned, 195)
+        self.assertTrue(signals.has_artifacts)
+
+    def test_search_bundle_api_error(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        bundle = {
+            "mode": "new_search",
+            "api_result_full": {"ok": False, "status_code": 500, "error": "Internal Server Error"},
+        }
+        signals = _build_retry_signals("completed", None, bundle, None)
+        self.assertFalse(signals.api_ok)
+        self.assertEqual(signals.api_status_code, 500)
+
+    def test_graph_bundle_extracts_graph_observables(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        bundle = {
+            "mode": "graph_query",
+            "graph_result": {"ok": True, "count": 3, "data": [{"n": 1}]},
+        }
+        signals = _build_retry_signals("completed", None, bundle, None)
+        self.assertTrue(signals.graph_ok)
+        self.assertEqual(signals.rows_returned, 3)
+        self.assertIsNone(signals.api_ok)
+
+    def test_graph_bundle_failure(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        bundle = {
+            "mode": "graph_query",
+            "graph_result": {"ok": False, "error": "Invalid Cypher", "count": 0},
+        }
+        signals = _build_retry_signals("completed", None, bundle, None)
+        self.assertFalse(signals.graph_ok)
+        self.assertEqual(signals.rows_returned, 0)
+
+    def test_reporter_bundle_with_saved_files(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        bundle = {
+            "mode": "reporter",
+            "reporter_result": {"ok": True, "rows_returned": 42},
+            "report_saved_files": {"geo_seq_workbooks": ["/path/to/file.xlsx"]},
+        }
+        signals = _build_retry_signals("completed", None, bundle, None)
+        self.assertTrue(signals.api_ok)  # reporter_result.ok maps to api_ok
+        self.assertEqual(signals.rows_returned, 42)
+        self.assertTrue(signals.has_artifacts)
+
+    def test_reporter_failure(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        bundle = {
+            "mode": "reporter",
+            "reporter_result": {"ok": False, "error": "No UIDs found"},
+        }
+        signals = _build_retry_signals("completed", None, bundle, None)
+        self.assertFalse(signals.api_ok)
+        self.assertIsNone(signals.rows_returned)
+
+    def test_plan_bundle_all_steps_ok(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        bundle = {
+            "mode": "plan",
+            "plan": {"steps": [{"id": "s0"}, {"id": "s1"}, {"id": "s2"}]},
+            "step_results": {
+                "s0": {"ok": True, "count": 10},
+                "s1": {"ok": True, "count": 5},
+                "s2": {"ok": True, "count": 3},
+            },
+        }
+        signals = _build_retry_signals("completed", None, bundle, None)
+        self.assertEqual(signals.plan_steps_total, 3)
+        self.assertEqual(signals.plan_steps_executed, 3)
+        self.assertEqual(signals.plan_steps_ok, 3)
+        self.assertEqual(signals.plan_steps_failed, 0)
+        self.assertIsNone(signals.plan_stop_reason)
+
+    def test_plan_bundle_step_failed_early(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        bundle = {
+            "mode": "plan",
+            "plan": {"steps": [{"id": "s0"}, {"id": "s1"}, {"id": "s2"}]},
+            "step_results": {
+                "s0": {"ok": True, "count": 10},
+                "s1": {"ok": False, "error": "API returned 404"},
+            },
+        }
+        signals = _build_retry_signals("completed", None, bundle, None)
+        self.assertEqual(signals.plan_steps_total, 3)
+        self.assertEqual(signals.plan_steps_executed, 2)
+        self.assertEqual(signals.plan_steps_ok, 1)
+        self.assertEqual(signals.plan_steps_failed, 1)
+        self.assertEqual(signals.plan_stop_reason, "API returned 404")
+
+    def test_plan_bundle_incomplete_no_failure(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        bundle = {
+            "mode": "plan",
+            "plan": {"steps": [{"id": "s0"}, {"id": "s1"}]},
+            "step_results": {"s0": {"ok": True}},
+        }
+        signals = _build_retry_signals("completed", None, bundle, None)
+        self.assertEqual(signals.plan_stop_reason, "incomplete")
+
+    def test_error_task_extracts_error_info(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        result = {"error": "LLM timeout after 30 seconds", "agent": "router"}
+        signals = _build_retry_signals("error", result, None, None)
+        self.assertTrue(signals.query_error_present)
+        self.assertEqual(signals.raw_error_excerpt, "LLM timeout after 30 seconds")
+        self.assertFalse(signals.bundle_present)
+
+    def test_no_bundle_no_result(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        signals = _build_retry_signals("pending", None, None, None)
+        self.assertEqual(signals.assistant_status, "pending")
+        self.assertFalse(signals.bundle_present)
+        self.assertIsNone(signals.api_ok)
+        self.assertIsNone(signals.graph_ok)
+
+    def test_has_prior_context_true(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        user = User.objects.create_user(username="siguser", password="pass")
+        session = ChatSession.objects.create(
+            user=user,
+            results_history=[{"id": 1}, {"id": 2}],
+        )
+        signals = _build_retry_signals(
+            "completed", None,
+            {"mode": "new_search", "api_result_full": {"ok": True, "status_code": 200}},
+            session,
+        )
+        self.assertTrue(signals.has_prior_context)
+
+    def test_has_prior_context_false_single_bundle(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        user = User.objects.create_user(username="siguser2", password="pass")
+        session = ChatSession.objects.create(
+            user=user,
+            results_history=[{"id": 1}],
+        )
+        signals = _build_retry_signals(
+            "completed", None,
+            {"mode": "new_search", "api_result_full": {"ok": True, "status_code": 200}},
+            session,
+        )
+        self.assertFalse(signals.has_prior_context)
+
+    def test_raw_error_excerpt_truncated(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        long_error = "x" * 500
+        result = {"error": long_error}
+        signals = _build_retry_signals("error", result, None, None)
+        self.assertEqual(len(signals.raw_error_excerpt), 200)
+
+    def test_refine_last_search_uses_same_path_as_new_search(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        bundle = {
+            "mode": "refine_last_search",
+            "api_result_full": {"ok": True, "status_code": 200, "data": {"total": 50}},
+        }
+        signals = _build_retry_signals("completed", None, bundle, None)
+        self.assertTrue(signals.api_ok)
+        self.assertEqual(signals.rows_returned, 50)
+        self.assertEqual(signals.path_mode, "refine_last_search")
+
+    def test_plan_mode_rows_returned_is_none(self):
+        from nextseek_api.services.evaluator import _build_retry_signals
+        bundle = {
+            "mode": "plan",
+            "plan": {"steps": [{"id": "s0"}]},
+            "step_results": {"s0": {"ok": True, "count": 10}},
+        }
+        signals = _build_retry_signals("completed", None, bundle, None)
+        self.assertIsNone(signals.rows_returned)
