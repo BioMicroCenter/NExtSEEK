@@ -92,9 +92,10 @@ def classify_path(
         return ("plan", "plan", None)
 
     # Reporter: check for subtype via debug.reporter_plan.reporter_mode
+    # Production bundles use "parser_plan" instead of "debug.reporter_plan"
     path_subtype: Optional[str] = None
     if mode == "reporter":
-        reporter_plan = debug.get("reporter_plan") or {}
+        reporter_plan = debug.get("reporter_plan") or debug.get("parser_plan") or {}
         reporter_mode = reporter_plan.get("reporter_mode")
         if reporter_mode:
             path_subtype = f"reporter.{reporter_mode}"
@@ -163,9 +164,10 @@ def normalize_from_task(task: QueryTask) -> EvaluatorRetryContextResponse:
         bundle = next((b for b in history if b.get("id") == bundle_id), None)
 
     # Classify path from bundle mode/debug (or unsupported if no bundle)
+    # Production bundles use "parser_plan" instead of "debug"
     if bundle is not None:
         mode = bundle.get("mode")
-        debug = bundle.get("debug") or {}
+        debug = bundle.get("debug") or bundle.get("parser_plan") or {}
     else:
         mode = None
         debug = {}
@@ -226,9 +228,12 @@ def normalize_from_bundle(
     No task info is available (task_progress=None, task_result=None).
     """
     mode = bundle.get("mode")
-    debug = bundle.get("debug") or {}
+    # Production bundles may use "parser_plan" instead of "debug"
+    debug = bundle.get("debug") or bundle.get("parser_plan") or {}
+    # Production bundles use "user_query" instead of "query"
+    query = bundle.get("query") or bundle.get("user_query")
+    # Bundles store API results, not LLM replies — reply may not exist
     reply = bundle.get("reply")
-    query = bundle.get("query")
     bundle_id = bundle.get("id")
 
     execution_mode, path_mode, path_subtype = classify_path(mode, debug)
@@ -236,7 +241,8 @@ def normalize_from_bundle(
     # Bundle-based: always "completed" status, retryable if recognized path
     retryable = path_mode != "unsupported"
 
-    retry_signals = _build_retry_signals("completed", reply)
+    # Don't flag empty_reply for bundles — they don't store LLM replies
+    retry_signals: list[str] = []
 
     return EvaluatorRetryContextResponse(
         lookup=EvaluatorLookup(

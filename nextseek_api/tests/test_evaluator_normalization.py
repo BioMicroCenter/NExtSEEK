@@ -476,23 +476,23 @@ class TestNormalizeFromBundle(TestCase):
         self.assertEqual(resp.routing.path_mode, "plan")
         self.assertTrue(resp.retry_context.retryable)
 
-    def test_empty_reply_signal(self):
+    def test_empty_reply_no_signal_for_bundles(self):
+        """Bundles don't store LLM replies, so empty_reply should NOT fire."""
         session = ChatSession.objects.create(
             user=self.user,
             results_history=[BUNDLE_EMPTY_REPLY],
         )
         resp = normalize_from_bundle(session, BUNDLE_EMPTY_REPLY)
+        self.assertNotIn("empty_reply", resp.retry_context.retry_signals)
 
-        self.assertIn("empty_reply", resp.retry_context.retry_signals)
-
-    def test_none_reply_signal(self):
+    def test_none_reply_no_signal_for_bundles(self):
+        """Bundles don't store LLM replies, so empty_reply should NOT fire."""
         session = ChatSession.objects.create(
             user=self.user,
             results_history=[BUNDLE_NO_REPLY],
         )
         resp = normalize_from_bundle(session, BUNDLE_NO_REPLY)
-
-        self.assertIn("empty_reply", resp.retry_context.retry_signals)
+        self.assertNotIn("empty_reply", resp.retry_context.retry_signals)
 
     def test_user_id_from_session(self):
         session = ChatSession.objects.create(
