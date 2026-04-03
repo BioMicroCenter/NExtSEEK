@@ -283,15 +283,21 @@ class AssistantViewSet(viewsets.ViewSet):
 
         adapter = DictSessionAdapter(chat_session)
 
+        # Resolve credentials: try Basic auth header first, fall back to session
+        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+        if basic_tuple and basic_tuple[0] and basic_tuple[1]:
+            api_user, api_pass = basic_tuple
+        else:
+            api_user = request.session.get("username")
+            api_pass = request.session.get("password")
+
         def _run_pipeline() -> None:
             try:
-                API_USER = request.session.get("username")
-                API_PASS = request.session.get("password")
                 match getattr(req, "mode", "standard"):
                     case "plan":
-                        run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
+                        run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
                     case _:
-                        run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
+                        run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
             except Exception:
                 logger.exception("Unhandled pipeline error")
                 send_event("query_error", {
@@ -391,15 +397,21 @@ class AssistantViewSet(viewsets.ViewSet):
         send_event = make_db_event_callback(task_id_str, resolved_session_id)
         adapter = DictSessionAdapter(chat_session)
 
+        # Resolve credentials: try Basic auth header first, fall back to session
+        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+        if basic_tuple and basic_tuple[0] and basic_tuple[1]:
+            api_user, api_pass = basic_tuple
+        else:
+            api_user = request.session.get("username")
+            api_pass = request.session.get("password")
+
         def _run_pipeline() -> None:
             try:
-                API_USER = request.session.get("username")
-                API_PASS = request.session.get("password")
                 match getattr(req, "mode", "standard"):
                     case "plan":
-                        run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
+                        run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
                     case _:
-                        run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": API_USER, "api_pass": API_PASS})
+                        run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
             except Exception:
                 logger.exception("Unhandled pipeline error (async)")
                 send_event("query_error", {
