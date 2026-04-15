@@ -59,6 +59,21 @@ class TestDeepMergeMetadata:
         assert len(changed_keys) == 0
 
 
+class TestCanonicalizeJsonMetadata:
+    def test_invalid_json_returns_empty_object(self):
+        from nextseek_api.batch_upload.update import _canonicalize_json_metadata
+        assert _canonicalize_json_metadata('{"bad"') == "{}"
+
+    def test_non_object_json_returns_empty_object(self):
+        from nextseek_api.batch_upload.update import _canonicalize_json_metadata
+        assert _canonicalize_json_metadata('["x"]') == "{}"
+
+    def test_typo_key_rewritten(self):
+        from nextseek_api.batch_upload.update import _canonicalize_json_metadata
+        parsed = json.loads(_canonicalize_json_metadata('{"File_PrimartyData":"x.csv"}'))
+        assert parsed == {"File_PrimaryData": "x.csv"}
+
+
 class TestLoadExistingSampleDetails:
     def test_loads_details(self):
         from nextseek_api.batch_upload.update import load_existing_sample_details
@@ -88,6 +103,13 @@ class TestLoadExistingSampleDetails:
         details = load_existing_sample_details(["U1"], conn)
         assert details["U1"]["json_metadata"] == "{}"
         assert details["U1"]["title"] == ""
+
+    def test_update_sample_metadata_emits_update(self):
+        from nextseek_api.batch_upload.update import update_sample_metadata
+        conn = MagicMock()
+        update_sample_metadata("U1", 5, "Title", '{"Name":"x"}', conn)
+        assert "UPDATE samples SET title = :title" in conn.execute.call_args[0][0].text
+        assert conn.execute.call_args[0][1]["sid"] == 5
 
 
 class TestSmartMergeAssayAssets:
@@ -380,6 +402,22 @@ class TestBulkUpdateSamples:
         assert outcomes["U_MISSING"].status == "failed"
         assert "not found" in outcomes["U_MISSING"].reason
 
+    def test_all_rows_missing_details_returns_failed_outcomes_only(self):
+        from nextseek_api.batch_upload.update import bulk_update_samples
+
+        conn = MagicMock()
+        rows = [_make_sample("U_MISSING")]
+        outcomes = bulk_update_samples(
+            rows=rows,
+            details={},
+            project_id=99,
+            direction_by_pair={},
+            conn=conn,
+        )
+
+        assert outcomes["U_MISSING"].status == "failed"
+        conn.execute.assert_not_called()
+
     def test_empty_rows_returns_empty(self):
         """Empty rows list returns empty outcomes."""
         from nextseek_api.batch_upload.update import bulk_update_samples
@@ -489,6 +527,104 @@ class TestBulkUpdateSamples:
             and c[0][1].get("access_type") == 0
         ]
         assert len(repair_calls) == 1
+
+    def test_bulk_upsert_permissions_empty_returns_zero(self):
+        from nextseek_api.batch_upload.update import _bulk_insert_permissions_ignore
+
+        conn = MagicMock()
+        assert _bulk_insert_permissions_ignore([], 99, conn, "2026-01-01 00:00:00") == 0
+        conn.execute.assert_not_called()
+
+    def test_bulk_restore_private_policy_defaults_empty_returns_zero(self):
+        from nextseek_api.batch_upload.update import _bulk_restore_private_policy_defaults
+
+        conn = MagicMock()
+        assert _bulk_restore_private_policy_defaults([], conn, "2026-01-01 00:00:00") == 0
+        conn.execute.assert_not_called()
+
+    def test_bulk_restore_private_policy_defaults_ignores_falsey_ids(self):
+        from nextseek_api.batch_upload.update import _bulk_restore_private_policy_defaults
+
+        conn = MagicMock()
+        assert _bulk_restore_private_policy_defaults([0, None], conn, "2026-01-01 00:00:00") == 0
+        conn.execute.assert_not_called()
+
+    def test_update_path_canonicalizes_merged_metadata(self):
+        from nextseek_api.batch_upload.update import bulk_update_samples
+
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = []
+        rows = [_make_sample("U1", title="NewTitle", meta='{"File_PrimaryData":"new.csv"}')]
+        details = _make_details(("U1", 1, 5, '{"File_PrimartyData":"old.csv"}', "OldTitle"))
+
+        with patch("nextseek_api.batch_upload.update.batch_insert_assay_assets", return_value=0), \
+             patch("nextseek_api.batch_upload.update.batch_insert_projects_samples", return_value=0):
+            bulk_update_samples(
+                rows=rows,
+                details=details,
+                project_id=99,
+                direction_by_pair={},
+                conn=conn,
+            )
+
+        update_call = next(
+            c for c in conn.execute.call_args_list
+            if hasattr(c[0][0], "text") and c[0][0].text.startswith("UPDATE samples SET")
+        )
+        params = update_call[0][1]
+        parsed = json.loads(params["meta_0"])
+        assert parsed["File_PrimaryData"] == "new.csv"
+        assert "File_PrimartyData" not in parsed
+        assert params["title_0"] == "NewTitle"
+
+    def test_update_path_canonicalization_is_noop_for_canonical_metadata(self):
+        from nextseek_api.batch_upload.update import bulk_update_samples
+
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = []
+        rows = [_make_sample("U1", title="NewTitle", meta='{"File_PrimaryData":"canon.csv"}')]
+        details = _make_details(("U1", 1, 5, '{"File_PrimaryData":"canon.csv"}', "OldTitle"))
+
+        with patch("nextseek_api.batch_upload.update.batch_insert_assay_assets", return_value=0), \
+             patch("nextseek_api.batch_upload.update.batch_insert_projects_samples", return_value=0):
+            bulk_update_samples(
+                rows=rows,
+                details=details,
+                project_id=99,
+                direction_by_pair={},
+                conn=conn,
+            )
+
+        update_call = next(
+            c for c in conn.execute.call_args_list
+            if hasattr(c[0][0], "text") and c[0][0].text.startswith("UPDATE samples SET")
+        )
+        params = update_call[0][1]
+        assert params["meta_0"] == '{"File_PrimaryData":"canon.csv"}'
+
+    def test_update_path_still_overwrites_title(self):
+        from nextseek_api.batch_upload.update import bulk_update_samples
+
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = []
+        rows = [_make_sample("U1", title="NewTitle", meta='{"Name":"Updated"}')]
+        details = _make_details(("U1", 1, 5, '{"Name":"Old"}', "OldTitle"))
+
+        with patch("nextseek_api.batch_upload.update.batch_insert_assay_assets", return_value=0), \
+             patch("nextseek_api.batch_upload.update.batch_insert_projects_samples", return_value=0):
+            bulk_update_samples(
+                rows=rows,
+                details=details,
+                project_id=99,
+                direction_by_pair={},
+                conn=conn,
+            )
+
+        update_call = next(
+            c for c in conn.execute.call_args_list
+            if hasattr(c[0][0], "text") and c[0][0].text.startswith("UPDATE samples SET")
+        )
+        assert update_call[0][1]["title_0"] == "NewTitle"
 
 
 class TestRowOutcomeParentChanged:

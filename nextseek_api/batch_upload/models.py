@@ -90,12 +90,23 @@ class SampleMetadata(BaseModel):
     Name: Optional[Union[str, int]] = None
     Link_PrimaryData: Optional[str] = None
     Link_SecondaryData: Optional[str] = None
+    File_PrimaryData: Optional[str] = None
+    File_PrimaryData_Forward: Optional[str] = None
+    File_PrimaryData_Reverse: Optional[str] = None
     File_PrimartyData: Optional[str] = None  # intentional typo from SEEK
+    File_PrimartyData_Forward: Optional[str] = None
+    File_PrimartyData_Reverse: Optional[str] = None
     Parent: Optional[str] = None
     Protocol: Optional[str] = None
     Scientist: Optional[str] = None
 
     model_config = ConfigDict(extra="allow")
+
+    def model_dump(self, *args, **kwargs):
+        from .identity import canonicalize_file_primary_data
+
+        data = super().model_dump(*args, **kwargs)
+        return canonicalize_file_primary_data(data)
 
 
 # ── 3. InputRowModel ──────────────────────────────────────────────────────

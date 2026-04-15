@@ -90,6 +90,17 @@ class TestTitleFromMetadata:
         meta = SampleMetadata(Name=42)
         assert title_from_metadata(meta, "UID-123") == "42"
 
+    def test_d_prefix_canonical_file_primary_data_wins(self):
+        meta = SampleMetadata(Name="ignored", File_PrimaryData="canonical.csv")
+        assert title_from_metadata(meta, "D.SEQ-260413NA-1") == "canonical.csv"
+
+    def test_malformed_uid_defaults_to_name_based_precedence(self):
+        meta = SampleMetadata(Name="sample-A", File_PrimaryData="other.csv")
+        assert title_from_metadata(meta, "MALFORMED_UID") == "sample-A"
+
+    def test_missing_uid_and_no_identity_returns_none(self):
+        assert title_from_metadata(SampleMetadata(), None) is None
+
 
 # ── _normalize_text ───────────────────────────────────────────────────────
 
@@ -187,3 +198,67 @@ class TestBuildInsertable:
         ):
             with pytest.raises(JsonNormalizationError):
                 build_insertable(row, project_id=10, conn=conn)
+
+    @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
+    @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
+    def test_canonicalizes_typo_spelling_on_write(self, mock_resolve, mock_validate):
+        mock_resolve.return_value = 42
+        mock_validate.return_value = (set(), set())
+        row = InputRowModel(
+            UID="D.SEQ-260413NA-1",
+            SampleType="D.SEQ_files",
+            json_metadata='{"File_PrimartyData":"x.csv"}',
+        )
+        conn = MagicMock()
+        sample, _ = build_insertable(row, project_id=10, conn=conn)
+        parsed = json.loads(sample.json_metadata)
+        assert parsed["File_PrimaryData"] == "x.csv"
+        assert "File_PrimartyData" not in parsed
+
+    @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
+    @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
+    def test_non_dict_metadata_falls_back_to_empty_dict(self, mock_resolve, mock_validate):
+        mock_resolve.return_value = 42
+        mock_validate.return_value = (set(), set())
+        row = InputRowModel(
+            UID="TEST-260101MIT-5",
+            SampleType="NHP_blood",
+            json_metadata="{}",
+        )
+        conn = MagicMock()
+        with patch("nextseek_api.batch_upload.transform.parse_and_minify_json", return_value='["x"]'):
+            sample, _ = build_insertable(row, project_id=10, conn=conn)
+        assert sample.json_metadata == "{}"
+        assert sample.title == "TEST-260101MIT-5"
+
+    @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
+    @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
+    def test_unparseable_post_minify_metadata_uses_empty_model(self, mock_resolve, mock_validate):
+        mock_resolve.return_value = 42
+        mock_validate.return_value = (set(), set())
+        row = InputRowModel(
+            UID="TEST-260101MIT-6",
+            SampleType="NHP_blood",
+            json_metadata='{"Name":"x"}',
+        )
+        conn = MagicMock()
+        with patch("nextseek_api.batch_upload.transform.parse_and_minify_json", return_value='{"Name":"x"}'), \
+             patch("nextseek_api.batch_upload.transform._json_loads", side_effect=ValueError("boom")):
+            sample, _ = build_insertable(row, project_id=10, conn=conn)
+        assert sample.json_metadata == "{}"
+        assert sample.title == "TEST-260101MIT-6"
+
+    @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
+    @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
+    def test_model_validation_failure_uses_empty_sample_metadata(self, mock_resolve, mock_validate):
+        mock_resolve.return_value = 42
+        mock_validate.return_value = (set(), set())
+        row = InputRowModel(
+            UID="TEST-260101MIT-7",
+            SampleType="NHP_blood",
+            json_metadata='{"Name":"x"}',
+        )
+        conn = MagicMock()
+        with patch("nextseek_api.batch_upload.transform.SampleMetadata.model_validate", side_effect=ValueError("bad")):
+            sample, _ = build_insertable(row, project_id=10, conn=conn)
+        assert sample.title == "TEST-260101MIT-7"
