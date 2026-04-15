@@ -115,6 +115,14 @@ class InputRowModel(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    @field_validator("UID", mode="before")
+    @classmethod
+    def _normalize_uid(cls, v):
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s if s else None
+
     @field_validator("assay_titles", mode="before")
     @classmethod
     def coerce_assay_titles(cls, v):
@@ -178,18 +186,56 @@ class InputRowModel(BaseModel):
         if isinstance(v, dict):
             return _minify_json_string(v)
         if isinstance(v, str):
-            return _minify_json_string(v)
+            try:
+                return _minify_json_string(v)
+            except Exception:
+                return v
         if v is None:
             return "{}"
         return str(v)
 
+    @field_validator("json_metadata", mode="after")
+    @classmethod
+    def _validate_metadata_shape(cls, v):
+        try:
+            parsed = _json_loads(v) if v else {}
+        except Exception as exc:
+            raise ValueError("json_metadata is not valid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("json_metadata must be a JSON object, not a JSON array/scalar")
+        return v
+
+    @model_validator(mode="after")
+    def _validate_identity_length(self):
+        from .identity import extract_identity
+
+        try:
+            meta = _json_loads(self.json_metadata) if self.json_metadata else {}
+        except Exception:
+            return self
+
+        ident = extract_identity(meta, uid=self.UID) if isinstance(meta, dict) else None
+        if ident and len(ident) > 255:
+            raise ValueError(
+                f"derived identity exceeds 255 chars (got {len(ident)}); "
+                "column name_identity would truncate and lookups would drift"
+            )
+        return self
+
     @model_validator(mode="after")
     def validate_optional_consistency(self):
-        # 1) UID consistency if json_metadata contains UID
+        # Parse json_metadata once for all downstream checks
         try:
             meta = _json_loads(self.json_metadata) if self.json_metadata else {}
         except Exception:
             meta = {}
+        if isinstance(meta, dict) and self.UID is None:
+            meta_uid = meta.get("UID") or meta.get("uid")
+            if meta_uid and str(meta_uid).strip():
+                raise ValueError(
+                    f"json_metadata.UID is {str(meta_uid).strip()!r} but row UID "
+                    "column is empty; provide the UID explicitly"
+                )
         if isinstance(meta, dict) and self.UID is not None:
             meta_uid = meta.get("UID") or meta.get("uid")
             if meta_uid is not None and str(meta_uid).strip() and str(meta_uid).strip() != str(self.UID).strip():
