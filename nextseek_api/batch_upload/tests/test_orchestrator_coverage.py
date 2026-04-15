@@ -2,7 +2,6 @@
 
 Focus: helper functions and edge cases that don't require full pipeline execution.
 - _cancelled_result, _error_result
-- _extract_identity_for_orphan
 - build_identity_map
 - _build_neo4j_only_outcomes
 - run_batch_upload_multi with should_stop (cancellation)
@@ -49,74 +48,6 @@ class TestResultHelpers:
         ec.add(row_index=1, uid="B", error_type=ErrorType.DB_CONN, message="err2")
         result = _error_result("job-789", "/tmp/summary.csv", ec, "Multiple errors")
         assert len(result["errors"]) == 2
-
-
-# ---------------------------------------------------------------------------
-# _extract_identity_for_orphan
-# ---------------------------------------------------------------------------
-
-class TestExtractIdentityForOrphan:
-
-    def test_name_from_metadata(self):
-        from nextseek_api.batch_upload.orchestrator import _extract_identity_for_orphan
-        model = InputRowModel(
-            SampleType="NHP",
-            json_metadata=json.dumps({"Name": "Subject1"}),
-        )
-        assert _extract_identity_for_orphan(model) == "Subject1"
-
-    def test_file_based_prefix(self):
-        from nextseek_api.batch_upload.orchestrator import _extract_identity_for_orphan
-        model = InputRowModel(
-            SampleType="D.IMG_something",
-            json_metadata=json.dumps({"File_PrimaryData": "file001.tif"}),
-        )
-        assert _extract_identity_for_orphan(model) == "file001.tif"
-
-    def test_file_based_prefix_a(self):
-        from nextseek_api.batch_upload.orchestrator import _extract_identity_for_orphan
-        model = InputRowModel(
-            SampleType="A.GEX_something",
-            json_metadata=json.dumps({"File_PrimartyData": "seq.fastq"}),
-        )
-        assert _extract_identity_for_orphan(model) == "seq.fastq"
-
-    def test_file_based_no_file_field(self):
-        from nextseek_api.batch_upload.orchestrator import _extract_identity_for_orphan
-        model = InputRowModel(
-            SampleType="D.IMG_something",
-            json_metadata=json.dumps({"Name": "Subject1"}),
-        )
-        # For D.* prefix, if no File_PrimaryData field => None
-        assert _extract_identity_for_orphan(model) is None
-
-    def test_no_name(self):
-        from nextseek_api.batch_upload.orchestrator import _extract_identity_for_orphan
-        model = InputRowModel(
-            SampleType="NHP",
-            json_metadata=json.dumps({"Other": "value"}),
-        )
-        assert _extract_identity_for_orphan(model) is None
-
-    def test_empty_metadata(self):
-        from nextseek_api.batch_upload.orchestrator import _extract_identity_for_orphan
-        model = InputRowModel(SampleType="NHP", json_metadata="{}")
-        assert _extract_identity_for_orphan(model) is None
-
-    def test_bad_json(self):
-        from nextseek_api.batch_upload.orchestrator import _extract_identity_for_orphan
-        model = InputRowModel(SampleType="NHP", json_metadata="{}")
-        # Force bad json via direct attribute override
-        object.__setattr__(model, "json_metadata", "not json")
-        assert _extract_identity_for_orphan(model) is None
-
-    def test_empty_name_string(self):
-        from nextseek_api.batch_upload.orchestrator import _extract_identity_for_orphan
-        model = InputRowModel(
-            SampleType="NHP",
-            json_metadata=json.dumps({"Name": "  "}),
-        )
-        assert _extract_identity_for_orphan(model) is None
 
 
 # ---------------------------------------------------------------------------
@@ -529,6 +460,201 @@ class TestPipelineErrorPathsSummary:
             )
             summary_path = result.get("summary_path", "")
             assert os.path.isfile(summary_path)
+
+
+class TestAmbiguousIdentityHandling:
+
+    @patch("nextseek_api.batch_upload.orchestrator.Neo4jConfig.from_django_settings")
+    @patch("nextseek_api.batch_upload.orchestrator.process_batches")
+    @patch("nextseek_api.batch_upload.orchestrator.build_insertable")
+    @patch("nextseek_api.batch_upload.orchestrator.prefetch_project_sample_type_links")
+    @patch("nextseek_api.batch_upload.orchestrator.prefetch_assay_ids")
+    @patch("nextseek_api.batch_upload.orchestrator.prefetch_sample_types", return_value={"NHP": 1})
+    @patch("nextseek_api.batch_upload.orchestrator.compute_levels")
+    @patch("nextseek_api.batch_upload.orchestrator.detect_cycles", return_value=[])
+    @patch("nextseek_api.batch_upload.orchestrator.build_relationships", return_value=({}, {}, []))
+    @patch("nextseek_api.batch_upload.orchestrator.compute_directions")
+    @patch("nextseek_api.batch_upload.orchestrator.get_connection")
+    @patch("nextseek_api.batch_upload.orchestrator.os.makedirs")
+    def test_parent_resolution_ambiguity_fails_one_row_and_continues(
+        self,
+        mock_makedirs,
+        mock_conn,
+        mock_directions,
+        mock_build_rel,
+        mock_cycles,
+        mock_levels,
+        mock_pf_st,
+        mock_pf_assay,
+        mock_pf_proj,
+        mock_build_insertable,
+        mock_process_batches,
+        mock_neo4j_cfg,
+    ):
+        from nextseek_api.batch_upload.orchestrator import run_batch_upload_multi
+        from nextseek_api.batch_upload.models import BatchResult, InsertableSample
+
+        good_row = InputRowModel(UID="UID-GOOD", SampleType="NHP", json_metadata='{"Name":"Good"}')
+        bad_row = InputRowModel(UID="UID-BAD", SampleType="NHP", json_metadata='{"Name":"Bad"}')
+
+        mock_conn.return_value.__enter__ = MagicMock()
+        mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+        mock_directions.return_value = MagicMock()
+        mock_levels.return_value = MagicMock(
+            max_level=0,
+            orphan_uids=set(),
+            cycle_uids=set(),
+            external_parents={},
+            preexisting_uids={},
+            levels={"UID-GOOD": 0},
+        )
+        mock_build_insertable.return_value = (
+            InsertableSample(uuid="UID-GOOD", sample_type_id=1, json_metadata="{}", title="Good"),
+            {},
+        )
+        mock_process_batches.return_value = BatchResult(
+            inserted_count=1,
+            linked_project_count=0,
+            linked_assays_count=0,
+            outcomes={"UID-GOOD": RowOutcome(status="success", sample_id=101)},
+            attempted_uids={"UID-GOOD"},
+            stopped_early=False,
+            permissions_inserted_count=0,
+            updated_count=0,
+        )
+        mock_neo4j_cfg.return_value = MagicMock(NEO4J_UPLOAD_ENABLED=False, MISSING_KEYS=["disabled"])
+
+        def _run_uid_gen(rows, lababbv, conn, error_collector):
+            reason = (
+                "ambiguous identity match: 2 existing samples with name_identity='Parent-X' - "
+                "duplicates must be resolved before batch can proceed (conflicting sample ids: [10, 20])"
+            )
+            error_collector.add(1, "UID-BAD", ErrorType.AMBIGUOUS_IDENTITY, reason)
+            return [good_row], {
+                "uids_generated": 0,
+                "duplicates_removed": 0,
+                "parents_resolved": 0,
+                "parents_unresolved": 0,
+                "failed_rows": [{"uid": "UID-BAD", "row_index": 1, "reason": reason, "error_type": "ambiguous_identity"}],
+                "warnings": [],
+            }
+
+        with patch("nextseek_api.batch_upload.orchestrator.run_uid_gen", side_effect=_run_uid_gen):
+            with tempfile.TemporaryDirectory() as td:
+                result = run_batch_upload_multi(
+                    xlsx_paths=[],
+                    project_id=1,
+                    contributor_id=1,
+                    rows=[good_row.model_dump(), bad_row.model_dump()],
+                    output_dir=td,
+                )
+
+        assert result["totals"]["success"] == 1
+        assert result["totals"]["failed"] == 1
+        assert any(err["type"] == ErrorType.AMBIGUOUS_IDENTITY.value for err in result["errors"])
+
+    @patch("nextseek_api.batch_upload.orchestrator.Neo4jConfig.from_django_settings")
+    @patch("nextseek_api.batch_upload.orchestrator.process_batches")
+    @patch("nextseek_api.batch_upload.orchestrator.build_insertable")
+    @patch("nextseek_api.batch_upload.orchestrator.prefetch_project_sample_type_links")
+    @patch("nextseek_api.batch_upload.orchestrator.prefetch_assay_ids")
+    @patch("nextseek_api.batch_upload.orchestrator.prefetch_sample_types", return_value={"NHP": 1})
+    @patch("nextseek_api.batch_upload.orchestrator.compute_levels")
+    @patch("nextseek_api.batch_upload.orchestrator.detect_cycles", return_value=[])
+    @patch("nextseek_api.batch_upload.orchestrator.build_relationships", return_value=({}, {}, []))
+    @patch("nextseek_api.batch_upload.orchestrator.compute_directions")
+    @patch("nextseek_api.batch_upload.orchestrator.get_connection")
+    @patch("nextseek_api.batch_upload.orchestrator.os.makedirs")
+    def test_name_check_ambiguity_records_error_and_continues(
+        self,
+        mock_makedirs,
+        mock_conn,
+        mock_directions,
+        mock_build_rel,
+        mock_cycles,
+        mock_levels,
+        mock_pf_st,
+        mock_pf_assay,
+        mock_pf_proj,
+        mock_build_insertable,
+        mock_process_batches,
+        mock_neo4j_cfg,
+    ):
+        from nextseek_api.batch_upload.orchestrator import run_batch_upload_multi
+        from nextseek_api.batch_upload.models import BatchResult, InsertableSample
+        from nextseek_api.batch_upload.uid_gen import AmbiguousIdentityError
+
+        good_row = InputRowModel(UID="UID-GOOD", SampleType="NHP", json_metadata='{"Name":"Good"}')
+        ambiguous_row = InputRowModel(SampleType="NHP", json_metadata='{"Name":"Mouse-A"}')
+
+        mock_conn.return_value.__enter__ = MagicMock()
+        mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+        mock_directions.return_value = MagicMock()
+        mock_levels.return_value = MagicMock(
+            max_level=0,
+            orphan_uids=set(),
+            cycle_uids=set(),
+            external_parents={},
+            preexisting_uids={},
+            levels={"UID-GOOD": 0},
+        )
+        mock_build_insertable.return_value = (
+            InsertableSample(uuid="UID-GOOD", sample_type_id=1, json_metadata="{}", title="Good"),
+            {},
+        )
+        mock_process_batches.return_value = BatchResult(
+            inserted_count=1,
+            linked_project_count=0,
+            linked_assays_count=0,
+            outcomes={"UID-GOOD": RowOutcome(status="success", sample_id=101)},
+            attempted_uids={"UID-GOOD"},
+            stopped_early=False,
+            permissions_inserted_count=0,
+            updated_count=0,
+        )
+        mock_neo4j_cfg.return_value = MagicMock(NEO4J_UPLOAD_ENABLED=False, MISSING_KEYS=["disabled"])
+
+        with patch(
+            "nextseek_api.batch_upload.orchestrator.check_name_exists_in_db",
+            return_value=(
+                [good_row],
+                {},
+                [],
+                [(
+                    ambiguous_row,
+                    AmbiguousIdentityError(
+                        row_index=0,
+                        identity="Mouse-A",
+                        conflicting_sample_ids=[10, 20],
+                    ),
+                )],
+            ),
+        ), patch(
+            "nextseek_api.batch_upload.orchestrator.run_uid_gen",
+            return_value=(
+                [good_row],
+                {
+                    "uids_generated": 0,
+                    "duplicates_removed": 0,
+                    "parents_resolved": 0,
+                    "parents_unresolved": 0,
+                    "failed_rows": [],
+                    "warnings": [],
+                },
+            ),
+        ):
+            with tempfile.TemporaryDirectory() as td:
+                result = run_batch_upload_multi(
+                    xlsx_paths=[],
+                    project_id=1,
+                    contributor_id=1,
+                    rows=[ambiguous_row.model_dump(), good_row.model_dump()],
+                    output_dir=td,
+                )
+
+        assert result["totals"]["success"] == 1
+        assert result["totals"]["failed"] == 0
+        assert any(err["type"] == ErrorType.AMBIGUOUS_IDENTITY.value for err in result["errors"])
 
     def test_empty_rows_produces_summary(self):
         from nextseek_api.batch_upload.orchestrator import run_batch_upload_multi

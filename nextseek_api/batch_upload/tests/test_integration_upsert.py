@@ -20,13 +20,14 @@ class TestNameIdempotenceIntegration:
         conn.execute.return_value.fetchall.return_value = [
             ("NHP-250101MIT-1", 42, "Existing Sample"),
         ]
-        remaining, matches, matched_rows = check_name_exists_in_db(rows, conn)
+        remaining, matches, matched_rows, ambiguous_rows = check_name_exists_in_db(rows, conn)
         assert len(remaining) == 1
         assert remaining[0].json_metadata  # the "New Sample" row
         assert len(matches) == 1
         assert "Existing Sample" in matches
         assert matches["Existing Sample"]["uid"] == "NHP-250101MIT-1"
         assert matches["Existing Sample"]["sample_id"] == 42
+        assert ambiguous_rows == []
 
     def test_name_duplicate_updated_in_upsert_mode(self):
         """When update_existing=True, the update module can deep-merge metadata."""

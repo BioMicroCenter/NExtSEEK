@@ -409,6 +409,34 @@ class TestBuildRowSummaries:
         finally:
             os.unlink(path)
 
+    def test_summary_csv_preserves_ambiguous_identity_reason(self):
+        input_models = [InputRowModel(UID="UID-002", SampleType="NHP", json_metadata='{}')]
+        ec = ErrorCollector()
+        reason = (
+            "ambiguous identity match: 2 existing samples with name_identity='Mouse-A' - "
+            "duplicates must be resolved before batch can proceed (conflicting sample ids: [10, 20])"
+        )
+        ec.add(0, "UID-002", ErrorType.AMBIGUOUS_IDENTITY, reason)
+        summaries = build_row_summaries(
+            {"UID-002": RowOutcome(status="failed", reason=reason)},
+            input_models,
+            ec,
+        )
+
+        with tempfile.NamedTemporaryFile("w+", suffix=".csv", delete=False) as handle:
+            path = handle.name
+        try:
+            write_summary_csv(
+                path,
+                summaries,
+                totals={"processed": 1, "success": 0, "skipped": 0, "failed": 1, "elapsed_s": 0, "throughput_rps": 0},
+            )
+            with open(path, newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            assert rows[0]["reason"] == reason
+        finally:
+            os.unlink(path)
+
 
 class TestInputRowModelOriginalRowIndex:
     def test_field_defaults_to_none(self):

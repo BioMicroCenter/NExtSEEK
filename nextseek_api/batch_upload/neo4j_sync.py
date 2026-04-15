@@ -20,6 +20,7 @@ from sqlalchemy.engine import Connection
 
 from .config import Neo4jConfig
 from .helpers import UID_RE, collect_parent_tokens, split_parent_field
+from .identity import extract_identity
 from .models import (
     DerivedFromRelRow,
     DirectionComputation,
@@ -465,45 +466,6 @@ def refresh_assays_for_uuids(
 
 # ── parent_titles enrichment ──────────────────────────────────────────────
 
-_FILE_BASED_PREFIXES = ("D.", "A.")
-_FILE_PRIMARY_FIELDS = (
-    "File_PrimaryData",
-    "File_PrimartyData",
-    "File_PrimaryData_Forward",
-    "File_PrimartyData_Forward",
-    "File_PrimaryData_Reverse",
-    "File_PrimartyData_Reverse",
-)
-
-
-def _extract_identity_from_meta(meta: dict, sample_type: str) -> Optional[str]:
-    """Extract Name or File_PrimaryData from a parsed json_metadata dict.
-
-    Mirrors uid_gen._extract_identity logic without importing it (avoids circular deps).
-    For D./A. sample types: uses File_PrimaryData (or typo variants).
-    For other types: uses Name.
-    """
-    if not meta:
-        return None
-
-    if any(sample_type.startswith(p) for p in _FILE_BASED_PREFIXES):
-        for field in _FILE_PRIMARY_FIELDS:
-            val = meta.get(field)
-            if val and str(val).strip():
-                return str(val).strip()
-        return None
-
-    name = meta.get("Name") or meta.get("name")
-    if name is not None:
-        s = str(name).strip()
-        return s if s else None
-    return None
-
-
-def _is_file_based_uid(uid: str) -> bool:
-    """Infer whether a UID belongs to a file-based type from its prefix."""
-    return uid.startswith("D.") or uid.startswith("A.")
-
 
 def enrich_parent_titles(
     node_rows: List[NodeRow],
@@ -537,7 +499,11 @@ def enrich_parent_titles(
 
     uid_to_identity: Dict[str, Optional[str]] = {}
     for uid, meta in uid_to_meta.items():
-        uid_to_identity[uid] = _extract_identity_from_meta(meta, uid_to_sample_type[uid])
+        uid_to_identity[uid] = extract_identity(
+            meta,
+            uid=uid,
+            sample_type=uid_to_sample_type[uid],
+        )
 
     # 2. First pass: collect parent tokens, identify external UIDs
     external_uids: Set[str] = set()
@@ -571,12 +537,7 @@ def enrich_parent_titles(
                         meta = {}
                 except (json.JSONDecodeError, TypeError):
                     meta = {}
-                # Infer sample_type from UUID prefix for file-based detection
-                if _is_file_based_uid(uuid_val):
-                    identity = _extract_identity_from_meta(meta, uuid_val)
-                else:
-                    identity = _extract_identity_from_meta(meta, "")
-                uid_to_identity[uuid_val] = identity
+                uid_to_identity[uuid_val] = extract_identity(meta, uid=uuid_val)
 
     # 4. Second pass: build parent_titles for each node
     for i, node in enumerate(node_rows):

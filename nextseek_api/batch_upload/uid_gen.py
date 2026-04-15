@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import text
@@ -11,6 +12,7 @@ from sqlalchemy.engine import Connection
 
 from .errors import ErrorCollector, ErrorType, Severity
 from .helpers import UID_RE, collect_parent_tokens, split_parent_field
+from .identity import extract_identity
 from .models import InputRowModel
 
 try:
@@ -32,20 +34,6 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 
-# File_PrimaryData field names (including legacy typo variants)
-_FILE_PRIMARY_FIELDS = (
-    "File_PrimaryData",
-    "File_PrimartyData",
-    "File_PrimaryData_Forward",
-    "File_PrimartyData_Forward",
-    "File_PrimaryData_Reverse",
-    "File_PrimartyData_Reverse",
-)
-
-# Sample type prefixes that use File_PrimaryData instead of Name
-_FILE_BASED_PREFIXES = ("D.", "A.")
-
-
 # ── helpers ─────────────────────────────────────────────────────────────────
 
 
@@ -58,34 +46,33 @@ def _parse_meta(row: InputRowModel) -> dict:
         return {}
 
 
-def _is_file_based_type(sample_type: str) -> bool:
-    """Check if sample type uses File_PrimaryData for identity (D.* or A.* prefixes)."""
-    return any(sample_type.startswith(p) for p in _FILE_BASED_PREFIXES)
+@dataclass(frozen=True)
+class AmbiguousIdentityError(RuntimeError):
+    row_index: int
+    identity: str
+    conflicting_sample_ids: Tuple[int, ...]
+
+    def __init__(
+        self,
+        *,
+        row_index: int,
+        identity: str,
+        conflicting_sample_ids: List[int] | Tuple[int, ...],
+    ) -> None:
+        ids = tuple(conflicting_sample_ids)
+        object.__setattr__(self, "row_index", row_index)
+        object.__setattr__(self, "identity", identity)
+        object.__setattr__(self, "conflicting_sample_ids", ids)
+        super().__init__(
+            f"ambiguous identity match: {len(ids)} existing samples with "
+            f"name_identity={identity!r} - duplicates must be resolved before batch "
+            f"can proceed (conflicting sample ids: {list(ids)})"
+        )
 
 
 def _extract_identity(row: InputRowModel) -> str | None:
-    """Extract Name or File_PrimaryData from json_metadata for uniqueness check.
-
-    For D./A. sample types: uses File_PrimaryData (or typo variants).
-    For other types: uses Name.
-    Returns the identity value or None.
-    """
-    meta = _parse_meta(row)
-    if not meta:
-        return None
-
-    if _is_file_based_type(row.SampleType):
-        for field in _FILE_PRIMARY_FIELDS:
-            val = meta.get(field)
-            if val and str(val).strip():
-                return str(val).strip()
-        return None
-
-    name = meta.get("Name") or meta.get("name")
-    if name is not None:
-        s = str(name).strip()
-        return s if s else None
-    return None
+    """Extract the stable batch identity for uniqueness and parent resolution."""
+    return extract_identity(_parse_meta(row), uid=row.UID, sample_type=row.SampleType)
 
 
 # ── 4a. Deduplication ───────────────────────────────────────────────────────
@@ -240,7 +227,7 @@ def _resolve_parents(
     rows: List[InputRowModel],
     identity_to_uid: Dict[str, str],
     conn: Connection,
-) -> Tuple[List[InputRowModel], List[str], int]:
+) -> Tuple[List[InputRowModel], List[str], int, List[dict]]:
     """Resolve Parent field references from Name/File_PrimaryData to UIDs.
 
     Per token in the Parent field:
@@ -252,6 +239,7 @@ def _resolve_parents(
     """
     warnings: List[str] = []
     parents_resolved = 0
+    failed_rows: List[dict] = []
 
     # First pass: collect all unresolved tokens across all rows
     unresolved_tokens: Set[str] = set()
@@ -273,22 +261,39 @@ def _resolve_parents(
             unresolved_tokens.add(token)
 
     # Bulk DB fallback for unresolved tokens
-    db_title_to_uid: Dict[str, str] = {}
+    db_identity_to_uid: Dict[str, str] = {}
+    ambiguous_identities: Dict[str, List[int]] = {}
     if unresolved_tokens:
-        db_title_to_uid, db_warnings = _bulk_resolve_from_db(unresolved_tokens, conn)
-        warnings.extend(db_warnings)
+        db_identity_to_uid, ambiguous_identities = _bulk_resolve_from_db(unresolved_tokens, conn)
 
     # Second pass: resolve tokens and update rows
+    surviving_by_index: Dict[int, InputRowModel] = {}
+    rows_with_parents_idx = {row_idx for row_idx, _meta, _tokens in rows_with_parents}
     for idx, meta, tokens in rows_with_parents:
+        row = rows[idx]
         resolved_tokens = []
+        row_failed = False
         for token in tokens:
             if UID_RE.match(token):
                 resolved_tokens.append(token)
             elif token in identity_to_uid:
                 resolved_tokens.append(identity_to_uid[token])
                 parents_resolved += 1
-            elif token in db_title_to_uid:
-                resolved_tokens.append(db_title_to_uid[token])
+            elif token in ambiguous_identities:
+                failed_rows.append({
+                    "row": row,
+                    "uid": row.UID,
+                    "row_index": idx,
+                    "error": AmbiguousIdentityError(
+                        row_index=idx,
+                        identity=token,
+                        conflicting_sample_ids=ambiguous_identities[token],
+                    ),
+                })
+                row_failed = True
+                break
+            elif token in db_identity_to_uid:
+                resolved_tokens.append(db_identity_to_uid[token])
                 parents_resolved += 1
             else:
                 # Identity-based token not resolvable now — preserve for orphan resolution
@@ -298,7 +303,9 @@ def _resolve_parents(
                     f"preserving for future orphan resolution"
                 )
 
-        row = rows[idx]
+        if row_failed:
+            continue
+
         if resolved_tokens:
             # Deduplicate while preserving order
             seen_wb: set = set()
@@ -313,49 +320,55 @@ def _resolve_parents(
             meta.pop("parent", None)
 
         row.json_metadata = _json_dumps_min(meta)
+        surviving_by_index[idx] = row
 
-    return rows, warnings, parents_resolved
+    surviving_rows: List[InputRowModel] = []
+    failed_indexes = {item["row_index"] for item in failed_rows}
+    for idx, row in enumerate(rows):
+        if idx in failed_indexes:
+            continue
+        if idx in rows_with_parents_idx:
+            if idx in surviving_by_index:
+                surviving_rows.append(surviving_by_index[idx])
+            continue
+        surviving_rows.append(row)
+
+    return surviving_rows, warnings, parents_resolved, failed_rows
 
 
 def _bulk_resolve_from_db(
-    titles: Set[str], conn: Connection
-) -> Tuple[Dict[str, str], List[str]]:
-    """Query samples.title for unresolved parent references.
+    identities: Set[str], conn: Connection
+) -> Tuple[Dict[str, str], Dict[str, List[int]]]:
+    """Query samples.name_identity for unresolved parent references."""
+    if not identities:
+        return {}, {}
 
-    Returns (title_to_uid_map, warnings).
-    Errors on ambiguous matches (multiple UUIDs per title).
-    """
-    if not titles:
-        return {}, []
+    identity_to_uid: Dict[str, str] = {}
+    ambiguous_identities: Dict[str, List[int]] = {}
 
-    title_to_uid: Dict[str, str] = {}
-    warnings: List[str] = []
-
-    # Build parameterized query for titles
-    title_list = sorted(titles)
-    placeholders = ", ".join(f":t{i}" for i in range(len(title_list)))
-    params = {f"t{i}": t for i, t in enumerate(title_list)}
+    identity_list = sorted(identities)
+    placeholders = ", ".join(f":t{i}" for i in range(len(identity_list)))
+    params = {f"t{i}": t for i, t in enumerate(identity_list)}
 
     result = conn.execute(
-        text(f"SELECT uuid, title FROM samples WHERE title IN ({placeholders})"),
+        text(
+            f"SELECT uuid, id, name_identity FROM samples "
+            f"WHERE name_identity IN ({placeholders})"
+        ),
         params,
     )
 
-    # Group by title
-    by_title: Dict[str, List[str]] = {}
-    for uuid_val, title_val in result:
-        by_title.setdefault(title_val, []).append(uuid_val)
+    by_identity: Dict[str, List[Tuple[str, int]]] = {}
+    for uuid_val, sample_id, identity_val in result:
+        by_identity.setdefault(identity_val, []).append((uuid_val, int(sample_id)))
 
-    for title, uuids in by_title.items():
-        if len(uuids) == 1:
-            title_to_uid[title] = uuids[0]
+    for identity, matches in by_identity.items():
+        if len(matches) == 1:
+            identity_to_uid[identity] = matches[0][0]
         else:
-            warnings.append(
-                f"Ambiguous parent reference '{title}': "
-                f"found {len(uuids)} samples with this title; skipping"
-            )
+            ambiguous_identities[identity] = sorted(sample_id for _uuid, sample_id in matches)
 
-    return title_to_uid, warnings
+    return identity_to_uid, ambiguous_identities
 
 
 # ── 4d. json_metadata injection ─────────────────────────────────────────────
@@ -376,18 +389,19 @@ def _inject_uid_into_metadata(rows: List[InputRowModel], generated_uids: Set[str
 def check_name_exists_in_db(
     rows: List[InputRowModel],
     conn: Connection,
-) -> Tuple[List[InputRowModel], Dict[str, dict], List[Tuple[InputRowModel, str]]]:
-    """Check if Name/File_PrimaryData of null-UID rows already exist in samples.title.
+) -> Tuple[List[InputRowModel], Dict[str, dict], List[Tuple[InputRowModel, str]], List[Tuple[InputRowModel, AmbiguousIdentityError]]]:
+    """Check if Name/File_PrimaryData of null-UID rows already exist in samples.name_identity.
 
     Case-insensitive global check (uses DB collation utf8mb4_unicode_ci).
     Only checks rows where UID is None.
     Rows with existing UIDs are passed through unchanged.
 
     Returns:
-        (remaining_rows, name_matches, matched_rows)
+        (remaining_rows, name_matches, matched_rows, ambiguous_rows)
         - remaining_rows: rows that did NOT match (+ rows with UIDs)
         - name_matches: dict of {identity: {"uid": str, "sample_id": int}} for matched rows
         - matched_rows: list of (InputRowModel, identity) tuples for matched rows
+        - ambiguous_rows: list of (InputRowModel, AmbiguousIdentityError) tuples
     """
     remaining: List[InputRowModel] = []
     to_check: List[Tuple[int, InputRowModel, str]] = []
@@ -403,13 +417,13 @@ def check_name_exists_in_db(
         to_check.append((idx, row, identity))
 
     if not to_check:
-        return remaining, {}, []
+        return remaining, {}, [], []
 
-    # Bulk query: case-insensitive match against samples.title
+    # Bulk query: case-insensitive match against samples.name_identity
     # The DB column uses utf8mb4_unicode_ci collation, so comparison is
     # already case-insensitive — no need for LOWER() wrappers.
     identities = list({item[2] for item in to_check})
-    db_matches: Dict[str, dict] = {}  # lowercase_identity -> {uid, sample_id}
+    db_matches: Dict[str, List[dict]] = {}  # lowercase_identity -> [{uid, sample_id}]
 
     for chunk_start in range(0, len(identities), 1000):
         chunk = identities[chunk_start : chunk_start + 1000]
@@ -417,28 +431,41 @@ def check_name_exists_in_db(
         placeholders = ", ".join(f":t{i}" for i in range(len(chunk)))
         result = conn.execute(
             text(
-                f"SELECT uuid, id, title FROM samples "
-                f"WHERE title IN ({placeholders})"
+                f"SELECT uuid, id, name_identity FROM samples "
+                f"WHERE name_identity IN ({placeholders})"
             ),
             params,
         )
-        for uuid_val, sample_id, title_val in result.fetchall():
-            key = title_val.lower() if title_val else ""
-            if key not in db_matches:
-                db_matches[key] = {"uid": uuid_val, "sample_id": sample_id}
+        for uuid_val, sample_id, identity_val in result.fetchall():
+            key = identity_val.lower() if identity_val else ""
+            db_matches.setdefault(key, []).append(
+                {"uid": uuid_val, "sample_id": int(sample_id)}
+            )
 
     # Partition: matched vs remaining
     matched_rows: List[Tuple[InputRowModel, str]] = []
+    ambiguous_rows: List[Tuple[InputRowModel, AmbiguousIdentityError]] = []
     name_matches: Dict[str, dict] = {}
-    for _idx, row, identity in to_check:
+    for idx, row, identity in to_check:
         key = identity.lower()
         if key in db_matches:
-            name_matches[identity] = db_matches[key]
-            matched_rows.append((row, identity))
+            matches = db_matches[key]
+            if len(matches) == 1:
+                name_matches[identity] = matches[0]
+                matched_rows.append((row, identity))
+            else:
+                ambiguous_rows.append((
+                    row,
+                    AmbiguousIdentityError(
+                        row_index=idx,
+                        identity=identity,
+                        conflicting_sample_ids=sorted(match["sample_id"] for match in matches),
+                    ),
+                ))
         else:
             remaining.append(row)
 
-    return remaining, name_matches, matched_rows
+    return remaining, name_matches, matched_rows, ambiguous_rows
 
 
 # ── 4f. Main entry point ───────────────────────────────────────────────────
@@ -461,6 +488,7 @@ def run_uid_gen(
         "duplicates_removed": 0,
         "parents_resolved": 0,
         "parents_unresolved": 0,
+        "failed_rows": [],
         "warnings": [],
     }
 
@@ -474,16 +502,13 @@ def run_uid_gen(
             message=w, severity=Severity.WARNING,
         )
 
-    # Check if any rows need UIDs
     rows_needing_uids = [r for r in rows if r.UID is None]
-    if not rows_needing_uids:
-        log.info("UID_GEN: all rows have UIDs, skipping generation")
-        return rows, report
-
-    # Step 2: Generate UIDs
     generated_uid_set_before = {r.UID for r in rows if r.UID is not None}
-    rows, count = generate_uids(rows, lababbv, conn)
-    report["uids_generated"] = count
+    if rows_needing_uids:
+        rows, count = generate_uids(rows, lababbv, conn)
+        report["uids_generated"] = count
+    else:
+        log.info("UID_GEN: all rows have UIDs, skipping generation")
     generated_uid_set_after = {r.UID for r in rows if r.UID is not None}
     newly_generated = generated_uid_set_after - generated_uid_set_before
 
@@ -492,9 +517,25 @@ def run_uid_gen(
 
     # Step 4: Build identity lookup and resolve parents
     identity_to_uid = _build_identity_to_uid_map(rows)
-    rows, parent_warnings, parents_resolved_count = _resolve_parents(rows, identity_to_uid, conn)
+    rows, parent_warnings, parents_resolved_count, failed_rows = _resolve_parents(rows, identity_to_uid, conn)
     report["parents_resolved"] = parents_resolved_count
+    report["failed_rows"] = [
+        {
+            "uid": item["uid"],
+            "row_index": item["row_index"],
+            "reason": str(item["error"]),
+            "error_type": ErrorType.AMBIGUOUS_IDENTITY.value,
+        }
+        for item in failed_rows
+    ]
     report["warnings"].extend(parent_warnings)
+    for item in failed_rows:
+        error_collector.add(
+            row_index=item["row_index"],
+            uid=item["uid"],
+            error_type=ErrorType.AMBIGUOUS_IDENTITY,
+            message=str(item["error"]),
+        )
 
     # Count resolved/unresolved
     for w in parent_warnings:
@@ -504,18 +545,12 @@ def run_uid_gen(
                 row_index=-1, uid=None, error_type=ErrorType.VALIDATION_JSON,
                 message=w, severity=Severity.WARNING,
             )
-        elif "ambiguous" in w.lower():
-            report["parents_unresolved"] += 1
-            error_collector.add(
-                row_index=-1, uid=None, error_type=ErrorType.VALIDATION_JSON,
-                message=w, severity=Severity.WARNING,
-            )
-
     log.info(
-        "UID_GEN: generated=%d, deduped=%d, parent_warnings=%d",
+        "UID_GEN: generated=%d, deduped=%d, parent_warnings=%d, parent_failures=%d",
         report["uids_generated"],
         report["duplicates_removed"],
         len(parent_warnings),
+        len(failed_rows),
     )
 
     return rows, report
