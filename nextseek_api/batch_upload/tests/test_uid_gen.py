@@ -4,9 +4,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nextseek_api.batch_upload.errors import ErrorCollector
+from nextseek_api.batch_upload.errors import ErrorCollector, ErrorType
 from nextseek_api.batch_upload.models import InputRowModel
 from nextseek_api.batch_upload.uid_gen import (
+    AmbiguousIdentityError,
     _build_identity_to_uid_map,
     _bulk_resolve_from_db,
     _compute_uid_prefix,
@@ -286,7 +287,7 @@ class TestBuildIdentityToUidMap:
 
 class TestResolveParents:
     def _mock_conn(self, db_results=None):
-        """Mock conn where SELECT uuid, title returns db_results."""
+        """Mock conn where SELECT uuid, id, name_identity returns db_results."""
         conn = MagicMock()
         result = MagicMock()
         result.__iter__ = lambda self: iter(db_results or [])
@@ -299,9 +300,10 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn()
-        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta["Parent"] == "NHP-260225MIT-1"
+        assert failed_rows == []
 
     def test_name_resolved_to_uid(self):
         rows = [
@@ -309,9 +311,10 @@ class TestResolveParents:
         ]
         identity_map = {"Sample_A": "NHP-260225MIT-1"}
         conn = self._mock_conn()
-        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta["Parent"] == "NHP-260225MIT-1"
+        assert failed_rows == []
 
     def test_mixed_parents(self):
         """Mix of UID and Name references in same Parent field."""
@@ -320,10 +323,11 @@ class TestResolveParents:
         ]
         identity_map = {"Sample_A": "NHP-260225MIT-2"}
         conn = self._mock_conn()
-        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert "NHP-260225MIT-1" in meta["Parent"]
         assert "NHP-260225MIT-2" in meta["Parent"]
+        assert failed_rows == []
 
     def test_db_fallback(self):
         """Unresolved names should fall back to DB lookup."""
@@ -331,23 +335,29 @@ class TestResolveParents:
             _make_row(uid="NHP-260225MIT-2", meta='{"Parent":"DB_Sample"}'),
         ]
         identity_map = {}
-        conn = self._mock_conn(db_results=[("NHP-220630FLY-1", "DB_Sample")])
-        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        conn = self._mock_conn(db_results=[("NHP-220630FLY-1", 11, "DB_Sample")])
+        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta["Parent"] == "NHP-220630FLY-1"
+        assert failed_rows == []
 
     def test_ambiguous_db_match(self):
-        """Ambiguous DB matches should produce a warning."""
+        """Ambiguous DB matches should fail the affected row."""
         rows = [
             _make_row(uid="NHP-260225MIT-2", meta='{"Parent":"Ambiguous"}'),
         ]
         identity_map = {}
         conn = self._mock_conn(db_results=[
-            ("NHP-220630FLY-1", "Ambiguous"),
-            ("NHP-220630FLY-2", "Ambiguous"),
+            ("NHP-220630FLY-1", 10, "Ambiguous"),
+            ("NHP-220630FLY-2", 20, "Ambiguous"),
         ])
-        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
-        assert any("Ambiguous" in w and "ambiguous" in w.lower() for w in warnings)
+        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        assert rows == []
+        assert warnings == []
+        assert len(failed_rows) == 1
+        assert isinstance(failed_rows[0]["error"], AmbiguousIdentityError)
+        assert failed_rows[0]["uid"] == "NHP-260225MIT-2"
+        assert failed_rows[0]["error"].conflicting_sample_ids == (10, 20)
 
     def test_unresolvable_parent_warning(self):
         """Completely unresolvable parent should warn but not error."""
@@ -356,8 +366,9 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn(db_results=[])  # nothing found
-        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
         assert any("unresolved" in w.lower() for w in warnings)
+        assert failed_rows == []
 
     def test_unresolved_name_token_preserved_in_parent(self):
         """Unresolved Name-based parent tokens should remain in Parent field."""
@@ -367,11 +378,12 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn(db_results=[])
-        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta.get("Parent") == "FutureParent", (
             "Unresolved identity token should be preserved, not dropped"
         )
+        assert failed_rows == []
 
     def test_unresolved_file_primary_data_token_preserved(self):
         """Unresolved File_PrimaryData parent tokens should also be preserved."""
@@ -381,9 +393,10 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn(db_results=[])
-        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta.get("Parent") == "future_parent_file.fastq"
+        assert failed_rows == []
 
     def test_mixed_resolved_and_unresolved_parents(self):
         """Resolved UIDs kept, unresolved identity tokens preserved."""
@@ -393,9 +406,10 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn(db_results=[])
-        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta.get("Parent") == "NHP-260101MIT-1;FutureParent"
+        assert failed_rows == []
 
     def test_no_parent_field(self):
         """Rows without Parent field should pass through unchanged."""
@@ -404,10 +418,11 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn()
-        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
         assert len(warnings) == 0
         meta = json.loads(rows[0].json_metadata)
         assert "Parent" not in meta
+        assert failed_rows == []
 
     def test_parents_resolved_count(self):
         """parents_resolved should count name-to-UID and DB resolutions."""
@@ -416,9 +431,10 @@ class TestResolveParents:
         ]
         identity_map = {"Sample_A": "NHP-260225MIT-1", "Sample_B": "NHP-260225MIT-2"}
         conn = self._mock_conn()
-        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
         assert count == 2
         assert len(warnings) == 0
+        assert failed_rows == []
 
     def test_name_with_spaces_resolved(self):
         """Parent name with spaces must be treated as a single token and resolved."""
@@ -427,10 +443,11 @@ class TestResolveParents:
         ]
         identity_map = {"UtEC - 2015010902": "NHP-260225MIT-1"}
         conn = self._mock_conn()
-        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta["Parent"] == "NHP-260225MIT-1"
         assert count == 1
+        assert failed_rows == []
 
     def test_name_with_spaces_unresolved_preserved(self):
         """Unresolvable name with spaces must be preserved as a single token."""
@@ -439,9 +456,10 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn(db_results=[])
-        rows, warnings, _count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta["Parent"] == "272 ESC 260C passage 5"
+        assert failed_rows == []
 
 
 class TestResolveParentsVariantKeys:
@@ -463,10 +481,11 @@ class TestResolveParentsVariantKeys:
         ]
         identity_map = {"Sample_A": "NHP-260225MIT-1"}
         conn = self._mock_conn()
-        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert "NHP-260225MIT-1" in meta.get("Parent", "")
         assert count == 1
+        assert failed_rows == []
 
     def test_antibody_parent_tokens_resolved(self):
         """Tokens from AntibodyParent should be resolved."""
@@ -476,10 +495,11 @@ class TestResolveParentsVariantKeys:
         ]
         identity_map = {"AB_Sample": "ABP-230327BOO-3"}
         conn = self._mock_conn()
-        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert "ABP-230327BOO-3" in meta.get("Parent", "")
         assert count == 1
+        assert failed_rows == []
 
     def test_variant_key_preserved_after_writeback(self):
         """Variant keys should NOT be modified by write-back."""
@@ -489,9 +509,10 @@ class TestResolveParentsVariantKeys:
         ]
         identity_map = {"Sample_A": "NHP-260225MIT-1"}
         conn = self._mock_conn()
-        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta.get("Treatment1Parent") == "Sample_A"
+        assert failed_rows == []
 
     def test_parent_and_variant_merged(self):
         """Parent + Treatment1Parent tokens should both be resolved."""
@@ -501,12 +522,13 @@ class TestResolveParentsVariantKeys:
         ]
         identity_map = {"Sample_A": "NHP-260225MIT-1", "Sample_B": "NHP-260225MIT-2"}
         conn = self._mock_conn()
-        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         parent_val = meta.get("Parent", "")
         assert "NHP-260225MIT-1" in parent_val
         assert "NHP-260225MIT-2" in parent_val
         assert count == 2
+        assert failed_rows == []
 
     def test_writeback_deduplicates_tokens(self):
         """Duplicate tokens across Parent and variant key should be deduplicated in write-back."""
@@ -516,9 +538,10 @@ class TestResolveParentsVariantKeys:
         ]
         identity_map = {}
         conn = self._mock_conn()
-        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta.get("Parent") == "NHP-260225MIT-1"
+        assert failed_rows == []
 
     def test_unresolved_variant_token_preserved(self):
         """Unresolved tokens from variant keys should be preserved for orphan resolution."""
@@ -528,10 +551,11 @@ class TestResolveParentsVariantKeys:
         ]
         identity_map = {}
         conn = self._mock_conn()
-        rows, warnings, count = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert "FutureSample" in meta.get("Parent", "")
         assert any("unresolved" in w.lower() for w in warnings)
+        assert failed_rows == []
 
 
 # ── _inject_uid_into_metadata ───────────────────────────────────────────────
@@ -570,7 +594,7 @@ class TestRunUidGen:
                 result = MagicMock()
                 result.scalar.return_value = max_index
                 return result
-            elif "SELECT uuid, title FROM samples WHERE title IN" in sql_str:
+            elif "SELECT uuid, id, name_identity FROM samples WHERE name_identity IN" in sql_str:
                 result = MagicMock()
                 result.__iter__ = lambda self: iter([])
                 return result
@@ -662,6 +686,33 @@ class TestRunUidGen:
         assert report["uids_generated"] == 2
         assert len(result_rows) == 2
 
+    def test_ambiguous_parent_match_drops_failed_row(self):
+        rows = [
+            _make_row(uid="NHP-260225MIT-2", meta='{"Name":"Child","Parent":"Ambiguous"}'),
+        ]
+        ec = ErrorCollector()
+        conn = MagicMock()
+
+        def execute_side_effect(stmt, params=None):
+            sql_str = str(stmt) if not hasattr(stmt, "text") else stmt.text
+            if "SELECT uuid, id, name_identity FROM samples WHERE name_identity IN" in sql_str:
+                result = MagicMock()
+                result.__iter__ = lambda self: iter([
+                    ("NHP-260225MIT-1", 11, "Ambiguous"),
+                    ("NHP-260225MIT-9", 22, "Ambiguous"),
+                ])
+                return result
+            return MagicMock()
+
+        conn.execute.side_effect = execute_side_effect
+        result_rows, report = run_uid_gen(rows, "MIT", conn, ec)
+
+        assert result_rows == []
+        assert len(report["failed_rows"]) == 1
+        assert report["failed_rows"][0]["uid"] == "NHP-260225MIT-2"
+        assert "ambiguous identity match" in report["failed_rows"][0]["reason"]
+        assert ec.count_by_type()[ErrorType.AMBIGUOUS_IDENTITY] == 1
+
 
 # ── DAG regex tests for non-PUB UIDs ────────────────────────────────────────
 
@@ -720,15 +771,15 @@ class TestOptionalUid:
         assert row.UID is None
         assert row.SampleType == "NHP"
 
-    def test_none_uid_with_meta_uid_ok(self):
-        """When UID is None, json_metadata.UID should not cause validation error."""
-        row = InputRowModel(
-            UID=None,
-            SampleType="NHP",
-            json_metadata='{"Name":"test","UID":"NHP-260225MIT-1"}',
-            assay_ids=[],
-        )
-        assert row.UID is None
+    def test_none_uid_with_meta_uid_now_errors(self):
+        """When UID is None, json_metadata.UID must be provided via the UID column."""
+        with pytest.raises(Exception):
+            InputRowModel(
+                UID=None,
+                SampleType="NHP",
+                json_metadata='{"Name":"test","UID":"NHP-260225MIT-1"}',
+                assay_ids=[],
+            )
 
     def test_provided_uid_still_validates(self):
         row = InputRowModel(
@@ -770,7 +821,7 @@ class TestCheckNameExistsInDb:
         mock_conn.execute.return_value.fetchall.return_value = [
             ("BLD-250101MIT-1", 42, "Blood Sample A"),
         ]
-        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows, ambiguous_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 0
         assert len(matches) == 1
         assert matches["Blood Sample A"]["uid"] == "BLD-250101MIT-1"
@@ -778,6 +829,8 @@ class TestCheckNameExistsInDb:
         assert len(matched_rows) == 1
         assert matched_rows[0][0] is rows[0]
         assert matched_rows[0][1] == "Blood Sample A"
+        assert ambiguous_rows == []
+        assert "name_identity" in str(mock_conn.execute.call_args.args[0])
 
     def test_no_match_keeps_row(self, mock_conn):
         from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
@@ -785,18 +838,20 @@ class TestCheckNameExistsInDb:
             InputRowModel(SampleType="NHP_blood", json_metadata='{"Name":"New Sample"}'),
         ]
         mock_conn.execute.return_value.fetchall.return_value = []
-        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows, ambiguous_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 1
         assert len(matches) == 0
+        assert ambiguous_rows == []
 
     def test_rows_with_uid_skip_check(self, mock_conn):
         from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
         rows = [
             InputRowModel(UID="NHP-250101MIT-1", SampleType="NHP_blood", json_metadata='{"Name":"Existing"}'),
         ]
-        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows, ambiguous_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 1
         assert len(matches) == 0
+        assert ambiguous_rows == []
         mock_conn.execute.assert_not_called()
 
     def test_file_primarydata_match_for_d_type(self, mock_conn):
@@ -807,9 +862,10 @@ class TestCheckNameExistsInDb:
         mock_conn.execute.return_value.fetchall.return_value = [
             ("D.IMG-250101MIT-1", 99, "image001.tif"),
         ]
-        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows, ambiguous_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 0
         assert "image001.tif" in matches
+        assert ambiguous_rows == []
 
     def test_case_insensitive_match(self, mock_conn):
         from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
@@ -819,9 +875,10 @@ class TestCheckNameExistsInDb:
         mock_conn.execute.return_value.fetchall.return_value = [
             ("BLD-250101MIT-1", 42, "Blood Sample A"),
         ]
-        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows, ambiguous_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 0
         assert len(matches) == 1
+        assert ambiguous_rows == []
 
     def test_mixed_rows_uid_and_no_uid(self, mock_conn):
         from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
@@ -833,23 +890,44 @@ class TestCheckNameExistsInDb:
         mock_conn.execute.return_value.fetchall.return_value = [
             ("NHP-250101MIT-5", 55, "Exists In DB"),
         ]
-        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows, ambiguous_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 2  # UID row + "Brand New"
         assert len(matches) == 1
         assert "Exists In DB" in matches
+        assert ambiguous_rows == []
 
     def test_no_identity_rows_pass_through(self, mock_conn):
         from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
         rows = [
             InputRowModel(SampleType="NHP_blood", json_metadata='{}'),  # no Name
         ]
-        remaining, matches, matched_rows = check_name_exists_in_db(rows, mock_conn)
+        remaining, matches, matched_rows, ambiguous_rows = check_name_exists_in_db(rows, mock_conn)
         assert len(remaining) == 1
         assert len(matches) == 0
+        assert ambiguous_rows == []
         mock_conn.execute.assert_not_called()
 
     def test_empty_rows_list(self, mock_conn):
         from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
-        remaining, matches, matched_rows = check_name_exists_in_db([], mock_conn)
+        remaining, matches, matched_rows, ambiguous_rows = check_name_exists_in_db([], mock_conn)
         assert len(remaining) == 0
         assert len(matches) == 0
+        assert ambiguous_rows == []
+
+    def test_ambiguous_match_returns_failed_row(self, mock_conn):
+        from nextseek_api.batch_upload.uid_gen import check_name_exists_in_db
+        rows = [
+            InputRowModel(SampleType="NHP_blood", json_metadata='{"Name":"Existing Sample"}'),
+        ]
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("NHP-250101MIT-1", 42, "Existing Sample"),
+            ("NHP-250101MIT-2", 77, "Existing Sample"),
+        ]
+        remaining, matches, matched_rows, ambiguous_rows = check_name_exists_in_db(rows, mock_conn)
+        assert remaining == []
+        assert matches == {}
+        assert matched_rows == []
+        assert len(ambiguous_rows) == 1
+        assert ambiguous_rows[0][0] is rows[0]
+        assert isinstance(ambiguous_rows[0][1], AmbiguousIdentityError)
+        assert ambiguous_rows[0][1].conflicting_sample_ids == (42, 77)

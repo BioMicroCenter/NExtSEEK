@@ -375,6 +375,7 @@ class TestErrorSystem:
         assert classify_severity(ErrorType.VALIDATION_JSON) == Severity.WARNING
         assert classify_severity(ErrorType.VALIDATION_UID_MISMATCH) == Severity.ERROR
         assert classify_severity(ErrorType.VALIDATION_METADATA_SHAPE) == Severity.ERROR
+        assert classify_severity(ErrorType.AMBIGUOUS_IDENTITY) == Severity.ERROR
         assert classify_severity(ErrorType.DUPLICATE) == Severity.INFO
 
     def test_classify_validation_error(self):
@@ -388,6 +389,9 @@ class TestErrorSystem:
         assert _classify_validation_error(
             "derived identity exceeds 255 chars (got 300); column name_identity would truncate and lookups would drift"
         ) == ErrorType.VALIDATION_METADATA_SHAPE
+        assert _classify_validation_error(
+            "ambiguous identity match: 2 existing samples with name_identity='X' - duplicates must be resolved before batch can proceed"
+        ) == ErrorType.AMBIGUOUS_IDENTITY
         assert _classify_validation_error("invalid assay") == ErrorType.VALIDATION_ASSAY
         assert _classify_validation_error("unknown sampletype") == ErrorType.VALIDATION_SAMPLE_TYPE
         assert _classify_validation_error("something else") == ErrorType.UNKNOWN

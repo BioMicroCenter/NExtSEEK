@@ -14,6 +14,7 @@ class ErrorType(Enum):
     VALIDATION_JSON = "VALIDATION_JSON"
     VALIDATION_UID_MISMATCH = "validation_uid_mismatch"
     VALIDATION_METADATA_SHAPE = "validation_metadata_shape"
+    AMBIGUOUS_IDENTITY = "ambiguous_identity"
     VALIDATION_ASSAY = "VALIDATION_ASSAY"
     VALIDATION_SAMPLE_TYPE = "VALIDATION_SAMPLE_TYPE"
     DB_CONSTRAINT = "DB_CONSTRAINT"
@@ -41,6 +42,7 @@ _SEVERITY_MAP: Dict[ErrorType, Severity] = {
     ErrorType.VALIDATION_JSON: Severity.WARNING,
     ErrorType.VALIDATION_UID_MISMATCH: Severity.ERROR,
     ErrorType.VALIDATION_METADATA_SHAPE: Severity.ERROR,
+    ErrorType.AMBIGUOUS_IDENTITY: Severity.ERROR,
     ErrorType.VALIDATION_SAMPLE_TYPE: Severity.WARNING,
     ErrorType.VALIDATION_ASSAY: Severity.INFO,
     ErrorType.DUPLICATE: Severity.INFO,
@@ -164,6 +166,8 @@ def _classify_validation_error(message: str) -> ErrorType:
         or "derived identity exceeds 255 chars" in lower
     ):
         return ErrorType.VALIDATION_METADATA_SHAPE
+    if "ambiguous identity match:" in lower:
+        return ErrorType.AMBIGUOUS_IDENTITY
     if "json" in lower:
         return ErrorType.VALIDATION_JSON
     if "assay" in lower:
