@@ -234,6 +234,43 @@ class TestInsertableSample:
         assert sample.assay_ids == [4, 5, 6]
 
 
+class TestSampleMetadataCanonicalFields:
+    def test_canonical_file_primary_data_declared(self):
+        m = SampleMetadata.model_validate({"File_PrimaryData": "x.csv"})
+        assert m.File_PrimaryData == "x.csv"
+
+    def test_canonical_forward_reverse_declared(self):
+        m = SampleMetadata.model_validate({
+            "File_PrimaryData_Forward": "f.fa",
+            "File_PrimaryData_Reverse": "r.fa",
+        })
+        assert m.File_PrimaryData_Forward == "f.fa"
+        assert m.File_PrimaryData_Reverse == "r.fa"
+
+    def test_typo_forward_reverse_still_declared(self):
+        m = SampleMetadata.model_validate({
+            "File_PrimartyData_Forward": "f.fa",
+            "File_PrimartyData_Reverse": "r.fa",
+        })
+        assert m.File_PrimartyData_Forward == "f.fa"
+        assert m.File_PrimartyData_Reverse == "r.fa"
+
+    def test_model_dump_canonicalizes_keys(self):
+        m = SampleMetadata.model_validate({"File_PrimartyData": "x.csv"})
+        dumped = m.model_dump(exclude_none=True)
+        assert dumped["File_PrimaryData"] == "x.csv"
+        assert "File_PrimartyData" not in dumped
+
+    def test_model_dump_canonical_wins_over_typo(self):
+        m = SampleMetadata.model_validate({
+            "File_PrimaryData": "canon.csv",
+            "File_PrimartyData": "typo.csv",
+        })
+        dumped = m.model_dump(exclude_none=True)
+        assert dumped["File_PrimaryData"] == "canon.csv"
+        assert "File_PrimartyData" not in dumped
+
+
 # ── NodeRow validators ────────────────────────────────────────────────────
 
 
