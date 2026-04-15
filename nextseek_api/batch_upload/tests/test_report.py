@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import tempfile
 import threading
 import time
 
@@ -386,6 +387,27 @@ class TestBuildRowSummaries:
         summaries = build_row_summaries({}, input_models, ec)
         assert summaries[0].status == "not_processed"
         assert "bad metadata" in summaries[0].reason
+
+    def test_summary_csv_preserves_new_validation_reason(self):
+        input_models = [InputRowModel(UID="UID-001", SampleType="NHP", json_metadata='{}')]
+        ec = ErrorCollector()
+        reason = "json_metadata.UID is 'NHP-260225MIT-1' but row UID column is empty; provide the UID explicitly"
+        ec.add(0, "UID-001", ErrorType.VALIDATION_UID_MISMATCH, reason)
+        summaries = build_row_summaries({}, input_models, ec)
+
+        with tempfile.NamedTemporaryFile("w+", suffix=".csv", delete=False) as handle:
+            path = handle.name
+        try:
+            write_summary_csv(
+                path,
+                summaries,
+                totals={"processed": 1, "success": 0, "skipped": 0, "failed": 1, "elapsed_s": 0, "throughput_rps": 0},
+            )
+            with open(path, newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            assert rows[0]["reason"] == reason
+        finally:
+            os.unlink(path)
 
 
 class TestInputRowModelOriginalRowIndex:

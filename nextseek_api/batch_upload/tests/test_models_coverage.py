@@ -171,6 +171,10 @@ class TestInputRowModelJsonMetadata:
         row = InputRowModel(SampleType="NHP", json_metadata=None)
         assert row.json_metadata == "{}"
 
+    def test_whitespace_uid_normalizes_to_none(self):
+        row = InputRowModel(SampleType="NHP", UID="   ", json_metadata="{}")
+        assert row.UID is None
+
 
 # ---------------------------------------------------------------------------
 # InputRowModel — validate_optional_consistency
@@ -202,6 +206,14 @@ class TestInputRowModelConsistencyValidator:
                 json_metadata="{}",
                 assay_ids=[1, 2],
                 assay_titles=["A", "B", "C"],
+            )
+
+    def test_empty_uid_with_metadata_uid_raises(self):
+        with pytest.raises(Exception, match="row UID column is empty"):
+            InputRowModel(
+                SampleType="NHP",
+                UID="",
+                json_metadata='{"UID":"NHP-260225MIT-1"}',
             )
 
 
