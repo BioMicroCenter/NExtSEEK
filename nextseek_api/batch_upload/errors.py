@@ -12,6 +12,9 @@ from typing import Dict, List, Optional
 
 class ErrorType(Enum):
     VALIDATION_JSON = "VALIDATION_JSON"
+    VALIDATION_UID_MISMATCH = "validation_uid_mismatch"
+    VALIDATION_METADATA_SHAPE = "validation_metadata_shape"
+    AMBIGUOUS_IDENTITY = "ambiguous_identity"
     VALIDATION_ASSAY = "VALIDATION_ASSAY"
     VALIDATION_SAMPLE_TYPE = "VALIDATION_SAMPLE_TYPE"
     DB_CONSTRAINT = "DB_CONSTRAINT"
@@ -37,6 +40,9 @@ _SEVERITY_MAP: Dict[ErrorType, Severity] = {
     ErrorType.DB_CONSTRAINT: Severity.ERROR,
     ErrorType.UNKNOWN: Severity.ERROR,
     ErrorType.VALIDATION_JSON: Severity.WARNING,
+    ErrorType.VALIDATION_UID_MISMATCH: Severity.ERROR,
+    ErrorType.VALIDATION_METADATA_SHAPE: Severity.ERROR,
+    ErrorType.AMBIGUOUS_IDENTITY: Severity.ERROR,
     ErrorType.VALIDATION_SAMPLE_TYPE: Severity.WARNING,
     ErrorType.VALIDATION_ASSAY: Severity.INFO,
     ErrorType.DUPLICATE: Severity.INFO,
@@ -152,6 +158,16 @@ class _ThreadSafeErrorCollector:
 def _classify_validation_error(message: str) -> ErrorType:
     """Classify a Pydantic validation error message into an ErrorType."""
     lower = message.lower()
+    if "json_metadata.uid is" in lower:
+        return ErrorType.VALIDATION_UID_MISMATCH
+    if (
+        "json_metadata must be a json object" in lower
+        or "json_metadata is not valid json" in lower
+        or "derived identity exceeds 255 chars" in lower
+    ):
+        return ErrorType.VALIDATION_METADATA_SHAPE
+    if "ambiguous identity match:" in lower:
+        return ErrorType.AMBIGUOUS_IDENTITY
     if "json" in lower:
         return ErrorType.VALIDATION_JSON
     if "assay" in lower:

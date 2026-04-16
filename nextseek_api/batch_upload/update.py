@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from .associations import batch_insert_assay_assets, batch_insert_projects_samples
+from .identity import canonicalize_file_primary_data
 from .models import InsertableSample, RowOutcome
 
 try:
@@ -21,6 +22,16 @@ except ImportError:
     def _json_dumps_min(obj): return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 log = logging.getLogger(__name__)
+
+
+def _canonicalize_json_metadata(raw_json: str) -> str:
+    try:
+        parsed = _json_loads(raw_json) if raw_json else {}
+    except Exception:
+        parsed = {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+    return _json_dumps_min(canonicalize_file_primary_data(parsed))
 
 
 def deep_merge_metadata(
@@ -368,6 +379,7 @@ def bulk_update_samples(
         merged_meta, changed_keys = deep_merge_metadata(
             detail["json_metadata"], sample.json_metadata
         )
+        merged_meta = _canonicalize_json_metadata(merged_meta)
         merge_results[sample.uuid] = (
             sample.title,
             merged_meta,

@@ -171,15 +171,14 @@ class TestInputRowModel:
         assert row.UID is None
         assert row.SampleType == "NHP"
 
-    def test_none_uid_skips_metadata_check(self):
-        """When UID is None, json_metadata.UID should not cause validation error."""
-        row = InputRowModel(
-            UID=None,
-            SampleType="NHP",
-            json_metadata='{"Name":"test","UID":"NHP-260225MIT-1"}',
-            assay_ids=[],
-        )
-        assert row.UID is None
+    def test_none_uid_with_metadata_uid_rejected(self):
+        with pytest.raises(ValidationError, match="row UID column is empty"):
+            InputRowModel(
+                UID=None,
+                SampleType="NHP",
+                json_metadata='{"Name":"test","UID":"NHP-260225MIT-1"}',
+                assay_ids=[],
+            )
 
     def test_none_uid_with_valid_fields(self):
         """UID=None row with all other fields valid."""
@@ -193,6 +192,35 @@ class TestInputRowModel:
         assert row.UID is None
         assert row.assay_ids == [171, 172]
 
+    def test_whitespace_uid_normalized_to_none(self):
+        row = InputRowModel(UID="   ", SampleType="NHP", json_metadata='{"Name":"test"}')
+        assert row.UID is None
+
+    def test_invalid_json_metadata_rejected(self):
+        with pytest.raises(ValidationError, match="json_metadata is not valid JSON"):
+            InputRowModel(SampleType="NHP", json_metadata='{"Name":"oops"')
+
+    def test_json_metadata_array_rejected(self):
+        with pytest.raises(ValidationError, match="json_metadata must be a JSON object"):
+            InputRowModel(SampleType="NHP", json_metadata='["not","an","object"]')
+
+    def test_derived_identity_longer_than_255_rejected(self):
+        with pytest.raises(ValidationError, match="derived identity exceeds 255 chars"):
+            InputRowModel(
+                UID="NHP-260225MIT-1",
+                SampleType="NHP",
+                json_metadata='{"Name":"' + ("x" * 256) + '"}',
+            )
+
+    def test_sop_validation_still_nested_under_non_null_uid(self):
+        row = InputRowModel(
+            UID=None,
+            SampleType="NHP",
+            sop_id=99,
+            json_metadata='{"Name":"test","Protocol":"/sops/100"}',
+        )
+        assert row.sop_id == 99
+
 
 # ── InsertableSample ──────────────────────────────────────────────────────
 
@@ -204,6 +232,43 @@ class TestInsertableSample:
             json_metadata='{"x":1}', assay_ids="4,5,6"
         )
         assert sample.assay_ids == [4, 5, 6]
+
+
+class TestSampleMetadataCanonicalFields:
+    def test_canonical_file_primary_data_declared(self):
+        m = SampleMetadata.model_validate({"File_PrimaryData": "x.csv"})
+        assert m.File_PrimaryData == "x.csv"
+
+    def test_canonical_forward_reverse_declared(self):
+        m = SampleMetadata.model_validate({
+            "File_PrimaryData_Forward": "f.fa",
+            "File_PrimaryData_Reverse": "r.fa",
+        })
+        assert m.File_PrimaryData_Forward == "f.fa"
+        assert m.File_PrimaryData_Reverse == "r.fa"
+
+    def test_typo_forward_reverse_still_declared(self):
+        m = SampleMetadata.model_validate({
+            "File_PrimartyData_Forward": "f.fa",
+            "File_PrimartyData_Reverse": "r.fa",
+        })
+        assert m.File_PrimartyData_Forward == "f.fa"
+        assert m.File_PrimartyData_Reverse == "r.fa"
+
+    def test_model_dump_canonicalizes_keys(self):
+        m = SampleMetadata.model_validate({"File_PrimartyData": "x.csv"})
+        dumped = m.model_dump(exclude_none=True)
+        assert dumped["File_PrimaryData"] == "x.csv"
+        assert "File_PrimartyData" not in dumped
+
+    def test_model_dump_canonical_wins_over_typo(self):
+        m = SampleMetadata.model_validate({
+            "File_PrimaryData": "canon.csv",
+            "File_PrimartyData": "typo.csv",
+        })
+        dumped = m.model_dump(exclude_none=True)
+        assert dumped["File_PrimaryData"] == "canon.csv"
+        assert "File_PrimartyData" not in dumped
 
 
 # ── NodeRow validators ────────────────────────────────────────────────────
@@ -308,10 +373,25 @@ class TestErrorSystem:
         assert classify_severity(ErrorType.DB_CONN) == Severity.CRITICAL
         assert classify_severity(ErrorType.DB_CONSTRAINT) == Severity.ERROR
         assert classify_severity(ErrorType.VALIDATION_JSON) == Severity.WARNING
+        assert classify_severity(ErrorType.VALIDATION_UID_MISMATCH) == Severity.ERROR
+        assert classify_severity(ErrorType.VALIDATION_METADATA_SHAPE) == Severity.ERROR
+        assert classify_severity(ErrorType.AMBIGUOUS_IDENTITY) == Severity.ERROR
         assert classify_severity(ErrorType.DUPLICATE) == Severity.INFO
 
     def test_classify_validation_error(self):
         assert _classify_validation_error("bad json format") == ErrorType.VALIDATION_JSON
+        assert _classify_validation_error(
+            "json_metadata.UID is 'A' but row UID column is empty; provide the UID explicitly"
+        ) == ErrorType.VALIDATION_UID_MISMATCH
+        assert _classify_validation_error(
+            "json_metadata must be a JSON object, not a JSON array/scalar"
+        ) == ErrorType.VALIDATION_METADATA_SHAPE
+        assert _classify_validation_error(
+            "derived identity exceeds 255 chars (got 300); column name_identity would truncate and lookups would drift"
+        ) == ErrorType.VALIDATION_METADATA_SHAPE
+        assert _classify_validation_error(
+            "ambiguous identity match: 2 existing samples with name_identity='X' - duplicates must be resolved before batch can proceed"
+        ) == ErrorType.AMBIGUOUS_IDENTITY
         assert _classify_validation_error("invalid assay") == ErrorType.VALIDATION_ASSAY
         assert _classify_validation_error("unknown sampletype") == ErrorType.VALIDATION_SAMPLE_TYPE
         assert _classify_validation_error("something else") == ErrorType.UNKNOWN

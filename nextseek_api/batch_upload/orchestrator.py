@@ -14,6 +14,7 @@ from .dag import build_relationships, compute_directions, detect_cycles
 from .db_engine import get_connection
 from .errors import ErrorCollector, ErrorType, _classify_validation_error
 from .insert import load_existing_samples, process_batches
+from .identity import extract_identity
 from .levels import LevelAssignment, cascade_failures, compute_levels
 from .models import (
     BatchResult,
@@ -32,7 +33,7 @@ from .report import (
     write_summary_csv,
 )
 from .transform import build_insertable
-from .uid_gen import run_uid_gen
+from .uid_gen import check_name_exists_in_db, run_uid_gen
 
 log = logging.getLogger(__name__)
 
@@ -154,6 +155,7 @@ def run_batch_upload_multi(
     neo4j_metrics: Optional[Metrics] = None
     generated_uids: set = set()
     uid_gen_report: dict = {"uids_generated": 0}
+    uid_gen_failed_outcomes: Dict[str, RowOutcome] = {}
 
     if not output_dir:
         from django.conf import settings
@@ -223,9 +225,13 @@ def run_batch_upload_multi(
         log.info("Stage 1.25: NAME_CHECK")
 
         try:
-            from .uid_gen import check_name_exists_in_db
             with get_connection() as conn:
-                valid_rows, name_matches, name_matched_rows = check_name_exists_in_db(valid_rows, conn)
+                (
+                    valid_rows,
+                    name_matches,
+                    name_matched_rows,
+                    ambiguous_name_rows,
+                ) = check_name_exists_in_db(valid_rows, conn)
 
             if name_matches:
                 if config.update_existing:
@@ -250,6 +256,18 @@ def run_batch_upload_multi(
                             reason="name_already_exists",
                             sample_id=match_info["sample_id"],
                         )
+            if ambiguous_name_rows:
+                log.warning(
+                    "NAME_CHECK: %d row(s) failed due to ambiguous name_identity matches",
+                    len(ambiguous_name_rows),
+                )
+                for row, exc in ambiguous_name_rows:
+                    error_collector.add(
+                        row_index=getattr(row, "original_row_index", None) or exc.row_index,
+                        uid=row.UID,
+                        error_type=ErrorType.AMBIGUOUS_IDENTITY,
+                        message=str(exc),
+                    )
         except Exception as exc:
             log.exception("NAME_CHECK failed (non-fatal, continuing)")
             error_collector.add(
@@ -297,6 +315,11 @@ def run_batch_upload_multi(
                     conn=conn,
                     error_collector=error_collector,
                 )
+            uid_gen_failed_outcomes = {
+                failed["uid"]: RowOutcome(status="failed", reason=failed["reason"])
+                for failed in uid_gen_report.get("failed_rows", [])
+                if failed.get("uid")
+            }
             generated_uids = {r.UID for r in valid_rows if r.UID is not None} - uids_before_gen
             if uid_gen_report.get("uids_generated", 0) > 0:
                 log.info("UID_GEN: generated %d UIDs", uid_gen_report["uids_generated"])
@@ -606,6 +629,7 @@ def run_batch_upload_multi(
 
         # Merge name-matched outcomes (skipped duplicates from NAME_CHECK stage)
         all_outcomes.update(name_matched_outcomes)
+        all_outcomes.update(uid_gen_failed_outcomes)
 
         # Count updated samples from all levels
         total_updated = sum(
@@ -783,33 +807,14 @@ except ImportError:
         return json.loads(s)
 
 
-_FILE_BASED_PREFIXES_ORCH = ("D.", "A.")
-_FILE_PRIMARY_FIELDS_ORCH = (
-    "File_PrimaryData", "File_PrimartyData",
-    "File_PrimaryData_Forward", "File_PrimartyData_Forward",
-    "File_PrimaryData_Reverse", "File_PrimartyData_Reverse",
-)
-
-
-def _extract_identity_for_orphan(model: InputRowModel) -> Optional[str]:
-    """Extract Name or File_PrimaryData from InputRowModel for orphan identity map."""
+def _parse_orphan_meta(model: InputRowModel) -> Optional[dict]:
     try:
         meta = _json_loads_orch(model.json_metadata) if model.json_metadata else {}
     except Exception:
         return None
     if not isinstance(meta, dict):
         return None
-    if any(model.SampleType.startswith(p) for p in _FILE_BASED_PREFIXES_ORCH):
-        for field in _FILE_PRIMARY_FIELDS_ORCH:
-            val = meta.get(field)
-            if val and str(val).strip():
-                return str(val).strip()
-        return None
-    name = meta.get("Name") or meta.get("name")
-    if name is not None:
-        s = str(name).strip()
-        return s if s else None
-    return None
+    return meta
 
 
 def build_identity_map(
@@ -833,7 +838,8 @@ def build_identity_map(
         if outcome is None or outcome.sample_id is None:
             continue
 
-        identity = _extract_identity_for_orphan(model)
+        meta = _parse_orphan_meta(model)
+        identity = extract_identity(meta, uid=uid, sample_type=model.SampleType)
         if identity and identity not in identity_map:
             identity_map[identity] = uid
 

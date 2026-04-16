@@ -75,6 +75,21 @@ class TestClassifyValidationError:
     def test_json_keyword(self):
         assert _classify_validation_error("Invalid JSON format") == ErrorType.VALIDATION_JSON
 
+    def test_uid_mismatch_keyword(self):
+        assert _classify_validation_error(
+            "json_metadata.UID is 'NHP-1' but row UID column is empty; provide the UID explicitly"
+        ) == ErrorType.VALIDATION_UID_MISMATCH
+
+    def test_metadata_shape_keyword(self):
+        assert _classify_validation_error(
+            "json_metadata must be a JSON object, not a JSON array/scalar"
+        ) == ErrorType.VALIDATION_METADATA_SHAPE
+
+    def test_ambiguous_identity_keyword(self):
+        assert _classify_validation_error(
+            "ambiguous identity match: 2 existing samples with name_identity='X' - duplicates must be resolved before batch can proceed"
+        ) == ErrorType.AMBIGUOUS_IDENTITY
+
     def test_assay_keyword(self):
         assert _classify_validation_error("Assay not found") == ErrorType.VALIDATION_ASSAY
 
@@ -96,6 +111,9 @@ class TestClassifySeverity:
     def test_known_type(self):
         assert classify_severity(ErrorType.DB_CONN) == Severity.CRITICAL
         assert classify_severity(ErrorType.DUPLICATE) == Severity.INFO
+        assert classify_severity(ErrorType.VALIDATION_UID_MISMATCH) == Severity.ERROR
+        assert classify_severity(ErrorType.VALIDATION_METADATA_SHAPE) == Severity.ERROR
+        assert classify_severity(ErrorType.AMBIGUOUS_IDENTITY) == Severity.ERROR
 
     def test_all_error_types_mapped(self):
         for et in ErrorType:

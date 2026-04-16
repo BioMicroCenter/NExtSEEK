@@ -1050,6 +1050,26 @@ class TestEnrichParentTitles:
         assert node_rows[0].parent_titles == ["image_data.tiff"]
         assert node_rows[0].properties["parent_titles"] == ["image_data.tiff"]
 
+    def test_external_file_based_parent_uses_uid_prefix_for_identity(self):
+        """External file-based parent lookup should derive identity via shared extract_identity."""
+        child_props = {"Name": "Child_Sample", "Parent": "D.IMG-260225MIT-99"}
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-1", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-1", "Blood", json.dumps({"Name": "Child_Sample", "Parent": "D.IMG-260225MIT-99"})),
+        ]
+        conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("D.IMG-260225MIT-99", json.dumps({"File_PrimartyData": "external_image.tiff"})),
+        ]
+        conn.execute.return_value = mock_result
+
+        enrich_parent_titles(node_rows, input_models, sql_conn=conn)
+        assert node_rows[0].parent_titles == ["external_image.tiff"]
+        assert node_rows[0].properties["parent_titles"] == ["external_image.tiff"]
+
     def test_mixed_parents_resolved_and_unresolved(self):
         """Parent field with UID + unresolved Name -> both identities."""
         child_props = {"Name": "Child", "Parent": "NHP-260225MIT-3;Unresolved_Name"}

@@ -33,40 +33,14 @@ from sqlalchemy import text
 from nextseek_api.batch_upload.config import Neo4jConfig
 from nextseek_api.batch_upload.db_engine import get_connection
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens, split_parent_field
+from nextseek_api.batch_upload.identity import extract_identity
 
 log = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
 )
 
-_FILE_BASED_PREFIXES = ("D.", "A.")
-_FILE_PRIMARY_FIELDS = (
-    "File_PrimaryData",
-    "File_PrimartyData",
-    "File_PrimaryData_Forward",
-    "File_PrimartyData_Forward",
-    "File_PrimaryData_Reverse",
-    "File_PrimartyData_Reverse",
-)
 BATCH_SIZE = 1000
-
-
-def _extract_identity(meta: dict, sample_type_hint: str) -> str | None:
-    """Extract Name or File_PrimaryData from parsed json_metadata.
-
-    Mirrors neo4j_sync._extract_identity_from_meta logic.
-    """
-    if any(sample_type_hint.startswith(p) for p in _FILE_BASED_PREFIXES):
-        for field in _FILE_PRIMARY_FIELDS:
-            val = meta.get(field)
-            if val and str(val).strip():
-                return str(val).strip()
-        return None
-    name = meta.get("Name") or meta.get("name")
-    if name is not None:
-        s = str(name).strip()
-        return s if s else None
-    return None
 
 
 def backfill() -> None:
@@ -101,9 +75,7 @@ def backfill() -> None:
         if not isinstance(meta, dict):
             continue
         uid_to_meta[uuid_val] = meta
-        # Infer sample type prefix from UUID for file-based check
-        prefix = uuid_val.split("-")[0] if "-" in uuid_val else ""
-        identity = _extract_identity(meta, prefix)
+        identity = extract_identity(meta, uid=uuid_val)
         if identity:
             uid_to_identity[uuid_val] = identity
 
