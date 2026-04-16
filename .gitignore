@@ -178,3 +178,6 @@ CLAUDE.md
 .serena/
 .venv_uv/data/
 1-NHP-Template-240909.xlsx
+.codex/
+.*_stage/
+*.codex 

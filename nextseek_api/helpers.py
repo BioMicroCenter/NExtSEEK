@@ -116,10 +116,14 @@ class SeekAPIClient:
         headers = {'Accept': JSONAPI_ACCEPT}
         if extra_headers:
             headers.update(extra_headers)
+        # Encode Basic auth header manually to preserve UTF-8 (requests uses
+        # Latin-1, which corrupts passwords with special characters).
+        if basic_tuple:
+            raw = f"{basic_tuple[0]}:{basic_tuple[1]}"
+            headers['Authorization'] = 'Basic ' + base64.b64encode(raw.encode('utf-8')).decode('ascii')
         resp = self.session.request(
             method=method.upper(),
             url=url,
-            auth=basic_tuple,  # Only for Basic auth; None when using Token
             headers=headers,
             params=params,
             json=json,
@@ -294,12 +298,14 @@ class SeekAPIClient:
         headers = {'Accept': accept}
         if extra_headers:
             headers.update(extra_headers)
+        if basic_tuple:
+            raw = f"{basic_tuple[0]}:{basic_tuple[1]}"
+            headers['Authorization'] = 'Basic ' + base64.b64encode(raw.encode('utf-8')).decode('ascii')
 
         t0 = time.time()
         resp = self.session.request(
             method='GET',
             url=url,
-            auth=basic_tuple,
             headers=headers,
             params=params,
             stream=True,
@@ -328,12 +334,14 @@ class SeekAPIClient:
         headers = {'Content-Type': 'application/octet-stream'}
         if extra_headers:
             headers.update(extra_headers)
+        if basic_tuple:
+            raw = f"{basic_tuple[0]}:{basic_tuple[1]}"
+            headers['Authorization'] = 'Basic ' + base64.b64encode(raw.encode('utf-8')).decode('ascii')
 
         t0 = time.time()
         resp = self.session.request(
             method='PUT',
             url=url,
-            auth=basic_tuple,
             headers=headers,
             data=file_data,
             timeout=(10, 300),

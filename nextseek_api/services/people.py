@@ -177,7 +177,7 @@ class PeopleProxyViewSet(viewsets.ViewSet):
             )
         ],
     )
-    @action(detail=False, methods=["get"], name="Current Psrson", url_path='current')
+    @action(detail=False, methods=["get"], name="Current Person", url_path='current')
     def current(self, request):
         body, code, headers, resp = self.client.get_current_person(request)
         if code == 401:
