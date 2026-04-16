@@ -22,6 +22,8 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
+import django
+from django.conf import settings
 from django.test.utils import override_settings
 from sqlalchemy import create_engine, text
 
@@ -36,18 +38,43 @@ pymysql = pytest.importorskip("pymysql")
 pytest.importorskip("sqlalchemy")
 pytest.importorskip("neo4j")
 
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmac.settings")
+django.setup()
+
 try:
     _NEO4J_CFG = Neo4jConfig.from_django_settings()
 except Exception:
     _NEO4J_CFG = None
 
-_HOST = os.environ.get("SPIKE_DB_HOST")
-_USER = os.environ.get("SPIKE_DB_USER")
-_PASS = os.environ.get("SPIKE_DB_PASSWORD")
-_PORT = int(os.environ.get("SPIKE_DB_PORT", "3306"))
-_TEST_NEO4J_DB = os.environ.get("WAVE3_NEO4J_TEST_DB", "").strip()
 _ALLOW_NEO4J_TEST_DB = os.environ.get("WAVE3_ALLOW_NEO4J_TEST_DB", "").strip() == "1"
-_HAS_DB_FIXTURE = all([_HOST, _USER, _PASS])
+_NEO4J_DB_READY_TIMEOUT_S = float(os.environ.get("WAVE3_NEO4J_DB_READY_TIMEOUT_S", "30"))
+_NEO4J_AUTO_DB_PREFIX = "wave3-auto-"
+
+
+def _mariadb_conn_info() -> tuple[str | None, str | None, str | None, int | None]:
+    host = os.environ.get("SPIKE_DB_HOST")
+    user = os.environ.get("SPIKE_DB_USER")
+    password = os.environ.get("SPIKE_DB_PASSWORD")
+    port = os.environ.get("SPIKE_DB_PORT")
+    if host and user and password:
+        return host, user, password, int(port or "3306")
+
+    db = settings.DATABASES.get("seek") or {}
+    engine = db.get("ENGINE", "")
+    if "mysql" not in engine:
+        return None, None, None, None
+
+    host = db.get("HOST") or "127.0.0.1"
+    user = db.get("USER") or None
+    password = db.get("PASSWORD") or None
+    port = int(str(db.get("PORT") or "3306"))
+    if not user or password is None:
+        return None, None, None, None
+    return host, user, password, port
+
+
+_HOST, _USER, _PASS, _PORT = _mariadb_conn_info()
+_HAS_DB_FIXTURE = all([_HOST, _USER, _PASS, _PORT])
 
 FIXTURES_DIR = Path(__file__).with_name("fixtures")
 DEFAULT_FIXTURE = FIXTURES_DIR / "wave3_default_mode.xlsx"
@@ -59,18 +86,18 @@ STUDY_ID = 701
 STUDY_TITLE = "Wave 3 Integration Study"
 NAME_SAMPLE_TYPE_ID = 501
 FILE_SAMPLE_TYPE_ID = 502
-NAME_SAMPLE_TYPE = "W3NHP_blood"
-FILE_SAMPLE_TYPE = "D.W3IT_files"
+NAME_SAMPLE_TYPE = "WTNAM_blood"
+FILE_SAMPLE_TYPE = "D.WTFIL_files"
 
-UID_DRIFT_A = "W3IT-240301NA-1"
-UID_DRIFT_B = "W3IT-240301NA-2"
-UID_DRIFT_C = "W3IT-240301NA-3"
-UID_DRIFT_W = "W3IT-240301NA-4"
-UID_RARE_UID_ONLY = "W3IT-240301NA-5"
-UID_DUP_1 = "W3IT-240301NA-6"
-UID_DUP_2 = "W3IT-240301NA-7"
-UID_FILE_PARENT = "D.W3IT-240301NA-1"
-UID_PREEXISTING_ORPHAN = "W3IT-240301NA-8"
+UID_DRIFT_A = "WTNAM-240301BMC-1"
+UID_DRIFT_B = "WTNAM-240301BMC-2"
+UID_DRIFT_C = "WTNAM-240301BMC-3"
+UID_DRIFT_W = "WTNAM-240301BMC-4"
+UID_RARE_UID_ONLY = "WTNAM-240301BMC-5"
+UID_DUP_1 = "WTNAM-240301BMC-6"
+UID_DUP_2 = "WTNAM-240301BMC-7"
+UID_FILE_PARENT = "D.WTFIL-240301BMC-1"
+UID_PREEXISTING_ORPHAN = "WTNAM-240301BMC-8"
 
 SEEDED_COUNTS = {
     "drift-a": 1,
@@ -176,7 +203,7 @@ CREATE_TABLES_SQL = [
     """,
     """
     CREATE TABLE samples (
-      id INT PRIMARY KEY,
+      id INT AUTO_INCREMENT PRIMARY KEY,
       title VARCHAR(255),
       sample_type_id INT,
       json_metadata LONGTEXT,
@@ -204,31 +231,39 @@ def _neo4j_skip_reason() -> str | None:
         return "Wave 3 integration requires Django Neo4j settings"
     if not _NEO4J_CFG.URI or not _NEO4J_CFG.NEO4J_USER or not _NEO4J_CFG.PASSWORD:
         return "Wave 3 integration requires configured Neo4j URI and auth"
-    if not _TEST_NEO4J_DB:
-        return "Set WAVE3_NEO4J_TEST_DB to a dedicated Neo4j test database name"
     if not _ALLOW_NEO4J_TEST_DB:
-        return "Set WAVE3_ALLOW_NEO4J_TEST_DB=1 to opt into dedicated Neo4j test DB writes"
-    if _TEST_NEO4J_DB in {"neo4j", "system"}:
-        return f"Refusing unsafe Neo4j test database name: {_TEST_NEO4J_DB}"
-    if _NEO4J_CFG.NEO4J_DB and _TEST_NEO4J_DB == _NEO4J_CFG.NEO4J_DB:
-        return "Refusing to run Wave 3 against the ambient configured Neo4j database"
-    if not (_TEST_NEO4J_DB.startswith("wave3_") or _TEST_NEO4J_DB.startswith("test_")):
-        return "WAVE3_NEO4J_TEST_DB must start with 'wave3_' or 'test_'"
+        return "Set WAVE3_ALLOW_NEO4J_TEST_DB=1 to opt into Neo4j test DB writes"
     return None
 
 
 def _live_test_skip_reason() -> str | None:
     if not _HAS_DB_FIXTURE:
-        return "Wave 3 integration requires SPIKE_DB_HOST, SPIKE_DB_USER, and SPIKE_DB_PASSWORD"
+        return "Wave 3 integration requires MariaDB access via DATABASES['seek'] or SPIKE_DB_* overrides"
     return _neo4j_skip_reason()
 
 
-def _neo4j_test_settings() -> dict:
+def _generate_neo4j_db_name() -> str:
+    return f"{_NEO4J_AUTO_DB_PREFIX}{int(time.time() * 1000)}"
+
+
+def _assert_safe_auto_db_name(neo4j_db: str) -> None:
+    if not neo4j_db.startswith(_NEO4J_AUTO_DB_PREFIX):
+        raise RuntimeError(f"Refusing to manage non-auto Neo4j DB name: {neo4j_db!r}")
+    if neo4j_db in {"neo4j", "system"}:
+        raise RuntimeError(f"Refusing unsafe Neo4j DB name: {neo4j_db!r}")
+    if _NEO4J_CFG and _NEO4J_CFG.NEO4J_DB and neo4j_db == _NEO4J_CFG.NEO4J_DB:
+        raise RuntimeError(
+            f"Refusing to operate on ambient configured Neo4j DB: {neo4j_db!r}"
+        )
+
+
+def _neo4j_test_settings(neo4j_db: str) -> dict:
     reason = _neo4j_skip_reason()
     if reason:
         raise RuntimeError(reason)
+    _assert_safe_auto_db_name(neo4j_db)
     return {
-        "NAME": _TEST_NEO4J_DB,
+        "NAME": neo4j_db,
         "URI": _NEO4J_CFG.URI,
         "AUTH": (_NEO4J_CFG.NEO4J_USER, _NEO4J_CFG.PASSWORD),
     }
@@ -248,40 +283,38 @@ def _neo4j_driver():
         driver.close()
 
 
-def _assert_empty_neo4j_db(driver, neo4j_db: str) -> None:
-    result = driver.execute_query("MATCH (n) RETURN count(n) AS c", database_=neo4j_db)
-    if result.records[0]["c"] != 0:
-        raise RuntimeError(
-            f"Neo4j test database {neo4j_db!r} is not empty after Wave 3 cleanup; refusing to run"
+def _wait_for_neo4j_db_online(driver, neo4j_db: str, timeout_s: float) -> None:
+    deadline = time.time() + timeout_s
+    last_status = None
+    while time.time() < deadline:
+        result = driver.execute_query(
+            "SHOW DATABASE $db YIELD name, currentStatus RETURN currentStatus",
+            {"db": neo4j_db},
+            database_="system",
         )
+        if result.records:
+            last_status = result.records[0]["currentStatus"]
+            if last_status == "online":
+                return
+        time.sleep(0.5)
+    raise RuntimeError(
+        f"Neo4j database {neo4j_db!r} did not reach 'online' within {timeout_s}s "
+        f"(last status: {last_status!r})"
+    )
 
 
-def _cleanup_neo4j(driver, neo4j_db: str) -> None:
+def _create_neo4j_db(driver, neo4j_db: str) -> None:
+    _assert_safe_auto_db_name(neo4j_db)
     driver.execute_query(
-        """
-        MATCH (s:Sample)
-        WHERE s.uuid STARTS WITH 'W3IT-' OR s.uuid STARTS WITH 'D.W3IT-'
-        DETACH DELETE s
-        """,
-        database_=neo4j_db,
+        f"CREATE DATABASE `{neo4j_db}` IF NOT EXISTS", database_="system"
     )
+    _wait_for_neo4j_db_online(driver, neo4j_db, _NEO4J_DB_READY_TIMEOUT_S)
+
+
+def _drop_neo4j_db(driver, neo4j_db: str) -> None:
+    _assert_safe_auto_db_name(neo4j_db)
     driver.execute_query(
-        """
-        MATCH (st:SampleType)
-        WHERE st.title IN $titles
-        DETACH DELETE st
-        """,
-        {"titles": [NAME_SAMPLE_TYPE, FILE_SAMPLE_TYPE]},
-        database_=neo4j_db,
-    )
-    driver.execute_query(
-        """
-        MATCH (st:Study)
-        WHERE st.id = $study_id OR st.title = $title
-        DETACH DELETE st
-        """,
-        {"study_id": STUDY_ID, "title": STUDY_TITLE},
-        database_=neo4j_db,
+        f"DROP DATABASE `{neo4j_db}` IF EXISTS", database_="system"
     )
 
 
@@ -302,13 +335,12 @@ def integration_env():
     if reason:
         pytest.skip(reason)
 
-    neo4j_settings = _neo4j_test_settings()
-    neo4j_db = neo4j_settings["NAME"]
+    neo4j_db = _generate_neo4j_db_name()
+    neo4j_settings = _neo4j_test_settings(neo4j_db)
     db_name = f"test_w3_{int(time.time() * 1000)}"
     raw = pymysql.connect(host=_HOST, user=_USER, password=_PASS, port=_PORT, autocommit=True)
     with _neo4j_driver() as driver:
-        _cleanup_neo4j(driver, neo4j_db)
-        _assert_empty_neo4j_db(driver, neo4j_db)
+        _create_neo4j_db(driver, neo4j_db)
         try:
             with raw.cursor() as cur:
                 cur.execute(f"CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
@@ -423,16 +455,16 @@ def integration_env():
 
             yield {"conn": raw, "db_name": db_name, "neo4j_settings": neo4j_settings}
         finally:
-            _cleanup_neo4j(driver, neo4j_db)
-            _assert_empty_neo4j_db(driver, neo4j_db)
             try:
                 with raw.cursor() as cur:
                     cur.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
-            finally:
-                raw.close()
-                dispose_engine()
-                CAPABILITIES["insert_returning"] = False
-                clear_caches()
+            except Exception:
+                pass
+            raw.close()
+            dispose_engine()
+            CAPABILITIES["insert_returning"] = False
+            clear_caches()
+            _drop_neo4j_db(driver, neo4j_db)
 
 
 def _db_settings(db_name: str) -> dict:
@@ -476,11 +508,11 @@ def _find_summary_row(rows: list[dict], *, uid: str | None = None, status: str |
     raise AssertionError(f"Summary row not found for uid={uid!r} status={status!r} reason_substr={reason_substr!r}")
 
 
-def _query_graph(driver, cypher: str, params: dict | None = None):
-    return driver.execute_query(cypher, params or {}, database_=_TEST_NEO4J_DB)
+def _query_graph(driver, neo4j_db: str, cypher: str, params: dict | None = None):
+    return driver.execute_query(cypher, params or {}, database_=neo4j_db)
 
 
-def _run_batch(db_name: str, fixture_path: Path, *, update_existing: bool, output_dir: str) -> dict:
+def _run_batch(db_name: str, neo4j_db: str, fixture_path: Path, *, update_existing: bool, output_dir: str) -> dict:
     dispose_engine()
     CAPABILITIES["insert_returning"] = False
     clear_caches()
@@ -488,13 +520,13 @@ def _run_batch(db_name: str, fixture_path: Path, *, update_existing: bool, outpu
     with override_settings(
         DATABASES=_db_settings(db_name),
         NEXTSEEK_DATABASE="seek",
-        NEO4J_DATABASE=_neo4j_test_settings(),
+        NEO4J_DATABASE=_neo4j_test_settings(neo4j_db),
     ):
         return run_batch_upload_multi(
             xlsx_paths=[str(fixture_path)],
             project_id=PROJECT_ID,
             contributor_id=CONTRIBUTOR_ID,
-            lababbv="IT",
+            lababbv="BMC",
             config=import_module("nextseek_api.batch_upload.config").BatchUploadConfig(
                 update_existing=update_existing,
                 enable_auto_permissions=False,
@@ -510,7 +542,7 @@ class TestIdentityDriftIntegration:
         neo4j_db = integration_env["neo4j_settings"]["NAME"]
         pre_counts = {identity: _count_by_identity(conn, identity) for identity in SEEDED_COUNTS}
 
-        result = _run_batch(db_name, DEFAULT_FIXTURE, update_existing=False, output_dir=str(tmp_path))
+        result = _run_batch(db_name, neo4j_db,DEFAULT_FIXTURE, update_existing=False, output_dir=str(tmp_path))
         rows = _read_summary_rows(result["summary_path"])
 
         assert result["totals"]["skipped"] >= 5
@@ -555,6 +587,7 @@ class TestIdentityDriftIntegration:
         with _neo4j_driver() as driver:
             graph_child = _query_graph(
                 driver,
+                neo4j_db,
                 "MATCH (s:Sample {uuid: $uuid}) RETURN s.parent_titles AS parent_titles",
                 {"uuid": orphan_child[0]},
             )
@@ -562,6 +595,7 @@ class TestIdentityDriftIntegration:
 
             rel_by_name = _query_graph(
                 driver,
+                neo4j_db,
                 """
                 MATCH (:Sample {uuid: $child})-[:DERIVED_FROM]->(:Sample {uuid: $parent})
                 RETURN count(*) AS c
@@ -572,6 +606,7 @@ class TestIdentityDriftIntegration:
 
             rel_by_file = _query_graph(
                 driver,
+                neo4j_db,
                 """
                 MATCH (:Sample {uuid: $child})-[:DERIVED_FROM]->(:Sample {uuid: $parent})
                 RETURN count(*) AS c
@@ -608,6 +643,7 @@ class TestIdentityDriftIntegration:
 
             orphan_rel = _query_graph(
                 driver,
+                neo4j_db,
                 """
                 MATCH (:Sample {uuid: $child})-[:DERIVED_FROM]->(:Sample {uuid: $parent})
                 RETURN count(*) AS c
@@ -622,7 +658,7 @@ class TestIdentityDriftIntegration:
         neo4j_db = integration_env["neo4j_settings"]["NAME"]
         pre_counts = {identity: _count_by_identity(conn, identity) for identity in SEEDED_COUNTS}
 
-        result = _run_batch(db_name, UPDATE_FIXTURE, update_existing=True, output_dir=str(tmp_path))
+        result = _run_batch(db_name, neo4j_db,UPDATE_FIXTURE, update_existing=True, output_dir=str(tmp_path))
         rows = _read_summary_rows(result["summary_path"])
 
         assert result["totals"]["updated"] >= 2
@@ -664,6 +700,7 @@ class TestIdentityDriftIntegration:
         with _neo4j_driver() as driver:
             sample_props = _query_graph(
                 driver,
+                neo4j_db,
                 "MATCH (s:Sample {uuid: $uuid}) RETURN s.Scientist AS scientist",
                 {"uuid": UID_DRIFT_A},
             )
@@ -687,6 +724,7 @@ class TestIdentityDriftIntegration:
             assert stats["resolved"] >= 1
             orphan_rel = _query_graph(
                 driver,
+                neo4j_db,
                 """
                 MATCH (:Sample {uuid: $child})-[:DERIVED_FROM]->(:Sample {uuid: $parent})
                 RETURN count(*) AS c

@@ -1,50 +1,85 @@
 # Wave 3 Live Test Access
 
 Wave 3 live testing uses:
-- a throwaway MariaDB database created from `SPIKE_DB_*`
-- a dedicated Neo4j test database selected by `WAVE3_NEO4J_TEST_DB`
+- a throwaway MariaDB database auto-created from `DATABASES["seek"]` (or `SPIKE_DB_*` if overridden)
+- a throwaway Neo4j database auto-created on the configured Neo4j server
 
-Safety rules:
-- never point `WAVE3_NEO4J_TEST_DB` at the normal configured graph database
-- never use `neo4j` or `system`
-- use a dedicated name starting with `wave3_` or `test_`
-- set `WAVE3_ALLOW_NEO4J_TEST_DB=1` explicitly before running
+Both throwaway databases are created per-run with unique timestamped names and
+dropped on teardown. The test does not read or write the ambient production
+Neo4j database.
 
-Required environment:
+Safety contract:
+- Neo4j DB name is generated inside the test as `wave3-auto-<epoch_ms>` and is
+  refused if it ever equals `neo4j`, `system`, or the ambient configured DB.
+- MariaDB DB name is generated as `test_w3_<epoch_ms>` and dropped at teardown.
+- The test requires the configured Neo4j account to have CREATE/DROP DATABASE
+  privilege. Failure to create or drop raises; nothing about the ambient DBs
+  changes.
+
+## Required environment
+
+Only one opt-in is required:
 
 ```bash
+export WAVE3_ALLOW_NEO4J_TEST_DB=1
+```
+
+## Optional environment
+
+```bash
+# Override MariaDB connection (otherwise defaults to DATABASES["seek"]):
 export SPIKE_DB_HOST=...
 export SPIKE_DB_USER=...
 export SPIKE_DB_PASSWORD=...
 export SPIKE_DB_PORT=3306
-export WAVE3_NEO4J_TEST_DB=wave3_identity_drift_test
-export WAVE3_ALLOW_NEO4J_TEST_DB=1
+
+# Wait timeout for Neo4j DB to reach 'online' status after CREATE (default 30s):
+export WAVE3_NEO4J_DB_READY_TIMEOUT_S=60
 ```
 
-The Django Neo4j settings must still provide the real server URI and auth. The
-test overrides only the database name, not the server credentials.
-
-Recommended preflight:
+## Preflight check
 
 ```bash
-python - <<'PY'
+/opt/NExtSEEK/.venv/bin/python - <<'PY'
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmac.settings")
+import django
+django.setup()
 from nextseek_api.batch_upload.config import Neo4jConfig
 cfg = Neo4jConfig.from_django_settings()
-print({"uri": cfg.URI, "ambient_db": cfg.NEO4J_DB})
+print({"uri": cfg.URI, "user": cfg.NEO4J_USER, "ambient_db": cfg.NEO4J_DB})
 PY
-echo "$WAVE3_NEO4J_TEST_DB"
 ```
 
-Run the live module:
+## Run the live module
 
 ```bash
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /opt/NExtSEEK/.venv/bin/python -m pytest -p pytest_cov --noconftest nextseek_api/batch_upload/tests/test_identity_drift_integration.py -q -rs
+WAVE3_ALLOW_NEO4J_TEST_DB=1 \
+  PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  /opt/NExtSEEK/.venv/bin/python -m pytest -p pytest_cov --noconftest \
+  nextseek_api/batch_upload/tests/test_identity_drift_integration.py -q -rs
 ```
 
-Expected safety behavior:
-- missing MariaDB env vars: skip
-- missing Neo4j config: skip
-- missing `WAVE3_NEO4J_TEST_DB`: skip
-- missing `WAVE3_ALLOW_NEO4J_TEST_DB=1`: skip
-- unsafe Neo4j DB name: skip
-- non-empty dedicated Neo4j test DB after Wave 3 cleanup: hard failure
+## Expected skip behavior (no env or partial env)
+
+- Missing MariaDB access in both `DATABASES["seek"]` and `SPIKE_DB_*`: skip
+- Missing Neo4j config / URI / credentials: skip
+- Missing `WAVE3_ALLOW_NEO4J_TEST_DB=1`: skip
+
+## Cleanup of stale auto DBs
+
+If a prior run crashed between CREATE and DROP, a `wave3-auto-<ts>` Neo4j DB
+may be left online. Non-destructive to ambient data; you can drop all stale
+auto DBs with:
+
+```cypher
+SHOW DATABASES YIELD name
+WHERE name STARTS WITH 'wave3-auto-'
+RETURN name
+```
+
+Then for each name:
+
+```cypher
+DROP DATABASE `wave3-auto-<ts>` IF EXISTS
+```
