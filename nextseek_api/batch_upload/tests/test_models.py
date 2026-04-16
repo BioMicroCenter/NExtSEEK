@@ -113,6 +113,21 @@ class TestInputRowModel:
         )
         assert row.json_metadata == '{"a":1}'
 
+    def test_normalize_json_metadata_promotes_lowercase_name(self):
+        row = InputRowModel(
+            UID="X", SampleType="Y", json_metadata='{"name":"lower"}', assay_ids=[]
+        )
+        assert row.json_metadata == '{"Name":"lower"}'
+
+    def test_normalize_json_metadata_prefers_existing_name(self):
+        row = InputRowModel(
+            UID="X",
+            SampleType="Y",
+            json_metadata='{"Name":"upper","name":"lower"}',
+            assay_ids=[],
+        )
+        assert row.json_metadata == '{"Name":"upper"}'
+
     def test_project_id_optional(self):
         row = InputRowModel(
             UID="X", SampleType="Y", json_metadata="{}", assay_ids=[]

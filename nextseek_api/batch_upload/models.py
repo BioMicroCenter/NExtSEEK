@@ -194,11 +194,19 @@ class InputRowModel(BaseModel):
     @field_validator("json_metadata", mode="before")
     @classmethod
     def normalize_json_metadata(cls, v):
+        from .identity import canonicalize_identity_metadata
+
         if isinstance(v, dict):
-            return _minify_json_string(v)
+            return _minify_json_string(canonicalize_identity_metadata(v))
         if isinstance(v, str):
+            s = v.lstrip("\ufeff").strip()
+            if not s:
+                return "{}"
             try:
-                return _minify_json_string(v)
+                parsed = _json_loads(s)
+                if isinstance(parsed, dict):
+                    return _minify_json_string(canonicalize_identity_metadata(parsed))
+                return _minify_json_string(s)
             except Exception:
                 return v
         if v is None:

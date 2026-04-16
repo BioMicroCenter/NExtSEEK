@@ -62,6 +62,19 @@ def canonicalize_file_primary_data(meta: Any) -> Any:
     return canonicalized
 
 
+def canonicalize_identity_metadata(meta: Any) -> Any:
+    """Return a copy of metadata with identity keys normalized to canonical names."""
+    if not isinstance(meta, dict):
+        return meta
+
+    canonicalized = canonicalize_file_primary_data(meta)
+    if "Name" not in canonicalized and "name" in canonicalized:
+        canonicalized["Name"] = canonicalized.pop("name")
+    elif "Name" in canonicalized:
+        canonicalized.pop("name", None)
+    return canonicalized
+
+
 def extract_identity(
     meta: Mapping[str, Any] | None,
     *,
@@ -78,7 +91,7 @@ def extract_identity(
     if not isinstance(meta, Mapping):
         return None
 
-    canonical_meta = canonicalize_file_primary_data(dict(meta))
+    canonical_meta = canonicalize_identity_metadata(dict(meta))
     file_based = _is_file_based_class(uid=uid, sample_type=sample_type)
 
     if file_based:

@@ -551,6 +551,11 @@ class TestAmbiguousIdentityHandling:
 
         assert result["totals"]["success"] == 1
         assert result["totals"]["failed"] == 1
+        assert result["totals"]["processed"] == (
+            result["totals"]["success"]
+            + result["totals"]["skipped"]
+            + result["totals"]["failed"]
+        )
         assert any(err["type"] == ErrorType.AMBIGUOUS_IDENTITY.value for err in result["errors"])
 
     @patch("nextseek_api.batch_upload.orchestrator.Neo4jConfig.from_django_settings")

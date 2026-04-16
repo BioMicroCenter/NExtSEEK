@@ -692,11 +692,14 @@ def run_batch_upload_multi(
     # ── Stage 7: REPORT ───────────────────────────────────────────────────
     log.info("Stage 7/7: REPORT")
     elapsed = time.perf_counter() - t0
+    success_count = sum(1 for o in batch_result.outcomes.values() if o.status == "success")
+    skipped_count = sum(1 for o in batch_result.outcomes.values() if o.status == "skipped")
+    failed_count = sum(1 for o in batch_result.outcomes.values() if o.status == "failed")
     totals = {
-        "processed": len(valid_rows),
-        "success": sum(1 for o in batch_result.outcomes.values() if o.status == "success"),
-        "skipped": sum(1 for o in batch_result.outcomes.values() if o.status == "skipped"),
-        "failed": sum(1 for o in batch_result.outcomes.values() if o.status == "failed"),
+        "processed": success_count + skipped_count + failed_count,
+        "success": success_count,
+        "skipped": skipped_count,
+        "failed": failed_count,
         "elapsed_s": elapsed,
         "throughput_rps": batch_result.inserted_count / elapsed if elapsed > 0 else 0,
         "permissions_inserted": batch_result.permissions_inserted_count,
