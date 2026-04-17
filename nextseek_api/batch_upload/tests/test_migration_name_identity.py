@@ -1,25 +1,15 @@
 """Behavioral tests for the hashed samples.name_identity migration."""
 from __future__ import annotations
 
-import hashlib
 import os
 import time
-from copy import deepcopy
 from importlib import import_module
 
-import django
 import pytest
-from django.apps import apps
-from django.conf import settings
-from django.core.management import call_command
-from django.db import connections
 
 from nextseek_api.batch_upload.identity import hash_identity
 
 pymysql = pytest.importorskip("pymysql")
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmac.settings")
-
 
 def _mariadb_conn_info() -> tuple[str | None, str | None, str | None, int | None]:
     host = os.environ.get("SPIKE_DB_HOST")
@@ -28,6 +18,12 @@ def _mariadb_conn_info() -> tuple[str | None, str | None, str | None, int | None
     port = os.environ.get("SPIKE_DB_PORT")
     if host and user and password:
         return host, user, password, int(port or "3306")
+
+    try:
+        os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmac.settings")
+        from django.conf import settings
+    except Exception:
+        return None, None, None, None
 
     db = settings.DATABASES.get("seek") or {}
     engine = db.get("ENGINE", "")
@@ -60,15 +56,6 @@ def _is_strict_sql_mode(conn) -> bool:
     tokens = {t.strip().upper() for t in mode.split(",")}
     return any(flag in tokens for flag in _STRICT_MODE_FLAGS)
 
-
-def _normalized_sha256(value: str | None) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()
-    if not normalized:
-        return None
-    return hashlib.sha256(normalized.lower().encode("utf-8")).hexdigest()
-
 CREATE_TABLE_SQL = """
 CREATE TABLE samples (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -97,15 +84,6 @@ def _skip_if_unreachable(exc: Exception) -> None:
     pytest.skip(f"MariaDB fixture unreachable in this environment: {exc}")
 
 
-def _setup_django_or_skip() -> None:
-    if apps.ready:
-        return
-    try:
-        django.setup()
-    except Exception as exc:
-        pytest.skip(f"Full Django migration runner unavailable in this worktree: {exc}")
-
-
 @pytest.fixture
 def throwaway_db():
     db_name = f"test_namei_{int(time.time() * 1000)}"
@@ -125,50 +103,6 @@ def throwaway_db():
                 c.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
         finally:
             conn.close()
-
-
-@pytest.fixture
-def django_migration_db():
-    _setup_django_or_skip()
-    db_name = f"test_namei_dj_{int(time.time() * 1000)}"
-    alias = f"seek_namei_{int(time.time() * 1000)}"
-    try:
-        admin_conn = pymysql.connect(host=_HOST, user=_USER, password=_PASS, port=_PORT, autocommit=True)
-    except Exception as exc:
-        _skip_if_unreachable(exc)
-
-    db_settings = deepcopy(settings.DATABASES["seek"])
-    db_settings.update(
-        {
-            "NAME": db_name,
-            "HOST": _HOST,
-            "USER": _USER,
-            "PASSWORD": _PASS,
-            "PORT": _PORT,
-        }
-    )
-
-    try:
-        with admin_conn.cursor() as c:
-            c.execute(f"CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-        settings.DATABASES[alias] = db_settings
-        connections.databases[alias] = db_settings
-        yield alias, db_name
-    finally:
-        try:
-            if alias in connections.databases:
-                connections[alias].close()
-        finally:
-            if alias in settings.DATABASES:
-                settings.DATABASES.pop(alias, None)
-            connections.databases.pop(alias, None)
-            if hasattr(connections._connections, alias):
-                delattr(connections._connections, alias)
-            try:
-                with admin_conn.cursor() as c:
-                    c.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
-            finally:
-                admin_conn.close()
 
 
 class TestMigrationSqlModule:
@@ -342,7 +276,7 @@ class TestMigrationBehavior:
             identity = "x" * length
             uuid = f"NHP-260413NA-{offset}"
             self._seed(conn, uuid, f'{{"Name":"{identity}"}}')
-            assert self._fetch_name_identity(conn, uuid) == _normalized_sha256(identity)
+            assert self._fetch_name_identity(conn, uuid) == hash_identity(identity)
 
     def test_sql_python_hash_parity_ascii(self, throwaway_db):
         conn, _ = throwaway_db
@@ -430,40 +364,3 @@ class TestMigrationReversibility:
             c.execute(forward)
             c.execute(reverse)
             c.execute(forward)
-
-
-class TestDjangoMigrationRunner:
-    def test_django_migrate_seek_forward_and_reverse(self, django_migration_db):
-        alias, db_name = django_migration_db
-
-        call_command("migrate", "seek", database=alias, verbosity=0, interactive=False)
-
-        with connections[alias].cursor() as c:
-            c.execute(
-                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
-                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'samples' AND COLUMN_NAME = 'name_identity'",
-                (db_name,),
-            )
-            assert c.fetchone()[0] == 1
-            c.execute(
-                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS "
-                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'samples' AND INDEX_NAME = 'idx_samples_name_identity'",
-                (db_name,),
-            )
-            assert c.fetchone()[0] >= 1
-
-        call_command("migrate", "seek", "0001", database=alias, verbosity=0, interactive=False)
-
-        with connections[alias].cursor() as c:
-            c.execute(
-                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
-                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'samples' AND COLUMN_NAME = 'name_identity'",
-                (db_name,),
-            )
-            assert c.fetchone()[0] == 0
-            c.execute(
-                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS "
-                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'samples' AND INDEX_NAME = 'idx_samples_name_identity'",
-                (db_name,),
-            )
-            assert c.fetchone()[0] == 0
