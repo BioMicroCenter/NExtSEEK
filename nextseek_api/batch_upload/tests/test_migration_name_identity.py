@@ -1,19 +1,24 @@
-"""Behavioral tests for migration 0002_samples_name_identity."""
+"""Behavioral tests for the hashed samples.name_identity migration."""
 from __future__ import annotations
 
+import hashlib
 import os
 import time
+from copy import deepcopy
 from importlib import import_module
 
-import pytest
 import django
+import pytest
+from django.apps import apps
 from django.conf import settings
 from django.core.management import call_command
+from django.db import connections
+
+from nextseek_api.batch_upload.identity import hash_identity
 
 pymysql = pytest.importorskip("pymysql")
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmac.settings")
-django.setup()
 
 
 def _mariadb_conn_info() -> tuple[str | None, str | None, str | None, int | None]:
@@ -48,21 +53,21 @@ _STRICT_MODE_FLAGS = ("STRICT_ALL_TABLES", "STRICT_TRANS_TABLES")
 
 
 def _is_strict_sql_mode(conn) -> bool:
-    """Return True if session sql_mode contains any STRICT_* flag.
-
-    The MariaDB server on the dev deployment runs in strict mode, which causes
-    oversized or invalid-JSON inserts to raise 1406/3141 instead of silently
-    yielding NULL/truncated values. A subset of migration-behavior tests
-    exercises the lax-mode fallback; those tests skip when strict mode is on.
-    Python-layer validation (InputRowModel._validate_identity_length,
-    _validate_metadata_shape) rejects the same inputs earlier in the pipeline,
-    so skipping does not reduce effective safety coverage.
-    """
+    """Return True when the current session enables a STRICT_* sql_mode flag."""
     with conn.cursor() as c:
         c.execute("SELECT @@SESSION.sql_mode")
         mode = c.fetchone()[0] or ""
     tokens = {t.strip().upper() for t in mode.split(",")}
     return any(flag in tokens for flag in _STRICT_MODE_FLAGS)
+
+
+def _normalized_sha256(value: str | None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    return hashlib.sha256(normalized.lower().encode("utf-8")).hexdigest()
 
 CREATE_TABLE_SQL = """
 CREATE TABLE samples (
@@ -92,6 +97,15 @@ def _skip_if_unreachable(exc: Exception) -> None:
     pytest.skip(f"MariaDB fixture unreachable in this environment: {exc}")
 
 
+def _setup_django_or_skip() -> None:
+    if apps.ready:
+        return
+    try:
+        django.setup()
+    except Exception as exc:
+        pytest.skip(f"Full Django migration runner unavailable in this worktree: {exc}")
+
+
 @pytest.fixture
 def throwaway_db():
     db_name = f"test_namei_{int(time.time() * 1000)}"
@@ -111,6 +125,50 @@ def throwaway_db():
                 c.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
         finally:
             conn.close()
+
+
+@pytest.fixture
+def django_migration_db():
+    _setup_django_or_skip()
+    db_name = f"test_namei_dj_{int(time.time() * 1000)}"
+    alias = f"seek_namei_{int(time.time() * 1000)}"
+    try:
+        admin_conn = pymysql.connect(host=_HOST, user=_USER, password=_PASS, port=_PORT, autocommit=True)
+    except Exception as exc:
+        _skip_if_unreachable(exc)
+
+    db_settings = deepcopy(settings.DATABASES["seek"])
+    db_settings.update(
+        {
+            "NAME": db_name,
+            "HOST": _HOST,
+            "USER": _USER,
+            "PASSWORD": _PASS,
+            "PORT": _PORT,
+        }
+    )
+
+    try:
+        with admin_conn.cursor() as c:
+            c.execute(f"CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+        settings.DATABASES[alias] = db_settings
+        connections.databases[alias] = db_settings
+        yield alias, db_name
+    finally:
+        try:
+            if alias in connections.databases:
+                connections[alias].close()
+        finally:
+            if alias in settings.DATABASES:
+                settings.DATABASES.pop(alias, None)
+            connections.databases.pop(alias, None)
+            if hasattr(connections._connections, alias):
+                delattr(connections._connections, alias)
+            try:
+                with admin_conn.cursor() as c:
+                    c.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
+            finally:
+                admin_conn.close()
 
 
 class TestMigrationSqlModule:
@@ -133,14 +191,13 @@ class TestMigrationApplies:
         with conn.cursor() as c:
             c.execute(forward)
             c.execute(
-                "SELECT COLUMN_NAME, COLLATION_NAME "
+                "SELECT COLUMN_NAME "
                 "FROM INFORMATION_SCHEMA.COLUMNS "
                 "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'samples' AND COLUMN_NAME = 'name_identity'",
                 (db_name,),
             )
             row = c.fetchone()
         assert row is not None
-        assert row[1] == "utf8mb4_unicode_ci"
 
     def test_index_exists_after_forward(self, throwaway_db):
         conn, db_name = throwaway_db
@@ -168,6 +225,20 @@ class TestMigrationApplies:
             row = c.fetchone()
         assert "VIRTUAL" in (row[0] or "").upper()
 
+    def test_column_is_char_64_ascii(self, throwaway_db):
+        conn, db_name = throwaway_db
+        forward, _ = _load_migration_sql()
+        with conn.cursor() as c:
+            c.execute(forward)
+            c.execute(
+                "SELECT CHARACTER_MAXIMUM_LENGTH, CHARACTER_SET_NAME, COLLATION_NAME "
+                "FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'samples' AND COLUMN_NAME = 'name_identity'",
+                (db_name,),
+            )
+            row = c.fetchone()
+        assert row == (64, "ascii", "ascii_bin")
+
 
 class TestMigrationBehavior:
     def _seed(self, conn, uuid, json_meta):
@@ -191,7 +262,7 @@ class TestMigrationBehavior:
         with conn.cursor() as c:
             c.execute(forward)
         self._seed(conn, "NHP-260413NA-1", '{"Name":"sampleA","File_PrimaryData":"ignored.csv"}')
-        assert self._fetch_name_identity(conn, "NHP-260413NA-1") == "sampleA"
+        assert self._fetch_name_identity(conn, "NHP-260413NA-1") == hash_identity("sampleA")
 
     def test_d_prefix_uses_file_primary_data(self, throwaway_db):
         conn, _ = throwaway_db
@@ -199,7 +270,39 @@ class TestMigrationBehavior:
         with conn.cursor() as c:
             c.execute(forward)
         self._seed(conn, "D.SEQ-260413NA-1", '{"Name":"ignored","File_PrimaryData":"real.csv"}')
-        assert self._fetch_name_identity(conn, "D.SEQ-260413NA-1") == "real.csv"
+        assert self._fetch_name_identity(conn, "D.SEQ-260413NA-1") == hash_identity("real.csv")
+
+    def test_a_prefix_uses_file_primary_data(self, throwaway_db):
+        conn, _ = throwaway_db
+        forward, _ = _load_migration_sql()
+        with conn.cursor() as c:
+            c.execute(forward)
+        self._seed(conn, "A.GEX-260413NA-1", '{"Name":"ignored","File_PrimaryData":"real.csv"}')
+        assert self._fetch_name_identity(conn, "A.GEX-260413NA-1") == hash_identity("real.csv")
+
+    def test_typo_variant_matched_for_d_prefix(self, throwaway_db):
+        conn, _ = throwaway_db
+        forward, _ = _load_migration_sql()
+        with conn.cursor() as c:
+            c.execute(forward)
+        self._seed(conn, "D.IMG-260413NA-1", '{"File_PrimartyData":"typo.csv"}')
+        assert self._fetch_name_identity(conn, "D.IMG-260413NA-1") == hash_identity("typo.csv")
+
+    def test_forward_variant_matched(self, throwaway_db):
+        conn, _ = throwaway_db
+        forward, _ = _load_migration_sql()
+        with conn.cursor() as c:
+            c.execute(forward)
+        self._seed(conn, "D.SEQ-260413NA-2", '{"File_PrimaryData_Forward":"fwd.fa"}')
+        assert self._fetch_name_identity(conn, "D.SEQ-260413NA-2") == hash_identity("fwd.fa")
+
+    def test_reverse_variant_matched(self, throwaway_db):
+        conn, _ = throwaway_db
+        forward, _ = _load_migration_sql()
+        with conn.cursor() as c:
+            c.execute(forward)
+        self._seed(conn, "D.SEQ-260413NA-3", '{"File_PrimaryData_Reverse":"rev.fa"}')
+        assert self._fetch_name_identity(conn, "D.SEQ-260413NA-3") == hash_identity("rev.fa")
 
     def test_valid_object_missing_identity_keys_yields_null(self, throwaway_db):
         conn, _ = throwaway_db
@@ -230,20 +333,74 @@ class TestMigrationBehavior:
         self._seed(conn, "NHP-260413NA-11", '["not","an","object"]')
         assert self._fetch_name_identity(conn, "NHP-260413NA-11") is None
 
-    def test_oversized_identity_truncates_to_255(self, throwaway_db):
+    def test_oversized_identity_hashes_correctly(self, throwaway_db):
         conn, _ = throwaway_db
-        if _is_strict_sql_mode(conn):
-            pytest.skip(
-                "strict sql_mode rejects oversized name_identity at INSERT (1406); "
-                "InputRowModel._validate_identity_length covers this in the pipeline"
-            )
         forward, _ = _load_migration_sql()
-        long_name = "x" * 300
         with conn.cursor() as c:
             c.execute(forward)
-        self._seed(conn, "NHP-260413NA-12", f'{{"Name":"{long_name}"}}')
-        value = self._fetch_name_identity(conn, "NHP-260413NA-12")
-        assert value == "x" * 255
+        for offset, length in enumerate((300, 700, 1500, 2500), start=12):
+            identity = "x" * length
+            uuid = f"NHP-260413NA-{offset}"
+            self._seed(conn, uuid, f'{{"Name":"{identity}"}}')
+            assert self._fetch_name_identity(conn, uuid) == _normalized_sha256(identity)
+
+    def test_sql_python_hash_parity_ascii(self, throwaway_db):
+        conn, _ = throwaway_db
+        forward, _ = _load_migration_sql()
+        rows = (
+            ("NHP-260413NA-20", '{"Name":"Alpha-42"}', "Alpha-42"),
+            ("NHP-260413NA-21", '{"Name":"  MixedCase-Value  "}', "  MixedCase-Value  "),
+            (
+                "D.SEQ-260413NA-22",
+                '{"File_PrimaryData":"lane1_R1.fastq.gz;lane1_R2.fastq.gz"}',
+                "lane1_R1.fastq.gz;lane1_R2.fastq.gz",
+            ),
+            ("A.GEX-260413NA-23", '{"File_PrimaryData":"GENE_PANEL.csv"}', "GENE_PANEL.csv"),
+            ("NHP-260413NA-24", '{"Name":"   "}', "   "),
+        )
+        with conn.cursor() as c:
+            c.execute(forward)
+        for uuid, json_meta, expected_identity in rows:
+            self._seed(conn, uuid, json_meta)
+            assert self._fetch_name_identity(conn, uuid) == hash_identity(expected_identity)
+
+    def test_empty_after_trim_yields_null(self, throwaway_db):
+        conn, _ = throwaway_db
+        forward, _ = _load_migration_sql()
+        with conn.cursor() as c:
+            c.execute(forward)
+        self._seed(conn, "NHP-260413NA-25", '{"Name":"   "}')
+        assert hash_identity("   ") is None
+        assert self._fetch_name_identity(conn, "NHP-260413NA-25") is None
+
+    def test_case_insensitive_hash_lookup(self, throwaway_db):
+        conn, _ = throwaway_db
+        forward, _ = _load_migration_sql()
+        with conn.cursor() as c:
+            c.execute(forward)
+        self._seed(conn, "NHP-260413NA-26", '{"Name":"MixedCase-Value"}')
+        with conn.cursor() as c:
+            c.execute(
+                "SELECT uuid FROM samples WHERE name_identity IN (%s)",
+                (hash_identity("mixedcase-value"),),
+            )
+            rows = c.fetchall()
+        assert any(r[0] == "NHP-260413NA-26" for r in rows)
+
+    def test_write_to_generated_column_rejected(self, throwaway_db):
+        conn, _ = throwaway_db
+        forward, _ = _load_migration_sql()
+        with conn.cursor() as c:
+            c.execute(forward)
+        with pytest.raises(Exception) as exc_info:
+            with conn.cursor() as c:
+                c.execute(
+                    "INSERT INTO samples "
+                    "(title, sample_type_id, json_metadata, uuid, contributor_id, policy_id, first_letter, name_identity) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    ("ignored", 1, '{"Name":"x"}', "NHP-260413NA-27", 1, 1, "n", "explicit"),
+                )
+        assert "generated column" in str(exc_info.value).lower() or "1906" in str(exc_info.value)
 
 
 class TestMigrationReversibility:
@@ -266,13 +423,47 @@ class TestMigrationReversibility:
             )
             assert c.fetchone()[0] == 0
 
+    def test_forward_after_reverse_still_works(self, throwaway_db):
+        conn, _ = throwaway_db
+        forward, reverse = _load_migration_sql()
+        with conn.cursor() as c:
+            c.execute(forward)
+            c.execute(reverse)
+            c.execute(forward)
+
 
 class TestDjangoMigrationRunner:
-    def test_django_migrate_seek_forward_and_reverse(self):
-        try:
-            with pymysql.connect(host=_HOST, user=_USER, password=_PASS, port=_PORT, autocommit=True):
-                pass
-        except Exception as exc:
-            _skip_if_unreachable(exc)
-        call_command("migrate", "seek", verbosity=0)
-        call_command("migrate", "seek", "0001", verbosity=0)
+    def test_django_migrate_seek_forward_and_reverse(self, django_migration_db):
+        alias, db_name = django_migration_db
+
+        call_command("migrate", "seek", database=alias, verbosity=0, interactive=False)
+
+        with connections[alias].cursor() as c:
+            c.execute(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'samples' AND COLUMN_NAME = 'name_identity'",
+                (db_name,),
+            )
+            assert c.fetchone()[0] == 1
+            c.execute(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'samples' AND INDEX_NAME = 'idx_samples_name_identity'",
+                (db_name,),
+            )
+            assert c.fetchone()[0] >= 1
+
+        call_command("migrate", "seek", "0001", database=alias, verbosity=0, interactive=False)
+
+        with connections[alias].cursor() as c:
+            c.execute(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'samples' AND COLUMN_NAME = 'name_identity'",
+                (db_name,),
+            )
+            assert c.fetchone()[0] == 0
+            c.execute(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'samples' AND INDEX_NAME = 'idx_samples_name_identity'",
+                (db_name,),
+            )
+            assert c.fetchone()[0] == 0
