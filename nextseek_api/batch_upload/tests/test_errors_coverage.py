@@ -6,7 +6,6 @@ Covers:
 """
 
 import threading
-import pytest
 
 from nextseek_api.batch_upload.errors import (
     ErrorCollector,
@@ -15,7 +14,6 @@ from nextseek_api.batch_upload.errors import (
     _ThreadSafeErrorCollector,
     _classify_validation_error,
     classify_severity,
-    RowError,
 )
 
 
