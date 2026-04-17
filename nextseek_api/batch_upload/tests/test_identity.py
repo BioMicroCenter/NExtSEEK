@@ -1,10 +1,15 @@
 """Unit tests for nextseek_api.batch_upload.identity."""
 from __future__ import annotations
 
+import hashlib
+import re
+
 from nextseek_api.batch_upload.identity import (
     IDENTITY_FIELDS,
+    canonicalize_identity_metadata,
     canonicalize_file_primary_data,
     extract_identity,
+    hash_identity,
 )
 
 
@@ -80,6 +85,9 @@ class TestExtractIdentityFileBasedPrefix:
 
     def test_falls_through_to_name_when_no_file_fields(self):
         assert extract_identity({"Name": "fallback"}, uid="D.SEQ-260413NA-1") == "fallback"
+
+    def test_falls_through_to_lowercase_name_when_no_file_fields(self):
+        assert extract_identity({"name": "fallback-lower"}, uid="D.SEQ-260413NA-1") == "fallback-lower"
 
     def test_canonical_spelling_preferred_over_typo(self):
         meta = {"File_PrimaryData": "good.csv", "File_PrimartyData": "typo.csv"}
@@ -165,3 +173,39 @@ class TestCanonicalizeFilePrimaryData:
 
     def test_empty_dict(self):
         assert canonicalize_file_primary_data({}) == {}
+
+
+class TestCanonicalizeIdentityMetadata:
+    def test_non_dict_input_returned_asis(self):
+        assert canonicalize_identity_metadata("not a dict") == "not a dict"
+
+
+class TestHashIdentity:
+    def test_hash_identity_none(self):
+        assert hash_identity(None) is None
+
+    def test_hash_identity_empty(self):
+        assert hash_identity("") is None
+
+    def test_hash_identity_whitespace_only(self):
+        assert hash_identity("   \t\n ") is None
+
+    def test_hash_identity_non_string_returns_none(self):
+        assert hash_identity(123) is None
+        assert hash_identity(["sample-a"]) is None
+        assert hash_identity(b"sample-a") is None
+        assert hash_identity({"Name": "sample-a"}) is None
+
+    def test_hash_identity_strip_lower(self):
+        assert hash_identity("  SAMPLE-A  ") == hashlib.sha256(b"sample-a").hexdigest()
+
+    def test_hash_identity_ascii_deterministic(self):
+        assert hash_identity("sample-a") == "a52a165a297d54aa3a93149f7ba66f00b6a200b599da12ca9b8cfc8a8954bdbf"
+        assert hash_identity("sample-b") == "9f7b12aebcf0a3b504fc2912261643af1e3238760b98c1c6018ac45b791284ab"
+        assert hash_identity("123") == "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3"
+
+    def test_hash_identity_output_shape(self):
+        value = hash_identity("sample-a")
+        assert value is not None
+        assert len(value) == 64
+        assert re.fullmatch(r"[0-9a-f]{64}", value)
