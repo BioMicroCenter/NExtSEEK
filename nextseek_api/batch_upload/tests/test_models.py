@@ -3,23 +3,16 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from nextseek_api.batch_upload.identity import extract_identity, hash_identity
 from nextseek_api.batch_upload.models import (
     BatchResult,
-    ConstraintStatus,
     DerivedFromRelRow,
     InStudyRelRow,
     InputRowModel,
     InsertableSample,
-    Metrics,
-    Neo4jRuntimeConfig,
     NodeRow,
-    OfTypeRelRow,
-    PayloadStats,
     PermissionCreate,
-    RelRow,
-    RowOutcome,
     SampleMetadata,
-    SampleTypeDescription,
     SampleTypeNodeRow,
     StreamResult,
     _minify_json_string,
@@ -219,13 +212,20 @@ class TestInputRowModel:
         with pytest.raises(ValidationError, match="json_metadata must be a JSON object"):
             InputRowModel(SampleType="NHP", json_metadata='["not","an","object"]')
 
-    def test_derived_identity_longer_than_255_rejected(self):
-        with pytest.raises(ValidationError, match="derived identity exceeds 255 chars"):
-            InputRowModel(
-                UID="NHP-260225MIT-1",
-                SampleType="NHP",
-                json_metadata='{"Name":"' + ("x" * 256) + '"}',
-            )
+    @pytest.mark.parametrize("n_chars", [600, 1000, 2500])
+    def test_long_identity_accepted_post_amendment(self, n_chars):
+        long_name = "x" * n_chars
+        row = InputRowModel(
+            UID="NHP-260225MIT-1",
+            SampleType="NHP",
+            json_metadata=json.dumps({"Name": long_name}),
+        )
+        assert row.UID == "NHP-260225MIT-1"
+        hashed_identity = hash_identity(
+            extract_identity(json.loads(row.json_metadata), uid=row.UID)
+        )
+        assert isinstance(hashed_identity, str)
+        assert len(hashed_identity) == 64
 
     def test_sop_validation_still_nested_under_non_null_uid(self):
         row = InputRowModel(
@@ -400,9 +400,6 @@ class TestErrorSystem:
         ) == ErrorType.VALIDATION_UID_MISMATCH
         assert _classify_validation_error(
             "json_metadata must be a JSON object, not a JSON array/scalar"
-        ) == ErrorType.VALIDATION_METADATA_SHAPE
-        assert _classify_validation_error(
-            "derived identity exceeds 255 chars (got 300); column name_identity would truncate and lookups would drift"
         ) == ErrorType.VALIDATION_METADATA_SHAPE
         assert _classify_validation_error(
             "ambiguous identity match: 2 existing samples with name_identity='X' - duplicates must be resolved before batch can proceed"

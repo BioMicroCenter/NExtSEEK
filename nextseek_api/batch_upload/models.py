@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, FrozenSet, List, Literal, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -223,23 +223,6 @@ class InputRowModel(BaseModel):
         if not isinstance(parsed, dict):
             raise ValueError("json_metadata must be a JSON object, not a JSON array/scalar")
         return v
-
-    @model_validator(mode="after")
-    def _validate_identity_length(self):
-        from .identity import extract_identity
-
-        try:
-            meta = _json_loads(self.json_metadata) if self.json_metadata else {}
-        except Exception:
-            return self
-
-        ident = extract_identity(meta, uid=self.UID) if isinstance(meta, dict) else None
-        if ident and len(ident) > 255:
-            raise ValueError(
-                f"derived identity exceeds 255 chars (got {len(ident)}); "
-                "column name_identity would truncate and lookups would drift"
-            )
-        return self
 
     @model_validator(mode="after")
     def validate_optional_consistency(self):

@@ -11,8 +11,8 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from .errors import ErrorCollector, ErrorType, Severity
-from .helpers import UID_RE, collect_parent_tokens, split_parent_field
-from .identity import extract_identity
+from .helpers import UID_RE, split_parent_field
+from .identity import extract_identity, hash_identity
 from .models import InputRowModel
 
 try:
@@ -241,24 +241,43 @@ def _resolve_parents(
     parents_resolved = 0
     failed_rows: List[dict] = []
 
+    def _parent_field_values(meta: dict) -> List[str]:
+        seen: set[str] = set()
+        values: List[str] = []
+        for key, value in meta.items():
+            if "parent" not in key.lower():
+                continue
+            if not value or not isinstance(value, str):
+                continue
+            raw_value = value.strip()
+            if not raw_value or raw_value in seen:
+                continue
+            seen.add(raw_value)
+            values.append(raw_value)
+        return values
+
     # First pass: collect all unresolved tokens across all rows
     unresolved_tokens: Set[str] = set()
     rows_with_parents: List[Tuple[int, dict, List[str]]] = []
 
     for idx, row in enumerate(rows):
         meta = _parse_meta(row)
-        tokens = collect_parent_tokens(meta)
-        if not tokens:
+        parent_values = _parent_field_values(meta)
+        if not parent_values:
             continue
 
-        rows_with_parents.append((idx, meta, tokens))
+        rows_with_parents.append((idx, meta, parent_values))
 
-        for token in tokens:
-            if UID_RE.match(token):
-                continue
-            if token in identity_to_uid:
-                continue
-            unresolved_tokens.add(token)
+        for raw_parent in parent_values:
+            split_tokens = split_parent_field(raw_parent)
+            if len(split_tokens) > 1 and raw_parent not in identity_to_uid:
+                unresolved_tokens.add(raw_parent)
+            for token in split_tokens:
+                if UID_RE.match(token):
+                    continue
+                if token in identity_to_uid:
+                    continue
+                unresolved_tokens.add(token)
 
     # Bulk DB fallback for unresolved tokens
     db_identity_to_uid: Dict[str, str] = {}
@@ -268,40 +287,52 @@ def _resolve_parents(
 
     # Second pass: resolve tokens and update rows
     surviving_by_index: Dict[int, InputRowModel] = {}
-    rows_with_parents_idx = {row_idx for row_idx, _meta, _tokens in rows_with_parents}
-    for idx, meta, tokens in rows_with_parents:
+    rows_with_parents_idx = {row_idx for row_idx, _meta, _parent_values in rows_with_parents}
+    for idx, meta, parent_values in rows_with_parents:
         row = rows[idx]
         resolved_tokens = []
         row_failed = False
-        for token in tokens:
-            if UID_RE.match(token):
-                resolved_tokens.append(token)
-            elif token in identity_to_uid:
-                resolved_tokens.append(identity_to_uid[token])
-                parents_resolved += 1
-            elif token in ambiguous_identities:
-                failed_rows.append({
-                    "row": row,
-                    "uid": row.UID,
-                    "row_index": idx,
-                    "error": AmbiguousIdentityError(
-                        row_index=idx,
-                        identity=token,
-                        conflicting_sample_ids=ambiguous_identities[token],
-                    ),
-                })
-                row_failed = True
+        for raw_parent in parent_values:
+            split_tokens = split_parent_field(raw_parent)
+            tokens = split_tokens
+            if len(split_tokens) > 1 and (
+                raw_parent in identity_to_uid
+                or raw_parent in ambiguous_identities
+                or raw_parent in db_identity_to_uid
+            ):
+                tokens = [raw_parent]
+
+            for token in tokens:
+                if UID_RE.match(token):
+                    resolved_tokens.append(token)
+                elif token in identity_to_uid:
+                    resolved_tokens.append(identity_to_uid[token])
+                    parents_resolved += 1
+                elif token in ambiguous_identities:
+                    failed_rows.append({
+                        "row": row,
+                        "uid": row.UID,
+                        "row_index": idx,
+                        "error": AmbiguousIdentityError(
+                            row_index=idx,
+                            identity=token,
+                            conflicting_sample_ids=ambiguous_identities[token],
+                        ),
+                    })
+                    row_failed = True
+                    break
+                elif token in db_identity_to_uid:
+                    resolved_tokens.append(db_identity_to_uid[token])
+                    parents_resolved += 1
+                else:
+                    # Identity-based token not resolvable now — preserve for orphan resolution
+                    resolved_tokens.append(token)
+                    warnings.append(
+                        f"Row {idx}: unresolved parent reference '{token}'; "
+                        f"preserving for future orphan resolution"
+                    )
+            if row_failed:
                 break
-            elif token in db_identity_to_uid:
-                resolved_tokens.append(db_identity_to_uid[token])
-                parents_resolved += 1
-            else:
-                # Identity-based token not resolvable now — preserve for orphan resolution
-                resolved_tokens.append(token)
-                warnings.append(
-                    f"Row {idx}: unresolved parent reference '{token}'; "
-                    f"preserving for future orphan resolution"
-                )
 
         if row_failed:
             continue
@@ -346,9 +377,21 @@ def _bulk_resolve_from_db(
     identity_to_uid: Dict[str, str] = {}
     ambiguous_identities: Dict[str, List[int]] = {}
 
-    identity_list = sorted(identities)
-    placeholders = ", ".join(f":t{i}" for i in range(len(identity_list)))
-    params = {f"t{i}": t for i, t in enumerate(identity_list)}
+    hashed_identities = {
+        identity: hash_identity(identity)
+        for identity in sorted(identities)
+    }
+    identity_to_hash = {
+        identity: identity_hash
+        for identity, identity_hash in hashed_identities.items()
+        if identity_hash is not None
+    }
+    if not identity_to_hash:
+        return {}, {}
+
+    unique_hashes = sorted(set(identity_to_hash.values()))
+    placeholders = ", ".join(f":t{i}" for i in range(len(unique_hashes)))
+    params = {f"t{i}": identity_hash for i, identity_hash in enumerate(unique_hashes)}
 
     result = conn.execute(
         text(
@@ -358,11 +401,16 @@ def _bulk_resolve_from_db(
         params,
     )
 
-    by_identity: Dict[str, List[Tuple[str, int]]] = {}
-    for uuid_val, sample_id, identity_val in result:
-        by_identity.setdefault(identity_val, []).append((uuid_val, int(sample_id)))
+    by_hash: Dict[str, List[Tuple[str, int]]] = {}
+    for uuid_val, sample_id, identity_hash in result:
+        if identity_hash is None:
+            continue
+        by_hash.setdefault(identity_hash, []).append((uuid_val, int(sample_id)))
 
-    for identity, matches in by_identity.items():
+    for identity, identity_hash in identity_to_hash.items():
+        matches = by_hash.get(identity_hash, [])
+        if not matches:
+            continue
         if len(matches) == 1:
             identity_to_uid[identity] = matches[0][0]
         else:
@@ -392,7 +440,7 @@ def check_name_exists_in_db(
 ) -> Tuple[List[InputRowModel], Dict[str, dict], List[Tuple[InputRowModel, str]], List[Tuple[InputRowModel, AmbiguousIdentityError]]]:
     """Check if Name/File_PrimaryData of null-UID rows already exist in samples.name_identity.
 
-    Case-insensitive global check (uses DB collation utf8mb4_unicode_ci).
+    Case-insensitive matching is enforced by hashing normalized identities.
     Only checks rows where UID is None.
     Rows with existing UIDs are passed through unchanged.
 
@@ -419,15 +467,25 @@ def check_name_exists_in_db(
     if not to_check:
         return remaining, {}, [], []
 
-    # Bulk query: case-insensitive match against samples.name_identity
-    # The DB column uses utf8mb4_unicode_ci collation, so comparison is
-    # already case-insensitive — no need for LOWER() wrappers.
-    identities = list({item[2] for item in to_check})
-    db_matches: Dict[str, List[dict]] = {}  # lowercase_identity -> [{uid, sample_id}]
+    raw_identities = sorted({item[2] for item in to_check})
+    hashed_identities = {
+        identity: hash_identity(identity)
+        for identity in raw_identities
+    }
+    identity_to_hash = {
+        identity: identity_hash
+        for identity, identity_hash in hashed_identities.items()
+        if identity_hash is not None
+    }
+    if not identity_to_hash:
+        return remaining, {}, [], []
 
-    for chunk_start in range(0, len(identities), 1000):
-        chunk = identities[chunk_start : chunk_start + 1000]
-        params = {f"t{i}": t for i, t in enumerate(chunk)}
+    unique_hashes = sorted(set(identity_to_hash.values()))
+    db_matches: Dict[str, List[dict]] = {}  # hashed_identity -> [{uid, sample_id}]
+
+    for chunk_start in range(0, len(unique_hashes), 1000):
+        chunk = unique_hashes[chunk_start : chunk_start + 1000]
+        params = {f"t{i}": identity_hash for i, identity_hash in enumerate(chunk)}
         placeholders = ", ".join(f":t{i}" for i in range(len(chunk)))
         result = conn.execute(
             text(
@@ -436,9 +494,10 @@ def check_name_exists_in_db(
             ),
             params,
         )
-        for uuid_val, sample_id, identity_val in result.fetchall():
-            key = identity_val.lower() if identity_val else ""
-            db_matches.setdefault(key, []).append(
+        for uuid_val, sample_id, identity_hash in result.fetchall():
+            if identity_hash is None:
+                continue
+            db_matches.setdefault(identity_hash, []).append(
                 {"uid": uuid_val, "sample_id": int(sample_id)}
             )
 
@@ -447,23 +506,26 @@ def check_name_exists_in_db(
     ambiguous_rows: List[Tuple[InputRowModel, AmbiguousIdentityError]] = []
     name_matches: Dict[str, dict] = {}
     for idx, row, identity in to_check:
-        key = identity.lower()
-        if key in db_matches:
-            matches = db_matches[key]
-            if len(matches) == 1:
-                name_matches[identity] = matches[0]
-                matched_rows.append((row, identity))
-            else:
-                ambiguous_rows.append((
-                    row,
-                    AmbiguousIdentityError(
-                        row_index=idx,
-                        identity=identity,
-                        conflicting_sample_ids=sorted(match["sample_id"] for match in matches),
-                    ),
-                ))
-        else:
+        identity_hash = identity_to_hash.get(identity)
+        if identity_hash is None:
             remaining.append(row)
+            continue
+
+        matches = db_matches.get(identity_hash)
+        if not matches:
+            remaining.append(row)
+        elif len(matches) == 1:
+            name_matches[identity] = matches[0]
+            matched_rows.append((row, identity))
+        else:
+            ambiguous_rows.append((
+                row,
+                AmbiguousIdentityError(
+                    row_index=idx,
+                    identity=identity,
+                    conflicting_sample_ids=sorted(match["sample_id"] for match in matches),
+                ),
+            ))
 
     return remaining, name_matches, matched_rows, ambiguous_rows
 

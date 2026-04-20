@@ -1,6 +1,7 @@
 """Shared helpers for deriving non-UID sample identity values."""
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Mapping, Optional
 
 
@@ -123,3 +124,13 @@ def extract_identity(
         if value is not None:
             return value
     return None
+
+
+def hash_identity(identity: str | None) -> str | None:
+    """Return the normalized SHA-256 hex digest for an extracted identity."""
+    if not isinstance(identity, str):
+        return None
+    normalized = identity.strip()
+    if not normalized:
+        return None
+    return hashlib.sha256(normalized.lower().encode("utf-8")).hexdigest()

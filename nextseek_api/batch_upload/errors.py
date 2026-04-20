@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional
 
@@ -163,7 +163,6 @@ def _classify_validation_error(message: str) -> ErrorType:
     if (
         "json_metadata must be a json object" in lower
         or "json_metadata is not valid json" in lower
-        or "derived identity exceeds 255 chars" in lower
     ):
         return ErrorType.VALIDATION_METADATA_SHAPE
     if "ambiguous identity match:" in lower:
