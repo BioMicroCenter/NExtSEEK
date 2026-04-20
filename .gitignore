@@ -181,3 +181,4 @@ CLAUDE.md
 .codex/
 .*_stage/
 *.codex 
+scripts/investigate_duplicates/outputs/
