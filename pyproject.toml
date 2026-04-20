@@ -119,12 +119,15 @@ dependencies = [
   "pytest-django",
   "channels>=4.3.2",
   "daphne>=4.2.1",
-  "pytest-cov>=7.0.0",
-  "coverage>=7.13.5",
 ]
 
 [tool.uv.sources]
-chat_nextseek = { git = "git+ssh://github.com/cdemurjian/chat_nextseek", rev = "9ac5a0982bd71192ec1aaa2429481f984879c2e2" }
+chat_nextseek = { git = "git+ssh://github.com/cdemurjian/chat_nextseek" }
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "dmac.settings"
+
+[dependency-groups]
+dev = [
+    "coverage",
+]

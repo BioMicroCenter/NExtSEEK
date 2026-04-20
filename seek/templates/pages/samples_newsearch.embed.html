@@ -79,7 +79,11 @@
 				const formData = new FormData(form);
 				formData.append("filter_matchType", "PARTIAL")
 				let object = {};
-				formData.forEach((value, key) => object[key] = value);
+				formData.forEach((value, key) => {
+					if (value != "none") {
+						object[key] = value
+					}
+				});
 				const json = JSON.stringify(object);
 				
 				const messangerWindow = $.messager.progress({
