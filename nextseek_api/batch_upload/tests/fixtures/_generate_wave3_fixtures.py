@@ -41,6 +41,17 @@ ASSAY_IDS = [401]
 COLUMNS = ("UID", "SampleType", "json_metadata", "assay_ids", "study_id", "study_title")
 
 
+def _oversized_fastq_identity(n_files: int = 20) -> str:
+    parts = [
+        f"GBM1-DFCI4-S1to6-CSFCells-1_VDJ_IGO_16516_B_{i}_S{i+12}_L001_I1_001.fastq.gz"
+        for i in range(1, n_files + 1)
+    ]
+    return "; ".join(parts)
+
+
+OVERSIZED_IDENTITY = _oversized_fastq_identity()
+
+
 def _meta(uid: str | None, extras: dict | None = None) -> str:
     """Build a json_metadata string with UID always the first key."""
     out: "OrderedDict[str, object]" = OrderedDict()
@@ -106,7 +117,9 @@ def build_default_mode() -> list[dict]:
         _row(None, "WTNAM_blood", {"Name": "child-by-name", "Parent": "drift-a"}),
         # 10. child-by-file — Parent="drift-d.fastq" resolves to seeded D.WTFIL-240301BMC-1 (file-based identity)
         _row(None, "WTNAM_blood", {"Name": "child-by-file", "Parent": "drift-d.fastq"}),
-        # 11. future-parent — used by orphan_resolution test (the pre-seeded orphan references this name)
+        # 11. child-of-oversized resolves through the full long File_PrimaryData token
+        _row(None, "WTNAM_blood", {"Name": "child-of-oversized", "Parent": OVERSIZED_IDENTITY}),
+        # 12. future-parent — used by orphan_resolution test (the pre-seeded orphan references this name)
         _row(None, "WTNAM_blood", {"Name": "future-parent"}),
     ]
 
@@ -127,7 +140,9 @@ def build_update_mode() -> list[dict]:
         _row("WTNAM-240301BMC-5", "WTNAM_blood", {"Scientist": "UID Only Update"}),
         # 4. child-ambiguous-update — NEW row intentionally failing ambiguity via Parent="dup"; UID=None is correct
         _row(None, "WTNAM_blood", {"Name": "child-ambiguous-update", "Parent": "dup"}),
-        # 5. future-parent — NEW row that satisfies the pre-seeded orphan; UID=None is correct
+        # 5. child-of-oversized resolves through the full long File_PrimaryData token
+        _row(None, "WTNAM_blood", {"Name": "child-of-oversized", "Parent": OVERSIZED_IDENTITY}),
+        # 6. future-parent — NEW row that satisfies the pre-seeded orphan; UID=None is correct
         _row(None, "WTNAM_blood", {"Name": "future-parent"}),
     ]
 

@@ -3,6 +3,8 @@ import json
 import pytest
 from unittest.mock import MagicMock
 
+from nextseek_api.batch_upload.identity import hash_identity
+
 
 class TestNameIdempotenceIntegration:
     """Test the full name check -> skip/update flow."""
@@ -18,7 +20,7 @@ class TestNameIdempotenceIntegration:
             InputRowModel(SampleType="NHP_blood", json_metadata='{"Name":"New Sample"}'),
         ]
         conn.execute.return_value.fetchall.return_value = [
-            ("NHP-250101MIT-1", 42, "Existing Sample"),
+            ("NHP-250101MIT-1", 42, hash_identity("Existing Sample")),
         ]
         remaining, matches, matched_rows, ambiguous_rows = check_name_exists_in_db(rows, conn)
         assert len(remaining) == 1

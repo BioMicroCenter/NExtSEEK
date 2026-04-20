@@ -380,6 +380,22 @@ class TestResolveParents:
         assert meta["Parent"] == "NHP-220630FLY-1"
         assert failed_rows == []
 
+    def test_semicolon_delimited_file_identity_prefers_full_match(self):
+        """A multi-file identity should resolve as one exact parent when present."""
+        file_identity = "lane1_R1.fastq.gz;lane1_R2.fastq.gz;lane1_R3.fastq.gz"
+        rows = [
+            _make_row(uid="NHP-260225MIT-2", meta=json.dumps({"Parent": file_identity})),
+        ]
+        identity_map = {}
+        conn = self._mock_conn(
+            db_results=[("D.WTFIL-240301BMC-2", 11, hash_identity(file_identity))]
+        )
+        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        meta = json.loads(rows[0].json_metadata)
+        assert meta["Parent"] == "D.WTFIL-240301BMC-2"
+        assert warnings == []
+        assert failed_rows == []
+
     def test_ambiguous_db_match(self):
         """Ambiguous DB matches should fail the affected row."""
         rows = [

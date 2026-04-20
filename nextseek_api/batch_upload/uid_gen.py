@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from .errors import ErrorCollector, ErrorType, Severity
-from .helpers import UID_RE, collect_parent_tokens, split_parent_field
+from .helpers import UID_RE, split_parent_field
 from .identity import extract_identity, hash_identity
 from .models import InputRowModel
 
@@ -241,24 +241,43 @@ def _resolve_parents(
     parents_resolved = 0
     failed_rows: List[dict] = []
 
+    def _parent_field_values(meta: dict) -> List[str]:
+        seen: set[str] = set()
+        values: List[str] = []
+        for key, value in meta.items():
+            if "parent" not in key.lower():
+                continue
+            if not value or not isinstance(value, str):
+                continue
+            raw_value = value.strip()
+            if not raw_value or raw_value in seen:
+                continue
+            seen.add(raw_value)
+            values.append(raw_value)
+        return values
+
     # First pass: collect all unresolved tokens across all rows
     unresolved_tokens: Set[str] = set()
     rows_with_parents: List[Tuple[int, dict, List[str]]] = []
 
     for idx, row in enumerate(rows):
         meta = _parse_meta(row)
-        tokens = collect_parent_tokens(meta)
-        if not tokens:
+        parent_values = _parent_field_values(meta)
+        if not parent_values:
             continue
 
-        rows_with_parents.append((idx, meta, tokens))
+        rows_with_parents.append((idx, meta, parent_values))
 
-        for token in tokens:
-            if UID_RE.match(token):
-                continue
-            if token in identity_to_uid:
-                continue
-            unresolved_tokens.add(token)
+        for raw_parent in parent_values:
+            split_tokens = split_parent_field(raw_parent)
+            if len(split_tokens) > 1 and raw_parent not in identity_to_uid:
+                unresolved_tokens.add(raw_parent)
+            for token in split_tokens:
+                if UID_RE.match(token):
+                    continue
+                if token in identity_to_uid:
+                    continue
+                unresolved_tokens.add(token)
 
     # Bulk DB fallback for unresolved tokens
     db_identity_to_uid: Dict[str, str] = {}
@@ -268,40 +287,52 @@ def _resolve_parents(
 
     # Second pass: resolve tokens and update rows
     surviving_by_index: Dict[int, InputRowModel] = {}
-    rows_with_parents_idx = {row_idx for row_idx, _meta, _tokens in rows_with_parents}
-    for idx, meta, tokens in rows_with_parents:
+    rows_with_parents_idx = {row_idx for row_idx, _meta, _parent_values in rows_with_parents}
+    for idx, meta, parent_values in rows_with_parents:
         row = rows[idx]
         resolved_tokens = []
         row_failed = False
-        for token in tokens:
-            if UID_RE.match(token):
-                resolved_tokens.append(token)
-            elif token in identity_to_uid:
-                resolved_tokens.append(identity_to_uid[token])
-                parents_resolved += 1
-            elif token in ambiguous_identities:
-                failed_rows.append({
-                    "row": row,
-                    "uid": row.UID,
-                    "row_index": idx,
-                    "error": AmbiguousIdentityError(
-                        row_index=idx,
-                        identity=token,
-                        conflicting_sample_ids=ambiguous_identities[token],
-                    ),
-                })
-                row_failed = True
+        for raw_parent in parent_values:
+            split_tokens = split_parent_field(raw_parent)
+            tokens = split_tokens
+            if len(split_tokens) > 1 and (
+                raw_parent in identity_to_uid
+                or raw_parent in ambiguous_identities
+                or raw_parent in db_identity_to_uid
+            ):
+                tokens = [raw_parent]
+
+            for token in tokens:
+                if UID_RE.match(token):
+                    resolved_tokens.append(token)
+                elif token in identity_to_uid:
+                    resolved_tokens.append(identity_to_uid[token])
+                    parents_resolved += 1
+                elif token in ambiguous_identities:
+                    failed_rows.append({
+                        "row": row,
+                        "uid": row.UID,
+                        "row_index": idx,
+                        "error": AmbiguousIdentityError(
+                            row_index=idx,
+                            identity=token,
+                            conflicting_sample_ids=ambiguous_identities[token],
+                        ),
+                    })
+                    row_failed = True
+                    break
+                elif token in db_identity_to_uid:
+                    resolved_tokens.append(db_identity_to_uid[token])
+                    parents_resolved += 1
+                else:
+                    # Identity-based token not resolvable now — preserve for orphan resolution
+                    resolved_tokens.append(token)
+                    warnings.append(
+                        f"Row {idx}: unresolved parent reference '{token}'; "
+                        f"preserving for future orphan resolution"
+                    )
+            if row_failed:
                 break
-            elif token in db_identity_to_uid:
-                resolved_tokens.append(db_identity_to_uid[token])
-                parents_resolved += 1
-            else:
-                # Identity-based token not resolvable now — preserve for orphan resolution
-                resolved_tokens.append(token)
-                warnings.append(
-                    f"Row {idx}: unresolved parent reference '{token}'; "
-                    f"preserving for future orphan resolution"
-                )
 
         if row_failed:
             continue
