@@ -29,6 +29,8 @@ from sqlalchemy import create_engine, text
 
 from nextseek_api.batch_upload.config import Neo4jConfig
 from nextseek_api.batch_upload.db_engine import CAPABILITIES, dispose_engine
+from nextseek_api.batch_upload.identity import hash_identity
+from nextseek_api.batch_upload.models import InputRowModel
 from nextseek_api.batch_upload.orchestrator import run_batch_upload_multi
 from nextseek_api.batch_upload.orphan_resolution import discover_orphans, resolve_orphans
 from nextseek_api.batch_upload.prefetch import clear_caches
@@ -98,6 +100,19 @@ UID_DUP_1 = "WTNAM-240301BMC-6"
 UID_DUP_2 = "WTNAM-240301BMC-7"
 UID_FILE_PARENT = "D.WTFIL-240301BMC-1"
 UID_PREEXISTING_ORPHAN = "WTNAM-240301BMC-8"
+UID_OVERSIZED_FILE_PARENT = "D.WTFIL-240301BMC-2"
+UID_WHITESPACE_EDGE = "WTNAM-240301BMC-99"
+
+
+def _oversized_fastq_identity(n_files: int = 20) -> str:
+    parts = [
+        f"GBM1-DFCI4-S1to6-CSFCells-1_VDJ_IGO_16516_B_{i}_S{i+12}_L001_I1_001.fastq.gz"
+        for i in range(1, n_files + 1)
+    ]
+    return "; ".join(parts)
+
+
+OVERSIZED_IDENTITY = _oversized_fastq_identity()
 
 SEEDED_COUNTS = {
     "drift-a": 1,
@@ -106,6 +121,7 @@ SEEDED_COUNTS = {
     "drift-w": 1,
     "dup": 2,
     "drift-d.fastq": 1,
+    OVERSIZED_IDENTITY: 1,
 }
 
 CREATE_TABLES_SQL = [
@@ -360,7 +376,7 @@ def integration_env():
                 cur.execute("INSERT INTO studies (id, title, description) VALUES (%s, %s, %s)", (STUDY_ID, STUDY_TITLE, ""))
                 cur.execute("INSERT INTO assays (id, title, study_id) VALUES (401, 'Wave 3 Assay', %s)", (STUDY_ID,))
 
-                for policy_id in range(1001, 1010):
+                for policy_id in range(1001, 1012):
                     cur.execute(
                         "INSERT INTO policies (id, name, access_type, created_at, updated_at) VALUES (%s, %s, 0, NOW(), NOW())",
                         (policy_id, f"policy-{policy_id}"),
@@ -438,6 +454,24 @@ def integration_env():
                     json_meta=json.dumps({"Name": "orphan-needs-resolution", "Parent": "future-parent"}),
                     sample_type_id=NAME_SAMPLE_TYPE_ID,
                 )
+                _seed_sample(
+                    cur,
+                    sample_id=1010,
+                    title="oversized-fastq-placeholder",
+                    uuid=UID_OVERSIZED_FILE_PARENT,
+                    json_meta=json.dumps(
+                        {"File_PrimaryData": OVERSIZED_IDENTITY, "UID": UID_OVERSIZED_FILE_PARENT}
+                    ),
+                    sample_type_id=FILE_SAMPLE_TYPE_ID,
+                )
+                _seed_sample(
+                    cur,
+                    sample_id=1011,
+                    title="whitespace-sentinel",
+                    uuid=UID_WHITESPACE_EDGE,
+                    json_meta=json.dumps({"Name": "   ", "UID": UID_WHITESPACE_EDGE}),
+                    sample_type_id=NAME_SAMPLE_TYPE_ID,
+                )
 
             driver.execute_query(
                 """
@@ -449,6 +483,7 @@ def integration_env():
                     {"uuid": UID_DRIFT_A, "id": 1001, "sample_type": NAME_SAMPLE_TYPE, "parent_titles": []},
                     {"uuid": UID_FILE_PARENT, "id": 1008, "sample_type": FILE_SAMPLE_TYPE, "parent_titles": []},
                     {"uuid": UID_PREEXISTING_ORPHAN, "id": 1009, "sample_type": NAME_SAMPLE_TYPE, "parent_titles": ["future-parent"]},
+                    {"uuid": UID_OVERSIZED_FILE_PARENT, "id": 1010, "sample_type": FILE_SAMPLE_TYPE, "parent_titles": []},
                 ]},
                 database_=neo4j_db,
             )
@@ -480,9 +515,19 @@ def _db_settings(db_name: str) -> dict:
 
 
 def _count_by_identity(conn, identity: str) -> int:
+    identity_hash = hash_identity(identity)
+    if identity_hash is None:
+        return 0
     with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM samples WHERE name_identity = %s", (identity,))
+        cur.execute("SELECT COUNT(*) FROM samples WHERE name_identity = %s", (identity_hash,))
         return int(cur.fetchone()[0])
+
+
+def _fetch_name_identity(conn, uuid: str) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute("SELECT name_identity FROM samples WHERE uuid = %s", (uuid,))
+        row = cur.fetchone()
+    return row[0] if row else None
 
 
 def _fetch_one(conn, sql: str, params: tuple):
@@ -535,6 +580,20 @@ def _run_batch(db_name: str, neo4j_db: str, fixture_path: Path, *, update_existi
         )
 
 
+def test_oversized_identity_passes_input_row_validation():
+    """Belt-and-suspenders for the no-length-ceiling identity contract."""
+    long_name = _oversized_fastq_identity()
+    assert len(long_name) > 1400
+    row = InputRowModel(
+        UID="D.WTFIL-260225MIT-1",
+        SampleType="D.WTFIL_files",
+        json_metadata=json.dumps(
+            {"File_PrimaryData": long_name, "UID": "D.WTFIL-260225MIT-1"}
+        ),
+    )
+    assert row.UID == "D.WTFIL-260225MIT-1"
+
+
 class TestIdentityDriftIntegration:
     def test_default_mode_end_to_end(self, integration_env, tmp_path):
         conn = integration_env["conn"]
@@ -551,14 +610,16 @@ class TestIdentityDriftIntegration:
         assert "[1006, 1007]" in ambiguous_row["reason"]
         assert _find_summary_row(rows, uid=UID_DRIFT_A, status="skipped")["reason"] == "name_already_exists"
         assert _find_summary_row(rows, uid=UID_RARE_UID_ONLY, status="skipped")["reason"] == "duplicate"
-
         for identity, expected in SEEDED_COUNTS.items():
             assert _count_by_identity(conn, identity) == expected
+        assert _count_by_identity(conn, "   ") == 0
+        assert _fetch_name_identity(conn, UID_WHITESPACE_EDGE) is None
+        assert _fetch_name_identity(conn, UID_OVERSIZED_FILE_PARENT) == hash_identity(OVERSIZED_IDENTITY)
 
         orphan_child = _fetch_one(
             conn,
             "SELECT uuid, json_metadata FROM samples WHERE name_identity = %s",
-            ("orphan-child",),
+            (hash_identity("orphan-child"),),
         )
         assert orphan_child is not None
         orphan_meta = json.loads(orphan_child[1])
@@ -567,7 +628,7 @@ class TestIdentityDriftIntegration:
         child_by_name = _fetch_one(
             conn,
             "SELECT uuid, json_metadata FROM samples WHERE name_identity = %s",
-            ("child-by-name",),
+            (hash_identity("child-by-name"),),
         )
         assert child_by_name is not None
         child_by_name_uid, child_by_name_meta_raw = child_by_name
@@ -577,12 +638,22 @@ class TestIdentityDriftIntegration:
         child_by_file = _fetch_one(
             conn,
             "SELECT uuid, json_metadata FROM samples WHERE name_identity = %s",
-            ("child-by-file",),
+            (hash_identity("child-by-file"),),
         )
         assert child_by_file is not None
         child_by_file_uid, child_by_file_meta_raw = child_by_file
         child_by_file_meta = json.loads(child_by_file_meta_raw)
         assert child_by_file_meta["Parent"] == UID_FILE_PARENT
+
+        child_of_oversized = _fetch_one(
+            conn,
+            "SELECT uuid, json_metadata FROM samples WHERE name_identity = %s",
+            (hash_identity("child-of-oversized"),),
+        )
+        assert child_of_oversized is not None
+        child_of_oversized_uid, child_of_oversized_meta_raw = child_of_oversized
+        child_of_oversized_meta = json.loads(child_of_oversized_meta_raw)
+        assert child_of_oversized_meta["Parent"] == UID_OVERSIZED_FILE_PARENT
 
         with _neo4j_driver() as driver:
             graph_child = _query_graph(
@@ -614,6 +685,17 @@ class TestIdentityDriftIntegration:
                 {"child": child_by_file_uid, "parent": UID_FILE_PARENT},
             )
             assert rel_by_file.records[0]["c"] == 1
+
+            rel_oversized = _query_graph(
+                driver,
+                neo4j_db,
+                """
+                MATCH (:Sample {uuid: $child})-[:DERIVED_FROM]->(:Sample {uuid: $parent})
+                RETURN count(*) AS c
+                """,
+                {"child": child_of_oversized_uid, "parent": UID_OVERSIZED_FILE_PARENT},
+            )
+            assert rel_oversized.records[0]["c"] == 1
 
             future_parent_uid = result["_identity_map"]["future-parent"]
             discover = discover_orphans(driver, neo4j_db, result["_identity_map"])
@@ -668,6 +750,9 @@ class TestIdentityDriftIntegration:
 
         for identity, expected in pre_counts.items():
             assert _count_by_identity(conn, identity) == expected
+        assert _count_by_identity(conn, "   ") == 0
+        assert _fetch_name_identity(conn, UID_WHITESPACE_EDGE) is None
+        assert _fetch_name_identity(conn, UID_OVERSIZED_FILE_PARENT) == hash_identity(OVERSIZED_IDENTITY)
 
         file_row = _fetch_one(
             conn,
@@ -697,6 +782,16 @@ class TestIdentityDriftIntegration:
         drift_a_meta = json.loads(drift_a_row[0])
         assert drift_a_meta["Scientist"] == "Updated Scientist"
 
+        child_of_oversized = _fetch_one(
+            conn,
+            "SELECT uuid, json_metadata FROM samples WHERE name_identity = %s",
+            (hash_identity("child-of-oversized"),),
+        )
+        assert child_of_oversized is not None
+        child_of_oversized_uid, child_of_oversized_meta_raw = child_of_oversized
+        child_of_oversized_meta = json.loads(child_of_oversized_meta_raw)
+        assert child_of_oversized_meta["Parent"] == UID_OVERSIZED_FILE_PARENT
+
         with _neo4j_driver() as driver:
             sample_props = _query_graph(
                 driver,
@@ -705,6 +800,17 @@ class TestIdentityDriftIntegration:
                 {"uuid": UID_DRIFT_A},
             )
             assert sample_props.records[0]["scientist"] == "Updated Scientist"
+
+            rel_oversized = _query_graph(
+                driver,
+                neo4j_db,
+                """
+                MATCH (:Sample {uuid: $child})-[:DERIVED_FROM]->(:Sample {uuid: $parent})
+                RETURN count(*) AS c
+                """,
+                {"child": child_of_oversized_uid, "parent": UID_OVERSIZED_FILE_PARENT},
+            )
+            assert rel_oversized.records[0]["c"] == 1
 
             future_parent_uid = result["_identity_map"]["future-parent"]
             discover = discover_orphans(driver, neo4j_db, result["_identity_map"])
