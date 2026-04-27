@@ -10,7 +10,6 @@ dependencies = [
   "attrs",
   "beautifulsoup4",
   "bleach",
-  #"bunch",
   "certifi",
   "celery",
   "chardet",
@@ -45,7 +44,6 @@ dependencies = [
   "html5lib",
   "huggingface-hub",
   "idna",
-  #"immpload",
   "importlib_metadata",
   "inflection",
   "isodate",
@@ -103,7 +101,7 @@ dependencies = [
   "threadpoolctl",
   "tinycss2",
   "tokenizers",
-  # "#torch+cpu",
+  "torch",
   "tqdm",
   "typing-inspection",
   "typing_extensions",
@@ -121,8 +119,16 @@ dependencies = [
   "daphne>=4.2.1",
 ]
 
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [tool.uv.sources]
-chat_nextseek = { git = "git+ssh://github.com/cdemurjian/chat_nextseek" }
+chat_nextseek = { path = "chat_nextseek" }
+torch = [
+  { index = "pytorch-cpu" },
+]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "dmac.settings"
