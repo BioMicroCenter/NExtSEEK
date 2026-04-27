@@ -163,7 +163,6 @@ cython_debug/
 themes/SmartAdmin
 dmac/local_settings.py
 local_settings.py
-gunicorn.conf.py
 .DS_Store
 internal_docs/
 .cursor/
