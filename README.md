@@ -23,7 +23,7 @@ To install NExtSEEK, [please follow the installation instructions](https://igb.m
 NExtSEEK also provides Docker as an installation method.
 The `docker-compose.yml` file will orchestrate SEEK, NExtSEEK, and other necessary services for you.
 
-First, you need to [install Docker]() onto your system.
+First, you need to [install Docker](https://docs.docker.com/engine/install) and [Docker Compose](https://docs.docker.com/compose/install/) onto your system.
 Once installed, clone this repository:
 
 ```bash
