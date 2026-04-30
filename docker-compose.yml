@@ -11,7 +11,7 @@ services:
       - db
     volumes:
       - nextseek-static-files:/static
-      - ./path/to/SmartAdmin:/app/themes/SmartAdmin
+      - ./themes/SmartAdmin:/app/themes/SmartAdmin
       - ./dmac/local_settings.py:/app/dmac/local_settings.py
 
   nextseek_nginx:
@@ -43,13 +43,13 @@ services:
     volumes:
       - neo4j-data:/data
     environment:
-      NEO4J_AUTH: "neo4j/YOUR_PASSWORD_HERE"
+      NEO4J_AUTH: "neo4j/demopassword"
     ports:
       - "7474:7474"
       - "7687:7687"
 
   seek:
-    image: fairdom/seek:1.17
+    image: fairdom/seek:1.15.1
 
     container_name: seek
     command: docker/entrypoint.sh
@@ -77,7 +77,7 @@ services:
   seek_workers: # The SEEK delayed job workers
       #build: .
 
-      image: fairdom/seek:1.17
+      image: fairdom/seek:1.15.1
       container_name: seek-workers
       command: docker/start_workers.sh
       restart: always
