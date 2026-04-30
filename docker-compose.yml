@@ -17,7 +17,7 @@ services:
   nextseek_nginx:
     image: nginx:latest
     ports:
-      - "8000:80"
+      - "127.0.0.1:8000:80"
     volumes:
       - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
       - nextseek-static-files:/static:ro
@@ -43,10 +43,10 @@ services:
     volumes:
       - neo4j-data:/data
     environment:
-      NEO4J_AUTH: "neo4j/YOUR_PASSWORD_HERE"
+      NEO4J_AUTH: "neo4j/neo4j_password"
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
 
   seek:
     image: fairdom/seek:1.17
@@ -66,7 +66,7 @@ services:
       - seek-filestore:/seek/filestore
       - seek-cache:/seek/tmp/cache
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - db
       - solr
