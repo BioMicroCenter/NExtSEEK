@@ -40,10 +40,18 @@
                 var link = obj.link;
                 var diclist = obj.diclist;
 
+                var summary = '';
+                if (Array.isArray(diclist) && diclist.length > 0) {
+                    summary = diclist.map(function(dici) {
+                        var label = dici.uid || dici.id || 'sample';
+                        return label + ': ' + (dici.statusi || 'updated');
+                    }).join('\n');
+                }
+
                 if (status == 1) {
-                    window.location.href = link;
+                    $.messager.alert('Deleting samples', summary || 'Samples deleted successfully.', 'info');
                 } else {
-                    alert(msg);
+                    alert((msg ? msg + '\n' : '') + summary);
                 }
                 return;
             });

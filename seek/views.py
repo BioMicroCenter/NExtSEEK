@@ -1327,23 +1327,42 @@ def projects(request):
         return HttpResponseRedirect(url_redirect) 
     else:
         projectsdb = DBtable_projects()
-        user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
-        user_project_ids = list(map(lambda x: x['id'], user_projects))
+        current_user = seekdb.getCurrentUser() or {}
+        user_projects = (
+            current_user.get('data', {})
+            .get('relationships', {})
+            .get('projects', {})
+            .get('data', [])
+        )
+        user_project_ids = [project.get('id') for project in user_projects if project.get('id') is not None]
 
         if verifySuperUser(request) == 1:
-            projects = Projects.objects.all().values('id', 'title', 'avatar_id')
+            projects = list(Projects.objects.all().values('id', 'title', 'avatar_id'))
         else:
-            projects = Projects.objects.filter(id__in=user_project_ids).values('id', 'title', 'avatar_id')
+            projects = list(Projects.objects.filter(id__in=user_project_ids).values('id', 'title', 'avatar_id'))
 
         for project in projects:
-            project['stats'] = projectsdb.sample_count(project['id']) | projectsdb.files_count(project['id'])
+            try:
+                stats = projectsdb.sample_count(project['id'])
+                stats.update(projectsdb.files_count(project['id']))
+            except Exception as exc:
+                logger.exception("Failed to build project stats for project_id=%s", project.get('id'))
+                stats = {'sample_count': 0, 'sop_count': 0, 'df_count': 0}
+            project['stats'] = stats
 
-        stcdb = DBtable_stc()
-        clade_data = {k: list(v) for k, v in groupby(stcdb.getAllCounts(), lambda x: x['title'])}
+        try:
+            stcdb = DBtable_stc()
+            clade_rows = stcdb.getAllCounts() or []
+            clade_rows = sorted(clade_rows, key=lambda row: (row.get('title') or '', row.get('st_group') or ''))
+            clade_data = {k: list(v) for k, v in groupby(clade_rows, lambda x: x.get('title') or 'Uncategorized')}
+        except Exception:
+            logger.exception("Failed to build clade data for projects page")
+            clade_data = {}
 
         for k, group in clade_data.items():
+            total = sum((item.get('count') or 0) for item in group)
             for item in group:
-                item['total'] = sum(i['count'] for i in group)
+                item['total'] = total
                
         return render(request, 'projectsList.html', {'projects': projects,
                                                      'clade_data': clade_data,

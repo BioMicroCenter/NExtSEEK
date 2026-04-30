@@ -387,11 +387,13 @@
 			//var ss = [];
 			//var ids = [];
 			var records = [];
+			var ids = [];
 			var rows = dg.datagrid('getSelections');
 			for(var i=0; i<rows.length; i++){
 				var row = rows[i];
-				//alert(row.id);
-				//ids.push(row.id);
+				if (row.id !== undefined && row.id !== null) {
+					ids.push(row.id);
+				}
 				
 				var record = {};
 				for(var key in row) {
@@ -433,8 +435,7 @@
 				//var IDs = jsonconvertstrings(ids);
 				$.get(url_delete,
 					{
-						//json: JSON.stringify(json)
-						//ids: IDs,
+						ids: JSON.stringify(ids),
 						records: JSON.stringify(records)
 					},
 					function(data){

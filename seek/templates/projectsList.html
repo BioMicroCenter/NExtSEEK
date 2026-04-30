@@ -3,13 +3,6 @@
 {% load index %}
 
 <script type="text/javascript">
-  var project_stats = {{ clade_data | safe }}
-
-  for (group of project_stats) {
-    var groupTotal = group.reduce((acc, v) => v['count'] + acc, 0)
-    group.map(x => x['total'] = groupTotal)
-  }
-
   function removeRowByFieldValue(dg, fieldName, valueToRemove) {
     var rows = dg.datagrid('getRows');
 
@@ -64,7 +57,7 @@
   {% for project in projects %}
     <li style="border:1px solid black; max-width: 60%; height: 5em; margin: 1em 0; padding: 0;">
       <div style="display:flex;flex-flow:row-wrap;justify-content:space-between;height:100%;">
-        <a href="{{ project.id }}" style="display:flex;gap:0.5em;flex-direction:row;justify-content:space-between;height:100%;">
+        <a href="/seek/projects/{{ project.id }}/" style="display:flex;gap:0.5em;flex-direction:row;justify-content:space-between;height:100%;">
           <img style="max-width: 50%; max-height:100%;" alt="{{ project.title }} avatar" src="https://{{ seek_hostname }}/assets/avatar-images/{{ project.avatar_id }}-120x120.png"/>
           <h2 style="">{{ project.title }}</h2>
         </a>
