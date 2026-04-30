@@ -45,8 +45,8 @@ from nextseek_api.models import (
     SampleTreeNode,
 )
 
-SEEK_DATABASE = "default"
-
+SEEK_DATABASE = settings.SEEK_DATABASE
+NEXTSEEK_DATABASE = settings.NEXTSEEK_DATABASE
 
 class EntityTreePagination(PageNumberPagination):
     """Custom pagination for entity tree endpoints."""
@@ -466,6 +466,9 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                     if mapped.isdigit():
                         all_internal_ids.add(int(mapped))
 
+        db = settings.DATABASES[SEEK_DATABASE]
+        nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
+
         # Step 2b: Enrich by internal_assay_id (description + study_titles)
         enrichment: Dict[int, Dict[str, Any]] = {}
         if all_internal_ids:
@@ -476,11 +479,11 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                         ac.internal_assay_id AS internal_assay_id,
                         ac.Description AS description,
                         GROUP_CONCAT(DISTINCT s.title SEPARATOR '; ') AS study_titles
-                    FROM dmac.assay_context ac
-                    LEFT JOIN dmac.assays_internal_assays aia
+                    FROM {nextseekdb["NAME"]}.assay_context ac
+                    LEFT JOIN {nextseekdb["NAME"]}.assays_internal_assays aia
                         ON aia.internal_assay_id = ac.internal_assay_id
-                    LEFT JOIN dmac.assays a ON a.id = aia.assay_id
-                    LEFT JOIN seek_production.studies s ON s.id = a.study_id
+                    LEFT JOIN {nextseekdb["NAME"]}.assays a ON a.id = aia.assay_id
+                    LEFT JOIN {db["NAME"]}.studies s ON s.id = a.study_id
                     WHERE ac.internal_assay_id IN ({ids_str})
                     GROUP BY ac.internal_assay_id, ac.Description
                 """
@@ -528,12 +531,14 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
     # -------------------------------------------------------------------------
     def _get_clade_color(self, sample_type: str) -> str:
         """Get hex color for a sample type from clade mapping."""
+        db = settings.DATABASES[SEEK_DATABASE]
+        nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
         try:
-            query = """
+            query = f"""
                 SELECT c.color
-                FROM dmac.clades c
-                JOIN dmac.sample_types_clades stc ON stc.clade_id = c.id
-                JOIN seek_production.sample_types st ON stc.sample_type_id = st.id
+                FROM {nextseekdb["NAME"]}.clades c
+                JOIN {nextseekdb["NAME"]}.sample_types_clades stc ON stc.clade_id = c.id
+                JOIN {db["NAME"]}.sample_types st ON stc.sample_type_id = st.id
                 WHERE st.title = %s
             """
             rows = _run_sql_query(query, [sample_type])
@@ -548,6 +553,8 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
         if not internal_assay_ids:
             return {}
 
+        db = settings.DATABASES[SEEK_DATABASE]
+        nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
         try:
             ids_str = ", ".join(str(i) for i in sorted(internal_assay_ids))
             query = f"""
@@ -555,11 +562,11 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                     ac.internal_assay_id AS internal_assay_id,
                     ac.Description AS description,
                     GROUP_CONCAT(DISTINCT s.title SEPARATOR '; ') AS study_titles
-                FROM dmac.assay_context ac
-                LEFT JOIN dmac.assays_internal_assays aia
+                FROM {nextseekdb["NAME"]}.assay_context ac
+                LEFT JOIN {nextseekdb["NAME"]}.assays_internal_assays aia
                     ON aia.internal_assay_id = ac.internal_assay_id
-                LEFT JOIN dmac.assays a ON a.id = aia.assay_id
-                LEFT JOIN seek_production.studies s ON s.id = a.study_id
+                LEFT JOIN {nextseekdb["NAME"]}.assays a ON a.id = aia.assay_id
+                LEFT JOIN {db["NAME"]}.studies s ON s.id = a.study_id
                 WHERE ac.internal_assay_id IN ({ids_str})
                 GROUP BY ac.internal_assay_id, ac.Description
             """

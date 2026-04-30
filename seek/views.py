@@ -88,6 +88,7 @@ import neo4j
 from neo4j import GraphDatabase
 import io
 SEEK_DATABASE = settings.SEEK_DATABASE
+NEXTSEEK_DATABASE = settings.NEXTSEEK_DATABASE
 DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "/download/"
 DOWNLOAD_DIRECTORY_LINK = settings.MEDIA_URL + 'download/'  
 UPLOAD_DIRECTORY = settings.MEDIA_ROOT + "/uploads/"
@@ -898,15 +899,15 @@ def samplesValidate(request):
                 db = settings.DATABASES[SEEK_DATABASE]
                 conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
 
-                df = pd.read_sql('''
+                df = pd.read_sql(f'''
                     SELECT
                         sa.id AS attribute_id,
                         sa.title AS attribute_title,
                         sa.sample_type_id, st.title AS sample_type_title
                     FROM
-                        seek_production.sample_attributes sa
+                        {db["NAME"]}.sample_attributes sa
                     JOIN
-                        seek_production.sample_types st ON sa.sample_type_id = st.id
+                        {db["NAME"]}.sample_types st ON sa.sample_type_id = st.id
                 ''', con=conn)
 
                 df['Instructions'] = df.apply(lambda row: f"{row['sample_type_title']}::{row['attribute_title']}", axis=1)
@@ -1136,45 +1137,6 @@ def download_nhp_data(request, nhp_name: str):
     except Exception as e:
         return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-def get_full_sample_trees_and_data(uids):
-    db = settings.DATABASES[SEEK_DATABASE]
-    conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
-    cursor = conn.cursor()
-
-    uids_str = ', '.join(f"'{uid}'" for uid in uids)
-    query_one = f"""
-    SELECT s.id, s.sample_type_id, st.title AS sample_type, s.uuid, s.json_metadata
-    FROM seek_production.samples s
-    JOIN seek_production.sample_types st
-    ON s.sample_type_id = st.id
-    WHERE s.uuid IN ({uids_str})
-    """
-
-    cursor.execute(query_one)
-    columns = [col[0] for col in cursor.description]
-    rows = cursor.fetchall()
-    sample_data = pd.DataFrame(rows, columns=columns)
-
-    query_two = f"""
-    SELECT uuid, full, updated 
-    FROM dmac.seek_sample_tree
-    WHERE uuid IN ({uids_str})
-    """
-
-    cursor.execute(query_two)
-
-    columns = [col[0] for col in cursor.description]
-    rows = cursor.fetchall()
-    results_df = pd.DataFrame(rows, columns=columns)
-
-    cursor.close()
-    conn.close()
-
-    results_df['updated'] = pd.to_datetime(results_df['updated'])
-    results_df = results_df.sort_values(by='updated', ascending=False)
-    sample_full_trees = results_df.groupby('uuid').first().reset_index()
-    return sample_data, sample_full_trees
-
 def extract_ids(data):
     ids = []
     if isinstance(data, dict):
@@ -1189,12 +1151,13 @@ def extract_ids(data):
 
 def get_clade_color(sample_type):
     db = settings.DATABASES[SEEK_DATABASE]
+    nextseekdb = settings.DATABASES[SEEK_DATABASE]
     conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
     cursor = conn.cursor()
     query = f"""
-    SELECT c.color FROM dmac.clades c
-    JOIN dmac.sample_types_clades stc ON stc.clade_id = c.id
-    JOIN seek_production.sample_types st ON stc.sample_type_id = st.id
+    SELECT c.color FROM {nextseekdb["NAME"]}.clades c
+    JOIN {nextseekdb["NAME"]}.sample_types_clades stc ON stc.clade_id = c.id
+    JOIN {db["NAME"]}.sample_types st ON stc.sample_type_id = st.id
     WHERE st.title = '{sample_type}'
     """
 
@@ -1209,6 +1172,7 @@ def get_clade_color(sample_type):
     return color
 
 def get_children_uids(sample_uids, user_project_ids, admin):
+    db = settings.DATABASES[SEEK_DATABASE]
     NEO4J_DATABASE = settings.NEO4J_DATABASE
     with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
         r,s,k = driver.execute_query("""
@@ -1232,14 +1196,14 @@ def get_children_uids(sample_uids, user_project_ids, admin):
     if admin:
         query = f"""
         SELECT id,sample_type_id,uuid,json_metadata
-        FROM seek_production.samples
+        FROM {db["NAME"]}.samples
         WHERE uuid IN ({uids_str})
         """
     else:
         query = f"""
         SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
-        FROM seek_production.samples s
-        JOIN seek_production.projects_samples ps
+        FROM {db["NAME"]}.samples s
+        JOIN {db["NAME"]}.projects_samples ps
         ON s.id = ps.sample_id
         WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
         """
@@ -1301,7 +1265,6 @@ def adminRetrieveSamples(request):
         if request.method == "POST":
             logger.debug(f"REQUEST: {request.POST.keys()}")
             uids = request.POST.get('retrieval_uids').strip().split()
-            #sample_data, sample_full_trees = get_full_sample_trees_and_data(uids)
             children_uids = get_children_uids(uids, user_project_ids, admin)
 
             datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
