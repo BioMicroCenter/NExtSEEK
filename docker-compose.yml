@@ -11,7 +11,7 @@ services:
       - db
     volumes:
       - nextseek-static-files:/static
-      - ./themes/SmartAdmin:/app/themes/SmartAdmin
+      - ./themes/NextSeek:/app/themes/NextSeek
       - ./dmac/local_settings.py:/app/dmac/local_settings.py
 
   nextseek_nginx:

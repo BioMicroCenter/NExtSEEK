@@ -81,7 +81,7 @@ STATIC_URL = "/static/"
 
 
 STATICFILES_DIRS = [
-    "/app/themes/SmartAdmin/static",
+    "/app/themes/NextSeek/static",
     "/app/static"
 ]
 
@@ -101,7 +101,7 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [
-            os.path.join(PROJECT_ROOT, "themes.SmartAdmin.templates"),
+            os.path.join(PROJECT_ROOT, "themes", "NextSeek", "templates"),
         ],
         "OPTIONS": {
             "context_processors": [
@@ -134,7 +134,7 @@ if DJANGO_VERSION < (1, 9):
 
 INSTALLED_APPS = (
     "seek",
-    "themes.SmartAdmin",
+    "themes.NextSeek",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
