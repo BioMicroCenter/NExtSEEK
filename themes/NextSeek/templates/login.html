@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load i18n %}
 {% block main %}
 <div class="container py-5">
     <div class="row justify-content-center">
@@ -6,7 +7,61 @@
             <div class="card shadow">
                 <div class="card-body p-4">
                     <h2 class="text-center mb-4">Sign In</h2>
-                    {% include "accounts/includes/account_form.html" %}
+                    {% if error %}
+                    <div class="alert alert-danger" role="alert">
+                        {% if error.0 %}
+                            {% for message in error %}
+                                <div>{{ message }}</div>
+                            {% endfor %}
+                        {% else %}
+                            {{ error }}
+                        {% endif %}
+                    </div>
+                    {% endif %}
+
+                    <form action="" method="post">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label class="form-label" for="username">Username</label>
+                            <input
+                                class="form-control"
+                                type="text"
+                                name="username"
+                                id="username"
+                                placeholder="Enter your username"
+                                required
+                            >
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="password">Password</label>
+                            <input
+                                class="form-control"
+                                type="password"
+                                name="password"
+                                id="password"
+                                placeholder="Enter your password"
+                                required
+                            >
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" name="no-expire" id="no-expire" value="yes">
+                            <label class="form-check-label" for="no-expire">Stay logged in</label>
+                        </div>
+                        <div class="d-grid mb-3">
+                            <button class="btn btn-primary" type="submit">Log in</button>
+                        </div>
+                    </form>
+
+                    {% url "signup_seek" as signup_url %}
+                    {% url "mezzanine_password_reset" as password_reset_url %}
+                    <div class="text-center small">
+                        <p class="mb-1">
+                            {% blocktrans with request.GET.next as next %}Need an account? <a href="{{ signup_url }}?next={{ next }}">Sign up</a>.{% endblocktrans %}
+                        </p>
+                        <p class="mb-0">
+                            {% trans "Forgotten your password?" %} <a href="{{ password_reset_url }}">{% trans "Reset it here" %}</a>.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
