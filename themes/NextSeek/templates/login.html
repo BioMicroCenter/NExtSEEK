@@ -1,70 +1,339 @@
-{% extends "base.html" %}
-{% load i18n %}
-{% block main %}
-<div class="container py-5">
-    <div class="row justify-content-center">
-        <div class="col-md-6 col-lg-4">
-            <div class="card shadow">
-                <div class="card-body p-4">
-                    <h2 class="text-center mb-4">Sign In</h2>
-                    {% if error %}
-                    <div class="alert alert-danger" role="alert">
-                        {% if error.0 %}
-                            {% for message in error %}
-                                <div>{{ message }}</div>
-                            {% endfor %}
-                        {% else %}
-                            {{ error }}
-                        {% endif %}
-                    </div>
-                    {% endif %}
+{% extends "base_auth.html" %}
+{% load i18n static %}
 
-                    <form action="" method="post">
-                        {% csrf_token %}
-                        <div class="mb-3">
-                            <label class="form-label" for="username">Username</label>
-                            <input
-                                class="form-control"
-                                type="text"
-                                name="username"
-                                id="username"
-                                placeholder="Enter your username"
-                                required
-                            >
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label" for="password">Password</label>
-                            <input
-                                class="form-control"
-                                type="password"
-                                name="password"
-                                id="password"
-                                placeholder="Enter your password"
-                                required
-                            >
-                        </div>
-                        <div class="form-check mb-3">
-                            <input class="form-check-input" type="checkbox" name="no-expire" id="no-expire" value="yes">
-                            <label class="form-check-label" for="no-expire">Stay logged in</label>
-                        </div>
-                        <div class="d-grid mb-3">
-                            <button class="btn btn-primary" type="submit">Log in</button>
-                        </div>
-                    </form>
+{% block title %}Sign In - NExtSEEK{% endblock %}
 
-                    {% url "signup_seek" as signup_url %}
-                    {% url "mezzanine_password_reset" as password_reset_url %}
-                    <div class="text-center small">
-                        <p class="mb-1">
-                            {% blocktrans with request.GET.next as next %}Need an account? <a href="{{ signup_url }}?next={{ next }}">Sign up</a>.{% endblocktrans %}
-                        </p>
-                        <p class="mb-0">
-                            {% trans "Forgotten your password?" %} <a href="{{ password_reset_url }}">{% trans "Reset it here" %}</a>.
-                        </p>
-                    </div>
-                </div>
-            </div>
+{% block extra_head %}
+<style>
+/* ── Auth page layout ────────────────────────────── */
+body.nextseek-auth {
+    margin: 0;
+    padding: 0;
+    font-family: var(--ns-font-body);
+    background: var(--ns-bg);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+}
+
+.auth-shell {
+    display: flex;
+    min-height: 100vh;
+}
+
+/* ── Left panel ──────────────────────────────────── */
+.auth-panel-left {
+    width: 40%;
+    min-width: 300px;
+    background: #A31F34;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 3rem 2.75rem;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Subtle decorative ruled lines */
+.auth-panel-left::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+        repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 39px,
+            rgba(255,255,255,0.05) 39px,
+            rgba(255,255,255,0.05) 40px
+        );
+    pointer-events: none;
+}
+
+.auth-brand {
+    position: relative;
+    z-index: 1;
+}
+
+.auth-wordmark {
+    font-family: var(--ns-font-display);
+    font-size: 2rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.03em;
+    text-decoration: none;
+    display: block;
+    margin-bottom: 0.5rem;
+}
+.auth-wordmark .wm-lo { opacity: 0.7; }
+
+.auth-tagline {
+    font-family: var(--ns-font-body);
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.65);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-weight: 400;
+    margin: 0;
+}
+
+.auth-panel-copy {
+    position: relative;
+    z-index: 1;
+}
+
+.auth-panel-copy p {
+    font-family: var(--ns-font-display);
+    font-size: 1.4rem;
+    font-weight: 400;
+    color: rgba(255,255,255,0.85);
+    line-height: 1.4;
+    margin: 0;
+    font-style: italic;
+}
+
+.auth-panel-foot {
+    position: relative;
+    z-index: 1;
+}
+
+.auth-panel-foot img {
+    height: 22px;
+    opacity: 0.55;
+    filter: brightness(0) invert(1);
+}
+
+/* ── Right panel (form) ──────────────────────────── */
+.auth-panel-right {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 2rem;
+    background: var(--ns-bg);
+}
+
+.auth-form-box {
+    width: 100%;
+    max-width: 400px;
+}
+
+.auth-form-title {
+    font-family: var(--ns-font-display);
+    font-size: 1.65rem;
+    font-weight: 700;
+    color: var(--ns-ink);
+    letter-spacing: -0.02em;
+    margin-bottom: 0.35rem;
+}
+
+.auth-form-subtitle {
+    font-size: 0.875rem;
+    color: var(--ns-muted);
+    margin-bottom: 2rem;
+}
+
+.auth-field { margin-bottom: 1.1rem; }
+
+.auth-field label {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--ns-ink);
+    letter-spacing: 0.015em;
+    margin-bottom: 0.35rem;
+}
+
+.auth-field input {
+    display: block;
+    width: 100%;
+    padding: 0.6rem 0.9rem;
+    font-size: 0.925rem;
+    font-family: var(--ns-font-body);
+    color: var(--ns-body);
+    background: var(--ns-white);
+    border: 1px solid var(--ns-border);
+    border-radius: 7px;
+    transition: border-color 0.18s, box-shadow 0.18s;
+    outline: none;
+    -webkit-appearance: none;
+}
+.auth-field input:focus {
+    border-color: #A31F34;
+    box-shadow: 0 0 0 3px rgba(163,31,52,0.1);
+}
+.auth-field input::placeholder { color: var(--ns-muted); }
+
+.auth-check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+.auth-check input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--ns-crimson);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.auth-check label {
+    font-size: 0.85rem;
+    color: var(--ns-body);
+    cursor: pointer;
+    margin: 0;
+}
+
+.auth-submit {
+    display: block;
+    width: 100%;
+    padding: 0.7rem 1rem;
+    font-family: 'Source Sans 3', system-ui, sans-serif;
+    font-size: 0.925rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #fff;
+    background: #A31F34;
+    border: none;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.18s, box-shadow 0.18s, transform 0.1s;
+    margin-bottom: 1.5rem;
+}
+.auth-submit:hover {
+    background: #8a1a2b;
+    box-shadow: 0 4px 14px rgba(163,31,52,0.3);
+}
+.auth-submit:active { transform: scale(0.99); }
+
+.auth-links {
+    text-align: center;
+    font-size: 0.83rem;
+    color: var(--ns-muted);
+    line-height: 1.9;
+}
+.auth-links a {
+    color: #A31F34;
+    text-decoration: none;
+    font-weight: 600;
+}
+.auth-links a:hover { text-decoration: underline; }
+
+.auth-error {
+    background: #fff0f2;
+    border: 1px solid var(--ns-crimson-border);
+    color: #8b1a2e;
+    border-radius: 7px;
+    padding: 0.7rem 0.9rem;
+    font-size: 0.86rem;
+    margin-bottom: 1.25rem;
+    line-height: 1.5;
+}
+
+/* ── Mobile ──────────────────────────────────────── */
+@media (max-width: 767.98px) {
+    .auth-shell { flex-direction: column; }
+
+    .auth-panel-left {
+        width: 100%;
+        min-width: 0;
+        padding: 1.5rem 1.5rem 1.25rem;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .auth-panel-copy, .auth-panel-foot { display: none; }
+    .auth-brand { margin: 0; }
+    .auth-wordmark { font-size: 1.5rem; margin-bottom: 0.2rem; }
+    .auth-tagline { display: none; }
+
+    .auth-panel-right { padding: 2rem 1.25rem; }
+    .auth-form-box { max-width: 100%; }
+}
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="auth-shell">
+
+    <!-- Left: editorial crimson panel -->
+    <div class="auth-panel-left">
+        <div class="auth-brand">
+            <a href="/" class="auth-wordmark">
+                <span>N</span><span class="wm-lo">Ext</span><span>SEEK</span>
+            </a>
+            <p class="auth-tagline">Scientific Metadata Management</p>
+        </div>
+
+        <div class="auth-panel-copy">
+            <p>Organised data<br>enables great science.</p>
+        </div>
+
+        <div class="auth-panel-foot">
+            <img src="{% static 'img/fairdata_logo01-300x52.png' %}" alt="FAIRDATA - MIT BioMicro Center">
         </div>
     </div>
+
+    <!-- Right: form -->
+    <div class="auth-panel-right">
+        <div class="auth-form-box">
+
+            <h1 class="auth-form-title">Sign in</h1>
+            <p class="auth-form-subtitle">Welcome back to NExtSEEK</p>
+
+            {% if error %}
+            <div class="auth-error" role="alert">
+                {% if error.0 %}
+                    {% for message in error %}<div>{{ message }}</div>{% endfor %}
+                {% else %}
+                    {{ error }}
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <form action="" method="post" novalidate>
+                {% csrf_token %}
+
+                <div class="auth-field">
+                    <label for="username">Username</label>
+                    <input
+                        type="text"
+                        name="username"
+                        id="username"
+                        placeholder="Enter your username"
+                        autocomplete="username"
+                        required
+                    >
+                </div>
+
+                <div class="auth-field">
+                    <label for="password">Password</label>
+                    <input
+                        type="password"
+                        name="password"
+                        id="password"
+                        placeholder="Enter your password"
+                        autocomplete="current-password"
+                        required
+                    >
+                </div>
+
+                <div class="auth-check">
+                    <input type="checkbox" name="no-expire" id="no-expire" value="yes">
+                    <label for="no-expire">Stay signed in</label>
+                </div>
+
+                <button type="submit" class="auth-submit">Sign in</button>
+            </form>
+
+            {% url "signup_seek" as signup_url %}
+            {% url "mezzanine_password_reset" as password_reset_url %}
+            <div class="auth-links">
+                <div>{% blocktrans with request.GET.next as next %}Need an account? <a href="{{ signup_url }}?next={{ next }}">Sign up</a>{% endblocktrans %}</div>
+                <div>{% trans "Forgot your password?" %} <a href="{{ password_reset_url }}">{% trans "Reset it" %}</a></div>
+            </div>
+
+        </div>
+    </div>
+
 </div>
 {% endblock %}

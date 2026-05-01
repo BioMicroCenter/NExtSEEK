@@ -1,44 +1,169 @@
 {% extends "base.html" %}
-{% block main %}
 {% load markdownify %}
+{% block title %}{{ title }} - NExtSEEK{% endblock %}
 
-<div>
-  <h1>{{ title }}</h1>
-  <hr style="border:1px solid black;">
-  <div style="display:grid;grid-template-columns: 1fr 3fr;gap:1em;">
-    <img alt="{{ title }} avatar" style="max-height:100%;max-width:100%;object-fit:contain;aspect-ratio:1;" src="https://{{ seek_hostname }}/assets/avatar-images/{{ avatar_id }}-500.png"/>
-    <p> {{ description | markdownify | linebreaksbr }} </p>
-  </div>
+{% block extra_head %}
+<style>
+.project-detail { max-width: 900px; }
 
-  <h2>Project Statistics</h2>
-  <table style="border:1px solid black;">
-    <thead>
-      <th style="padding:0 5px;">Group</th>
-      <th style="padding:0 5px;">Data Type</th>
-      <th style="padding:0 5px;">Local Count</th>
-      <th style="padding:0 5px;">Published Count</th>
-      <th style="padding:0 5px;">Local Total</th>
-      <th style="padding:0 5px;">Published Total</th>
-    </thead>
-    <tbody>
-      {% for clade_list in clade_data %}
-        {% for clade in clade_list %}
-          <tr style="background-color: {{clade.color}}; color: black;">
-            {% if forloop.first %}
-              <td style="padding:0 5px;" rowspan="{{ clade_list | length }}"> {{ clade.title }} </td>
-            {% endif %}
-            <td style="padding:0 5px;"> {{ clade.st_group }} </td>
-            <td style="padding:0 5px;"> {{ clade.count }} </td>
-            <td style="padding:0 5px;">{{ clade.published }}</td>
-            {% if forloop.first %}
-              <td style="padding:0 5px;" rowspan="{{ clade_list | length }}"> {{ clade.total }} </td>
-              <td style="padding:0 5px;" rowspan="{{ clade_list | length }}"> {{ clade.published_total }} </td>
-            {% endif %}
-          </tr>
-        {% endfor %}
-      {% endfor %}
-    <tbody>
-  </table>
+.project-detail-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.82rem;
+    color: var(--ns-muted);
+    text-decoration: none;
+    margin-bottom: 1.5rem;
+    transition: color 0.15s;
+}
+.project-detail-back:hover { color: var(--ns-crimson); text-decoration: none; }
+
+.project-detail-header {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    gap: 1.5rem;
+    align-items: start;
+    margin-bottom: 2rem;
+    padding-bottom: 1.75rem;
+    border-bottom: 1px solid var(--ns-border);
+}
+.project-detail-avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--ns-sidebar-bg);
+    border: 1px solid var(--ns-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.project-detail-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.project-detail-avatar-fallback { font-size: 2.2rem; color: var(--ns-muted); }
+
+.project-detail-info h1 {
+    font-family: var(--ns-font-display);
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: var(--ns-ink);
+    letter-spacing: -0.02em;
+    margin-bottom: 0.75rem;
+}
+.project-detail-description {
+    font-size: 0.9rem;
+    color: var(--ns-body);
+    line-height: 1.7;
+    margin: 0;
+}
+.project-detail-description p { margin-bottom: 0.5rem; }
+
+.project-stats-section { margin-bottom: 2rem; }
+.project-stats-section h2 {
+    font-family: var(--ns-font-display);
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--ns-ink);
+    letter-spacing: -0.01em;
+    margin-bottom: 1rem;
+}
+
+.project-stats-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    font-family: var(--ns-font-body);
+    border: 1px solid var(--ns-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.project-stats-table thead th {
+    background: var(--ns-sidebar-bg);
+    padding: 0.6rem 0.85rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ns-muted);
+    border-bottom: 1px solid var(--ns-border);
+    text-align: left;
+}
+.project-stats-table thead th:not(:first-child) { text-align: right; }
+.project-stats-table td {
+    padding: 0.45rem 0.85rem;
+    border-bottom: 1px solid rgba(0,0,0,0.04);
+    color: var(--ns-ink);
+}
+.project-stats-table td:not(:first-child) { text-align: right; }
+.project-stats-table tbody tr:last-child td { border-bottom: none; }
+
+@media (max-width: 575.98px) {
+    .project-detail-header { grid-template-columns: 64px 1fr; gap: 1rem; }
+    .project-detail-avatar { width: 64px; height: 64px; }
+    .project-stats-table { font-size: 0.78rem; }
+    .project-stats-table td, .project-stats-table th { padding: 0.4rem 0.5rem; }
+}
+</style>
+{% endblock %}
+
+{% block main %}
+<div class="project-detail">
+
+    <a href="/seek/projects/" class="project-detail-back">
+        <i class="bi bi-arrow-left"></i> All Projects
+    </a>
+
+    <div class="project-detail-header">
+        <div class="project-detail-avatar">
+            <img
+                src="https://{{ seek_hostname }}/assets/avatar-images/{{ avatar_id }}-500.png"
+                alt="{{ title }}"
+                onerror="this.style.display='none';this.nextElementSibling.style.display='block';"
+            >
+            <span class="project-detail-avatar-fallback" style="display:none;"><i class="bi bi-building"></i></span>
+        </div>
+        <div class="project-detail-info">
+            <h1>{{ title }}</h1>
+            <div class="project-detail-description">
+                {{ description | markdownify }}
+            </div>
+        </div>
+    </div>
+
+    {% if clade_data %}
+    <div class="project-stats-section">
+        <h2>Project Statistics</h2>
+        <table class="project-stats-table">
+            <thead>
+                <tr>
+                    <th>Group</th>
+                    <th>Data Type</th>
+                    <th>Local</th>
+                    <th>Published</th>
+                    <th>Local Total</th>
+                    <th>Published Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for clade_list in clade_data %}
+                    {% for clade in clade_list %}
+                    <tr style="background-color: {{ clade.color }};">
+                        {% if forloop.first %}
+                        <td rowspan="{{ clade_list|length }}" style="font-weight:600;">{{ clade.title }}</td>
+                        {% endif %}
+                        <td>{{ clade.st_group }}</td>
+                        <td>{{ clade.count }}</td>
+                        <td>{{ clade.published }}</td>
+                        {% if forloop.first %}
+                        <td rowspan="{{ clade_list|length }}">{{ clade.total }}</td>
+                        <td rowspan="{{ clade_list|length }}">{{ clade.published_total }}</td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
 </div>
-
 {% endblock %}

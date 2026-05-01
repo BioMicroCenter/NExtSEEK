@@ -281,7 +281,96 @@ See `nextseek_api/urls.py` for all endpoints.
 ## Notes
 
 - All page templates extend `base.html` (sidebar layout)
+- Auth pages (login) extend `base_auth.html` (full-screen, no sidebar)
 - Content goes in `{% block main %}{% endblock %}`
 - Extra head content: `{% block extra_head %}{% endblock %}`
 - Extra JS: `{% block extra_js %}{% endblock %}`
 - Chat frontend is separate React app, can run standalone or embedded
+
+---
+
+## EasyUI Component Inventory
+
+> **Future replacement roadmap.** These 50 files use jQuery EasyUI and are candidates for migration to a modern component library. Prioritized by user-facing impact. The EasyUI CSS is already rethemed to match the NExtSEEK Option B palette (see `nextseek.css`). Full replacement is a separate initiative.
+
+### Priority 1 - Core Datagrids (highest user impact)
+
+| # | Template | Path | Components | Description |
+|---|----------|------|------------|-------------|
+| 1 | samples_table | `seek/templates/pages/samples_table.embed.html` | datagrid, linkbutton | Main sample results table - filtering, selection, pagination |
+| 2 | searchAdvanced_stable | `seek/templates/pages/searchAdvanced_stable.embed.html` | datagrid, linkbutton | Advanced search results datagrid |
+| 3 | searchAdvanced_new_stable | `seek/templates/pages/searchAdvanced_new_stable.embed.html` | datagrid, linkbutton | New search results datagrid |
+| 4 | batchSearch_table | `seek/templates/pages/batchSearch_table.embed.html` | datagrid, linkbutton | Batch search results with filtering, pagination, export |
+| 5 | datafile_table | `seek/templates/pages/datafile_table.embed.html` | datagrid, linkbutton | Data files listing with sort and pagination |
+| 6 | sops_table | `seek/templates/pages/sops_table.embed.html` | datagrid, linkbutton | SOPs/Protocols datagrid with actions |
+| 7 | publishAssets_stable | `seek/templates/pages/publishAssets_stable.embed.html` | datagrid, linkbutton | Published assets datagrid |
+| 8 | publish_stable | `seek/templates/pages/publish_stable.embed.html` | datagrid, linkbutton | Published samples datagrid |
+| 9 | searchAdvanced_rtable | `seek/templates/pages/searchAdvanced_rtable.embed.html` | datagrid, linkbutton | Sample retrieval results datagrid |
+| 10 | samples_atable | `seek/templates/pages/samples_atable.embed.html` | datagrid, linkbutton | Sample attributes datagrid |
+| 11 | clades | `seek/templates/clades.html` | datagrid, layout, tabs, linkbutton | Clade management with editable rows |
+| 12 | internal_assays | `seek/templates/internal_assays.html` | datagrid, layout, tabs, linkbutton | Internal assays datagrid with actions |
+| 13 | datagrid_custom_table | `dmac/templates/pages/datagrid_custom_table.embed.html` | datagrid, dialog, linkbutton | Custom editable datagrid with inline editing |
+
+### Priority 2 - Layout/Tabs Wrappers (page shells)
+
+| # | Template | Path | Components | Description |
+|---|----------|------|------------|-------------|
+| 14 | searchAdvanced | `seek/templates/searchAdvanced.html` | layout, tabs | Advanced search page shell (5 tabs, 1400px) |
+| 15 | batchSearch | `seek/templates/batchSearch.html` | layout, tabs | Batch search page shell |
+| 16 | batchUpload | `seek/templates/batchUpload.html` | layout, tabs | Batch upload page shell |
+| 17 | sampleUpload | `seek/templates/sampleUpload.html` | layout, tabs | Sample upload page shell |
+| 18 | sampleSearch | `seek/templates/sampleSearch.html` | layout, tabs | Sample search page shell |
+| 19 | sampleQuery | `seek/templates/sampleQuery.html` | layout, tabs | Sample query builder shell |
+| 20 | sampleAttributes | `seek/templates/sampleAttributes.html` | layout, tabs | Sample attributes management shell |
+| 21 | sampleDeletion | `seek/templates/sampleDeletion.html` | layout, tabs | Sample deletion page shell |
+| 22 | dataFilesPage | `seek/templates/dataFilesPage.html` | layout, tabs | Data files page shell |
+| 23 | newSearch | `seek/templates/newSearch.html` | layout, tabs | New search interface shell |
+| 24 | smartSearch | `seek/templates/smartSearch.html` | layout, tabs | Smart (AI) search page shell |
+| 25 | sopsPage | `seek/templates/sopsPage.html` | layout, tabs | Protocols/SOPs page shell |
+| 26 | publish | `seek/templates/publish.html` | layout, tabs | Sample publish page shell |
+| 27 | publishAssets | `seek/templates/publishAssets.html` | layout, tabs | Asset publish page shell |
+| 28 | samples | `seek/templates/pages/samples.embed.html` | layout, tabs | Sample detail with tree browser and info panel |
+| 29 | dataFileUpload | `seek/templates/dataFileUpload.html` | combobox, linkbutton | Data file upload form with dropdowns |
+| 30 | admin_retrieval | `seek/templates/admin_retrieval.html` | layout, tabs, textbox | Admin retrieval form with multiline input |
+
+### Priority 3 - Forms & Inputs (comboboxes, textboxes)
+
+| # | Template | Path | Components | Description |
+|---|----------|------|------------|-------------|
+| 31 | batch_upload | `seek/templates/pages/batch_upload.embed.html` | combobox, linkbutton | Batch upload file selector with category dropdown |
+| 32 | batchSearch_query | `seek/templates/pages/batchSearch_query.embed.html` | combobox, linkbutton | Batch query form with dropdown selectors |
+| 33 | batchSearch_search | `seek/templates/pages/batchSearch_search.embed.html` | combobox, linkbutton, textbox | Batch search form with filters |
+| 34 | samples_search | `seek/templates/pages/samples_search.embed.html` | combobox, linkbutton | Sample search form with type/attribute selectors |
+| 35 | samples_newsearch | `seek/templates/pages/samples_newsearch.embed.html` | combobox, linkbutton | New sample search form |
+| 36 | samples_attributes | `seek/templates/pages/samples_attributes.embed.html` | combobox | Sample attributes selector |
+| 37 | samples_upload | `seek/templates/pages/samples_upload.embed.html` | combobox, linkbutton | Sample upload with dropdown selectors |
+| 38 | searchAdvanced_search | `seek/templates/pages/searchAdvanced_search.embed.html` | combobox, linkbutton, textbox | Advanced search query builder |
+| 39 | searchAdvanced_newsearch | `seek/templates/pages/searchAdvanced_newsearch.embed.html` | combobox, linkbutton | New advanced search form |
+| 40 | searchAdvanced_retrieval | `seek/templates/pages/searchAdvanced_retrieval.embed.html` | linkbutton, textbox | Sample retrieval form |
+| 41 | searchAdvanced_deletion | `seek/templates/pages/searchAdvanced_deletion.embed.html` | linkbutton, textbox | Sample deletion form |
+| 42 | publishAssets_search | `seek/templates/pages/publishAssets_search.embed.html` | combobox, linkbutton | Asset publication search form |
+| 43 | publish_search | `seek/templates/pages/publish_search.embed.html` | combobox, linkbutton | Publication search form |
+| 44 | datafile_upload | `seek/templates/pages/datafile_upload.embed.html` | linkbutton, textbox | Data file upload form |
+| 45 | dialog_custom_upload | `dmac/templates/pages/dialog_custom_upload.embed.html` | dialog, linkbutton | Modal upload dialog |
+
+### Priority 4 - Display / Action Only (linkbutton only)
+
+| # | Template | Path | Components | Description |
+|---|----------|------|------------|-------------|
+| 46 | samples_new_stable | `seek/templates/pages/samples_new_stable.embed.html` | linkbutton | New stable sample display |
+| 47 | samples_stable | `seek/templates/pages/samples_stable.embed.html` | linkbutton | Stable sample display with actions |
+| 48 | searchAdvanced_tree | `seek/templates/pages/searchAdvanced_tree.embed.html` | linkbutton, tree | Hierarchical tree navigation for results |
+| 49 | searchAdvanced_newretrieval | `seek/templates/pages/searchAdvanced_newretrieval.embed.html` | linkbutton | New sample retrieval display |
+| 50 | searchAdvanced_newdeletion | `seek/templates/pages/searchAdvanced_newdeletion.embed.html` | linkbutton | New sample deletion display |
+
+### Summary
+
+| Component | Count | Notes |
+|-----------|-------|-------|
+| `easyui-datagrid` | 13 | Core data tables - highest migration complexity |
+| `easyui-layout` + `easyui-tabs` | 17 | Page shells - can be replaced with Bootstrap tabs |
+| `easyui-combobox` | 14 | Dropdown selectors - replaceable with Select2 or native `<select>` |
+| `easyui-linkbutton` | 23 | Styled buttons - simple to replace with Bootstrap `.btn` |
+| `easyui-textbox` | 7 | Enhanced inputs - replaceable with `.form-control` |
+| `easyui-dialog` | 2 | Modals - replaceable with Bootstrap modal |
+| `easyui-tree` | 1 | Tree navigation - needs dedicated component |

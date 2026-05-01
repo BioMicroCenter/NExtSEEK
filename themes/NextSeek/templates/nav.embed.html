@@ -1,35 +1,38 @@
 {% load static %}
 <ul class="nav flex-column">
+
     <li class="nav-item">
-        <a href="/" class="nav-link active">
+        <a href="/" class="nav-link">
             <i class="bi bi-house-door"></i>
             <span>Home</span>
         </a>
     </li>
 
+    <li><span class="nav-section-label">Data</span></li>
+
     <li class="nav-item">
-        <a href="#dataEntrySubmenu" class="nav-link" data-bs-toggle="collapse">
-            <i class="bi bi-bar-chart"></i>
+        <a href="#dataEntrySubmenu" class="nav-link" data-bs-toggle="collapse" aria-expanded="false">
+            <i class="bi bi-upload"></i>
             <span>Data Entry</span>
-            <i class="bi bi-chevron-down ms-auto"></i>
+            <i class="bi bi-chevron-down"></i>
         </a>
         <ul class="collapse submenu" id="dataEntrySubmenu">
-            <li><a href="/seek/samples/upload/" class="nav-link"><i class="bi bi-file-earmark-excel"></i> Assay Sheet Uploading</a></li>
-            <li><a href="/seek/data/upload/" class="nav-link"><i class="bi bi-file-earmark-zip"></i> Data & Protocol File Uploading</a></li>
+            <li><a href="/seek/samples/upload/" class="nav-link"><i class="bi bi-file-earmark-spreadsheet"></i> Assay Sheet Upload</a></li>
+            <li><a href="/seek/data/upload/" class="nav-link"><i class="bi bi-file-earmark-zip"></i> Data &amp; Protocol Upload</a></li>
             <li><a href="/seek/templates/" class="nav-link"><i class="bi bi-download"></i> Download Templates</a></li>
         </ul>
     </li>
 
     <li class="nav-item">
-        <a href="#dataQuerySubmenu" class="nav-link" data-bs-toggle="collapse">
+        <a href="#dataQuerySubmenu" class="nav-link" data-bs-toggle="collapse" aria-expanded="false">
             <i class="bi bi-search"></i>
             <span>Data Query</span>
-            <i class="bi bi-chevron-down ms-auto"></i>
+            <i class="bi bi-chevron-down"></i>
         </a>
         <ul class="collapse submenu" id="dataQuerySubmenu">
-            <li><a href="/seek/search/" class="nav-link"><i class="bi bi-link"></i> Sample Search</a></li>
+            <li><a href="/seek/search/" class="nav-link"><i class="bi bi-collection"></i> Sample Search</a></li>
             <li><a href="/seek/datafile/query/" class="nav-link"><i class="bi bi-file-zip"></i> Data File Query</a></li>
-            <li><a href="/seek/sop/query/" class="nav-link"><i class="bi bi-file-ppt"></i> Protocol Query</a></li>
+            <li><a href="/seek/sop/query/" class="nav-link"><i class="bi bi-file-text"></i> Protocol Query</a></li>
         </ul>
     </li>
 
@@ -40,39 +43,46 @@
         </a>
     </li>
 
+    <li><span class="nav-section-label">Admin</span></li>
+
     <li class="nav-item">
-        <a href="#adminSubmenu" class="nav-link" data-bs-toggle="collapse">
-            <i class="bi bi-wrench"></i>
+        <a href="#adminSubmenu" class="nav-link" data-bs-toggle="collapse" aria-expanded="false">
+            <i class="bi bi-wrench-adjustable"></i>
             <span>Admin</span>
-            <i class="bi bi-chevron-down ms-auto"></i>
+            <i class="bi bi-chevron-down"></i>
         </a>
         <ul class="collapse submenu" id="adminSubmenu">
-            <li><a href="/admin" class="nav-link"><i class="bi bi-gear"></i> Admin Page</a></li>
-            <li><a href="/seek/salt" class="nav-link"><i class="bi bi-magic"></i> Smart Query</a></li>
-            <li><a href="/seek/samples/attributes" class="nav-link"><i class="bi bi-pencil"></i> Revise Sample Attributes</a></li>
+            <li><a href="/admin" class="nav-link"><i class="bi bi-gear"></i> Admin Panel</a></li>
+            <li><a href="/seek/salt" class="nav-link"><i class="bi bi-stars"></i> Smart Query</a></li>
+            <li><a href="/seek/samples/attributes" class="nav-link"><i class="bi bi-pencil-square"></i> Sample Attributes</a></li>
             <li><a href="/seek/admin/clades/" class="nav-link"><i class="bi bi-diagram-3"></i> Clades</a></li>
-            <li><a href="/seek/admin/retrieve/" class="nav-link"><i class="bi bi-cloud-download"></i> Admin Sample Retrieval</a></li>
+            <li><a href="/seek/admin/retrieve/" class="nav-link"><i class="bi bi-cloud-download"></i> Sample Retrieval</a></li>
         </ul>
     </li>
 
+    <li><span class="nav-section-label">Resources</span></li>
+
     <li class="nav-item">
-        <a href="https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/" class="nav-link" target="_blank">
+        <a href="https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/" class="nav-link" target="_blank" rel="noopener">
             <i class="bi bi-book"></i>
             <span>Documentation</span>
+            <i class="bi bi-box-arrow-up-right ms-auto" style="width:auto;font-size:0.6rem;opacity:0.4;"></i>
+        </a>
+    </li>
+
+    <li class="nav-item">
+        <a href="https://nextseek.mit.edu/published-studies/" class="nav-link" target="_blank" rel="noopener">
+            <i class="bi bi-journal-text"></i>
+            <span>Published Studies</span>
+            <i class="bi bi-box-arrow-up-right ms-auto" style="width:auto;font-size:0.6rem;opacity:0.4;"></i>
         </a>
     </li>
 
     <li class="nav-item">
         <a href="mailto:fairdata@mit.edu" class="nav-link">
             <i class="bi bi-envelope"></i>
-            <span>Email</span>
+            <span>Contact Support</span>
         </a>
     </li>
 
-    <li class="nav-item">
-        <a href="https://nextseek.mit.edu/published-studies/" class="nav-link" target="_blank">
-            <i class="bi bi-journal-text"></i>
-            <span>Published Studies</span>
-        </a>
-    </li>
 </ul>

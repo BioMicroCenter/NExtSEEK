@@ -1,13 +1,20 @@
 {% load static mezzanine_tags %}
 <div class="header-content">
-    <button class="btn btn-link sidebar-toggle-main d-lg-none" type="button" onclick="toggleSidebar()">
-        <i class="bi bi-list fs-4"></i>
+
+    <button class="sidebar-toggle-main" type="button" onclick="toggleSidebar()" aria-label="Toggle navigation">
+        <i class="bi bi-list"></i>
     </button>
 
     <div class="header-search">
         <div class="input-group">
-            <input type="text" id="search-uid" class="form-control" placeholder="Search by UID">
-            <button class="btn btn-primary" type="button" id="search-uid-button" onclick="navUID()">
+            <input
+                type="text"
+                id="search-uid"
+                class="form-control"
+                placeholder="Search by UID…"
+                aria-label="Search by sample UID"
+            >
+            <button class="btn btn-primary btn-search" type="button" id="search-uid-button" onclick="navUID()" aria-label="Search">
                 <i class="bi bi-search"></i>
             </button>
         </div>
@@ -16,24 +23,15 @@
     <div class="header-actions">
         {% include "includes/user_panel.html" %}
     </div>
+
 </div>
 
 <script>
-document.getElementById("search-uid").addEventListener("keypress", function(event) {
-    if (event.key === "Enter") {
-        event.preventDefault();
-        document.getElementById("search-uid-button").click();
-    }
+document.getElementById("search-uid").addEventListener("keypress", function(e) {
+    if (e.key === "Enter") { e.preventDefault(); navUID(); }
 });
-
 function navUID() {
-    const input = document.getElementById("search-uid");
-    if (input.value.trim()) {
-        window.location.href = "/seek/sampletree/uid=" + encodeURIComponent(input.value) + "/";
-    }
-}
-
-function toggleSidebar() {
-    document.body.classList.toggle('sidebar-open');
+    var v = document.getElementById("search-uid").value.trim();
+    if (v) window.location.href = "/seek/sampletree/uid=" + encodeURIComponent(v) + "/";
 }
 </script>
