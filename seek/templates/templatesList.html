@@ -4,43 +4,31 @@
 <div>
   <ul>
     {% for folder, contents in folders.items %}
-    {% if contents %}
-    <li>
-      <strong>{{ folder }}</strong>
-      <ul>
-        {% for subitem, subcontents in contents.items %}
-        {% if subcontents %}
+      {% if contents %}
         <li>
-          <strong>{{ subitem }}</strong>
-          <ul>
-            {% for file in subcontents %}
-            <li>
-              <a href="/templates/{{ file }}">
-                {{ file }}
-              </a>
-            </li>
-            {% endfor %}
-          </ul>
-        </li>
-        {% else %}
-        <li>
-          <a href="/templates/{{ folder }}/{{ subitem }}">
-            {{ subitem }}
-          </a>
-        </li>
-        {% endif %}
-        {% endfor %}
-      </ul>
-    </li>
+	  <strong>{{ folder }}</strong>
+	  <ul>
+	    {% for subitem, subcontents in contents.items %}
+	      {% if subcontents %}
+	        <li>
+		  <strong>{{ subitem }}</strong>
+		  <ul>
+		    {% for file in subcontents %}
+		      <li><a href="/templates/{{ file }}">{{ file }}</a></li>
+		    {% endfor %}
+		  </ul>
+		</li>
+	    {% else %}
+	      <li><a href="/templates/{{ folder }}/{{ subitem }}">{{ subitem }}</a></li>
+	    {% endif %}
+	  {% endfor %}
+	</ul>
+      </li>
     {% else %}
-    <li>
-      <a>
-        {{ folder }}
-      </a>
-    </li>
+      <li><a>{{ folder }}</a></li>
     {% endif %}
-    {% endfor %}
-  </ul>
+  {% endfor %}
+</ul>
 </div>
 
 {% endblock %}

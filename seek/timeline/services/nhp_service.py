@@ -6,7 +6,7 @@ from typing import List
 from ..models.schemas import NHPInfo
 from pydantic import ValidationError
 import logging
-import io
+import re
 
 logger = logging.getLogger(__name__)
 cache = {}

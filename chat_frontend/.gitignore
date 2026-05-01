@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+test-results
+playwright-report
+*.local
+.env
+*.db
+.python-version
+.playwright-mcp/
+frontend/INTEGRATION_REPORT.md

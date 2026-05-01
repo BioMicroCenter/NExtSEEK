@@ -13,9 +13,12 @@ django-rest-framework
 dj-rest-auth
 django-widget-tweaks
 djangorestframework
+drf-spectacular
+drf-spectacular[sidecar]
 et-xmlfile
 filebrowser-safe
 django-filebrowser-no-grappelli
+django-markdownify
 fpdf
 future
 grappelli-safe
@@ -33,6 +36,7 @@ Markdown
 Mezzanine
 mysqlclient
 mysql-connector-python
+neo4j
 numpy
 oauthlib
 olefile
@@ -41,8 +45,8 @@ pandas
 parse
 pathlib
 Pillow
-PyMySQL
 pydantic
+PyMySQL
 pyparsing
 python-dateutil
 python-docx
@@ -60,3 +64,6 @@ Unidecode
 urllib3
 webencodings
 xlwt
+duckdb>=0.10.0
+jsonref>=1.1.0
+sentence-transformers>=2.2.0

@@ -1,6 +1,6 @@
 <script type="text/javascript">
     function deleteSamples(url_delete) {
-        sample_uids_text = document.getElementById('_easyui_textbox_input3').value; 
+        sample_uids_text = document.getElementsByName('input_deleteUIDs')[0].value; 
         sample_uids = sample_uids_text.trim().split('\n');
 
         if (sample_uids.length == 0) {
@@ -40,10 +40,18 @@
                 var link = obj.link;
                 var diclist = obj.diclist;
 
+                var summary = '';
+                if (Array.isArray(diclist) && diclist.length > 0) {
+                    summary = diclist.map(function(dici) {
+                        var label = dici.uid || dici.id || 'sample';
+                        return label + ': ' + (dici.statusi || 'updated');
+                    }).join('\n');
+                }
+
                 if (status == 1) {
-                    window.location.href = link;
+                    $.messager.alert('Deleting samples', summary || 'Samples deleted successfully.', 'info');
                 } else {
-                    alert(msg);
+                    alert((msg ? msg + '\n' : '') + summary);
                 }
                 return;
             });
@@ -65,7 +73,7 @@
 					</thead>
 					<tbody>
 						<tr>
-							<td><input id="input_searchUIDs" class="easyui-textbox" label="" name="input_searchUIDs" multiline="true" style="width:100%;height:120px"></td>
+							<td><input id="input_deleteUIDs" class="easyui-textbox" label="" name="input_deleteUIDs" multiline="true" style="width:100%;height:120px"></td>
 						</tr>
 					</tbody>
 				</table>

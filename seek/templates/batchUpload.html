@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block main %}
+<div id="sample_tab" class="easyui-tabs" style="width:auto;height:800px;">
+    <div title="Upload" data-options="closable:false" style="padding:20px;display:none;">
+	<div class="easyui-layout" style="width:auto;height:700px;">
+	    <div data-options="region:'north',border:false" style="height: 760px;">
+		{% include "pages/batch_upload.embed.html" %} 
+	    </div>
+	    <div data-options="region:'center',border:false" style="overflow: hidden; width:auto; height:40px;">
+	        <div  class="span12">
+		    <hr/>
+		</div>
+	    </div>
+	    <div data-options="region:'center',border:false" style="width:auto; height:60px;">			
+	    </div>
+	</div>
+    </div>
+</div>
+{% endblock %}

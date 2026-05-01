@@ -127,6 +127,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+nextseek_venv/
 
 # Spyder project settings
 .spyderproject
@@ -162,5 +163,23 @@ cython_debug/
 themes/SmartAdmin
 dmac/local_settings.py
 local_settings.py
-gunicorn.conf.py
 .DS_Store
+internal_docs/
+.cursor/
+.claude/
+duckdb/
+embedding_models/
+*.swp
+setup-celery-worker.sh
+outputs 
+CLAUDE.md
+.python-version
+.serena/
+.venv_uv/data/
+1-NHP-Template-240909.xlsx
+.codex/
+.*_stage/
+*.codex 
+scripts/investigate_duplicates/outputs/
+chat_nextseek/
+show

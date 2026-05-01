@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 {% block main %}
 <!DOCTYPE html>
 <html lang="en">
@@ -6,7 +7,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DMAC Timeline</title>
+    <title>Timeline</title>
     <script type="module" crossorigin src="{% static 'js/sample_timeline/assets/js/index-CuCgNdMs.js' %}"></script>
     <link rel="modulepreload" crossorigin href="{% static 'js/sample_timeline/assets/js/react-vendor-Do3KTdZX.js' %}">
     <link rel="modulepreload" crossorigin href="{% static 'js/sample_timeline/assets/js/timeline-vendor-nKglPnfE.js' %}">
@@ -18,4 +19,5 @@
     <div id="root"></div>
   </body>
 </html>
+
 {% endblock %}

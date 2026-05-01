@@ -1,0 +1,89 @@
+{% load static %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="page-title">Welcome to NExtSEEK</h1>
+            <p class="lead text-muted">Scientific Metadata Management Platform</p>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <i class="bi bi-upload text-primary fs-2 me-3"></i>
+                        <h5 class="card-title mb-0">Data Entry</h5>
+                    </div>
+                    <p class="card-text text-muted">Upload assay sheets, data files, and protocols to the system.</p>
+                    <a href="/seek/samples/upload/" class="btn btn-outline-primary">Upload Data</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <i class="bi bi-search text-success fs-2 me-3"></i>
+                        <h5 class="card-title mb-0">Data Query</h5>
+                    </div>
+                    <p class="card-text text-muted">Search and explore samples, data files, and protocols.</p>
+                    <a href="/seek/search/" class="btn btn-outline-success">Search Data</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <i class="bi bi-building text-info fs-2 me-3"></i>
+                        <h5 class="card-title mb-0">Projects</h5>
+                    </div>
+                    <p class="card-text text-muted">View and manage your research projects.</p>
+                    <a href="/seek/projects" class="btn btn-outline-info">View Projects</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <i class="bi bi-download text-warning fs-2 me-3"></i>
+                        <h5 class="card-title mb-0">Templates</h5>
+                    </div>
+                    <p class="card-text text-muted">Download sample templates for data upload.</p>
+                    <a href="/seek/templates/" class="btn btn-outline-warning">Get Templates</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <i class="bi bi-book text-secondary fs-2 me-3"></i>
+                        <h5 class="card-title mb-0">Documentation</h5>
+                    </div>
+                    <p class="card-text text-muted">Learn how to use NExtSEEK effectively.</p>
+                    <a href="https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/" class="btn btn-outline-secondary" target="_blank">Read Docs</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <i class="bi bi-journal-text text-dark fs-2 me-3"></i>
+                        <h5 class="card-title mb-0">Published Studies</h5>
+                    </div>
+                    <p class="card-text text-muted">Browse published research studies.</p>
+                    <a href="https://nextseek.mit.edu/published-studies/" class="btn btn-outline-dark" target="_blank">View Studies</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

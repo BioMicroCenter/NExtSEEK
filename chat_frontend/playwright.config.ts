@@ -1,0 +1,55 @@
+import { defineConfig, devices } from "@playwright/test";
+
+const useRealBackend = !!process.env.USE_REAL_BACKEND;
+
+const frontendServer = {
+  command: "npm run dev",
+  url: "http://localhost:5173",
+  reuseExistingServer: !process.env.CI,
+};
+
+export default defineConfig({
+  testDir: "./e2e",
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: "html",
+  use: {
+    baseURL: "http://localhost:5173",
+    trace: "on-first-retry",
+  },
+  projects: [
+    {
+      name: "mock",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: "**/real-backend/**",
+    },
+    ...(useRealBackend
+      ? [
+          {
+            name: "real-standalone",
+            testDir: "./e2e/real-backend",
+            testMatch: "test-case-1-standalone.spec.ts",
+            use: {
+              ...devices["Desktop Chrome"],
+              baseURL: "http://localhost:5173",
+            },
+            timeout: 120_000,
+          },
+          {
+            name: "real-embedded",
+            testDir: "./e2e/real-backend",
+            testMatch: /.*-embedded\.spec\.ts/,
+            use: {
+              ...devices["Desktop Chrome"],
+              baseURL: "https://nextseek-dev.mit.edu",
+              ignoreHTTPSErrors: true,
+            },
+            timeout: 120_000,
+          },
+        ]
+      : []),
+  ],
+  webServer: useRealBackend ? frontendServer : frontendServer,
+});

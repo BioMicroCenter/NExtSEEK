@@ -130,7 +130,6 @@ class DBtable_content_blobs(DBtable):
             asset_id = None
             asset_type = None
             asset_version = None
-            
         return asset_id, asset_type, asset_version, nassets
     
     def retrieveFileList(self, username, asset_type):
