@@ -35,9 +35,13 @@ router.register(r"evaluator", views.EvaluatorViewSet, basename="evaluator")
 urlpatterns = [
     # OpenAPI Schema Documentation
     re_path(r'^schema/$', SpectacularAPIView.as_view(), name='schema'),
+    re_path(r'^schema/v1/$', SpectacularAPIView.as_view(api_version='v1'), name='schema-v1'),
+    re_path(r'^schema/v2/$', SpectacularAPIView.as_view(api_version='v2'), name='schema-v2'),
     re_path(r'^swagger/$', SpectacularSwaggerView.as_view(url_name='nextseek_api:schema'), name='swagger-ui'),
+    re_path(r'^swagger/v1/$', SpectacularSwaggerView.as_view(url_name='nextseek_api:schema-v1'), name='swagger-v1'),
+    re_path(r'^swagger/v2/$', SpectacularSwaggerView.as_view(url_name='nextseek_api:schema-v2'), name='swagger-v2'),
     re_path(r'^redoc/$', SpectacularRedocView.as_view(url_name='nextseek_api:schema'), name='redoc'),
-    
+
     # Include router URLs
     re_path(r'^', include(router.urls))
 ]
