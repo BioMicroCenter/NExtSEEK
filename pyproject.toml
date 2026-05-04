@@ -130,4 +130,5 @@ DJANGO_SETTINGS_MODULE = "dmac.settings"
 [dependency-groups]
 dev = [
     "coverage",
+    "pytest-cov",
 ]
