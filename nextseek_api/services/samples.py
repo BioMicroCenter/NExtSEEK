@@ -11,6 +11,7 @@ from django.conf import settings
 
 from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id
 from nextseek_api.helpers import paginate_rows_in_envelope
+from nextseek_api.services.common import maybe_v2_error
 from nextseek_api.endpoint_descriptions import (
     SAMPLE_FETCH_DESC,
     SAMPLE_CREATE_DESC,
@@ -107,16 +108,16 @@ class SampleProxyViewSet(viewsets.ViewSet):
         uid = uid or pk
         seek_id = _resolve_uid_to_seek_id(uid)
         if seek_id is None:
-            return HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json'), request)
 
         body, code, headers, resp = self.client.get_sample(request, str(seek_id))
         if code == 401:
-            return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json'), request)
 
         try:
             ct = (headers.get('Content-Type') or '').lower()
             if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
-                return HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json'), request)
             data = json.loads(body or b"{}")
             SampleSingleResponse.model_validate(data)
         except ValidationError as ve:
@@ -136,14 +137,14 @@ class SampleProxyViewSet(viewsets.ViewSet):
                         }
                     ]
                 }
-                return HttpResponse(json.dumps(resp_payload).encode(), status=502, content_type='application/json')
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+                return maybe_v2_error(HttpResponse(json.dumps(resp_payload).encode(), status=502, content_type='application/json'), request)
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
         except Exception as e:
             log.warning("samples_proxy.validation_exception action=retrieve error=%s", str(e))
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
 
         ct = headers.get('Content-Type', 'application/json')
-        return HttpResponse(body, status=code, content_type=ct)
+        return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
 
     @extend_schema(
         operation_id="Create a Sample",
@@ -177,11 +178,11 @@ class SampleProxyViewSet(viewsets.ViewSet):
             # Best-effort normalization happens inside model using optional db_resolver if supplied
             payload = SampleCreateRequest.model_validate(request.data).to_seek_payload(db_resolver=None)
         except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json'), request)
 
         body, code, headers, resp = self.client.create_sample(request, payload)
         if code == 401:
-            return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json'), request)
 
         try:
             data = json.loads(body or b"{}")
@@ -203,14 +204,14 @@ class SampleProxyViewSet(viewsets.ViewSet):
                         }
                     ]
                 }
-                return HttpResponse(json.dumps(resp_payload).encode(), status=502, content_type='application/json')
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+                return maybe_v2_error(HttpResponse(json.dumps(resp_payload).encode(), status=502, content_type='application/json'), request)
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
         except Exception as e:
             log.warning("samples_proxy.validation_exception action=create error=%s", str(e))
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
 
         ct = headers.get('Content-Type', 'application/json')
-        return HttpResponse(body, status=code, content_type=ct)
+        return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
 
     @extend_schema(
         operation_id="Update a Sample",
@@ -250,7 +251,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
             update_req = SampleUpdateRequest.model_validate(request.data)
             payload = update_req.to_seek_payload(db_resolver=None)
         except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json'), request)
 
         path_id = str(uid) if uid is not None else None
         body_id: Optional[str] = payload.get('data', {}).get('id')
@@ -259,7 +260,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
         if path_id and path_id.isdigit():
             seek_id = path_id
             if body_id is not None and str(body_id) != str(seek_id):
-                return HttpResponse(b'{"errors":[{"title":"Payload id does not match path id"}]}', status=422, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Payload id does not match path id"}]}', status=422, content_type='application/json'), request)
             if body_id is None:
                 payload['data']['id'] = str(seek_id)
         else:
@@ -270,20 +271,20 @@ class SampleProxyViewSet(viewsets.ViewSet):
                 if resolved:
                     seek_id = resolved
                     if body_id is not None and str(body_id) != str(seek_id):
-                        return HttpResponse(b'{"errors":[{"title":"Payload id does not match resolved uid"}]}', status=422, content_type='application/json')
+                        return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Payload id does not match resolved uid"}]}', status=422, content_type='application/json'), request)
                     payload['data']['id'] = str(seek_id)
 
         if seek_id is None:
-            return HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json'), request)
 
         body, code, headers, resp = self.client.update_sample(request, str(seek_id), payload)
         if code == 401:
-            return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json'), request)
 
         try:
             ct = (headers.get('Content-Type') or '').lower()
             if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
-                return HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json'), request)
             data = json.loads(body or b"{}")
             SampleSingleResponse.model_validate(data)
         except ValidationError as ve:
@@ -303,14 +304,14 @@ class SampleProxyViewSet(viewsets.ViewSet):
                         }
                     ]
                 }
-                return HttpResponse(json.dumps(resp_payload).encode(), status=502, content_type='application/json')
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+                return maybe_v2_error(HttpResponse(json.dumps(resp_payload).encode(), status=502, content_type='application/json'), request)
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
         except Exception as e:
             log.warning("samples_proxy.validation_exception action=partial_update error=%s", str(e))
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
 
         ct = headers.get('Content-Type', 'application/json')
-        return HttpResponse(body, status=code, content_type=ct)
+        return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
 
     # Optional delete endpoint, behind feature flag if needed by caller
     @extend_schema(
@@ -326,14 +327,14 @@ class SampleProxyViewSet(viewsets.ViewSet):
         uid = uid or pk
         seek_id = _resolve_uid_to_seek_id(uid)
         if seek_id is None:
-            return HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json'), request)
 
         body, code, headers, resp = self.client.delete_sample(request, str(seek_id))
         if code == 401:
-            return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json'), request)
         # Pass through upstream response on success; SEEK returns okResponse JSON
         ct = headers.get('Content-Type', 'application/json')
-        return HttpResponse(body, status=code, content_type=ct)
+        return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
 
 
 class SampleAdvancedSearchViewSet(viewsets.ViewSet):
@@ -449,7 +450,7 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
         try:
             req = SampleAdvancedSearchRequest.model_validate(request.data)
         except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json'), request)
 
         # No pre-resolution 404: unresolvable sample types are dropped silently in to_db_filters
 
@@ -462,10 +463,10 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
         except ValueError as ve:
             # Distinguish resolution failure (404) vs generic validation (422)
             if "SampleType not found" in str(ve):
-                return HttpResponse(b'{"errors":[{"title":"SampleType not found"}]}', status=404, content_type='application/json')
-            return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"SampleType not found"}]}', status=404, content_type='application/json'), request)
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json'), request)
         except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json'), request)
 
         # Execute DB search
         try:
@@ -494,7 +495,7 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
             report = DBtable_sample().searchAdvanced(user_seek, filters, searchType)
         except Exception as e:
             log.warning("samples_advanced.exec_exception action=create error=%s", str(e))
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
 
         # Validate output schema
         try:
@@ -517,11 +518,11 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
                         }
                     ]
                 }
-                return HttpResponse(json.dumps(resp_payload).encode(), status=502, content_type='application/json')
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+                return maybe_v2_error(HttpResponse(json.dumps(resp_payload).encode(), status=502, content_type='application/json'), request)
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
         except Exception as e:
             log.warning("samples_advanced.validation_exception action=create error=%s", str(e))
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
 
         # Debug flag to emit computed ids/counts in footer without breaking schema
         debug_meta_enabled = str(request.GET.get('debug_meta', '0')).lower() in ('1','true','yes')

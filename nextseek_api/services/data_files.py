@@ -11,6 +11,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from drf_spectacular.types import OpenApiTypes
 
 from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.services.common import maybe_v2_error
 from nextseek_api.endpoint_descriptions import (
     DATAFILE_LIST_DESC,
     DATAFILE_FETCH_DESC,
@@ -78,23 +79,23 @@ class DataFileProxyViewSet(viewsets.ViewSet):
     def list(self, request):
         body, code, headers, resp = self.client.list_data_files(request, params=request.query_params)
         if code == 401:
-            return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json'), request)
 
         if code >= 400:
             ct = headers.get('Content-Type', 'application/json')
-            return HttpResponse(body, status=code, content_type=ct)
+            return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
 
         try:
             ct = (headers.get('Content-Type') or '').lower()
             if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
-                return HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json'), request)
             data = json.loads(body or b"{}")
             DataFileListResponse.model_validate(data)
         except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
 
         ct = headers.get('Content-Type', 'application/json')
-        return HttpResponse(body, status=code, content_type=ct)
+        return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
 
     # GET /data_files/{uid}?version=int
     @extend_schema(
@@ -130,31 +131,31 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             # Default to 1 if not provided; still documented as required with default
             version_int = int(version) if version is not None else 1
         except Exception:
-            return HttpResponse(b'{"errors":[{"title":"version must be an integer"}]}', status=422, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"version must be an integer"}]}', status=422, content_type='application/json'), request)
 
         seek_id = _resolve_uid_to_seek_id(uid)
         if seek_id is None:
-            return HttpResponse(b'{"errors":[{"title":"DataFile not found"}]}', status=404, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"DataFile not found"}]}', status=404, content_type='application/json'), request)
 
         body, code, headers, resp = self.client.get_data_file(request, seek_id, version_int)
         if code == 401:
-            return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json'), request)
 
         if code >= 400:
             ct = headers.get('Content-Type', 'application/json')
-            return HttpResponse(body, status=code, content_type=ct)
+            return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
 
         try:
             ct = (headers.get('Content-Type') or '').lower()
             if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
-                return HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json'), request)
             data = json.loads(body or b"{}")
             DataFileSingleResponse.model_validate(data)
         except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
 
         ct = headers.get('Content-Type', 'application/json')
-        return HttpResponse(body, status=code, content_type=ct)
+        return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
 
     # POST /data_files
     @extend_schema(
@@ -219,34 +220,34 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             try:
                 payload = DataFileCreateRequest.model_validate(metadata).model_dump(exclude_none=True)
             except Exception:
-                return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json'), request)
 
             body, code, headers, resp = self.client.create_data_file(request, payload)
             if code == 401:
-                return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json'), request)
 
             # Forward SEEK errors before attempting response validation
             if code >= 400:
                 ct = headers.get('Content-Type', 'application/json')
-                return HttpResponse(body, status=code, content_type=ct)
+                return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
 
             try:
                 data = json.loads(body or b"{}")
                 DataFileSingleResponse.model_validate(data)
             except Exception:
-                return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
 
-            return HttpResponse({"data": [body]}, status=code, content_type=ct)
+            return maybe_v2_error(HttpResponse({"data": [body]}, status=code, content_type=ct), request)
 
         else:
             files = request.FILES.getlist("file")
             max_bytes = getattr(settings, 'BATCH_UPLOAD_MAX_TOTAL_BYTES', 200 * 1024 * 1024)
             total_size = sum(f.size for f in files)
             if total_size > max_bytes:
-                return HttpResponse(
+                return maybe_v2_error(HttpResponse(
                     json.dumps({"errors": [{"title": f"Total upload size {total_size} exceeds limit {max_bytes}"}]}).encode(),
-                    status=413, content_type='application/json')
-            
+                    status=413, content_type='application/json'), request)
+
             data_file_results = []
             blob_results = []
             for file in files:
@@ -257,23 +258,23 @@ class DataFileProxyViewSet(viewsets.ViewSet):
                 try:
                     payload = DataFileCreateRequest.model_validate(metadata).model_dump(exclude_none=True)
                 except Exception:
-                    return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
+                    return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json'), request)
 
                 body, code, headers, resp = self.client.create_data_file(request, payload)
                 if code == 401:
-                    return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+                    return maybe_v2_error(HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json'), request)
 
                 # Forward SEEK errors before attempting response validation
                 if code >= 400:
                     ct = headers.get('Content-Type', 'application/json')
-                    return HttpResponse(body, status=code, content_type=ct)
+                    return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
 
                 try:
                     data = json.loads(body or b"{}")
                     data_file_data = DataFileSingleResponse.model_validate(data).model_dump(exclude_none=True)
                     data_file_results.append(data_file_data)
                 except Exception:
-                    return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+                    return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
                 
                 asset_id = data.get("data", {}).get("id")
                 content_blobs_meta = data.get("data", {}).get("attributes", {}).get("content_blobs", [])
@@ -286,9 +287,9 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             any_failed = any(r.status == "failed" for r in blob_results)
 
             resp_status = 207 if any_failed else 201
-            return HttpResponse(
+            return maybe_v2_error(HttpResponse(
                 json.dumps({"data": data_file_results}).encode(), status=resp_status,
-                content_type='application/json')
+                content_type='application/json'), request)
 
     # PATCH /data_files/{uid}
     @extend_schema(
@@ -343,20 +344,20 @@ class DataFileProxyViewSet(viewsets.ViewSet):
                 update_req = DataFileUpdateRequest.model_validate(metadata)
                 payload = update_req.to_seek_payload()
             except Exception:
-                return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json'), request)
 
             max_bytes = getattr(settings, 'BATCH_UPLOAD_MAX_TOTAL_BYTES', 200 * 1024 * 1024)
             total_size = sum(f.size for f in request.FILES.getlist('file'))
             if total_size > max_bytes:
-                return HttpResponse(
+                return maybe_v2_error(HttpResponse(
                     json.dumps({"errors": [{"title": f"Total upload size {total_size} exceeds limit {max_bytes}"}]}).encode(),
-                    status=413, content_type='application/json')
+                    status=413, content_type='application/json'), request)
         else:
             try:
                 update_req = DataFileUpdateRequest.model_validate(request.data)
                 payload = update_req.to_seek_payload()
             except Exception:
-                return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json'), request)
 
         seek_id = _resolve_uid_to_seek_id(uid)
 
@@ -365,32 +366,32 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             if body_id is None:
                 payload['data']['id'] = seek_id
             elif str(body_id) != str(seek_id):
-                return HttpResponse(b'{"errors":[{"title":"Payload id does not match resolved uid"}]}', status=422, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Payload id does not match resolved uid"}]}', status=422, content_type='application/json'), request)
         else:
             if not payload.get('data', {}).get('id'):
-                return HttpResponse(b'{"errors":[{"title":"DataFile not found"}]}', status=404, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"DataFile not found"}]}', status=404, content_type='application/json'), request)
 
         body, code, headers, resp = self.client.update_data_file(request, payload['data']['id'], payload)
         if code == 401:
-            return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json'), request)
 
         # Forward SEEK errors before attempting response validation
         if code >= 400:
             ct = headers.get('Content-Type', 'application/json')
-            return HttpResponse(body, status=code, content_type=ct)
+            return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
 
         try:
             ct = (headers.get('Content-Type') or '').lower()
             if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
-                return HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json')
+                return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Upstream returned HTML (likely unauthenticated to SEEK)","detail":"Verify SEEK credentials/session for this request context."}]}', status=502, content_type='application/json'), request)
             data = json.loads(body or b"{}")
             DataFileSingleResponse.model_validate(data)
         except Exception:
-            return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+            return maybe_v2_error(HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json'), request)
 
         if not has_files:
             ct = headers.get('Content-Type', 'application/json')
-            return HttpResponse(body, status=code, content_type=ct)
+            return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
 
         # Upload files to content blob endpoints
         asset_id = data.get("data", {}).get("id")
@@ -399,10 +400,10 @@ class DataFileProxyViewSet(viewsets.ViewSet):
 
         unmatched = check_unmatched_files(content_blobs_meta, files)
         if unmatched:
-            return HttpResponse(
+            return maybe_v2_error(HttpResponse(
                 json.dumps({"errors": [{"title": "Uploaded files do not match any content_blob placeholder",
                                         "detail": f"Unmatched filenames: {unmatched}"}]}).encode(),
-                status=400, content_type='application/json')
+                status=400, content_type='application/json'), request)
 
         blob_results = upload_content_blobs(self.client, request, "data_files", asset_id, content_blobs_meta, files)
 
@@ -412,9 +413,9 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             blob_uploads=blob_results, asset_data=data)
 
         resp_status = 207 if any_failed else 200
-        return HttpResponse(
+        return maybe_v2_error(HttpResponse(
             upload_resp.model_dump_json(), status=resp_status,
-            content_type='application/json')
+            content_type='application/json'), request)
 
     # POST /data_files/download
     @extend_schema(
@@ -445,7 +446,7 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         elif isinstance(data, list):
             return download_batch(self.client, request, "data_files", data)
         else:
-            return HttpResponse(
+            return maybe_v2_error(HttpResponse(
                 b'{"errors":[{"title":"Request body must be a JSON object or array"}]}',
                 status=422, content_type='application/json',
-            )
+            ), request)
