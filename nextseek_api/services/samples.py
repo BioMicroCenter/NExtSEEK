@@ -10,7 +10,8 @@ from pydantic import ValidationError
 from django.conf import settings
 
 from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id
-from nextseek_api.helpers import paginate_rows_in_envelope
+from nextseek_api.helpers import paginate_rows_in_envelope, build_v2_list_envelope
+from nextseek_api.errors import api_error
 from nextseek_api.endpoint_descriptions import (
     SAMPLE_FETCH_DESC,
     SAMPLE_CREATE_DESC,
@@ -705,13 +706,31 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
                 if 'noSampleTypes' in data:
                     data['noSampleTypes'] = 0
 
-        # Paginate rows within the envelope while preserving schema
+        # Paginate rows within the envelope; v2 builds a fresh envelope,
+        # v1 preserves the in-place mutation helper.
+        version = getattr(request, 'version', None)
+        if version == 'v2':
+            rows = data.get('rows') or []
+            try:
+                v2_body = build_v2_list_envelope(request, rows, count=data.get('total'))
+            except Exception:
+                log.exception("advanced_search.pagination_error version=v2")
+                return api_error(
+                    500,
+                    "Pagination error",
+                    detail="Could not paginate the advanced_search response.",
+                )
+            return HttpResponse(
+                json.dumps(v2_body).encode(),
+                status=200,
+                content_type='application/json',
+            )
+
+        # v1 path — unchanged legacy behavior (silent fallback preserved)
         try:
             data = paginate_rows_in_envelope(request, data)
         except Exception:
             # Fallback to unpaginated envelope on pagination error
             pass
-
-        # Always return the mutated dict to ensure pagination is applied
         return HttpResponse(json.dumps(data).encode(), status=200, content_type='application/json')
 
