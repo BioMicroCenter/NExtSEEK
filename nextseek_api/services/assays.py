@@ -62,7 +62,32 @@ class AssayProxyViewSet(viewsets.ViewSet):
                     "links": {"self": "/assays?page[number]=1&page[size]=100"},
                     "meta": {"base_url": settings.SEEK_URL, "api_version": "v1"}
                 }
-            )
+            ),
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 list response",
+                value={"results": [], "count": 0, "next": None, "previous": None},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 list response",
+                value={
+                    "results": [{"id": "351", "type": "assays", "attributes": {"title": "Assay-1"}}],
+                    "count": 1,
+                    "next": None,
+                    "previous": None,
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 upstream error (502)",
+                value={"errors": [{"status": "502", "title": "Invalid upstream response"}]},
+                response_only=True,
+                status_codes=["502"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
         ],
     )
     def list(self, request):
@@ -104,7 +129,39 @@ class AssayProxyViewSet(viewsets.ViewSet):
                     },
                     "jsonapi": {"version": "1.0"}
                 }
-            )
+            ),
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 response",
+                value={"data": {"id": "351", "type": "assays", "attributes": {"title": "Assay"}}},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 response",
+                value={
+                    "data": {
+                        "id": "351",
+                        "type": "assays",
+                        "attributes": {"title": "A Maximal experimental Assay"},
+                        "relationships": {"study": {"data": {"type": "studies", "id": "434"}}},
+                        "links": {"self": "/assays/351"},
+                    },
+                    "jsonapi": {"version": "1.0"},
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 not found error (404)",
+                value={"errors": [{
+                    "status": "404",
+                    "title": "Assay not found",
+                }]},
+                response_only=True,
+                status_codes=["404"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
         ],
     )
     def retrieve(self, request, uid=None, pk=None):
@@ -150,7 +207,40 @@ class AssayProxyViewSet(viewsets.ViewSet):
                         "relationships": {"study": {"data": {"type": "studies", "id": "434"}}}
                     }
                 }
-            )
+            ),
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 create request",
+                value={"data": {"type": "assays", "attributes": {"title": "Assay-x"}, "relationships": {"study": {"data": {"type": "studies", "id": "434"}}}}},
+                request_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 create response",
+                value={
+                    "data": {
+                        "id": "351",
+                        "type": "assays",
+                        "attributes": {"title": "A Maximal experimental Assay"},
+                        "links": {"self": "/assays/351"},
+                    },
+                    "jsonapi": {"version": "1.0"},
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 validation error (422)",
+                value={"errors": [{
+                    "status": "422",
+                    "title": "Invalid request",
+                    "source": {"pointer": "/data/attributes/title"},
+                    "meta": {"pydantic_type": "missing"},
+                }]},
+                response_only=True,
+                status_codes=["422"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
         ],
     )
     def create(self, request):
@@ -191,7 +281,38 @@ class AssayProxyViewSet(viewsets.ViewSet):
                         "attributes": {"description": "Revised description"}
                     }
                 }
-            )
+            ),
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 patch request",
+                value={"data": {"type": "assays", "id": "351", "attributes": {"description": "x"}}},
+                request_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 patch response",
+                value={
+                    "data": {
+                        "id": "351",
+                        "type": "assays",
+                        "attributes": {"description": "Revised description"},
+                    },
+                    "jsonapi": {"version": "1.0"},
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 validation error (422)",
+                value={"errors": [{
+                    "status": "422",
+                    "title": "Payload id does not match path id",
+                    "source": {"pointer": "/data/id"},
+                }]},
+                response_only=True,
+                status_codes=["422"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
         ],
     )
     def partial_update(self, request, uid=None, pk=None):

@@ -102,7 +102,39 @@ class SampleProxyViewSet(viewsets.ViewSet):
                     },
                     "jsonapi": {"version": "1.0"}
                 }
-            )
+            ),
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 response",
+                value={"data": {"id": "321", "type": "samples", "attributes": {"title": "A Sample"}}},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 response",
+                value={
+                    "data": {
+                        "id": "321",
+                        "type": "samples",
+                        "attributes": {"title": "A Sample"},
+                        "relationships": {"sample_type": {"data": {"type": "sample_types", "id": "12"}}},
+                        "links": {"self": "/samples/321"},
+                    },
+                    "jsonapi": {"version": "1.0"},
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 not found error (404)",
+                value={"errors": [{
+                    "status": "404",
+                    "title": "Sample not found",
+                }]},
+                response_only=True,
+                status_codes=["404"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
         ],
     )
     def retrieve(self, request, uid=None, pk=None):
@@ -243,7 +275,38 @@ class SampleProxyViewSet(viewsets.ViewSet):
                         }
                     }
                 }
-            )
+            ),
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 patch request",
+                value={"data": {"type": "samples", "id": "321", "attributes": {"attribute_map": {"title": "x"}}}},
+                request_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 patch response",
+                value={
+                    "data": {
+                        "id": "321",
+                        "type": "samples",
+                        "attributes": {"title": "Revised title"},
+                    },
+                    "jsonapi": {"version": "1.0"},
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 validation error (422)",
+                value={"errors": [{
+                    "status": "422",
+                    "title": "Payload id does not match path id",
+                    "source": {"pointer": "/data/id"},
+                }]},
+                response_only=True,
+                status_codes=["422"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
         ],
     )
     def partial_update(self, request, uid=None, pk=None):
@@ -323,6 +386,31 @@ class SampleProxyViewSet(viewsets.ViewSet):
         ],
         responses={200: None},
         tags=['Samples'],
+        examples=[
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 delete success",
+                value={"status": "ok"},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 delete success",
+                value={"status": "ok", "deleted_id": "321"},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 not found error (404)",
+                value={"errors": [{
+                    "status": "404",
+                    "title": "Sample not found",
+                }]},
+                response_only=True,
+                status_codes=["404"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+        ],
     )
     def destroy(self, request, uid=None, pk=None):
         uid = uid or pk
@@ -443,6 +531,36 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
                     "attribute_logic": "OR",
                     "filter_matchType": "PARTIAL"
                     }
+            ),
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 response",
+                value={"results": [], "count": 0, "next": None, "previous": None},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 response",
+                value={
+                    "results": [{"id": 1, "title": "sample-1"}],
+                    "count": 1,
+                    "next": None,
+                    "previous": None,
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 validation error (422)",
+                value={"errors": [{
+                    "status": "422",
+                    "title": "Invalid request",
+                    "source": {"pointer": "/data/attributes/filter_searchText"},
+                    "meta": {"pydantic_type": "missing"},
+                }]},
+                response_only=True,
+                status_codes=["422"],
+                media_type="application/vnd.nextseek.v2+json",
             ),
         ],
     )

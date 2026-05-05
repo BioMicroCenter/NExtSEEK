@@ -4,6 +4,14 @@ LLM-optimized endpoint description constants for the Evaluator ViewSet.
 Follows the project pattern: SUMMARY > USE WHEN > ACCEPTS > RETURNS > EXAMPLES
 """
 
+# v2 contract footnote, mirrors nextseek_api.endpoint_descriptions._V2_CONTRACT_NOTE
+# (kept inline to avoid a cross-module import cycle).
+_V2_CONTRACT_NOTE = (
+    "\n\n**V2 CONTRACT:** When the client requests `Accept: application/vnd.nextseek.v2+json`, "
+    "list responses use the `{results, count, next, previous}` envelope and error responses "
+    "use the `{errors: [{status, title, source, meta}]}` envelope. Legacy `v1` responses are unchanged."
+)
+
 EVALUATOR_RETRY_CONTEXT_BY_TASK_DESC = (
     "**SUMMARY:** Get normalized retry context for a specific async query task.\n\n"
     "**USE WHEN:** The evaluator client needs to inspect a current or recent run "
@@ -40,7 +48,7 @@ EVALUATOR_RUNS_LIST_DESC = (
     "- `GET /nextseek_api/evaluator/runs/`\n"
     "- `GET /nextseek_api/evaluator/runs/?status=completed&has_bundle=true`\n"
     "- `GET /nextseek_api/evaluator/runs/?user_id=1&created_after=2026-01-01`\n"
-)
+) + _V2_CONTRACT_NOTE
 
 EVALUATOR_RETRY_EXECUTE_DESC = (
     "**SUMMARY:** Submit a retry query through the existing assistant pipeline, "
