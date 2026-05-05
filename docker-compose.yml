@@ -1,0 +1,129 @@
+services:
+  nextseek:
+    build: .
+    container_name: nextseek
+    restart: always
+    env_file:
+      - ./docker/db.env
+      - ./docker/nextseek.env
+    depends_on:
+      - seek
+      - db
+    volumes:
+      - nextseek-static-files:/static
+      - ./path/to/SmartAdmin:/app/themes/SmartAdmin
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py
+
+  nextseek_nginx:
+    image: nginx:latest
+    ports:
+      - "127.0.0.1:8000:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - nextseek-static-files:/static:ro
+    depends_on:
+      - nextseek
+      
+  db: # Database implementation, in this case MySQL
+    image: mysql:8.0
+    container_name: seek-mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --log-error-verbosity=1
+    restart: always
+    stop_grace_period: 1m30s
+    env_file:
+      - ./docker/db.env
+    volumes:
+      - ./docker/scripts/db:/docker-entrypoint-initdb.d
+      - seek-mysql-db:/var/lib/mysql
+
+  neo4j:
+    image: neo4j
+    container_name: neo4j
+    restart: always
+    volumes:
+      - neo4j-data:/data
+    environment:
+      NEO4J_AUTH: "neo4j/neo4j_password"
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+
+  seek:
+    image: fairdom/seek:1.17
+
+    container_name: seek
+    command: docker/entrypoint.sh
+    restart: always
+    environment:
+      RAILS_ENV: production
+      SOLR_PORT: 8983
+      SOLR_HOST: solr
+      NO_ENTRYPOINT_WORKERS: 1
+      RAILS_LOG_LEVEL: info # debug, info, warn, error or fatal
+    env_file:
+      - ./docker/db.env
+    volumes:
+      - seek-filestore:/seek/filestore
+      - seek-cache:/seek/tmp/cache
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - db
+      - solr
+    links:
+      - db
+      - solr
+
+  seek_workers: # The SEEK delayed job workers
+      #build: .
+
+      image: fairdom/seek:1.17
+      container_name: seek-workers
+      command: docker/start_workers.sh
+      restart: always
+      environment:
+        RAILS_ENV: production
+        SOLR_PORT: 8983
+        SOLR_HOST: solr
+        RAILS_LOG_LEVEL: info # debug, info, warn, error or fatal
+        QUIET_SUPERCRONIC: 1 # remove to show supercronic activity logs
+      env_file:
+        - ./docker/db.env
+      volumes:
+        - seek-filestore:/seek/filestore
+        - seek-cache:/seek/tmp/cache
+      depends_on:
+        - db
+        - solr
+      links:
+        - db
+        - solr
+
+  solr:
+    image: fairdom/seek-solr:8.11
+    container_name: seek-solr
+    restart: always
+    environment:
+      SOLR_JAVA_MEM: -Xms512m -Xmx1024m
+    volumes:
+      - seek-solr-data:/var/solr/
+    entrypoint:
+      - docker-entrypoint.sh
+      - solr-precreate
+      - seek
+      - /opt/solr/server/solr/configsets/seek_config      
+
+
+volumes:
+  seek-filestore:
+    external: true
+  seek-mysql-db:
+    external: true
+  seek-solr-data:
+    external: true
+  seek-cache:
+    external: true
+  nextseek-static-files:
+    external: true
+  neo4j-data:
+    external: true

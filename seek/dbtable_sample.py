@@ -39,6 +39,7 @@ from neo4j import GraphDatabase
 
 NEO4J_DATABASE = settings.NEO4J_DATABASE
 SEEK_DATABASE = settings.SEEK_DATABASE
+NEXTSEEK_DATABASE = settings.NEXTSEEK_DATABASE
 DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "/download/"
 DOWNLOAD_DIRECTORY_LINK = settings.MEDIA_URL + 'download/'
 
@@ -746,14 +747,16 @@ class DBtable_sample(DBtable):
         return contributor_id
 
     def getConnectingRelationships(self, child_id, parent_id):
+        db = settings.DATABASES[SEEK_DATABASE]
+        nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
         relationships = {
             "child_id": child_id,
             "parent_id": parent_id,
         }
         connecting_assay_query = f"""
             SELECT aa.assay_id, a.title
-            FROM seek_production.assay_assets aa
-            JOIN seek_production.assays a ON a.id = aa.assay_id
+            FROM {db["NAME"]}.assay_assets aa
+            JOIN {db["NAME"]}.assays a ON a.id = aa.assay_id
             WHERE
                 aa.asset_type = 'Sample' AND
                 (aa.asset_id = {child_id} OR aa.asset_id = {parent_id})
@@ -770,8 +773,8 @@ class DBtable_sample(DBtable):
 
             internal_assay_query = f"""
                 SELECT ia.internal_assay_title
-                FROM dmac.internal_assays ia
-                JOIN dmac.assays_internal_assays aia ON aia.internal_assay_id = ia.id
+                FROM {nextseekdb["NAME"]}.internal_assays ia
+                JOIN {nextseekdb["NAME"]}.assays_internal_assays aia ON aia.internal_assay_id = ia.id
                 WHERE aia.assay_id = {connecting_assay_id}
             """
 
@@ -780,6 +783,7 @@ class DBtable_sample(DBtable):
             if len(internal_assay_results) != 0:
                 internal_assay_title = internal_assay_results[0][0]
 
+                db = settings.DATABASES[SEEK_DATABASE]
                 relationships["internal_assay_title"] = internal_assay_title
 
         protocol_id_substring = """
@@ -798,8 +802,8 @@ class DBtable_sample(DBtable):
             SELECT
                 sop.id AS sop_id,
                 sop.title AS sop_title
-            FROM seek_production.samples s
-            JOIN seek_production.sops sop ON sop.id = {protocol_id_substring}
+            FROM {db["NAME"]}.samples s
+            JOIN {db["NAME"]}.sops sop ON sop.id = {protocol_id_substring}
             WHERE s.id = {child_id}
         """
 
@@ -866,6 +870,7 @@ class DBtable_sample(DBtable):
                                 database_=NEO4J_DATABASE['NAME'])
 
     def getChildrenUIDs(self, sample_uids, user_project_ids, admin):
+        db = settings.DATABASES[SEEK_DATABASE]
         NEO4J_DATABASE = settings.NEO4J_DATABASE
         with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
             r,s,k = driver.execute_query("""
@@ -885,14 +890,14 @@ class DBtable_sample(DBtable):
         if admin:
             query = f"""
             SELECT id,sample_type_id,uuid,json_metadata
-            FROM seek_production.samples
+            FROM {db["NAME"]}.samples
             WHERE uuid IN ({uids_str})
             """
         else:
             query = f"""
             SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
-            FROM seek_production.samples s
-            JOIN seek_production.projects_samples ps
+            FROM {db["NAME"]}.samples s
+            JOIN {db["NAME"]}.projects_samples ps
             ON s.id = ps.sample_id
             WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
             """

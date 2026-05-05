@@ -23,11 +23,11 @@ app.config_from_object(
     {
         "broker_url": os.environ.get(
             "CELERY_BROKER_URL",
-            "sqla+sqlite:////opt/NExtSEEK/var/celery/broker.sqlite",
+            "sqla+sqlite:////var/celery/broker.sqlite",
         ),
         "result_backend": os.environ.get(
             "CELERY_RESULT_BACKEND",
-            "db+sqlite:////opt/NExtSEEK/var/celery/results.sqlite",
+            "db+sqlite:////var/celery/results.sqlite",
         ),
         "task_serializer": "json",
         "result_serializer": "json",

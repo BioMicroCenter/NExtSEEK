@@ -18,6 +18,51 @@ This release adds some quality of life improvements to dropdown inputs, adds a t
 
 To install NExtSEEK, [please follow the installation instructions](https://igb.mit.edu/data-management/seek-and-nextseek) available at the Integrated Genomics and Bioinformatics (IGB) Core documentation site.
 
+## Installation - Docker
+
+NExtSEEK also provides Docker as an installation method.
+The `docker-compose.yml` file will orchestrate SEEK, NExtSEEK, and other necessary services for you.
+
+First, you need to [install Docker](https://docs.docker.com/engine/install) and [Docker Compose](https://docs.docker.com/compose/install/) onto your system.
+Once installed, clone this repository:
+
+```bash
+# Clone this repository
+git clone https://github.com/BMCBCC/NExtSEEK && cd NExtSEEK
+
+# IMPORTANT. Clone the chat_nextseek repository.
+# Not publicly available at this moment.
+```
+
+Edit `docker-compose.yml` to include the neo4j password you'd like to use.
+You'll also need to download the [SmartAdmin](https://wrapmarket.com/item/smartadmin-enterprise-admin-dashboard-WB0573SK0) theme and edit the `nextseek` container volume paths to point to it.
+
+Edit `docker/db.env` and `docker/nextseek.env` with the appropriate values.
+
+Copy `dmac/local_settings.example.py` to `dmac/local_settings.py` and edit with appropriate values.
+
+Before bringing up the Docker containers, you need to create the necessary volumes:
+
+```bash
+# Create SEEK-specific volumes
+docker volume create --name seek-filestore
+docker volume create --name seek-mysql-db
+docker volume create --name seek-solr-data
+docker volume create --name seek-cache
+
+# Create NExtSEEK-specific volumes
+docker volume create --name nextseek-static-files
+docker volume create --name neo4j-data
+```
+
+To bring up the containers run:
+
+```bash
+docker compose up -d
+```
+
+Now, you can visit SEEK at `http://127.0.0.1:3000` and NExtSEEK at `http://127.0.0.1:8000`.
+
 ## References
 
 NExtSEEK: Extending SEEK for active management of scientific metadata, Dikshant Pradhan, Huiming Ding, Jingzhi Zhu, Bevin P. Engelward, and Stuart S.
