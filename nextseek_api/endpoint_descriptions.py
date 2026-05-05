@@ -7,6 +7,17 @@ Each constant follows a structured template optimized for LLM tool-selection:
 Import individual constants into ViewSet files and pass to @extend_schema(description=...).
 """
 
+# v2 contract footnote, appended to every endpoint covered by tasks 02/03.
+# When clients request `Accept: application/vnd.nextseek.v2+json`, list endpoints
+# return a `{results, count, next, previous}` envelope and errors return a JSON:API-
+# style `{errors:[{status,title,...}]}` envelope. v1 responses are byte-equivalent
+# to the legacy contract.
+_V2_CONTRACT_NOTE = (
+    "\n\n**V2 CONTRACT:** When the client requests `Accept: application/vnd.nextseek.v2+json`, "
+    "list responses use the `{results, count, next, previous}` envelope and error responses "
+    "use the `{errors: [{status, title, source, meta}]}` envelope. Legacy `v1` responses are unchanged."
+)
+
 # =============================================================================
 # SampleTreeViewSet (1 endpoint)
 # =============================================================================
@@ -125,7 +136,7 @@ DATAFILE_LIST_DESC = (
     "- 'Show me all uploaded data files'\n"
     "- 'What sequencing results are available for download?'\n"
     "- 'List all data files in the system'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 DATAFILE_FETCH_DESC = (
     "**SUMMARY:** Fetch metadata for a specific data file by ID or name.\n\n"
@@ -137,7 +148,7 @@ DATAFILE_FETCH_DESC = (
     "- 'Get the CT scan images for this monkey'\n"
     "- 'Show me the flow cytometry results file for sample NHP-220630FLY-1-PUB'\n"
     "- 'Fetch data file 560'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 DATAFILE_CREATE_DESC = (
     "**SUMMARY:** Register a new data file by providing a URL or uploading content.\n\n"
@@ -149,7 +160,7 @@ DATAFILE_CREATE_DESC = (
     "- 'Upload the microscopy images from today\\'s experiment'\n"
     "- 'Register a new sequencing output file for the water study'\n"
     "- 'Create a data file entry for the CSV export'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 DATAFILE_UPDATE_DESC = (
     "**SUMMARY:** Update an existing data file's metadata by ID or name.\n\n"
@@ -161,7 +172,7 @@ DATAFILE_UPDATE_DESC = (
     "- 'Add a description to the microscopy images'\n"
     "- 'Change the project association for this sequencing file'\n"
     "- 'Update data file 560 title'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 DATAFILE_DOWNLOAD_DESC = (
     "**SUMMARY:** Download DataFile content blobs — supports single and batch modes.\n\n"
@@ -175,7 +186,7 @@ DATAFILE_DOWNLOAD_DESC = (
     "- 'Download the sequencing results for sample NHP-260225MIT-1'\n"
     "- 'Get the CSV data file for the water study'\n"
     "- 'Download multiple data files as a zip'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 # =============================================================================
 # ProjectProxyViewSet (4 endpoints)
@@ -357,7 +368,7 @@ ASSAY_LIST_DESC = (
     "- 'Show me all available assays'\n"
     "- 'What experimental procedures have been run on the primate samples?'\n"
     "- 'List all assays in the system'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 ASSAY_FETCH_DESC = (
     "**SUMMARY:** Fetch details for a specific assay by its numeric SEEK ID.\n\n"
@@ -369,7 +380,7 @@ ASSAY_FETCH_DESC = (
     "- 'Show me the details of the RNA-seq assay'\n"
     "- 'What samples were processed in this flow cytometry experiment?'\n"
     "- 'Get assay 351'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 ASSAY_CREATE_DESC = (
     "**SUMMARY:** Define a new assay (experimental procedure) within a study.\n\n"
@@ -381,7 +392,7 @@ ASSAY_CREATE_DESC = (
     "- 'Create a new transcriptomics assay for the immune response study'\n"
     "- 'Add a histology assay to analyze the tissue samples'\n"
     "- 'Set up a new RNA-seq experiment under study 434'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 ASSAY_UPDATE_DESC = (
     "**SUMMARY:** Update an existing assay by its numeric SEEK ID.\n\n"
@@ -393,7 +404,7 @@ ASSAY_UPDATE_DESC = (
     "- 'Update the description for the RNA-seq assay'\n"
     "- 'Add additional samples to the flow cytometry experiment'\n"
     "- 'Change the technology type for assay 351'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 # =============================================================================
 # SampleTypeProxyViewSet (4 endpoints)
@@ -499,7 +510,7 @@ SAMPLE_FETCH_DESC = (
     "- 'Show me the details of sample NHP-220630FLY-2-PUB'\n"
     "- 'What assays are linked to TIS-230324BOO-39-PUB?'\n"
     "- 'Get sample 321'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 SAMPLE_CREATE_DESC = (
     "**SUMMARY:** Create a new sample in SEEK with sample type and attributes.\n\n"
@@ -511,7 +522,7 @@ SAMPLE_CREATE_DESC = (
     "- 'Register a new tissue sample for the water study'\n"
     "- 'Add a new blood draw sample for a monkey taken during this visit (PAV-220630FLY-3)'\n"
     "- 'Create a new sample of type TIS'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 SAMPLE_UPDATE_DESC = (
     "**SUMMARY:** Update an existing sample's attributes by SEEK ID or NExtSEEK UID.\n\n"
@@ -523,7 +534,7 @@ SAMPLE_UPDATE_DESC = (
     "- 'Update NHP-220630FLY-1-PUB scientist to John Doe'\n"
     "- 'Change the study name for sample TIS-230324BOO-39-PUB'\n"
     "- 'Update sample 321 title'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 SAMPLE_DELETE_DESC = (
     "**SUMMARY:** Permanently delete a sample by SEEK ID or NExtSEEK UID.\n\n"
@@ -535,7 +546,7 @@ SAMPLE_DELETE_DESC = (
     "- 'Remove sample NHP-220630FLY-1-PUB from the system'\n"
     "- 'Delete all records for sample 321'\n"
     "- 'Permanently remove this sample'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 # =============================================================================
 # SampleAdvancedSearchViewSet (1 endpoint)
@@ -558,7 +569,7 @@ ADVANCED_SEARCH_DESC = (
     "- 'Find all mice from water study that were treated with NDMA'\n"
     "- 'Show me all samples associated with T cell depletion'\n"
     "- 'How many monkeys have both CT scan data and sequencing data?'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 # =============================================================================
 # SchemaRAGViewSet (2 endpoints)
@@ -722,7 +733,7 @@ BATCH_UPLOAD_START_DESC = (
     "- Unknown extra columns are ignored, with a warning in the summary CSV.\n"
     "- Validation conflicts (e.g., UID mismatch) reject only that row; the job continues.\n"
     "- Auto-generated UIDs use format `{PREFIX}-{YYMMDD}{LABABBV}-{INDEX}`.\n"
-)
+) + _V2_CONTRACT_NOTE
 
 BATCH_UPLOAD_STATUS_DESC = (
     "**SUMMARY:** Get the status and progress of a batch upload job.\n\n"
@@ -734,7 +745,7 @@ BATCH_UPLOAD_STATUS_DESC = (
     "- 'What is the status of batch upload job abc123?'\n"
     "- 'Check the progress of my bulk upload'\n"
     "- 'Is the batch job done yet?'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 BATCH_UPLOAD_CANCEL_DESC = (
     "**SUMMARY:** Cancel (revoke) a running batch upload job.\n\n"
@@ -746,7 +757,7 @@ BATCH_UPLOAD_CANCEL_DESC = (
     "- 'Cancel the batch upload job abc123'\n"
     "- 'Stop the running bulk upload'\n"
     "- 'Abort the batch job'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 BATCH_UPLOAD_SUMMARY_DESC = (
     "**SUMMARY:** Download the summary CSV for a completed batch upload job.\n\n"
@@ -758,7 +769,7 @@ BATCH_UPLOAD_SUMMARY_DESC = (
     "- 'Download the summary for batch upload job abc123'\n"
     "- 'Get the results CSV from the completed bulk upload'\n"
     "- 'Show me the batch upload report'\n"
-)
+) + _V2_CONTRACT_NOTE
 
 BATCH_UPLOAD_LIST_DESC = (
     "**SUMMARY:** List the authenticated user's batch upload jobs with pagination and live Celery state.\n\n"
@@ -777,4 +788,4 @@ BATCH_UPLOAD_LIST_DESC = (
     "- 'List all my batch uploads'\n"
     "- 'What batch jobs have I run?'\n"
     "- 'Show page 2 of my upload history'\n"
-)
+) + _V2_CONTRACT_NOTE

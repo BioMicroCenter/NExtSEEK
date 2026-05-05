@@ -73,7 +73,32 @@ class DataFileProxyViewSet(viewsets.ViewSet):
                     "links": {"self": "/data_files?page[number]=1&page[size]=100"},
                     "meta": {"base_url": "http://localhost:3000", "api_version": "v1"}
                 }
-            )
+            ),
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 list response",
+                value={"results": [], "count": 0, "next": None, "previous": None},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 list response",
+                value={
+                    "results": [{"id": "560", "type": "data_files", "attributes": {"title": "DF-20240101-01_Sample-X.csv"}}],
+                    "count": 1,
+                    "next": None,
+                    "previous": None,
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 upstream error (502)",
+                value={"errors": [{"status": "502", "title": "Invalid upstream response"}]},
+                response_only=True,
+                status_codes=["502"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
         ],
     )
     def list(self, request):
@@ -121,7 +146,39 @@ class DataFileProxyViewSet(viewsets.ViewSet):
                     },
                     "jsonapi": {"version": "1.0"}
                 }
-            )
+            ),
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 response",
+                value={"data": {"id": "560", "type": "data_files", "attributes": {"title": "DF.csv"}}},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 response",
+                value={
+                    "data": {
+                        "id": "560",
+                        "type": "data_files",
+                        "attributes": {"title": "DF-20240101-01_Sample-X.csv"},
+                        "relationships": {},
+                        "links": {"self": "/data_files/560"},
+                    },
+                    "jsonapi": {"version": "1.0"},
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 not found error (404)",
+                value={"errors": [{
+                    "status": "404",
+                    "title": "DataFile not found",
+                }]},
+                response_only=True,
+                status_codes=["404"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
         ],
     )
     def retrieve(self, request, uid=None, pk=None):
@@ -207,6 +264,39 @@ class DataFileProxyViewSet(viewsets.ViewSet):
                     }]
                 },
                 media_type="application/json",
+            ),
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 create request",
+                value={"data": {"type": "data_files", "attributes": {"title": "x.csv"}}},
+                request_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 create response",
+                value={
+                    "data": [{
+                        "data": {
+                            "id": "560",
+                            "type": "data_files",
+                            "attributes": {"title": "DF.csv"},
+                            "links": {"self": "/data_files/560"},
+                        }
+                    }]
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 validation error (422)",
+                value={"errors": [{
+                    "status": "422",
+                    "title": "Invalid metadata",
+                    "source": {"pointer": "/data/attributes/metadata"},
+                }]},
+                response_only=True,
+                status_codes=["422"],
+                media_type="application/vnd.nextseek.v2+json",
             ),
         ],
     )
@@ -329,7 +419,38 @@ class DataFileProxyViewSet(viewsets.ViewSet):
                     }
                 },
                 media_type="application/json",
-            )
+            ),
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 patch request",
+                value={"data": {"type": "data_files", "id": "560", "attributes": {"description": "x"}}},
+                request_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 patch response",
+                value={
+                    "data": {
+                        "id": "560",
+                        "type": "data_files",
+                        "attributes": {"description": "Updated description"},
+                    },
+                    "jsonapi": {"version": "1.0"},
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 validation error (422)",
+                value={"errors": [{
+                    "status": "422",
+                    "title": "Payload id does not match resolved uid",
+                    "source": {"pointer": "/data/id"},
+                }]},
+                response_only=True,
+                status_codes=["422"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
         ],
     )
     def partial_update(self, request, uid=None, pk=None):
@@ -434,6 +555,29 @@ class DataFileProxyViewSet(viewsets.ViewSet):
                 name="Batch download (zip)",
                 value=[{"uid_or_id": "560"}, {"uid_or_id": "561"}],
                 request_only=True,
+            ),
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 download request",
+                value={"uid_or_id": "560"},
+                request_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 batch download request",
+                value=[{"uid_or_id": "560"}, {"uid_or_id": "561"}, {"uid_or_id": "562"}],
+                request_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 validation error (422)",
+                value={"errors": [{
+                    "status": "422",
+                    "title": "Request body must be a JSON object or array",
+                }]},
+                response_only=True,
+                status_codes=["422"],
+                media_type="application/vnd.nextseek.v2+json",
             ),
         ],
     )

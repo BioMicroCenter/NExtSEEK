@@ -9,7 +9,7 @@ import time
 from celery.result import AsyncResult
 from django.conf import settings
 from django.http import FileResponse
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from pydantic import BaseModel, Field
 from rest_framework import status, viewsets
 from rest_framework.authentication import BasicAuthentication, TokenAuthentication
@@ -159,6 +159,41 @@ class BatchUploadViewSet(viewsets.ViewSet):
             422: OpenApiResponse(description="Pydantic validation error on rows or request body"),
         },
         description=BATCH_UPLOAD_START_DESC,
+        examples=[
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 start request",
+                value={"rows": [{"SampleType": "NHP", "json_metadata": {}}], "project_id": 12},
+                request_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 start request",
+                value={
+                    "rows": [
+                        {"SampleType": "NHP", "json_metadata": {"title": "sample-1"}, "UID": "NHP-001"},
+                        {"SampleType": "NHP", "json_metadata": {"title": "sample-2"}, "UID": "NHP-002"},
+                    ],
+                    "project_id": 12,
+                    "update_existing": False,
+                    "config_overrides": {"max_rows_per_batch": 100},
+                },
+                request_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 validation error (422)",
+                value={"errors": [{
+                    "status": "422",
+                    "title": "Field required",
+                    "source": {"pointer": "/data/attributes/rows/0/SampleType"},
+                    "meta": {"pydantic_type": "missing"},
+                }]},
+                response_only=True,
+                status_codes=["422"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+        ],
     )
     @action(detail=False, methods=["post"], url_path="start")
     def start(self, request):
@@ -377,6 +412,37 @@ class BatchUploadViewSet(viewsets.ViewSet):
     @extend_schema(
         responses={200: BatchUploadStatusResponse},
         description=BATCH_UPLOAD_STATUS_DESC,
+        examples=[
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 status response (queued)",
+                value={"job_id": "abc-123", "state": "PENDING", "meta": {}, "result": None},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 status response (success)",
+                value={
+                    "job_id": "abc-123",
+                    "state": "SUCCESS",
+                    "meta": {"progress": 100},
+                    "result": {"rows_inserted": 50, "rows_updated": 0, "summary_path": "/tmp/summary.csv"},
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 not found error (404)",
+                value={"errors": [{
+                    "status": "404",
+                    "title": "Not found",
+                    "detail": "No job with that id for this user.",
+                }]},
+                response_only=True,
+                status_codes=["404"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+        ],
     )
     @action(detail=False, methods=["get"], url_path=r"status/(?P<job_id>[^/.]+)")
     def job_status(self, request, job_id=None):
@@ -404,6 +470,33 @@ class BatchUploadViewSet(viewsets.ViewSet):
     @extend_schema(
         responses={204: None},
         description=BATCH_UPLOAD_CANCEL_DESC,
+        examples=[
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 cancel success (204)",
+                value=None,
+                response_only=True,
+                status_codes=["204"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 cancel ack",
+                value={"status": "revoked", "job_id": "abc-123"},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 not found error (404)",
+                value={"errors": [{
+                    "status": "404",
+                    "title": "Not found",
+                    "detail": "No job with that id for this user.",
+                }]},
+                response_only=True,
+                status_codes=["404"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+        ],
     )
     @action(detail=False, methods=["delete"], url_path=r"cancel/(?P<job_id>[^/.]+)")
     def cancel(self, request, job_id=None):
@@ -417,6 +510,37 @@ class BatchUploadViewSet(viewsets.ViewSet):
     @extend_schema(
         responses={200: OpenApiResponse(description="Summary CSV file download")},
         description=BATCH_UPLOAD_SUMMARY_DESC,
+        examples=[
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 summary header (CSV)",
+                value="job_id,state,rows_inserted\nabc-123,SUCCESS,50",
+                response_only=True,
+                media_type="text/csv",
+            ),
+            OpenApiExample(
+                name="Realistic v2 summary CSV",
+                value=(
+                    "uid,sampletype,status,error\n"
+                    "NHP-001,NHP,inserted,\n"
+                    "NHP-002,NHP,inserted,\n"
+                    "NHP-003,NHP,failed,\"duplicate UID\"\n"
+                ),
+                response_only=True,
+                media_type="text/csv",
+            ),
+            OpenApiExample(
+                name="v2 not found error (404)",
+                value={"errors": [{
+                    "status": "404",
+                    "title": "Job not complete",
+                    "detail": "Job not complete (state=PROGRESS)",
+                }]},
+                response_only=True,
+                status_codes=["404"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+        ],
     )
     @action(detail=False, methods=["get"], url_path=r"summary/(?P<job_id>[^/.]+)")
     def summary(self, request, job_id=None):
@@ -458,6 +582,40 @@ class BatchUploadViewSet(viewsets.ViewSet):
     @extend_schema(
         responses={200: {"type": "array", "items": {"type": "object"}}},
         description=BATCH_UPLOAD_LIST_DESC,
+        examples=[
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 list response",
+                value={"jobs": [], "total": 0, "page": 1, "page_size": 20},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 list response",
+                value={
+                    "jobs": [
+                        {"job_id": "abc-123", "project_id": 12, "created_at": "2026-04-01T00:00:00Z", "state": "SUCCESS"},
+                        {"job_id": "def-456", "project_id": 12, "created_at": "2026-04-02T00:00:00Z", "state": "PROGRESS"},
+                    ],
+                    "total": 2,
+                    "page": 1,
+                    "page_size": 20,
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 validation error (400)",
+                value={"errors": [{
+                    "status": "400",
+                    "title": "page and page_size must be integers",
+                    "source": {"parameter": "page"},
+                }]},
+                response_only=True,
+                status_codes=["400"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+        ],
     )
     def list(self, request):
         """GET /api/batch-upload/ — list user's jobs with pagination."""
