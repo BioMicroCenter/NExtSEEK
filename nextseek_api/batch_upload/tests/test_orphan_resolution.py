@@ -2,6 +2,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from nextseek_api.batch_upload.orphan_resolution import discover_orphans
+from nextseek_api.batch_upload.identity import hash_identity
 
 
 class TestDiscoverOrphans:
@@ -73,7 +74,7 @@ class TestDiscoverOrphans:
         }
 
     def test_passes_correct_parameters_to_neo4j(self):
-        """Should pass identity keys as $new_identities parameter."""
+        """Should pass hashed identity keys as $new_identity_hashes parameter."""
         mock_driver = MagicMock()
         mock_result = MagicMock()
         mock_result.records = []
@@ -84,8 +85,47 @@ class TestDiscoverOrphans:
 
         call_args = mock_driver.execute_query.call_args
         params = call_args[0][1]
-        assert set(params["new_identities"]) == {"Mouse-A", "Sample-X"}
+        expected_hashes = {hash_identity("Mouse-A"), hash_identity("Sample-X")}
+        assert set(params["new_identity_hashes"]) == expected_hashes
+        assert "new_identities" not in params
         assert call_args[1]["database_"] == "nextseekdev"
+
+    def test_cypher_filters_by_parent_title_hashes(self):
+        """Cypher WHERE clause should match against child.parent_title_hashes."""
+        mock_driver = MagicMock()
+        mock_result = MagicMock()
+        mock_result.records = []
+        mock_driver.execute_query.return_value = mock_result
+
+        discover_orphans(mock_driver, "nextseekdev", {"Mouse-A": "MUS-260305MIT-1"})
+
+        cypher = mock_driver.execute_query.call_args[0][0]
+        assert "child.parent_title_hashes" in cypher
+        assert "$new_identity_hashes" in cypher
+        # Ensure the legacy filter is gone
+        assert "name IN child.parent_titles" not in cypher
+
+    def test_post_loop_still_matches_via_raw_parent_titles(self):
+        """matched_tokens dict is built from raw parent_titles using exact-case match."""
+        mock_driver = MagicMock()
+        mock_record = MagicMock()
+        mock_record.data.return_value = {
+            "id": 500,
+            "uuid": "CHD-260101MIT-1",
+            "parent_titles": ["Mouse-A", "Other"],
+        }
+        mock_result = MagicMock()
+        mock_result.records = [mock_record]
+        mock_driver.execute_query.return_value = mock_result
+
+        # Identity map has different case AND a non-matching key.
+        # The hash prefilter uses lowercased hashes (so "mouse-a" and "Mouse-A"
+        # would prefilter the same), but the post-loop is exact-case.
+        identity_map = {"mouse-a": "MUS-260305MIT-1"}
+        orphans = discover_orphans(mock_driver, "nextseekdev", identity_map)
+        # The Neo4j prefilter is mocked, so we received the candidate row;
+        # the post-loop must NOT match because "Mouse-A" != "mouse-a" exactly.
+        assert orphans == []
 
     def test_orphan_with_none_parent_titles(self):
         """Should handle records where parent_titles is None."""
