@@ -302,6 +302,22 @@ class TestNodeRow:
         with pytest.raises(ValidationError):
             NodeRow(sample_id=1, sample_uuid="", sample_type="Fly")
 
+    def test_parent_title_hashes_defaults_to_empty_list(self):
+        """NodeRow exposes parent_title_hashes mirroring parent_titles."""
+        n = NodeRow(sample_id=1, sample_uuid="abc-123", sample_type="Fly")
+        assert n.parent_title_hashes == []
+
+    def test_parent_title_hashes_accepts_list_of_strings(self):
+        """parent_title_hashes accepts an explicit list of hex digests."""
+        digests = ["a" * 64, "b" * 64]
+        n = NodeRow(
+            sample_id=1,
+            sample_uuid="abc-123",
+            sample_type="Fly",
+            parent_title_hashes=digests,
+        )
+        assert n.parent_title_hashes == digests
+
 
 # ── PermissionCreate validators ───────────────────────────────────────────
 
