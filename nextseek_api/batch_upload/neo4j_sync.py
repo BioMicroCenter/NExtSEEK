@@ -20,7 +20,7 @@ from sqlalchemy.engine import Connection
 
 from .config import Neo4jConfig
 from .helpers import UID_RE, collect_parent_tokens, split_parent_field
-from .identity import extract_identity
+from .identity import extract_identity, hash_identity
 from .models import (
     DerivedFromRelRow,
     DirectionComputation,
@@ -539,7 +539,7 @@ def enrich_parent_titles(
                     meta = {}
                 uid_to_identity[uuid_val] = extract_identity(meta, uid=uuid_val)
 
-    # 4. Second pass: build parent_titles for each node
+    # 4. Second pass: build parent_titles AND parent_title_hashes for each node
     for i, node in enumerate(node_rows):
         tokens = node_parent_tokens[i]
         if not tokens:
@@ -558,8 +558,15 @@ def enrich_parent_titles(
                 # Unresolved token — IS the identity
                 titles.append(token)
 
+        if not titles:
+            continue
+
+        hashes = [h for h in (hash_identity(t) for t in titles) if h]
+
         node.parent_titles = titles
+        node.parent_title_hashes = hashes
         node.properties["parent_titles"] = titles
+        node.properties["parent_title_hashes"] = hashes
 
 
 # ── payload building ──────────────────────────────────────────────────────

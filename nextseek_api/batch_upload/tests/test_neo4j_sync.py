@@ -26,6 +26,7 @@ from nextseek_api.batch_upload.neo4j_sync import (
     enrich_parent_titles,
     refresh_assays_for_uuids,
 )
+from nextseek_api.batch_upload.identity import hash_identity
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -1096,6 +1097,52 @@ class TestEnrichParentTitles:
         enrich_parent_titles(node_rows, input_models, sql_conn=None)
         assert node_rows[0].parent_titles == []
         assert "parent_titles" not in node_rows[0].properties
+
+    def test_resolved_parent_populates_hash(self):
+        """Hash is parallel to title and computed via hash_identity."""
+        child_props = {"Name": "Child_Sample", "Parent": "NHP-260225MIT-1"}
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-2", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-2", "Blood", json.dumps({"Name": "Child_Sample", "Parent": "NHP-260225MIT-1"})),
+            _input_model("NHP-260225MIT-1", "NHP", json.dumps({"Name": "Parent_Sample"})),
+        ]
+        enrich_parent_titles(node_rows, input_models, sql_conn=None)
+        expected_hash = hash_identity("Parent_Sample")
+        assert node_rows[0].parent_title_hashes == [expected_hash]
+        assert node_rows[0].properties["parent_title_hashes"] == [expected_hash]
+
+    def test_hashes_parallel_to_titles_for_mixed_parents(self):
+        """Mixed resolved + unresolved parents yield hashes parallel to titles."""
+        child_props = {"Name": "Child", "Parent": "NHP-260225MIT-3;Unresolved_Name"}
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-1", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-1", "Blood", json.dumps({"Name": "Child", "Parent": "NHP-260225MIT-3;Unresolved_Name"})),
+            _input_model("NHP-260225MIT-3", "NHP", json.dumps({"Name": "Resolved_Parent"})),
+        ]
+        enrich_parent_titles(node_rows, input_models, sql_conn=None)
+        titles = node_rows[0].parent_titles
+        hashes = node_rows[0].parent_title_hashes
+        assert len(titles) == len(hashes) == 2
+        for title, h in zip(titles, hashes):
+            assert h == hash_identity(title)
+        assert node_rows[0].properties["parent_title_hashes"] == hashes
+
+    def test_no_parents_no_parent_title_hashes_in_properties(self):
+        """No parents -> parent_title_hashes empty AND not in properties."""
+        child_props = {"Name": "Lonely_Sample"}
+        node_rows = [
+            _node_row(100, "NHP-260225MIT-1", "Blood", child_props),
+        ]
+        input_models = [
+            _input_model("NHP-260225MIT-1", "Blood", json.dumps({"Name": "Lonely_Sample"})),
+        ]
+        enrich_parent_titles(node_rows, input_models, sql_conn=None)
+        assert node_rows[0].parent_title_hashes == []
+        assert "parent_title_hashes" not in node_rows[0].properties
 
 
 class TestEnrichParentTitlesVariantKeys:
