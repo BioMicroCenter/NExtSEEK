@@ -1201,46 +1201,73 @@ class TestEnrichParentTitlesVariantKeys:
 
 
 class TestParentTitlesIndex:
-    """Tests for auto-creation of parent_titles index in upload_all."""
+    """Tests for the parent_title_hashes index swap in upload_all."""
 
-    @patch("neo4j.GraphDatabase")
-    def test_upload_all_creates_parent_titles_index(self, mock_gdb):
-        """upload_all should CREATE INDEX IF NOT EXISTS on Sample.parent_titles."""
+    def _run_upload_all_capturing_calls(self):
         from nextseek_api.batch_upload.neo4j_sync import upload_all
         from nextseek_api.batch_upload.models import DirectionComputation
 
-        mock_driver = MagicMock()
-        mock_gdb.driver.return_value = mock_driver
-        mock_driver.execute_query.return_value = MagicMock(
-            counters=MagicMock(nodes_created=0, nodes_matched=0, relationships_created=0),
-            records=[],
-        )
+        with patch("neo4j.GraphDatabase") as mock_gdb:
+            mock_driver = MagicMock()
+            mock_gdb.driver.return_value = mock_driver
+            mock_driver.execute_query.return_value = MagicMock(
+                counters=MagicMock(nodes_created=0, nodes_matched=0, relationships_created=0),
+                records=[],
+            )
 
-        neo4j_config = MagicMock(
-            NEO4J_UPLOAD_ENABLED=True,
-            URI="bolt://localhost",
-            NEO4J_USER="u",
-            PASSWORD="p",
-            NEO4J_DB="testdb",
-            NEO4J_NODE_CHUNK=500,
-            NEO4J_REL_CHUNK=500,
-        )
+            neo4j_config = MagicMock(
+                NEO4J_UPLOAD_ENABLED=True,
+                URI="bolt://localhost",
+                NEO4J_USER="u",
+                PASSWORD="p",
+                NEO4J_DB="testdb",
+                NEO4J_NODE_CHUNK=500,
+                NEO4J_REL_CHUNK=500,
+            )
 
-        upload_all(
-            outcomes={},
-            input_models=[],
-            sql_conn=MagicMock(),
-            neo4j_config=neo4j_config,
-            direction_computation=DirectionComputation(
-                parents_of={}, assays_by_uid={},
-                direction_by_pair={}, child_uids_by_assay={},
-                conflicts_by_assay={},
-            ),
-        )
+            upload_all(
+                outcomes={},
+                input_models=[],
+                sql_conn=MagicMock(),
+                neo4j_config=neo4j_config,
+                direction_computation=DirectionComputation(
+                    parents_of={}, assays_by_uid={},
+                    direction_by_pair={}, child_uids_by_assay={},
+                    conflicts_by_assay={},
+                ),
+            )
 
-        calls = [str(c) for c in mock_driver.execute_query.call_args_list]
-        assert any("parent_titles" in c and "CREATE INDEX" in c for c in calls), (
-            f"Expected CREATE INDEX for parent_titles in calls: {calls}"
+            return [str(c) for c in mock_driver.execute_query.call_args_list]
+
+    def test_upload_all_drops_old_parent_titles_index(self):
+        """upload_all should DROP the legacy sample_parent_titles index."""
+        calls = self._run_upload_all_capturing_calls()
+        assert any(
+            "DROP INDEX" in c and "sample_parent_titles" in c and "IF EXISTS" in c
+            for c in calls
+        ), f"Expected DROP INDEX sample_parent_titles IF EXISTS in calls: {calls}"
+
+    def test_upload_all_creates_parent_title_hashes_index(self):
+        """upload_all should CREATE INDEX on Sample.parent_title_hashes."""
+        calls = self._run_upload_all_capturing_calls()
+        assert any(
+            "CREATE INDEX" in c
+            and "sample_parent_title_hashes" in c
+            and "parent_title_hashes" in c
+            and "IF NOT EXISTS" in c
+            for c in calls
+        ), f"Expected CREATE INDEX sample_parent_title_hashes IF NOT EXISTS in calls: {calls}"
+
+    def test_upload_all_does_not_create_legacy_index(self):
+        """upload_all must no longer create the legacy parent_titles index."""
+        calls = self._run_upload_all_capturing_calls()
+        legacy_creates = [
+            c for c in calls
+            if "CREATE INDEX" in c
+            and "sample_parent_titles " in c  # trailing space distinguishes from sample_parent_title_hashes
+        ]
+        assert legacy_creates == [], (
+            f"Legacy CREATE INDEX sample_parent_titles must be removed; found: {legacy_creates}"
         )
 
 
