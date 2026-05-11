@@ -1,4 +1,93 @@
 {% extends "base.html" %}
+{% load static i18n %}
+
+{% block title %}NExtSEEK{% endblock %}
+
 {% block main %}
-{% include "content.embed.html" %}
+<div class="dashboard">
+
+  <header class="dash-hero">
+    <p class="dash-eyebrow">{% trans "Welcome back" %}</p>
+    <h1 class="dash-h1">
+      {% if request.user.is_authenticated %}
+        {% blocktrans with name=request.user.username %}Welcome, {{ name }}{% endblocktrans %}
+      {% else %}
+        {% trans "Welcome to NExtSEEK" %}
+      {% endif %}
+    </h1>
+    <p class="dash-sub">{% trans "Pick up where you left off, or jump into something new." %}</p>
+  </header>
+
+  <div class="dash-tiles">
+    <div class="dash-tile">
+      <div class="t-label">{% trans "Total samples" %}</div>
+      <div class="t-num">{{ total_samples_count|default:0 }}</div>
+      {% if samples_delta_week %}
+        <div class="t-delta">+{{ samples_delta_week }} {% trans "this week" %}</div>
+      {% else %}
+        <div class="t-delta">&nbsp;</div>
+      {% endif %}
+    </div>
+    <div class="dash-tile">
+      <div class="t-label">{% trans "Active projects" %}</div>
+      <div class="t-num">{{ total_projects_count|default:0 }}</div>
+      {% if projects_user_count %}
+        <div class="t-delta">{{ projects_user_count }} {% trans "you're on" %}</div>
+      {% else %}
+        <div class="t-delta">&nbsp;</div>
+      {% endif %}
+    </div>
+    <div class="dash-tile">
+      <div class="t-label">{% trans "Data files" %}</div>
+      <div class="t-num">{{ total_data_files_count|default:0 }}</div>
+      {% if data_files_delta_week %}
+        <div class="t-delta">+{{ data_files_delta_week }} {% trans "this week" %}</div>
+      {% else %}
+        <div class="t-delta">&nbsp;</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="dash-row">
+    <section class="dash-card">
+      <header class="dash-card-head">
+        <h2>{% trans "Recent samples" %}</h2>
+        <a class="dash-more" href="/seek/search/">{% trans "View all →" %}</a>
+      </header>
+      {% if recent_samples %}
+        <ul class="dash-list">
+          {% for s in recent_samples %}
+            <li class="dash-row-item">
+              <span class="uid">{{ s.uid }}</span>
+              <span class="name">{{ s.name }}</span>
+              <span class="proj">{{ s.project__name|default:"—" }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="dash-empty">{% trans "No recent activity yet." %}</div>
+      {% endif %}
+    </section>
+
+    <aside class="dash-actions">
+      <a class="dash-action accent" href="/seek/samples/upload/">
+        <h3>+ {% trans "New sample" %}</h3>
+        <p>{% trans "Upload an assay sheet or single sample." %}</p>
+      </a>
+      <a class="dash-action" href="/seek/chat/">
+        <h3>{% trans "Talk to Nessie" %}</h3>
+        <p>{% trans "Ask the assistant about your data, schema, or workflow." %}</p>
+      </a>
+      <a class="dash-action" href="/seek/help/">
+        <h3>{% trans "Getting Started" %}</h3>
+        <p>{% trans "New to NExtSEEK? Start here." %}</p>
+      </a>
+      <a class="dash-action" href="/seek/projects">
+        <h3>{% trans "Browse projects" %}</h3>
+        <p>{% trans "See everything you can access." %}</p>
+      </a>
+    </aside>
+  </div>
+
+</div>
 {% endblock %}
