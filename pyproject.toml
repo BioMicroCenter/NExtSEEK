@@ -126,6 +126,8 @@ explicit = true
 
 [tool.uv.sources]
 chat_nextseek = { path = "chat_nextseek" }
+# When chat_nextseek goes public, switch back to the pinned git install:
+# chat_nextseek = { git = "https://github.com/cdemurjian/chat_nextseek.git", rev = "3948d857783e3d130bfe6a880fe53a9eefeb603a" }
 torch = [
   { index = "pytorch-cpu" },
 ]
