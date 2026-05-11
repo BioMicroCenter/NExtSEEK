@@ -1104,3 +1104,59 @@ h1, h2, h3, h4, h5, h6 {
     color: var(--ns-muted);
     font-style: italic;
 }
+
+/* ================================================
+   Sidebar header with BMC lockup
+   ================================================ */
+.sidebar-header {
+    padding: 0.85rem 1rem 0.85rem;
+    border-bottom: 1px solid var(--ns-border);
+    display: block;
+}
+.bmc-lockup {
+    margin-bottom: 0.45rem;
+}
+.bmc-logo {
+    max-width: 110px;
+    height: auto;
+    display: block;
+}
+.sidebar-wordmark {
+    font-family: var(--ns-font-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: var(--ns-ink);
+    text-decoration: none;
+}
+.sidebar-wordmark .wm-hi { color: var(--ns-crimson); }
+
+.sidebar {
+    /* keep sidebar a flex column so user-panel can sit at bottom */
+    display: flex;
+    flex-direction: column;
+}
+.sidebar-nav { flex: 1; overflow-y: auto; }
+.sidebar-foot {
+    flex-shrink: 0;
+    border-top: 1px solid var(--ns-border);
+    padding-top: 0.25rem;
+}
+
+/* ================================================
+   Mobile toggle (replaces the header hamburger)
+   ================================================ */
+.mobile-toggle {
+    margin: 0.85rem 0 0 0.85rem;
+    width: 36px; height: 36px;
+    border: 1px solid var(--ns-border);
+    border-radius: 7px;
+    background: var(--ns-white);
+    color: var(--ns-ink);
+    cursor: pointer;
+}
+.mobile-toggle:hover { background: var(--ns-sidebar-hover); }
+.mobile-toggle i { font-size: 1.05rem; }
+
+/* Remove the now-unused header.height layout reservation */
+.content { margin-top: 0; }

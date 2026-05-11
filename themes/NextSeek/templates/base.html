@@ -38,27 +38,37 @@
     <!-- Sidebar -->
     <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
+            <div class="bmc-lockup">
+                <img src="{% static 'img/400px-Bmclogo2020.png' %}"
+                     alt="BioMicro Center"
+                     class="bmc-logo">
+            </div>
             <a href="/" class="sidebar-wordmark">
                 <span class="wm-hi">N</span>Ext<span class="wm-hi">SEEK</span>
             </a>
-            <button class="sidebar-toggle d-lg-none" type="button" onclick="toggleSidebar()">
-                <i class="bi bi-x-lg"></i>
-            </button>
         </div>
         <nav id="sidebarNav" class="sidebar-nav">
             {% block left_panel %}
             {% include "nav.embed.html" %}
             {% endblock %}
         </nav>
+
+        <!-- User panel pinned at bottom -->
+        <div class="sidebar-foot">
+            {% include "includes/user_panel.html" %}
+        </div>
     </aside>
 
     <!-- Main wrapper -->
     <div id="main-wrapper">
 
-        <!-- Header -->
-        <header id="header" class="header">
-            {% include "header.embed.html" %}
-        </header>
+        <!-- Mobile toggle (only visible on narrow viewports) -->
+        <button class="mobile-toggle d-lg-none"
+                type="button"
+                onclick="toggleSidebar()"
+                aria-label="{% trans 'Toggle navigation' %}">
+            <i class="bi bi-list"></i>
+        </button>
 
         <!-- Page content -->
         <main id="content" class="content">
