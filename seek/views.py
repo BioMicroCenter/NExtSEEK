@@ -1,7 +1,6 @@
 from django.shortcuts import render
 from django.shortcuts import redirect
 from django.http import HttpResponseRedirect, HttpResponse, FileResponse, Http404
-from urllib.parse import urlencode
 
 import csv
 import hashlib
@@ -1600,8 +1599,7 @@ def smartSearch(request):
     if not admin:
         data = {'msg': 'You do not have access to this page', 'status': 0, 'link': ''}
         return render(request, 'error.html', {'data': data})
-    active_tab = "assistant" if "/assistant/" in request.path else "salt"
-    return render(request, "smartSearch.html", {"smart_search_url": settings.SMART_SEARCH_URL, "active_tab": active_tab})
+    return render(request, "smartSearch.html")
 
 def internalAssays(request):
     seekdb = SeekDB(None, None, None)
@@ -1793,15 +1791,3 @@ def getting_started(request):
     return render(request, "help/getting_started.html")
 
 
-def chat_redirect(request):
-    """
-    Take ?q=<query> from the sidebar's Talk-to-Nessie input and 302 to
-    the chat_frontend URL with the query preserved. The chat_frontend
-    reads ?q= on mount and pre-fills its MessageInput.
-    """
-    q = request.GET.get("q", "").strip()
-    target = settings.CHAT_FRONTEND_URL
-    if q:
-        sep = "&" if "?" in target else "?"
-        target = f"{target}{sep}{urlencode({'q': q})}"
-    return HttpResponseRedirect(target)

@@ -224,11 +224,6 @@ OPTIONAL_APPS = (
     PACKAGE_NAME_GRAPPELLI,
 )
 
-# URL where the chat_frontend React app is served. Used by the
-# Talk-to-Nessie redirect (seek.views.chat_redirect). The redirect
-# appends ?q=<query> to whatever URL is set here.
-CHAT_FRONTEND_URL = os.environ.get("CHAT_FRONTEND_URL", "/chat/")
-
 ##################
 # LOCAL SETTINGS #
 ##################

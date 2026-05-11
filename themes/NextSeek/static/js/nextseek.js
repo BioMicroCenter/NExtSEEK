@@ -86,14 +86,14 @@ function navUID() {
     }
 }
 
-// Talk to Nessie — pass the typed query to the chat_frontend via the
-// /seek/chat/ redirect; chat_frontend reads ?q= on mount.
+// Talk to Nessie — navigate to /seek/assistant/?q=<query>; the embedded
+// chat React app reads ?q= on mount and pre-fills its MessageInput.
 function navNessie() {
     var el = document.getElementById("ask-nessie");
     if (!el) return;
     var v = el.value.trim();
     if (v) {
-        window.location.href = "/seek/chat/?q=" + encodeURIComponent(v);
+        window.location.href = "/seek/assistant/?q=" + encodeURIComponent(v);
     }
 }
 
