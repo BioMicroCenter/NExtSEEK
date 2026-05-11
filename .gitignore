@@ -163,6 +163,11 @@ cython_debug/
 dmac/local_settings.py
 local_settings.py
 .DS_Store
+
+# Real env files are gitignored — secrets must never land in git.
+# See docker/nextseek.env.example for the template.
+docker/nextseek.env
+docker/db.env
 internal_docs/
 .cursor/
 .claude/
