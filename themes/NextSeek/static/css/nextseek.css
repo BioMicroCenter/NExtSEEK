@@ -750,3 +750,83 @@ h1, h2, h3, h4, h5, h6 {
     color: #78600a;
     margin-bottom: 0.75rem;
 }
+
+/* ================================================
+   Getting Started / Tutorials page
+   ================================================ */
+.help-page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 4rem;
+    font-family: var(--ns-font-body);
+    color: var(--ns-body);
+    line-height: 1.7;
+}
+.help-eyebrow {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ns-muted);
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+}
+.help-page h1 {
+    font-size: 2.25rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--ns-ink);
+    margin: 0 0 0.75rem;
+}
+.help-lede {
+    font-size: 1.05rem;
+    color: var(--ns-body);
+    margin: 0 0 2rem;
+}
+.help-toc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    padding: 1rem 0;
+    border-top: 1px solid var(--ns-border);
+    border-bottom: 1px solid var(--ns-border);
+    margin-bottom: 2.5rem;
+}
+.help-toc a {
+    color: var(--ns-crimson);
+    text-decoration: none;
+    font-size: 0.92rem;
+}
+.help-toc a:hover { text-decoration: underline; }
+
+.help-section {
+    margin: 0 0 2.5rem;
+}
+.help-section h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: var(--ns-ink);
+    margin: 0 0 0.75rem;
+}
+.help-section h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--ns-ink);
+    margin: 1.5rem 0 0.5rem;
+}
+.help-section p,
+.help-section ol,
+.help-section ul {
+    font-size: 0.98rem;
+}
+.help-section ol, .help-section ul {
+    padding-left: 1.25rem;
+}
+.help-cta {
+    background: var(--ns-crimson-soft);
+    border: 1px solid var(--ns-crimson-border);
+    border-radius: 10px;
+    padding: 1.25rem 1.5rem;
+}
+.help-cta h2 { font-size: 1.15rem; margin-bottom: 0.5rem; }
+.help-cta a { color: var(--ns-crimson); }

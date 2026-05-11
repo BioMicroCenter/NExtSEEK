@@ -1790,6 +1790,11 @@ def newSearch(request):
     return render(request, "newSearch.html")
 
 
+def getting_started(request):
+    """Tutorials / Getting Started landing page. Static content."""
+    return render(request, "help/getting_started.html")
+
+
 def chat_redirect(request):
     """
     Take ?q=<query> from the sidebar's Talk-to-Nessie input and 302 to
