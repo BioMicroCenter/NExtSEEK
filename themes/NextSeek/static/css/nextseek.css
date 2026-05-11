@@ -115,8 +115,8 @@ h1, h2, h3, h4, h5, h6 {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 1.25rem;
-    height: var(--header-height);
+    padding: 0.75rem 1.25rem;
+    min-height: 56px;
     border-bottom: 1px solid var(--ns-border);
     flex-shrink: 0;
 }
