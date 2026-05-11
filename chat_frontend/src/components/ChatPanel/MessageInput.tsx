@@ -8,8 +8,18 @@ interface MessageInputProps {
   disabled?: boolean;
 }
 
+function readInitialQuery(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("q") ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export function MessageInput({ onSend, disabled }: MessageInputProps) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState<string>(() => readInitialQuery());
   const [mode, setMode] = useState("standard");
   const { textareaRef, handleInput, resetHeight } = useAutoResize();
 
