@@ -119,17 +119,44 @@ function toggleUserMenu(btn) {
     if (!panel) return;
     var menu = panel.querySelector('.user-menu');
     if (!menu) return;
-    menu.classList.toggle('open');
 
-    // Close on outside click
-    if (menu.classList.contains('open')) {
+    var nowOpen = !menu.classList.contains('open');
+    menu.classList.toggle('open', nowOpen);
+    btn.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+
+    // Drop any previous outside/escape handlers so they don't accumulate
+    // across repeated open/close cycles.
+    if (panel._userMenuCleanup) {
+        panel._userMenuCleanup();
+        panel._userMenuCleanup = null;
+    }
+
+    if (nowOpen) {
+        var onDocClick = function (e) {
+            if (!panel.contains(e.target)) {
+                cleanup();
+            }
+        };
+        var onKey = function (e) {
+            if (e.key === 'Escape') {
+                cleanup();
+                btn.focus();
+            }
+        };
+        function cleanup() {
+            menu.classList.remove('open');
+            btn.setAttribute('aria-expanded', 'false');
+            document.removeEventListener('click', onDocClick);
+            document.removeEventListener('keydown', onKey);
+            panel._userMenuCleanup = null;
+        }
+        panel._userMenuCleanup = cleanup;
+
+        // Defer install past the current click so this same click doesn't
+        // immediately close the menu it just opened.
         setTimeout(function () {
-            document.addEventListener('click', function close(e) {
-                if (!panel.contains(e.target)) {
-                    menu.classList.remove('open');
-                    document.removeEventListener('click', close);
-                }
-            });
+            document.addEventListener('click', onDocClick);
+            document.addEventListener('keydown', onKey);
         }, 0);
     }
 }

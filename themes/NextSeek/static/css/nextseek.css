@@ -922,7 +922,6 @@ h1, h2, h3, h4, h5, h6 {
     outline: none;
 }
 .user-panel:hover { background: #fcfcfc; }
-.user-panel:focus { box-shadow: 0 0 0 3px var(--ns-crimson-soft); }
 
 .user-avatar {
     width: 30px; height: 30px;

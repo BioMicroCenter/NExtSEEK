@@ -2,7 +2,7 @@
 
 {% if request.user.is_authenticated %}
   {% url "profile" request.user.username as profile_url %}
-  <div class="user-panel" tabindex="0">
+  <div class="user-panel">
     <div class="user-avatar">
       {{ request.user.username|slice:":2"|upper }}
     </div>
@@ -13,7 +13,10 @@
         {% else %}{% trans "Researcher" %}{% endif %}
       </div>
     </div>
-    <button class="user-menu-btn" type="button" aria-label="{% trans 'User menu' %}"
+    <button class="user-menu-btn" type="button"
+            aria-label="{% trans 'User menu' %}"
+            aria-expanded="false"
+            aria-haspopup="true"
             onclick="toggleUserMenu(this)">
       <i class="bi bi-three-dots"></i>
     </button>
