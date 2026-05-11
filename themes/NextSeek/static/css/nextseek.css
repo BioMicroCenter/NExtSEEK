@@ -598,6 +598,7 @@ h1, h2, h3, h4, h5, h6 {
 .datagrid-row { background: var(--ns-white) !important; }
 .datagrid-row-alt { background: #fdf9f6 !important; }
 .datagrid-row-over { background: var(--easyui-hover) !important; }
+/* Older rule retained for non-color properties; color is overridden by the direction-C block at end of file. */
 .datagrid-row-selected {
     background: var(--easyui-selected) !important;
     color: var(--ns-body) !important;
@@ -879,7 +880,7 @@ h1, h2, h3, h4, h5, h6 {
 .textbox,
 .combo {
     border-color: var(--easyui-border) !important;
-    background: white !important;
+    background: var(--ns-white) !important;
     border-radius: 6px;
 }
 .textbox:hover,
