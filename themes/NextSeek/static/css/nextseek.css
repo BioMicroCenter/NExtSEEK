@@ -1,39 +1,39 @@
 /* ================================================
    NExtSEEK Theme — Scientific Publication
-   Palette: Warm white · MIT Crimson · Deep ink
-   Fonts: Playfair Display (headings) + Source Sans 3 (body)
+   Palette: Neutral off-whites · MIT Crimson · Deep ink
+   Fonts: Inter throughout (Playfair retired)
    ================================================ */
 
 :root {
-    /* Brand */
+    /* Brand — MIT crimson, preserved as the BMC accent */
     --ns-crimson:          #A31F34;
     --ns-crimson-hover:    #8a1a2b;
     --ns-crimson-soft:     #fdf0f2;
     --ns-crimson-border:   #f3c6ce;
 
-    /* Neutrals */
-    --ns-bg:               #fafaf8;
+    /* Neutrals — direction C: cool off-whites, no warm beige */
+    --ns-bg:               #ffffff;
     --ns-white:            #ffffff;
     --ns-ink:              #1a1a2e;
-    --ns-body:             #374151;
+    --ns-body:             #2d2d33;
     --ns-muted:            #6b7280;
-    --ns-border:           #e8e4de;
+    --ns-border:           #eaeaea;
 
     /* Surfaces */
-    --ns-sidebar-bg:       #f2ede8;
-    --ns-sidebar-hover:    #e8e0d8;
+    --ns-sidebar-bg:       #fafafa;
+    --ns-sidebar-hover:    #f0f0f0;
     --ns-sidebar-active:   #fdf0f2;
-    --ns-header-bg:        #ffffff;
-    --ns-footer-bg:        #f2ede8;
+    --ns-header-bg:        #ffffff;   /* unused now; kept for compat */
+    --ns-footer-bg:        #fafafa;
 
-    /* Typography */
-    --ns-font-display:     'Playfair Display', Georgia, 'Times New Roman', serif;
-    --ns-font-body:        'Source Sans 3', 'Source Sans Pro', system-ui, sans-serif;
+    /* Typography — Inter throughout; Playfair retired */
+    --ns-font-display:     'Inter', 'Source Sans 3', system-ui, sans-serif;
+    --ns-font-body:        'Inter', 'Source Sans 3', system-ui, sans-serif;
     --ns-font-mono:        'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
 
     /* Layout */
-    --sidebar-width:       240px;
-    --header-height:       58px;
+    --sidebar-width:       256px;
+    --header-height:       0;        /* header removed */
     --footer-height:       50px;
 
     /* Elevation */
@@ -46,23 +46,23 @@
     --ns-ease:             cubic-bezier(0.4, 0, 0.2, 1);
     --ns-transition:       0.2s cubic-bezier(0.4, 0, 0.2, 1);
 
-    /* Legacy compat aliases */
+    /* Legacy compat aliases (preserved so existing pages keep working) */
     --primary-color:       #A31F34;
-    --sidebar-bg:          #f2ede8;
-    --sidebar-text:        #374151;
-    --sidebar-hover:       #e8e0d8;
+    --sidebar-bg:          #fafafa;
+    --sidebar-text:        #2d2d33;
+    --sidebar-hover:       #f0f0f0;
     --sidebar-active:      #A31F34;
-    --content-bg:          #fafaf8;
+    --content-bg:          #ffffff;
     --header-bg:           #ffffff;
-    --footer-bg:           #f2ede8;
+    --footer-bg:           #fafafa;
 
-    /* EasyUI compat */
-    --easyui-bg:           #f5f4f2;
-    --easyui-border:       #e8e4de;
-    --easyui-hover:        #e8e0d8;
+    /* EasyUI compat — RETUNED in Task 6 */
+    --easyui-bg:           #fafafa;
+    --easyui-border:       #eaeaea;
+    --easyui-hover:        #f0f0f0;
     --easyui-selected:     #fdf0f2;
     --easyui-active:       #A31F34;
-    --easyui-text:         #374151;
+    --easyui-text:         #2d2d33;
 }
 
 /* ================================================
@@ -88,8 +88,8 @@ h1, h2, h3, h4, h5, h6 {
     font-family: var(--ns-font-display);
     color: var(--ns-ink);
     line-height: 1.25;
-    font-weight: 700;
-    letter-spacing: -0.01em;
+    font-weight: 600;
+    letter-spacing: -0.015em;
 }
 
 /* ================================================
