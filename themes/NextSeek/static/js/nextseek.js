@@ -71,3 +71,44 @@ function initActiveNavLink() {
 function toggleSidebar() {
     document.body.classList.toggle('sidebar-open');
 }
+
+/* ================================================
+   Sidebar Quick Access nav
+   ================================================ */
+
+// Search by UID — moved here from the deleted header.embed.html.
+function navUID() {
+    var el = document.getElementById("search-uid");
+    if (!el) return;
+    var v = el.value.trim();
+    if (v) {
+        window.location.href = "/seek/sampletree/uid=" + encodeURIComponent(v) + "/";
+    }
+}
+
+// Talk to Nessie — pass the typed query to the chat_frontend via the
+// /seek/chat/ redirect; chat_frontend reads ?q= on mount.
+function navNessie() {
+    var el = document.getElementById("ask-nessie");
+    if (!el) return;
+    var v = el.value.trim();
+    if (v) {
+        window.location.href = "/seek/chat/?q=" + encodeURIComponent(v);
+    }
+}
+
+// Wire Enter-key submission on both inputs once the DOM is ready.
+document.addEventListener("DOMContentLoaded", function () {
+    var uid = document.getElementById("search-uid");
+    if (uid) {
+        uid.addEventListener("keypress", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); navUID(); }
+        });
+    }
+    var nessie = document.getElementById("ask-nessie");
+    if (nessie) {
+        nessie.addEventListener("keypress", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); navNessie(); }
+        });
+    }
+});
