@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from django.shortcuts import redirect
 from django.http import HttpResponseRedirect, HttpResponse, FileResponse, Http404
+from urllib.parse import urlencode
 
 import csv
 import hashlib
@@ -1787,3 +1788,17 @@ def newSearch(request):
         return HttpResponseRedirect(url_redirect)
 
     return render(request, "newSearch.html")
+
+
+def chat_redirect(request):
+    """
+    Take ?q=<query> from the sidebar's Talk-to-Nessie input and 302 to
+    the chat_frontend URL with the query preserved. The chat_frontend
+    reads ?q= on mount and pre-fills its MessageInput.
+    """
+    q = request.GET.get("q", "").strip()
+    target = settings.CHAT_FRONTEND_URL
+    if q:
+        sep = "&" if "?" in target else "?"
+        target = f"{target}{sep}{urlencode({'q': q})}"
+    return HttpResponseRedirect(target)
