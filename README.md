@@ -32,7 +32,7 @@ This repository contains:
 - the `themes/NextSeek/` Django theme used by the current local Docker setup
 - the React chat frontend in `chat_frontend/`
 
-The `chat_nextseek/` dependency is a separate repository cloned locally into this repo for Docker and local development. It is not vendored into this repository.
+The `chat_nextseek/` dependency is a separate repository cloned locally into this repo for Docker and local development. It is not vendored into this repository. It is currently a private repository; if you don't have access, request the directory contents directly. When it goes public, the install can switch back to a pinned git source (see the comment in `pyproject.toml` under `[tool.uv.sources]`).
 
 ## Repository Layout
 
@@ -42,7 +42,11 @@ The `chat_nextseek/` dependency is a separate repository cloned locally into thi
 - `api_app/` - Legacy API endpoints
 - `themes/NextSeek/` - Current Django theme templates and static assets
 - `chat_frontend/` - Separate React/Vite chat frontend
+- `chat_nextseek/` - Locally-cloned assistant backend (private dep, installed via `[tool.uv.sources]` local path)
 - `docker/` - Environment files, nginx config, and startup scripts
+- `data/` - Seed assets used by features (e.g. `seq_template.xlsx`, `geo.json`)
+- `scripts/` - Repo-local helpers (`post_uv_sync.sh`, `test_batch_upload_e2e.py`)
+- `bootstrap.md` - Planning note for a future one-command bootstrap workflow
 - `UI.md` - Route, view, and template reference for the current UI
 - `CLAUDE.md` - Developer-oriented architecture and workflow notes
 
@@ -126,9 +130,9 @@ Important assumptions:
 
 Database import files used by the documented workflow live outside this repo under:
 
-- `/home/cdemu/code/dmac/docker/databases/dmac_dev_dump.sql`
-- `/home/cdemu/code/dmac/docker/databases/seek_production_dump.sql`
-- `/home/cdemu/code/dmac/docker/databases/neo4j_export_clean.cypher`
+- `/home/cdemu/code/dmac/docker/resources/dmac_dev_dump.sql`
+- `/home/cdemu/code/dmac/docker/resources/seek_production_dump.sql`
+- `/home/cdemu/code/dmac/docker/resources/neo4j_export_clean.cypher`
 
 ### Preconditions
 
@@ -223,8 +227,8 @@ docker compose ps
 #### 2. Import MySQL dumps
 
 ```bash
-(echo "SET foreign_key_checks=0;"; cat /home/cdemu/code/dmac/docker/databases/dmac_dev_dump.sql) | docker exec -i seek-mysql mysql -u seek_db_user -p'seek_db_password' dmac
-(echo "SET foreign_key_checks=0;"; cat /home/cdemu/code/dmac/docker/databases/seek_production_dump.sql) | docker exec -i seek-mysql mysql -u seek_db_user -p'seek_db_password' seek_production
+(echo "SET foreign_key_checks=0;"; cat /home/cdemu/code/dmac/docker/resources/dmac_dev_dump.sql) | docker exec -i seek-mysql mysql -u seek_db_user -p'seek_db_password' dmac
+(echo "SET foreign_key_checks=0;"; cat /home/cdemu/code/dmac/docker/resources/seek_production_dump.sql) | docker exec -i seek-mysql mysql -u seek_db_user -p'seek_db_password' seek_production
 ```
 
 If you already have older local schemas named `nextseek` and `seek_docker`, migrate them once:
@@ -256,7 +260,7 @@ docker compose ps
 #### 4. Import Neo4j data
 
 ```bash
-docker exec -i neo4j cypher-shell -u neo4j -p demopassword < /home/cdemu/code/dmac/docker/databases/neo4j_export_clean.cypher
+docker exec -i neo4j cypher-shell -u neo4j -p demopassword < /home/cdemu/code/dmac/docker/resources/neo4j_export_clean.cypher
 ```
 
 Optional verification:
