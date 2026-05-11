@@ -1,88 +1,140 @@
-{% load static %}
+{% load static i18n %}
 <ul class="nav flex-column">
 
-    <li class="nav-item">
-        <a href="/" class="nav-link">
-            <i class="bi bi-house-door"></i>
-            <span>Home</span>
-        </a>
-    </li>
-
-    <li><span class="nav-section-label">Data</span></li>
+  <!-- Data ------------------------------------- -->
+  <li class="sidebar-section">
+    <span class="sidebar-section-label">{% trans "Data" %}</span>
 
     <li class="nav-item">
-        <a href="#dataEntrySubmenu" class="nav-link" data-bs-toggle="collapse" aria-expanded="false">
-            <i class="bi bi-upload"></i>
-            <span>Data Entry</span>
-            <i class="bi bi-chevron-down"></i>
-        </a>
-        <ul class="collapse submenu" id="dataEntrySubmenu">
-            <li><a href="/seek/samples/upload/" class="nav-link"><i class="bi bi-file-earmark-spreadsheet"></i> Assay Sheet Upload</a></li>
-            <li><a href="/seek/data/upload/" class="nav-link"><i class="bi bi-file-earmark-zip"></i> Data &amp; Protocol Upload</a></li>
-            <li><a href="/seek/templates/" class="nav-link"><i class="bi bi-download"></i> Download Templates</a></li>
-        </ul>
+      <a href="/" class="nav-link">
+        <i class="bi bi-house-door"></i><span>{% trans "Home" %}</span>
+      </a>
     </li>
 
     <li class="nav-item">
-        <a href="#dataQuerySubmenu" class="nav-link" data-bs-toggle="collapse" aria-expanded="false">
-            <i class="bi bi-search"></i>
-            <span>Data Query</span>
-            <i class="bi bi-chevron-down"></i>
-        </a>
-        <ul class="collapse submenu" id="dataQuerySubmenu">
-            <li><a href="/seek/search/" class="nav-link"><i class="bi bi-collection"></i> Sample Search</a></li>
-            <li><a href="/seek/datafile/query/" class="nav-link"><i class="bi bi-file-zip"></i> Data File Query</a></li>
-            <li><a href="/seek/sop/query/" class="nav-link"><i class="bi bi-file-text"></i> Protocol Query</a></li>
-        </ul>
+      <a href="/seek/search/" class="nav-link">
+        <i class="bi bi-collection"></i><span>{% trans "Sample Search" %}</span>
+      </a>
     </li>
 
     <li class="nav-item">
-        <a href="/seek/projects" class="nav-link">
-            <i class="bi bi-building"></i>
-            <span>Projects</span>
-        </a>
-    </li>
-
-    <li><span class="nav-section-label">Admin</span></li>
-
-    <li class="nav-item">
-        <a href="#adminSubmenu" class="nav-link" data-bs-toggle="collapse" aria-expanded="false">
-            <i class="bi bi-wrench-adjustable"></i>
-            <span>Admin</span>
-            <i class="bi bi-chevron-down"></i>
-        </a>
-        <ul class="collapse submenu" id="adminSubmenu">
-            <li><a href="/admin" class="nav-link"><i class="bi bi-gear"></i> Admin Panel</a></li>
-            <li><a href="/seek/salt" class="nav-link"><i class="bi bi-stars"></i> Smart Query</a></li>
-            <li><a href="/seek/samples/attributes" class="nav-link"><i class="bi bi-pencil-square"></i> Sample Attributes</a></li>
-            <li><a href="/seek/admin/clades/" class="nav-link"><i class="bi bi-diagram-3"></i> Clades</a></li>
-            <li><a href="/seek/admin/retrieve/" class="nav-link"><i class="bi bi-cloud-download"></i> Sample Retrieval</a></li>
-        </ul>
-    </li>
-
-    <li><span class="nav-section-label">Resources</span></li>
-
-    <li class="nav-item">
-        <a href="https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/" class="nav-link" target="_blank" rel="noopener">
-            <i class="bi bi-book"></i>
-            <span>Documentation</span>
-            <i class="bi bi-box-arrow-up-right ms-auto" style="width:auto;font-size:0.6rem;opacity:0.4;"></i>
-        </a>
+      <a href="#dataEntrySubmenu" class="nav-link" data-bs-toggle="collapse" aria-expanded="false">
+        <i class="bi bi-upload"></i><span>{% trans "Data Entry" %}</span>
+        <i class="bi bi-chevron-down ms-auto"></i>
+      </a>
+      <ul class="collapse submenu" id="dataEntrySubmenu">
+        <li><a href="/seek/samples/upload/" class="nav-link"><i class="bi bi-file-earmark-spreadsheet"></i>{% trans "Assay Sheet Upload" %}</a></li>
+        <li><a href="/seek/data/upload/" class="nav-link"><i class="bi bi-file-earmark-zip"></i>{% trans "Data & Protocol Upload" %}</a></li>
+        <li><a href="/seek/templates/" class="nav-link"><i class="bi bi-download"></i>{% trans "Download Templates" %}</a></li>
+      </ul>
     </li>
 
     <li class="nav-item">
-        <a href="https://nextseek.mit.edu/published-studies/" class="nav-link" target="_blank" rel="noopener">
-            <i class="bi bi-journal-text"></i>
-            <span>Published Studies</span>
-            <i class="bi bi-box-arrow-up-right ms-auto" style="width:auto;font-size:0.6rem;opacity:0.4;"></i>
-        </a>
+      <a href="#dataQuerySubmenu" class="nav-link" data-bs-toggle="collapse" aria-expanded="false">
+        <i class="bi bi-search"></i><span>{% trans "Data Query" %}</span>
+        <i class="bi bi-chevron-down ms-auto"></i>
+      </a>
+      <ul class="collapse submenu" id="dataQuerySubmenu">
+        <li><a href="/seek/datafile/query/" class="nav-link"><i class="bi bi-file-zip"></i>{% trans "Data File Query" %}</a></li>
+        <li><a href="/seek/sop/query/" class="nav-link"><i class="bi bi-file-text"></i>{% trans "Protocol Query" %}</a></li>
+      </ul>
     </li>
 
     <li class="nav-item">
-        <a href="mailto:fairdata@mit.edu" class="nav-link">
-            <i class="bi bi-envelope"></i>
-            <span>Contact Support</span>
-        </a>
+      <a href="/seek/projects" class="nav-link">
+        <i class="bi bi-building"></i><span>{% trans "Projects" %}</span>
+      </a>
     </li>
+  </li>
+
+  <!-- Quick Access ------------------------------ -->
+  <li class="sidebar-section">
+    <span class="sidebar-section-label">{% trans "Quick Access" %}</span>
+
+    <div class="qa-input">
+      <i class="bi bi-search qa-ico" aria-hidden="true"></i>
+      <input id="search-uid" type="text"
+             placeholder="{% trans 'Search by UID…' %}"
+             aria-label="{% trans 'Search by sample UID' %}">
+    </div>
+
+    <div class="qa-input">
+      <i class="bi bi-chat-dots qa-ico" aria-hidden="true"></i>
+      <input id="ask-nessie" type="text"
+             placeholder="{% trans 'Ask Nessie…' %}"
+             aria-label="{% trans 'Ask the NExtSEEK assistant' %}">
+    </div>
+
+    <a class="qa-cta" href="/seek/samples/upload/">
+      <span class="qa-plus">+</span> {% trans "New sample" %}
+    </a>
+
+    <div class="qa-placeholder">
+      <i>{% trans "Bookmarks · none yet" %}</i>
+    </div>
+  </li>
+
+  <!-- Admin (staff only) ----------------------- -->
+  {% if request.user.is_staff %}
+  <li class="sidebar-section">
+    <span class="sidebar-section-label">{% trans "Admin" %}</span>
+
+    <li class="nav-item">
+      <a href="/seek/salt" class="nav-link">
+        <i class="bi bi-stars"></i><span>{% trans "Smart Query" %}</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="/admin" class="nav-link">
+        <i class="bi bi-gear"></i><span>{% trans "Admin Panel" %}</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="/seek/samples/attributes" class="nav-link">
+        <i class="bi bi-pencil-square"></i><span>{% trans "Sample Attributes" %}</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="/seek/admin/clades/" class="nav-link">
+        <i class="bi bi-diagram-3"></i><span>{% trans "Clades" %}</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="/seek/admin/retrieve/" class="nav-link">
+        <i class="bi bi-cloud-download"></i><span>{% trans "Sample Retrieval" %}</span>
+      </a>
+    </li>
+  </li>
+  {% endif %}
+
+  <!-- Resources -------------------------------- -->
+  <li class="sidebar-section">
+    <span class="sidebar-section-label">{% trans "Resources" %}</span>
+
+    <li class="nav-item">
+      <a href="/seek/help/" class="nav-link">
+        <i class="bi bi-lightbulb"></i><span>{% trans "Getting Started" %}</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/"
+         class="nav-link" target="_blank" rel="noopener">
+        <i class="bi bi-book"></i><span>{% trans "Documentation" %}</span>
+        <i class="bi bi-box-arrow-up-right ms-auto" style="font-size:0.65rem;opacity:0.5;"></i>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="https://nextseek.mit.edu/published-studies/"
+         class="nav-link" target="_blank" rel="noopener">
+        <i class="bi bi-journal-text"></i><span>{% trans "Published Studies" %}</span>
+        <i class="bi bi-box-arrow-up-right ms-auto" style="font-size:0.65rem;opacity:0.5;"></i>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="mailto:fairdata@mit.edu" class="nav-link">
+        <i class="bi bi-envelope"></i><span>{% trans "Contact Support" %}</span>
+      </a>
+    </li>
+  </li>
 
 </ul>
