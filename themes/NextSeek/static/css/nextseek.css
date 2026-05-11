@@ -111,16 +111,6 @@ h1, h2, h3, h4, h5, h6 {
     overflow: hidden;
 }
 
-.sidebar-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1.25rem;
-    min-height: 56px;
-    border-bottom: 1px solid var(--ns-border);
-    flex-shrink: 0;
-}
-
 /* Wordmark: NExtSEEK — N and S in crimson */
 .sidebar-wordmark {
     font-family: var(--ns-font-display);
@@ -135,19 +125,6 @@ h1, h2, h3, h4, h5, h6 {
 }
 .sidebar-wordmark:hover { opacity: 0.85; color: var(--ns-ink); text-decoration: none; }
 .sidebar-wordmark .wm-hi { color: var(--ns-crimson); }
-
-.sidebar-toggle {
-    display: none;
-    background: none;
-    border: none;
-    color: var(--ns-muted);
-    font-size: 1.2rem;
-    cursor: pointer;
-    padding: 0.3rem;
-    border-radius: 4px;
-    transition: all var(--ns-transition);
-}
-.sidebar-toggle:hover { color: var(--ns-ink); background: var(--ns-sidebar-hover); }
 
 /* Scrollable nav area */
 .sidebar-nav {
@@ -268,94 +245,6 @@ h1, h2, h3, h4, h5, h6 {
     flex-direction: column;
     transition: margin-left var(--ns-transition);
 }
-
-/* ================================================
-   Header
-   ================================================ */
-
-.header {
-    position: sticky;
-    top: 0;
-    height: var(--header-height);
-    background-color: var(--ns-header-bg);
-    border-bottom: 1px solid var(--ns-border);
-    z-index: 100;
-    display: flex;
-    align-items: center;
-    box-shadow: var(--ns-shadow-xs);
-}
-
-.header-content {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    padding: 0 1.5rem;
-    gap: 1rem;
-}
-
-.sidebar-toggle-main {
-    display: none;
-    align-items: center;
-    padding: 0.35rem 0.45rem;
-    color: var(--ns-muted);
-    background: none;
-    border: none;
-    font-size: 1.2rem;
-    cursor: pointer;
-    border-radius: 6px;
-    transition: all var(--ns-transition);
-    flex-shrink: 0;
-}
-.sidebar-toggle-main:hover { background: var(--ns-bg); color: var(--ns-ink); }
-
-.header-search { flex: 1; max-width: 360px; }
-.header-search .input-group { width: 100%; }
-
-.header-search .form-control {
-    border: 1px solid var(--ns-border);
-    border-right: none;
-    background: var(--ns-bg);
-    font-family: var(--ns-font-body);
-    font-size: 0.875rem;
-    color: var(--ns-body);
-    border-radius: 6px 0 0 6px;
-    padding: 0.42rem 0.85rem;
-    transition: border-color var(--ns-transition), box-shadow var(--ns-transition), background var(--ns-transition);
-}
-.header-search .form-control::placeholder { color: var(--ns-muted); }
-.header-search .form-control:focus {
-    outline: none;
-    border-color: var(--ns-crimson);
-    box-shadow: 0 0 0 3px rgba(163,31,52,0.08);
-    background: var(--ns-white);
-}
-
-.header-search .btn-search {
-    background: var(--ns-crimson);
-    border: 1px solid var(--ns-crimson);
-    color: var(--ns-white);
-    border-radius: 0 6px 6px 0;
-    padding: 0.42rem 0.85rem;
-    font-size: 0.875rem;
-    cursor: pointer;
-    transition: background var(--ns-transition);
-}
-.header-search .btn-search:hover { background: var(--ns-crimson-hover); border-color: var(--ns-crimson-hover); }
-
-.header-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-left: auto;
-}
-.header-actions a {
-    color: var(--ns-body);
-    text-decoration: none;
-    font-size: 0.875rem;
-    font-family: var(--ns-font-body);
-    transition: color var(--ns-transition);
-}
-.header-actions a:hover { color: var(--ns-crimson); }
 
 /* ================================================
    Main Content
@@ -493,8 +382,6 @@ h1, h2, h3, h4, h5, h6 {
     }
     body.sidebar-open .sidebar { transform: translateX(0); }
     #main-wrapper { margin-left: 0; }
-    .sidebar-toggle-main { display: flex; }
-    .sidebar-toggle { display: block; }
 
     body.sidebar-open::before {
         content: '';
@@ -506,11 +393,9 @@ h1, h2, h3, h4, h5, h6 {
     }
 
     .content { padding: 1.25rem 1rem; }
-    .header-search { max-width: 220px; }
 }
 
 @media (max-width: 575.98px) {
-    .header-search { display: none; }
     .content { padding: 1rem 0.875rem; }
 }
 
@@ -1111,7 +996,7 @@ h1, h2, h3, h4, h5, h6 {
 .sidebar-header {
     padding: 0.85rem 1rem 0.85rem;
     border-bottom: 1px solid var(--ns-border);
-    display: block;
+    flex-shrink: 0;
 }
 .bmc-lockup {
     margin-bottom: 0.45rem;
