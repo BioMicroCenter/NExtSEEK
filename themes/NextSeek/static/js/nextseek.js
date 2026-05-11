@@ -12,7 +12,7 @@ function initSidebar() {
     document.addEventListener('click', function(e) {
         if (document.body.classList.contains('sidebar-open')) {
             const sidebar = document.getElementById('sidebar');
-            const toggleBtn = document.querySelector('.sidebar-toggle-main');
+            const toggleBtn = document.querySelector('.mobile-toggle');
 
             if (!sidebar.contains(e.target) && !toggleBtn.contains(e.target)) {
                 document.body.classList.remove('sidebar-open');

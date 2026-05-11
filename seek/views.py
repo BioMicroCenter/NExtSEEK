@@ -36,7 +36,6 @@ from pytz import timezone
 
 from django.contrib.auth.models import User
 from django import forms
-from django.conf import settings
 
 import simplejson
 import datetime
@@ -82,7 +81,6 @@ from subprocess import call
 import shlex
 from subprocess import Popen, PIPE
 
-from django.conf import settings
 from seek.timeline.services.timeline_service import run_All, get_event_data
 from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
 import neo4j

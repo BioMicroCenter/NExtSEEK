@@ -481,7 +481,7 @@ h1, h2, h3, h4, h5, h6 {
     text-transform: uppercase !important;
 }
 .datagrid-row { background: var(--ns-white) !important; }
-.datagrid-row-alt { background: #fdf9f6 !important; }
+.datagrid-row-alt { background: var(--ns-bg) !important; }
 .datagrid-row-over { background: var(--easyui-hover) !important; }
 /* Older rule retained for non-color properties; color is overridden by the direction-C block at end of file. */
 .datagrid-row-selected {
@@ -1016,12 +1016,6 @@ h1, h2, h3, h4, h5, h6 {
 }
 .sidebar-wordmark .wm-hi { color: var(--ns-crimson); }
 
-.sidebar {
-    /* keep sidebar a flex column so user-panel can sit at bottom */
-    display: flex;
-    flex-direction: column;
-}
-.sidebar-nav { flex: 1; overflow-y: auto; }
 .sidebar-foot {
     flex-shrink: 0;
     border-top: 1px solid var(--ns-border);

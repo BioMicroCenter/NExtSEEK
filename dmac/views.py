@@ -288,6 +288,11 @@ def home(request):
     }
 
     try:
+        # v1 stub: only `total_samples_count` and `recent_samples` are
+        # populated from real data. The remaining context keys
+        # (total_projects_count, total_data_files_count, samples_delta_week,
+        # data_files_delta_week, projects_user_count) are intentionally
+        # left at their zero defaults; filling them in is a follow-on.
         from seek.models import Samples  # actual class name in seek.models
         context["total_samples_count"] = Samples.objects.count()
         context["recent_samples"] = list(
