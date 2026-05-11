@@ -904,3 +904,94 @@ h1, h2, h3, h4, h5, h6 {
     font-weight: 600;
 }
 .help-cta a { color: var(--ns-crimson); }
+
+/* ================================================
+   Sidebar user panel (bottom of sidebar)
+   ================================================ */
+.user-panel {
+    position: relative;
+    margin: 0.5rem 0.5rem 0.75rem;
+    padding: 0.55rem 0.75rem;
+    background: var(--ns-white);
+    border: 1px solid var(--ns-border);
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    transition: background var(--ns-transition);
+    outline: none;
+}
+.user-panel:hover { background: #fcfcfc; }
+.user-panel:focus { box-shadow: 0 0 0 3px var(--ns-crimson-soft); }
+
+.user-avatar {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--ns-crimson);
+    color: white;
+    font-size: 0.72rem;
+    font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    letter-spacing: 0.01em;
+}
+.user-meta { flex: 1; min-width: 0; }
+.user-name {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--ns-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.user-role {
+    font-size: 0.68rem;
+    color: var(--ns-muted);
+}
+.user-menu-btn {
+    background: transparent;
+    border: 0;
+    color: var(--ns-muted);
+    padding: 4px 6px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+.user-menu-btn:hover { background: var(--ns-sidebar-hover); color: var(--ns-ink); }
+
+.user-menu {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    right: 0;
+    min-width: 180px;
+    background: var(--ns-white);
+    border: 1px solid var(--ns-border);
+    border-radius: 8px;
+    box-shadow: var(--ns-shadow-md);
+    padding: 0.35rem;
+    display: none;
+    z-index: 1000;
+}
+.user-menu.open { display: block; }
+.user-menu a {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    font-size: 0.86rem;
+    color: var(--ns-body);
+    text-decoration: none;
+    border-radius: 5px;
+}
+.user-menu a:hover { background: var(--ns-sidebar-hover); color: var(--ns-ink); }
+
+.user-panel--anon {
+    justify-content: center;
+}
+.btn-signin {
+    background: var(--ns-crimson);
+    color: white;
+    border: 0;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border-radius: 7px;
+}
+.btn-signin:hover { background: var(--ns-crimson-hover); color: white; }

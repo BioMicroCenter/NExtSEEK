@@ -1,25 +1,41 @@
 {% load i18n mezzanine_tags accounts_tags %}
 
 {% if request.user.is_authenticated %}
-    <p>
-    {% trans "Logged in as: " %}
-    {% url "profile" request.user.username as profile_url %}
-    {% if profile_url %}
-        <a href="{{ profile_url }}">{{ request.user|username_or:"email" }}</a>
-    </p>
-        <a href="{% url "profile_update" %}" class="btn btn-default btn-sm btn-account">
-            <span class="glyphicon glyphicon-edit"></span> {% trans "Update profile" %}</a>
-    {% else %}
-        <a href="{% url "profile_update" %}">{{ request.user|username_or:"email" }}</a>
-    </p>
-    {% endif %}
-    <a href="{% url "logout" %}?next={{ request.path }}" class="btn btn-sm btn-danger btn-account">
-        <span class="glyphicon glyphicon-log-out"></span> {% trans "Log out" %}</a>
+  {% url "profile" request.user.username as profile_url %}
+  <div class="user-panel" tabindex="0">
+    <div class="user-avatar">
+      {{ request.user.username|slice:":2"|upper }}
+    </div>
+    <div class="user-meta">
+      <div class="user-name">{{ request.user|username_or:"email" }}</div>
+      <div class="user-role">
+        {% if request.user.is_staff %}{% trans "Admin" %}
+        {% else %}{% trans "Researcher" %}{% endif %}
+      </div>
+    </div>
+    <button class="user-menu-btn" type="button" aria-label="{% trans 'User menu' %}"
+            onclick="toggleUserMenu(this)">
+      <i class="bi bi-three-dots"></i>
+    </button>
+    <div class="user-menu" role="menu">
+      {% if profile_url %}
+        <a href="{{ profile_url }}" role="menuitem">
+          <i class="bi bi-person"></i> {% trans "Profile" %}
+        </a>
+      {% endif %}
+      <a href="{% url 'profile_update' %}" role="menuitem">
+        <i class="bi bi-pencil"></i> {% trans "Update profile" %}
+      </a>
+      <a href="{% url 'logout' %}?next={{ request.path }}" role="menuitem">
+        <i class="bi bi-box-arrow-right"></i> {% trans "Sign out" %}
+      </a>
+    </div>
+  </div>
 {% else %}
-    <!---a href="{% url "login" %}?next={{ request.path }}" class="btn btn-default btn-sm btn-account"--->
-    <a href="/login/?next={{ request.path }}" class="btn btn-default btn-sm btn-account">
-        <span class="glyphicon glyphicon-log-in"></span> {% trans "Log in" %}</a>
-    <!---a href="{% url "signup" %}?next={{ request.path }}" class="btn btn-default btn-sm btn-account"--->
-    <a href="https://fairdata.mit.edu/signup" class="btn btn-default btn-sm btn-account">
-        <span class="glyphicon glyphicon-edit"></span> {% trans "Sign up" %}</a>
+  <div class="user-panel user-panel--anon">
+    <a class="btn btn-sm btn-signin"
+       href="/login/?next={{ request.path }}">
+      <i class="bi bi-box-arrow-in-right"></i> {% trans "Sign in" %}
+    </a>
+  </div>
 {% endif %}

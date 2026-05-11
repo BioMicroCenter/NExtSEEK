@@ -112,3 +112,24 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 });
+
+// User-menu meatball toggle
+function toggleUserMenu(btn) {
+    var panel = btn.closest('.user-panel');
+    if (!panel) return;
+    var menu = panel.querySelector('.user-menu');
+    if (!menu) return;
+    menu.classList.toggle('open');
+
+    // Close on outside click
+    if (menu.classList.contains('open')) {
+        setTimeout(function () {
+            document.addEventListener('click', function close(e) {
+                if (!panel.contains(e.target)) {
+                    menu.classList.remove('open');
+                    document.removeEventListener('click', close);
+                }
+            });
+        }, 0);
+    }
+}
