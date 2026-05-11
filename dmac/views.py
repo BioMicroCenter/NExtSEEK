@@ -269,7 +269,6 @@ def signup_seek(request):
     HttpResponseRedirect(url)
 
 
-from django.db.models import Count
 
 
 def home(request):
