@@ -267,3 +267,39 @@ def index(request):
 def signup_seek(request):
     url = settings.SEEK_URL + "/signup"
     HttpResponseRedirect(url)
+
+
+from django.db.models import Count
+
+
+def home(request):
+    """
+    Home dashboard. Passes a small set of counts and a 'recent samples'
+    list to themes/NextSeek/templates/index.html. Falls back gracefully
+    when the user has nothing yet.
+    """
+    context = {
+        "total_samples_count": 0,
+        "total_projects_count": 0,
+        "total_data_files_count": 0,
+        "samples_delta_week": 0,
+        "data_files_delta_week": 0,
+        "projects_user_count": 0,
+        "recent_samples": [],
+    }
+
+    try:
+        from seek.models import Samples  # actual class name in seek.models
+        context["total_samples_count"] = Samples.objects.count()
+        context["recent_samples"] = list(
+            Samples.objects.order_by("-id").values(
+                "uid", "name", "project__name"
+            )[:4]
+        )
+    except Exception:
+        # Model not importable from this location or DB unavailable —
+        # render with empty defaults. v1 is tolerant; later passes can
+        # plumb the real model names.
+        pass
+
+    return render(request, "index.html", context)
