@@ -160,7 +160,6 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-themes/SmartAdmin
 dmac/local_settings.py
 local_settings.py
 .DS_Store
