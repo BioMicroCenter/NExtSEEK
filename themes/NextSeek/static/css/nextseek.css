@@ -829,4 +829,77 @@ h1, h2, h3, h4, h5, h6 {
     padding: 1.25rem 1.5rem;
 }
 .help-cta h2 { font-size: 1.15rem; margin-bottom: 0.5rem; }
+
+/* ================================================
+   EasyUI datagrid retune — direction C
+   Variables are set in :root; these rules apply them.
+   ================================================ */
+
+/* Datagrid surface */
+.datagrid-wrap,
+.datagrid-view,
+.datagrid-body,
+.datagrid-header-row,
+.datagrid-row { background-color: var(--easyui-bg) !important; }
+
+.datagrid-htable,
+.datagrid-btable { color: var(--easyui-text); }
+
+/* Header */
+.datagrid-header,
+.datagrid-header-inner {
+    background: var(--easyui-bg) !important;
+    border-bottom: 1px solid var(--easyui-border) !important;
+}
+.datagrid-cell,
+.datagrid-header-cell { color: var(--easyui-text); }
+.datagrid-cell-group,
+.datagrid-header .datagrid-cell-group { color: var(--ns-muted); font-weight: 600; }
+
+/* Borders */
+.datagrid,
+.datagrid-view1,
+.datagrid-view2,
+.datagrid-toolbar,
+.datagrid-pager { border-color: var(--easyui-border) !important; }
+
+/* Hover + selected */
+.datagrid-row-over { background-color: var(--easyui-hover) !important; }
+.datagrid-row-selected,
+.datagrid-row-selected td { background-color: var(--easyui-selected) !important; color: var(--easyui-active) !important; }
+
+/* Sort arrows */
+.datagrid-sort-icon { color: var(--easyui-active); }
+
+/* Pager */
+.datagrid-pager .pagination-page-list,
+.datagrid-pager .pagination-info { color: var(--ns-muted); }
+
+/* Combobox + textbox inputs used inside EasyUI */
+.textbox,
+.combo {
+    border-color: var(--easyui-border) !important;
+    background: white !important;
+    border-radius: 6px;
+}
+.textbox:hover,
+.combo:hover { border-color: var(--ns-crimson) !important; }
+.textbox-focused,
+.combo-focused {
+    border-color: var(--ns-crimson) !important;
+    box-shadow: 0 0 0 3px var(--ns-crimson-soft) !important;
+}
+
+/* Tabs (used on sample search page) */
+.tabs-header,
+.tabs-tool,
+.tabs-scroller-left,
+.tabs-scroller-right { background: var(--easyui-bg) !important; border-color: var(--easyui-border) !important; }
+.tabs li a.tabs-inner { color: var(--ns-body); }
+.tabs li.tabs-selected a.tabs-inner {
+    background: white;
+    color: var(--easyui-active);
+    border-bottom-color: white;
+    font-weight: 600;
+}
 .help-cta a { color: var(--ns-crimson); }
