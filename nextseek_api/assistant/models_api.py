@@ -11,9 +11,10 @@ from pydantic import BaseModel, Field, ConfigDict
 
 class QueryRequest(BaseModel):
     """POST /assistant/query/ request body."""
-    session_id: Optional[UUID] = Field(None, description="Chat session UUID. If omitted, reuses the most recently updated session or auto-creates one.")
+    session_id: Optional[UUID] = Field(None, description="Chat session UUID. If omitted (and force_new is False), reuses the most recently updated session or auto-creates one.")
     query: str = Field(..., min_length=1, max_length=4000, description="Natural language query")
     mode: str = Field(..., description="What mode to execute the query as. E.g. standard, plan, etc.")
+    force_new: bool = Field(False, description="If true and session_id is omitted, always create a new ChatSession instead of reusing the most recent one.")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -42,6 +43,47 @@ class SessionDetailResponse(BaseModel):
     created_at: datetime
     query_count: int = Field(..., description="Number of queries in results_history")
     has_results: bool = Field(..., description="Whether any results exist")
+    # Populated when the request includes ?include=turns
+    title: Optional[str] = None
+    turns: Optional[List["Turn"]] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class Turn(BaseModel):
+    """One projected turn from a session's results_history."""
+    bundle_id: int
+    user_query: str
+    reply: str
+    mode: str
+    ts: Optional[str] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SessionListItem(BaseModel):
+    """One row in the sessions list view."""
+    session_id: UUID
+    title: str = Field(..., description="Display title; 'New chat' when no title is set")
+    created_at: datetime
+    updated_at: datetime
+    query_count: int
+    preview: str = Field("", description="First user query, trimmed to <=80 chars")
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SessionListResponse(BaseModel):
+    """GET /assistant/sessions/ response."""
+    total: int
+    sessions: List[SessionListItem]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SessionPatchRequest(BaseModel):
+    """PATCH /assistant/sessions/{id}/ body."""
+    title: str = Field(..., min_length=1, max_length=200)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -157,3 +199,6 @@ class TaskProgressResponse(BaseModel):
     result: Optional[Dict[str, Any]] = Field(None, description="Final payload (set when status is completed or error)")
 
     model_config = ConfigDict(extra="forbid")
+
+
+SessionDetailResponse.model_rebuild()
