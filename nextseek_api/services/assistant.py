@@ -268,15 +268,30 @@ class AssistantViewSet(viewsets.ViewSet):
             return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
 
         history = session.results_history or []
-        return Response(
-            SessionDetailResponse(
-                session_id=session.session_id,
-                created_at=session.created_at,
-                query_count=len(history),
-                has_results=bool(history),
-            ).model_dump(mode="json"),
-            status=status.HTTP_200_OK,
-        )
+        payload = SessionDetailResponse(
+            session_id=session.session_id,
+            created_at=session.created_at,
+            query_count=len(history),
+            has_results=bool(history),
+        ).model_dump(mode="json")
+
+        include = request.query_params.get("include", "")
+        include_set = {p.strip() for p in include.split(",") if p.strip()}
+        if "turns" in include_set:
+            payload["title"] = session.title or "New chat"
+            payload["turns"] = [
+                Turn(
+                    bundle_id=b.get("id", 0),
+                    user_query=b.get("user_query", ""),
+                    reply=b.get("terminal_reply") or b.get("reply") or "",
+                    mode=b.get("mode", ""),
+                    ts=b.get("ts"),
+                ).model_dump(mode="json")
+                for b in history
+                if (b or {}).get("user_query")
+            ]
+
+        return Response(payload, status=status.HTTP_200_OK)
 
     # ------------------------------------------------------------------
     # 4. POST /assistant/query/  (SSE streaming)

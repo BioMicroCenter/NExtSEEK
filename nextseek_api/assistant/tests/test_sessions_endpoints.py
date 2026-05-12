@@ -101,3 +101,65 @@ class ListSessionsTests(SessionEndpointsTestBase):
         self.client.force_authenticate(user=None)
         resp = self.client.get(self.URL)
         self.assertIn(resp.status_code, (401, 403))
+
+
+class GetSessionWithTurnsTests(SessionEndpointsTestBase):
+    def _url(self, sid, include=None):
+        base = f"/nextseek_api/assistant/sessions/{sid}/"
+        return f"{base}?include={include}" if include else base
+
+    def test_existing_shape_unchanged_without_include(self):
+        cs = ChatSession.objects.create(
+            user=self.user,
+            title="My chat",
+            results_history=[{"id": 1, "user_query": "hi", "reply": "hello", "mode": "x"}],
+        )
+        body = self.client.get(self._url(cs.session_id)).json()
+        # Pre-existing fields still present.
+        self.assertEqual(body["session_id"], str(cs.session_id))
+        self.assertEqual(body["query_count"], 1)
+        self.assertTrue(body["has_results"])
+        # New optional fields are null/absent when ?include=turns is not passed.
+        self.assertIsNone(body.get("turns"))
+        self.assertIsNone(body.get("title"))
+
+    def test_include_turns_returns_title_and_turns(self):
+        cs = ChatSession.objects.create(
+            user=self.user,
+            title="My chat",
+            results_history=[
+                {"id": 1, "user_query": "hi", "terminal_reply": "hello", "mode": "new_search", "ts": "2026-05-12T00:00:00"},
+                {"id": 2, "user_query": "again", "reply": "ok", "mode": "graph_query"},
+            ],
+        )
+        body = self.client.get(self._url(cs.session_id, include="turns")).json()
+        self.assertEqual(body["title"], "My chat")
+        self.assertEqual(len(body["turns"]), 2)
+        # terminal_reply preferred over reply when both could be set.
+        self.assertEqual(body["turns"][0]["reply"], "hello")
+        self.assertEqual(body["turns"][0]["bundle_id"], 1)
+        self.assertEqual(body["turns"][0]["mode"], "new_search")
+        self.assertEqual(body["turns"][0]["ts"], "2026-05-12T00:00:00")
+        self.assertEqual(body["turns"][1]["reply"], "ok")
+        self.assertIsNone(body["turns"][1]["ts"])
+
+    def test_include_turns_skips_bundle_without_user_query(self):
+        cs = ChatSession.objects.create(
+            user=self.user,
+            results_history=[
+                {"id": 1, "user_query": "hi", "reply": "hello", "mode": "x"},
+                {"id": 2, "reply": "no-user-query-bundle", "mode": "wizard"},
+                {"id": 3, "user_query": "third", "reply": "third-reply", "mode": "x"},
+            ],
+        )
+        turns = self.client.get(self._url(cs.session_id, include="turns")).json()["turns"]
+        self.assertEqual([t["bundle_id"] for t in turns], [1, 3])
+
+    def test_include_turns_403_for_non_owner(self):
+        cs = ChatSession.objects.create(user=self.other)
+        resp = self.client.get(self._url(cs.session_id, include="turns"))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_include_turns_404_when_missing(self):
+        resp = self.client.get(self._url("00000000-0000-0000-0000-000000000000", include="turns"))
+        self.assertEqual(resp.status_code, 404)
