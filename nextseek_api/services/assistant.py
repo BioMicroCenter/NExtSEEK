@@ -253,7 +253,7 @@ class AssistantViewSet(viewsets.ViewSet):
         tags=["Assistant"],
         responses={201: SessionCreateResponse},
     )
-    @action(detail=False, methods=["post"], url_path="sessions")
+    @list_sessions.mapping.post
     def create_session(self, request):
         authed, err = self._check_auth(request)
         if not authed:
@@ -330,11 +330,7 @@ class AssistantViewSet(viewsets.ViewSet):
         request=SessionPatchRequest,
         responses={200: SessionListItem},
     )
-    @action(
-        detail=False,
-        methods=["patch"],
-        url_path=r"sessions/(?P<session_id>[0-9a-f-]+)",
-    )
+    @get_session.mapping.patch
     def patch_session(self, request, session_id=None):
         authed, err = self._check_auth(request)
         if not authed:
@@ -373,11 +369,7 @@ class AssistantViewSet(viewsets.ViewSet):
         tags=["Assistant"],
         responses={204: None},
     )
-    @action(
-        detail=False,
-        methods=["delete"],
-        url_path=r"sessions/(?P<session_id>[0-9a-f-]+)",
-    )
+    @get_session.mapping.delete
     def delete_session(self, request, session_id=None):
         authed, err = self._check_auth(request)
         if not authed:
