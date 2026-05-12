@@ -132,36 +132,59 @@
     {% if clade_data %}
     <div class="project-stats-section">
         <h2>Project Statistics</h2>
-        <table class="project-stats-table">
-            <thead>
-                <tr>
-                    <th>Group</th>
-                    <th>Data Type</th>
-                    <th>Local</th>
-                    <th>Published</th>
-                    <th>Local Total</th>
-                    <th>Published Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for clade_list in clade_data %}
-                    {% for clade in clade_list %}
-                    <tr style="background-color: {{ clade.color }};">
-                        {% if forloop.first %}
-                        <td rowspan="{{ clade_list|length }}" style="font-weight:600;">{{ clade.title }}</td>
-                        {% endif %}
-                        <td>{{ clade.st_group }}</td>
-                        <td>{{ clade.count }}</td>
-                        <td>{{ clade.published }}</td>
-                        {% if forloop.first %}
-                        <td rowspan="{{ clade_list|length }}">{{ clade.total }}</td>
-                        <td rowspan="{{ clade_list|length }}">{{ clade.published_total }}</td>
-                        {% endif %}
+
+        <div class="d-only">
+            <table class="project-stats-table">
+                <thead>
+                    <tr>
+                        <th>Group</th>
+                        <th>Data Type</th>
+                        <th>Local</th>
+                        <th>Published</th>
+                        <th>Local Total</th>
+                        <th>Published Total</th>
                     </tr>
+                </thead>
+                <tbody>
+                    {% for clade_list in clade_data %}
+                        {% for clade in clade_list %}
+                        <tr style="background-color: {{ clade.color }};">
+                            {% if forloop.first %}
+                            <td rowspan="{{ clade_list|length }}" style="font-weight:600;">{{ clade.title }}</td>
+                            {% endif %}
+                            <td>{{ clade.st_group }}</td>
+                            <td>{{ clade.count }}</td>
+                            <td>{{ clade.published }}</td>
+                            {% if forloop.first %}
+                            <td rowspan="{{ clade_list|length }}">{{ clade.total }}</td>
+                            <td rowspan="{{ clade_list|length }}">{{ clade.published_total }}</td>
+                            {% endif %}
+                        </tr>
+                        {% endfor %}
                     {% endfor %}
-                {% endfor %}
-            </tbody>
-        </table>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="m-only m-stats-cards">
+            {% for clade_list in clade_data %}
+                {% with first=clade_list|first %}
+                <div class="m-stat-card" style="background-color: {{ first.color }};">
+                    <div class="group">{{ first.title }}</div>
+                    {% for clade in clade_list %}
+                    <div class="row">
+                        <span class="label">{{ clade.st_group }}</span>
+                        <span class="val">{{ clade.count }} local · {{ clade.published }} published</span>
+                    </div>
+                    {% endfor %}
+                    <div class="row">
+                        <span class="label">Total</span>
+                        <span class="val">{{ first.total }} local · {{ first.published_total }} published</span>
+                    </div>
+                </div>
+                {% endwith %}
+            {% endfor %}
+        </div>
     </div>
     {% endif %}
 

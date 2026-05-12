@@ -8,14 +8,15 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function initSidebar() {
-    // Close sidebar when clicking outside on mobile
+    // Belt-and-suspenders: close drawer on click outside (the .sidebar-scrim
+    // element handles the canonical click-to-close path).
     document.addEventListener('click', function(e) {
         if (document.body.classList.contains('sidebar-open')) {
             const sidebar = document.getElementById('sidebar');
             const toggleBtn = document.querySelector('.mobile-toggle');
 
             if (!sidebar.contains(e.target) && !toggleBtn.contains(e.target)) {
-                document.body.classList.remove('sidebar-open');
+                closeSidebar();
             }
         }
     });
@@ -68,9 +69,54 @@ function initActiveNavLink() {
     }
 }
 
-function toggleSidebar() {
-    document.body.classList.toggle('sidebar-open');
+function openSidebar() {
+    document.body.classList.add('sidebar-open');
+    document.body.style.overflow = 'hidden';
+    const toggle = document.querySelector('.mobile-toggle');
+    if (toggle) toggle.setAttribute('aria-expanded', 'true');
+    const firstLink = document.querySelector('#sidebar .nav-link');
+    if (firstLink) firstLink.focus();
 }
+
+function closeSidebar() {
+    document.body.classList.remove('sidebar-open');
+    document.body.style.overflow = '';
+    const toggle = document.querySelector('.mobile-toggle');
+    if (toggle) {
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.focus();
+    }
+}
+
+// ESC closes the drawer
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && document.body.classList.contains('sidebar-open')) {
+        closeSidebar();
+    }
+});
+
+// Tab focus trap while drawer is open — keyboard users can't escape into
+// the page underneath. Pairs with openSidebar()'s initial focus into the
+// drawer and closeSidebar()'s focus-return-to-toggle.
+document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Tab') return;
+    if (!document.body.classList.contains('sidebar-open')) return;
+    var sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    var focusables = sidebar.querySelectorAll(
+        'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusables.length === 0) return;
+    var first = focusables[0];
+    var last  = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+    }
+});
 
 /* ================================================
    Sidebar Quick Access nav

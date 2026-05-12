@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,12 +26,10 @@ export function SessionListItem({
   item, active, disabled, collapsed = false,
   onSelect, onRename, onDelete,
 }: SessionListItemProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(item.title);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (renaming) {
@@ -39,17 +37,6 @@ export function SessionListItem({
       requestAnimationFrame(() => inputRef.current?.select());
     }
   }, [renaming, item.title]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDoc = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [menuOpen]);
 
   const commitRename = () => {
     const trimmed = draft.trim();
@@ -66,7 +53,7 @@ export function SessionListItem({
   return (
     <div
       className={[
-        "group relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+        "group relative flex w-full min-w-0 items-center gap-1 overflow-hidden rounded-md px-2 py-1.5 text-sm",
         active ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
         disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer",
       ].join(" ")}
@@ -88,7 +75,7 @@ export function SessionListItem({
         <button
           type="button"
           onClick={() => !disabled && onSelect(item.session_id)}
-          className="flex-1 truncate text-left"
+          className="min-w-0 flex-1 truncate text-left"
           title={item.title}
           disabled={disabled}
         >
@@ -97,41 +84,31 @@ export function SessionListItem({
       )}
 
       {!collapsed && !renaming && (
-        <div className="relative" ref={menuRef}>
+        <div className="flex shrink-0 items-center gap-0.5">
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="h-6 w-6 opacity-0 group-hover:opacity-100"
-            aria-label="More"
-            onClick={() => setMenuOpen((v) => !v)}
+            className="h-7 w-7"
+            aria-label="Rename"
+            title="Rename"
+            onClick={(e) => { e.stopPropagation(); setRenaming(true); }}
             disabled={disabled}
           >
-            <MoreHorizontal className="h-4 w-4" />
+            <Pencil className="h-3.5 w-3.5" />
           </Button>
-          {menuOpen && (
-            <div
-              role="menu"
-              className="absolute right-0 top-full z-50 mt-1 w-32 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                className="w-full rounded-sm px-2 py-1 text-left text-sm hover:bg-accent"
-                onClick={() => { setMenuOpen(false); setRenaming(true); }}
-              >
-                Rename
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="w-full rounded-sm px-2 py-1 text-left text-sm hover:bg-accent"
-                onClick={() => { setMenuOpen(false); setConfirmOpen(true); }}
-              >
-                Delete
-              </button>
-            </div>
-          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 hover:text-destructive"
+            aria-label="Delete"
+            title="Delete"
+            onClick={(e) => { e.stopPropagation(); setConfirmOpen(true); }}
+            disabled={disabled}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
         </div>
       )}
 

@@ -383,17 +383,21 @@ h1, h2, h3, h4, h5, h6 {
     body.sidebar-open .sidebar { transform: translateX(0); }
     #main-wrapper { margin-left: 0; }
 
-    body.sidebar-open::before {
-        content: '';
-        position: fixed;
-        inset: 0;
-        background: rgba(26,26,46,0.4);
-        z-index: 999;
-        cursor: pointer;
-    }
-
     .content { padding: 1.25rem 1rem; }
 }
+
+/* Drawer scrim — promoted from body::before to a real element so the
+   tap-to-close handler can listen on it. Display gated on .sidebar-open
+   so it doesn't grab clicks on desktop. */
+.sidebar-scrim {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(26,26,46,0.4);
+    z-index: 999;
+    cursor: pointer;
+}
+body.sidebar-open .sidebar-scrim { display: block; }
 
 @media (max-width: 575.98px) {
     .content { padding: 1rem 0.875rem; }
@@ -1002,9 +1006,11 @@ h1, h2, h3, h4, h5, h6 {
     margin-bottom: 0.45rem;
 }
 .bmc-logo {
-    max-width: 110px;
+    width: 100%;
+    max-width: 200px;
     height: auto;
     display: block;
+    margin: 0 auto;
 }
 .sidebar-wordmark {
     font-family: var(--ns-font-display);
@@ -1126,6 +1132,74 @@ h1, h2, h3, h4, h5, h6 {
     margin-top: 0.1rem;
 }
 
+/* Projects box — partner-program logos pinned at the bottom of the dashboard.
+   Crimson outline + sidebar-grey fill per user spec. */
+.dash-projects {
+    background: var(--ns-sidebar-bg);
+    border: 1px solid var(--ns-crimson);
+    border-radius: 10px;
+    padding: 0.85rem 1.05rem 1rem;
+    margin-top: 1.25rem;
+}
+.dash-projects-head {
+    margin-bottom: 0.65rem;
+}
+.dash-projects .dp-label {
+    font-size: 0.7rem;
+    color: var(--ns-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+}
+.dp-grid {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.75rem;
+    align-items: center;
+}
+.dp-logo a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 56px;
+    padding: 0.35rem 0.5rem;
+    border-radius: 6px;
+    transition: filter 0.2s var(--ns-ease),
+                opacity 0.2s var(--ns-ease),
+                transform 0.2s var(--ns-ease),
+                background-color 0.2s var(--ns-ease);
+    filter: grayscale(0.85);
+    opacity: 0.72;
+}
+.dp-logo a:hover,
+.dp-logo a:focus-visible {
+    filter: grayscale(0);
+    opacity: 1;
+    transform: translateY(-1px);
+    background-color: var(--ns-white);
+    outline: none;
+}
+.dp-logo a:focus-visible {
+    box-shadow: 0 0 0 2px var(--ns-crimson-border);
+}
+.dp-logo img {
+    max-height: 100%;
+    max-width: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+}
+@media (max-width: 900px) {
+    .dp-grid { grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+    .dp-logo a { height: 48px; }
+}
+@media (max-width: 400px) {
+    .dp-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
 .dash-row {
     display: grid;
     grid-template-columns: 2fr 1fr;
@@ -1223,3 +1297,234 @@ h1, h2, h3, h4, h5, h6 {
 }
 .dash-action.accent h3 { color: var(--ns-crimson); }
 .dash-action.accent:hover { background: #f7d8de; }
+
+/* ================================================
+   Mobile view v1 — breakpoints 768 / 576 / 400
+   Pairs with the dual-rendering `.d-only` / `.m-only`
+   pattern used in seek/templates/searchAdvanced.html
+   and seek/templates/projectPage.html.
+   ================================================ */
+
+.m-only { display: none; }
+.d-only { display: block; }
+
+@media (max-width: 767.98px) {
+    .d-only { display: none; }
+    .m-only { display: block; }
+
+    /* iOS zoom-on-focus prevention — every text input gets >= 16px font */
+    input[type="text"],
+    input[type="search"],
+    input[type="email"],
+    input[type="password"],
+    input[type="number"],
+    textarea,
+    select {
+        font-size: 16px !important;
+    }
+}
+
+/* ---------- Touch targets (>= 44px hit area) ---------- */
+@media (max-width: 991.98px) {
+    .mobile-toggle {
+        width: 44px;
+        height: 44px;
+    }
+    .sidebar-nav .nav-link {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+    .user-panel .user-menu-btn {
+        min-width: 44px;
+        min-height: 44px;
+    }
+    .qa-input input {
+        min-height: 44px;
+    }
+    .qa-cta {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+    }
+}
+
+/* ---------- Sample Search mobile results ---------- */
+.m-results {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.m-result-row {
+    border-bottom: 1px solid var(--ns-border);
+    min-height: 44px;
+    padding: 10px 0;
+}
+.m-result-row a {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+}
+.m-result-row .r-line1 {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 0.95rem;
+}
+.m-result-row .r-uid {
+    color: var(--ns-crimson);
+    font-weight: 600;
+    flex-shrink: 0;
+}
+.m-result-row .r-title {
+    color: var(--ns-ink);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.m-result-row .r-line2 {
+    font-size: 0.78rem;
+    color: var(--ns-muted);
+    margin-top: 3px;
+}
+.m-result-count {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--ns-ink);
+    margin: 0 0 0.5rem;
+}
+.m-filter-form {
+    margin-bottom: 1rem;
+}
+.m-filter-form summary {
+    cursor: pointer;
+    padding: 12px 14px;
+    background: var(--ns-sidebar-bg);
+    border: 1px solid var(--ns-border);
+    border-radius: 8px;
+    font-weight: 600;
+    color: var(--ns-ink);
+    list-style: none;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.m-filter-form summary::after { content: "▾"; color: var(--ns-crimson); }
+.m-filter-form[open] summary::after { content: "▴"; }
+.m-filter-form .m-filter-body {
+    padding: 12px 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.m-filter-form .m-filter-body label {
+    font-size: 0.78rem;
+    color: var(--ns-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+}
+.m-filter-form .m-filter-body input,
+.m-filter-form .m-filter-body select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--ns-border);
+    border-radius: 6px;
+}
+.m-filter-form .m-filter-submit {
+    background: var(--ns-crimson);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 12px;
+    font-weight: 600;
+    margin-top: 4px;
+    min-height: 44px;
+}
+
+/* ---------- Project Detail mobile stats ---------- */
+.m-stats-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.m-stat-card {
+    border: 1px solid var(--ns-border);
+    border-radius: 8px;
+    background: var(--ns-white);
+    padding: 12px 14px;
+}
+.m-stat-card .group {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--ns-ink);
+    margin-bottom: 8px;
+}
+.m-stat-card .row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    padding: 4px 0;
+    border-top: 1px solid var(--ns-border);
+}
+.m-stat-card .row:first-of-type { border-top: none; }
+.m-stat-card .row .label { color: var(--ns-muted); }
+.m-stat-card .row .val { color: var(--ns-ink); font-weight: 500; }
+
+/* ---------- Dashboard mobile refinements ---------- */
+@media (max-width: 575.98px) {
+    .dash-tiles { grid-template-columns: 1fr; }
+    .dash-h1 { font-size: 1.5rem; }
+    .dash-row-item {
+        display: flex;
+        flex-wrap: wrap;
+        grid-template-columns: none;
+        gap: 0.25rem 0.5rem;
+    }
+    .dash-row-item .name { flex: 1; }
+    .dash-row-item .proj {
+        flex-basis: 100%;
+        margin-top: 2px;
+        font-size: 0.78rem;
+        text-align: left;
+    }
+    .dash-action { min-height: 44px; }
+    .footer { padding: 0.75rem 1rem; }
+}
+@media (max-width: 400px) {
+    .dash-h1 { font-size: 1.3rem; }
+    .dash-action { padding: 0.75rem; }
+}
+
+/* ---------- Tutorials TOC mobile ---------- */
+@media (max-width: 767.98px) {
+    .help-toc a {
+        display: block;
+        padding: 12px 0;
+        min-height: 44px;
+        border-bottom: 1px solid var(--ns-border);
+    }
+}
+
+/* ---------- Projects List touch targets ---------- */
+@media (max-width: 767.98px) {
+    .project-card .fairdata-link {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0.4rem 0.75rem;
+    }
+    .project-card .project-chevron {
+        min-width: 44px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
+/* ---------- EasyUI desktop-only notice ---------- */
+/* (Notice display rule is already wired in the existing @media (max-width: 768px)
+   block elsewhere in this file — Task 11 adds the markup to each desktop-only page.) */

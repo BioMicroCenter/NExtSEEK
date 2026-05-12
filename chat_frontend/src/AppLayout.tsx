@@ -143,7 +143,6 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
           onSelect={(id) => sessions.setActive(id).catch(() => addSystemMessage("Couldn't load this conversation."))}
           onRename={(id, t) => sessions.rename(id, t).catch(() => addSystemMessage("Rename failed."))}
           onDelete={(id) => sessions.remove(id).catch(() => addSystemMessage("Delete failed."))}
-          onToggleCollapse={toggleSidebar}
         />
         <ChatPanel
           messages={messages}

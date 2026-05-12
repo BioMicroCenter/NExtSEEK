@@ -23,7 +23,9 @@
     <!-- NExtSEEK Theme -->
     <link rel="stylesheet" type="text/css" href="{% static 'css/nextseek.css' %}">
 
-    <link rel="shortcut icon" href="{% static 'img/favicon.ico' %}" type="image/x-icon">
+    <link rel="icon" type="image/png" sizes="256x256" href="{% static 'img/favicon.png' %}?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="{% static 'img/favicon.png' %}?v=2">
+    <link rel="icon" type="image/png" sizes="16x16" href="{% static 'img/favicon.png' %}?v=2">
 
     <!-- jQuery + EasyUI -->
     <script src="{% static 'jquery-easyui-1.5.2/jquery.min.js' %}"></script>
@@ -36,10 +38,10 @@
 <body class="nextseek-app">
 
     <!-- Sidebar -->
-    <aside id="sidebar" class="sidebar">
+    <aside id="sidebar" class="sidebar" role="dialog" aria-modal="true" aria-label="{% trans 'Site navigation' %}">
         <div class="sidebar-header">
             <div class="bmc-lockup">
-                <img src="{% static 'img/400px-Bmclogo2020.png' %}"
+                <img src="{% static 'img/bmc-header-800.png' %}"
                      alt="BioMicro Center"
                      class="bmc-logo">
             </div>
@@ -59,14 +61,19 @@
         </div>
     </aside>
 
+    <!-- Drawer scrim (only visible while sidebar-open on narrow viewports) -->
+    <div class="sidebar-scrim" aria-hidden="true" onclick="closeSidebar()"></div>
+
     <!-- Main wrapper -->
     <div id="main-wrapper">
 
         <!-- Mobile toggle (only visible on narrow viewports) -->
         <button class="mobile-toggle d-lg-none"
                 type="button"
-                onclick="toggleSidebar()"
-                aria-label="{% trans 'Toggle navigation' %}">
+                aria-label="{% trans 'Open navigation' %}"
+                aria-controls="sidebar"
+                aria-expanded="false"
+                onclick="openSidebar()">
             <i class="bi bi-list"></i>
         </button>
 
