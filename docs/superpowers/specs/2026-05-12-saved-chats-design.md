@@ -542,6 +542,72 @@ Playwright (`e2e/sessions.spec.ts`):
 - Deep-link `/chat/<uuid>` (or `/assistant/chat/<uuid>` for embedded build) → conversation loads.
 - Click "New chat" + submit → new row appears with auto-title; URL becomes `/chat/<new-uuid>`.
 
+### 8.3 Live UI verification via Playwright MCP
+
+The `playwright-mcp` plugin is installed in this dev environment. It exposes
+browser-control tools (`browser_navigate`, `browser_snapshot`, `browser_click`,
+`browser_type`, `browser_press_key`, `browser_resize`,
+`browser_take_screenshot`, `browser_console_messages`,
+`browser_network_requests`, `browser_evaluate`, etc.) to the assistant.
+
+These tools are **not a replacement for the automated suites in §8.1/§8.2** —
+they're used during implementation to spot-check the UI as it goes together,
+in the same way a human would open the page and click around. Failures
+surfaced here become the input for the deterministic Playwright e2e suite
+(`e2e/sessions.spec.ts`).
+
+**When to use during implementation.**
+
+Run a live UI pass at each of these checkpoints:
+
+1. After `SessionSidebar` renders for the first time (no data wired) —
+   verify layout, collapse/expand, dark-mode contrast, narrow-viewport
+   drawer behavior. Hit both the standalone build (`npm run dev`, served at
+   `http://localhost:5173/`) and the embedded build (after
+   `npm run build:embedded` + a Django dev run, served at
+   `http://<django-host>/assistant/`).
+2. After `useSessions` is wired — list rendering, empty state, in-flight
+   lock visualization.
+3. After `force_new` end-to-end — click "New chat", submit a query, observe
+   `query_complete`, confirm a new row appears in the sidebar with the
+   auto-title and the URL is rewritten to `/chat/<uuid>`
+   (`/assistant/chat/<uuid>` in embedded).
+4. After rehydration is wired — copy the URL, open a fresh tab, navigate
+   directly, verify the conversation renders without a flicker of empty
+   chat. Use `browser_network_requests` to confirm exactly one
+   `GET /assistant/sessions/{id}/?include=turns` call.
+5. After rename + delete are wired — exercise inline rename happy path,
+   Escape-to-cancel, blur-to-save, empty-after-trim 422, delete confirm
+   flow, deleted-active-session URL reset.
+
+**Concrete probes.**
+
+Each verification step should pair a `browser_snapshot` (accessibility tree)
+with a `browser_take_screenshot` (visual). Plus:
+
+- `browser_console_messages` after each interaction — catch React key
+  warnings, dev-mode errors, and 4xx/5xx logs.
+- `browser_network_requests` to assert API-call shapes: the body of
+  `POST /assistant/query/async/` must contain `session_id` (when active) or
+  `force_new: true` (when pendingNewChat); the response of
+  `GET /assistant/sessions/{id}/?include=turns` must contain `turns`.
+- `browser_evaluate(() => localStorage.getItem('chat.sidebar.collapsed'))`
+  to confirm collapse state persistence.
+- `browser_resize(375, 800)` to confirm the off-canvas drawer behavior
+  below the `md` breakpoint.
+
+**Auth note.** The standalone build requires `VITE_API_BASE_URL`, basic-auth
+user, and basic-auth pass. The embedded build piggy-backs on the Django
+session cookie set by the user's normal `/login/` flow. For Playwright MCP
+sessions targeting the embedded build, log in once via `browser_navigate`
+to the Django login page and submit credentials before exercising
+`/assistant/`.
+
+**What NOT to do.** Do not use Playwright MCP for assertions in CI — those
+belong in `e2e/sessions.spec.ts` and run deterministically in headless
+Chromium against the same dev server. MCP is interactive, the verifier
+sees the page, and findings get codified into the deterministic suite.
+
 ## 9. Migration & rollout
 
 - Single Django migration adds the nullable `title` column. No data migration.
