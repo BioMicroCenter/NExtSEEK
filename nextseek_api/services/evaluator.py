@@ -25,7 +25,7 @@ from rest_framework.authentication import BasicAuthentication, TokenAuthenticati
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 
 from nextseek_api.assistant.descriptions_evaluator import (
@@ -510,6 +510,45 @@ class EvaluatorViewSet(viewsets.ViewSet):
             OpenApiParameter("page_size", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
         ],
         responses={200: EvaluatorRunsListResponse},
+        examples=[
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 runs list response",
+                value={"results": [], "count": 0, "next": None, "previous": None},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 runs list response",
+                value={
+                    "results": [{
+                        "task_id": "11111111-1111-1111-1111-111111111111",
+                        "session_id": "22222222-2222-2222-2222-222222222222",
+                        "status": "SUCCESS",
+                        "query": "List all NHP samples",
+                        "has_bundle": True,
+                        "user_id": 7,
+                        "created_at": "2026-04-01T00:00:00Z",
+                    }],
+                    "count": 1,
+                    "next": None,
+                    "previous": None,
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 validation error (400)",
+                value={"errors": [{
+                    "status": "400",
+                    "title": "Invalid query parameter",
+                    "source": {"parameter": "session_id"},
+                }]},
+                response_only=True,
+                status_codes=["400"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+        ],
     )
     @action(detail=False, methods=["get"], url_path="runs")
     def runs_list(self, request):

@@ -9,7 +9,7 @@ import time
 from celery.result import AsyncResult
 from django.conf import settings
 from django.http import FileResponse
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from pydantic import BaseModel, Field
 from rest_framework import status, viewsets
 from rest_framework.authentication import BasicAuthentication, TokenAuthentication
@@ -21,9 +21,14 @@ from rest_framework.response import Response
 from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 
 from .celery_app import app as celery_app
+from .error_helpers import (
+    pydantic_errors_to_api_errors,
+    v1_or_v2_error,
+)
 from .job_index import list_jobs, register_job, user_owns_job
 from .models import InputRowModel
 from .tasks import run_batch_upload_task
+from nextseek_api.errors import api_errors
 from nextseek_api.endpoint_descriptions import (
     BATCH_UPLOAD_START_DESC,
     BATCH_UPLOAD_STATUS_DESC,
@@ -100,9 +105,11 @@ class BatchUploadViewSet(viewsets.ViewSet):
     def _check_ownership(self, request, job_id):
         """Return 404 Response if user doesn't own this job, else None."""
         if not user_owns_job(request.user.pk, job_id):
-            return Response(
-                {"detail": "Not found."},
-                status=status.HTTP_404_NOT_FOUND,
+            return v1_or_v2_error(
+                request,
+                v1_body={"detail": "Not found."},
+                v1_status=status.HTTP_404_NOT_FOUND,
+                v2={"title": "Not found", "detail": "No job with that id for this user."},
             )
         return None
 
@@ -152,6 +159,41 @@ class BatchUploadViewSet(viewsets.ViewSet):
             422: OpenApiResponse(description="Pydantic validation error on rows or request body"),
         },
         description=BATCH_UPLOAD_START_DESC,
+        examples=[
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 start request",
+                value={"rows": [{"SampleType": "NHP", "json_metadata": {}}], "project_id": 12},
+                request_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 start request",
+                value={
+                    "rows": [
+                        {"SampleType": "NHP", "json_metadata": {"title": "sample-1"}, "UID": "NHP-001"},
+                        {"SampleType": "NHP", "json_metadata": {"title": "sample-2"}, "UID": "NHP-002"},
+                    ],
+                    "project_id": 12,
+                    "update_existing": False,
+                    "config_overrides": {"max_rows_per_batch": 100},
+                },
+                request_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 validation error (422)",
+                value={"errors": [{
+                    "status": "422",
+                    "title": "Field required",
+                    "source": {"pointer": "/data/attributes/rows/0/SampleType"},
+                    "meta": {"pydantic_type": "missing"},
+                }]},
+                response_only=True,
+                status_codes=["422"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+        ],
     )
     @action(detail=False, methods=["post"], url_path="start")
     def start(self, request):
@@ -177,15 +219,25 @@ class BatchUploadViewSet(viewsets.ViewSet):
             try:
                 req = BatchUploadStartRequest.model_validate(request.data)
             except PydanticValidationError as e:
+                if getattr(request, "version", None) == "v2":
+                    return api_errors(
+                        status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        pydantic_errors_to_api_errors(e),
+                    )
                 return Response(
                     {"detail": f"Request validation failed: {e.error_count()} error(s)", "errors": e.errors()},
                     status=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 )
             validated_rows = req.rows
             if not validated_rows:
-                return Response(
-                    {"detail": "rows must be a non-empty list of InputRowModel objects."},
-                    status=status.HTTP_400_BAD_REQUEST,
+                return v1_or_v2_error(
+                    request,
+                    v1_body={"detail": "rows must be a non-empty list of InputRowModel objects."},
+                    v1_status=status.HTTP_400_BAD_REQUEST,
+                    v2={
+                        "title": "rows must be a non-empty list of InputRowModel objects.",
+                        "pointer": "/data/attributes/rows",
+                    },
                 )
             if uploaded_files:
                 input_warnings.append("Both 'rows' and file uploads provided; using rows, ignoring files.")
@@ -195,42 +247,71 @@ class BatchUploadViewSet(viewsets.ViewSet):
             total_size = 0
             for uf in uploaded_files:
                 if not (uf.name or "").lower().endswith(".xlsx"):
-                    return Response(
-                        {"detail": "Only .xlsx files are accepted."},
-                        status=status.HTTP_400_BAD_REQUEST,
+                    return v1_or_v2_error(
+                        request,
+                        v1_body={"detail": "Only .xlsx files are accepted."},
+                        v1_status=status.HTTP_400_BAD_REQUEST,
+                        v2={
+                            "title": "Only .xlsx files are accepted.",
+                            "pointer": "/data/attributes/file",
+                            "valid_values": [".xlsx"],
+                        },
                     )
                 total_size += uf.size
             max_bytes = getattr(settings, "BATCH_UPLOAD_MAX_TOTAL_BYTES", 200 * 1024 * 1024)
             if total_size > max_bytes:
                 mb_limit = max_bytes / (1024 * 1024)
                 mb_actual = total_size / (1024 * 1024)
-                return Response(
-                    {"detail": f"Total upload size ({mb_actual:.1f} MB) exceeds limit ({mb_limit:.0f} MB)."},
-                    status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                return v1_or_v2_error(
+                    request,
+                    v1_body={"detail": f"Total upload size ({mb_actual:.1f} MB) exceeds limit ({mb_limit:.0f} MB)."},
+                    v1_status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    v2={
+                        "title": "Upload too large",
+                        "detail": f"Total upload size ({mb_actual:.1f} MB) exceeds limit ({mb_limit:.0f} MB).",
+                        "pointer": "/data/attributes/file",
+                    },
                 )
             for uf in uploaded_files:
                 xlsx_paths.append(_save_uploaded_file(uf))
 
         # ── Neither provided ──
         else:
-            return Response(
-                {"detail": "Either upload .xlsx file(s) or provide rows in JSON body."},
-                status=status.HTTP_400_BAD_REQUEST,
+            return v1_or_v2_error(
+                request,
+                v1_body={"detail": "Either upload .xlsx file(s) or provide rows in JSON body."},
+                v1_status=status.HTTP_400_BAD_REQUEST,
+                v2={
+                    "title": "Either upload .xlsx file(s) or provide rows in JSON body.",
+                    "example": {"rows": [{"SampleType": "NHP"}], "project_id": 12},
+                },
             )
 
         # Validate project_id
         project_id = request.data.get("project_id")
         if project_id is None:
-            return Response(
-                {"detail": "project_id is required"},
-                status=status.HTTP_400_BAD_REQUEST,
+            return v1_or_v2_error(
+                request,
+                v1_body={"detail": "project_id is required"},
+                v1_status=status.HTTP_400_BAD_REQUEST,
+                v2={
+                    "title": "project_id is required",
+                    "pointer": "/data/attributes/project_id",
+                    "example": 12,
+                },
             )
         try:
             project_id = int(project_id)
         except (TypeError, ValueError):
-            return Response(
-                {"detail": "project_id must be an integer"},
-                status=status.HTTP_400_BAD_REQUEST,
+            return v1_or_v2_error(
+                request,
+                v1_body={"detail": "project_id must be an integer"},
+                v1_status=status.HTTP_400_BAD_REQUEST,
+                v2={
+                    "title": "project_id must be an integer",
+                    "pointer": "/data/attributes/project_id",
+                    "example": 12,
+                },
             )
 
         # config_overrides + update_existing handling
@@ -243,9 +324,14 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 try:
                     config_overrides = json.loads(s)
                 except Exception:
-                    return Response(
-                        {"detail": "config_overrides must be a JSON object"},
-                        status=status.HTTP_400_BAD_REQUEST,
+                    return v1_or_v2_error(
+                        request,
+                        v1_body={"detail": "config_overrides must be a JSON object"},
+                        v1_status=status.HTTP_400_BAD_REQUEST,
+                        v2={
+                            "title": "config_overrides must be a JSON object",
+                            "pointer": "/data/attributes/config_overrides",
+                        },
                     )
 
         update_existing = request.data.get("update_existing")
@@ -277,9 +363,14 @@ class BatchUploadViewSet(viewsets.ViewSet):
         # Resolve contributor_id and lababbv from the authenticated user
         user_ctx = _resolve_user_context(request)
         if user_ctx is None:
-            return Response(
-                {"detail": "Could not resolve contributor ID from session"},
-                status=status.HTTP_401_UNAUTHORIZED,
+            return v1_or_v2_error(
+                request,
+                v1_body={"detail": "Could not resolve contributor ID from session"},
+                v1_status=status.HTTP_401_UNAUTHORIZED,
+                v2={
+                    "title": "Authentication required",
+                    "detail": "Could not resolve contributor ID from session",
+                },
             )
 
         # Optional explicit lababbv override — admin only (non-admin silently ignored)
@@ -321,6 +412,37 @@ class BatchUploadViewSet(viewsets.ViewSet):
     @extend_schema(
         responses={200: BatchUploadStatusResponse},
         description=BATCH_UPLOAD_STATUS_DESC,
+        examples=[
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 status response (queued)",
+                value={"job_id": "abc-123", "state": "PENDING", "meta": {}, "result": None},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 status response (success)",
+                value={
+                    "job_id": "abc-123",
+                    "state": "SUCCESS",
+                    "meta": {"progress": 100},
+                    "result": {"rows_inserted": 50, "rows_updated": 0, "summary_path": "/tmp/summary.csv"},
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 not found error (404)",
+                value={"errors": [{
+                    "status": "404",
+                    "title": "Not found",
+                    "detail": "No job with that id for this user.",
+                }]},
+                response_only=True,
+                status_codes=["404"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+        ],
     )
     @action(detail=False, methods=["get"], url_path=r"status/(?P<job_id>[^/.]+)")
     def job_status(self, request, job_id=None):
@@ -348,6 +470,33 @@ class BatchUploadViewSet(viewsets.ViewSet):
     @extend_schema(
         responses={204: None},
         description=BATCH_UPLOAD_CANCEL_DESC,
+        examples=[
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 cancel success (204)",
+                value=None,
+                response_only=True,
+                status_codes=["204"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 cancel ack",
+                value={"status": "revoked", "job_id": "abc-123"},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 not found error (404)",
+                value={"errors": [{
+                    "status": "404",
+                    "title": "Not found",
+                    "detail": "No job with that id for this user.",
+                }]},
+                response_only=True,
+                status_codes=["404"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+        ],
     )
     @action(detail=False, methods=["delete"], url_path=r"cancel/(?P<job_id>[^/.]+)")
     def cancel(self, request, job_id=None):
@@ -361,6 +510,37 @@ class BatchUploadViewSet(viewsets.ViewSet):
     @extend_schema(
         responses={200: OpenApiResponse(description="Summary CSV file download")},
         description=BATCH_UPLOAD_SUMMARY_DESC,
+        examples=[
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 summary header (CSV)",
+                value="job_id,state,rows_inserted\nabc-123,SUCCESS,50",
+                response_only=True,
+                media_type="text/csv",
+            ),
+            OpenApiExample(
+                name="Realistic v2 summary CSV",
+                value=(
+                    "uid,sampletype,status,error\n"
+                    "NHP-001,NHP,inserted,\n"
+                    "NHP-002,NHP,inserted,\n"
+                    "NHP-003,NHP,failed,\"duplicate UID\"\n"
+                ),
+                response_only=True,
+                media_type="text/csv",
+            ),
+            OpenApiExample(
+                name="v2 not found error (404)",
+                value={"errors": [{
+                    "status": "404",
+                    "title": "Job not complete",
+                    "detail": "Job not complete (state=PROGRESS)",
+                }]},
+                response_only=True,
+                status_codes=["404"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+        ],
     )
     @action(detail=False, methods=["get"], url_path=r"summary/(?P<job_id>[^/.]+)")
     def summary(self, request, job_id=None):
@@ -371,16 +551,25 @@ class BatchUploadViewSet(viewsets.ViewSet):
         result = AsyncResult(job_id, app=celery_app)
 
         if result.state not in {"SUCCESS", "FAILURE"}:
-            return Response(
-                {"detail": f"Job not complete (state={result.state})"},
-                status=status.HTTP_404_NOT_FOUND,
+            return v1_or_v2_error(
+                request,
+                v1_body={"detail": f"Job not complete (state={result.state})"},
+                v1_status=status.HTTP_404_NOT_FOUND,
+                v2={
+                    "title": "Job not complete",
+                    "detail": f"Job not complete (state={result.state})",
+                },
             )
 
         summary_path = (result.result or {}).get("summary_path", "")
         if not summary_path or not os.path.isfile(summary_path):
-            return Response(
-                {"detail": "Summary file not found"},
-                status=status.HTTP_404_NOT_FOUND,
+            return v1_or_v2_error(
+                request,
+                v1_body={"detail": "Summary file not found"},
+                v1_status=status.HTTP_404_NOT_FOUND,
+                v2={
+                    "title": "Summary file not found",
+                },
             )
 
         return FileResponse(
@@ -393,6 +582,40 @@ class BatchUploadViewSet(viewsets.ViewSet):
     @extend_schema(
         responses={200: {"type": "array", "items": {"type": "object"}}},
         description=BATCH_UPLOAD_LIST_DESC,
+        examples=[
+            # v2 contract examples (task-04)
+            OpenApiExample(
+                name="Minimal v2 list response",
+                value={"jobs": [], "total": 0, "page": 1, "page_size": 20},
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="Realistic v2 list response",
+                value={
+                    "jobs": [
+                        {"job_id": "abc-123", "project_id": 12, "created_at": "2026-04-01T00:00:00Z", "state": "SUCCESS"},
+                        {"job_id": "def-456", "project_id": 12, "created_at": "2026-04-02T00:00:00Z", "state": "PROGRESS"},
+                    ],
+                    "total": 2,
+                    "page": 1,
+                    "page_size": 20,
+                },
+                response_only=True,
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+            OpenApiExample(
+                name="v2 validation error (400)",
+                value={"errors": [{
+                    "status": "400",
+                    "title": "page and page_size must be integers",
+                    "source": {"parameter": "page"},
+                }]},
+                response_only=True,
+                status_codes=["400"],
+                media_type="application/vnd.nextseek.v2+json",
+            ),
+        ],
     )
     def list(self, request):
         """GET /api/batch-upload/ — list user's jobs with pagination."""
@@ -400,9 +623,14 @@ class BatchUploadViewSet(viewsets.ViewSet):
             page = int(request.query_params.get("page", 1))
             page_size = int(request.query_params.get("page_size", 20))
         except (TypeError, ValueError):
-            return Response(
-                {"detail": "page and page_size must be integers"},
-                status=status.HTTP_400_BAD_REQUEST,
+            return v1_or_v2_error(
+                request,
+                v1_body={"detail": "page and page_size must be integers"},
+                v1_status=status.HTTP_400_BAD_REQUEST,
+                v2={
+                    "title": "page and page_size must be integers",
+                    "parameter": "page",
+                },
             )
         page_size = min(page_size, 100)  # cap
 

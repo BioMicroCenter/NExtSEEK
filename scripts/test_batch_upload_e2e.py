@@ -1,5 +1,8 @@
 #!/usr/bin/env python
-"""Live E2E test: upload existing samples and verify Neo4j relationships.
+"""End-to-end verification script for batch-upload against a live NExtSEEK server.
+
+⚠ Not pytest-collected (see pyproject.toml `norecursedirs`).
+Requires a running server. Uses API v2 (Accept: application/vnd.nextseek.v2+json).
 
 Queries the SEEK database for 5 existing samples that have study associations,
 creates a minimal .xlsx, POSTs it to the batch upload API, waits for completion,
@@ -32,7 +35,10 @@ from django.conf import settings
 
 API_BASE = "https://nextseek-dev.mit.edu"
 AUTH = ("demo", "demopassword")
-HEADERS = {"Host": "nextseek-dev.mit.edu"}
+HEADERS = {
+    "Host": "nextseek-dev.mit.edu",
+    "Accept": "application/vnd.nextseek.v2+json",
+}
 POLL_INTERVAL = 2
 POLL_TIMEOUT = 120
 
