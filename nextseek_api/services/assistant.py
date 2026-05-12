@@ -119,6 +119,31 @@ def _error_response(title: str, detail: str, http_status: int) -> Response:
     )
 
 
+def _auto_title_if_unset(chat_session: ChatSession) -> None:
+    """Populate ChatSession.title from the first user query if currently NULL.
+
+    Idempotent: subsequent calls on a session with a title set are a no-op.
+    A manually-set title is therefore never overwritten — frontend rename
+    always wins.
+    """
+    if chat_session.title:
+        return
+    history = chat_session.results_history or []
+    first_user_query = ""
+    for bundle in history:
+        uq = (bundle or {}).get("user_query")
+        if uq:
+            first_user_query = uq
+            break
+    if not first_user_query:
+        return
+    title = " ".join(first_user_query.split())[:60]
+    if not title:
+        return
+    chat_session.title = title
+    chat_session.save(update_fields=["title", "updated_at"])
+
+
 class AssistantViewSet(viewsets.ViewSet):
     """ViewSet for the NExtSEEK Assistant (multi-agent chat)."""
 
@@ -467,6 +492,7 @@ class AssistantViewSet(viewsets.ViewSet):
                 })
             finally:
                 adapter.save()
+                _auto_title_if_unset(chat_session)
                 event_queue.put(None)  # sentinel
 
         thread = threading.Thread(target=_run_pipeline, daemon=True)
@@ -584,6 +610,7 @@ class AssistantViewSet(viewsets.ViewSet):
                 })
             finally:
                 adapter.save()
+                _auto_title_if_unset(chat_session)
 
         thread = threading.Thread(target=_run_pipeline, daemon=True)
         thread.start()

@@ -244,3 +244,69 @@ class DeleteSessionTests(SessionEndpointsTestBase):
         resp = self.client.delete(self._url(cs.session_id))
         self.assertEqual(resp.status_code, 403)
         self.assertTrue(ChatSession.objects.filter(session_id=cs.session_id).exists())
+
+
+class AutoTitleTests(SessionEndpointsTestBase):
+    def _call_helper(self, cs):
+        from nextseek_api.services.assistant import _auto_title_if_unset
+        _auto_title_if_unset(cs)
+
+    def test_sets_title_from_first_user_query(self):
+        cs = ChatSession.objects.create(
+            user=self.user,
+            results_history=[
+                {"id": 1, "user_query": "Find mice treated with NDMA", "reply": "...", "mode": "x"},
+            ],
+        )
+        self._call_helper(cs)
+        cs.refresh_from_db()
+        self.assertEqual(cs.title, "Find mice treated with NDMA")
+
+    def test_truncates_to_60_chars_after_collapsing_whitespace(self):
+        long_q = "What  is\tthe\nname of the protocol used in the GBM study by Dr X"
+        cs = ChatSession.objects.create(
+            user=self.user,
+            results_history=[{"id": 1, "user_query": long_q, "reply": "...", "mode": "x"}],
+        )
+        self._call_helper(cs)
+        cs.refresh_from_db()
+        expected = " ".join(long_q.split())[:60]
+        self.assertEqual(cs.title, expected)
+        self.assertLessEqual(len(cs.title), 60)
+
+    def test_noop_when_title_already_set(self):
+        cs = ChatSession.objects.create(
+            user=self.user,
+            title="Manual name",
+            results_history=[{"id": 1, "user_query": "ignored", "reply": "", "mode": "x"}],
+        )
+        self._call_helper(cs)
+        cs.refresh_from_db()
+        self.assertEqual(cs.title, "Manual name")
+
+    def test_noop_when_history_empty(self):
+        cs = ChatSession.objects.create(user=self.user)
+        self._call_helper(cs)
+        cs.refresh_from_db()
+        self.assertIsNone(cs.title)
+
+    def test_noop_when_first_bundle_has_no_user_query(self):
+        cs = ChatSession.objects.create(
+            user=self.user,
+            results_history=[{"id": 1, "reply": "no user_query", "mode": "wizard"}],
+        )
+        self._call_helper(cs)
+        cs.refresh_from_db()
+        self.assertIsNone(cs.title)
+
+    def test_finds_first_user_query_when_first_bundle_lacks_one(self):
+        cs = ChatSession.objects.create(
+            user=self.user,
+            results_history=[
+                {"id": 1, "reply": "wizard intro", "mode": "wizard"},
+                {"id": 2, "user_query": "real first query", "reply": "x", "mode": "x"},
+            ],
+        )
+        self._call_helper(cs)
+        cs.refresh_from_db()
+        self.assertEqual(cs.title, "real first query")
