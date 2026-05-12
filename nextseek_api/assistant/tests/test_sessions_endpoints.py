@@ -163,3 +163,49 @@ class GetSessionWithTurnsTests(SessionEndpointsTestBase):
     def test_include_turns_404_when_missing(self):
         resp = self.client.get(self._url("00000000-0000-0000-0000-000000000000", include="turns"))
         self.assertEqual(resp.status_code, 404)
+
+
+class PatchSessionTests(SessionEndpointsTestBase):
+    def _url(self, sid):
+        return f"/nextseek_api/assistant/sessions/{sid}/"
+
+    def test_rename_happy_path(self):
+        cs = ChatSession.objects.create(user=self.user)
+        resp = self.client.patch(self._url(cs.session_id), {"title": "New name"}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        cs.refresh_from_db()
+        self.assertEqual(cs.title, "New name")
+        body = resp.json()
+        self.assertEqual(body["title"], "New name")
+        self.assertEqual(body["session_id"], str(cs.session_id))
+
+    def test_rename_trims_whitespace(self):
+        cs = ChatSession.objects.create(user=self.user)
+        self.client.patch(self._url(cs.session_id), {"title": "  hello  "}, format="json")
+        cs.refresh_from_db()
+        self.assertEqual(cs.title, "hello")
+
+    def test_reject_empty_after_trim(self):
+        cs = ChatSession.objects.create(user=self.user)
+        resp = self.client.patch(self._url(cs.session_id), {"title": "   "}, format="json")
+        self.assertEqual(resp.status_code, 422)
+        cs.refresh_from_db()
+        self.assertIsNone(cs.title)
+
+    def test_reject_overlong(self):
+        cs = ChatSession.objects.create(user=self.user)
+        resp = self.client.patch(self._url(cs.session_id), {"title": "x" * 201}, format="json")
+        self.assertEqual(resp.status_code, 422)
+
+    def test_403_on_non_owner(self):
+        cs = ChatSession.objects.create(user=self.other)
+        resp = self.client.patch(self._url(cs.session_id), {"title": "stolen"}, format="json")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_404_when_missing(self):
+        resp = self.client.patch(
+            self._url("00000000-0000-0000-0000-000000000000"),
+            {"title": "ghost"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 404)

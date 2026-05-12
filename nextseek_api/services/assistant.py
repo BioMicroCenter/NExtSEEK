@@ -39,7 +39,9 @@ from nextseek_api.assistant.descriptions import (
     ASSISTANT_QUERY_ASYNC_DESC,
     ASSISTANT_QUERY_DESC,
     ASSISTANT_SESSION_CREATE_DESC,
+    ASSISTANT_SESSION_DELETE_DESC,
     ASSISTANT_SESSION_DETAIL_DESC,
+    ASSISTANT_SESSION_PATCH_DESC,
     ASSISTANT_SESSIONS_LIST_DESC,
     ASSISTANT_TASK_PROGRESS_DESC,
     ASSISTANT_TEST_CASES_DESC,
@@ -292,6 +294,50 @@ class AssistantViewSet(viewsets.ViewSet):
             ]
 
         return Response(payload, status=status.HTTP_200_OK)
+
+    # ------------------------------------------------------------------
+    # 3b. PATCH /assistant/sessions/{session_id}/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Assistant: Rename Session",
+        description=ASSISTANT_SESSION_PATCH_DESC,
+        tags=["Assistant"],
+        request=SessionPatchRequest,
+        responses={200: SessionListItem},
+    )
+    @action(
+        detail=False,
+        methods=["patch"],
+        url_path=r"sessions/(?P<session_id>[0-9a-f-]+)",
+    )
+    def patch_session(self, request, session_id=None):
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        try:
+            session = ChatSession.objects.get(session_id=session_id)
+        except ChatSession.DoesNotExist:
+            return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
+
+        if session.user_id != request.user.pk:
+            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+
+        raw_title = (request.data or {}).get("title")
+        if not isinstance(raw_title, str):
+            return _error_response("Validation error", "Field 'title' is required and must be a string.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+        trimmed = raw_title.strip()
+        if not trimmed:
+            return _error_response("Validation error", "Field 'title' must not be empty after trim.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+        if len(trimmed) > 200:
+            return _error_response("Validation error", "Field 'title' is too long (max 200 chars).", status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        session.title = trimmed
+        session.save(update_fields=["title", "updated_at"])
+        return Response(
+            self._project_session_list_row(session),
+            status=status.HTTP_200_OK,
+        )
 
     # ------------------------------------------------------------------
     # 4. POST /assistant/query/  (SSE streaming)

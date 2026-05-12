@@ -106,3 +106,15 @@ Returns at most 50 rows. Each row carries an id, display title (or "New chat"
 if untitled), timestamps, the count of completed query bundles, and an 80-char
 preview derived from the first user query in the session's results_history.
 """
+
+ASSISTANT_SESSION_DELETE_DESC = """
+Permanently delete a chat session and all associated QueryTask rows.
+Returns 204 on success, 404 if the session is missing, 403 if the
+caller does not own it.
+"""
+
+ASSISTANT_SESSION_PATCH_DESC = """
+Rename a chat session. Body: {"title": <string, 1..200 chars>}.
+The title is trimmed; empty-after-trim is rejected with 422.
+Returns the updated row in SessionListItem shape.
+"""
