@@ -276,11 +276,13 @@ STORAGES = {
 		"BACKEND": "django.core.files.storage.FileSystemStorage",
 	},
 	"staticfiles": {
-		# ManifestStaticFilesStorage appends a content hash to each static
-		# URL on collectstatic, so browsers can cache aggressively but every
-		# deploy invalidates them automatically. Requires every template
-		# reference to use {% static %} (no hardcoded /static/ paths).
-		"BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage",
+		# Reverted from ManifestStaticFilesStorage on 2026-05-12 because the
+		# vendored jquery-easyui-1.5.2/ tree isn't reachable by collectstatic
+		# in this layout, and the manifest backend raises ValueError on any
+		# {% static %} reference missing from the manifest. See v2 spec
+		# section 2.1 — proper fix is to either ship a curated STATICFILES_DIRS
+		# that includes easyui, or use a manifest_strict=False subclass.
+		"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
 	},
 }
 
