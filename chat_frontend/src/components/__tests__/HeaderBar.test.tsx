@@ -17,6 +17,7 @@ describe("HeaderBar", () => {
     render(
       <HeaderBar
         onRightToggle={vi.fn()}
+        onLeftToggle={vi.fn()}
       />,
     );
     expect(screen.getByText("NExtSEEK Chat")).toBeInTheDocument();
@@ -27,6 +28,7 @@ describe("HeaderBar", () => {
     render(
       <HeaderBar
         onRightToggle={onRight}
+        onLeftToggle={vi.fn()}
       />,
     );
 
@@ -38,6 +40,7 @@ describe("HeaderBar", () => {
     render(
       <HeaderBar
         onRightToggle={vi.fn()}
+        onLeftToggle={vi.fn()}
       />,
     );
 

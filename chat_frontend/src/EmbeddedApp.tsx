@@ -1,9 +1,12 @@
-import { useState, useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMessages, useProcessingState } from "@/hooks";
+import { useChatRoute } from "@/hooks/useChatRoute";
+import { useSessions } from "@/hooks/useSessions";
 import { NextseekApiService } from "@/lib/services/chatApi";
 import { SessionAuthService } from "@/lib/services/sessionAuth";
 import { ChatPanel } from "@/components/ChatPanel";
 import { CompactToolbar, RightSidebar } from "@/components/Layout";
+import { SessionSidebar } from "@/components/Sessions";
 import type {
   ProgressEvent,
   AgentStartedData,
@@ -15,27 +18,35 @@ import type { DebugData, DebugEntry } from "@/lib/types/chat";
 
 export function EmbeddedApp() {
   const [rightOpen, setRightOpen] = useState(false);
-  const [debugData, setDebugData] = useState<DebugData>({
-    entries: [],
-    bundleId: null,
-    query: "",
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem("chat.sidebar.collapsed") === "1";
   });
+  const [debugData, setDebugData] = useState<DebugData>({ entries: [], bundleId: null, query: "" });
 
-  const serviceRef = useRef(
-    new NextseekApiService(new SessionAuthService()),
-  );
+  const serviceRef = useRef(new NextseekApiService(new SessionAuthService()));
   const [isQuerying, setIsQuerying] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
-  const { messages, addUserMessage, addAssistantMessage, addSystemMessage, updateLastAssistantMessage } =
-    useMessages();
+  const { messages, addUserMessage, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, hydrateFromTurns } = useMessages();
   const pendingDebugRef = useRef<DebugEntry[]>([]);
-  const {
-    processingState,
-    handleAgentStarted,
-    handleAgentComplete,
-    resetProcessing,
-  } = useProcessingState();
+  const { processingState, handleAgentStarted, handleAgentComplete, resetProcessing } = useProcessingState();
+
+  const chatRoute = useChatRoute();
+  const sessions = useSessions({
+    service: serviceRef.current,
+    hydrate: hydrateFromTurns,
+    onRouteChange: chatRoute.push,
+  });
+
+  useEffect(() => {
+    if (chatRoute.sessionIdFromUrl && sessions.activeSessionId !== chatRoute.sessionIdFromUrl) {
+      sessions.setActive(chatRoute.sessionIdFromUrl).catch(() => {
+        addSystemMessage("Couldn't load this conversation.");
+        chatRoute.push(null);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleProgress = useCallback(
     (event: ProgressEvent) => {
@@ -48,37 +59,30 @@ export function EmbeddedApp() {
         case "agent_complete": {
           const d = event.data as AgentCompleteData;
           handleAgentComplete(d.agent);
-          const entry = {
+          const entry: DebugEntry = {
             agent: d.agent,
-            summary:
-              typeof d.summary === "string"
-                ? d.summary
-                : JSON.stringify(d.summary ?? "", null, 2),
+            summary: typeof d.summary === "string" ? d.summary : JSON.stringify(d.summary ?? "", null, 2),
             timestamp: new Date(),
           };
           pendingDebugRef.current.push(entry);
-          setDebugData((prev) => ({
-            ...prev,
-            entries: [...prev.entries, entry],
-          }));
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
           break;
         }
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
-          // Attach accumulated debug entries + bundleId + artifacts to the assistant message
           const captured = pendingDebugRef.current.slice();
           const bid = d.bundle_id ?? null;
           const artifacts = d.artifacts ?? null;
-          // Use queueMicrotask to ensure the message is in state before patching
           queueMicrotask(() => {
             updateLastAssistantMessage({ debugEntries: captured, bundleId: bid, artifacts });
           });
           resetProcessing();
-          setDebugData((prev) => ({
-            ...prev,
-            bundleId: d.bundle_id,
-          }));
+          setDebugData((prev) => ({ ...prev, bundleId: d.bundle_id }));
+          if (d.session_id) {
+            if (sessions.pendingNewChat) sessions.promoteCreatedSession(d.session_id);
+            else sessions.refresh();
+          }
           break;
         }
         case "query_error": {
@@ -89,14 +93,11 @@ export function EmbeddedApp() {
         }
       }
     },
-    [handleAgentStarted, handleAgentComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing],
+    [handleAgentStarted, handleAgentComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
   );
 
   const handleQueryError = useCallback(
-    (error: string) => {
-      addSystemMessage(`Error: ${error}`);
-      resetProcessing();
-    },
+    (error: string) => { addSystemMessage(`Error: ${error}`); resetProcessing(); },
     [addSystemMessage, resetProcessing],
   );
 
@@ -106,15 +107,18 @@ export function EmbeddedApp() {
       pendingDebugRef.current = [];
       setDebugData({ entries: [], bundleId: null, query: text });
       setIsQuerying(true);
-
+      const opts =
+        sessions.activeSessionId ? { sessionId: sessions.activeSessionId } :
+        sessions.pendingNewChat   ? { forceNew: true } :
+        {};
       serviceRef.current
-        .submitQuery(text, mode, {}, handleProgress, handleQueryError)
+        .submitQuery(text, mode, opts, handleProgress, handleQueryError)
         .finally(() => {
           setSessionId(serviceRef.current.sessionId);
           setIsQuerying(false);
         });
     },
-    [addUserMessage, handleProgress, handleQueryError],
+    [addUserMessage, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat],
   );
 
   const handleArtifactDownload = useCallback(
@@ -123,9 +127,7 @@ export function EmbeddedApp() {
       if (sid) {
         serviceRef.current
           .downloadArtifact(sid, bundleId, artifactKey)
-          .catch((err: Error) => {
-            addSystemMessage(`Download failed: ${err.message}`);
-          });
+          .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
       }
     },
     [addSystemMessage],
@@ -133,19 +135,37 @@ export function EmbeddedApp() {
 
   const handleDownload = useCallback(
     (format: string) => {
-      if (sessionId && debugData.bundleId) {
-        serviceRef.current.downloadBundle(sessionId, debugData.bundleId, format);
-      }
+      if (sessionId && debugData.bundleId) serviceRef.current.downloadBundle(sessionId, debugData.bundleId, format);
     },
     [sessionId, debugData.bundleId],
   );
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("chat.sidebar.collapsed", next ? "1" : "0");
+      return next;
+    });
+  }, []);
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
       <CompactToolbar
         onRightToggle={() => setRightOpen(!rightOpen)}
+        onLeftToggle={toggleSidebar}
       />
       <div className="flex flex-1 overflow-hidden">
+        <SessionSidebar
+          sessions={sessions.sessions}
+          activeSessionId={sessions.activeSessionId}
+          collapsed={sidebarCollapsed}
+          inFlight={isQuerying || sessions.isHydrating}
+          onNewChat={sessions.newChat}
+          onSelect={(id) => sessions.setActive(id).catch(() => addSystemMessage("Couldn't load this conversation."))}
+          onRename={(id, t) => sessions.rename(id, t).catch(() => addSystemMessage("Rename failed."))}
+          onDelete={(id) => sessions.remove(id).catch(() => addSystemMessage("Delete failed."))}
+          onToggleCollapse={toggleSidebar}
+        />
         <ChatPanel
           messages={messages}
           processingState={processingState}
