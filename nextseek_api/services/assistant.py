@@ -306,17 +306,47 @@ class AssistantViewSet(viewsets.ViewSet):
         include_set = {p.strip() for p in include.split(",") if p.strip()}
         if "turns" in include_set:
             payload["title"] = session.title or "New chat"
-            payload["turns"] = [
-                Turn(
-                    bundle_id=b.get("id", 0),
-                    user_query=b.get("user_query", ""),
-                    reply=b.get("terminal_reply") or b.get("reply") or "",
-                    mode=b.get("mode", ""),
-                    ts=b.get("ts"),
-                ).model_dump(mode="json")
-                for b in history
-                if (b or {}).get("user_query")
-            ]
+            chat_log = (session.extra_state or {}).get("chat_log") or []
+            bundles_by_id = {b.get("id"): b for b in history if isinstance(b, dict)}
+            turns: list[dict[str, Any]] = []
+            if chat_log:
+                for entry in chat_log:
+                    if not (entry or {}).get("user_query"):
+                        continue
+                    bid = entry.get("bundle_id")
+                    bundle = bundles_by_id.get(bid) if bid is not None else None
+                    # Prefer the full reply stored directly on the chat_log entry
+                    # (wizard turns don't produce bundles, so this is the only
+                    # full-text source for them). Fall back to the bundle's
+                    # terminal_reply for legacy entries written before
+                    # assistant_reply existed, then to the 280-char preview.
+                    reply = (
+                        entry.get("assistant_reply")
+                        or (bundle.get("terminal_reply") or bundle.get("reply") if bundle else None)
+                        or entry.get("assistant_reply_preview", "")
+                    ) or ""
+                    turns.append(
+                        Turn(
+                            bundle_id=bid if bid is not None else 0,
+                            user_query=entry.get("user_query", ""),
+                            reply=reply,
+                            mode=entry.get("mode", ""),
+                            ts=entry.get("ts"),
+                        ).model_dump(mode="json")
+                    )
+            else:
+                turns = [
+                    Turn(
+                        bundle_id=b.get("id", 0),
+                        user_query=b.get("user_query", ""),
+                        reply=b.get("terminal_reply") or b.get("reply") or "",
+                        mode=b.get("mode", ""),
+                        ts=b.get("ts"),
+                    ).model_dump(mode="json")
+                    for b in history
+                    if (b or {}).get("user_query")
+                ]
+            payload["turns"] = turns
 
         return Response(payload, status=status.HTTP_200_OK)
 
