@@ -40,6 +40,7 @@ from nextseek_api.assistant.descriptions import (
     ASSISTANT_QUERY_DESC,
     ASSISTANT_SESSION_CREATE_DESC,
     ASSISTANT_SESSION_DETAIL_DESC,
+    ASSISTANT_SESSIONS_LIST_DESC,
     ASSISTANT_TASK_PROGRESS_DESC,
     ASSISTANT_TEST_CASES_DESC,
 )
@@ -50,9 +51,13 @@ from nextseek_api.assistant.models_api import (
     QueryRequest,
     SessionCreateResponse,
     SessionDetailResponse,
+    SessionListItem,
+    SessionListResponse,
+    SessionPatchRequest,
     TaskProgressResponse,
     TestCaseItem,
     TestCaseListResponse,
+    Turn,
 )
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from rest_framework.authentication import (
@@ -118,6 +123,34 @@ class AssistantViewSet(viewsets.ViewSet):
     authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated, UserInParticipatingProject]
 
+    # ------------------------------------------------------------------
+    # Helpers for the sessions list/detail
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _project_session_list_row(cs: ChatSession) -> dict:
+        """Project a ChatSession into the SessionListItem shape.
+
+        Reads `results_history` once to compute `query_count` and `preview`.
+        Falls back to "New chat" when `title` is null.
+        """
+        history = cs.results_history or []
+        first_user_query = ""
+        for bundle in history:
+            uq = (bundle or {}).get("user_query")
+            if uq:
+                first_user_query = uq
+                break
+        preview = " ".join(first_user_query.split())[:80]
+        return SessionListItem(
+            session_id=cs.session_id,
+            title=cs.title or "New chat",
+            created_at=cs.created_at,
+            updated_at=cs.updated_at,
+            query_count=len(history),
+            preview=preview,
+        ).model_dump(mode="json")
+
     def _check_auth(self, request):
         """Check authentication via BASIC, SESSION, or TOKEN."""
         basic_tuple, extra_headers = resolve_seek_auth(request, ["BASIC", "SESSION", "TOKEN"])
@@ -148,6 +181,39 @@ class AssistantViewSet(viewsets.ViewSet):
                 username=request.user.username,
                 is_admin=bool(request.user.is_staff or request.user.is_superuser),
             ).model_dump(),
+            status=status.HTTP_200_OK,
+        )
+
+    # ------------------------------------------------------------------
+    # 1b. GET /assistant/sessions/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Assistant: List Sessions",
+        description=ASSISTANT_SESSIONS_LIST_DESC,
+        tags=["Assistant"],
+        responses={200: SessionListResponse},
+    )
+    @action(detail=False, methods=["get"], url_path="sessions")
+    def list_sessions(self, request):
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        # Two-step lookup: only the PK enters the ORDER BY query so the
+        # JSON columns (results_history / last_debug) never land in the
+        # MySQL sort buffer (regression: error 1038 once results_history
+        # grew beyond sort_buffer_size).
+        ids = list(
+            ChatSession.objects.filter(user=request.user)
+            .order_by("-updated_at")
+            .values_list("session_id", flat=True)[:50]
+        )
+        rows = []
+        for sid in ids:
+            cs = ChatSession.objects.get(session_id=sid)
+            rows.append(self._project_session_list_row(cs))
+        return Response(
+            {"total": len(rows), "sessions": rows},
             status=status.HTTP_200_OK,
         )
 

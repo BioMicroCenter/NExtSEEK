@@ -99,3 +99,10 @@ ASSISTANT_TASK_PROGRESS_DESC = (
     "**EXAMPLES:**\n"
     "- `GET /nextseek_api/assistant/tasks/abc123-def456/progress/`\n"
 )
+
+ASSISTANT_SESSIONS_LIST_DESC = """
+List the current user's chat sessions, ordered by most-recently-updated first.
+Returns at most 50 rows. Each row carries an id, display title (or "New chat"
+if untitled), timestamps, the count of completed query bundles, and an 80-char
+preview derived from the first user query in the session's results_history.
+"""
