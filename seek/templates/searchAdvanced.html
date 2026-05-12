@@ -224,12 +224,19 @@ function runMobileSearch() {
             }
             var rows = data.rows || [];
             var total = data.total != null ? data.total : rows.length;
-            count.textContent = total + ' result' + (total === 1 ? '' : 's');
+            // Cap rendered rows on mobile — DOM with thousands of nodes is unusable on phone.
+            // Desktop EasyUI grid handles pagination natively; here we keep it simple.
+            var MOBILE_RENDER_CAP = 100;
+            var truncated = rows.length > MOBILE_RENDER_CAP;
+            var renderRows = truncated ? rows.slice(0, MOBILE_RENDER_CAP) : rows;
+            count.textContent = truncated
+                ? 'Showing ' + MOBILE_RENDER_CAP + ' of ' + total + ' — refine search to narrow'
+                : total + ' result' + (total === 1 ? '' : 's');
             if (rows.length === 0) {
                 list.innerHTML = '<li class="m-result-row" style="color:var(--ns-muted); border:none;"><em>No matches.</em></li>';
                 return;
             }
-            list.innerHTML = rows.map(renderMobileRow).join('');
+            list.innerHTML = renderRows.map(renderMobileRow).join('');
         })
         .catch(function (err) {
             console.error('mobile search failed', err);
