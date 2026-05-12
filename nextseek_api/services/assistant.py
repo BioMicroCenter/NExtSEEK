@@ -419,6 +419,9 @@ class AssistantViewSet(viewsets.ViewSet):
                     "Session not found or you do not own it.",
                     status.HTTP_404_NOT_FOUND,
                 )
+        elif req.force_new:
+            # Frontend "New chat" path — unconditionally create.
+            chat_session = ChatSession.objects.create(user=request.user)
         else:
             # No session_id — reuse most recent or auto-create
             chat_session = (
@@ -530,6 +533,9 @@ class AssistantViewSet(viewsets.ViewSet):
                     "Session not found or you do not own it.",
                     status.HTTP_404_NOT_FOUND,
                 )
+        elif req.force_new:
+            # Frontend "New chat" path — unconditionally create.
+            chat_session = ChatSession.objects.create(user=request.user)
         else:
             chat_session = (
                 ChatSession.objects.filter(user=request.user)
