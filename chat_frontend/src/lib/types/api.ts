@@ -27,11 +27,13 @@ export interface QueryCompleteData {
   debug: Record<string, unknown>;
   bundle_id: number;
   artifacts?: Artifact[] | null;
+  session_id?: string;
 }
 
 export interface QueryErrorData {
   error: string;
   agent?: string;
+  session_id?: string;
 }
 
 // GET /assistant/me/ response
@@ -57,4 +59,35 @@ export interface SessionResponse {
 export interface TestCase {
   id: string;
   prompt: string;
+}
+
+// GET /assistant/sessions/ row
+export interface SessionListItem {
+  session_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  query_count: number;
+  preview: string;
+}
+
+// GET /assistant/sessions/ response
+export interface SessionListResponse {
+  total: number;
+  sessions: SessionListItem[];
+}
+
+// One turn from a session's results_history projection
+export interface Turn {
+  bundle_id: number;
+  user_query: string;
+  reply: string;
+  mode: string;
+  ts?: string | null;
+}
+
+// GET /assistant/sessions/{id}/?include=turns response
+export interface SessionDetailWithTurns extends SessionResponse {
+  title?: string | null;
+  turns?: Turn[] | null;
 }
