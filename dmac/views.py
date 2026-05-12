@@ -273,37 +273,50 @@ def signup_seek(request):
 
 def home(request):
     """
-    Home dashboard. Passes a small set of counts and a 'recent samples'
-    list to themes/NextSeek/templates/index.html. Falls back gracefully
-    when the user has nothing yet.
+    Home dashboard. Passes counts + a 'recent samples' list to
+    themes/NextSeek/templates/index.html. Each block is in its own try/
+    except so any one model lookup failing doesn't blank the whole page.
     """
+    from datetime import timedelta
+    from django.utils import timezone
+
     context = {
         "total_samples_count": 0,
         "total_projects_count": 0,
         "total_data_files_count": 0,
         "samples_delta_week": 0,
         "data_files_delta_week": 0,
-        "projects_user_count": 0,
+        "projects_user_count": 0,  # v1: not yet wired — needs User<->People<->Projects bridge
         "recent_samples": [],
     }
 
+    week_ago = timezone.now() - timedelta(days=7)
+
     try:
-        # v1 stub: only `total_samples_count` and `recent_samples` are
-        # populated from real data. The remaining context keys
-        # (total_projects_count, total_data_files_count, samples_delta_week,
-        # data_files_delta_week, projects_user_count) are intentionally
-        # left at their zero defaults; filling them in is a follow-on.
-        from seek.models import Samples  # actual class name in seek.models
+        from seek.models import Samples
         context["total_samples_count"] = Samples.objects.count()
+        context["samples_delta_week"] = Samples.objects.filter(created_at__gte=week_ago).count()
+        # Samples has `title` + `created_at`; no native UID or direct project FK
+        # (project link goes through the Projects_samples junction). For v1 we
+        # surface id + title + created_at and let the template render a stub
+        # for the project column.
         context["recent_samples"] = list(
-            Samples.objects.order_by("-id").values(
-                "uid", "name", "project__name"
-            )[:4]
+            Samples.objects.order_by("-id").values("id", "title", "created_at")[:4]
         )
     except Exception:
-        # Model not importable from this location or DB unavailable —
-        # render with empty defaults. v1 is tolerant; later passes can
-        # plumb the real model names.
+        pass
+
+    try:
+        from seek.models import Projects
+        context["total_projects_count"] = Projects.objects.count()
+    except Exception:
+        pass
+
+    try:
+        from seek.models import Data_files
+        context["total_data_files_count"] = Data_files.objects.count()
+        context["data_files_delta_week"] = Data_files.objects.filter(created_at__gte=week_ago).count()
+    except Exception:
         pass
 
     return render(request, "index.html", context)

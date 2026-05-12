@@ -58,9 +58,9 @@
         <ul class="dash-list">
           {% for s in recent_samples %}
             <li class="dash-row-item">
-              <span class="uid">{{ s.uid }}</span>
-              <span class="name">{{ s.name }}</span>
-              <span class="proj">{{ s.project__name|default:"—" }}</span>
+              <span class="uid">#{{ s.id }}</span>
+              <span class="name">{{ s.title|default:"(untitled)" }}</span>
+              <span class="proj">{{ s.created_at|date:"M j, Y" }}</span>
             </li>
           {% endfor %}
         </ul>
