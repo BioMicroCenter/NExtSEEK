@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('nextseek_api', '0003_chatsession_extra_state'),
+        ('nextseek_api', '0002_querytask'),
     ]
 
     operations = [
