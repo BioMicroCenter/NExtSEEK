@@ -95,6 +95,29 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
+// Tab focus trap while drawer is open — keyboard users can't escape into
+// the page underneath. Pairs with openSidebar()'s initial focus into the
+// drawer and closeSidebar()'s focus-return-to-toggle.
+document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Tab') return;
+    if (!document.body.classList.contains('sidebar-open')) return;
+    var sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    var focusables = sidebar.querySelectorAll(
+        'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusables.length === 0) return;
+    var first = focusables[0];
+    var last  = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+    }
+});
+
 /* ================================================
    Sidebar Quick Access nav
    ================================================ */
