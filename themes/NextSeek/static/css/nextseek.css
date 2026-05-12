@@ -383,17 +383,21 @@ h1, h2, h3, h4, h5, h6 {
     body.sidebar-open .sidebar { transform: translateX(0); }
     #main-wrapper { margin-left: 0; }
 
-    body.sidebar-open::before {
-        content: '';
-        position: fixed;
-        inset: 0;
-        background: rgba(26,26,46,0.4);
-        z-index: 999;
-        cursor: pointer;
-    }
-
     .content { padding: 1.25rem 1rem; }
 }
+
+/* Drawer scrim — promoted from body::before to a real element so the
+   tap-to-close handler can listen on it. Display gated on .sidebar-open
+   so it doesn't grab clicks on desktop. */
+.sidebar-scrim {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(26,26,46,0.4);
+    z-index: 999;
+    cursor: pointer;
+}
+body.sidebar-open .sidebar-scrim { display: block; }
 
 @media (max-width: 575.98px) {
     .content { padding: 1rem 0.875rem; }

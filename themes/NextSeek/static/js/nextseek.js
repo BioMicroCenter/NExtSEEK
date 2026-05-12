@@ -8,14 +8,15 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function initSidebar() {
-    // Close sidebar when clicking outside on mobile
+    // Belt-and-suspenders: close drawer on click outside (the .sidebar-scrim
+    // element handles the canonical click-to-close path).
     document.addEventListener('click', function(e) {
         if (document.body.classList.contains('sidebar-open')) {
             const sidebar = document.getElementById('sidebar');
             const toggleBtn = document.querySelector('.mobile-toggle');
 
             if (!sidebar.contains(e.target) && !toggleBtn.contains(e.target)) {
-                document.body.classList.remove('sidebar-open');
+                closeSidebar();
             }
         }
     });
@@ -68,9 +69,31 @@ function initActiveNavLink() {
     }
 }
 
-function toggleSidebar() {
-    document.body.classList.toggle('sidebar-open');
+function openSidebar() {
+    document.body.classList.add('sidebar-open');
+    document.body.style.overflow = 'hidden';
+    const toggle = document.querySelector('.mobile-toggle');
+    if (toggle) toggle.setAttribute('aria-expanded', 'true');
+    const firstLink = document.querySelector('#sidebar .nav-link');
+    if (firstLink) firstLink.focus();
 }
+
+function closeSidebar() {
+    document.body.classList.remove('sidebar-open');
+    document.body.style.overflow = '';
+    const toggle = document.querySelector('.mobile-toggle');
+    if (toggle) {
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.focus();
+    }
+}
+
+// ESC closes the drawer
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && document.body.classList.contains('sidebar-open')) {
+        closeSidebar();
+    }
+});
 
 /* ================================================
    Sidebar Quick Access nav
