@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import type { Message } from "@/lib/types/chat";
+import type { Turn } from "@/lib/types/api";
 
 interface UseMessagesReturn {
   messages: Message[];
@@ -8,6 +9,7 @@ interface UseMessagesReturn {
   addSystemMessage: (content: string) => void;
   updateLastAssistantMessage: (patch: Partial<Message>) => void;
   clearMessages: () => void;
+  hydrateFromTurns: (turns: Turn[]) => void;
 }
 
 function createMessage(
@@ -61,5 +63,33 @@ export function useMessages(): UseMessagesReturn {
     setMessages([]);
   }, []);
 
-  return { messages, addUserMessage, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, clearMessages };
+  const hydrateFromTurns = useCallback((turns: Turn[]) => {
+    setMessages(() => {
+      const next: Message[] = [];
+      for (const turn of turns) {
+        const ts = turn.ts ? new Date(turn.ts) : new Date();
+        next.push({
+          id: `msg-hydrate-u-${turn.bundle_id}`,
+          content: turn.user_query,
+          isUser: true,
+          timestamp: ts,
+          status: "sent",
+          messageType: "text",
+        });
+        next.push({
+          id: `msg-hydrate-a-${turn.bundle_id}`,
+          content: turn.reply,
+          isUser: false,
+          timestamp: ts,
+          status: "sent",
+          messageType: "text",
+          bundleId: turn.bundle_id,
+          debugEntries: [],
+        });
+      }
+      return next;
+    });
+  }, []);
+
+  return { messages, addUserMessage, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, clearMessages, hydrateFromTurns };
 }
