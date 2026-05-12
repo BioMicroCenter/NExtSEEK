@@ -99,7 +99,7 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
     (text: string, mode: string) => {
       addUserMessage(text);
       setDebugData({ entries: [], bundleId: null, query: text });
-      submitQuery(text, mode, handleProgress, handleQueryError);
+      submitQuery(text, mode, {}, handleProgress, handleQueryError);
     },
     [addUserMessage, submitQuery, handleProgress, handleQueryError],
   );

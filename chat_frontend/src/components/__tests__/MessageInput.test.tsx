@@ -18,7 +18,7 @@ describe("MessageInput", () => {
     fireEvent.change(textarea, { target: { value: "test query" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
 
-    expect(onSend).toHaveBeenCalledWith("test query");
+    expect(onSend).toHaveBeenCalledWith("test query", "standard");
   });
 
   it("does not send on Shift+Enter", () => {

@@ -3,12 +3,18 @@ import { NextseekApiService } from "@/lib/services/chatApi";
 import { authService } from "@/lib/services/auth";
 import type { ProgressEvent, TestCase } from "@/lib/types/api";
 
+interface SubmitQueryOpts {
+  sessionId?: string | null;
+  forceNew?: boolean;
+}
+
 interface UseChatApiReturn {
   isQuerying: boolean;
   sessionId: string | null;
   submitQuery: (
     query: string,
     mode: string,
+    opts: SubmitQueryOpts,
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
   ) => void;
@@ -25,13 +31,14 @@ export function useChatApi(): UseChatApiReturn {
     (
       query: string,
       mode: string,
+      opts: SubmitQueryOpts,
       onProgress: (event: ProgressEvent) => void,
       onError: (error: string) => void,
     ) => {
       setIsQuerying(true);
 
       serviceRef.current
-        .submitQuery(query, mode, onProgress, onError)
+        .submitQuery(query, mode, opts, onProgress, onError)
         .finally(() => {
           setSessionId(serviceRef.current.sessionId);
           setIsQuerying(false);

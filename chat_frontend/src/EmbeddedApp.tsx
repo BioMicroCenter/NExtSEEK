@@ -108,7 +108,7 @@ export function EmbeddedApp() {
       setIsQuerying(true);
 
       serviceRef.current
-        .submitQuery(text, mode, handleProgress, handleQueryError)
+        .submitQuery(text, mode, {}, handleProgress, handleQueryError)
         .finally(() => {
           setSessionId(serviceRef.current.sessionId);
           setIsQuerying(false);
