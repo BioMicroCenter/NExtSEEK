@@ -340,6 +340,36 @@ class AssistantViewSet(viewsets.ViewSet):
         )
 
     # ------------------------------------------------------------------
+    # 3c. DELETE /assistant/sessions/{session_id}/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Assistant: Delete Session",
+        description=ASSISTANT_SESSION_DELETE_DESC,
+        tags=["Assistant"],
+        responses={204: None},
+    )
+    @action(
+        detail=False,
+        methods=["delete"],
+        url_path=r"sessions/(?P<session_id>[0-9a-f-]+)",
+    )
+    def delete_session(self, request, session_id=None):
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        try:
+            session = ChatSession.objects.get(session_id=session_id)
+        except ChatSession.DoesNotExist:
+            return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
+
+        if session.user_id != request.user.pk:
+            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+
+        session.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # ------------------------------------------------------------------
     # 4. POST /assistant/query/  (SSE streaming)
     # ------------------------------------------------------------------
     @extend_schema(

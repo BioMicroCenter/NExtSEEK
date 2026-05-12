@@ -209,3 +209,38 @@ class PatchSessionTests(SessionEndpointsTestBase):
             format="json",
         )
         self.assertEqual(resp.status_code, 404)
+
+
+class DeleteSessionTests(SessionEndpointsTestBase):
+    def _url(self, sid):
+        return f"/nextseek_api/assistant/sessions/{sid}/"
+
+    def test_delete_returns_204(self):
+        cs = ChatSession.objects.create(user=self.user)
+        resp = self.client.delete(self._url(cs.session_id))
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(ChatSession.objects.filter(session_id=cs.session_id).exists())
+
+    def test_delete_cascades_tasks(self):
+        from nextseek_api.assistant.models_db import QueryTask
+        cs = ChatSession.objects.create(user=self.user)
+        QueryTask.objects.create(session=cs, user=self.user, query="x", status="completed")
+        QueryTask.objects.create(session=cs, user=self.user, query="y", status="completed")
+        self.client.delete(self._url(cs.session_id))
+        self.assertFalse(QueryTask.objects.filter(session_id=cs.session_id).exists())
+
+    def test_delete_404_when_missing(self):
+        resp = self.client.delete(self._url("00000000-0000-0000-0000-000000000000"))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_delete_404_after_delete(self):
+        cs = ChatSession.objects.create(user=self.user)
+        self.client.delete(self._url(cs.session_id))
+        resp = self.client.delete(self._url(cs.session_id))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_delete_403_on_non_owner(self):
+        cs = ChatSession.objects.create(user=self.other)
+        resp = self.client.delete(self._url(cs.session_id))
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(ChatSession.objects.filter(session_id=cs.session_id).exists())
