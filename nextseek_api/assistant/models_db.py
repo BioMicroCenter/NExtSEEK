@@ -13,6 +13,7 @@ class ChatSession(models.Model):
     )
     results_history = models.JSONField(default=list)
     last_debug = models.JSONField(default=dict)
+    extra_state = models.JSONField(default=dict)
     title = models.CharField(max_length=200, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

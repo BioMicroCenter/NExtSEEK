@@ -1006,9 +1006,11 @@ body.sidebar-open .sidebar-scrim { display: block; }
     margin-bottom: 0.45rem;
 }
 .bmc-logo {
-    max-width: 110px;
+    width: 100%;
+    max-width: 200px;
     height: auto;
     display: block;
+    margin: 0 auto;
 }
 .sidebar-wordmark {
     font-family: var(--ns-font-display);
@@ -1128,6 +1130,74 @@ body.sidebar-open .sidebar-scrim { display: block; }
     font-size: 0.72rem;
     color: var(--ns-muted);
     margin-top: 0.1rem;
+}
+
+/* Projects box — partner-program logos pinned at the bottom of the dashboard.
+   Crimson outline + sidebar-grey fill per user spec. */
+.dash-projects {
+    background: var(--ns-sidebar-bg);
+    border: 1px solid var(--ns-crimson);
+    border-radius: 10px;
+    padding: 0.85rem 1.05rem 1rem;
+    margin-top: 1.25rem;
+}
+.dash-projects-head {
+    margin-bottom: 0.65rem;
+}
+.dash-projects .dp-label {
+    font-size: 0.7rem;
+    color: var(--ns-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+}
+.dp-grid {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.75rem;
+    align-items: center;
+}
+.dp-logo a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 56px;
+    padding: 0.35rem 0.5rem;
+    border-radius: 6px;
+    transition: filter 0.2s var(--ns-ease),
+                opacity 0.2s var(--ns-ease),
+                transform 0.2s var(--ns-ease),
+                background-color 0.2s var(--ns-ease);
+    filter: grayscale(0.85);
+    opacity: 0.72;
+}
+.dp-logo a:hover,
+.dp-logo a:focus-visible {
+    filter: grayscale(0);
+    opacity: 1;
+    transform: translateY(-1px);
+    background-color: var(--ns-white);
+    outline: none;
+}
+.dp-logo a:focus-visible {
+    box-shadow: 0 0 0 2px var(--ns-crimson-border);
+}
+.dp-logo img {
+    max-height: 100%;
+    max-width: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+}
+@media (max-width: 900px) {
+    .dp-grid { grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+    .dp-logo a { height: 48px; }
+}
+@media (max-width: 400px) {
+    .dp-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 .dash-row {

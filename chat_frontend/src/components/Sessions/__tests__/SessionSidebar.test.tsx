@@ -17,7 +17,6 @@ const baseProps = {
   onSelect: vi.fn(),
   onRename: vi.fn(),
   onDelete: vi.fn(),
-  onToggleCollapse: vi.fn(),
 };
 
 describe("SessionSidebar", () => {

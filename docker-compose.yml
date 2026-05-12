@@ -13,6 +13,8 @@ services:
       - nextseek-static-files:/static
       - ./themes/NextSeek:/app/themes/NextSeek
       - ./dmac/local_settings.py:/app/dmac/local_settings.py
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
 
   nextseek_nginx:
     image: nginx:latest
