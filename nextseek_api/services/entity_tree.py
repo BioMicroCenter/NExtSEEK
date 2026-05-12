@@ -1,0 +1,943 @@
+"""
+EntityTree ViewSet for exposing the sample type graph structure.
+
+Provides four endpoints:
+- GET /entity_tree/nodes - Node attributes from dmac.sample_types_context
+- GET /entity_tree/edges - Edges from Neo4j DERIVED_FROM relationships
+- GET /entity_tree/edge_attributes - Edges with enriched metadata
+- POST /entity_tree/lineage - Full lineage trees for specific samples
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Tuple
+
+import MySQLdb
+import neo4j
+from django.conf import settings
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
+from neo4j import GraphDatabase
+from neo4j.exceptions import Neo4jError
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from nextseek_api.helpers import resolve_seek_auth
+from nextseek_api.endpoint_descriptions import (
+    ENTITY_TREE_NODES_DESC,
+    ENTITY_TREE_EDGES_DESC,
+    ENTITY_TREE_EDGE_ATTRS_DESC,
+    ENTITY_TREE_LINEAGE_DESC,
+)
+from nextseek_api.models import (
+    Edge,
+    EdgeAttribute,
+    EdgeAttributeResponse,
+    EdgeResponse,
+    LineageEdge,
+    LineageRequest,
+    LineageResponse,
+    LineageTree,
+    NodeAttribute,
+    NodeAttributeResponse,
+    SampleTreeNode,
+)
+
+SEEK_DATABASE = "default"
+
+
+class EntityTreePagination(PageNumberPagination):
+    """Custom pagination for entity tree endpoints."""
+
+    page_size = 100
+    page_size_query_param = "page_size"
+    max_page_size = 1000
+
+
+def _run_sql_query(query: str, params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
+    """Execute a SQL query on the configured MySQL DB and return a list of dict rows."""
+
+    db = settings.DATABASES[SEEK_DATABASE]
+    conn = MySQLdb.connect(host=db["HOST"], user=db["USER"], passwd=db["PASSWORD"], db=db["NAME"])
+    cursor = conn.cursor()
+    try:
+        cursor.execute(query, params or [])
+        columns = [col[0] for col in cursor.description]
+        rows = cursor.fetchall()
+        return [dict(zip(columns, row)) for row in rows]
+    finally:
+        cursor.close()
+        conn.close()
+
+
+class EntityTreeViewSet(viewsets.GenericViewSet):
+    """
+    ViewSet for entity tree node and edge retrieval.
+
+    Exposes the sample type graph structure including:
+    - Node attributes (sample type metadata)
+    - Edges (relationships between sample types)
+    - Edge attributes (edges with provenance metadata)
+    """
+
+    permission_classes = [IsAuthenticated]
+    pagination_class = EntityTreePagination
+
+    # -------------------------------------------------------------------------
+    # Endpoint 1: GET /entity_tree/nodes
+    # -------------------------------------------------------------------------
+    @extend_schema(
+        operation_id="List Node Attributes",
+        description=ENTITY_TREE_NODES_DESC,
+        responses={200: NodeAttributeResponse},
+        tags=["EntityTree"],
+        examples=[
+            OpenApiExample(
+                name="Node attributes response",
+                value={
+                    "total": 3,
+                    "nodes": [
+                        {
+                            "node": "NHP",
+                            "id": 41,
+                            "description": "Non Human Primates",
+                            "clade": "Subject",
+                            "metadata_fields": "Sex; Species; Date_of_birth",
+                        },
+                        {
+                            "node": "TIS",
+                            "id": 26,
+                            "description": "Tissue Sample",
+                            "clade": "Sample",
+                            "metadata_fields": "Organ; Collection_date; Preservation_method",
+                        },
+                        {
+                            "node": "D.IMG",
+                            "id": 40,
+                            "description": "Imaging Data",
+                            "clade": "Data",
+                            "metadata_fields": "Modality; Acquisition_date; File_format",
+                        },
+                    ],
+                },
+                response_only=True,
+            ),
+        ],
+    )
+    @action(detail=False, methods=["get"], url_path="nodes")
+    def list_nodes(self, request):
+        # Auth gate
+        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+        if not basic_tuple and not request.user.is_authenticated:
+            return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Primary source: dmac.sample_types_context (may not exist in dev yet)
+        rows: List[Dict[str, Any]] = []
+        try:
+            query = """
+                SELECT
+                    sample_type AS node,
+                    sampletype_id AS id,
+                    description,
+                    clade
+                FROM dmac.sample_types_context
+                WHERE sample_type IS NOT NULL
+                ORDER BY sample_type
+            """
+            rows = _run_sql_query(query)
+        except Exception:
+            # Fallback: use existing DBtable + ORM to reconstruct (node, id, description, clade)
+            try:
+                from dmac.dbtable_sampletypesclades import DBtable_sample_types_clades
+                from seek.models import Sample_types
+
+                stc_data = DBtable_sample_types_clades().getAllWithTitles()
+
+                # Collect ids and fetch descriptions via ORM
+                st_ids: List[int] = []
+                for item in stc_data:
+                    sid = item.get("sample_type_id")
+                    try:
+                        if sid is not None:
+                            st_ids.append(int(sid))
+                    except Exception:
+                        continue
+                st_ids = sorted(set(st_ids))
+
+                desc_lookup: Dict[int, Optional[str]] = {}
+                title_lookup: Dict[int, Optional[str]] = {}
+                if st_ids:
+                    for row in Sample_types.objects.filter(id__in=st_ids).values("id", "title", "description"):
+                        try:
+                            rid = int(row["id"])
+                            desc_lookup[rid] = row.get("description")
+                            title_lookup[rid] = row.get("title")
+                        except Exception:
+                            continue
+
+                # Normalize into rows expected by NodeAttribute
+                by_id: Dict[int, Dict[str, Any]] = {}
+                for item in stc_data:
+                    try:
+                        sid = int(item.get("sample_type_id"))
+                    except Exception:
+                        continue
+
+                    node_title = item.get("sample_type_title") or title_lookup.get(sid) or ""
+                    by_id[sid] = {
+                        "node": node_title,
+                        "id": sid,
+                        "description": desc_lookup.get(sid),
+                        "clade": item.get("clade_title"),
+                    }
+
+                rows = sorted(by_id.values(), key=lambda r: str(r.get("node") or ""))
+            except Exception as e:
+                return Response(
+                    {"errors": [{"title": "Database error", "detail": str(e)}]},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+        # Bulk fetch attribute titles via dbtable_ helper (no raw SQL).
+        # Fail the request if any sample type would have empty metadata_fields.
+        try:
+            from seek.dbtable_sampleattribute import DBtable_sampleattribute
+
+            sample_type_ids: List[int] = []
+            for r in rows:
+                try:
+                    sample_type_ids.append(int(r.get("id") or 0))
+                except Exception:
+                    continue
+            sample_type_ids = sorted(set([i for i in sample_type_ids if i > 0]))
+
+            titles_by_id: Dict[int, List[str]] = DBtable_sampleattribute().getAttributeTitlesBySampleTypeIds(
+                sample_type_ids
+            )
+            metadata_fields_by_id: Dict[int, str] = {}
+            missing_ids: List[int] = []
+            for sid in sample_type_ids:
+                titles = titles_by_id.get(sid) or []
+                joined = "; ".join([t.strip() for t in titles if str(t).strip()])
+                if not joined.strip():
+                    missing_ids.append(sid)
+                else:
+                    metadata_fields_by_id[sid] = joined
+
+            if missing_ids:
+                return Response(
+                    {
+                        "errors": [
+                            {
+                                "title": "Missing sample type attributes",
+                                "detail": "One or more sample types have no attribute definitions; cannot emit non-empty metadata_fields.",
+                                "sample_type_ids": missing_ids,
+                            }
+                        ]
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+        except Exception as e:
+            return Response(
+                {"errors": [{"title": "Attribute lookup failed", "detail": str(e)}]},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        items: List[NodeAttribute] = []
+        for row in rows:
+            sid = int(row.get("id") or 0)
+            items.append(
+                NodeAttribute(
+                    node=str(row.get("node") or ""),
+                    id=sid,
+                    description=row.get("description"),
+                    clade=row.get("clade"),
+                    metadata_fields=metadata_fields_by_id.get(sid, ""),
+                )
+            )
+
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(items, request)
+        if page is not None:
+            response = NodeAttributeResponse(total=len(items), nodes=page)
+            return paginator.get_paginated_response(response.model_dump())
+
+        response = NodeAttributeResponse(total=len(items), nodes=items)
+        return Response(response.model_dump(), status=status.HTTP_200_OK)
+
+    # -------------------------------------------------------------------------
+    # Endpoint 2: GET /entity_tree/edges
+    # -------------------------------------------------------------------------
+    @extend_schema(
+        operation_id="List Edges",
+        description=ENTITY_TREE_EDGES_DESC,
+        responses={200: EdgeResponse},
+        tags=["EntityTree"],
+        examples=[
+            OpenApiExample(
+                name="Edges response",
+                value={
+                    "total": 3,
+                    "edges": [
+                        {"source": "NHP", "target": "PAV", "annotation": "Patient Visit"},
+                        {"source": "PAV", "target": "TIS", "annotation": "Tissue Collection"},
+                        {"source": "TIS", "target": "D.IMG", "annotation": "Tissue Imaging"},
+                    ],
+                },
+                response_only=True,
+            ),
+        ],
+    )
+    @action(detail=False, methods=["get"], url_path="edges")
+    def list_edges(self, request):
+        # Auth gate
+        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+        if not basic_tuple and not request.user.is_authenticated:
+            return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        NEO4J_DATABASE = settings.NEO4J_DATABASE
+        try:
+            with GraphDatabase.driver(NEO4J_DATABASE["URI"], auth=NEO4J_DATABASE["AUTH"]) as driver:
+                cypher = """
+                    MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample)
+                    WHERE r.internal_assay_title IS NOT NULL
+                    RETURN DISTINCT
+                        parent.type AS source,
+                        child.type AS target,
+                        r.internal_assay_title AS annotation
+                    ORDER BY source, target, annotation
+                """
+                records, summary, keys = driver.execute_query(cypher, database_=NEO4J_DATABASE["NAME"])
+        except Neo4jError as e:
+            return Response(
+                {"errors": [{"title": "Neo4j error", "detail": str(e)}]},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except Exception as e:
+            return Response(
+                {"errors": [{"title": "Invalid upstream response", "detail": str(e)}]},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        items: List[Edge] = []
+        for record in records:
+            source = record.get("source")
+            target = record.get("target")
+            annotation = record.get("annotation")
+            if source and target and annotation:
+                items.append(Edge(source=str(source), target=str(target), annotation=str(annotation)))
+
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(items, request)
+        if page is not None:
+            response = EdgeResponse(total=len(items), edges=page)
+            return paginator.get_paginated_response(response.model_dump())
+
+        response = EdgeResponse(total=len(items), edges=items)
+        return Response(response.model_dump(), status=status.HTTP_200_OK)
+
+    # -------------------------------------------------------------------------
+    # Endpoint 3: GET /entity_tree/edge_attributes
+    # -------------------------------------------------------------------------
+    @extend_schema(
+        operation_id="List Edge Attributes",
+        description=ENTITY_TREE_EDGE_ATTRS_DESC,
+        responses={200: EdgeAttributeResponse},
+        tags=["EntityTree"],
+        examples=[
+            OpenApiExample(
+                name="Edge attributes response",
+                value={
+                    "total": 2,
+                    "edges": [
+                        {
+                            "source": "NHP",
+                            "target": "PAV",
+                            "annotation": "Patient Visit",
+                            "internal_assay_id": "16",
+                            "study_titles": "Impactb Study",
+                            "description": "Visit data of NHP/PAT",
+                        },
+                        {
+                            "source": "TIS",
+                            "target": "D.IMG",
+                            "annotation": "Tissue Imaging",
+                            "internal_assay_id": "11",
+                            "study_titles": "MIT_SRP; Impactb Study",
+                            "description": "Imaging of Tissues (IHC, RaDR, yH2AX, etc)",
+                        },
+                    ],
+                },
+                response_only=True,
+            ),
+        ],
+    )
+    @action(detail=False, methods=["get"], url_path="edge_attributes")
+    def list_edge_attributes(self, request):
+        # Auth gate
+        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+        if not basic_tuple and not request.user.is_authenticated:
+            return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Step 1: base edge rows from Neo4j
+        NEO4J_DATABASE = settings.NEO4J_DATABASE
+        try:
+            with GraphDatabase.driver(NEO4J_DATABASE["URI"], auth=NEO4J_DATABASE["AUTH"]) as driver:
+                cypher = """
+                    MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample)
+                    WHERE r.internal_assay_title IS NOT NULL
+                    RETURN DISTINCT
+                        parent.type AS source,
+                        child.type AS target,
+                        r.internal_assay_title AS annotation,
+                        r.internal_assay_id AS internal_assay_id
+                    ORDER BY source, target, annotation
+                """
+                records, summary, keys = driver.execute_query(cypher, database_=NEO4J_DATABASE["NAME"])
+        except Neo4jError as e:
+            return Response(
+                {"errors": [{"title": "Neo4j error", "detail": str(e)}]},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except Exception as e:
+            return Response(
+                {"errors": [{"title": "Invalid upstream response", "detail": str(e)}]},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        # Normalize rows and collect keys for enrichment
+        edge_rows: List[Dict[str, Any]] = []
+        ids_from_neo4j: set[int] = set()
+        titles_missing_id: set[str] = set()
+
+        for r in records:
+            source = r.get("source")
+            target = r.get("target")
+            annotation = r.get("annotation")
+            internal_assay_id = r.get("internal_assay_id")
+            if not (source and target and annotation):
+                continue
+
+            internal_id_str: Optional[str] = None
+            if internal_assay_id is not None and str(internal_assay_id).isdigit():
+                internal_id_str = str(int(internal_assay_id))
+                ids_from_neo4j.add(int(internal_assay_id))
+            else:
+                titles_missing_id.add(str(annotation))
+
+            edge_rows.append(
+                {
+                    "source": str(source),
+                    "target": str(target),
+                    "annotation": str(annotation),
+                    "internal_assay_id": internal_id_str,
+                }
+            )
+
+        # Step 2a: if Neo4j doesn't have internal_assay_id, map from title -> id via dmac.internal_assays
+        title_to_id: Dict[str, str] = {}
+        if titles_missing_id:
+            try:
+                placeholders = ", ".join(["%s"] * len(titles_missing_id))
+                q = f"""
+                    SELECT id, internal_assay_title
+                    FROM dmac.internal_assays
+                    WHERE internal_assay_title IN ({placeholders})
+                """
+                rows = _run_sql_query(q, list(titles_missing_id))
+                for row in rows:
+                    t = row.get("internal_assay_title")
+                    i = row.get("id")
+                    if t is not None and i is not None:
+                        title_to_id[str(t)] = str(int(i))
+            except Exception:
+                # continue without IDs if lookup fails
+                title_to_id = {}
+
+        # Apply mapped ids and collect final ids for enrichment
+        all_internal_ids: set[int] = set(ids_from_neo4j)
+        for er in edge_rows:
+            if er["internal_assay_id"] is None:
+                mapped = title_to_id.get(er["annotation"])
+                if mapped is not None:
+                    er["internal_assay_id"] = mapped
+                    if mapped.isdigit():
+                        all_internal_ids.add(int(mapped))
+
+        # Step 2b: Enrich by internal_assay_id (description + study_titles)
+        enrichment: Dict[int, Dict[str, Any]] = {}
+        if all_internal_ids:
+            try:
+                ids_str = ", ".join(str(i) for i in sorted(all_internal_ids))
+                q = f"""
+                    SELECT
+                        ac.internal_assay_id AS internal_assay_id,
+                        ac.Description AS description,
+                        GROUP_CONCAT(DISTINCT s.title SEPARATOR '; ') AS study_titles
+                    FROM dmac.assay_context ac
+                    LEFT JOIN dmac.assays_internal_assays aia
+                        ON aia.internal_assay_id = ac.internal_assay_id
+                    LEFT JOIN dmac.assays a ON a.id = aia.assay_id
+                    LEFT JOIN seek_production.studies s ON s.id = a.study_id
+                    WHERE ac.internal_assay_id IN ({ids_str})
+                    GROUP BY ac.internal_assay_id, ac.Description
+                """
+                rows = _run_sql_query(q)
+                for row in rows:
+                    aid = row.get("internal_assay_id")
+                    if aid is None:
+                        continue
+                    try:
+                        enrichment[int(aid)] = {
+                            "description": row.get("description"),
+                            "study_titles": row.get("study_titles"),
+                        }
+                    except Exception:
+                        continue
+            except Exception:
+                enrichment = {}
+
+        items: List[EdgeAttribute] = []
+        for er in edge_rows:
+            internal_id = er.get("internal_assay_id")
+            enrich = enrichment.get(int(internal_id), {}) if internal_id and internal_id.isdigit() else {}
+            items.append(
+                EdgeAttribute(
+                    source=er["source"],
+                    target=er["target"],
+                    annotation=er["annotation"],
+                    internal_assay_id=internal_id,
+                    study_titles=enrich.get("study_titles"),
+                    description=enrich.get("description"),
+                )
+            )
+
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(items, request)
+        if page is not None:
+            response = EdgeAttributeResponse(total=len(items), edges=page)
+            return paginator.get_paginated_response(response.model_dump())
+
+        response = EdgeAttributeResponse(total=len(items), edges=items)
+        return Response(response.model_dump(), status=status.HTTP_200_OK)
+
+    # -------------------------------------------------------------------------
+    # Helper methods for lineage endpoint
+    # -------------------------------------------------------------------------
+    def _get_clade_color(self, sample_type: str) -> str:
+        """Get hex color for a sample type from clade mapping."""
+        try:
+            query = """
+                SELECT c.color
+                FROM dmac.clades c
+                JOIN dmac.sample_types_clades stc ON stc.clade_id = c.id
+                JOIN seek_production.sample_types st ON stc.sample_type_id = st.id
+                WHERE st.title = %s
+            """
+            rows = _run_sql_query(query, [sample_type])
+            if rows:
+                return rows[0].get("color") or "#000000"
+            return "#000000"
+        except Exception:
+            return "#000000"
+
+    def _fetch_lineage_enrichment(self, internal_assay_ids: set) -> Dict[int, Dict[str, Any]]:
+        """Fetch edge attribute enrichment from MySQL."""
+        if not internal_assay_ids:
+            return {}
+
+        try:
+            ids_str = ", ".join(str(i) for i in sorted(internal_assay_ids))
+            query = f"""
+                SELECT
+                    ac.internal_assay_id AS internal_assay_id,
+                    ac.Description AS description,
+                    GROUP_CONCAT(DISTINCT s.title SEPARATOR '; ') AS study_titles
+                FROM dmac.assay_context ac
+                LEFT JOIN dmac.assays_internal_assays aia
+                    ON aia.internal_assay_id = ac.internal_assay_id
+                LEFT JOIN dmac.assays a ON a.id = aia.assay_id
+                LEFT JOIN seek_production.studies s ON s.id = a.study_id
+                WHERE ac.internal_assay_id IN ({ids_str})
+                GROUP BY ac.internal_assay_id, ac.Description
+            """
+            rows = _run_sql_query(query)
+
+            enrichment: Dict[int, Dict[str, Any]] = {}
+            for row in rows:
+                aid = row.get("internal_assay_id")
+                if aid is not None:
+                    enrichment[int(aid)] = {
+                        "description": row.get("description"),
+                        "study_titles": row.get("study_titles"),
+                    }
+            return enrichment
+        except Exception:
+            return {}
+
+    def _fetch_single_lineage(
+        self,
+        driver,
+        sample_id: int,
+        db_name: str,
+        input_id: str,
+        resolved_id: str,
+        timeout: float = 90.0,
+    ) -> Tuple[LineageTree, set]:
+        """Fetch a single sample's full lineage from Neo4j.
+
+        Returns tuple of (LineageTree, set of internal_assay_ids for enrichment).
+        """
+        try:
+            # Mirror SampleTreeViewSet.get_tree query logic and return a graph-shaped response.
+            cypher = """
+                MATCH (s: Sample {id: toInteger($id)})
+                MATCH parents=(s)-[r1:DERIVED_FROM*0..]->(parent)
+                MATCH children=(s)<-[r2:DERIVED_FROM*0..]-(child)
+                RETURN
+                    collect(DISTINCT s) + collect(DISTINCT parent) + collect(DISTINCT child) AS nodes,
+                    r1 + r2 AS relationships
+            """
+            r = driver.execute_query(
+                cypher,
+                id=int(sample_id),
+                result_transformer_=neo4j.Result.graph,
+                database_=db_name,
+                timeout=timeout,
+            )
+
+            if r is None or not getattr(r, "nodes", None):
+                return (
+                    LineageTree(
+                        input_id=input_id,
+                        resolved_id=resolved_id,
+                        total_nodes=0,
+                        total_rels=0,
+                        nodes=[],
+                        rels=[],
+                        warning=f"No data found for sample ID: {sample_id}",
+                    ),
+                    set(),
+                )
+
+            # Process nodes - build lookup keyed by UUID (string)
+            node_dict: Dict[str, Dict[str, Any]] = {}
+            for node in r.nodes:
+                try:
+                    props = node._properties or {}
+                except Exception:
+                    props = {}
+                node_uuid = props.get("uuid") or ""
+                node_id = props.get("id")
+                node_type = props.get("type") or ""
+                if not node_uuid or node_id is None:
+                    continue
+                node_dict[str(node_uuid)] = {
+                    "id": str(node_id),
+                    "type": str(node_type),
+                    "parents": [],
+                }
+
+            # Process relationships and collect internal_assay_ids for optional enrichment
+            rel_list: List[LineageEdge] = []
+            internal_assay_ids: set[int] = set()
+            seen_rels: set[tuple[str, str]] = set()
+
+            for rel in r.relationships:
+                try:
+                    rel_props = rel._properties or {}
+                except Exception:
+                    rel_props = {}
+                try:
+                    start_props = rel.start_node._properties or {}
+                except Exception:
+                    start_props = {}
+                try:
+                    end_props = rel.end_node._properties or {}
+                except Exception:
+                    end_props = {}
+
+                child_id = start_props.get("id")
+                parent_id = end_props.get("id")
+                child_uuid = start_props.get("uuid") or ""
+
+                if child_id is None or parent_id is None:
+                    continue
+
+                child_id_str = str(child_id)
+                parent_id_str = str(parent_id)
+
+                rel_key = (child_id_str, parent_id_str)
+                if rel_key in seen_rels:
+                    continue
+                seen_rels.add(rel_key)
+
+                # Track parentIds for each node (child -> parent)
+                if child_uuid:
+                    if child_uuid not in node_dict:
+                        node_dict[child_uuid] = {
+                            "id": child_id_str,
+                            "type": str(start_props.get("type") or ""),
+                            "parents": [],
+                        }
+                    node_dict[child_uuid]["parents"].append(parent_id_str)
+
+                internal_assay_id = rel_props.get("internal_assay_id")
+                internal_assay_id_str: Optional[str] = None
+                if internal_assay_id is not None and str(internal_assay_id).isdigit():
+                    internal_assay_id_str = str(int(internal_assay_id))
+                    internal_assay_ids.add(int(internal_assay_id))
+
+                protocol_id = rel_props.get("protocol_id")
+                protocol_id_str: Optional[str] = None
+                if protocol_id is not None and str(protocol_id).isdigit():
+                    protocol_id_str = str(int(protocol_id))
+
+                rel_list.append(
+                    LineageEdge(
+                        child_id=child_id_str,
+                        parent_id=parent_id_str,
+                        internal_assay_id=internal_assay_id_str,
+                        internal_assay_title=rel_props.get("internal_assay_title"),
+                        protocol_title=rel_props.get("protocol_title"),
+                        protocol_id=protocol_id_str,
+                    )
+                )
+
+            # Build SampleTreeNode list with colors
+            nodes: List[SampleTreeNode] = []
+            for uuid, v in node_dict.items():
+                color = self._get_clade_color(v["type"])
+                nodes.append(
+                    SampleTreeNode(
+                        id=v["id"],
+                        uuid=uuid,
+                        sample_type=v["type"],
+                        color=color,
+                        parentIds=v["parents"],
+                    )
+                )
+
+            return (
+                LineageTree(
+                    input_id=input_id,
+                    resolved_id=resolved_id,
+                    total_nodes=len(nodes),
+                    total_rels=len(rel_list),
+                    nodes=nodes,
+                    rels=rel_list,
+                    warning=None,
+                ),
+                internal_assay_ids,
+            )
+
+        except Exception as e:
+            return (
+                LineageTree(
+                    input_id=input_id,
+                    resolved_id=resolved_id,
+                    total_nodes=0,
+                    total_rels=0,
+                    nodes=[],
+                    rels=[],
+                    warning=f"Query failed: {str(e)}",
+                ),
+                set(),
+            )
+
+    # -------------------------------------------------------------------------
+    # Endpoint 4: POST /entity_tree/lineage
+    # -------------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Get Sample Lineage Trees",
+        description=ENTITY_TREE_LINEAGE_DESC,
+        request=LineageRequest,
+        responses={200: LineageResponse},
+        tags=["EntityTree"],
+        parameters=[
+            OpenApiParameter(
+                name="page",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Page number for node pagination within each tree (1-indexed)",
+            ),
+            OpenApiParameter(
+                name="page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Number of nodes per page within each tree (default 100, max 1000)",
+            ),
+        ],
+        examples=[
+            OpenApiExample(
+                name="Single sample by UID",
+                value={
+                    "sample_ids": ["NHP-220630FLY-1-PUB"],
+                    "include_attributes": False,
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Multiple samples with attributes",
+                value={
+                    "sample_ids": ["NHP-220630FLY-1-PUB", "12345"],
+                    "include_attributes": True,
+                    "timeout": 120.0,
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Lineage response",
+                value={
+                    "total_trees": 1,
+                    "trees": [
+                        {
+                            "input_id": "NHP-220630FLY-1-PUB",
+                            "resolved_id": "1506",
+                            "total_nodes": 5,
+                            "total_rels": 4,
+                            "nodes": [
+                                {
+                                    "id": "1506",
+                                    "uuid": "NHP-220630FLY-1-PUB",
+                                    "sample_type": "NHP",
+                                    "color": "#A3D46F",
+                                    "parentIds": [],
+                                },
+                                {
+                                    "id": "1525",
+                                    "uuid": "PAV-230522GRI-7-PUB",
+                                    "sample_type": "PAV",
+                                    "color": "#A3D46F",
+                                    "parentIds": ["1506"],
+                                },
+                            ],
+                            "rels": [
+                                {
+                                    "child_id": "1525",
+                                    "parent_id": "1506",
+                                    "internal_assay_id": "380",
+                                    "internal_assay_title": "Patient Visit",
+                                    "study_titles": "MIT_SRP; Impactb Study",
+                                    "description": "Visit data of NHP/PAT",
+                                }
+                            ],
+                            "warning": None,
+                        }
+                    ],
+                },
+                response_only=True,
+            ),
+        ],
+    )
+    @action(detail=False, methods=["post"], url_path="lineage")
+    def lineage(self, request):
+        """Return full lineage trees for the provided sample identifiers."""
+        # Auth gate
+        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+        if not basic_tuple and not request.user.is_authenticated:
+            return Response(
+                {"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Validate request body
+        try:
+            req = LineageRequest.model_validate(request.data)
+        except Exception as e:
+            return Response(
+                {"errors": [{"title": "Invalid request", "detail": str(e)}]},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        if not req.sample_ids:
+            return Response(
+                {"errors": [{"title": "sample_ids required"}]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Import ID resolver
+        from nextseek_api.services.samples import _resolve_uid_to_seek_id
+
+        # Build trees for each input sample
+        trees: List[LineageTree] = []
+        all_internal_assay_ids: set = set()
+
+        NEO4J_DATABASE = settings.NEO4J_DATABASE
+
+        try:
+            with GraphDatabase.driver(
+                NEO4J_DATABASE["URI"], auth=NEO4J_DATABASE["AUTH"]
+            ) as driver:
+                for input_id in req.sample_ids:
+                    # Resolve to SEEK ID
+                    resolved_id = _resolve_uid_to_seek_id(str(input_id))
+
+                    if resolved_id is None:
+                        # Sample not found - return empty tree with warning
+                        trees.append(
+                            LineageTree(
+                                input_id=str(input_id),
+                                resolved_id=None,
+                                total_nodes=0,
+                                total_rels=0,
+                                nodes=[],
+                                rels=[],
+                                warning=f"Sample not found: {input_id}",
+                            )
+                        )
+                        continue
+
+                    # Fetch lineage from Neo4j
+                    tree_result, assay_ids = self._fetch_single_lineage(
+                        driver,
+                        int(resolved_id),
+                        NEO4J_DATABASE["NAME"],
+                        str(input_id),
+                        resolved_id,
+                        timeout=(req.timeout or 90.0),
+                    )
+
+                    # Collect internal_assay_ids for batch enrichment
+                    all_internal_assay_ids.update(assay_ids)
+
+                    trees.append(tree_result)
+
+        except Neo4jError as e:
+            return Response(
+                {"errors": [{"title": "Neo4j error", "detail": str(e)}]},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except Exception as e:
+            return Response(
+                {"errors": [{"title": "Query failed", "detail": str(e)}]},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Enrich edges with attributes if requested
+        if req.include_attributes and all_internal_assay_ids:
+            enrichment = self._fetch_lineage_enrichment(all_internal_assay_ids)
+            for tree in trees:
+                for rel in tree.rels:
+                    if rel.internal_assay_id and str(rel.internal_assay_id).isdigit():
+                        aid = int(rel.internal_assay_id)
+                        if aid in enrichment:
+                            rel.study_titles = enrichment[aid].get("study_titles")
+                            rel.description = enrichment[aid].get("description")
+
+        # Apply pagination to nodes within each tree
+        paginator = self.pagination_class()
+        for tree in trees:
+            # Store total before pagination
+            total_nodes = tree.total_nodes
+            page = paginator.paginate_queryset(tree.nodes, request)
+            if page is not None:
+                tree.nodes = page
+            # Restore total (pagination shouldn't change it)
+            tree.total_nodes = total_nodes
+
+        response = LineageResponse(total_trees=len(trees), trees=trees)
+
+        return Response(response.model_dump(), status=status.HTTP_200_OK)
+

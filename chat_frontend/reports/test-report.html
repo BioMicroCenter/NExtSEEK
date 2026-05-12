@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NExtSEEK Chat Frontend — Test Report</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --bg-card: #1e293b;
+    --bg-card-hover: #334155;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --border: #334155;
+    --green: #22c55e;
+    --green-bg: rgba(34,197,94,0.15);
+    --red: #ef4444;
+    --red-bg: rgba(239,68,68,0.15);
+    --yellow: #eab308;
+    --yellow-bg: rgba(234,179,8,0.15);
+    --blue: #3b82f6;
+    --blue-bg: rgba(59,130,246,0.15);
+    --purple: #a855f7;
+    --orange: #f97316;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  header {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 24px 32px;
+  }
+
+  header h1 {
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  header p {
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 32px;
+  }
+
+  /* Executive Summary */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin: 24px 0;
+  }
+
+  .summary-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+  }
+
+  .summary-card .value {
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .summary-card .label {
+    color: var(--text-muted);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .summary-card.pass .value { color: var(--green); }
+  .summary-card.fail .value { color: var(--red); }
+  .summary-card.skip .value { color: var(--yellow); }
+  .summary-card.total .value { color: var(--blue); }
+
+  /* Section headers */
+  h2 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 32px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 20px 0 12px;
+    color: var(--text-muted);
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
+
+  thead {
+    background: var(--bg-card);
+  }
+
+  th {
+    text-align: left;
+    padding: 10px 12px;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  tr:hover td {
+    background: var(--bg-card-hover);
+  }
+
+  /* Status badges */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--mono);
+  }
+
+  .badge.pass {
+    background: var(--green-bg);
+    color: var(--green);
+  }
+
+  .badge.fail {
+    background: var(--red-bg);
+    color: var(--red);
+  }
+
+  .badge.skip {
+    background: var(--yellow-bg);
+    color: var(--yellow);
+  }
+
+  .badge.pending {
+    background: var(--blue-bg);
+    color: var(--blue);
+  }
+
+  /* Code blocks */
+  .error-detail {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--red);
+    overflow-x: auto;
+    margin-top: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .prompt-text {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-muted);
+    max-width: 400px;
+  }
+
+  .reply-preview {
+    font-size: 13px;
+    color: var(--text);
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agent-list {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .agent-badge {
+    background: var(--bg-card-hover);
+    color: var(--purple);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+
+  .duration {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  /* Tabs */
+  .tab-bar {
+    display: flex;
+    gap: 4px;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 16px;
+    overflow-x: auto;
+  }
+
+  .tab-btn {
+    padding: 8px 16px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .tab-btn:hover {
+    color: var(--text);
+  }
+
+  .tab-btn.active {
+    color: var(--blue);
+    border-bottom-color: var(--blue);
+  }
+
+  .tab-content {
+    display: none;
+  }
+
+  .tab-content.active {
+    display: block;
+  }
+
+  /* What works / What doesn't */
+  .verdict-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+  }
+
+  .verdict-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+  }
+
+  .verdict-card h4 {
+    font-size: 14px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .verdict-card.works h4 { color: var(--green); }
+  .verdict-card.broken h4 { color: var(--red); }
+
+  .verdict-card ul {
+    list-style: none;
+    font-size: 13px;
+  }
+
+  .verdict-card li {
+    padding: 4px 0;
+    color: var(--text-muted);
+  }
+
+  .verdict-card li::before {
+    content: "- ";
+  }
+
+  /* Collapsible */
+  details {
+    margin-bottom: 8px;
+  }
+
+  details summary {
+    cursor: pointer;
+    font-weight: 500;
+    padding: 6px 0;
+    color: var(--text);
+  }
+
+  details summary:hover {
+    color: var(--blue);
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .container { padding: 16px; }
+    .summary-grid { grid-template-columns: repeat(2, 1fr); }
+    .verdict-grid { grid-template-columns: 1fr; }
+    table { font-size: 12px; }
+    td, th { padding: 8px 6px; }
+  }
+
+  .note {
+    background: var(--yellow-bg);
+    color: var(--yellow);
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin: 16px 0;
+  }
+
+  .timestamp {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-family: var(--mono);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>NExtSEEK Chat Frontend — Test Report</h1>
+  <p>Generated: <span id="timestamp"></span> | Branch: dev | Environment: nextseek-dev.mit.edu</p>
+</header>
+
+<div class="container">
+
+  <!-- Executive Summary -->
+  <h2>Executive Summary</h2>
+  <div class="summary-grid" id="summary-grid">
+    <!-- Populated by JS -->
+  </div>
+
+  <!-- Tab Navigation -->
+  <div class="tab-bar" id="tab-bar">
+    <button class="tab-btn active" data-tab="vitest">Vitest Unit Tests</button>
+    <button class="tab-btn" data-tab="mock-e2e">Mock E2E Tests</button>
+    <button class="tab-btn" data-tab="ui-func">UI Functionality</button>
+    <button class="tab-btn" data-tab="real-standalone">Real Backend (Standalone)</button>
+    <button class="tab-btn" data-tab="real-embedded">Real Backend (Embedded)</button>
+    <button class="tab-btn" data-tab="verdict">What Works / Doesn't</button>
+    <button class="tab-btn" data-tab="failures">Failure Analysis</button>
+  </div>
+
+  <!-- Vitest Unit Tests -->
+  <div class="tab-content active" id="tab-vitest">
+    <h3>Vitest Unit Test Results</h3>
+    <div id="vitest-results"></div>
+  </div>
+
+  <!-- Mock E2E Tests -->
+  <div class="tab-content" id="tab-mock-e2e">
+    <h3>Existing Playwright Mock E2E Tests</h3>
+    <div id="mock-e2e-results"></div>
+  </div>
+
+  <!-- UI Functionality Tests -->
+  <div class="tab-content" id="tab-ui-func">
+    <h3>New UI Functionality Tests (Mock-Based)</h3>
+    <div id="ui-func-results"></div>
+  </div>
+
+  <!-- Real Backend Standalone -->
+  <div class="tab-content" id="tab-real-standalone">
+    <h3>Real Backend Tests — Standalone (localhost:5173)</h3>
+    <div id="real-standalone-results"></div>
+  </div>
+
+  <!-- Real Backend Embedded -->
+  <div class="tab-content" id="tab-real-embedded">
+    <h3>Real Backend Tests — Embedded (nextseek-dev.mit.edu/seek/salt/)</h3>
+    <div id="real-embedded-results"></div>
+  </div>
+
+  <!-- What Works / What Doesn't -->
+  <div class="tab-content" id="tab-verdict">
+    <h3>Summary: What Works vs. What Doesn't</h3>
+    <div class="verdict-grid" id="verdict-grid"></div>
+  </div>
+
+  <!-- Failure Analysis -->
+  <div class="tab-content" id="tab-failures">
+    <h3>Failure Analysis</h3>
+    <div id="failure-analysis"></div>
+  </div>
+
+</div>
+
+<script>
+// ===========================================================================
+// TEST DATA — Populated after test runs complete
+// ===========================================================================
+
+const testData = {
+  // Vitest unit tests — 50/50 passed
+  vitest: {
+    status: "pass",
+    error: null,
+    tests: [
+      { name: "useProcessingState > initializes with default state", status: "pass", duration: 49, error: null },
+      { name: "useProcessingState > handles agent started", status: "pass", duration: 49, error: null },
+      { name: "useProcessingState > handles agent complete", status: "pass", duration: 49, error: null },
+      { name: "useProcessingState > handles mode detection", status: "pass", duration: 49, error: null },
+      { name: "useProcessingState > resets processing state", status: "pass", duration: 49, error: null },
+      { name: "useProcessingState > handles unknown agent", status: "pass", duration: 49, error: null },
+      { name: "MessageBubble > renders user message", status: "pass", duration: 97, error: null },
+      { name: "MessageBubble > renders assistant message", status: "pass", duration: 97, error: null },
+      { name: "MessageBubble > renders system message", status: "pass", duration: 97, error: null },
+      { name: "useAuth > returns valid when credentials ok", status: "pass", duration: 139, error: null },
+      { name: "useAuth > returns error on invalid credentials", status: "pass", duration: 139, error: null },
+      { name: "useAuth > returns error when env vars missing", status: "pass", duration: 139, error: null },
+      { name: "ProcessingStepper > renders steps", status: "pass", duration: 63, error: null },
+      { name: "ProcessingStepper > highlights active step", status: "pass", duration: 63, error: null },
+      { name: "ProcessingStepper > marks completed steps", status: "pass", duration: 63, error: null },
+      { name: "HeaderBar > renders title", status: "pass", duration: 80, error: null },
+      { name: "HeaderBar > toggles dark mode", status: "pass", duration: 80, error: null },
+      { name: "HeaderBar > toggle buttons work", status: "pass", duration: 80, error: null },
+      { name: "MessageInput > renders placeholder", status: "pass", duration: 80, error: null },
+      { name: "MessageInput > submits on enter", status: "pass", duration: 80, error: null },
+      { name: "MessageInput > does not submit empty", status: "pass", duration: 80, error: null },
+      { name: "MessageInput > disabled state", status: "pass", duration: 80, error: null },
+      { name: "ChatPanel > renders message list", status: "pass", duration: 71, error: null },
+      { name: "ChatPanel > renders stepper during processing", status: "pass", duration: 71, error: null },
+      { name: "ChatPanel > renders input", status: "pass", duration: 71, error: null },
+      { name: "ChatPanel > shows placeholder when empty", status: "pass", duration: 71, error: null },
+      { name: "chatApi > submitQuery sends POST", status: "pass", duration: 19, error: null },
+      { name: "chatApi > submitQuery opens WebSocket", status: "pass", duration: 19, error: null },
+      { name: "chatApi > fetchTestCases returns cases", status: "pass", duration: 19, error: null },
+      { name: "chatApi > downloadBundle triggers download", status: "pass", duration: 19, error: null },
+      { name: "chatApi > handles query error", status: "pass", duration: 19, error: null },
+      { name: "chatApi > handles network error", status: "pass", duration: 19, error: null },
+      { name: "chatApi > handles auth failure", status: "pass", duration: 19, error: null },
+      { name: "sessionAuth > returns CSRF header", status: "pass", duration: 13, error: null },
+      { name: "sessionAuth > returns relative API URL", status: "pass", duration: 13, error: null },
+      { name: "sessionAuth > returns WS URL", status: "pass", duration: 13, error: null },
+      { name: "sessionAuth > handles missing CSRF", status: "pass", duration: 13, error: null },
+      { name: "useMessages > adds user message", status: "pass", duration: 45, error: null },
+      { name: "useMessages > adds assistant message", status: "pass", duration: 45, error: null },
+      { name: "useMessages > adds system message", status: "pass", duration: 45, error: null },
+      { name: "useMessages > clears messages", status: "pass", duration: 45, error: null },
+      { name: "auth > computes Basic auth header", status: "pass", duration: 10, error: null },
+      { name: "auth > returns API base URL", status: "pass", duration: 10, error: null },
+      { name: "auth > returns WS base URL", status: "pass", duration: 10, error: null },
+      { name: "auth > handles HTTPS to WSS", status: "pass", duration: 10, error: null },
+      { name: "auth > handles HTTP to WS", status: "pass", duration: 10, error: null },
+      { name: "auth > returns empty when no env vars", status: "pass", duration: 10, error: null },
+      { name: "auth > isConfigured check", status: "pass", duration: 10, error: null },
+      { name: "auth > validates credentials format", status: "pass", duration: 10, error: null },
+      { name: "auth > singleton export", status: "pass", duration: 10, error: null },
+    ]
+  },
+
+  // Existing mock E2E tests — 13/13 passed (this run)
+  mockE2e: {
+    status: "pass",
+    error: null,
+    tests: [
+      { name: "Chat Flow > sends query and shows user message", status: "pass", duration: 914, error: null },
+      { name: "Chat Flow > shows stepper during processing", status: "pass", duration: 920, error: null },
+      { name: "Chat Flow > displays assistant response after query complete", status: "pass", duration: 1100, error: null },
+      { name: "Chat Flow > handles query error gracefully", status: "pass", duration: 929, error: null },
+      { name: "Dark Mode > toggles dark class on html element", status: "pass", duration: 548, error: null },
+      { name: "Dark Mode > persists dark mode preference across reload", status: "pass", duration: 925, error: null },
+      { name: "Debug Panel > shows empty state initially", status: "pass", duration: 578, error: null },
+      { name: "Debug Panel > shows entries after query completes", status: "pass", duration: 1100, error: null },
+      { name: "Debug Panel > accordion expands to show summary", status: "pass", duration: 1300, error: null },
+      { name: "Download > download buttons disabled before query, enabled after", status: "pass", duration: 1400, error: null },
+      { name: "Download > clicking download triggers fetch to bundle endpoint", status: "pass", duration: 1700, error: null },
+      { name: "Test Runner > displays test cases in left sidebar", status: "pass", duration: 881, error: null },
+      { name: "Test Runner > clicking run sends the test query", status: "pass", duration: 1200, error: null },
+    ]
+  },
+
+  // New UI functionality tests — 12/12 passed (this run)
+  uiFunc: {
+    status: "pass",
+    tests: [
+      { name: "UI Functionality > left sidebar opens and closes", status: "pass", duration: 1200, error: null },
+      { name: "UI Functionality > right sidebar opens and closes", status: "pass", duration: 1200, error: null },
+      { name: "UI Functionality > test case list populates with mock data", status: "pass", duration: 1200, error: null },
+      { name: "UI Functionality > Run All button sends staggered queries", status: "pass", duration: 3200, error: null },
+      { name: "UI Functionality > processing stepper shows new_search mode", status: "pass", duration: 1100, error: null },
+      { name: "UI Functionality > processing stepper shows reporter mode", status: "pass", duration: 1100, error: null },
+      { name: "UI Functionality > message input auto-resizes", status: "pass", duration: 904, error: null },
+      { name: "UI Functionality > message input disabled during query", status: "pass", duration: 1200, error: null },
+      { name: "UI Functionality > Shift+Enter creates newline without sending", status: "pass", duration: 1000, error: null },
+      { name: "UI Functionality > empty input cannot send", status: "pass", duration: 769, error: null },
+      { name: "UI Functionality > auto-scrolls to bottom on new messages", status: "pass", duration: 3900, error: null },
+      { name: "UI Functionality > error message styling", status: "pass", duration: 1200, error: null },
+    ]
+  },
+
+  // Real backend standalone — 15/15 passed (this run)
+  realStandalone: {
+    status: "pass",
+    tests: [
+      { id: "tumor_patient_4", prompt: "Show me tumor data for patient 4.", status: "pass", reply: "(1172 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 39684, error: null },
+      { id: "tumor_dfci4", prompt: "Try that search again but instead with DFCI4.", status: "pass", reply: "(689 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 19559, error: null },
+      { id: "what_monkeys_exist", prompt: "What monkeys exist in the database?", status: "pass", reply: "(943 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15587, error: null },
+      { id: "monkeys_cd8_depleted", prompt: "Which of those monkeys are depleted of CD8?", status: "pass", reply: "(650 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15556, error: null },
+      { id: "mice_ndma", prompt: "Find me mice treated with NDMA.", status: "pass", reply: "(981 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15575, error: null },
+      { id: "monkeys_flow_and_seq", prompt: "Find me monkeys that have flow and sequencing data.", status: "pass", reply: "(597 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 17581, error: null },
+      { id: "cd8_antibodies", prompt: "Find me all CD8 antibodies in the database.", status: "pass", reply: "(1039 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 13556, error: null },
+      { id: "sample_tree", prompt: "Show me all samples derived from CEL-250319WHI-1-PUB?", status: "pass", reply: "(407 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 29584, error: null },
+      { id: "retrieval", prompt: "Retrieve all samples associated with: NHP-220630FLY-5-PUB", status: "pass", reply: "(560 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 13544, error: null },
+      { id: "list_assays_access", prompt: "Show me all assays I have access to.", status: "pass", reply: "(411 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 23568, error: null },
+      { id: "omero_fibrin_images", prompt: "What fibrin images exist?", status: "pass", reply: "(1247 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15557, error: null },
+      { id: "gpt_assay", prompt: "What GPT data exists in the database?", status: "pass", reply: "(1141 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 17558, error: null },
+      { id: "reporter_impact", prompt: "How many samples were uploaded for impact from 2023 to 2025?", status: "pass", reply: "(476 chars received)", agents: ["entity", "parser", "chatter", "reporter"], duration: 9534, error: null },
+      { id: "reporter_language", prompt: "How many samples were uploaded last month?", status: "pass", reply: "(348 chars received)", agents: ["entity", "parser", "chatter", "reporter"], duration: 11545, error: null },
+      { id: "GEO", prompt: "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB", status: "pass", reply: "(524 chars received)", agents: ["entity", "parser", "reporter"], duration: 61662, error: null },
+    ]
+  },
+
+  // Real backend embedded — 15/15 passed (this run)
+  realEmbedded: {
+    status: "pass",
+    tests: [
+      { id: "tumor_patient_4", prompt: "Show me tumor data for patient 4.", status: "pass", reply: "(1078 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 43660, error: null },
+      { id: "tumor_dfci4", prompt: "Try that search again but instead with DFCI4.", status: "pass", reply: "(480 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 9572, error: null },
+      { id: "what_monkeys_exist", prompt: "What monkeys exist in the database?", status: "pass", reply: "(972 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15582, error: null },
+      { id: "monkeys_cd8_depleted", prompt: "Which of those monkeys are depleted of CD8?", status: "pass", reply: "(193 chars received)", agents: ["entity", "parser"], duration: 7539, error: null },
+      { id: "mice_ndma", prompt: "Find me mice treated with NDMA.", status: "pass", reply: "(1062 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15590, error: null },
+      { id: "monkeys_flow_and_seq", prompt: "Find me monkeys that have flow and sequencing data.", status: "pass", reply: "(560 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15579, error: null },
+      { id: "cd8_antibodies", prompt: "Find me all CD8 antibodies in the database.", status: "pass", reply: "(1007 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 13556, error: null },
+      { id: "sample_tree", prompt: "Show me all samples derived from CEL-250319WHI-1-PUB?", status: "pass", reply: "(379 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 31589, error: null },
+      { id: "retrieval", prompt: "Retrieve all samples associated with: NHP-220630FLY-5-PUB", status: "pass", reply: "(573 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 15558, error: null },
+      { id: "list_assays_access", prompt: "Show me all assays I have access to.", status: "pass", reply: "(342 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 19561, error: null },
+      { id: "omero_fibrin_images", prompt: "What fibrin images exist?", status: "pass", reply: "(1353 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 13497, error: null },
+      { id: "gpt_assay", prompt: "What GPT data exists in the database?", status: "pass", reply: "(587 chars received)", agents: ["entity", "parser", "api", "http", "chatter"], duration: 57638, error: null },
+      { id: "reporter_impact", prompt: "How many samples were uploaded for impact from 2023 to 2025?", status: "pass", reply: "(476 chars received)", agents: ["entity", "parser", "chatter", "reporter"], duration: 13556, error: null },
+      { id: "reporter_language", prompt: "How many samples were uploaded last month?", status: "pass", reply: "(422 chars received)", agents: ["entity", "parser", "chatter", "reporter"], duration: 13550, error: null },
+      { id: "GEO", prompt: "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB", status: "pass", reply: "(584 chars received)", agents: ["entity", "parser", "reporter"], duration: 37589, error: null },
+    ]
+  }
+};
+
+// ===========================================================================
+// RENDERING
+// ===========================================================================
+
+document.getElementById("timestamp").textContent = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
+
+// --- Tab switching ---
+document.getElementById("tab-bar").addEventListener("click", (e) => {
+  const btn = e.target.closest(".tab-btn");
+  if (!btn) return;
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+  btn.classList.add("active");
+  document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+});
+
+// --- Helper: create badge ---
+function badge(status) {
+  const el = document.createElement("span");
+  el.className = "badge " + status;
+  const icons = { pass: "\u2713", fail: "\u2717", skip: "\u2014", pending: "\u25CB", error: "\u26A0" };
+  el.textContent = (icons[status] || "") + " " + status.toUpperCase();
+  return el;
+}
+
+// --- Helper: create test table ---
+function createTestTable(tests, columns) {
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  columns.forEach(col => {
+    const th = document.createElement("th");
+    th.textContent = col.label;
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  tests.forEach(test => {
+    const tr = document.createElement("tr");
+    columns.forEach(col => {
+      const td = document.createElement("td");
+      col.render(td, test);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  return table;
+}
+
+// --- Executive Summary ---
+function renderSummary() {
+  const grid = document.getElementById("summary-grid");
+  const allTests = [
+    ...testData.vitest.tests,
+    ...testData.mockE2e.tests,
+    ...testData.uiFunc.tests,
+    ...testData.realStandalone.tests,
+    ...testData.realEmbedded.tests,
+  ];
+
+  const counts = { total: allTests.length, pass: 0, fail: 0, skip: 0, pending: 0, error: 0 };
+  allTests.forEach(t => { counts[t.status] = (counts[t.status] || 0) + 1; });
+
+  const cards = [
+    { value: counts.total, label: "Total Tests", cls: "total" },
+    { value: counts.pass, label: "Passed", cls: "pass" },
+    { value: counts.fail, label: "Failed", cls: "fail" },
+    { value: counts.pending, label: "Pending", cls: "skip" },
+  ];
+
+  cards.forEach(c => {
+    const card = document.createElement("div");
+    card.className = "summary-card " + c.cls;
+    const val = document.createElement("div");
+    val.className = "value";
+    val.textContent = c.value;
+    const lbl = document.createElement("div");
+    lbl.className = "label";
+    lbl.textContent = c.label;
+    card.appendChild(val);
+    card.appendChild(lbl);
+    grid.appendChild(card);
+  });
+}
+
+// --- Vitest results ---
+function renderVitest() {
+  const container = document.getElementById("vitest-results");
+  if (testData.vitest.status === "error") {
+    const note = document.createElement("div");
+    note.className = "note";
+    note.textContent = "Vitest could not run: " + testData.vitest.error;
+    container.appendChild(note);
+    return;
+  }
+  if (testData.vitest.tests.length === 0) {
+    const p = document.createElement("p");
+    p.style.color = "var(--text-muted)";
+    p.textContent = "No vitest results available. Run: npm run test";
+    container.appendChild(p);
+    return;
+  }
+  container.appendChild(createTestTable(testData.vitest.tests, [
+    { label: "Test", render: (td, t) => { td.textContent = t.name; } },
+    { label: "Status", render: (td, t) => { td.appendChild(badge(t.status)); } },
+    { label: "Duration", render: (td, t) => { td.className = "duration"; td.textContent = t.duration ? t.duration + "ms" : "-"; } },
+    { label: "Error", render: (td, t) => { if (t.error) { const d = document.createElement("div"); d.className = "error-detail"; d.textContent = t.error; td.appendChild(d); } else { td.textContent = "-"; } } },
+  ]));
+}
+
+// --- Mock E2E results ---
+function renderMockE2e() {
+  const container = document.getElementById("mock-e2e-results");
+  if (testData.mockE2e.status === "error") {
+    const note = document.createElement("div");
+    note.className = "note";
+    note.textContent = "Playwright mock tests could not complete: " + testData.mockE2e.error;
+    container.appendChild(note);
+  }
+  container.appendChild(createTestTable(testData.mockE2e.tests, [
+    { label: "Test", render: (td, t) => { td.textContent = t.name; } },
+    { label: "Status", render: (td, t) => { td.appendChild(badge(t.status)); } },
+    { label: "Duration", render: (td, t) => { td.className = "duration"; td.textContent = t.duration ? t.duration + "ms" : "-"; } },
+    { label: "Error", render: (td, t) => { if (t.error) { const d = document.createElement("div"); d.className = "error-detail"; d.textContent = t.error; td.appendChild(d); } else { td.textContent = "-"; } } },
+  ]));
+}
+
+// --- UI Functionality results ---
+function renderUiFunc() {
+  const container = document.getElementById("ui-func-results");
+  if (testData.uiFunc.status === "pending") {
+    const note = document.createElement("div");
+    note.className = "note";
+    note.textContent = "UI functionality tests have not been run yet. Run: npx playwright test --project=mock";
+    container.appendChild(note);
+  }
+  container.appendChild(createTestTable(testData.uiFunc.tests, [
+    { label: "Test", render: (td, t) => { td.textContent = t.name; } },
+    { label: "Status", render: (td, t) => { td.appendChild(badge(t.status)); } },
+    { label: "Duration", render: (td, t) => { td.className = "duration"; td.textContent = t.duration ? t.duration + "ms" : "-"; } },
+    { label: "Error", render: (td, t) => { if (t.error) { const d = document.createElement("div"); d.className = "error-detail"; d.textContent = t.error; td.appendChild(d); } else { td.textContent = "-"; } } },
+  ]));
+}
+
+// --- Real Backend tables ---
+function renderRealBackend(containerId, data) {
+  const container = document.getElementById(containerId);
+  if (data.status === "pending") {
+    const note = document.createElement("div");
+    note.className = "note";
+    note.textContent = "Real backend tests have not been run yet. Run: USE_REAL_BACKEND=true npx playwright test --project=" + (containerId.includes("standalone") ? "real-standalone" : "real-embedded");
+    container.appendChild(note);
+  }
+  container.appendChild(createTestTable(data.tests, [
+    { label: "ID", render: (td, t) => { const code = document.createElement("code"); code.textContent = t.id; td.appendChild(code); } },
+    { label: "Prompt", render: (td, t) => { td.className = "prompt-text"; td.textContent = t.prompt; } },
+    { label: "Status", render: (td, t) => { td.appendChild(badge(t.status)); } },
+    { label: "Reply Preview", render: (td, t) => { td.className = "reply-preview"; td.textContent = t.reply ? t.reply.slice(0, 100) + (t.reply.length > 100 ? "..." : "") : "-"; } },
+    { label: "Agents", render: (td, t) => {
+      if (t.agents && t.agents.length) {
+        const div = document.createElement("div");
+        div.className = "agent-list";
+        t.agents.forEach(a => {
+          const ab = document.createElement("span");
+          ab.className = "agent-badge";
+          ab.textContent = a;
+          div.appendChild(ab);
+        });
+        td.appendChild(div);
+      } else { td.textContent = "-"; }
+    }},
+    { label: "Duration", render: (td, t) => { td.className = "duration"; td.textContent = t.duration ? (t.duration / 1000).toFixed(1) + "s" : "-"; } },
+    { label: "Error", render: (td, t) => { if (t.error) { const d = document.createElement("div"); d.className = "error-detail"; d.textContent = t.error; td.appendChild(d); } else { td.textContent = "-"; } } },
+  ]));
+}
+
+// --- What works / What doesn't ---
+function renderVerdict() {
+  const grid = document.getElementById("verdict-grid");
+
+  const allTests = [
+    ...testData.mockE2e.tests.map(t => ({ ...t, suite: "Mock E2E" })),
+    ...testData.uiFunc.tests.map(t => ({ ...t, suite: "UI Func" })),
+    ...testData.realStandalone.tests.map(t => ({ ...t, suite: "Real Standalone", name: t.id })),
+    ...testData.realEmbedded.tests.map(t => ({ ...t, suite: "Real Embedded", name: t.id })),
+  ];
+
+  const works = allTests.filter(t => t.status === "pass");
+  const broken = allTests.filter(t => t.status === "fail");
+  const pending = allTests.filter(t => t.status === "pending");
+
+  // What works
+  const worksCard = document.createElement("div");
+  worksCard.className = "verdict-card works";
+  const wh = document.createElement("h4");
+  wh.textContent = "\u2713 What Works (" + works.length + ")";
+  worksCard.appendChild(wh);
+  const wul = document.createElement("ul");
+  if (works.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "No tests have passed yet (tests pending)";
+    wul.appendChild(li);
+  }
+  works.forEach(t => {
+    const li = document.createElement("li");
+    li.textContent = "[" + t.suite + "] " + t.name;
+    wul.appendChild(li);
+  });
+  worksCard.appendChild(wul);
+  grid.appendChild(worksCard);
+
+  // What doesn't
+  const brokenCard = document.createElement("div");
+  brokenCard.className = "verdict-card broken";
+  const bh = document.createElement("h4");
+  bh.textContent = "\u2717 What Doesn't Work (" + broken.length + ")";
+  brokenCard.appendChild(bh);
+  const bul = document.createElement("ul");
+  if (broken.length === 0 && pending.length > 0) {
+    const li = document.createElement("li");
+    li.textContent = pending.length + " tests still pending — run tests to populate";
+    bul.appendChild(li);
+  }
+  broken.forEach(t => {
+    const li = document.createElement("li");
+    li.textContent = "[" + t.suite + "] " + t.name + (t.error ? ": " + t.error.slice(0, 60) : "");
+    bul.appendChild(li);
+  });
+  brokenCard.appendChild(bul);
+  grid.appendChild(brokenCard);
+}
+
+// --- Failure Analysis ---
+function renderFailures() {
+  const container = document.getElementById("failure-analysis");
+  const allTests = [
+    ...testData.vitest.tests.map(t => ({ ...t, suite: "Vitest" })),
+    ...testData.mockE2e.tests.map(t => ({ ...t, suite: "Mock E2E" })),
+    ...testData.uiFunc.tests.map(t => ({ ...t, suite: "UI Func" })),
+    ...testData.realStandalone.tests.map(t => ({ ...t, suite: "Real Standalone", name: t.id || t.name })),
+    ...testData.realEmbedded.tests.map(t => ({ ...t, suite: "Real Embedded", name: t.id || t.name })),
+  ];
+
+  const failures = allTests.filter(t => t.status === "fail");
+
+  if (failures.length === 0) {
+    const note = document.createElement("div");
+    note.className = "note";
+    note.textContent = "No failures to analyze. Tests are either passing or have not been run yet.";
+    container.appendChild(note);
+
+    // Also show suite-level errors
+    const suiteErrors = [];
+    if (testData.vitest.status === "error") suiteErrors.push({ suite: "Vitest", error: testData.vitest.error });
+    if (testData.mockE2e.status === "error") suiteErrors.push({ suite: "Mock E2E", error: testData.mockE2e.error });
+
+    if (suiteErrors.length > 0) {
+      const h = document.createElement("h3");
+      h.textContent = "Suite-Level Errors";
+      container.appendChild(h);
+      suiteErrors.forEach(se => {
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = se.suite + " — Suite Error";
+        details.appendChild(summary);
+        const pre = document.createElement("div");
+        pre.className = "error-detail";
+        pre.textContent = se.error;
+        details.appendChild(pre);
+        container.appendChild(details);
+      });
+    }
+    return;
+  }
+
+  failures.forEach(t => {
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    const b = badge("fail");
+    summary.appendChild(b);
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = " [" + t.suite + "] " + t.name;
+    summary.appendChild(nameSpan);
+    details.appendChild(summary);
+
+    if (t.error) {
+      const pre = document.createElement("div");
+      pre.className = "error-detail";
+      pre.textContent = t.error;
+      details.appendChild(pre);
+    }
+
+    if (t.screenshot) {
+      const p = document.createElement("p");
+      p.style.marginTop = "8px";
+      p.style.fontSize = "13px";
+      p.style.color = "var(--text-muted)";
+      p.textContent = "Screenshot: " + t.screenshot;
+      details.appendChild(p);
+    }
+
+    container.appendChild(details);
+  });
+}
+
+// --- Render all ---
+renderSummary();
+renderVitest();
+renderMockE2e();
+renderUiFunc();
+renderRealBackend("real-standalone-results", testData.realStandalone);
+renderRealBackend("real-embedded-results", testData.realEmbedded);
+renderVerdict();
+renderFailures();
+</script>
+</body>
+</html>

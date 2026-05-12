@@ -1,0 +1,118 @@
+<div class="span12">
+	<form id="simple_search" method="post" enctype="multipart/form-data">
+		<div class="well">
+			<div class="row show-grid">
+				<table class="table" align="center" style="width:80%">
+					<thead>
+						<tr>
+							<th>Sample Type:</th>
+							<th>Sample Attribute:</th>
+							<th>Search Text:</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td>
+								<input form="simple_search" id="sampletype" class="easyui-combobox" name="sampletype" style="width:100%;" data-options="showItemIcon: true,
+																 valueField: 'id',
+																 textField:'title',
+																 editable: true,
+																 filter: function(q, row) {
+																		var opts = $(this).combobox('options');
+																		return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;
+																 },
+																 panelHeight:'auto',
+																 label: '',
+																 labelPosition: 'top',
+																 onSelect: function(rec){ loadSampleAttributes(rec); },
+																 onFocus: function() {$(this).combobox('showPanel');}">
+							</td>
+							<td>
+								<input form="simple_search" id="attribute" class="easyui-combobox" name="attribute" style="width:100%;" data-options="showItemIcon: true,
+																valueField:'attribute',
+																textField:'name',
+																editable: true, filter: function(q, row){ var opts = $(this).combobox('options'); return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;},
+																panelHeight:'auto',
+																label: '',
+																labelPosition: 'top'">
+							</td>
+							<td>
+								<input form="simple_search" name="filter_searchText" id="filter_searchText" label="" labelposition="left" value="" placeholder="Search value" style="width:150px;height:30px">
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="row show-grid">
+				<div class="col-xs-6 col-sm-4 col-md-4"></div>
+				<div class="col-xs-6 col-sm-4 col-md-4">
+					<button type="submit" class="easyui-linkbutton" data-options="iconCls:'icon-search',plain:true">Search</button>
+				</div>
+				<div class="col-xs-6 col-sm-4 col-md-4"></div>
+			</div>
+		</div>
+	</form>
+</div>
+<script defer>
+	async function getSampleAttributes(id) {
+		try {
+			const response = await fetch(`/seek/attributes/id=${id}`)
+			if (response.ok) {
+				const response_json = await response.json()
+				return response_json
+			}
+			} catch (e) {
+				console.error(e)
+			}
+		}
+		
+		async function loadSampleAttributes(rec) {
+			const sampleAttributes = await getSampleAttributes(rec.id);
+			
+			$('#attribute').combobox({
+				data: sampleAttributes.attrOptions
+				})
+			}
+			
+			async function simpleSearch(form) {
+				const csrftoken = getCookie('csrftoken');
+				const formData = new FormData(form);
+				formData.append("filter_matchType", "PARTIAL")
+				let object = {};
+				formData.forEach((value, key) => {
+					if (value != "none") {
+						object[key] = value
+					}
+				});
+				const json = JSON.stringify(object);
+				
+				const messangerWindow = $.messager.progress({
+					title: "Please wait",
+					msg: "Searching for samples..."
+					});
+					
+					try {
+						const response = await fetch("/nextseek_api/samples/advanced_search/", {
+							method: "POST",
+							headers: {"Content-Type": "application/json",
+							"X-CSRFTOKEN": csrftoken},
+							body: json
+							});
+							
+							if (response.ok) {
+								$.messager.progress('close')
+								const response_json = await response.json()
+								const rows = response_json.rows.sort((a, b) => sortSamplesByUUID(a.uuid, b.uuid))
+								$('#simple_dgtable').datagrid('loadData', rows);
+							}
+							} catch (e) {
+								console.error(e)
+							}
+						}
+						
+						const simple_search_form = document.getElementById("simple_search")
+						simple_search_form.addEventListener("submit", (event) => {
+							event.preventDefault();
+							simpleSearch(event.target);
+							})
+</script>

@@ -14,6 +14,12 @@ from subprocess import call
 from subprocess import check_call
 
 import logging
+logging.basicConfig(
+        filename="dmac.logs",
+        filemode='a',
+        format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+        datefmt='%H:%M:%S',
+        level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 from seek.seekdb import SeekDB
@@ -27,19 +33,19 @@ report = {}
 def __process(request, operation):
     dbtable = DBtable("DEFAULT")
     return dbtable.process(request, operation) 
-   
+
 def retrieve(request):
     return __process(request, "retrieve") 
-   
+
 def upload(request):
     return __process(request, "upload") 
-   
+
 def download(request):
     return __process(request, "download") 
-    
+
 def save(request):
     return __process(request, "save")
-    
+
 def delete(request):
     return __process(request, "delete")
 
@@ -56,14 +62,14 @@ def userSynchronization(user_seek):
         msg = "Error: Login user not found in SEEK people table, ask admin for help."
         logger.error(msg)
         return status
-    
+
     try:
         user = User.objects.get(username__exact=username)
     except:
         user = None
         msg = "username not found in NExtSEEK: " + username
         logger.debug(msg)
-    
+
     if user is None:
         logger.debug("Register new SEEK user in NExtSEEK")
         try:
@@ -98,19 +104,23 @@ def userSynchronization(user_seek):
             msg = "Error: Update of SEEK user failed, ask admin for help."
             logger.error(msg)
             status = 0
-    
+
     return status, msg
-    
+
 def login_seek(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request)
-    
+
+    logger.debug(f"User trying to log in: {user_seek}")
+    logger.debug(f"User request: {request}")
     status = user_seek['status']
     err = user_seek['err']
     username = user_seek['username']
     password = user_seek['password']
     if request.method == 'POST':
+        logger.debug(f"Request method: {request.method}")
         if user_seek['status']:
+            logger.debug(f"User was able to log in")
             request.session['server'] = user_seek['server']
             request.session['storage_type'] = user_seek['storagetype']
             request.session['storage'] = user_seek['storage']
@@ -124,6 +134,7 @@ def login_seek(request):
             username = user_seek['username']
             password = user_seek['password']
             user = authenticate(username=username, password=password)
+            logger.debug(f"Authenticated Django user: {user}")
             if user is not None:
                 login(request, user)
             else:
@@ -256,3 +267,43 @@ def index(request):
 def signup_seek(request):
     url = settings.SEEK_URL + "/signup"
     HttpResponseRedirect(url)
+
+
+
+
+def home(request):
+    """
+    Home dashboard. Passes a small set of counts and a 'recent samples'
+    list to themes/NextSeek/templates/index.html. Falls back gracefully
+    when the user has nothing yet.
+    """
+    context = {
+        "total_samples_count": 0,
+        "total_projects_count": 0,
+        "total_data_files_count": 0,
+        "samples_delta_week": 0,
+        "data_files_delta_week": 0,
+        "projects_user_count": 0,
+        "recent_samples": [],
+    }
+
+    try:
+        # v1 stub: only `total_samples_count` and `recent_samples` are
+        # populated from real data. The remaining context keys
+        # (total_projects_count, total_data_files_count, samples_delta_week,
+        # data_files_delta_week, projects_user_count) are intentionally
+        # left at their zero defaults; filling them in is a follow-on.
+        from seek.models import Samples  # actual class name in seek.models
+        context["total_samples_count"] = Samples.objects.count()
+        context["recent_samples"] = list(
+            Samples.objects.order_by("-id").values(
+                "uid", "name", "project__name"
+            )[:4]
+        )
+    except Exception:
+        # Model not importable from this location or DB unavailable —
+        # render with empty defaults. v1 is tolerant; later passes can
+        # plumb the real model names.
+        pass
+
+    return render(request, "index.html", context)

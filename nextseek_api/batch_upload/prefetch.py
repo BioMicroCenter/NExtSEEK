@@ -1,0 +1,217 @@
+"""Stage 3: PREFETCH — Thread-safe cached validation against the database."""
+from __future__ import annotations
+
+import logging
+import threading
+from typing import Dict, List, Optional, Set, Tuple
+
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+
+from .config import BatchUploadConfig
+
+log = logging.getLogger(__name__)
+
+_CACHE_LOCK = threading.Lock()
+
+# Module-level caches
+_ASSAY_EXISTS_CACHE: Dict[int, bool] = {}
+_SAMPLE_TYPE_TITLE_TO_ID: Dict[str, int] = {}
+_PROJECT_SAMPLE_TYPE_LINKED: Dict[int, Set[int]] = {}
+
+_config = BatchUploadConfig()
+
+
+def _trim_cache(cache_dict: dict, max_size: int) -> None:
+    """Evict oldest entries (insertion order) when exceeding max_size."""
+    while len(cache_dict) > max_size:
+        cache_dict.pop(next(iter(cache_dict)))
+
+
+def prefetch_sample_types(titles: List[str], conn: Connection) -> Dict[str, int]:
+    """Bulk-fetch sample type title -> id mappings, using cache.
+
+    Returns mapping of title -> sample_type_id for all found titles.
+    """
+    with _CACHE_LOCK:
+        uncached = [t for t in titles if t not in _SAMPLE_TYPE_TITLE_TO_ID]
+
+    if uncached:
+        # Bulk query for uncached titles
+        params = {f"t_{i}": t for i, t in enumerate(uncached)}
+        placeholders = ", ".join(f":t_{i}" for i in range(len(uncached)))
+        sql = text(f"SELECT title, id FROM sample_types WHERE title IN ({placeholders})")
+        rows = conn.execute(sql, params).fetchall()
+
+        with _CACHE_LOCK:
+            for title, st_id in rows:
+                _SAMPLE_TYPE_TITLE_TO_ID[title] = st_id
+            _trim_cache(_SAMPLE_TYPE_TITLE_TO_ID, _config.title_to_id_cache_max)
+
+    with _CACHE_LOCK:
+        return {t: _SAMPLE_TYPE_TITLE_TO_ID[t] for t in titles if t in _SAMPLE_TYPE_TITLE_TO_ID}
+
+
+def prefetch_assay_ids(assay_ids: List[int], conn: Connection) -> Set[int]:
+    """Bulk-fetch assay ID existence checks, using cache.
+
+    Returns set of assay IDs that exist in the database.
+    """
+    with _CACHE_LOCK:
+        uncached = [aid for aid in assay_ids if aid not in _ASSAY_EXISTS_CACHE]
+
+    if uncached:
+        # Fetch in chunks of 1000
+        for chunk_start in range(0, len(uncached), 1000):
+            chunk = uncached[chunk_start : chunk_start + 1000]
+            params = {f"id_{i}": aid for i, aid in enumerate(chunk)}
+            placeholders = ", ".join(f":id_{i}" for i in range(len(chunk)))
+            sql = text(f"SELECT id FROM assays WHERE id IN ({placeholders})")
+            rows = conn.execute(sql, params).fetchall()
+            found = {r[0] for r in rows}
+
+            with _CACHE_LOCK:
+                for aid in chunk:
+                    _ASSAY_EXISTS_CACHE[aid] = aid in found
+                _trim_cache(_ASSAY_EXISTS_CACHE, _config.assay_cache_max)
+
+    with _CACHE_LOCK:
+        return {aid for aid in assay_ids if _ASSAY_EXISTS_CACHE.get(aid, False)}
+
+
+def prefetch_project_sample_type_links(
+    project_id: int, sample_type_ids: List[int], conn: Connection
+) -> None:
+    """Ensure project <-> sample_type links exist, creating missing ones."""
+    if not project_id or not sample_type_ids:
+        return
+
+    with _CACHE_LOCK:
+        cached = _PROJECT_SAMPLE_TYPE_LINKED.get(project_id, set())
+        unchecked = [st for st in sample_type_ids if st not in cached]
+
+    if not unchecked:
+        return
+
+    # Check existing links
+    params = {"pid": project_id}
+    params.update({f"st_{i}": st for i, st in enumerate(unchecked)})
+    placeholders = ", ".join(f":st_{i}" for i in range(len(unchecked)))
+    sql = text(
+        f"SELECT sample_type_id FROM projects_sample_types "
+        f"WHERE project_id = :pid AND sample_type_id IN ({placeholders})"
+    )
+    rows = conn.execute(sql, params).fetchall()
+    existing = {r[0] for r in rows}
+
+    # Create missing links
+    to_create = [st for st in unchecked if st not in existing]
+    if to_create:
+        values_parts = []
+        insert_params = {}
+        for i, st in enumerate(to_create):
+            values_parts.append(f"(:pid_{i}, :stid_{i})")
+            insert_params[f"pid_{i}"] = project_id
+            insert_params[f"stid_{i}"] = st
+        sql = text(
+            f"INSERT IGNORE INTO projects_sample_types (project_id, sample_type_id) "
+            f"VALUES {', '.join(values_parts)}"
+        )
+        conn.execute(sql, insert_params)
+        log.info(
+            "Created %d project-sample_type links for project %d",
+            len(to_create),
+            project_id,
+        )
+
+    # Update cache
+    with _CACHE_LOCK:
+        all_linked = existing | set(to_create)
+        _PROJECT_SAMPLE_TYPE_LINKED.setdefault(project_id, set()).update(all_linked)
+
+
+def resolve_sample_type_id(title: str, project_id: Optional[int], conn: Connection) -> int:
+    """Resolve a sample type title to its ID, with cache lookup and fallback query.
+
+    Raises ValueError if the sample type is not found.
+    """
+    with _CACHE_LOCK:
+        if title in _SAMPLE_TYPE_TITLE_TO_ID:
+            return _SAMPLE_TYPE_TITLE_TO_ID[title]
+
+    # Fallback query
+    sql = text("SELECT id FROM sample_types WHERE title = :title LIMIT 1")
+    row = conn.execute(sql, {"title": title}).fetchone()
+    if row is None:
+        raise ValueError(f"Sample type not found: {title!r}")
+
+    st_id = row[0]
+    with _CACHE_LOCK:
+        _SAMPLE_TYPE_TITLE_TO_ID[title] = st_id
+        _trim_cache(_SAMPLE_TYPE_TITLE_TO_ID, _config.title_to_id_cache_max)
+
+    return st_id
+
+
+def validate_assay_ids(
+    assay_ids: List[int], conn: Connection
+) -> Tuple[Set[int], Set[int]]:
+    """Validate assay IDs against the database.
+
+    Returns (valid_set, missing_set).
+    """
+    if not assay_ids:
+        return set(), set()
+
+    with _CACHE_LOCK:
+        known_valid = {aid for aid in assay_ids if _ASSAY_EXISTS_CACHE.get(aid, False)}
+        known_invalid = {
+            aid
+            for aid in assay_ids
+            if aid in _ASSAY_EXISTS_CACHE and not _ASSAY_EXISTS_CACHE[aid]
+        }
+        unknown = [
+            aid for aid in assay_ids if aid not in _ASSAY_EXISTS_CACHE
+        ]
+
+    if unknown:
+        # Query in chunks of 1000
+        found_in_db: Set[int] = set()
+        for chunk_start in range(0, len(unknown), 1000):
+            chunk = unknown[chunk_start : chunk_start + 1000]
+            params = {f"id_{i}": aid for i, aid in enumerate(chunk)}
+            placeholders = ", ".join(f":id_{i}" for i in range(len(chunk)))
+            sql = text(f"SELECT id FROM assays WHERE id IN ({placeholders})")
+            rows = conn.execute(sql, params).fetchall()
+            found_in_db.update(r[0] for r in rows)
+
+        with _CACHE_LOCK:
+            for aid in unknown:
+                _ASSAY_EXISTS_CACHE[aid] = aid in found_in_db
+            _trim_cache(_ASSAY_EXISTS_CACHE, _config.assay_cache_max)
+
+        known_valid.update(found_in_db)
+        known_invalid.update(aid for aid in unknown if aid not in found_in_db)
+
+    return known_valid, known_invalid
+
+
+def clear_caches() -> None:
+    """Clear all in-process caches."""
+    with _CACHE_LOCK:
+        _ASSAY_EXISTS_CACHE.clear()
+        _SAMPLE_TYPE_TITLE_TO_ID.clear()
+        _PROJECT_SAMPLE_TYPE_LINKED.clear()
+    log.debug("Prefetch caches cleared")
+
+
+def cache_stats() -> Dict[str, int]:
+    """Return current cache sizes."""
+    with _CACHE_LOCK:
+        return {
+            "assay_exists": len(_ASSAY_EXISTS_CACHE),
+            "sample_type_title_to_id": len(_SAMPLE_TYPE_TITLE_TO_ID),
+            "project_sample_type_linked": sum(
+                len(v) for v in _PROJECT_SAMPLE_TYPE_LINKED.values()
+            ),
+        }

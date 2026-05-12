@@ -1,6 +1,6 @@
 <script type="text/javascript">
-	var template_options = {{report.template_options| safe}};
-
+	var template_options = {{report.template_options|safe}};
+	
 	function showSampleErrorMsg(errorMsg) {
 		var header = '<div class="alert alert-danger alert-block"><h4 class="alert-heading">Sample Upload Failed!</h4></div>';
 		var todo = '<div><h5><b>Please upload the array sheet again and refer to the excel file returned to fix any error highlighted.</b></h5></div>';
@@ -14,7 +14,7 @@
 		});
 		return;
 	}
-
+	
 	function showSampleWarningMsg(warningMsg) {
 		var header = '<div class="alert alert-block alert-warning"><h4 class="alert-heading">Warning!</h4></div>';
 		var todo = '<div><h5><b>The array sheet has been uploaded with the following warning message:</b></h5></div>';
@@ -28,7 +28,7 @@
 		});
 		return;
 	}
-
+	
 	function showSampleInfoMsg(infoMsg) {
 		var header = '<div class="alert alert-info alert-block"><h4 class="alert-heading">Info!</h4></div>';
 		var todo = '<div><h5><b>The array sheet has been uploaded successfully. Refer to the excel file returned for sample UIDs.</b></h5></div>';
@@ -42,46 +42,46 @@
 		});
 		return;
 	}
-
+	
 	function downloadTemplate() {
 		var document_id = document.getElementById("sample_template").value;
 		var url = '/seek/document/id=' + document_id + '/';
 		$.get(url,
 			{
 			},
-			function (data) {
+			function(data){
 				var obj = jQuery.parseJSON(data);
 				var msg = obj.msg;
 				$('#messages').text(msg);
 				var status = obj.status;
 				var link = obj.link;
-				if (status) {
+				if(status){
 					window.location.href = link;
 				}
-				else {
+				else{
 				}
 				return;
 			}
-		);
+        );	
 		return;
 	}
-
+	
 	function displayTemplate(rec) {
 		var url = '/seek/sample_types/id=' + rec.id + '/';
-		if (rec.id == 0) {
+		if(rec.id==0){
 			return;
 		}
-		else {
+		else{
 		}
 		return;
 	}
-	function uploadSamples() {
+	function uploadSamples(){
 		var excelfile = document.getElementById('id_sampleexcelname').files[0];
 		if (!excelfile) {
 			alert("Warning: No valid sample sheet in excel is selected.");
 			return;
 		}
-
+		
 		var instituion_id = document.getElementById("user_labs").value;
 		var people_id = document.getElementById("user_names").value;
 		var csrf_token = $('input[name="csrfmiddlewaretoken"]').val();
@@ -101,26 +101,26 @@
 				success: console.log('success!')
 			}
 		)
-			.done(function (data) {
-				var obj = jQuery.parseJSON(data);
-				var msg = obj.msg;
-				var message = obj.message;
-				$('#messages').text(message);
-				var status = obj.status;
-				var link = obj.link;
-				if (status > 0) {
-					showSampleInfoMsg(msg);
-				}
-				else if (status == 0) {
-					showSampleErrorMsg(msg);
-				}
-				else {
-					showSampleWarningMsg(msg);
-				}
-				if (link) {
-					window.location.href = link;
-				}
-			});
+		.done(function( data ) {
+			var obj = jQuery.parseJSON(data);
+			var msg = obj.msg;
+			var message = obj.message;
+			$('#messages').text(message);
+			var status = obj.status;
+			var link = obj.link;
+			if(status>0){
+				showSampleInfoMsg(msg);
+			}
+			else if(status==0){
+				showSampleErrorMsg(msg);
+			}
+			else{
+				showSampleWarningMsg(msg);
+			}
+			if(link){
+				window.location.href = link;
+			}
+		});
 		return;
 	}
 
@@ -158,7 +158,7 @@
 			alert("Warning: No valid sample sheet in excel is selected.");
 			return;
 		}
-
+		
 		var formdata = new FormData($('form').get(0));
 		formdata.append('excelfile_upload', excelfile);
 		formdata.append('csrfmiddlewaretoken', '{{csrf_token}}');
@@ -172,43 +172,39 @@
 				success: console.log('success!')
 			}
 		)
-			.done(function (data) {
-				var obj = jQuery.parseJSON(data);
-				var msg = obj.msg;
-				var message = obj.message;
-				$('#messages').text(message);
-				var status = obj.status;
-				var link = obj.link;
-				if (status > 0) {
-					showSampleInfoMsg(msg);
-
-				}
-				if (status == 0) {
-					showSampleErrorMsg(msg);
-				}
-				if (link) {
-					window.location.href = link;
-				}
-			});
+		.done(function( data ) {
+			var obj = jQuery.parseJSON(data);
+			var msg = obj.msg;
+			var message = obj.message;
+			$('#messages').text(message);
+			var status = obj.status;
+			var link = obj.link;
+			if(status==0){
+				showSampleErrorMsg(msg);
+			}
+			if(link){
+				window.location.href = link;
+			}
+		});
 		return;
 	}
-
-	var lab_options = {{report.lab_options| safe}};
-
+	
+	var lab_options = {{report.lab_options|safe}};
+	
 	function getLabUsers(rec) {
-		if (rec.id == 0) {
+		if(rec.id==0){
 			return;
 		}
-		else {
+		else{
 		}
 		var url = '/seek/instituion/id=' + rec.id + '/';
 		$.get(url,
 			{},
-			function (data) {
+			function(data){
 				var obj = jQuery.parseJSON(data);
-				var msg = obj.msg;
+                var msg = obj.msg;
 				var status = obj.status;
-				if (status == 1) {
+				if(status==1){
 					var user_options = obj.userOptions;
 					$('#user_names').combobox('loadData', user_options);
 				}
@@ -217,61 +213,60 @@
 				}
 				return;
 			}
-		);
+        );	
 	}
 </script>
 
-<div class="span12">
-	<form method="post" enctype="multipart/form-data" action="">
-		{% csrf_token %}
-		<script type="text/javascript">
-			$(document).ready(function () {
-				const lab = document.querySelector('#_easyui_textbox_input1');
-				lab.addEventListener('click', function () {
-					$('#user_labs').combobox('showPanel')
-				});
-			});
-		</script>
-		<div class="well">
-			<div class="row show-grid">
-				<table class="table" align="center" style="width:70%">
-					<thead>
-						<tr>
-							<th style="width:40%;">Sample Validation Check</th>
-							<th style="width:60%;">Sample Excel sheet for uploading</th>
-						</tr>
-					</thead>
-					<tbody>
-						<tr>
-							<td>
-								<input type="file" name="samplevalidationfile" id="id_samplevalidationfile" required=""
-									style="height:28px;width:220px"><br>
-								<a href="#" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true"
-									onclick="validateSamples()">Validate Samples</a>
-							</td>
-							<td>
-								<input type="file" name="sampleexcelname" id="id_sampleexcelname" required=""
-									style="height:28px;width:220px"><br>
-								<label for="user_labs">Lab:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</label>
-								<input id="user_labs" class="easyui-combobox" name="user_labs" style="width:50%;" data-options="
+	<div class="span12">
+		<form method="post" enctype="multipart/form-data" action="">
+			{% csrf_token %} 
+            <script type="text/javascript">
+                $(document).ready(function() {
+                    const lab = document.querySelector('#_easyui_textbox_input1');
+                    lab.addEventListener('click', function() {
+                      $('#user_labs').combobox('showPanel')
+                    });
+                }); 
+            </script>
+			<div class="well">
+				<div class="row show-grid">
+					<table class="table" align="center" style="width:70%">
+						<thead>
+							<tr>
+								<th style="width:40%;">Sample Validation Check</th>
+								<th style="width:60%;">Sample Excel sheet for uploading</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr>
+								<td>
+									<input type="file" name="samplevalidationfile" id="id_samplevalidationfile" required="" style="height:28px;width:220px"><br>
+									<a href="#" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true" onclick="validateSamples()">Validate Samples</a>
+								</td>
+								<td>
+									<input type="file" name="sampleexcelname" id="id_sampleexcelname" required="" style="height:28px;width:220px"><br>
+									<label for="user_labs">Lab:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</label>
+									<input id="user_labs" class="easyui-combobox" name="user_labs" style="width:50%;"
+										data-options="
 											showItemIcon: true,
 											data: lab_options,
 											valueField:'id',
 											textField:'title',
 											groupField:'group',
-											editable: true,
-											filter: function(q, row) {
-												var opts = $(this).combobox('options');
-												return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;
-											},
+                                            editable: true,
+                                            filter: function(q, row) {
+                                                var opts = $(this).combobox('options');
+                                                return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;
+                                            },
 											panelHeight:'auto',
 											label: '',
 											labelPosition: 'top',
 											onSelect: function(rec){getLabUsers(rec);}
 									">
-								<br>
-								<label for="user_names">Creator:&nbsp;&nbsp;</label>
-								<input id="user_names" class="easyui-combobox" name="user_names" style="width:50%;" data-options="
+									<br>
+									<label for="user_names">Creator:&nbsp;&nbsp;</label>
+									<input id="user_names" class="easyui-combobox" name="user_names" style="width:50%;"
+										data-options="
 											showItemIcon: true,
 											valueField:'id',
 											textField:'title',
@@ -281,25 +276,25 @@
 											labelPosition: 'top',
 											onSelect: function(rec){ ; }
 									">
-								<br>
-								<br>
-								<a href="#" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true"
-									onclick="uploadSamples()">Upload Samples</a>
-							</td>
-						</tr>
-					</tbody>
-				</table>
+									<br>
+									<br>
+									<a href="#" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true" onclick="uploadSamples()">Upload Samples</a>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
 			</div>
-		</div>
-	</form>
-</div>
+		</form>
+	</div>
 
-<div class="well">
-	<div class="span12">
-		<b>Logs:</b>
+	<div class="well">
+		<div class="span12">
+			<b>Logs:</b>
+		</div>
+		<div class="span12">
+			<textarea id="messages" style="width:100%; max-width:100%; min-width:600px" rows="20">
+			</textarea>
+		</div>
 	</div>
-	<div class="span12">
-		<textarea id="messages" style="width:100%; max-width:100%; min-width:600px" rows="20">
-		</textarea>
-	</div>
-</div>
+

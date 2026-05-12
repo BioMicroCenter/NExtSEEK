@@ -1,0 +1,20 @@
+{
+  "node_modules/xlsx/xlsx.mjs": {
+    "file": "assets/xlsx-CNerDvZX.js",
+    "name": "xlsx",
+    "src": "node_modules/xlsx/xlsx.mjs",
+    "isDynamicEntry": true
+  },
+  "src/main.embedded.tsx": {
+    "file": "assets/main.embedded-eO3zoe-S.js",
+    "name": "main.embedded",
+    "src": "src/main.embedded.tsx",
+    "isEntry": true,
+    "dynamicImports": [
+      "node_modules/xlsx/xlsx.mjs"
+    ],
+    "css": [
+      "assets/main-Cy8ufs4J.css"
+    ]
+  }
+}

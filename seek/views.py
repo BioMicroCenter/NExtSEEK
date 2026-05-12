@@ -9,11 +9,10 @@ import os
 import re
 import subprocess
 import time
-import requests
 import uuid
 import tempfile
 import random
-import io
+import requests
 
 import logging
 logger = logging.getLogger(__name__)
@@ -22,6 +21,7 @@ from subprocess import call
 from subprocess import check_call
 from time import strftime, gmtime
 import pandas as pd
+import numpy as np
 
 from django.conf import settings
 from django.core.files.storage import default_storage
@@ -35,7 +35,6 @@ from pytz import timezone
 
 from django.contrib.auth.models import User
 from django import forms
-from django.conf import settings
 
 import simplejson
 import datetime
@@ -47,11 +46,17 @@ from dmac.conversion import dateconversion, dateToString, dateToStringUK, conver
 from dmac.datagrid_custom import DataGrid
 from dmac.csv_excel import load_file, load_excelfile
 from dmac.iocsv import saveCsvfile
+from dmac.dbtable_clades import DBtable_clades
+from dmac.dbtable_sampletypesclades import DBtable_sample_types_clades as DBtable_stc
+from dmac.dbtable_internalassays import DBtable_internalassays
+from dmac.dbtable_assaysinternalassays import DBtable_assaysinternalassays
 
 from .seekdb import SeekDB
 from .nextcloudapi import NextCloudAPI
 from .galaxyapi import GalaxyAPI
 from .seekapi import SeekAPI
+from .models import Projects
+from .models import Clades
 
 from .dbtable_sampletype import DBtable_sampletype
 from .dbtable_sample import DBtable_sample
@@ -60,9 +65,10 @@ from .dbtable_data_files import DBtable_data_files
 from .dbtable_sops import DBtable_sops
 from .dbtable_sampleattribute import DBtable_sampleattribute
 from .dbtable_attributetype import DBtable_attributetype
+from .dbtable_projects import DBtable_projects
 
 from rest_framework.decorators import authentication_classes
-from rest_framework.authentication import TokenAuthentication
+from rest_framework.authentication import BasicAuthentication, TokenAuthentication,SessionAuthentication
 from rest_framework.decorators import api_view
 from rest_framework.decorators import permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -74,10 +80,11 @@ from subprocess import call
 import shlex
 from subprocess import Popen, PIPE
 
-from django.conf import settings
 from seek.timeline.services.timeline_service import run_All, get_event_data
 from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
-
+import neo4j
+from neo4j import GraphDatabase
+import io
 SEEK_DATABASE = settings.SEEK_DATABASE
 DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "/download/"
 DOWNLOAD_DIRECTORY_LINK = settings.MEDIA_URL + 'download/'  
@@ -86,8 +93,13 @@ SEEK_DATAFILE_ROOT = settings.SEEK_DATAFILE_ROOT
 DROPBOX_DIRECTORY = settings.MEDIA_ROOT + "/dropbox/"
 
 SAMPLE_TEMPLATE_FILE = settings.MEDIA_ROOT + "/reserved/SAMPLE_TEMPLATE.xlsx"
+SAMPLE_TEMPLATES_FOLDER = settings.SAMPLE_TEMPLATES_FOLDER
+SAMPLE_TEMPLATES_FOLDER_PROJECT = settings.SAMPLE_TEMPLATES_FOLDER_PROJECT
+
+PUBLISH_STATS_FILE = settings.PUBLISH_STATS_FILE
 
 PUBLISH_SERVER = settings.PUBLISH_URL
+SEEK_HOSTNAME = settings.SEEK_HOSTNAME
 
 report = {}
 def seek(request, url):
@@ -133,24 +145,20 @@ def sample(request, id):
     report = {}
     report['bodyhtml'] = bodyhtml
     report['sample_id'] = sample_id
-
+    
     dbsample = DBtable_sample()
 
-    db = settings.DATABASES['default']
-    conn = MySQLdb.connect(host=db['HOST'],
-                           user=db['USER'],
-                           passwd=db['PASSWORD'],
-                           db=db['NAME'])
-    cursor = conn.cursor()
+    # db = settings.DATABASES['default']
+    # conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
+    # cursor = conn.cursor()
 
-    cursor.execute(f"SELECT full FROM seek_sample_tree WHERE sample_id='{sample_id}'")
+    # cursor.execute(f"SELECT full FROM seek_sample_tree WHERE sample_id='{sample_id}'")
 
-    cursor_results = cursor.fetchone()
-    if cursor_results is not None:
-        report['treeData_multiparents'] = json.loads(cursor_results[0])[0]
-    else:
-        report['treeData_multiparents'] = dbsample.createSampleMultiParentTree(sample_id)
-
+    # cursor_results = cursor.fetchone()
+    # if cursor_results is not None:
+        # report['treeData_multiparents'] = json.loads(cursor_results[0])[0]
+    # else:
+        # report['treeData_multiparents'] = dbsample.createSampleMultiParentTree(sample_id)
     # This treeData_multiparents does not have the complete tree information
     sampledic, samplelist = dbsample.getSampleInfo(sample_id)
     report['sampledic'] = sampledic
@@ -211,6 +219,37 @@ def sampleUpload(request):
     report['lab_options'] = json.dumps(options, default=str)
     
     return render(request,"sampleUpload.html", {'report':report})
+
+def batchUpload(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, True)
+    if not user_seek['status']:
+        err = user_seek['err']
+        return HttpResponseRedirect("/login/?next=/seek/samples/batchupload/")
+
+    isSupervisor = verifySuperUser(request)
+
+    lab_options = seekdb.getObjectsToOptions("/institutions")
+
+    all_lab_users = {}
+    for lab in lab_options:
+        lab_id = int(lab['id'])
+        if lab_id != 0:
+            lab_info = seekdb.getInfoObject("/institutions/", lab_id)
+            if isSupervisor:
+                people = lab_info["relationships"]["people"]["data"]
+                all_people = []
+                for person in people:
+                    all_people.append({'id': person['id'], 'title': seekdb.getUserFullname(person['id'])})
+                all_lab_users[lab_id] = all_people
+            else:
+                all_lab_users = {}
+                all_lab_users[lab_id] = [{'id': user_seek['person_id'], 'title': seekdb.getUserFullname(user_seek['person_id'])}]
+
+    report['lab_options'] = json.dumps(lab_options, default=str)
+    report['all_lab_users'] = json.dumps(all_lab_users, default=str)
+    
+    return render(request,"batchUpload.html", {'report': report})
     
 def sampleUploadAjax(request):
     logger.debug('sampleUploadAjax')
@@ -332,7 +371,11 @@ def sample_type(request, id):
     return render(request,"sampleQuery.html", {'bodyhtml' : report['bodyhtml'], 'report':report})
 
 def getAttributes(request, id):
-    sampletype_id = int(id)
+    try:
+        sampletype_id = int(id)
+    except:
+        stype = DBtable_sampletype()
+        sampletype_id = stype.getSampleTypeID(id)
     valueSelected = ''
     ret = request.GET
     if 'valueSelected' in ret:
@@ -366,7 +409,8 @@ def sampleSearch(request):
     report['type_options'] = stype.getSampleTypes()
     report['showSamplePage'] = True
     report['showSearch'] = True
-    return render(request,"sampleSearch.html", {'report':report})
+    #return render(request,"sampleSearch.html", {'report':report})
+    return HttpResponseRedirect('/seek/search/')
 
 def __searchFilterKeywords(keywords):
     kkk = keywords.strip()
@@ -409,220 +453,39 @@ def remote(request):
 
 def datafileUpload(request):
     seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
+    user_seek = seekdb.getSeekLogin(request, True)
     if not user_seek['status']:
         err = user_seek['err']
         return HttpResponseRedirect("/login/?next=/seek/data/upload/")
-            
-    report = {}
+
     isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        options = []
-        options.append({'id':-1, 'title':'Default','selected':True})
-    else:
-        options = seekdb.getObjectsToOptions("/institutions")
-    
-    report['lab_options'] = json.dumps(options, default=str)
-    return render(request,"datafileUpload.html", {'report':report})
+
+    lab_options = seekdb.getObjectsToOptions("/institutions")
+
+    all_lab_users = {}
+    for lab in lab_options:
+        lab_id = int(lab['id'])
+        if lab_id != 0:
+            lab_info = seekdb.getInfoObject("/institutions/", lab_id)
+            if isSupervisor:
+                people = lab_info["relationships"]["people"]["data"]
+                all_people = []
+                for person in people:
+                    all_people.append({'id': person['id'], 'title': seekdb.getUserFullname(person['id'])})
+                all_lab_users[lab_id] = all_people
+            else:
+                all_lab_users = {}
+                all_lab_users[lab_id] = [{'id': user_seek['person_id'], 'title': seekdb.getUserFullname(user_seek['person_id'])}]
+
+    report['lab_options'] = json.dumps(lab_options, default=str)
+    report['all_lab_users'] = json.dumps(all_lab_users, default=str)
+    report['seek_url'] = settings.SEEK_URL
+
+    return render(request,"dataFileUpload.html", {'report':report})
 
 def __updateLabUser(seekdb, instituion_id, people_id):
     return seekdb
-
-def filesBatchUpload(request):
-    filetype = request.POST.get('filetype')
-    instituion_id = request.POST.get('instituion_id')
-    people_id = request.POST.get('people_id')
-    md5 = request.POST.get('md5')
-    report = {}
-    report['msg'] = "Warning: tStart batch file uploading."
-    report['status'] = 0
-    report['df_info'] = {}            
-    report['newrow'] = {} 
-    
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        report['msg'] = user_seek['err']
-        err = user_seek['err']
-        return HttpResponseRedirect("/login/?next=/seek/data/upload/")
-        
-    if verifySuperUser(request)==1:
-        try:
-            creator_id = int(people_id)
-        except:
-            msg = 'Error: You login as admin and must choose the creator.'
-            status = 0
-            logger.error(msg)
-            report['msg'] = msg
-            report['status'] = 0
-            return HttpResponse(simplejson.dumps(report, default=str))
-
-        if creator_id>0:
-            status, msg = seekdb.updateCreator(instituion_id, people_id)
-            if not status:
-                report['msg'] = msg
-                return HttpResponse(simplejson.dumps(report, default=str))
-        else:
-            msg = 'Error: You login as admin and must choose the creator.'
-            status = 0
-            logger.error(msg)
-            report['msg'] = msg
-            report['status'] = 0
-            return HttpResponse(simplejson.dumps(report, default=str))
-            
-    infile = request.FILES['file']
-    dfrecord = {}
-    dfrecord['uid'] = ''
-    dfrecord['originalname'] = infile.name
-    dfrecord['fileurl'] = 'Not available ' + settings.SEEK_DATAFILE_SERVER
-    dfrecord['notes'] = report['msg']
-    dfrecord['content_type'] = filetype
-    
-    sampleRecord = None
-    if filetype=="DATAFILE":
-        dbsample = DBtable_sample()
-        creator = seekdb.creator
-        sampleRecord, msg = dbsample.searchFileInSample(creator, infile.name, filetype)
-        if sampleRecord is None or sampleRecord['id']<=0:
-            report['msg'] = msg
-            report['status'] = 0
-            dfrecord['notes'] = report['msg']
-            report['newrow'] = dfrecord
-            return HttpResponse(simplejson.dumps(report, default=str))
-
-    if filetype=="DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        sample_uid = sampleRecord['uuid']
-        report = dbdf.uploadDF_toStorage(seekdb.creator, infile, sample_uid, md5)
-    elif filetype=="SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        report = dbsop.uploadSOP_toStorage(seekdb.creator, infile, md5)
-    else:
-        report = {}
-        report['msg'] = "Warning: the file type is not supported yet: " + filetype
-        report['status'] = 0
-        report['df_info'] = {}            
-        report['newrow'] = {}              
-    
-    return HttpResponse(simplejson.dumps(report, default=str))
-    
-    
-def uploadToSeek(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        err = user_seek['err']
-        return HttpResponseRedirect("/login/?next=/seek/data/upload/")
-    
-    ret = request.POST
-    filetype = ret['filetype']
-    instituion_id = ret['instituion_id']
-    people_id = ret['people_id']
-    records = ret['records']
-    diclist = json.loads(records)
-        
-    report = {}
-    report['msg'] = "Warning: to be implemented"
-    report['status'] = 0
-    report['link'] = ""
-    report['newrow'] = {}               
-    if verifySuperUser(request)==1 and int(people_id)>0:
-        logger.debug(f"Logged in user is superuser and uploading on behalf of user {people_id}")
-        status, msg = seekdb.updateCreator(instituion_id, people_id)
-        if not status:
-            report['msg'] = msg
-            return HttpResponse(simplejson.dumps(report, default=str))
-    
-    if filetype=="DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        report = dbdf.uploadDFs_storageToSeek(seekdb, diclist)
-    elif filetype=="SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        report = dbsop.uploadSOPs_storageToSeek(seekdb, diclist)
-        
-    else:
-        report = {}
-        report['msg'] = "Warning: the file type is not supported yet: " + filetype
-        report['status'] = 0
-        report['df_info'] = {}            
-        report['newrow'] = {}              
-    
-    return HttpResponse(simplejson.dumps(report, default=str))
-
-def filesGetUIDs(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    
-    ret = request.GET
-    allFiles = json.loads(ret['allfiles'])
-    dbdf = DBtable_data_files("DEFAULT")
-    data = dbdf.filesGetUIDs(seekdb, allFiles)
-    return HttpResponse(simplejson.dumps(data, default=str))
-
-def sopDownload(request, uid):
-    print("sopDownload: " + uid)
-    return fileDownload(request, uid, "SOP")
-
-
-#@api_view(http_method_names=['GET'])
-#@authentication_classes((TokenAuthentication,))
-#@permission_classes((IsAuthenticated,))
-def datafileDownload(request, uid):
-    return fileDownload(request, uid, "DATAFILE")
-    
-def sopIDDownload(request, id):
-    return fileDownload(request, id, "SOP_ID")
-    
-def fileDownloadEncoded(request, url_redirect, fileInfo):
-    if url_redirect is not None:
-        option = 1
-        terms = url_redirect.split("/")
-        filename = terms[-1]
-    elif fileInfo is not None:
-        option = 4
-    else:
-        option = 1
-        
-    if option==1:
-        HttpResponseRedirect(url_redirect)
-    elif option==2:
-        #https://stackoverflow.com/questions/1156246/having-django-serve-downloadable-files
-        from django.utils.encoding import smart_str
-        
-        file_path = fileInfo['fullfilename']
-        file_name = fileInfo['originalfilename']
-        
-        response = HttpResponse(content_type='application/force-download')
-        response['Content-Disposition'] = 'attachment; filename=%s' % smart_str(file_name)
-        response['X-Sendfile'] = smart_str(file_path)
-        return response
-    elif option==3:
-        from django.views.static import serve
-        file_path = fileInfo['fullfilename']
-        file_name = fileInfo['originalfilename']
-        return serve(request, os.path.basename(file_path), os.path.dirname(file_path))
-    elif option==4:
-        # https://stackoverflow.com/questions/61351609/how-to-allow-users-to-directly-download-a-file-stored-in-my-media-folder-in-djan
-        from django.utils.encoding import smart_str
-        import mimetypes
-        from wsgiref.util import FileWrapper
-        
-        file_path = fileInfo['fullfilename']
-        file_name = fileInfo['originalfilename']
-        
-        file_wrapper = FileWrapper(open(file_path,'rb'))
-        file_mimetype = mimetypes.guess_type(file_path)
-        response = HttpResponse(file_wrapper, content_type=file_mimetype )
-        response['X-Sendfile'] = file_path
-        response['Content-Length'] = os.stat(file_path).st_size
-        response['Content-Disposition'] = 'attachment; filename=%s' % smart_str(file_name) 
-        return response
-    else:
-        HttpResponseRedirect(url_redirect)
-        
-    HttpResponseRedirect(url_redirect)
-    
-    
+  
 #@api_view(http_method_names=['GET'])
 #@authentication_classes((TokenAuthentication,))
 #@permission_classes((IsAuthenticated,))
@@ -637,241 +500,13 @@ def verifyToken(request):
         tokenValidated = True
     
     return tokenValidated
-    
-    
-def fileDownload(request, uid, filetype):
-    print(uid, filetype)
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        err = user_seek['err']
-        logger.error(err)
-        if filetype=="DATAFILE":
-            url_redirect = '/login/?next=/seek/datafiles/uid=' + uid + '/'
-        elif filetype=="SOP":
-            url_redirect = '/login/?next=/seek/sop/uid=' + uid + '/'
-        elif filetype=="SOP_ID":
-            url_redirect = '/login/?next=/seek/sop/download/id=' + uid + '/'
-        else:
-            url_redirect = '/login/'
-        
-        isokay = request.user.is_authenticated
-        isTokenAuthenticated = verifyToken(request)
-        if not isTokenAuthenticated:
-            msg = "Login error: not token authenticated."
-            logger.error(msg)
-            return HttpResponseRedirect(url_redirect)
-    
-    url_redirect = None
-    fileInfo = None
-    if filetype=="DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        msg, status, fileInfo = dbdf.downloadDF_fromStorage(user_seek, uid)
-    elif filetype=="SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        msg, status, fileInfo = dbsop.downloadSOP_fromStorage(user_seek, uid)
-    elif filetype=="SOP_ID":
-        dbsop = DBtable_sops("DEFAULT")
-        sop_id = uid
-        msg, status, fileInfo = dbsop.downloadSOPID_fromStorage(user_seek, sop_id)
-    else:
-        msg = 'Error: file type not supported.'
-        logger.error(msg)
-        status = 0
-        
-    if status==1:
-        if filetype=="DATAFILE":
-            return fileDownloadEncoded(request, url_redirect, fileInfo)
-        elif filetype=="SOP" or filetype=="SOP_ID" :
-            return fileDownloadEncoded(request, url_redirect, fileInfo)
-        else:
-            return HttpResponseRedirect(url_redirect)
-    else:
-        print(msg)
-        return render(request, 'pages/404.html')
-    return HttpResponse("You're downloading file %s." % uid)
- 
-def fileQuery(request, filetype):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        err = user_seek['err']
-        if filetype=="DATAFILE":
-            url_redirect = '/login/?next=/seek/datafile/query/'
-        elif filetype=="SOP":
-            url_redirect = '/login/?next=/seek/sop/query/'
-        else:
-            url_redirect = '/login/'
-        return HttpResponseRedirect(url_redirect)
-
-    pk = 0
-    if filetype=="DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        form, report = dbdf.formInfo(request, pk)
-        report['table_url'] = '/seek/retrieve/datafiles/'
-        report['batchdownload_url'] = '/seek/batchdownload/datafiles/'
-        report['batchpublish_url'] = '/seek/datafiles/publish/'
-    elif filetype=="SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        form, report = dbsop.formInfo(request, pk)
-        report['table_url'] = '/seek/retrieve/sops/'
-        report['batchdownload_url'] = '/seek/batchdownload/sops/'
-        report['batchpublish_url'] = '/seek/sops/publish/'
-    else:
-        msg = 'Error: file type not supported.'
-        status = 0
-        report = {}
-        form= None
-    
-    return render(request,"batchSearch.html", {"report" : report, "form": form})
-
-def datafileQuery(request):
-    return fileQuery(request, "DATAFILE") 
-    
-def sopQuery(request):
-    return fileQuery(request, "SOP") 
-    
-def filelist(request, filetype):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    
-    if filetype=="DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        reportData = dbdf.processRecords(request, user_seek, "retrieve")
-    elif filetype=="SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        reportData = dbsop.processRecords(request, user_seek, "retrieve")
-    elif filetype=="DOWNLOAD_DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        reportData = dbdf.processRecords(request, user_seek, "download")
-    elif filetype=="DOWNLOAD_SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        reportData = dbsop.processRecords(request, user_seek, "download")
-    elif filetype=="PUBLISH_DATAFILE":
-        dbdf = DBtable_data_files("DEFAULT")
-        reportData = dbdf.processRecords(request, user_seek, "publish")
-    elif filetype=="PUBLISH_SOP":
-        dbsop = DBtable_sops("DEFAULT")
-        reportData = dbsop.processRecords(request, user_seek, "publish")
-    else:
-        reportData = simplejson.dumps({})
-
-    return HttpResponse(reportData)  
-    
-def retrieveSops(request):
-    return filelist(request, "SOP")
-    
-def retrieveDatafiles(request):
-    return filelist(request, "DATAFILE")
-    
-def batchdownloadSops(request):
-    return filelist(request, "DOWNLOAD_SOP")
-    
-def batchdownloadDatafiles(request):
-    return filelist(request, "DOWNLOAD_DATAFILE")
-    
-def batchpublishSops(request):
-    return filelist(request, "PUBLISH_SOP")
-    
-def batchpublishDatafiles(request):
-    return filelist(request, "PUBLISH_DATAFILE")
-    
-    
+   
 def callCmdline(cmd):
     args = shlex.split(cmd)
     proc = Popen(args, stdout=PIPE, stderr=PIPE)
     out, err = proc.communicate()
     exitcode = proc.returncode
     return exitcode, out, err    
-    
-def __getDropBoxFolders(user_seek, ifMkdir=True):
-    username = user_seek['username']
-    projectname = user_seek['projectname']
-    institutionname = user_seek['institutionname']
-    lababbv = user_seek['lababbv']
-    labfolder = lababbv
-            
-    upload_dropbox_path_labroot = os.path.join(DROPBOX_DIRECTORY, labfolder)
-    if not os.path.exists(upload_dropbox_path_labroot) and ifMkdir:
-        os.makedirs(upload_dropbox_path_labroot)
-        
-    projectfolder = projectname
-    if " " in projectname:
-        projectfolder = projectname.replace(" ", "_")
-            
-    upload_dropbox_path_projectroot = os.path.join(upload_dropbox_path_labroot, projectfolder)
-    if not os.path.exists(upload_dropbox_path_projectroot) and ifMkdir:
-        os.makedirs(upload_dropbox_path_projectroot)
-        
-    upload_dropbox_path = upload_dropbox_path_projectroot
-    dropbox_datafile_folder = os.path.join(upload_dropbox_path, 'for_datafiles')
-    if not os.path.exists(dropbox_datafile_folder) and ifMkdir:
-        os.makedirs(dropbox_datafile_folder)
-    
-    dropbox_sop_folder = os.path.join(upload_dropbox_path, 'for_protocols')
-    if not os.path.exists(dropbox_sop_folder) and ifMkdir:
-        os.makedirs(dropbox_sop_folder)
-        
-    return upload_dropbox_path, dropbox_datafile_folder, dropbox_sop_folder
-    
-def getDropboxPath(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        err = user_seek['err']
-        url_redirect = '/login/?next=/seek/dropbox/path/'
-        return HttpResponseRedirect(url_redirect)
-
-    msg = 'getDropboxPath'
-    ifMkdir = True
-    upload_dropbox_path, dropbox_datafile_folder, dropbox_sop_folder = __getDropBoxFolders(user_seek, ifMkdir)
-        
-    readmefile_root = DROPBOX_DIRECTORY + 'ReadME.html'
-    cmd = 'cp ' + readmefile_root + ' ' + upload_dropbox_path
-    exitcode, out, err = callCmdline(cmd)
-    readmefile = upload_dropbox_path + '/ReadME.html'
-    cmd = 'seek/dropbox.py sharelink ' + readmefile
-    exitcode, out, err = callCmdline(cmd)
-    if exitcode==0:
-        msg = out.strip()
-        return HttpResponseRedirect(msg)
-    else:
-        msg = 'Error: Dropbox not ready ' + str(err)
-        return HttpResponse(msg)
-    
-def getDropboxStatus(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        err = user_seek['err']
-        url_redirect = '/login/?next=/seek/dropbox/status/'
-        return HttpResponseRedirect(url_redirect)
-
-    msg = 'getDropboxStatus'
-    ifMkdir = False
-    upload_dropbox_path, dropbox_datafile_folder, dropbox_sop_folder = __getDropBoxFolders(user_seek, ifMkdir)
-
-    cmd = 'seek/dropbox.py ls ' + dropbox_datafile_folder
-    exitcode, out, err = callCmdline(cmd)
-    if exitcode==0:
-        msg = out
-    elif out is None:
-        msg = 'Error: Dropbox not ready ' + str(err)
-        return HttpResponse(msg)
-    else:
-        msg = 'Error: Dropbox not ready ' + str(err)
-        return HttpResponse(msg)
-    
-    files = out.strip().split(' ')
-    msg = ''
-    for file in files:
-        if file=='<empty>':
-            msg = 'No file is found in the Dropbox folder.'
-            continue
-        else:
-            msg += file + '\n'
-    
-    return HttpResponse(msg)
     
 def retrieveSamples(request):
     seekdb = SeekDB(None, None, None)
@@ -995,7 +630,7 @@ def sampleFindAjax(request):
     
 def sampleDelete(request):
     ret = request.GET
-    
+        
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request)
     
@@ -1006,11 +641,12 @@ def sampleDelete(request):
     
     dbsample = DBtable_sample()
 
-    if 'allids' in ret:
+    if 'allids' in ret: 
         sample_ids = json.loads(ret['allids'])
     elif 'alluids' in ret:
         sample_uids = json.loads(ret['alluids'])
         sample_ids = list(map(dbsample.getSampleID, sample_uids))
+
     sdata = dbsample.deleteSamples(user_seek, downloadfile, link, sample_ids)
     return HttpResponse(sdata)
     
@@ -1058,98 +694,6 @@ def __getISA(seekdb, user_seek, whichServer):
     project_options, investigation_options_dic, study_options_dic, assay_options_dic = sdb.getISAOptions()
     return project_options, investigation_options_dic, study_options_dic, assay_options_dic, server
     
-def samplePublish(request):
-    ret = request.POST
-    if 'allids' in ret:
-        allids = ret['allids']
-        sample_ids = json.loads(allids)
-    else:
-        sample_ids = []
-        
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    
-    datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    filename = 'samples-publish' + datenow + '.xlsx'
-    downloadfile = DOWNLOAD_DIRECTORY + filename
-    link = DOWNLOAD_DIRECTORY_LINK + filename
-    
-    templatefile = SAMPLE_TEMPLATE_FILE
-    cmd = 'cp ' + templatefile + ' ' + downloadfile
-    os.system(cmd)
-    
-    project_options, investigation_options_dic, study_options_dic, assay_options_dic, server = __getISA(seekdb, user_seek, "DESTINATION")
-    
-    report = {}
-    report['project_options'] = project_options
-    report['investigation_options_dic'] = investigation_options_dic
-    report['study_options_dic'] = study_options_dic
-    report['assay_options_dic'] = assay_options_dic
-    report['showSamplePage'] = True
-    report['showSearch'] = True
-    return render(request,"publish.html", {'report':report})
-    
-def publish_assets(request, idsstring, assetType):
-    ids = [int(i) for i in idsstring.split(',')]
-    diclist = []
-    for id in ids:
-        dici = {}
-        dici['id'] = id
-        dici['asset_type'] = assetType
-        if int(id)>0:
-            diclist.append(dici)
-    
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        err = user_seek['err']
-        url_redirect = '/login/?next=/seek/publish/'
-        return HttpResponseRedirect(url_redirect)
-    
-    project_options, investigation_options_dic, study_options_dic, assay_options_dic, server = __getISA(seekdb, user_seek, "DESTINATION")
-    print(investigation_options_dic)
-    
-    report = {}
-    report['project_options'] = project_options
-    report['investigation_options_dic'] = investigation_options_dic
-    report['study_options_dic'] = study_options_dic
-    report['assay_options_dic'] = assay_options_dic
-    report['showSamplePage'] = True
-    report['showSearch'] = True
-    report['assetData'] = diclist
-    report['publish_server'] = server
-    return render(request,"publishAssets.html", {'report':report})
-    
-def publish_samples(request, sampleids=None):
-    assetType = 'Sample'
-    return publish_assets(request, sampleids, assetType)
-
-def publish_datafiles(request, dfids=None):
-    assetType = 'Datafile'
-    return publish_assets(request, dfids, assetType)
-
-def publish_sops(request, sopids=None):
-    assetType = 'Sop'
-    return publish_assets(request, sopids, assetType)
-    
-def publish(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
-    if not user_seek['status']:
-        err = user_seek['err']
-        url_redirect = '/login/?next=/seek/publish/'
-        return HttpResponseRedirect(url_redirect)
-    
-    project_title = user_seek['projectname']
-    investigations = seekdb.getInvestigations(project_title)
-    investigation_options = json.dumps(convertDicToOptions(investigations), default=str)
-    
-    report = {}
-    report['investigation_options'] = investigation_options
-    report['showSamplePage'] = True
-    report['showSearch'] = True
-    return render(request,"publish.html", {'report':report})
-    
 def getStudiesOptions(request, id):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
@@ -1169,77 +713,6 @@ def getAssaysOptions(request, id):
     assay_options = convertDicToOptions(assays)
     data = {'msg':'okay', 'status': 1, 'assay_options':assay_options}
     return HttpResponse(simplejson.dumps(data, default=str))
-    
-def publishSearching(request):
-    ret = request.GET
-    assay_id = ret['assay_id']
-    investigation = ret['investigation']
-    study = ret['study']
-    assay = ret['assay']
-    
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    
-    diclist = seekdb.getAssayDFs(assay_id, investigation, study, assay)
-    data = {}
-    data['rows'] = diclist
-    data['total'] = len(diclist)
-    data['msg'] = 'okay'
-    data['status'] = 1 
-    sdata = simplejson.dumps(data, default=str)
-    return HttpResponse(sdata)    
-    
-def publishAssets(request):
-    ret = request.GET
-    project = ret['project']
-    investigation = ret['investigation']
-    study = ret['study']
-    assay = ret['assay']
-    project_id = ret['project_id']
-    investigation_id = ret['investigation_id']
-    study_id = ret['study_id']
-    assay_id = ret['assay_id']
-    allids = ret['allids']
-    df_ids = json.loads(allids)
-    ids = df_ids
-    
-    assettypes = ret['assettypes']
-    types = json.loads(assettypes)
-    
-    seekdb = SeekDB(None, None, None)
-    
-    iddic = {}
-    for i, type in enumerate(types):
-        if type in iddic:
-            idlist = iddic[type]
-        else:
-            idlist = []
-            
-        id = ids[i]
-        idlist.append(id)
-        iddic[type] = idlist
-        
-    for type in iddic:
-        if type=='Sample':
-            sample_ids = iddic[type]
-            user_seek = seekdb.getSeekLogin(request, False)
-            return publishSamples(user_seek, sample_ids, assay_id, project_id)
-        elif type.upper()=='SOP':
-            user_seek = seekdb.getSeekLogin(request)
-            sdb, user = __definePublishServer(seekdb, user_seek)
-            sop_ids = iddic[type]
-            dbsop = DBtable_sops("DEFAULT")
-            sdata = dbsop.publishSOPs(user_seek, sdb, user, sop_ids, assay_id, project_id)
-            return HttpResponse(sdata)
-        elif type=='Datafile':
-            user_seek = seekdb.getSeekLogin(request)
-            sdb, user = __definePublishServer(seekdb, user_seek)
-            df_ids = iddic[type]
-            dbdf = DBtable_data_files("DEFAULT")
-            sdata = dbdf.publishDFs(user_seek, sdb, user, df_ids, assay_id, project_id)
-            return HttpResponse(sdata)
-    
-    return None
     
 def sampleAttributes(request):
     seekdb = SeekDB(None, None, None)
@@ -1456,8 +929,9 @@ def samplesValidate(request):
                             data['message'] = message.replace('<br/>', '\n')
                         else:
                             data['message'] = message
-                        return HttpResponse(simplejson.dumps(data, default=str))
-                    message += f"Extra sheets: {extra_sheets}"
+                        return HttpResponse(simplejson.dumps(data, default=str))       
+
+                    message += "Extra sheets: {extra_sheets}"
                     status += 1
                 else:
                     message += "\n\nSheets match what is expected ✅"
@@ -1486,9 +960,10 @@ def samplesValidate(request):
                 try:
                     database_field_column = instructions_sheet['Database Field'].tolist()
                 except:
-                    message = 'Error: No database field column in the Instructions sheet'
-                    data = {'msg': message, 'status': 0, 'link': ''}
-                    return HttpResponse(simplejson.dumps(data, default=str))
+                    message = 'Error: No database field column in the Instructions sheet' 
+                    data = {'msg':message, 'status': 0, 'link':''}
+                    logger.error(message)
+                    return HttpResponse(simplejson.dumps(data, default=str))       
 
                 statusChanged = False
                 for entry in database_field_column:
@@ -1522,7 +997,7 @@ def samplesValidate(request):
                 }
 
                 if mismatches['missingSamples']:
-                    message += "\n\nHeaders in 'Samples' sheet not found in 'Field' column of 'Instructions' sheet:"
+                    message += "\n\nHeaders in 'Samples' sheet not found in 'Field' column of 'Instructions' sheet: ❌"
                     status += 1
                     for header in mismatches['missingSamples']:
                         message += "\n- " + header
@@ -1530,7 +1005,7 @@ def samplesValidate(request):
                     message += "\n\nAll headers in Samples sheet found in Instructions sheet ✅" 
 
                 if mismatches['missingInstructions']:
-                    message += f"\n\nValues in 'Field' column of 'Instructions' sheet not found in headers of 'Samples' sheet:"
+                    message += f"\n\nValues in 'Field' column of 'Instructions' sheet not found in headers of 'Samples' sheet: ❌"
                     status += 1
                     for value in mismatches['missingInstructions']:
                         message += "\n- " + value
@@ -1586,7 +1061,6 @@ def getTemplateFolders(directory_path):
 def templatesList(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
-
     if not user_seek['status']:
         url_redirect = '/login/?next=/seek/templates'
         return HttpResponseRedirect(url_redirect)
@@ -1594,21 +1068,16 @@ def templatesList(request):
         headers = {'Accept': 'application/json'}
         r = requests.get(user_seek['server'] + '/projects', auth=(user_seek['username'], user_seek['password']), headers=headers)
         projects = [p['id'] for p in r.json()['data']]
-
-        if not settings.TEMPLATES_PROJECT_ID in projects:
-            msg = "You are not in the correct project to access this page"
+        if not SAMPLE_TEMPLATES_FOLDER_PROJECT in projects:
+            msg = 'You are not in the correct project to access this page'
             status = 0
-            data = {'msg': msg, 'status': status, 'link': ""}
-            return HttpResponse(simplejson.dumps(data, default=str))
+            data = {'msg':msg, 'status': status, 'link': ""}
+            return HttpResponse(simplejson.dumps(data, default=str)) 
 
-    directory_path = settings.TEMPLATES_PATH
-    folders = getTemplateFolders(directory_path)
+    folders = getTemplateFolders(SAMPLE_TEMPLATES_FOLDER)
 
     return render(request, 'templatesList.html', {'folders': folders})
 
-########################################################
-# NHP Timeline
-########################################################
 @api_view(['GET'])
 def nhp_info(request, nhp_name):
     try:
@@ -1664,3 +1133,661 @@ def download_nhp_data(request, nhp_name: str):
         return response
     except Exception as e:
         return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+def get_full_sample_trees_and_data(uids):
+    db = settings.DATABASES[SEEK_DATABASE]
+    conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
+    cursor = conn.cursor()
+
+    uids_str = ', '.join(f"'{uid}'" for uid in uids)
+    query_one = f"""
+    SELECT s.id, s.sample_type_id, st.title AS sample_type, s.uuid, s.json_metadata
+    FROM seek_production.samples s
+    JOIN seek_production.sample_types st
+    ON s.sample_type_id = st.id
+    WHERE s.uuid IN ({uids_str})
+    """
+
+    cursor.execute(query_one)
+    columns = [col[0] for col in cursor.description]
+    rows = cursor.fetchall()
+    sample_data = pd.DataFrame(rows, columns=columns)
+
+    query_two = f"""
+    SELECT uuid, full, updated 
+    FROM dmac.seek_sample_tree
+    WHERE uuid IN ({uids_str})
+    """
+
+    cursor.execute(query_two)
+
+    columns = [col[0] for col in cursor.description]
+    rows = cursor.fetchall()
+    results_df = pd.DataFrame(rows, columns=columns)
+
+    cursor.close()
+    conn.close()
+
+    results_df['updated'] = pd.to_datetime(results_df['updated'])
+    results_df = results_df.sort_values(by='updated', ascending=False)
+    sample_full_trees = results_df.groupby('uuid').first().reset_index()
+    return sample_data, sample_full_trees
+
+def extract_ids(data):
+    ids = []
+    if isinstance(data, dict):
+        if 'id' in data:
+            ids.append(data['id'])
+        for key, value in data.items():
+            ids.extend(extract_ids(value))
+    elif isinstance(data, list):
+        for item in data:
+            ids.extend(extract_ids(item))
+    return ids
+
+def get_clade_color(sample_type):
+    db = settings.DATABASES[SEEK_DATABASE]
+    conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
+    cursor = conn.cursor()
+    query = f"""
+    SELECT c.color FROM dmac.clades c
+    JOIN dmac.sample_types_clades stc ON stc.clade_id = c.id
+    JOIN seek_production.sample_types st ON stc.sample_type_id = st.id
+    WHERE st.title = '{sample_type}'
+    """
+
+    cursor.execute(query)
+    try:
+        color = cursor.fetchone()[0]
+    except Exception:
+        color = "#000000"
+
+    cursor.close()
+
+    return color
+
+def get_children_uids(sample_uids, user_project_ids, admin):
+    NEO4J_DATABASE = settings.NEO4J_DATABASE
+    with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
+        r,s,k = driver.execute_query("""
+		UNWIND $sample_uids AS sample_uid
+        MATCH (s:Sample {uuid: sample_uid})
+        MATCH parents=(s)-[:DERIVED_FROM*0..]->(parent)
+        MATCH children=(s)<-[:DERIVED_FROM*0..]-(child)
+        RETURN collect(DISTINCT s.uuid) + collect(DISTINCT parent.uuid) + collect(DISTINCT child.uuid) AS uuids
+        """,
+        sample_uids=sample_uids,
+        database_=NEO4J_DATABASE['NAME'])
+        uids = r[0]['uuids']
+
+    db = settings.DATABASES[SEEK_DATABASE]
+    conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
+    cursor = conn.cursor()
+
+    uids_str = ', '.join(f"'{uid}'" for uid in uids)
+    project_ids_str = ', '.join(f"'{pid}'" for pid in user_project_ids)
+
+    if admin:
+        query = f"""
+        SELECT id,sample_type_id,uuid,json_metadata
+        FROM seek_production.samples
+        WHERE uuid IN ({uids_str})
+        """
+    else:
+        query = f"""
+        SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
+        FROM seek_production.samples s
+        JOIN seek_production.projects_samples ps
+        ON s.id = ps.sample_id
+        WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
+        """
+
+    cursor.execute(query)
+    columns = [col[0] for col in cursor.description]
+    rows = cursor.fetchall()
+    samples_retrieved_df = pd.DataFrame(rows, columns=columns)
+
+    cursor.close()
+    conn.close()
+    return samples_retrieved_df
+
+def parse_json_metadata(metadata_series):
+    return metadata_series.apply(lambda x: json.loads(x) if isinstance(x, str) else {})
+
+def parse_children_uids(children_uids):
+    children_uids['json_metadata'] = parse_json_metadata(children_uids['json_metadata'])
+
+    metadata_df = pd.json_normalize(children_uids['json_metadata'])
+    metadata_df = metadata_df.loc[:, ~metadata_df.columns.duplicated()]
+
+    final_df = pd.concat([children_uids[['uuid']], metadata_df], axis=1)
+    final_df.replace("", pd.NA, inplace=True)
+    final_df.dropna(axis=1, how='all', inplace=True)
+
+    return final_df
+
+def sample_retrieval_data(children_uids, output):
+    parsed_df = parse_children_uids(children_uids)
+    parsed_df['sample_type'] = parsed_df['uuid'].str.extract(r'([A-Z]+\.[A-Z]+|[A-Z]+)', expand=False)
+
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        for sample_type, sample_type_df in parsed_df.groupby('sample_type'):
+            sample_type_df = sample_type_df.drop(columns=['uuid', 'sample_type'])
+            sample_type_df.replace("", pd.NA, inplace=True)
+            sample_type_df.dropna(axis=1, how='all', inplace=True)
+            sample_type_df.to_excel(writer, sheet_name=sample_type, index=False)
+
+def adminRetrieveSamples(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+    user_project_ids = map(lambda x: x['id'], user_projects)
+
+    if verifySuperUser(request) == 1:
+        admin = True
+    else:
+        admin = False
+
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str)) 
+    else:
+        if request.method == "POST":
+            logger.debug(f"REQUEST: {request.POST.keys()}")
+            uids = request.POST.get('retrieval_uids').strip().split()
+            #sample_data, sample_full_trees = get_full_sample_trees_and_data(uids)
+            children_uids = get_children_uids(uids, user_project_ids, admin)
+
+            datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+            filename = 'download-samples-' + datenow + '.xlsx'
+            downloadfile = DOWNLOAD_DIRECTORY + filename
+            link = DOWNLOAD_DIRECTORY_LINK + filename
+
+            sample_retrieval_data(children_uids, downloadfile)
+
+            with open(downloadfile, 'rb') as fh:
+                response = HttpResponse(fh.read(), content_type="application/vnd.ms-excel")
+                response['Content-Disposition'] = 'inline; filename=' + os.path.basename(downloadfile)
+                return response
+        else:
+            return render(request, "admin_retrieval.html")
+
+def projects(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+
+    if not user_seek['status']:
+        url_redirect = "/login/?next=/seek/projects/"
+        return HttpResponseRedirect(url_redirect) 
+    else:
+        projectsdb = DBtable_projects()
+        current_user = seekdb.getCurrentUser() or {}
+        user_projects = (
+            current_user.get('data', {})
+            .get('relationships', {})
+            .get('projects', {})
+            .get('data', [])
+        )
+        user_project_ids = [project.get('id') for project in user_projects if project.get('id') is not None]
+
+        if verifySuperUser(request) == 1:
+            projects = list(Projects.objects.all().values('id', 'title', 'avatar_id'))
+        else:
+            projects = list(Projects.objects.filter(id__in=user_project_ids).values('id', 'title', 'avatar_id'))
+
+        for project in projects:
+            try:
+                stats = projectsdb.sample_count(project['id'])
+                stats.update(projectsdb.files_count(project['id']))
+            except Exception as exc:
+                logger.exception("Failed to build project stats for project_id=%s", project.get('id'))
+                stats = {'sample_count': 0, 'sop_count': 0, 'df_count': 0}
+            project['stats'] = stats
+
+        try:
+            stcdb = DBtable_stc()
+            clade_rows = stcdb.getAllCounts() or []
+            clade_rows = sorted(clade_rows, key=lambda row: (row.get('title') or '', row.get('st_group') or ''))
+            clade_data = {k: list(v) for k, v in groupby(clade_rows, lambda x: x.get('title') or 'Uncategorized')}
+        except Exception:
+            logger.exception("Failed to build clade data for projects page")
+            clade_data = {}
+
+        for k, group in clade_data.items():
+            total = sum((item.get('count') or 0) for item in group)
+            for item in group:
+                item['total'] = total
+               
+        return render(request, 'projectsList.html', {'projects': projects,
+                                                     'clade_data': clade_data,
+                                                     'seek_hostname': SEEK_HOSTNAME})
+
+def project_page(request, project_id):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+
+    if not user_seek['status']:
+        url_redirect = f"/login/?next=/seek/projects/{project_id}"
+        return HttpResponseRedirect(url_redirect) 
+    else:
+        if verifySuperUser(request) == 1:
+            admin = True
+        else:
+            admin = False
+
+        user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+        user_project_ids = list(map(lambda x: int(x['id']), user_projects))
+        user_in_project = int(project_id) in user_project_ids
+
+        if admin is False and user_in_project is False:
+                data = {'msg': 'You are not in this project', 'status': 0, 'link': ''}
+                return render(request, 'error.html', {'data': data})
+
+        project = Projects.objects.get(id=project_id)
+
+        cladedb = DBtable_clades()
+        
+        clade_data = cladedb.getCladeProjectStats(project_id)
+        values = set(map(lambda x: x['title'], clade_data))
+        clade_data = [[y for y in clade_data if y['title']==x] for x in values]
+
+        try:
+            published_stats = pd.read_excel(PUBLISH_STATS_FILE, sheet_name=None)
+            published_stats = published_stats[project.title]
+            published_stats = published_stats.fillna(0)
+            published_stats['Published'] = published_stats['Published'].astype(int)
+            type_published_counts = dict(zip(published_stats['Data Types'],
+                                             published_stats['Published']))
+            for clade_list in clade_data:
+                for clade in clade_list:
+                    data_type = clade['st_group']
+                    published_count = type_published_counts.get(data_type, 0)
+                    clade['published'] = published_count
+                    
+        except Exception:
+            for clade_list in clade_data:
+                for clade in clade_list:
+                    clade['published'] = 0
+
+        for group in clade_data:
+            for item in group:
+                item['total'] = sum(i['count'] for i in group)
+                item['published_total'] = sum(i['published'] for i in group)
+
+        clade_data.sort(key=lambda x: x[0]['order'])
+
+        return render(request, 'projectPage.html', {'id': project.id,
+                                                    'title': re.sub("-|_", " ", project.title),
+                                                    'description': project.description.replace("\r", "\n"),
+                                                    'seek_hostname': SEEK_HOSTNAME,
+                                                    'avatar_id': project.avatar_id,
+                                                    'clade_data': clade_data,})
+
+def adminClades(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+
+    if not user_seek['status']:
+        err = user_seek['err']
+        url_redirect = '/login/?next=/seek/samples/attributes/'
+        return HttpResponseRedirect(url_redirect)
+
+    if verifySuperUser(request) != 1:
+        msg = 'Error: You login as admin to view this page.'
+        status = 0
+        logger.error(msg)
+        data = {'msg':msg, 'status': status, 'link':'', 'message':''}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    cladedb = DBtable_clades()
+    stcdb = DBtable_stc()
+    stc = simplejson.dumps(stcdb.getAllWithTitles(), default=str)
+    
+    return render(request,"clades.html", {'clades': list(cladedb.getAll()), 'stc': stc})
+
+def cladesSyncSampleTypes(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'The login user does not have the permission to perform this action.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    stcdb = DBtable_stc()
+    stcdb.syncSampleTypes()
+    
+    return HttpResponse({})
+
+def cladeSave(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'The login user does not have the permission to add the clade.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    cladedb = DBtable_clades()
+    
+    ret = request.GET
+    clades = json.loads(ret['records'])
+
+    for clade in clades:
+        if 'id' not in clade:
+            # New clade. Should create it in DB
+            cladedb.new(title=clade['title'],
+                        color=clade['color'],
+                        order=clade['order'])
+        else:
+            # Existing clade. Should update
+            cladedb.update(clade_id=clade['id'],
+                           title=clade['title'],
+                           color=clade['order'],
+                           order=clade['order'])
+        
+    return HttpResponse({}, headers={"Refresh": 1})
+    
+def cladeDelete(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        err = user_seek['err']
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'The login user does not have the permission to delete the sample attribute.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    cladedb = DBtable_clades()
+
+    ret = request.GET
+    clades = json.loads(ret['records'])
+
+    for clade in clades:
+        cladedb.delete(clade['id'])
+    
+    return HttpResponse({}, headers={"Refresh": 1})
+
+def cladeSampleTypesSave(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'The login user does not have the permission to add the clade.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    stcdb = DBtable_stc()
+    
+    ret = request.GET
+    data = json.loads(ret['records'])
+
+    for record in data:
+        sample_type_id = record['sample_type_id']
+        clade_id = record['clade_title']
+        
+        stcdb.update(sample_type_id, clade_id)
+        
+    return HttpResponse({}, headers={"Refresh": 1})
+
+def editSample(request, id):
+    return HttpResponseRedirect(f"https://{SEEK_HOSTNAME}/samples/{id}/edit")
+
+def manageSample(request, id):
+    return HttpResponseRedirect(f"https://{SEEK_HOSTNAME}/samples/{id}/manage")
+
+def smartSearch(request):
+    if verifySuperUser(request) == 1:
+        admin = True
+    else:
+        admin = False
+
+    # Can't view page unless you're an admin
+    if not admin:
+        data = {'msg': 'You do not have access to this page', 'status': 0, 'link': ''}
+        return render(request, 'error.html', {'data': data})
+    return render(request, "smartSearch.html")
+
+def internalAssays(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+
+    if not user_seek['status']:
+        err = user_seek['err']
+        url_redirect = '/login/?next=/seek/samples/attributes/'
+        return HttpResponseRedirect(url_redirect)
+
+    if verifySuperUser(request) != 1:
+        msg = 'Error: You login as admin to view this page.'
+        status = 0
+        logger.error(msg)
+        data = {'msg':msg, 'status': status, 'link':'', 'message':''}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    db_ia = DBtable_internalassays()
+    db_aia = DBtable_assaysinternalassays()
+    internal_assays = simplejson.dumps(db_ia.getAll(), default=list)
+    assay_associations = simplejson.dumps(db_aia.getAllWithTitles(), default=list)
+
+    return render(request,"internal_assays.html", {"internal_assays": internal_assays, "assay_associations": assay_associations})
+
+def internalAssaySave(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'The login user does not have the permission to add the internal assay.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    ia = DBtable_internalassays()
+    
+    ret = request.GET
+    internal_assays = json.loads(ret['records'])
+
+    for internal_assay in internal_assays:
+        if 'id' not in internal_assay:
+            ia.new(internal_assay_title=internal_assay['internal_assay_title'],)
+        else:
+            id = internal_assay["id"]
+            internal_assay_title = internal_assay["internal_assay_title"]
+            ia.update(internal_assay_id=id,
+                      internal_assay_title=internal_assay_title)
+        
+    return HttpResponse({}, headers={"Refresh": 1})
+
+def internalAssayDelete(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        err = user_seek['err']
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'You do not have the permission to delete the internal assay.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    ia = DBtable_internalassays()
+
+    ret = request.GET
+    internal_assays = json.loads(ret['records'])
+
+    for internal_assay in internal_assays:
+        ia.delete(internal_assay['id'])
+    
+    return HttpResponse({}, headers={"Refresh": 1})
+
+def assayAssociationSave(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'You do not have the permission to add the assay association.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    aia = DBtable_assaysinternalassays()
+    
+    ret = request.GET
+    data = json.loads(ret['records'])
+
+    for record in data:
+        assay_id = record['assay_id']
+        internal_assay_id = record['internal_assay_id']
+        
+        aia.update(assay_id, internal_assay_id)
+        
+    return HttpResponse({}, headers={"Refresh": 1})
+
+def syncInternalAssays(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    
+    if not user_seek['status']:
+        err = user_seek['err']
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+        
+    isSupervisor = verifySuperUser(request)
+    if isSupervisor==0: 
+        err = 'The login user does not have the permission to perform this action.'
+        logger.error(err)
+        msg = err
+        status = 0
+        docurl = ''
+        data = {'msg':msg, 'status': status, 'link':docurl}
+        return HttpResponse(simplejson.dumps(data, default=str))
+
+    aia = DBtable_assaysinternalassays()
+    aia.syncAssays()
+    
+    return HttpResponse({})
+
+def sopQuery(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        url_redirect = '/login/'
+        return HttpResponseRedirect(url_redirect)
+    
+    report["seek_url"] = settings.SEEK_URL
+
+    return render(request, "sopsPage.html", {"report" : report})
+
+def datafileQuery(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        url_redirect = '/login/'
+        return HttpResponseRedirect(url_redirect)
+    
+    report["seek_url"] = settings.SEEK_URL
+
+    return render(request, "dataFilesPage.html", {"report" : report})
+
+def newSearch(request):
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        url_redirect = '/login/'
+        return HttpResponseRedirect(url_redirect)
+
+    return render(request, "newSearch.html")
+
+
+def getting_started(request):
+    """Tutorials / Getting Started landing page. Static content."""
+    return render(request, "help/getting_started.html")
+
+

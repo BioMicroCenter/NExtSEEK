@@ -11,8 +11,10 @@ from mezzanine.conf import settings
 
 import seek.urls
 import api_app.urls
+import nextseek_api.urls
 
 from . import views
+
 
 admin.autodiscover()
 
@@ -23,7 +25,8 @@ urlpatterns = i18n_patterns(
     
     re_path("^admin/", include(admin.site.urls)),
     re_path("^seek/", include(seek.urls)),
-    re_path("^api/", include(api_app.urls)),
+    # re_path("^api/", include(api_app.urls)),
+    re_path("^nextseek_api/", include(nextseek_api.urls)),
 )
 
 if settings.USE_MODELTRANSLATION:
@@ -32,7 +35,7 @@ if settings.USE_MODELTRANSLATION:
     ]
 
 urlpatterns += [
-    re_path("^$", direct_to_template, {"template": "index.html"}, name="home"),
+    re_path("^$", views.home, name="home"),
     re_path("^", include("mezzanine.urls")),
     re_path(r'^accounts/login/', views.login_seek, name="login_seek"),
     re_path(r'^accounts/signup/', views.signup_seek, name="signup_seek"),

@@ -9,6 +9,7 @@ from datetime import date
 
 from django.conf import settings
 SEEK_DATABASE = settings.SEEK_DATABASE
+NEXTSEEK_DATABASE = settings.NEXTSEEK_DATABASE
 
 class Users(models.Model):
     _DATABASE = SEEK_DATABASE
@@ -102,11 +103,76 @@ class Sample_tree(models.Model):
     class Meta:
         db_table = "seek_sample_tree"
 
+class Session_state(models.Model):
+    session_id = models.CharField(max_length=255, null=False)
+    key = models.CharField(max_length=255, null=False)
+    value = models.TextField()
+    
+    class Meta:
+        db_table = "session_state"
+        unique_together = ("session_id", "key")
+
+class Assays(models.Model):
+    _DATABASE = SEEK_DATABASE
+
+    title = models.TextField(default=None)
+    description = models.TextField(default=None)
+    created_at = models.DateTimeField(default=None)
+    updated_at = models.DateTimeField(default=None)
+    study_id = models.IntegerField()
+    contributor_id = models.IntegerField()
+    first_letter = models.CharField(max_length=1, default=None)
+    assay_class_id = models.IntegerField()
+    uuid = models.CharField(max_length=255, default=None)
+    policy_id = models.IntegerField()
+    assay_type_uri = models.TextField()
+    technology_type_uri = models.TextField()
+    suggested_assay_type_id = models.IntegerField()
+    suggested_technology_type_id = models.IntegerField()
+    other_creators = models.TextField(default=None)
+    deleted_contributor = models.TextField(default=None)
+    sample_type_id = models.IntegerField()
+    position = models.IntegerField()
+    assay_stream_id = models.IntegerField()
+
+    class Meta:
+        db_table = "assays"
+
+class Internal_assays(models.Model):
+    _DATABASE = NEXTSEEK_DATABASE
+    
+    internal_assay_title = models.TextField(default=None)
+
+    class Meta:
+        db_table = "internal_assays"
+
+class Assays_internal_assays(models.Model):
+    _DATABASE = NEXTSEEK_DATABASE
+
+    internal_assay_id = models.IntegerField(default=None, null=True)
+    assay_id = models.IntegerField(default=None, null=True)
+
+    class Meta:
+        db_table = "assays_internal_assays"
+
+class Clades(models.Model):
+    _DATABASE = NEXTSEEK_DATABASE
+
+    title = models.TextField(default=None)
+    color = models.TextField(default=None)
+    order = models.IntegerField()
+    
+    def __unicode__(self):
+        return self.color
+
+    class Meta:
+        db_table = "clades"
 
 class Sample_types(models.Model):
     _DATABASE = SEEK_DATABASE
     
     title = models.CharField(max_length=255, default=None)
+    #st_group = models.TextField(default=None)
     uuid = models.CharField(max_length=255, default=None)
     created_at = models.DateTimeField(null=False)
     updated_at = models.DateTimeField(null=False)
@@ -115,12 +181,30 @@ class Sample_types(models.Model):
     uploaded_template = models.BooleanField(default=0)
     contributor_id = models.IntegerField(default=None)
     deleted_contributor = models.CharField(max_length=255, default=None)
+    template_id = models.IntegerField(default=None)
+    other_creators = models.TextField(default=None)
+    #clade_id = models.IntegerField(default=None)
     
     def __unicode__(self):
         return self.uuid
     
     class Meta:
         db_table = "sample_types"
+
+class Sample_types_clades(models.Model):
+    _DATABASE = NEXTSEEK_DATABASE
+
+    #clade = models.ForeignKey(Clades, null=True, blank=True, on_delete=models.PROTECT)
+    #sample_type = models.ForeignKey(Sample_types, on_delete=models.PROTECT)
+
+    clade_id = models.IntegerField(default=None, null=True)
+    sample_type_id = models.IntegerField(default=None, null=True)
+
+    def __unicode__(self):
+        return self.clade_id + ' ' + self.sample_type_id
+
+    class Meta:
+        db_table = "sample_types_clades"
         
 class Sample_attributes(models.Model):
     _DATABASE = SEEK_DATABASE
@@ -193,15 +277,68 @@ class Projects_samples(models.Model):
     _DATABASE = SEEK_DATABASE
     
     project_id = models.IntegerField(default=None)
-    sample_id = models.IntegerField(default=None)
+    sample_id = models.IntegerField(default=None, primary_key=True)
     
     def __unicode__(self):
         uuid = str(self.project_id) + '-' + str(self.sample_id)
         return uuid
+
+    # Make model read-only
+    def save(self, *args, **kwargs):
+        return
+
+    # Make model read-only
+    def delete(self, *args, **kwargs):
+        return
     
     class Meta:
         db_table = "projects_samples"
         unique_together = ('project_id', 'sample_id')
+
+
+class Projects_sops(models.Model):
+    _DATABASE = SEEK_DATABASE
+    
+    project_id = models.IntegerField(default=None)
+    sop_id = models.IntegerField(default=None, primary_key=True)
+    
+    def __unicode__(self):
+        uuid = str(self.project_id) + '-' + str(self.sop_id)
+        return uuid
+
+    # Make model read-only
+    def save(self, *args, **kwargs):
+        return
+
+    # Make model read-only
+    def delete(self, *args, **kwargs):
+        return
+    
+    class Meta:
+        db_table = "projects_sops"
+        unique_together = ('project_id', 'sop_id')
+        
+class Data_files_projects(models.Model):
+    _DATABASE = SEEK_DATABASE
+    
+    project_id = models.IntegerField(default=None)
+    data_file_id = models.IntegerField(default=None, primary_key=True)
+    
+    def __unicode__(self):
+        uuid = str(self.project_id) + '-' + str(self.data_file_id)
+        return uuid
+
+    # Make model read-only
+    def save(self, *args, **kwargs):
+        return
+
+    # Make model read-only
+    def delete(self, *args, **kwargs):
+        return
+    
+    class Meta:
+        db_table = "data_files_projects"
+        unique_together = ('project_id', 'data_file_id')
         
         
 class Documents(models.Model):

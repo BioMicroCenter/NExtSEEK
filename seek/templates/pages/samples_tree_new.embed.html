@@ -1,0 +1,11 @@
+<div style="height:100%;" id="tree_container">
+    {% csrf_token %}
+    <div id="loading-spinner">Loading...</div>
+    <svg id="svg">
+        <g id="graphGroup">
+            <g id="links" />
+            <g id="nodes" />
+        </g>
+    </svg>
+</div>
+<script type="module" src="/static/js/dag/dag.js"></script>

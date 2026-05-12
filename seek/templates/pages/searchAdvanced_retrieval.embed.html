@@ -16,12 +16,12 @@
 			if (status == 1) {
 				var datanow = obj.rows;
 				var total = obj.total;
-				$('#dgtable2').datagrid('loadData', datanow);
-				$('#dgtable2').datagrid('checkAll');
+				$('#retrieval_dgtable').datagrid('loadData', datanow);
+				$('#retrieval_dgtable').datagrid('checkAll');
 				var dataTree = obj.tree;
 				$('#atree').tree('loadData', dataTree);
 				$('#atree').tree('selectAll');
-				var pager = $('#dgtable2').datagrid('getPager');
+				var pager = $('#retrieval_dgtable').datagrid('getPager');
 				pager.pagination({
 					showRefresh: false
 				});

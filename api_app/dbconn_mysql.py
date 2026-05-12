@@ -154,6 +154,7 @@ class DBconn_mysql(object):
             row.append(strValue)
 
         insert_sql = "INSERT INTO %s (%s) VALUES (%s);" % (table, ','.join(columns), ','.join(row))
+        print(insert_sql)
         sqlqueries = []
         sqlqueries.append(insert_sql)
         return self.__runTransaction(sqlqueries)
@@ -343,7 +344,7 @@ class DBconn_mysql(object):
     def exportRecords(self, table, filename=None):
         if filename is None:
             filedate = datetime.datetime.now().strftime("%Y%m%d")
-            filename = SECURE_FILE_PRIV + table + ".txt"
+            filename = SECURE_FILE_PRIV + table + ".txt" #+ "-" + filedate + ".txt"
         elif SECURE_FILE_PRIV not in filename:
             filename = SECURE_FILE_PRIV + filename
 

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Getting Started — NExtSEEK{% endblock %}
+
+{% block main %}
+<div class="help-page">
+
+  <header class="help-hero">
+    <p class="help-eyebrow">Tutorials</p>
+    <h1>Getting Started with NExtSEEK</h1>
+    <p class="help-lede">
+      NExtSEEK helps you collect, organize, and share scientific metadata
+      so your data stays FAIR and reproducible. This page walks you
+      through the basics.
+    </p>
+    <nav class="help-toc">
+      <a href="#what-is">What is NExtSEEK?</a>
+      <a href="#uploading">Uploading samples</a>
+      <a href="#searching">Searching by UID or text</a>
+      <a href="#nessie">Using Nessie</a>
+      <a href="#workflows">Common workflows</a>
+    </nav>
+  </header>
+
+  <section id="what-is" class="help-section">
+    <h2>What is NExtSEEK?</h2>
+    <p>
+      NExtSEEK extends the SEEK platform with discrete, mutable sample
+      types and a graph-style assay model. Samples are nodes; assays
+      connect them. The point is to capture enough structured metadata
+      that other researchers (and you, six months from now) can
+      actually reuse the data.
+    </p>
+  </section>
+
+  <section id="uploading" class="help-section">
+    <h2>Uploading samples</h2>
+    <ol>
+      <li>Go to <strong>Data Entry → Assay Sheet Upload</strong> in the sidebar.</li>
+      <li>Download a sample Excel template from the upload dialog if you
+        don't already have one.</li>
+      <li>Fill in your sample rows. Only the first worksheet is processed.</li>
+      <li>Upload. The batch system stages the parse, validates against
+        the schema, then commits.</li>
+    </ol>
+  </section>
+
+  <section id="searching" class="help-section">
+    <h2>Searching by UID or text</h2>
+    <p>
+      <strong>By UID:</strong> use the <em>Search by UID…</em> input in
+      the sidebar's Quick Access section. Enter a sample UID and hit
+      Enter — you'll land directly on its sample-tree view.
+    </p>
+    <p>
+      <strong>By text or filters:</strong> use
+      <strong>Data Query → Sample Search</strong> in the sidebar. You can
+      filter by project, sample type, date, and any indexed attribute.
+    </p>
+  </section>
+
+  <section id="nessie" class="help-section">
+    <h2>Using Nessie</h2>
+    <p>
+      Nessie is the NExtSEEK assistant. You can ask plain-language
+      questions about your data, schema, or workflows.
+    </p>
+    <p>
+      The fastest way in: type your question into the <em>Ask Nessie…</em>
+      input in the sidebar. Press Enter and you'll land in the chat with
+      your question already typed — click send to ask. You can also open
+      the full chat directly via the <strong>Talk to Nessie</strong> link
+      on the home dashboard.
+    </p>
+  </section>
+
+  <section id="workflows" class="help-section">
+    <h2>Common workflows</h2>
+    <h3>Get a sample's full lineage</h3>
+    <ol>
+      <li>Search by UID in Quick Access.</li>
+      <li>You'll arrive at the sample-tree view, which shows all parent
+        and child samples + linked assays.</li>
+    </ol>
+    <h3>Pull a project's samples into Excel</h3>
+    <ol>
+      <li>Go to <strong>Projects</strong> in the sidebar.</li>
+      <li>Open the project page → <em>Export samples</em>.</li>
+    </ol>
+    <h3>Publish data externally</h3>
+    <ol>
+      <li>Open the project page.</li>
+      <li>Use <em>Publish</em> to push to GEO / SRA / PRIDE / etc. via
+        SEEK's integrations.</li>
+    </ol>
+  </section>
+
+  <section class="help-section help-cta">
+    <h2>Still stuck?</h2>
+    <p>
+      Email <a href="mailto:fairdata@mit.edu">fairdata@mit.edu</a> or
+      check the
+      <a href="https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/"
+        target="_blank" rel="noopener">full documentation</a>.
+    </p>
+  </section>
+
+</div>
+{% endblock %}

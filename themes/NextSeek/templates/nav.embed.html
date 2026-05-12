@@ -1,0 +1,141 @@
+{% load static i18n %}
+<nav class="sidebar-nav-inner" aria-label="{% trans 'Main navigation' %}">
+
+  <!-- Data ------------------------------------- -->
+  <div class="sidebar-section">
+    <span class="sidebar-section-label">{% trans "Data" %}</span>
+
+    <ul class="nav flex-column">
+      <li class="nav-item">
+        <a href="/" class="nav-link">
+          <i class="bi bi-house-door" aria-hidden="true"></i><span>{% trans "Home" %}</span>
+        </a>
+      </li>
+
+      <li class="nav-item">
+        <a href="/seek/search/" class="nav-link">
+          <i class="bi bi-collection" aria-hidden="true"></i><span>{% trans "Sample Search" %}</span>
+        </a>
+      </li>
+
+      <li class="nav-item">
+        <a href="#dataEntrySubmenu" class="nav-link" data-bs-toggle="collapse" aria-expanded="false">
+          <i class="bi bi-upload" aria-hidden="true"></i><span>{% trans "Data Entry" %}</span>
+          <i class="bi bi-chevron-down ms-auto" aria-hidden="true"></i>
+        </a>
+        <ul class="collapse submenu" id="dataEntrySubmenu">
+          <li><a href="/seek/samples/upload/" class="nav-link"><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i>{% trans "Assay Sheet Upload" %}</a></li>
+          <li><a href="/seek/data/upload/" class="nav-link"><i class="bi bi-file-earmark-zip" aria-hidden="true"></i>{% trans "Data & Protocol Upload" %}</a></li>
+          <li><a href="/seek/templates/" class="nav-link"><i class="bi bi-download" aria-hidden="true"></i>{% trans "Download Templates" %}</a></li>
+        </ul>
+      </li>
+
+      <li class="nav-item">
+        <a href="#dataQuerySubmenu" class="nav-link" data-bs-toggle="collapse" aria-expanded="false">
+          <i class="bi bi-search" aria-hidden="true"></i><span>{% trans "Data Query" %}</span>
+          <i class="bi bi-chevron-down ms-auto" aria-hidden="true"></i>
+        </a>
+        <ul class="collapse submenu" id="dataQuerySubmenu">
+          <li><a href="/seek/datafile/query/" class="nav-link"><i class="bi bi-file-zip" aria-hidden="true"></i>{% trans "Data File Query" %}</a></li>
+          <li><a href="/seek/sop/query/" class="nav-link"><i class="bi bi-file-text" aria-hidden="true"></i>{% trans "Protocol Query" %}</a></li>
+        </ul>
+      </li>
+
+      <li class="nav-item">
+        <a href="/seek/projects" class="nav-link">
+          <i class="bi bi-building" aria-hidden="true"></i><span>{% trans "Projects" %}</span>
+        </a>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Quick Access ------------------------------ -->
+  <div class="sidebar-section">
+    <span class="sidebar-section-label">{% trans "Quick Access" %}</span>
+
+    <div class="qa-input">
+      <i class="bi bi-search qa-ico" aria-hidden="true"></i>
+      <input id="search-uid" type="text"
+             placeholder="{% trans 'Search by UID…' %}"
+             aria-label="{% trans 'Search by sample UID' %}">
+    </div>
+
+    <div class="qa-input">
+      <i class="bi bi-chat-dots qa-ico" aria-hidden="true"></i>
+      <input id="ask-nessie" type="text"
+             placeholder="{% trans 'Ask Nessie…' %}"
+             aria-label="{% trans 'Ask the NExtSEEK assistant' %}">
+    </div>
+
+    <a class="qa-cta" href="/seek/samples/upload/">
+      <span class="qa-plus" aria-hidden="true">+</span> {% trans "New sample" %}
+    </a>
+
+    <div class="qa-placeholder">
+      <i>{% trans "Bookmarks · none yet" %}</i>
+    </div>
+  </div>
+
+  <!-- Admin (staff only) ----------------------- -->
+  {% if request.user.is_staff %}
+  <div class="sidebar-section">
+    <span class="sidebar-section-label">{% trans "Admin" %}</span>
+
+    <ul class="nav flex-column">
+      <li class="nav-item">
+        <a href="/admin" class="nav-link">
+          <i class="bi bi-gear" aria-hidden="true"></i><span>{% trans "Admin Panel" %}</span>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="/seek/samples/attributes" class="nav-link">
+          <i class="bi bi-pencil-square" aria-hidden="true"></i><span>{% trans "Sample Attributes" %}</span>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="/seek/admin/clades/" class="nav-link">
+          <i class="bi bi-diagram-3" aria-hidden="true"></i><span>{% trans "Clades" %}</span>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="/seek/admin/retrieve/" class="nav-link">
+          <i class="bi bi-cloud-download" aria-hidden="true"></i><span>{% trans "Sample Retrieval" %}</span>
+        </a>
+      </li>
+    </ul>
+  </div>
+  {% endif %}
+
+  <!-- Resources -------------------------------- -->
+  <div class="sidebar-section">
+    <span class="sidebar-section-label">{% trans "Resources" %}</span>
+
+    <ul class="nav flex-column">
+      <li class="nav-item">
+        <a href="/seek/help/" class="nav-link">
+          <i class="bi bi-lightbulb" aria-hidden="true"></i><span>{% trans "Getting Started" %}</span>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/"
+           class="nav-link" target="_blank" rel="noopener">
+          <i class="bi bi-book" aria-hidden="true"></i><span>{% trans "Documentation" %}</span>
+          <i class="bi bi-box-arrow-up-right ms-auto" aria-hidden="true" style="font-size:0.65rem;opacity:0.5;"></i>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="https://nextseek.mit.edu/published-studies/"
+           class="nav-link" target="_blank" rel="noopener">
+          <i class="bi bi-journal-text" aria-hidden="true"></i><span>{% trans "Published Studies" %}</span>
+          <i class="bi bi-box-arrow-up-right ms-auto" aria-hidden="true" style="font-size:0.65rem;opacity:0.5;"></i>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="mailto:fairdata@mit.edu" class="nav-link">
+          <i class="bi bi-envelope" aria-hidden="true"></i><span>{% trans "Contact Support" %}</span>
+        </a>
+      </li>
+    </ul>
+  </div>
+
+</nav>

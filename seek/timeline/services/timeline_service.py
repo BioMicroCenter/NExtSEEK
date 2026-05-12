@@ -664,3 +664,15 @@ def run_All(NHP_uid):
     print(f"Total time for run_All: {end_time - start_time:.2f} seconds")
     print("\n")
     return combined_json
+
+# if __name__ == "__main__":
+#     parser = argparse.ArgumentParser(description="Process NHP metadata and generate JSON output.")
+#     parser.add_argument("--NHP_name", type=str, default="NHP-220630FLY-15", help="The NHP name to process.")
+#     parser.add_argument("--filename1", type=str, default="nhp_data.json", help="The output JSON filename.")
+#     parser.add_argument("--event_type", type=str, default="TIS", help="The event type to process.")
+#     parser.add_argument("--date", type=str, default="2019-05-06", help="The date to process.")
+#     parser.add_argument("--filename2", type=str, default="event_data.json", help="The output JSON filename.")
+    
+#     args = parser.parse_args()
+#     run_All(args.NHP_name)
+#     get_event_data(args.NHP_name, args.event_type, args.date)

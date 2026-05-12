@@ -283,9 +283,17 @@ class DataGrid(object):
                 downloadallterms = json.loads(ret['downloadallterms'])
                 msg, status, link = self.__download(allids, downloadallterms)
         elif operation=="delete":
+            ids = None
             if 'ids' in ret:
-                IDs = ret['ids']
-                ids = json.loads(IDs)
+                ids = json.loads(ret['ids'])
+            elif 'records' in ret:
+                records = json.loads(ret['records'])
+                ids = []
+                for record in records:
+                    record_id = record.get('id')
+                    if record_id is not None:
+                        ids.append(record_id)
+            if ids is not None:
                 msg, status = self.__delete(ids)
         elif operation=="save":
             if 'records' in ret:

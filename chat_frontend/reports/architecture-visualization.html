@@ -1,0 +1,1482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NExtSEEK Chat Frontend - Architecture Visualization</title>
+<style>
+/* ================================================================
+   RESET & BASE
+   ================================================================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-tertiary: #334155;
+  --bg-card: #1e293b;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --border: #334155;
+  --border-hover: #475569;
+
+  --blue: #3b82f6;
+  --blue-bg: rgba(59, 130, 246, 0.12);
+  --blue-border: rgba(59, 130, 246, 0.3);
+  --green: #22c55e;
+  --green-bg: rgba(34, 197, 94, 0.12);
+  --green-border: rgba(34, 197, 94, 0.3);
+  --orange: #f97316;
+  --orange-bg: rgba(249, 115, 22, 0.12);
+  --orange-border: rgba(249, 115, 22, 0.3);
+  --purple: #a855f7;
+  --purple-bg: rgba(168, 85, 247, 0.12);
+  --purple-border: rgba(168, 85, 247, 0.3);
+  --red: #ef4444;
+  --red-bg: rgba(239, 68, 68, 0.12);
+  --red-border: rgba(239, 68, 68, 0.3);
+  --gray: #6b7280;
+  --gray-bg: rgba(107, 114, 128, 0.12);
+  --gray-border: rgba(107, 114, 128, 0.3);
+
+  --font-stack: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+}
+
+html, body {
+  height: 100%;
+  font-family: var(--font-stack);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+/* ================================================================
+   TOP HEADER
+   ================================================================ */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.app-header h1 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.app-header h1 .brand {
+  color: var(--blue);
+  font-weight: 700;
+}
+
+.header-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ================================================================
+   TAB NAVIGATION
+   ================================================================ */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  padding: 0 24px;
+}
+
+.tab-btn {
+  position: relative;
+  padding: 12px 20px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-stack);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
+  white-space: nowrap;
+}
+
+.tab-btn:hover {
+  color: var(--text-secondary);
+  background: rgba(255,255,255,0.03);
+}
+
+.tab-btn.active {
+  color: var(--blue);
+}
+
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--blue);
+  border-radius: 2px 2px 0 0;
+}
+
+.tab-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-right: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+.tab-btn.active .tab-number {
+  background: var(--blue);
+  color: white;
+}
+
+/* ================================================================
+   MAIN CONTENT AREA
+   ================================================================ */
+.main-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.tab-panel {
+  display: none;
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+/* ================================================================
+   SECTION 1: COMPONENT ARCHITECTURE DIAGRAM
+   ================================================================ */
+#panel-architecture {
+  padding: 24px;
+}
+
+.arch-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.arch-controls .legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.zoom-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  transition: all 0.15s ease;
+}
+
+.zoom-btn:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.zoom-btn.wide {
+  width: auto;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.zoom-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 36px;
+  text-align: center;
+}
+
+.arch-canvas-wrapper {
+  position: relative;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(148,163,184,0.06) 1px, transparent 0);
+  background-size: 24px 24px;
+  height: calc(100vh - 200px);
+  min-height: 500px;
+}
+
+/* SVG node styles */
+.arch-node {
+  cursor: pointer;
+}
+
+.arch-node rect {
+  transition: filter 0.2s ease, stroke-width 0.15s ease;
+}
+
+.arch-node:hover rect {
+  filter: brightness(1.3);
+  stroke-width: 2;
+}
+
+.arch-node.dimmed rect {
+  opacity: 0.2;
+}
+
+.arch-node.dimmed text {
+  opacity: 0.2;
+}
+
+.arch-connection {
+  transition: opacity 0.2s ease;
+}
+
+.arch-connection.dimmed {
+  opacity: 0.06;
+}
+
+.arch-connection.highlighted {
+  opacity: 1;
+}
+
+.arch-connection.highlighted path {
+  stroke-width: 2.5;
+}
+
+/* Tooltip */
+.arch-tooltip {
+  position: fixed;
+  padding: 10px 14px;
+  background: #1e293b;
+  border: 1px solid var(--border-hover);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 1000;
+  max-width: 450px;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+.arch-tooltip.visible {
+  opacity: 1;
+}
+
+.arch-tooltip .tip-name {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 13px;
+  margin-bottom: 3px;
+}
+
+.arch-tooltip .tip-file {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ================================================================
+   SECTION 2: SEQUENCE DIAGRAM
+   ================================================================ */
+#panel-sequence {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.seq-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.seq-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-family: var(--font-stack);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.seq-btn:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.seq-btn.active {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: var(--blue-bg);
+}
+
+.seq-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.speed-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+}
+
+.speed-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.speed-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.speed-btn:hover {
+  border-color: var(--border-hover);
+  color: var(--text-secondary);
+}
+
+.speed-btn.active {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: var(--blue-bg);
+}
+
+.seq-step-info {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.seq-step-info strong {
+  color: var(--text-primary);
+}
+
+.seq-legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.seq-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.seq-legend-line {
+  width: 20px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.seq-canvas-wrapper {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  min-height: 400px;
+}
+
+/* ================================================================
+   SECTION 3: DEPENDENCY TABLE
+   ================================================================ */
+#panel-dependencies {
+  padding: 24px;
+}
+
+.dep-intro {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+.dep-table-wrapper {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.dep-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.dep-table thead {
+  background: var(--bg-tertiary);
+}
+
+.dep-table th {
+  padding: 10px 16px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.dep-table th:hover {
+  color: var(--text-primary);
+}
+
+.dep-table th .sort-arrow {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+}
+
+.dep-table th.sorted .sort-arrow {
+  color: var(--blue);
+}
+
+.dep-table tbody tr {
+  border-bottom: 1px solid rgba(51,65,85,0.5);
+  transition: background 0.15s ease;
+}
+
+.dep-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.dep-table tbody tr:hover {
+  background: rgba(59,130,246,0.04);
+}
+
+.dep-table td {
+  padding: 10px 16px;
+  vertical-align: top;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.dep-chain {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dep-chain.auth { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+.dep-chain.query { background: var(--blue-bg); color: var(--blue); border: 1px solid var(--blue-border); }
+.dep-chain.progress { background: var(--orange-bg); color: var(--orange); border: 1px solid var(--orange-border); }
+.dep-chain.test { background: var(--purple-bg); color: var(--purple); border: 1px solid var(--purple-border); }
+.dep-chain.bundle { background: var(--purple-bg); color: var(--purple); border: 1px solid var(--purple-border); }
+.dep-chain.pipeline { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+.dep-chain.display { background: var(--gray-bg); color: var(--gray); border: 1px solid var(--gray-border); }
+
+.dep-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ================================================================
+   LAYOUT SHELL
+   ================================================================ */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ================================================================
+   SCROLLBAR STYLING
+   ================================================================ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}
+
+/* ================================================================
+   RESPONSIVE
+   ================================================================ */
+@media (max-width: 768px) {
+  .tab-btn {
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  .tab-number {
+    display: none;
+  }
+  .arch-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .zoom-controls {
+    margin-left: 0;
+  }
+  .seq-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .seq-step-info {
+    margin-left: 0;
+  }
+  .speed-controls {
+    margin-left: 0;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <header class="app-header" id="app-header"></header>
+  <nav class="tab-bar" id="tab-bar"></nav>
+  <div class="main-content">
+
+    <!-- PANEL 1: COMPONENT ARCHITECTURE -->
+    <div id="panel-architecture" class="tab-panel active">
+      <div class="arch-controls" id="arch-controls-bar"></div>
+      <div class="arch-canvas-wrapper" id="arch-canvas-wrapper">
+        <svg id="arch-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <div class="arch-tooltip" id="arch-tooltip">
+        <div class="tip-name" id="tip-name"></div>
+        <div class="tip-file" id="tip-file"></div>
+      </div>
+    </div>
+
+    <!-- PANEL 2: SEQUENCE DIAGRAM -->
+    <div id="panel-sequence" class="tab-panel">
+      <div class="seq-controls" id="seq-controls-bar"></div>
+      <div class="seq-legend" id="seq-legend-bar"></div>
+      <div class="seq-canvas-wrapper" id="seq-canvas-wrapper">
+        <canvas id="seq-canvas"></canvas>
+      </div>
+    </div>
+
+    <!-- PANEL 3: DEPENDENCY TABLE -->
+    <div id="panel-dependencies" class="tab-panel">
+      <p class="dep-intro" id="dep-intro"></p>
+      <div class="dep-table-wrapper">
+        <table class="dep-table" id="dep-table">
+          <thead id="dep-thead"></thead>
+          <tbody id="dep-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   DOM HELPERS
+   All content is static/hardcoded -- no user input is ever used.
+   ================================================================ */
+function makeEl(tag, attrs, children) {
+  var node = document.createElement(tag);
+  if (attrs) {
+    Object.keys(attrs).forEach(function(k) {
+      if (k === 'textContent') { node.textContent = attrs[k]; }
+      else if (k === 'className') { node.className = attrs[k]; }
+      else if (k.indexOf('on') === 0 && typeof attrs[k] === 'function') {
+        node.addEventListener(k.slice(2).toLowerCase(), attrs[k]);
+      }
+      else { node.setAttribute(k, attrs[k]); }
+    });
+  }
+  if (children) {
+    children.forEach(function(c) {
+      if (!c) return;
+      if (typeof c === 'string') node.appendChild(document.createTextNode(c));
+      else node.appendChild(c);
+    });
+  }
+  return node;
+}
+
+function makeSvg(tag, attrs) {
+  var node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  if (attrs) {
+    Object.keys(attrs).forEach(function(k) {
+      node.setAttribute(k, String(attrs[k]));
+    });
+  }
+  return node;
+}
+
+function clearChildren(el) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+}
+
+function makeSvgIcon(paths, size) {
+  var s = makeSvg('svg', {
+    viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+    'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+    width: size || 14, height: size || 14
+  });
+  // Need to set style for inline SVG sizing inside buttons
+  s.style.width = (size || 14) + 'px';
+  s.style.height = (size || 14) + 'px';
+  s.style.flexShrink = '0';
+  paths.forEach(function(p) {
+    var child;
+    if (p.type === 'polygon') child = makeSvg('polygon', { points: p.points });
+    else if (p.type === 'polyline') child = makeSvg('polyline', { points: p.points });
+    else if (p.type === 'path') child = makeSvg('path', { d: p.d });
+    else if (p.type === 'rect') child = makeSvg('rect', p.attrs);
+    if (child) s.appendChild(child);
+  });
+  return s;
+}
+
+
+/* ================================================================
+   BUILD APP HEADER
+   ================================================================ */
+(function buildHeader() {
+  var hdr = document.getElementById('app-header');
+  var h1 = makeEl('h1');
+  var brand = makeEl('span', { className: 'brand', textContent: 'NExtSEEK' });
+  h1.appendChild(brand);
+  h1.appendChild(document.createTextNode(' Chat Frontend Architecture'));
+  hdr.appendChild(h1);
+  hdr.appendChild(makeEl('div', { className: 'header-meta', textContent: 'Generated 2026-02-19 \u00B7 Interactive Visualization' }));
+})();
+
+
+/* ================================================================
+   TAB NAVIGATION
+   ================================================================ */
+var TABS = [
+  { id: 'architecture', num: '1', label: 'Component Architecture' },
+  { id: 'sequence',     num: '2', label: 'Query Lifecycle Sequence' },
+  { id: 'dependencies', num: '3', label: 'Dependency Summary' }
+];
+
+(function buildTabBar() {
+  var bar = document.getElementById('tab-bar');
+  TABS.forEach(function(tab) {
+    var numSpan = makeEl('span', { className: 'tab-number', textContent: tab.num });
+    var btn = makeEl('button', {
+      className: 'tab-btn' + (tab.id === 'architecture' ? ' active' : ''),
+      'data-tab': tab.id,
+      onClick: function() { switchTab(tab.id); }
+    }, [numSpan, tab.label]);
+    bar.appendChild(btn);
+  });
+})();
+
+function switchTab(tabName) {
+  document.querySelectorAll('.tab-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.getAttribute('data-tab') === tabName);
+  });
+  document.querySelectorAll('.tab-panel').forEach(function(panel) {
+    panel.classList.toggle('active', panel.id === 'panel-' + tabName);
+  });
+  if (tabName === 'sequence')     requestAnimationFrame(renderSequence);
+  if (tabName === 'architecture') requestAnimationFrame(renderArchitecture);
+}
+
+
+/* ================================================================
+   SECTION 1: ARCHITECTURE DIAGRAM -- DATA
+   ================================================================ */
+var archNodes = [
+  // Frontend Components (blue) -- layer 0
+  { id:'AppLayout',        label:'AppLayout',        file:'src/AppLayout.tsx',                              layer:0, color:'blue',   sub:0  },
+  { id:'EmbeddedApp',      label:'EmbeddedApp',      file:'src/EmbeddedApp.tsx',                            layer:0, color:'blue',   sub:1  },
+  { id:'HeaderBar',        label:'HeaderBar',        file:'src/components/Layout/HeaderBar.tsx',             layer:0, color:'blue',   sub:2  },
+  { id:'CompactToolbar',   label:'CompactToolbar',   file:'src/components/Layout/CompactToolbar.tsx',        layer:0, color:'blue',   sub:3  },
+  { id:'ChatPanel',        label:'ChatPanel',        file:'src/components/ChatPanel/ChatPanel.tsx',          layer:0, color:'blue',   sub:4  },
+  { id:'MessageList',      label:'MessageList',      file:'src/components/ChatPanel/MessageList.tsx',        layer:0, color:'blue',   sub:5  },
+  { id:'MessageBubble',    label:'MessageBubble',    file:'src/components/ChatPanel/MessageBubble.tsx',      layer:0, color:'blue',   sub:6  },
+  { id:'MessageInput',     label:'MessageInput',     file:'src/components/ChatPanel/MessageInput.tsx',       layer:0, color:'blue',   sub:7  },
+  { id:'ProcessingStepper',label:'ProcessingStepper', file:'src/components/ChatPanel/ProcessingStepper.tsx', layer:0, color:'blue',   sub:8  },
+  { id:'LeftSidebar',      label:'LeftSidebar',      file:'src/components/Layout/LeftSidebar.tsx',           layer:0, color:'blue',   sub:9  },
+  { id:'RightSidebar',     label:'RightSidebar',     file:'src/components/Layout/RightSidebar.tsx',          layer:0, color:'blue',   sub:10 },
+  { id:'DebugPanel',       label:'DebugPanel',       file:'src/components/DebugPanel/DebugPanel.tsx',        layer:0, color:'blue',   sub:11 },
+  { id:'TestCaseList',     label:'TestCaseList',     file:'src/components/TestRunner/TestCaseList.tsx',      layer:0, color:'blue',   sub:12 },
+
+  // Hooks (green) -- layer 1
+  { id:'useMessages',        label:'useMessages',        file:'src/hooks/useMessages.ts',        layer:1, color:'green', sub:0 },
+  { id:'useProcessingState', label:'useProcessingState', file:'src/hooks/useProcessingState.ts', layer:1, color:'green', sub:1 },
+  { id:'useChatApi',         label:'useChatApi',         file:'src/hooks/useChatApi.ts',         layer:1, color:'green', sub:2 },
+  { id:'useCredentialCheck', label:'useCredentialCheck', file:'src/hooks/useAuth.ts',            layer:1, color:'green', sub:3 },
+  { id:'useAutoScroll',      label:'useAutoScroll',      file:'src/hooks/useAutoScroll.ts',      layer:1, color:'green', sub:4 },
+  { id:'useAutoResize',      label:'useAutoResize',      file:'src/hooks/useAutoResize.ts',      layer:1, color:'green', sub:5 },
+
+  // Services (orange) -- layer 2
+  { id:'NextseekApiService', label:'NextseekApiService', file:'src/lib/services/chatApi.ts',     layer:2, color:'orange', sub:0 },
+  { id:'BasicAuthService',   label:'BasicAuthService',   file:'src/lib/services/auth.ts',        layer:2, color:'orange', sub:1 },
+  { id:'SessionAuthService', label:'SessionAuthService', file:'src/lib/services/sessionAuth.ts', layer:2, color:'orange', sub:2 },
+
+  // Django API Endpoints (purple) -- layer 3
+  { id:'POST_query_async', label:'POST /query/async/',  file:'nextseek_api/services/assistant.py',   layer:3, color:'purple', sub:0 },
+  { id:'GET_me',           label:'GET /assistant/me/',   file:'nextseek_api/services/assistant.py',   layer:3, color:'purple', sub:1 },
+  { id:'GET_test_cases',   label:'GET /test-cases/',     file:'nextseek_api/services/assistant.py',   layer:3, color:'purple', sub:2 },
+  { id:'GET_bundles',      label:'GET /bundles/*',       file:'nextseek_api/services/assistant.py',   layer:3, color:'purple', sub:3 },
+  { id:'WS_progress',      label:'WS /ws/progress/',    file:'nextseek_api/assistant/consumers.py',  layer:3, color:'purple', sub:4 },
+
+  // Backend Modules (red) -- layer 4
+  { id:'AssistantViewSet', label:'AssistantViewSet', file:'nextseek_api/services/assistant.py',         layer:4, color:'red', sub:0 },
+  { id:'pipeline_adapter', label:'pipeline_adapter', file:'nextseek_api/assistant/pipeline_adapter.py', layer:4, color:'red', sub:1 },
+  { id:'consumers',        label:'consumers.py',    file:'nextseek_api/assistant/consumers.py',         layer:4, color:'red', sub:2 },
+
+  // External (gray) -- layer 5
+  { id:'chat_nextseek', label:'chat_nextseek agents', file:'Entity, Parser, API, HTTP, Chatter, Reporter', layer:5, color:'gray', sub:0 },
+  { id:'LLM_API',       label:'LLM API',             file:'OpenAI / Azure OpenAI',                        layer:5, color:'gray', sub:1 },
+  { id:'Database',       label:'Database',            file:'PostgreSQL (QueryTask, ChatSession)',           layer:5, color:'gray', sub:2 }
+];
+
+var archConnections = [
+  // AppLayout composition
+  { from:'AppLayout', to:'HeaderBar' },   { from:'AppLayout', to:'ChatPanel' },
+  { from:'AppLayout', to:'LeftSidebar' }, { from:'AppLayout', to:'RightSidebar' },
+  { from:'AppLayout', to:'useMessages' }, { from:'AppLayout', to:'useProcessingState' },
+  { from:'AppLayout', to:'useChatApi' },
+  // EmbeddedApp composition
+  { from:'EmbeddedApp', to:'CompactToolbar' }, { from:'EmbeddedApp', to:'ChatPanel' },
+  { from:'EmbeddedApp', to:'LeftSidebar' },    { from:'EmbeddedApp', to:'RightSidebar' },
+  { from:'EmbeddedApp', to:'useMessages' },    { from:'EmbeddedApp', to:'useProcessingState' },
+  { from:'EmbeddedApp', to:'NextseekApiService' }, { from:'EmbeddedApp', to:'SessionAuthService' },
+  // ChatPanel children
+  { from:'ChatPanel', to:'MessageList' }, { from:'ChatPanel', to:'MessageInput' }, { from:'ChatPanel', to:'ProcessingStepper' },
+  // Leaf components
+  { from:'MessageList', to:'MessageBubble' }, { from:'MessageList', to:'useAutoScroll' },
+  { from:'MessageInput', to:'useAutoResize' },
+  { from:'RightSidebar', to:'DebugPanel' }, { from:'LeftSidebar', to:'TestCaseList' },
+  // Hooks to services
+  { from:'useChatApi', to:'NextseekApiService' }, { from:'useChatApi', to:'BasicAuthService' },
+  { from:'useCredentialCheck', to:'BasicAuthService' },
+  // Services to API
+  { from:'NextseekApiService', to:'POST_query_async' }, { from:'NextseekApiService', to:'WS_progress' },
+  { from:'NextseekApiService', to:'GET_test_cases' },   { from:'NextseekApiService', to:'GET_bundles' },
+  { from:'BasicAuthService', to:'GET_me' },
+  // API to backend
+  { from:'POST_query_async', to:'AssistantViewSet' }, { from:'GET_me', to:'AssistantViewSet' },
+  { from:'GET_test_cases', to:'AssistantViewSet' },   { from:'GET_bundles', to:'AssistantViewSet' },
+  { from:'WS_progress', to:'consumers' },
+  // Backend internals
+  { from:'AssistantViewSet', to:'pipeline_adapter' }, { from:'consumers', to:'Database' },
+  { from:'pipeline_adapter', to:'chat_nextseek' },    { from:'pipeline_adapter', to:'Database' },
+  // External
+  { from:'chat_nextseek', to:'LLM_API' }, { from:'chat_nextseek', to:'Database' }
+];
+
+var COLOR_MAP = {
+  blue:   { fill:'#3b82f6', bg:'rgba(59,130,246,0.12)',  border:'rgba(59,130,246,0.4)',  text:'#93c5fd', arrow:'rgba(59,130,246,0.5)'  },
+  green:  { fill:'#22c55e', bg:'rgba(34,197,94,0.12)',   border:'rgba(34,197,94,0.4)',   text:'#86efac', arrow:'rgba(34,197,94,0.5)'   },
+  orange: { fill:'#f97316', bg:'rgba(249,115,22,0.12)',  border:'rgba(249,115,22,0.4)',  text:'#fdba74', arrow:'rgba(249,115,22,0.5)'  },
+  purple: { fill:'#a855f7', bg:'rgba(168,85,247,0.12)',  border:'rgba(168,85,247,0.4)',  text:'#c4b5fd', arrow:'rgba(168,85,247,0.5)'  },
+  red:    { fill:'#ef4444', bg:'rgba(239,68,68,0.12)',   border:'rgba(239,68,68,0.4)',   text:'#fca5a5', arrow:'rgba(239,68,68,0.5)'   },
+  gray:   { fill:'#6b7280', bg:'rgba(107,114,128,0.12)', border:'rgba(107,114,128,0.4)', text:'#d1d5db', arrow:'rgba(107,114,128,0.5)' }
+};
+
+var LAYER_NAMES  = ['Frontend Components','Hooks','Services','Django API Endpoints','Backend Modules','External'];
+var LAYER_COLORS = ['#3b82f6','#22c55e','#f97316','#a855f7','#ef4444','#6b7280'];
+var NODE_W = 170, NODE_H = 38, LAYER_GAP_X = 230, NODE_GAP_Y = 50;
+var PAD_L = 40, PAD_T = 60;
+var archZoom = 1;
+var nodePositions = {};
+var highlightedNodeId = null;
+
+/* ================================================================
+   SECTION 1: BUILD CONTROLS
+   ================================================================ */
+(function buildArchControls() {
+  var bar = document.getElementById('arch-controls-bar');
+  [
+    { c:'#3b82f6', l:'Frontend Components' }, { c:'#22c55e', l:'Hooks' },
+    { c:'#f97316', l:'Services' },            { c:'#a855f7', l:'Django API' },
+    { c:'#ef4444', l:'Backend Modules' },     { c:'#6b7280', l:'External' }
+  ].forEach(function(item) {
+    bar.appendChild(makeEl('div', { className:'legend-item' }, [
+      makeEl('div', { className:'legend-dot', style:'background:'+item.c }),
+      item.l
+    ]));
+  });
+  var zc = makeEl('div', { className:'zoom-controls' });
+  zc.appendChild(makeEl('button', { className:'zoom-btn', textContent:'\u2212', title:'Zoom out', onClick:function(){ zoomArch(-0.1); } }));
+  zc.appendChild(makeEl('span',   { className:'zoom-label', id:'zoom-level', textContent:'100%' }));
+  zc.appendChild(makeEl('button', { className:'zoom-btn', textContent:'+', title:'Zoom in', onClick:function(){ zoomArch(0.1); } }));
+  zc.appendChild(makeEl('button', { className:'zoom-btn wide', textContent:'Fit', title:'Reset zoom', onClick:function(){ zoomArch(0); } }));
+  bar.appendChild(zc);
+})();
+
+
+/* ================================================================
+   SECTION 1: LAYOUT & RENDER
+   ================================================================ */
+function computeLayout() {
+  nodePositions = {};
+  var layers = {};
+  archNodes.forEach(function(n) {
+    if (!layers[n.layer]) layers[n.layer] = [];
+    layers[n.layer].push(n);
+  });
+  for (var li = 0; li < 6; li++) {
+    var nodes = layers[li] || [];
+    nodes.sort(function(a,b){ return a.sub - b.sub; });
+    var x = PAD_L + li * LAYER_GAP_X;
+    var startY = PAD_T + 30;
+    nodes.forEach(function(n, i) {
+      nodePositions[n.id] = { x:x, y:startY + i * NODE_GAP_Y, w:NODE_W, h:NODE_H };
+    });
+  }
+}
+
+function renderArchitecture() {
+  computeLayout();
+  var svg = document.getElementById('arch-svg');
+  clearChildren(svg);
+
+  var maxX = 0, maxY = 0;
+  Object.keys(nodePositions).forEach(function(k) {
+    var p = nodePositions[k];
+    if (p.x + p.w + 60 > maxX) maxX = p.x + p.w + 60;
+    if (p.y + p.h + 30 > maxY) maxY = p.y + p.h + 30;
+  });
+  var svgW = maxX + PAD_L, svgH = maxY + PAD_T;
+  svg.setAttribute('width',   String(svgW * archZoom));
+  svg.setAttribute('height',  String(svgH * archZoom));
+  svg.setAttribute('viewBox', '0 0 ' + svgW + ' ' + svgH);
+
+  // -- defs: arrowhead markers --
+  var defs = makeSvg('defs');
+  ['Blue','Green','Orange','Purple','Red','Gray'].forEach(function(name) {
+    var clr = COLOR_MAP[name.toLowerCase()].arrow;
+    var marker = makeSvg('marker', { id:'arrow'+name, markerWidth:8, markerHeight:6, refX:8, refY:3, orient:'auto' });
+    marker.appendChild(makeSvg('path', { d:'M0,0 L8,3 L0,6', fill:clr }));
+    defs.appendChild(marker);
+  });
+  svg.appendChild(defs);
+
+  // -- layer labels --
+  for (var li = 0; li < 6; li++) {
+    var lbl = makeSvg('text', {
+      x: PAD_L + li * LAYER_GAP_X + NODE_W/2, y: PAD_T + 10,
+      'text-anchor':'middle', 'font-size':10, 'font-weight':600,
+      fill: LAYER_COLORS[li], opacity:0.7,
+      'font-family':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'
+    });
+    lbl.textContent = LAYER_NAMES[li];
+    svg.appendChild(lbl);
+  }
+
+  // -- connections --
+  archConnections.forEach(function(conn) {
+    var fp = nodePositions[conn.from], tp = nodePositions[conn.to];
+    if (!fp || !tp) return;
+    var fn = archNodes.find(function(n){ return n.id === conn.from; });
+    var sc = COLOR_MAP[fn.color].fill;
+    var aid = 'arrow' + fn.color.charAt(0).toUpperCase() + fn.color.slice(1);
+
+    var x1,y1,x2,y2;
+    if (fp.x < tp.x) {
+      x1 = fp.x + fp.w; y1 = fp.y + fp.h/2; x2 = tp.x; y2 = tp.y + tp.h/2;
+    } else if (fp.x > tp.x) {
+      x1 = fp.x; y1 = fp.y + fp.h/2; x2 = tp.x + tp.w; y2 = tp.y + tp.h/2;
+    } else {
+      x1 = fp.x + fp.w/2; y1 = fp.y + fp.h; x2 = tp.x + tp.w/2; y2 = tp.y;
+    }
+    var dx = x2-x1, cx1 = x1+dx*0.4, cx2 = x1+dx*0.6;
+
+    var g = makeSvg('g', { class:'arch-connection', 'data-from':conn.from, 'data-to':conn.to });
+    g.appendChild(makeSvg('path', {
+      d:'M'+x1+','+y1+' C'+cx1+','+y1+' '+cx2+','+y2+' '+x2+','+y2,
+      fill:'none', stroke:sc, 'stroke-opacity':0.25, 'stroke-width':1.2,
+      'marker-end':'url(#'+aid+')'
+    }));
+    svg.appendChild(g);
+  });
+
+  // -- nodes --
+  archNodes.forEach(function(n) {
+    var p = nodePositions[n.id], c = COLOR_MAP[n.color];
+    var g = makeSvg('g', { class:'arch-node', 'data-id':n.id });
+
+    g.addEventListener('mouseenter', function(e){ archHover(n.id, e); });
+    g.addEventListener('mouseleave', archLeave);
+    g.addEventListener('click',      function(e){ archClick(n.id, e); });
+
+    g.appendChild(makeSvg('rect', { x:p.x, y:p.y, width:p.w, height:p.h, rx:6, fill:c.bg, stroke:c.border, 'stroke-width':1 }));
+
+    var lbl = n.label.length > 22 ? n.label.substring(0,20)+'...' : n.label;
+    var txt = makeSvg('text', {
+      x:p.x+p.w/2, y:p.y+p.h/2+1, 'text-anchor':'middle', 'dominant-baseline':'middle',
+      'font-size':11, 'font-weight':500, fill:c.text,
+      'font-family':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'
+    });
+    txt.textContent = lbl;
+    g.appendChild(txt);
+    svg.appendChild(g);
+  });
+}
+
+function zoomArch(delta) {
+  archZoom = delta === 0 ? 1 : Math.max(0.3, Math.min(2, archZoom + delta));
+  document.getElementById('zoom-level').textContent = Math.round(archZoom*100)+'%';
+  var svg = document.getElementById('arch-svg');
+  var vb = svg.getAttribute('viewBox');
+  if (vb) {
+    var parts = vb.split(' ').map(Number);
+    svg.setAttribute('width', String(parts[2]*archZoom));
+    svg.setAttribute('height', String(parts[3]*archZoom));
+  }
+}
+
+function archHover(nodeId, evt) {
+  var n = archNodes.find(function(x){ return x.id === nodeId; });
+  if (!n) return;
+  showTooltip(n.label, n.file, evt);
+  highlightedNodeId = nodeId;
+
+  var connected = {}; connected[nodeId] = true;
+  archConnections.forEach(function(c) {
+    if (c.from === nodeId) connected[c.to] = true;
+    if (c.to === nodeId)   connected[c.from] = true;
+  });
+  document.querySelectorAll('.arch-node').forEach(function(el) {
+    el.classList.toggle('dimmed', !connected[el.getAttribute('data-id')]);
+  });
+  document.querySelectorAll('.arch-connection').forEach(function(el) {
+    var f = el.getAttribute('data-from'), t = el.getAttribute('data-to');
+    var hit = f === nodeId || t === nodeId;
+    el.classList.toggle('dimmed', !hit);
+    el.classList.toggle('highlighted', hit);
+  });
+}
+
+function archLeave() {
+  hideTooltip();
+  highlightedNodeId = null;
+  document.querySelectorAll('.arch-node').forEach(function(el){ el.classList.remove('dimmed'); });
+  document.querySelectorAll('.arch-connection').forEach(function(el){ el.classList.remove('dimmed'); el.classList.remove('highlighted'); });
+}
+
+function archClick(nodeId, evt) {
+  var n = archNodes.find(function(x){ return x.id === nodeId; });
+  if (n) showTooltip(n.label, n.file, evt);
+}
+
+function showTooltip(name, file, evt) {
+  var tip = document.getElementById('arch-tooltip');
+  document.getElementById('tip-name').textContent = name;
+  document.getElementById('tip-file').textContent = file;
+  tip.classList.add('visible');
+  tip.style.left = (evt.clientX + 14) + 'px';
+  tip.style.top  = (evt.clientY - 12) + 'px';
+}
+
+function hideTooltip() {
+  document.getElementById('arch-tooltip').classList.remove('visible');
+}
+
+document.addEventListener('mousemove', function(e) {
+  if (highlightedNodeId) {
+    var tip = document.getElementById('arch-tooltip');
+    tip.style.left = (e.clientX + 14) + 'px';
+    tip.style.top  = (e.clientY - 12) + 'px';
+  }
+});
+
+
+/* ================================================================
+   SECTION 2: SEQUENCE DIAGRAM -- DATA
+   ================================================================ */
+var SEQ_PARTS = [
+  { id:'user',       label:'User' },
+  { id:'msgInput',   label:'MessageInput' },
+  { id:'chatPanel',  label:'ChatPanel' },
+  { id:'chatApi',    label:'useChatApi' },
+  { id:'apiService', label:'ApiService' },
+  { id:'djangoApi',  label:'Django API' },
+  { id:'ws',         label:'WebSocket' },
+  { id:'stepper',    label:'Stepper' },
+  { id:'debugPanel', label:'DebugPanel' },
+  { id:'msgList',    label:'MessageList' }
+];
+
+var SEQ_STEPS = [
+  { from:'user',      to:'msgInput',   label:'types query',                      type:'request',  desc:'User types a natural language query into the input field' },
+  { from:'msgInput',  to:'chatPanel',  label:'onSubmit(text)',                   type:'request',  desc:'MessageInput fires onSendMessage callback to parent AppLayout/EmbeddedApp' },
+  { from:'chatPanel', to:'chatApi',    label:'submitQuery(text)',                type:'request',  desc:'AppLayout/EmbeddedApp calls useChatApi.submitQuery() or ApiService directly' },
+  { from:'chatApi',   to:'apiService', label:'submitQuery()',                    type:'request',  desc:'useChatApi delegates to NextseekApiService.submitQuery()' },
+  { from:'apiService',to:'djangoApi',  label:'POST /query/async/',              type:'request',  desc:'HTTP POST to AssistantViewSet.query_async endpoint with JSON body' },
+  { from:'djangoApi', to:'apiService', label:'{ task_id, session_id }',         type:'response', desc:'Server responds 202 Accepted with task_id UUID and session_id' },
+  { from:'apiService',to:'ws',         label:'connect /ws/progress/{taskId}/',  type:'request',  desc:'Opens WebSocket to TaskProgressConsumer for real-time progress events' },
+  { from:'ws',        to:'stepper',    label:'agent_started(catalog)',           type:'ws',       desc:'Catalog shortlisting agent begins; stepper shows initial steps' },
+  { from:'ws',        to:'stepper',    label:'agent_started(entity)',            type:'ws',       desc:'Entity extraction agent begins processing the query' },
+  { from:'ws',        to:'debugPanel', label:'agent_complete(entity)',           type:'ws',       desc:'Entity extraction complete; summary sent to debug panel entries' },
+  { from:'ws',        to:'stepper',    label:'agent_started(parser)',            type:'ws',       desc:'Parser agent begins; determines query mode (new_search, reporter, etc.)' },
+  { from:'ws',        to:'debugPanel', label:'agent_complete(parser, mode)',     type:'ws',       desc:'Parser done; stepper expands to full step list based on detected mode' },
+  { from:'ws',        to:'stepper',    label:'agent_started(api)',              type:'ws',       desc:'API agent builds the NExtSEEK API request plan from parser output' },
+  { from:'ws',        to:'stepper',    label:'agent_started(http)',             type:'ws',       desc:'HTTP agent executes the actual NExtSEEK API request' },
+  { from:'ws',        to:'stepper',    label:'agent_started(chatter)',          type:'ws',       desc:'Chatter agent summarizes API results into natural language answer' },
+  { from:'ws',        to:'msgList',    label:'query_complete { reply }',        type:'response', desc:'Pipeline complete. Reply text and bundle_id sent to client via WebSocket.' },
+  { from:'msgList',   to:'user',       label:'assistant message visible',       type:'response', desc:'MessageBubble rendered in MessageList; user sees the final answer' }
+];
+
+var PART_W = 104, PART_H = 36, PART_GAP = 114;
+var SEQ_MARGIN_L = 34, SEQ_MARGIN_T = 30, SEQ_STEP_H = 52;
+
+var seqStep = 0, seqPlaying = false, seqSpeed = 1, seqAnimProg = 1;
+
+/* ================================================================
+   SECTION 2: BUILD CONTROLS
+   ================================================================ */
+(function buildSeqControls() {
+  var bar = document.getElementById('seq-controls-bar');
+
+  // Play
+  var playBtn = makeEl('button', { className:'seq-btn', id:'seq-play', onClick:seqTogglePlay }, [
+    makeSvgIcon([{ type:'polygon', points:'5 3 19 12 5 21 5 3' }]),
+    'Play'
+  ]);
+  bar.appendChild(playBtn);
+
+  // Back
+  bar.appendChild(makeEl('button', { className:'seq-btn', onClick:seqStepBack }, [
+    makeSvgIcon([{ type:'polyline', points:'15 18 9 12 15 6' }]),
+    'Back'
+  ]));
+
+  // Forward
+  bar.appendChild(makeEl('button', { className:'seq-btn', onClick:seqStepForward }, [
+    'Forward',
+    makeSvgIcon([{ type:'polyline', points:'9 18 15 12 9 6' }])
+  ]));
+
+  // Reset
+  bar.appendChild(makeEl('button', { className:'seq-btn', onClick:seqReset }, [
+    makeSvgIcon([
+      { type:'polyline', points:'1 4 1 10 7 10' },
+      { type:'path', d:'M3.51 15a9 9 0 1 0 2.13-9.36L1 10' }
+    ]),
+    'Reset'
+  ]));
+
+  // Speed
+  var sc = makeEl('div', { className:'speed-controls' });
+  sc.appendChild(makeEl('span', { className:'speed-label', textContent:'Speed:' }));
+  [1,2,4].forEach(function(s) {
+    sc.appendChild(makeEl('button', {
+      className:'speed-btn' + (s===1?' active':''),
+      'data-speed':String(s), textContent:s+'x',
+      onClick:function(){ seqSetSpeed(s); }
+    }));
+  });
+  bar.appendChild(sc);
+
+  // Step info
+  bar.appendChild(makeEl('div', { className:'seq-step-info' }, [
+    'Step ',
+    makeEl('strong', { id:'seq-cur', textContent:'0' }),
+    ' / ',
+    makeEl('strong', { id:'seq-tot', textContent:String(SEQ_STEPS.length) }),
+    ' \u2014 ',
+    makeEl('span',   { id:'seq-desc', textContent:'Ready' })
+  ]));
+
+  // Legend
+  var leg = document.getElementById('seq-legend-bar');
+  [{ c:'#3b82f6', l:'Request' }, { c:'#22c55e', l:'Response' }, { c:'#f97316', l:'WebSocket Event' }].forEach(function(item) {
+    leg.appendChild(makeEl('div', { className:'seq-legend-item' }, [
+      makeEl('div', { className:'seq-legend-line', style:'background:'+item.c }),
+      item.l
+    ]));
+  });
+})();
+
+
+/* ================================================================
+   SECTION 2: RENDER
+   ================================================================ */
+function partX(id) {
+  var idx = SEQ_PARTS.findIndex(function(p){ return p.id === id; });
+  return SEQ_MARGIN_L + idx * PART_GAP + PART_W / 2;
+}
+
+function renderSequence() {
+  var canvas = document.getElementById('seq-canvas');
+  var totalW = SEQ_MARGIN_L + SEQ_PARTS.length * PART_GAP + 50;
+  var totalH = SEQ_MARGIN_T + PART_H + 26 + SEQ_STEPS.length * SEQ_STEP_H + 60;
+
+  var dpr = window.devicePixelRatio || 1;
+  canvas.width  = totalW * dpr;
+  canvas.height = totalH * dpr;
+  canvas.style.width  = totalW + 'px';
+  canvas.style.height = totalH + 'px';
+
+  var ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,totalW,totalH);
+
+  var font = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+
+  // -- participants --
+  SEQ_PARTS.forEach(function(p, i) {
+    var x = SEQ_MARGIN_L + i * PART_GAP;
+    var cx = x + PART_W / 2;
+
+    // lifeline
+    ctx.save();
+    ctx.strokeStyle = 'rgba(51,65,85,0.6)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4,4]);
+    ctx.beginPath();
+    ctx.moveTo(cx, SEQ_MARGIN_T + PART_H);
+    ctx.lineTo(cx, totalH - 20);
+    ctx.stroke();
+    ctx.restore();
+
+    // box
+    ctx.fillStyle = '#1e293b';
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 1;
+    rrect(ctx, x, SEQ_MARGIN_T, PART_W, PART_H, 6);
+    ctx.fill(); ctx.stroke();
+
+    // label
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = '11px ' + font;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(p.label, cx, SEQ_MARGIN_T + PART_H/2);
+  });
+
+  // -- steps --
+  var sy = SEQ_MARGIN_T + PART_H + 34;
+  for (var i = 0; i < SEQ_STEPS.length; i++) {
+    var step = SEQ_STEPS[i];
+    var y = sy + i * SEQ_STEP_H;
+    var fromX = partX(step.from), toX = partX(step.to);
+
+    var isFuture  = i >= seqStep;
+    var isCurrent = i === seqStep - 1;
+    var alpha = isFuture ? 0.10 : (isCurrent ? 1.0 : 0.55);
+
+    // step number
+    ctx.fillStyle = isCurrent ? '#e2e8f0' : (isFuture ? 'rgba(100,116,139,0.25)' : 'rgba(148,163,184,0.45)');
+    ctx.font = '9px ' + font;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(i+1), SEQ_MARGIN_L - 8, y);
+
+    // color
+    var ac;
+    if (step.type === 'request')  ac = 'rgba(59,130,246,' +alpha+')';
+    else if (step.type === 'response') ac = 'rgba(34,197,94,' +alpha+')';
+    else ac = 'rgba(249,115,22,'+alpha+')';
+
+    // highlight band
+    if (isCurrent) {
+      ctx.fillStyle = 'rgba(59,130,246,0.05)';
+      ctx.fillRect(0, y - SEQ_STEP_H/2, totalW, SEQ_STEP_H);
+    }
+
+    // glow
+    ctx.save();
+    if (isCurrent) {
+      ctx.shadowColor = step.type==='request' ? '#3b82f6' : (step.type==='response' ? '#22c55e' : '#f97316');
+      ctx.shadowBlur = 10;
+    }
+
+    // line
+    ctx.strokeStyle = ac;
+    ctx.lineWidth = isCurrent ? 2.5 : 1.4;
+    if (step.type === 'ws') ctx.setLineDash([6,3]); else ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(fromX, y);
+    var endX = toX;
+    if (isCurrent && seqAnimProg < 1) endX = fromX + (toX - fromX) * seqAnimProg;
+    ctx.lineTo(endX, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // arrowhead
+    if (!isFuture) {
+      var dir = toX > fromX ? 1 : -1;
+      var tipX = isCurrent ? endX : toX;
+      ctx.fillStyle = ac;
+      ctx.beginPath();
+      ctx.moveTo(tipX, y);
+      ctx.lineTo(tipX - dir*8, y - 4);
+      ctx.lineTo(tipX - dir*8, y + 4);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // label
+    var midX = (fromX + (isCurrent ? endX : toX)) / 2;
+    ctx.fillStyle = isCurrent ? '#f1f5f9' : (isFuture ? 'rgba(100,116,139,0.18)' : 'rgba(148,163,184,0.55)');
+    ctx.font = (isCurrent ? 'bold ' : '') + '10px ' + font;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(step.label, midX, y - 7);
+  }
+
+  // update info
+  document.getElementById('seq-cur').textContent = String(seqStep);
+  document.getElementById('seq-desc').textContent = seqStep > 0 ? SEQ_STEPS[seqStep-1].desc : 'Ready';
+}
+
+function rrect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y);    ctx.quadraticCurveTo(x+w, y,   x+w, y+r);
+  ctx.lineTo(x+w, y+h-r);  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h);    ctx.quadraticCurveTo(x,   y+h, x,   y+h-r);
+  ctx.lineTo(x, y+r);      ctx.quadraticCurveTo(x,   y,   x+r, y);
+  ctx.closePath();
+}
+
+/* -- Sequence playback controls -- */
+function seqStepForward() {
+  if (seqStep < SEQ_STEPS.length) { seqStep++; seqAnimProg = 0; animateSeq(); }
+}
+function seqStepBack() {
+  if (seqStep > 0) { seqStep--; seqAnimProg = 1; renderSequence(); }
+}
+function seqReset() {
+  seqPlaying = false; seqStep = 0; seqAnimProg = 1;
+  updatePlayBtn(); renderSequence();
+}
+function seqTogglePlay() {
+  seqPlaying = !seqPlaying;
+  updatePlayBtn();
+  if (seqPlaying) { if (seqStep >= SEQ_STEPS.length) seqStep = 0; seqAutoPlay(); }
+}
+function updatePlayBtn() {
+  var btn = document.getElementById('seq-play');
+  clearChildren(btn);
+  if (seqPlaying) {
+    btn.appendChild(makeSvgIcon([
+      { type:'rect', attrs:{ x:6, y:4, width:4, height:16 } },
+      { type:'rect', attrs:{ x:14, y:4, width:4, height:16 } }
+    ]));
+    btn.appendChild(document.createTextNode('Pause'));
+    btn.classList.add('active');
+  } else {
+    btn.appendChild(makeSvgIcon([{ type:'polygon', points:'5 3 19 12 5 21 5 3' }]));
+    btn.appendChild(document.createTextNode('Play'));
+    btn.classList.remove('active');
+  }
+}
+function seqAutoPlay() {
+  if (!seqPlaying) return;
+  if (seqStep >= SEQ_STEPS.length) { seqPlaying = false; updatePlayBtn(); return; }
+  seqStep++; seqAnimProg = 0;
+  animateSeq(function() { if (seqPlaying) setTimeout(seqAutoPlay, 600/seqSpeed); });
+}
+function animateSeq(cb) {
+  var dur = 400 / seqSpeed, t0 = performance.now();
+  function tick(now) {
+    var p = Math.min(1, (now - t0) / dur);
+    seqAnimProg = 1 - Math.pow(1 - p, 3);  // ease-out cubic
+    renderSequence();
+    if (p < 1) requestAnimationFrame(tick);
+    else { seqAnimProg = 1; renderSequence(); if (cb) cb(); }
+  }
+  requestAnimationFrame(tick);
+}
+function seqSetSpeed(s) {
+  seqSpeed = s;
+  document.querySelectorAll('.speed-btn').forEach(function(btn) {
+    btn.classList.toggle('active', parseInt(btn.getAttribute('data-speed')) === s);
+  });
+}
+
+
+/* ================================================================
+   SECTION 3: DEPENDENCY TABLE -- DATA
+   ================================================================ */
+var DEP_DATA = [
+  { chain:'Auth (standalone)',  cc:'auth',     from:'App.tsx',             to:'BasicAuthService',  mechanism:'useCredentialCheck \u2192 validateCredentials() \u2192 GET /assistant/me/' },
+  { chain:'Auth (embedded)',    cc:'auth',     from:'EmbeddedApp.tsx',     to:'SessionAuthService', mechanism:'Django session cookie \u2192 CsrfExemptSessionAuthentication \u2192 same-origin' },
+  { chain:'Query submission',   cc:'query',    from:'MessageInput',        to:'AssistantViewSet',   mechanism:'useChatApi \u2192 NextseekApiService.submitQuery() \u2192 POST /assistant/query/async/' },
+  { chain:'Progress tracking',  cc:'progress', from:'NextseekApiService',  to:'consumers.py',       mechanism:'WebSocket /ws/assistant/progress/{taskId}/ \u2192 TaskProgressConsumer polls QueryTask' },
+  { chain:'Test cases',         cc:'test',     from:'LeftSidebar',         to:'AssistantViewSet',   mechanism:'fetchTestCases() \u2192 NextseekApiService \u2192 GET /assistant/test-cases/' },
+  { chain:'Bundle download',    cc:'bundle',   from:'RightSidebar',        to:'AssistantViewSet',   mechanism:'downloadBundle() \u2192 NextseekApiService \u2192 GET /assistant/sessions/*/bundles/*' },
+  { chain:'Agent pipeline',     cc:'pipeline', from:'AssistantViewSet',    to:'chat_nextseek',      mechanism:'pipeline_adapter.run_query() \u2192 catalog, entity, parser, api, http, chatter agents' },
+  { chain:'Processing display', cc:'progress', from:'WebSocket events',    to:'ProcessingStepper',  mechanism:'agent_started / agent_complete \u2192 useProcessingState \u2192 stepper UI' },
+  { chain:'Debug display',      cc:'display',  from:'WebSocket events',    to:'DebugPanel',         mechanism:'agent_complete \u2192 setDebugData() \u2192 DebugPanel entries list' },
+  { chain:'Message display',    cc:'display',  from:'query_complete event',to:'MessageBubble',      mechanism:'useMessages.addAssistantMessage() \u2192 MessageList \u2192 MessageBubble render' }
+];
+
+var depSortCol = 'chain', depSortAsc = true;
+
+/* ================================================================
+   SECTION 3: BUILD HEADER
+   ================================================================ */
+(function() {
+  document.getElementById('dep-intro').textContent =
+    'Dependency chains showing how data flows through the system, from UI components to backend modules. Click any column header to sort.';
+
+  var thead = document.getElementById('dep-thead');
+  var tr = makeEl('tr');
+  [{ k:'chain', l:'Chain' }, { k:'from', l:'From' }, { k:'to', l:'To' }, { k:'mechanism', l:'Mechanism' }].forEach(function(col) {
+    var th = makeEl('th', { 'data-col':col.k, onClick:function(){ sortDep(col.k); } }, [
+      col.l + ' ',
+      makeEl('span', { className:'sort-arrow', textContent:'\u25B2' })
+    ]);
+    tr.appendChild(th);
+  });
+  thead.appendChild(tr);
+})();
+
+function renderDepTable() {
+  var tbody = document.getElementById('dep-tbody');
+  clearChildren(tbody);
+
+  var sorted = DEP_DATA.slice().sort(function(a,b) {
+    var va = a[depSortCol] || '', vb = b[depSortCol] || '';
+    return depSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+
+  sorted.forEach(function(row) {
+    var tr = makeEl('tr');
+    tr.appendChild(makeEl('td', {}, [makeEl('span', { className:'dep-chain '+row.cc, textContent:row.chain })]));
+    tr.appendChild(makeEl('td', { className:'dep-code', textContent:row.from }));
+    tr.appendChild(makeEl('td', { className:'dep-code', textContent:row.to }));
+    tr.appendChild(makeEl('td', {}, [makeEl('span', { className:'dep-code', textContent:row.mechanism })]));
+    tbody.appendChild(tr);
+  });
+
+  document.querySelectorAll('.dep-table th').forEach(function(th) {
+    var col = th.getAttribute('data-col');
+    th.classList.toggle('sorted', col === depSortCol);
+    var arrow = th.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = (col === depSortCol) ? (depSortAsc ? '\u25B2' : '\u25BC') : '\u25B2';
+  });
+}
+
+function sortDep(col) {
+  if (depSortCol === col) depSortAsc = !depSortAsc;
+  else { depSortCol = col; depSortAsc = true; }
+  renderDepTable();
+}
+
+
+/* ================================================================
+   INIT
+   ================================================================ */
+document.addEventListener('DOMContentLoaded', function() {
+  renderArchitecture();
+  renderDepTable();
+  renderSequence();
+});
+
+window.addEventListener('resize', function() {
+  var active = document.querySelector('.tab-panel.active');
+  if (active && active.id === 'panel-architecture') renderArchitecture();
+  else if (active && active.id === 'panel-sequence') renderSequence();
+});
+</script>
+
+</body>
+</html>

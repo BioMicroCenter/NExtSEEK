@@ -2,9 +2,7 @@
 import os
 from mysql.connector import pooling, Error
 from django.conf import settings
-from dotenv import load_dotenv
 import logging
-load_dotenv()
 
 db = settings.DATABASES['seek']
 

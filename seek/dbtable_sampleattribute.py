@@ -4,6 +4,7 @@ import sys
 import time, json
 import simplejson
 import logging
+from typing import Dict, List
 logger = logging.getLogger(__name__)
 
 from seek.models import Sample_attributes
@@ -52,6 +53,50 @@ class DBtable_sampleattribute(DBtable):
         self.primaryField = "id"
         self.fieldMapping = SAMPLEATTRIBUTE_FILTER_MAPPING
         
+    def getAttributeTitlesBySampleTypeIds(self, sample_type_ids):
+        """
+        Bulk fetch attribute titles for many sample types.
+
+        Returns:
+            dict[int, list[str]] mapping sample_type_id -> ordered attribute titles (by pos).
+
+        Notes:
+            - Uses Django ORM (no raw SQL).
+            - Ordering is stable: (sample_type_id, pos, id).
+        """
+        # Normalize ids
+        ids: List[int] = []
+        for sid in sample_type_ids or []:
+            try:
+                ids.append(int(sid))
+            except Exception:
+                continue
+        ids = sorted(set([i for i in ids if i > 0]))
+        if not ids:
+            return {}
+
+        # Bulk query: (sample_type_id, title) ordered by pos
+        rows = (
+            self.tablemodel.objects.filter(sample_type_id__in=ids)
+            .order_by("sample_type_id", "pos", "id")
+            .values_list("sample_type_id", "title")
+        )
+
+        out: Dict[int, List[str]] = {sid: [] for sid in ids}
+        for sid, title in rows:
+            try:
+                sid_int = int(sid)
+            except Exception:
+                continue
+            if sid_int not in out:
+                out[sid_int] = []
+            if title is None:
+                continue
+            t = str(title).strip()
+            if t:
+                out[sid_int].append(t)
+        return out
+
     
     def getAttributeInfo(self, sampleType_id):
         attritype = DBtable_attributetype()
@@ -194,9 +239,9 @@ class DBtable_sampleattribute(DBtable):
             filter_type = 'numeric'
         elif attributeType_id in [5,6,7,8,9,10,11,12,13,14,19,20,21]:
             options = [
-                {'name':'No Filter','operator':'No Filter', 'selected':True},
-                {'name':'Contain','operator':'Contain'},
-                {'name':'Not Contain','operator':'Not Contain'}
+                {'name':'Contain','operator':'Contain', 'selected': True},
+                {'name':'Not Contain','operator':'Not Contain'},
+                {'name':'No Filter','operator':'No Filter'},
             ]
             placeholder_start = 'string value'
             placeholder_end = 'not in use'
@@ -516,3 +561,4 @@ class DBtable_sampleattribute(DBtable):
                     attri_renamed[title_new] = title_old
         
         return attri_renamed
+        

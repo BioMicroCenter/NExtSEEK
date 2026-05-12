@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block main %}
+<div class="span12">
+	<form id="file_upload" method="post" enctype="multipart/form-data" hidden>
+	</form>
+	<div class="well">
+		<div class="row show-grid">
+			<table class="table" align="center" style="width:70%">
+				<thead>
+					<tr>
+						<th style="width:100%;">Files to upload:</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td>
+							<input type="file" form="file_upload" name="file" id="upload_file" style="height:28px;width:220px" multiple required>
+							<br>
+							<label for="upload_type">Type:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</label>
+							<input id="upload_type" form="file_upload" class="easyui-combobox" name="upload_type" style="width:50%" data-options="
+											data: [{'text': 'SOP',
+															'type': 'sops'},
+														 {'text': 'Data File',
+															'type': 'data_files'}],
+											valueField: 'type',
+											textField: 'text'" required>
+							<br>
+							<label for="project_id">Project:&nbsp;&nbsp;&nbsp;</label>
+							<input id="project_id" form="file_upload" class="easyui-combobox" name="project_id" style="width:50%;" data-options="
+																	 valueField: 'id',
+																	 textField: 'title',
+																	 editable: true,
+																	 filter: function(q, row) {
+																		 var opts = $(this).combobox('options');
+																		 return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;
+																 	 },
+																	 onSelect: function(rec) { }" required>
+							<br>
+							<label for="institution">Lab:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</label>
+							<input id="institution" form="file_upload" class="easyui-combobox" name="institution" style="width:50%;" data-options="data: lab_options,
+																	 valueField: 'title',
+																	 textField: 'title',
+																	 editable: true,
+																	 filter: function(q, row) {
+																		 var opts = $(this).combobox('options');
+																		 return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;
+																 	 },
+																	 onSelect: function(rec) { setLabUsers(rec); }" required>
+							<br>
+							<label for="person_id">Creator:&nbsp;&nbsp;</label>
+							<input id="person_id" form="file_upload" class="easyui-combobox" name="person_id" style="width:50%;" data-options="valueField: 'id',
+																	 textField: 'title',
+																	 editable: false">
+							<br>
+							<br>
+							<button type="submit" class="easyui-linkbutton" form="file_upload" data-options="iconCls:'icon-add',plain:true">
+								Upload Files
+							</button>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+	</div>
+</div>
+
+<div class="well">
+	<div class="span12">
+		<b>Logs:</b>
+	</div>
+	<div class="span12">
+		<div id="messages" style="border: 1px solid black;width:100%; max-width:100%; min-width:600px; min-height: 30vh;">
+		</div>
+	</div>
+</div>
+
+<script defer>
+	const file_upload_form = document.getElementById("file_upload");
+	const file = document.getElementById("upload_file");
+	const statusBox = document.getElementById("messages")
+	
+	const lab_options = {{ report.lab_options | safe }}.slice(1);
+	const all_lab_users = {{ report.all_lab_users | safe }};
+	
+	const seek_url = "{{ report.seek_url }}";
+	
+	function setLabUsers(rec) {
+		var users = all_lab_users[rec.id]
+		users[0]['selected'] = true
+		var person_form = $('#person_id').combobox()
+		person_form.combobox('loadData', users)
+	}
+	
+	function getCookie(name) {
+		let cookieValue = null;
+		if (document.cookie && document.cookie !== '') {
+			const cookies = document.cookie.split(';');
+			for (let i = 0; i < cookies.length; i++) {
+				const cookie = cookies[i].trim();
+				if (cookie.substring(0, name.length + 1) === (name + '=')) {
+					cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+					break;
+				}
+			}
+		}
+		return cookieValue;
+	}
+	
+	async function uploadFiles() {
+		const upload_file = document.getElementById('upload_file').files
+		const project_id = document.getElementById('project_id').value
+		const institution = document.getElementById('institution').value
+		const person_id = document.getElementById('person_id').value
+		const upload_type = document.getElementById('upload_type').value
+		
+		if (upload_file.length > 1) {
+			var metadata = {
+				"data": {
+					"type": `${upload_type}`,
+					"attributes": {
+						"title": `${upload_file[0].name}`,
+						},
+						"relationships": {
+							"projects": {
+								"data": [
+								{
+									"id": `${project_id}`,
+									"type": "projects"
+								}
+								]
+							}
+						}
+					}
+				}
+			}
+			
+			if (upload_file.length == 1) {
+				var metadata = {
+					"data": {
+						"type": `${upload_type}`,
+						"attributes": {
+							"title": `${upload_file[0].name}`,
+							"content_blobs": [
+							{
+								"original_filename": `${upload_file[0].name}`,
+								"content_type": `${upload_file[0].type}`
+							}
+							]
+							},
+							"relationships": {
+								"projects": {
+									"data": [
+									{
+										"id": `${project_id}`,
+										"type": "projects"
+									}
+									]
+								}
+							}
+						}
+					}
+				}
+				const formData = new FormData()
+				if (upload_file.length == 1) {
+					formData.append("file", upload_file[0])
+				}
+				if (upload_file.length > 1) {
+					for (let i = 0; i < upload_file.length; i++) {
+						formData.append('file', upload_file[i]);
+					}
+				}
+				formData.append("metadata", JSON.stringify(metadata))
+				formData.append("institution", institution.substring(0,3))
+				
+				try {
+					$.messager.progress({
+						title: "Please wait",
+						msg: "Uploading files..."
+						})
+						const response = await fetch(`/nextseek_api/${upload_type}/`, {
+							method: "POST",
+							headers: {"X-CSRFTOKEN": getCookie("csrftoken")},
+							body: formData
+							});
+							if (response.ok) {
+								$.messager.progress('close')
+								const response_json = await response.json()
+								for (i=0; i<response_json["data"].length; i++) {
+									const link = seek_url + response_json["data"][i].data.links.self
+									const name = response_json["data"][i].data.attributes.title
+									statusBox.innerHTML += `<p>${name} was successfully uploaded: <a href="${link}">${link}</a></p>`
+								}
+								} else {
+									$.messager.progress('close')
+									statusBox.innerHTML += "Could not parse response from server. Please verify whether the file was uploaded and try again."
+								}
+								} catch (e) {
+									$.messager.progress('close')
+									console.error(e);
+									statusBox.innerHTML += "<p>Could not upload file due to error.</p>"
+									statusBox.innerHTML += `<p>${e}</p>`
+								}
+							}
+							
+							async function getProjects() {
+								const projects = await fetch(`/nextseek_api/projects/`, {
+									method: "GET",
+									headers: {"X-CSRFTOKEN": getCookie("csrftoken")},
+									});
+									
+									let projectsData = []
+									if (projects.ok) {
+										let projects_json = await projects.json()
+										for (i=0; i<projects_json["data"].length; i++) {
+											let project_id = projects_json["data"][i]["id"]
+											let project_title = projects_json["data"][i]["attributes"]["title"]
+											projectsData.push({"id": project_id, "title": project_title})
+										}
+									}
+									$("#project_id").combobox("loadData", projectsData)
+								}
+								
+								getProjects()
+								
+								file_upload_form.addEventListener("submit", (event) => {
+									event.preventDefault();
+									uploadFiles()
+									});
+</script>
+{% endblock %}

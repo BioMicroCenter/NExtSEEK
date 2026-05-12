@@ -1,0 +1,9 @@
+14:19:12,732 django_crontab.crontab ERROR Failed to complete cronjob at ('0 2 * * *', 'seek.cron_job.my_cron_job')
+Traceback (most recent call last):
+  File "/home/apache/nextseek/nextseek_venv/lib64/python3.9/site-packages/django_crontab/crontab.py", line 145, in run_job
+    func(*job_args, **job_kwargs)
+  File "/home/apache/nextseek/seek/cron_job.py", line 101, in my_cron_job
+    ADMIN_USERNAME = settings.SEEK_USER
+  File "/home/apache/nextseek/nextseek_venv/lib64/python3.9/site-packages/django/conf/__init__.py", line 104, in __getattr__
+    val = getattr(_wrapped, name)
+AttributeError: 'Settings' object has no attribute 'SEEK_USER'
