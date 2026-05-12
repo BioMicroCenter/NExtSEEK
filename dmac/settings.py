@@ -276,7 +276,11 @@ STORAGES = {
 		"BACKEND": "django.core.files.storage.FileSystemStorage",
 	},
 	"staticfiles": {
-		"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+		# ManifestStaticFilesStorage appends a content hash to each static
+		# URL on collectstatic, so browsers can cache aggressively but every
+		# deploy invalidates them automatically. Requires every template
+		# reference to use {% static %} (no hardcoded /static/ paths).
+		"BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage",
 	},
 }
 
