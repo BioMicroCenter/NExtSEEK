@@ -64,9 +64,12 @@ class TestBuildV2ListEnvelope:
         env = build_v2_list_envelope(req, [])
         assert set(env.keys()) == {"results", "count", "next", "previous"}
 
-    def test_page_size_zero_falls_back_to_empty_results(self, factory):
-        """TDD-12: paginate_queryset returns None when page_size falsy; guard handles it."""
+    def test_page_size_zero_falls_back_to_default_page_size(self, factory):
+        """TDD-12 (amended AMD-12): ?page_size=0 raises ValueError in DRF's _positive_int
+        (strict=True), which PageNumberPagination.get_page_size suppresses and falls back
+        to self.page_size (default 100). So paginate_queryset returns the original page,
+        not None. Documents the actual contract."""
         req = factory.get("/nextseek_api/samples/advanced_search/?page_size=0")
         env = build_v2_list_envelope(req, [{"id": 1}])
-        assert env["results"] == []
-        assert env["count"] == 1  # count reflects original input length
+        assert env["results"] == [{"id": 1}]
+        assert env["count"] == 1

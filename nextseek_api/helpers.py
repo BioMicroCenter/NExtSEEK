@@ -383,6 +383,9 @@ def build_v2_list_envelope(
     returns None when page_size is falsy (e.g., `?page_size=0`); the
     `page = page or []` guard handles that path.
     """
+    from rest_framework.request import Request as DRFRequest
+    if not isinstance(request, DRFRequest):
+        request = DRFRequest(request)
     paginator = paginator_cls()
     page = paginator.paginate_queryset(list(rows), request)
     page = page or []
