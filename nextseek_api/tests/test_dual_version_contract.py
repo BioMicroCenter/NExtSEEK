@@ -22,7 +22,7 @@ def advanced_search_upstream():
         "noSampleTypes": 1,
         "footer": [],
     }
-    with patch("nextseek_api.services.samples.DBtable_samples") as m:
+    with patch("nextseek_api.services.samples.DBtable_sample") as m:
         m.return_value.searchAdvanced.return_value = json.dumps(payload)
         yield m
 
