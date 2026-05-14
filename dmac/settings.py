@@ -459,6 +459,10 @@ SPECTACULAR_SETTINGS = {
     "OAS_VERSION": "3.1.0",  # drf-spectacular supports 3.0 & 3.1
     "PREPROCESSING_HOOKS": [
         "dmac.openapi_hooks.exclude_seek_paths",
+        "dmac.openapi_hooks.swap_versioning_for_schema_gen",
+    ],
+    "POSTPROCESSING_HOOKS": [
+        "dmac.openapi_hooks.restore_versioning_post_schema_gen",
     ],
 }
 
