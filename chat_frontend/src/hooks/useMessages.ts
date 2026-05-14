@@ -66,10 +66,11 @@ export function useMessages(): UseMessagesReturn {
   const hydrateFromTurns = useCallback((turns: Turn[]) => {
     setMessages(() => {
       const next: Message[] = [];
-      for (const turn of turns) {
+      for (let i = 0; i < turns.length; i++) {
+        const turn = turns[i];
         const ts = turn.ts ? new Date(turn.ts) : new Date();
         next.push({
-          id: `msg-hydrate-u-${turn.bundle_id}`,
+          id: `msg-hydrate-u-${i}-${turn.bundle_id}`,
           content: turn.user_query,
           isUser: true,
           timestamp: ts,
@@ -77,7 +78,7 @@ export function useMessages(): UseMessagesReturn {
           messageType: "text",
         });
         next.push({
-          id: `msg-hydrate-a-${turn.bundle_id}`,
+          id: `msg-hydrate-a-${i}-${turn.bundle_id}`,
           content: turn.reply,
           isUser: false,
           timestamp: ts,
@@ -85,6 +86,7 @@ export function useMessages(): UseMessagesReturn {
           messageType: "text",
           bundleId: turn.bundle_id,
           debugEntries: [],
+          artifacts: turn.artifacts ?? undefined,
         });
       }
       return next;

@@ -84,6 +84,7 @@ export interface Turn {
   reply: string;
   mode: string;
   ts?: string | null;
+  artifacts?: Artifact[] | null;
 }
 
 // GET /assistant/sessions/{id}/?include=turns response

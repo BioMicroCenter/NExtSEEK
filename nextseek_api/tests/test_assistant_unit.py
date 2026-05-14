@@ -795,3 +795,76 @@ class CsrfExemptionTests(TestCase):
         resp = self.client.post("/nextseek_api/assistant/sessions/")
         self.assertEqual(resp.status_code, 201)
         self.assertIn("session_id", resp.data)
+
+
+# ---------------------------------------------------------------------------
+# TurnArtifactsHydrationTest — Bug #8 regression: artifacts must survive
+# GET /sessions/<id>/?include=turns (session re-entry / hydration path).
+# ---------------------------------------------------------------------------
+
+class TurnArtifactsHydrationTest(TestCase):
+    """Bug #8: artifacts must survive session re-entry via GET /sessions/<id>/?include=turns."""
+
+    def setUp(self):
+        from unittest.mock import patch as _patch
+        self.user = User.objects.create_user(username="hydtest", password="x")
+
+        # reporter-mode bundle: report_writer_output contains a "report" with
+        # a list of dicts so extract_table_artifacts returns a table artifact.
+        bundle_with_table = {
+            "id": 7,
+            "user_query": "Find me monkeys",
+            "reply": "Found 3 monkeys.",
+            "terminal_reply": "Found 3 monkeys.",
+            "mode": "reporter",
+            "ts": "2026-05-13T12:00:00+00:00",
+            "report_writer_output": {
+                "report": {
+                    "samples": [
+                        {"UID": "MUS-1", "Sex": "M"},
+                        {"UID": "MUS-2", "Sex": "F"},
+                        {"UID": "MUS-3", "Sex": "M"},
+                    ]
+                }
+            },
+        }
+        self.session = ChatSession.objects.create(
+            user=self.user,
+            results_history=[bundle_with_table],
+            extra_state={
+                "chat_log": [
+                    {
+                        "user_query": "Find me monkeys",
+                        "assistant_reply": "Found 3 monkeys.",
+                        "bundle_id": 7,
+                        "mode": "reporter",
+                        "ts": "2026-05-13T12:00:00+00:00",
+                    }
+                ]
+            },
+        )
+
+        patcher = _patch(
+            "nextseek_api.services.assistant.UserInParticipatingProject.has_permission",
+            return_value=True,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_turn_projection_includes_artifacts(self):
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        res = client.get(
+            f"/nextseek_api/assistant/sessions/{self.session.session_id}/?include=turns"
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        body = res.json()
+        self.assertEqual(len(body["turns"]), 1)
+        turn = body["turns"][0]
+        self.assertEqual(turn["bundle_id"], 7)
+        self.assertIn("artifacts", turn)
+        self.assertIsNotNone(turn["artifacts"])
+        self.assertGreaterEqual(len(turn["artifacts"]), 1)
+        table = next(a for a in turn["artifacts"] if a.get("artifact_type") == "table")
+        self.assertIn("data", table)
+        self.assertEqual(len(table["data"]), 3)

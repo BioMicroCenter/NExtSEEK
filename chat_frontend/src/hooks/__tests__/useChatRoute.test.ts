@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useChatRoute } from "../useChatRoute";
 
@@ -69,5 +70,33 @@ describe("useChatRoute", () => {
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
     expect(result.current.sessionIdFromUrl).toBe("aaa");
+  });
+
+  it("popstate invokes onSessionIdChange with the new session id from the URL", () => {
+    // Stage meta tag so readBasename returns the embedded basename
+    const meta = document.createElement("meta");
+    meta.setAttribute("name", "chat-basename");
+    meta.setAttribute("content", "/seek/assistant/");
+    document.head.appendChild(meta);
+    window.history.pushState({}, "", "/seek/assistant/");
+
+    const onChange = vi.fn();
+    renderHook(() => useChatRoute({ onSessionIdChange: onChange }));
+
+    // Simulate the URL becoming a session URL — pushState then dispatch popstate
+    act(() => {
+      window.history.pushState({}, "", "/seek/assistant/chat/abc-123");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(onChange).toHaveBeenCalledWith("abc-123");
+
+    // Simulate going back to base
+    act(() => {
+      window.history.pushState({}, "", "/seek/assistant/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(onChange).toHaveBeenLastCalledWith(null);
+
+    document.head.removeChild(meta);
   });
 });

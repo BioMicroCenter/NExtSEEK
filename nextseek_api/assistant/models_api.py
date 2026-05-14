@@ -15,6 +15,7 @@ class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=4000, description="Natural language query")
     mode: str = Field(..., description="What mode to execute the query as. E.g. standard, plan, etc.")
     force_new: bool = Field(False, description="If true and session_id is omitted, always create a new ChatSession instead of reusing the most recent one.")
+    use_prod: bool = Field(False, description="If true and a NEXTSEEK_CHAT_CONFIG_PROD is configured, route this query through the prod ChatConfig (real production tables) instead of the default dev/docker one. Admin-only on the UI; ignored if a prod config wasn't built.")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -50,15 +51,7 @@ class SessionDetailResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class Turn(BaseModel):
-    """One projected turn from a session's results_history."""
-    bundle_id: int
-    user_query: str
-    reply: str
-    mode: str
-    ts: Optional[str] = None
-
-    model_config = ConfigDict(extra="forbid")
+# Turn is defined below ArtifactTable/ArtifactFile so it can reference them.
 
 
 class SessionListItem(BaseModel):
@@ -122,6 +115,25 @@ class ArtifactFile(BaseModel):
     key: str = Field(..., description="Unique artifact key, e.g. 'geo_seq_workbooks'")
     label: str = Field(..., description="Human-readable label")
     file_format: str = Field("xlsx", description="File extension/format")
+    model_config = ConfigDict(extra="forbid")
+
+
+class Turn(BaseModel):
+    """One projected turn from a session's results_history or chat_log.
+
+    `artifacts` mirrors the SSE QueryCompleteEvent.artifacts shape so the live
+    and hydrated paths produce identically-shaped messages on the frontend.
+    Stored as raw dicts (not strict Pydantic models) to accommodate extra
+    metadata fields emitted by extract_table_artifacts (e.g. truncated,
+    total_rows, rows_returned).
+    """
+    bundle_id: int
+    user_query: str
+    reply: str
+    mode: str
+    ts: Optional[str] = None
+    artifacts: Optional[List[Dict[str, Any]]] = None
+
     model_config = ConfigDict(extra="forbid")
 
 

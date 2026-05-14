@@ -62,6 +62,7 @@ from nextseek_api.assistant.models_api import (
     Turn,
 )
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
+from nextseek_api.assistant.excel_export import extract_table_artifacts
 from rest_framework.authentication import (
     BasicAuthentication,
     SessionAuthentication,
@@ -142,6 +143,26 @@ def _auto_title_if_unset(chat_session: ChatSession) -> None:
         return
     chat_session.title = title
     chat_session.save(update_fields=["title", "updated_at"])
+
+
+def _select_chat_config(request, req) -> ChatConfig:
+    """Pick the ChatConfig instance for this request.
+
+    Returns ``settings.NEXTSEEK_CHAT_CONFIG_PROD`` when the request asked for
+    ``use_prod=True`` AND the caller is admin AND a prod config was actually
+    built in ``local_settings.py``. Falls back to the default
+    ``NEXTSEEK_CHAT_CONFIG`` in every other case.
+    """
+    if not getattr(req, "use_prod", False):
+        return settings.NEXTSEEK_CHAT_CONFIG
+    user = getattr(request, "user", None)
+    is_admin = bool(getattr(user, "is_staff", False) or getattr(user, "is_superuser", False))
+    if not is_admin:
+        return settings.NEXTSEEK_CHAT_CONFIG
+    prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
+    if prod_config is None:
+        return settings.NEXTSEEK_CHAT_CONFIG
+    return prod_config
 
 
 class AssistantViewSet(viewsets.ViewSet):
@@ -325,6 +346,7 @@ class AssistantViewSet(viewsets.ViewSet):
                         or (bundle.get("terminal_reply") or bundle.get("reply") if bundle else None)
                         or entry.get("assistant_reply_preview", "")
                     ) or ""
+                    artifacts = extract_table_artifacts(bundle) if bundle else None
                     turns.append(
                         Turn(
                             bundle_id=bid if bid is not None else 0,
@@ -332,6 +354,7 @@ class AssistantViewSet(viewsets.ViewSet):
                             reply=reply,
                             mode=entry.get("mode", ""),
                             ts=entry.get("ts"),
+                            artifacts=artifacts or None,
                         ).model_dump(mode="json")
                     )
             else:
@@ -342,6 +365,7 @@ class AssistantViewSet(viewsets.ViewSet):
                         reply=b.get("terminal_reply") or b.get("reply") or "",
                         mode=b.get("mode", ""),
                         ts=b.get("ts"),
+                        artifacts=(extract_table_artifacts(b) or None),
                     ).model_dump(mode="json")
                     for b in history
                     if (b or {}).get("user_query")
@@ -498,13 +522,15 @@ class AssistantViewSet(viewsets.ViewSet):
             api_user = request.session.get("username")
             api_pass = request.session.get("password")
 
+        chat_config = _select_chat_config(request, req)
+
         def _run_pipeline() -> None:
             try:
                 match getattr(req, "mode", "standard"):
                     case "plan":
-                        run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_query_plan(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
                     case _:
-                        run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_query(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
             except Exception:
                 logger.exception("Unhandled pipeline error")
                 send_event("query_error", {
@@ -616,13 +642,15 @@ class AssistantViewSet(viewsets.ViewSet):
             api_user = request.session.get("username")
             api_pass = request.session.get("password")
 
+        chat_config = _select_chat_config(request, req)
+
         def _run_pipeline() -> None:
             try:
                 match getattr(req, "mode", "standard"):
                     case "plan":
-                        run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_query_plan(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
                     case _:
-                        run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_query(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
             except Exception:
                 logger.exception("Unhandled pipeline error (async)")
                 send_event("query_error", {
