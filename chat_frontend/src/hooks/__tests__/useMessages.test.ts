@@ -127,4 +127,30 @@ describe("useMessages — hydrateFromTurns", () => {
     const uniqueIds = new Set(ids);
     expect(uniqueIds.size).toBe(ids.length);
   });
+
+  it("hydrateFromTurns: artifacts from a Turn are attached to the assistant message", () => {
+    const { result } = renderHook(() => useMessages());
+
+    act(() => {
+      result.current.hydrateFromTurns([
+        {
+          bundle_id: 7,
+          user_query: "Find me monkeys",
+          reply: "Found 3 monkeys.",
+          mode: "new_search",
+          ts: null,
+          artifacts: [
+            { artifact_type: "table", key: "samples", label: "Samples", columns: ["UID"], data: [{ UID: "MUS-1" }] },
+          ],
+        },
+      ]);
+    });
+
+    expect(result.current.messages).toHaveLength(2);
+    const assistant = result.current.messages[1];
+    expect(assistant.isUser).toBe(false);
+    expect(assistant.artifacts).toBeDefined();
+    expect(assistant.artifacts).toHaveLength(1);
+    expect(assistant.artifacts![0]).toMatchObject({ artifact_type: "table", key: "samples" });
+  });
 });
