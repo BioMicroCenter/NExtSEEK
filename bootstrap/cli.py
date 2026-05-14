@@ -14,7 +14,7 @@ from bootstrap.lib.instance import (
     save_instance,
 )
 from bootstrap.lib.ports import allocate_ports
-from bootstrap.steps import prereqs, config, volumes, seed, build, users, validate, schema_fixups
+from bootstrap.steps import prereqs, config, volumes, seed, build, users, validate, schema_fixups, seed_cleanup
 
 app = typer.Typer(
     name="bootstrap",
@@ -181,6 +181,13 @@ def install(
     # fresh volume — there's nothing to fix up yet).
     for fqn, status in schema_fixups.apply_all(REPO_ROOT, compose_env):
         (ui.ok if status != "applied" else ui.warn)(f"schema fixup {fqn}: {status}")
+
+    # Data cleanup: the dev seed brings along the dev user's chat history
+    # which mostly shows up as untitled "New chat" placeholders. Clear those
+    # so a fresh install presents an empty assistant sidebar.
+    stale_chats = seed_cleanup.clear_stale_chat_sessions(REPO_ROOT, compose_env)
+    if stale_chats > 0:
+        ui.ok(f"cleared {stale_chats} stale chat session(s) with no title")
 
     # [7/9] Build + start
     ui.step(7, total, "Building NExtSEEK image and starting the stack")
