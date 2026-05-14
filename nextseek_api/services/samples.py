@@ -147,6 +147,15 @@ class SampleProxyViewSet(viewsets.ViewSet):
         if code == 401:
             return maybe_v2_error(HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json'), request)
 
+        # Pass upstream 4xx errors (other than 401, which is handled above) through unchanged.
+        # Without this branch, the validation block below rejects any non-success body and
+        # incorrectly reshapes it to 502 "Invalid upstream response" — wrong for legitimate
+        # 4xx like 404 "sample not found", 403 "forbidden", etc. maybe_v2_error then handles
+        # the v2 reshape for clients that requested vnd.nextseek.v2+json.
+        if 400 <= code < 500 and code != 401:
+            ct = headers.get('Content-Type', 'application/json')
+            return maybe_v2_error(HttpResponse(body, status=code, content_type=ct), request)
+
         try:
             ct = (headers.get('Content-Type') or '').lower()
             if 'text/html' in ct or (isinstance(body, (bytes, bytearray)) and b'<html' in (body or b'')):
