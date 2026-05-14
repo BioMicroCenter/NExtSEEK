@@ -619,6 +619,10 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
         # Validate output schema
         try:
             data = json.loads(report or "{}")
+            # Defensive: upstream may return {"rows": None}; coerce to [] so strict
+            # SampleAdvancedSearchRow validation doesn't trip the None case (test_v2_rows_is_none_returns_empty_results_not_500).
+            if isinstance(data, dict) and data.get("rows") is None:
+                data["rows"] = []
             SampleAdvancedSearchResult.model_validate(data)
         except ValidationError as ve:
             try:

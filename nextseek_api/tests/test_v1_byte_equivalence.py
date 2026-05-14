@@ -27,8 +27,8 @@ import pytest
 def deterministic_upstream():
     with patch("nextseek_api.services.samples.DBtable_sample") as m:
         m.return_value.searchAdvanced.return_value = (
-            '{"rows":[{"id":1,"title":"sample-1"}],"total":1,'
-            '"sampleTypes":["TIS"],"noSampleTypes":1,"footer":[]}'
+            '{"rows":[{"id":1,"title":"sample-1","sample_type_id":"1","attributeValue":"x"}],'
+            '"total":1,"sampleTypes":["TIS"],"noSampleTypes":1,"footer":[]}'
         )
         yield m
 
@@ -70,6 +70,6 @@ def test_v1_response_has_expected_structural_shape(auth_client, deterministic_up
     assert resp.status_code == 200
     payload = json.loads(resp.content)
     assert payload["total"] == 1
-    assert payload["rows"] == [{"id": 1, "title": "sample-1"}]
+    assert payload["rows"] == [{"id": 1, "title": "sample-1", "sample_type_id": "1", "attributeValue": "x"}]
     assert payload["sampleTypes"] == ["TIS"]
     assert payload["noSampleTypes"] == 1

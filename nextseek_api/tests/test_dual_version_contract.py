@@ -16,7 +16,7 @@ V2_LIT = "application/vnd.nextseek.v2+json"
 @pytest.fixture
 def advanced_search_upstream():
     payload = {
-        "rows": [{"id": 1, "title": "a"}],
+        "rows": [{"id": 1, "title": "a", "sample_type_id": "1", "attributeValue": "x"}],
         "total": 1,
         "sampleTypes": ["TIS"],
         "noSampleTypes": 1,

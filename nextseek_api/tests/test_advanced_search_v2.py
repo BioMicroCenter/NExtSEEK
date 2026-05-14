@@ -13,7 +13,10 @@ V1 = "application/vnd.nextseek.v1+json"
 def upstream_rows():
     """Deterministic upstream payload."""
     payload = {
-        "rows": [{"id": 1, "title": "a"}, {"id": 2, "title": "b"}],
+        "rows": [
+            {"id": 1, "title": "a", "sample_type_id": "1", "attributeValue": "x"},
+            {"id": 2, "title": "b", "sample_type_id": "1", "attributeValue": "y"},
+        ],
         "total": 2,
         "sampleTypes": ["TIS"],
         "noSampleTypes": 1,
@@ -75,7 +78,10 @@ class TestAdvancedSearchV2Envelope:
             HTTP_ACCEPT=V2,
         )
         body = json.loads(resp.content)
-        assert body["results"] == [{"id": 1, "title": "a"}, {"id": 2, "title": "b"}]
+        assert body["results"] == [
+            {"id": 1, "title": "a", "sample_type_id": "1", "attributeValue": "x"},
+            {"id": 2, "title": "b", "sample_type_id": "1", "attributeValue": "y"},
+        ]
         assert body["count"] == 2
 
     def test_v2_rows_is_none_returns_empty_results_not_500(self, auth_client, upstream_rows_none):
