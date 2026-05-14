@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def _validate_delete_eligibility_consistency(
@@ -42,13 +42,14 @@ class DeleteEligibility(BaseModel):
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
-    def __init__(self, **data):
-        super().__init__(**data)
+    @model_validator(mode='after')
+    def _check_consistency(self):
         _validate_delete_eligibility_consistency(
             can_delete=self.can_delete,
             block_reason=self.block_reason,
             permission_basis=self.permission_basis,
         )
+        return self
 
 
 class DeleteOutcomeInternal(BaseModel):
