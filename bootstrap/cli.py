@@ -231,13 +231,6 @@ def rebuild(
     ui.ok(f"{service} rebuilt and restarted")
 
 
-@app.command(name="seed-users")
-def seed_users(instance: str | None = typer.Option(None, "--instance")) -> None:
-    """Idempotent: ensure demo + user accounts exist in SEEK."""
-    typer.echo("seed-users: not yet implemented")
-    raise typer.Exit(code=1)
-
-
 @app.command(name="dump-db")
 def dump_db(
     source: str = typer.Option("dev", "--source"),
