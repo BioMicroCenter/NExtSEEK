@@ -211,6 +211,42 @@ class BatchUploadViewSet(viewsets.ViewSet):
         validated_rows = None
         input_warnings = []
 
+        # Capture raw project_id for downstream use. Pre-validation below fires
+        # only when rows is well-shaped (a list or omitted); when rows is the
+        # wrong outer type, Pydantic owns the 422 surface.
+        raw_pid = request.data.get("project_id") if hasattr(request.data, "get") else None
+        rows_is_list_or_absent = (raw_rows is None) or isinstance(raw_rows, list)
+
+        # Pre-validate project_id: missing or non-int returns 400 (not 422), per v2 contract.
+        # Only fires when rows has correct outer shape — preserves Pydantic 422 path for
+        # genuinely malformed rows payloads.
+        if rows_is_list_or_absent:
+            if raw_pid is None:
+                return v1_or_v2_error(
+                    request,
+                    v1_body={"detail": "project_id is required"},
+                    v1_status=status.HTTP_400_BAD_REQUEST,
+                    v2={
+                        "title": "project_id is required",
+                        "pointer": "/data/attributes/project_id",
+                        "example": 12,
+                    },
+                )
+            try:
+                int(raw_pid)
+            except (TypeError, ValueError):
+                return v1_or_v2_error(
+                    request,
+                    v1_body={"detail": "project_id must be an integer"},
+                    v1_status=status.HTTP_400_BAD_REQUEST,
+                    v2={
+                        "title": "project_id must be an integer",
+                        "pointer": "/data/attributes/project_id",
+                        "example": 12,
+                        "valid_values": ["12", "47", "(any positive integer SEEK project id)"],
+                    },
+                )
+
         # ── Mode 1: Direct rows (JSON, checked first -- rows wins) ──
         if raw_rows is not None:
             # Validate entire JSON body via request model
@@ -287,9 +323,10 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 },
             )
 
-        # Validate project_id
-        project_id = request.data.get("project_id")
-        if project_id is None:
+        # Validate project_id. For mode 1, the in-Pydantic-handler path above already
+        # short-circuits when project_id is the sole error; for mode 2 (file upload)
+        # we still need an explicit check here.
+        if raw_pid is None:
             return v1_or_v2_error(
                 request,
                 v1_body={"detail": "project_id is required"},
@@ -301,7 +338,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 },
             )
         try:
-            project_id = int(project_id)
+            project_id = int(raw_pid)
         except (TypeError, ValueError):
             return v1_or_v2_error(
                 request,
@@ -311,6 +348,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
                     "title": "project_id must be an integer",
                     "pointer": "/data/attributes/project_id",
                     "example": 12,
+                    "valid_values": ["12", "47", "(any positive integer SEEK project id)"],
                 },
             )
 
