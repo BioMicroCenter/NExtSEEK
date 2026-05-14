@@ -8,12 +8,14 @@ interface SubmitQueryOpts {
   forceNew?: boolean;
 }
 
+type SubmitMode = string | { pipeline: "standard" | "plan"; useProd?: boolean };
+
 interface UseChatApiReturn {
   isQuerying: boolean;
   sessionId: string | null;
   submitQuery: (
     query: string,
-    mode: string,
+    mode: SubmitMode,
     opts: SubmitQueryOpts,
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
@@ -30,7 +32,7 @@ export function useChatApi(): UseChatApiReturn {
   const submitQuery = useCallback(
     (
       query: string,
-      mode: string,
+      mode: SubmitMode,
       opts: SubmitQueryOpts,
       onProgress: (event: ProgressEvent) => void,
       onError: (error: string) => void,

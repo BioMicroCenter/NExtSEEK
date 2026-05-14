@@ -25,15 +25,24 @@ export class NextseekApiService {
 
   async submitQuery(
     query: string,
-    mode: string,
+    mode: string | { pipeline: "standard" | "plan"; useProd?: boolean },
     opts: { sessionId?: string | null; forceNew?: boolean },
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
   ): Promise<void> {
     const baseUrl = this.auth.getApiBaseUrl();
 
-    // Build body
-    const body: Record<string, unknown> = { query, mode };
+    // Build body — accept either the legacy plain-string mode or the new
+    // {pipeline, useProd} shape coming from MessageInput.
+    let modeStr: string;
+    let useProd = false;
+    if (typeof mode === "string") {
+      modeStr = mode;
+    } else {
+      modeStr = mode.pipeline;
+      useProd = Boolean(mode.useProd);
+    }
+    const body: Record<string, unknown> = { query, mode: modeStr, use_prod: useProd };
     if (opts.sessionId) {
       body.session_id = opts.sessionId;
     } else if (opts.forceNew) {

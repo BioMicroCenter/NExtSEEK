@@ -88,7 +88,7 @@ describe("NextseekApiService", () => {
       "http://localhost/nextseek_api/assistant/query/async/",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ query: "test query", mode: "standard" }),
+        body: JSON.stringify({ query: "test query", mode: "standard", use_prod: false }),
       }),
     );
 

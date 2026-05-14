@@ -6,6 +6,7 @@ interface UseCredentialCheckReturn {
   isValid: boolean;
   error: string | null;
   username: string | null;
+  isAdmin: boolean;
 }
 
 export function useCredentialCheck(): UseCredentialCheckReturn {
@@ -13,6 +14,7 @@ export function useCredentialCheck(): UseCredentialCheckReturn {
   const [isValid, setIsValid] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [username, setUsername] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     if (!authService.isConfigured()) {
@@ -28,6 +30,7 @@ export function useCredentialCheck(): UseCredentialCheckReturn {
       .then((me) => {
         setIsValid(true);
         setUsername(me.username);
+        setIsAdmin(Boolean(me.is_admin));
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Credential validation failed");
@@ -37,5 +40,5 @@ export function useCredentialCheck(): UseCredentialCheckReturn {
       });
   }, []);
 
-  return { isReady, isValid, error, username };
+  return { isReady, isValid, error, username, isAdmin };
 }

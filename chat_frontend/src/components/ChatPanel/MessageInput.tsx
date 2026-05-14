@@ -3,9 +3,15 @@ import { SendHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAutoResize } from "@/hooks/useAutoResize";
 
+export interface SendOptions {
+  pipeline: "standard" | "plan";
+  useProd: boolean;
+}
+
 interface MessageInputProps {
-  onSend: (message: string, mode: string) => void;
+  onSend: (message: string, opts: SendOptions) => void;
   disabled?: boolean;
+  isAdmin?: boolean;
 }
 
 function readInitialQuery(): string {
@@ -18,19 +24,16 @@ function readInitialQuery(): string {
   }
 }
 
-export function MessageInput({ onSend, disabled }: MessageInputProps) {
+export function MessageInput({ onSend, disabled, isAdmin = false }: MessageInputProps) {
   const [value, setValue] = useState<string>(() => readInitialQuery());
-  const [mode, setMode] = useState("standard");
+  const [pipeline, setPipeline] = useState<"standard" | "plan">("standard");
+  const [useProd, setUseProd] = useState<boolean>(false);
   const { textareaRef, handleInput, resetHeight } = useAutoResize();
-
-  const handleModeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    setMode(event.target.value)
-  }
 
   const handleSend = () => {
     const trimmed = value.trim();
     if (!trimmed) return;
-    onSend(trimmed, mode);
+    onSend(trimmed, { pipeline, useProd: isAdmin && useProd });
     setValue("");
     resetHeight();
   };
@@ -41,6 +44,11 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
       handleSend();
     }
   };
+
+  const pillBase =
+    "rounded-md border px-2 py-1 text-xs cursor-pointer transition-colors";
+  const pillActive = "bg-primary text-primary-foreground border-primary";
+  const pillInactive = "bg-background hover:bg-accent";
 
   return (
     <div className="border-t bg-background px-4 py-3">
@@ -58,17 +66,40 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
           disabled={disabled}
           rows={1}
         />
-        <label>
-          Mode:
-          <select
-            id="mode"
-            name="mode"
-            defaultValue={mode}
-            onChange={handleModeChange}>
-            <option value="standard">Standard</option>
-            <option value="plan">Plan</option>
-          </select>
-        </label>
+        <div className="flex flex-col items-end gap-1">
+          <div role="group" aria-label="Pipeline mode" className="flex gap-1">
+            <button
+              type="button"
+              aria-pressed={pipeline === "standard"}
+              className={`${pillBase} ${pipeline === "standard" ? pillActive : pillInactive}`}
+              onClick={() => setPipeline("standard")}
+              disabled={disabled}
+            >
+              Standard
+            </button>
+            <button
+              type="button"
+              aria-pressed={pipeline === "plan"}
+              className={`${pillBase} ${pipeline === "plan" ? pillActive : pillInactive}`}
+              onClick={() => setPipeline("plan")}
+              disabled={disabled}
+            >
+              Planner
+            </button>
+          </div>
+          {isAdmin && (
+            <label className="flex items-center gap-1 text-xs cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={useProd}
+                onChange={(e) => setUseProd(e.target.checked)}
+                disabled={disabled}
+                aria-label="Use prod database"
+              />
+              <span>PROD</span>
+            </label>
+          )}
+        </div>
         <Button
           className="shrink-0 rounded-lg p-0"
           style={{ width: 40, height: 40 }}

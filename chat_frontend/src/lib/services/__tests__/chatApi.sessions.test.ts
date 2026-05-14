@@ -132,21 +132,21 @@ describe("NextseekApiService — sessions methods", () => {
       const firstCall = fetchSpy.mock.calls[0];
       expect(firstCall[0]).toBe(`${baseUrl}/nextseek_api/assistant/query/async/`);
       const body = JSON.parse((firstCall[1] as RequestInit).body as string);
-      expect(body).toEqual({ query: "hi", mode: "standard", session_id: "uuid-1" });
+      expect(body).toEqual({ query: "hi", mode: "standard", use_prod: false, session_id: "uuid-1" });
     });
 
     it("includes force_new when opts.forceNew is true", async () => {
       const fetchSpy = mockFetchForSubmit("t", "uuid-new");
       await svc.submitQuery("hi", "standard", { forceNew: true }, vi.fn(), vi.fn());
       const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
-      expect(body).toEqual({ query: "hi", mode: "standard", force_new: true });
+      expect(body).toEqual({ query: "hi", mode: "standard", use_prod: false, force_new: true });
     });
 
     it("omits both when opts is empty", async () => {
       const fetchSpy = mockFetchForSubmit("t", "uuid-x");
       await svc.submitQuery("hi", "standard", {}, vi.fn(), vi.fn());
       const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
-      expect(body).toEqual({ query: "hi", mode: "standard" });
+      expect(body).toEqual({ query: "hi", mode: "standard", use_prod: false });
     });
   });
 });

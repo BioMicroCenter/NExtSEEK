@@ -290,6 +290,9 @@ DATABASE_ROUTERS = ['seek.dbrouters.CustomRouter']
 
 ACCOUNTS_PROFILE_MODEL = "seek.User_profile"
 
+LOG_DIR = os.getenv("LOG_DIR", "/app/logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -303,25 +306,25 @@ LOGGING = {
         'django_crontab': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'django_crontab.log',
+            'filename': os.path.join(LOG_DIR, 'django_crontab.log'),
             'formatter': 'verbose'
         },
         'logfile': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'django.log',
-            'formatter': 'verbose' 
+            'filename': os.path.join(LOG_DIR, 'django.log'),
+            'formatter': 'verbose'
         },
         'seekfile': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'seek.log',
+            'filename': os.path.join(LOG_DIR, 'seek.log'),
             'formatter': 'verbose'
         },
         'nextseekfile': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'nextseek.log',
+            'filename': os.path.join(LOG_DIR, 'nextseek.log'),
             'formatter': 'verbose'
         },
     },
