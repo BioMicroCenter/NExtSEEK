@@ -59,12 +59,62 @@ def swap_versioning_for_schema_gen(endpoints):
 
 def restore_versioning_post_schema_gen(result, generator, request, public):
     """POSTPROCESSING_HOOK — restore the original VendorMediaTypeVersioning on each view
-    that swap_versioning_for_schema_gen patched. Runs after spectacular generates the schema.
+    that swap_versioning_for_schema_gen patched, then strip the `; version=X` parameter
+    that AcceptHeaderVersioning appends to every media type in the generated schema.
+
+    Why strip: AcceptHeaderVersioning encodes the version into the Accept header parameter
+    (`Accept: application/foo; version=v2`), and drf-spectacular reflects that into every
+    `content` key as `application/foo; version=v2`. But production runtime uses
+    VendorMediaTypeVersioning, which responds with bare `application/foo` (no parameter).
+    The schema must document what production actually serves, not the AcceptHeader form.
+    Side effect: all `OpenApiExample(media_type="application/vnd.nextseek.v2+json", ...)`
+    entries can now attach (their bare media_type strings match the bare schema keys).
     """
     from nextseek_api.versioning import VendorMediaTypeVersioning
 
     for view_cls in _swapped_views:
         view_cls.versioning_class = VendorMediaTypeVersioning
     _swapped_views.clear()
+
+    def _strip(media_type: str) -> str:
+        return media_type.split(";", 1)[0].strip()
+
+    def _rekey_content(content: dict) -> dict:
+        if not isinstance(content, dict):
+            return content
+        out: dict = {}
+        for key, value in content.items():
+            new_key = _strip(key)
+            if new_key in out:
+                existing = out[new_key]
+                if isinstance(existing, dict) and isinstance(value, dict):
+                    merged = dict(existing)
+                    for k, v in value.items():
+                        if k == "examples" and isinstance(v, dict):
+                            merged_examples = dict(existing.get("examples", {}))
+                            merged_examples.update(v)
+                            merged["examples"] = merged_examples
+                        else:
+                            merged.setdefault(k, v)
+                    out[new_key] = merged
+                # else: keep first occurrence
+            else:
+                out[new_key] = value
+        return out
+
+    for path_item in (result.get("paths") or {}).values():
+        if not isinstance(path_item, dict):
+            continue
+        for method, op in path_item.items():
+            if method not in ("get", "post", "put", "patch", "delete", "head", "options"):
+                continue
+            if not isinstance(op, dict):
+                continue
+            req_body = op.get("requestBody")
+            if isinstance(req_body, dict) and isinstance(req_body.get("content"), dict):
+                req_body["content"] = _rekey_content(req_body["content"])
+            for resp in (op.get("responses") or {}).values():
+                if isinstance(resp, dict) and isinstance(resp.get("content"), dict):
+                    resp["content"] = _rekey_content(resp["content"])
 
     return result

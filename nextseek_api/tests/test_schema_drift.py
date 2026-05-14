@@ -69,6 +69,10 @@ def _generate_schema(api_version: str = "v2") -> dict:
             "OAS_VERSION": "3.1.0",
             "PREPROCESSING_HOOKS": [
                 "dmac.openapi_hooks.exclude_seek_paths",
+                "dmac.openapi_hooks.swap_versioning_for_schema_gen",
+            ],
+            "POSTPROCESSING_HOOKS": [
+                "dmac.openapi_hooks.restore_versioning_post_schema_gen",
             ],
         },
         LANGUAGE_CODE="en",
