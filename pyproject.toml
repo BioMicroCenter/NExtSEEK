@@ -139,8 +139,7 @@ DJANGO_SETTINGS_MODULE = "dmac.settings"
 dev = [
     "coverage",
 ]
-bootstrap = [
-    "typer>=0.12.0",
-    "rich>=13.7.0",
-    "pytest>=8.0.0",
-]
+# Note: the bootstrap CLI does NOT use a uv dependency group — it runs in an
+# isolated env via `uv run --no-project --with typer --with rich`. This avoids
+# pulling in the main project's deps (mysqlclient et al.) when the host lacks
+# the C build toolchain. See bootstrap.sh.
