@@ -151,9 +151,20 @@ def install(
 def doctor(
     instance: str | None = typer.Option(None, "--instance"),
 ) -> None:
-    """Diagnose the running install."""
-    typer.echo("doctor: not yet implemented")
-    raise typer.Exit(code=1)
+    """Read-only diagnostic for an existing install."""
+    from bootstrap.steps.doctor import diagnose
+
+    ui.banner("NExtSEEK Bootstrap Doctor")
+    results = diagnose(REPO_ROOT)
+    any_failed = False
+    for name, ok, detail in results:
+        if ok:
+            ui.ok(f"{name}: {detail}")
+        else:
+            ui.fail(f"{name}: {detail}")
+            any_failed = True
+    if any_failed:
+        raise typer.Exit(code=1)
 
 
 @app.command()
