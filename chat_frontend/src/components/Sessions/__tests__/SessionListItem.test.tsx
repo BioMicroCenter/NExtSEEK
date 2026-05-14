@@ -62,4 +62,11 @@ describe("SessionListItem", () => {
     fireEvent.click(confirmButtons[confirmButtons.length - 1]);
     expect(onDelete).toHaveBeenCalledWith("uuid-1");
   });
+
+  it("title button has focus-visible classes for a visible focus ring", () => {
+    render(<SessionListItem item={item} active={false} disabled={false} onSelect={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()} />);
+    const titleBtn = screen.getByRole("button", { name: "Hello world" });
+    expect(titleBtn.className).toMatch(/focus-visible:ring-2/);
+    expect(titleBtn.className).toMatch(/focus-visible:ring-ring/);
+  });
 });
