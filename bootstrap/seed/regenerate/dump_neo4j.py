@@ -60,12 +60,17 @@ def main() -> int:
     with driver.session(database=database) as session:
         print("Exporting nodes...")
         result = session.run("MATCH (n) RETURN n, labels(n) as lbls, elementId(n) as nid")
+        # elementId() returns a string with ":" and "-", which is NOT a valid
+        # Cypher identifier inside `CREATE (<name>:Label ...)`. Use a sequential
+        # numeric counter for var names; relationship MATCH WHERE clauses below
+        # still match on the real elementId.
+        node_counter = 0
         for record in result:
             node = record["n"]
             labels = ":".join(record["lbls"])
-            nid = record["nid"]
-            lines.append(f"CREATE (n{nid}:{labels} {props_str(dict(node))});")
-        print(f"  {len(lines)} nodes")
+            lines.append(f"CREATE (n{node_counter}:{labels} {_props_str(dict(node))});")
+            node_counter += 1
+        print(f"  {node_counter} nodes")
 
         print("Exporting relationships...")
         rel_count = 0
