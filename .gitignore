@@ -189,3 +189,6 @@ show
 
 # Per-instance bootstrap state (per-clone, not shared).
 bootstrap/.instance.json
+
+# Local design specs + plans (working docs, not part of the public repo)
+docs/superpowers/
