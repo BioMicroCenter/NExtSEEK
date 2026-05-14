@@ -174,8 +174,37 @@ def reset(
     yes: bool = typer.Option(False, "--yes", "-y"),
 ) -> None:
     """Drop volumes and re-run install."""
-    typer.echo("reset: not yet implemented")
-    raise typer.Exit(code=1)
+    from bootstrap.lib.docker_ops import compose_down
+
+    state = load_instance(REPO_ROOT)
+    if state is None:
+        ui.fail("no instance to reset — bootstrap/.instance.json missing")
+        raise typer.Exit(code=1)
+
+    if not yes:
+        ui.warn(f"This will DROP all data for instance '{state.name}' (volumes: {state.prefix}*)")
+        typer.confirm("Continue?", abort=True)
+
+    ui.step(1, 3, "Stopping containers and dropping volumes")
+    compose_down(project_dir=REPO_ROOT, env=state.compose_env(), volumes=True)
+    ui.ok("stack down, volumes dropped")
+
+    if not keep_config:
+        ui.step(2, 3, "Removing config files")
+        for p in [
+            REPO_ROOT / "docker" / "db.env",
+            REPO_ROOT / "docker" / "nextseek.env",
+            REPO_ROOT / "dmac" / "local_settings.py",
+            REPO_ROOT / "bootstrap" / ".instance.json",
+        ]:
+            if p.exists():
+                p.unlink()
+                ui.ok(f"removed {p.relative_to(REPO_ROOT)}")
+    else:
+        ui.step(2, 3, "Keeping config files (--keep-config)")
+
+    ui.step(3, 3, "Re-running install")
+    install(instance=instance, port_offset=None, yes=True)
 
 
 @app.command()
