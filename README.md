@@ -9,6 +9,18 @@ NExtSEEK is a modified wrapper around the [SEEK](https://github.com/seek4science
 
 ## Release notes
 
+### Unreleased — API v2 contract
+This branch introduces an opt-in v2 of the NExtSEEK REST API alongside the
+existing v1. Clients request v2 with `Accept: application/vnd.nextseek.v2+json`;
+clients with no Accept header (or `application/json`) continue to receive v1
+unchanged. v2 standardizes list envelopes (`{results, count, next, previous}`),
+JSON:API-shaped error responses (`{errors: [{status, title, detail, source,
+meta}]}`), and per-version OpenAPI 3.1 schemas. A schema-drift test
+(`nextseek_api/tests/test_schema_drift.py`) enforces that
+`nextseek_api/openapi.v2.snapshot.yaml` matches what `manage.py spectacular`
+generates from the current decorators. See
+[`nextseek_api/CHANGELOG.md`](nextseek_api/CHANGELOG.md) for full detail.
+
 ### Version 1.3.0
 Release date: *January 23, 2025*
 

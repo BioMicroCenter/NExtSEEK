@@ -1,3 +1,18 @@
+"""drf-spectacular hooks for the v2 OpenAPI schema generation pipeline.
+
+Three hooks, registered in `dmac/settings.py` SPECTACULAR_SETTINGS:
+
+- `exclude_seek_paths` (PREPROCESSING): filters legacy /seek/ and /assistant/
+  paths out of the generated schema.
+- `swap_versioning_for_schema_gen` (PREPROCESSING): temporarily swaps each
+  view's `VendorMediaTypeVersioning` for stock `AcceptHeaderVersioning` so
+  drf-spectacular's `is_versioning_supported()` accepts the view.
+- `restore_versioning_post_schema_gen` (POSTPROCESSING): restores the original
+  `VendorMediaTypeVersioning` on every view and strips the `; version=X`
+  parameter that AcceptHeaderVersioning appends to every media-type key in
+  the generated schema. The strip aligns documented media types with what
+  the production runtime actually serves (bare `application/vnd.nextseek.v2+json`).
+"""
 from rest_framework.versioning import AcceptHeaderVersioning
 
 

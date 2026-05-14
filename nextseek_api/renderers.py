@@ -1,3 +1,9 @@
+"""Per-version JSON renderers for the vendor media-type versioning scheme.
+
+Each renderer advertises a vendor-specific Content-Type so DRF returns the
+correct media type to clients that requested it via `Accept`. Wired into
+`REST_FRAMEWORK.DEFAULT_RENDERER_CLASSES` in `dmac/settings.py`.
+"""
 from rest_framework.renderers import JSONRenderer
 
 
