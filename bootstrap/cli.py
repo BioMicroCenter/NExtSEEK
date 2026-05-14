@@ -14,7 +14,7 @@ from bootstrap.lib.instance import (
     save_instance,
 )
 from bootstrap.lib.ports import allocate_ports
-from bootstrap.steps import prereqs, config, volumes, seed, build, users, validate
+from bootstrap.steps import prereqs, config, volumes, seed, build, users, validate, schema_fixups
 
 app = typer.Typer(
     name="bootstrap",
@@ -174,6 +174,13 @@ def install(
             with ui.spinner("loading neo4j.cypher.gz (long-running; safe to leave unattended)"):
                 seed.load_neo4j_dump(REPO_ROOT / "bootstrap" / "seed" / "neo4j.cypher.gz", values.neo4j_password, REPO_ROOT, compose_env)
             ui.ok("neo4j loaded")
+
+    # Schema fixups: applied whether or not seeds ran, so re-installs over an
+    # existing populated DB also self-heal. apply_all is idempotent + skips
+    # entries whose target table doesn't exist (e.g., post --no-seed on a
+    # fresh volume — there's nothing to fix up yet).
+    for fqn, status in schema_fixups.apply_all(REPO_ROOT, compose_env):
+        (ui.ok if status != "applied" else ui.warn)(f"schema fixup {fqn}: {status}")
 
     # [7/9] Build + start
     ui.step(7, total, "Building NExtSEEK image and starting the stack")
