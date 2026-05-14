@@ -524,6 +524,17 @@ class AssistantViewSet(viewsets.ViewSet):
 
         chat_config = _select_chat_config(request, req)
 
+        # When the request routed to the prod ChatConfig, swap the
+        # session-derived credentials for the prod config's baked-in
+        # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
+        # prod NExtSEEK with prod credentials — the local session user (e.g.
+        # "demo") doesn't exist on prod and would otherwise produce a 401.
+        prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
+        if prod_config is not None and chat_config is prod_config:
+            if chat_config.API_USER and chat_config.API_PASS:
+                api_user = chat_config.API_USER
+                api_pass = chat_config.API_PASS
+
         def _run_pipeline() -> None:
             try:
                 match getattr(req, "mode", "standard"):
@@ -643,6 +654,17 @@ class AssistantViewSet(viewsets.ViewSet):
             api_pass = request.session.get("password")
 
         chat_config = _select_chat_config(request, req)
+
+        # When the request routed to the prod ChatConfig, swap the
+        # session-derived credentials for the prod config's baked-in
+        # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
+        # prod NExtSEEK with prod credentials — the local session user (e.g.
+        # "demo") doesn't exist on prod and would otherwise produce a 401.
+        prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
+        if prod_config is not None and chat_config is prod_config:
+            if chat_config.API_USER and chat_config.API_PASS:
+                api_user = chat_config.API_USER
+                api_pass = chat_config.API_PASS
 
         def _run_pipeline() -> None:
             try:
