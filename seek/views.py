@@ -1590,13 +1590,7 @@ def manageSample(request, id):
     return HttpResponseRedirect(f"https://{SEEK_HOSTNAME}/samples/{id}/manage")
 
 def smartSearch(request):
-    if verifySuperUser(request) == 1:
-        admin = True
-    else:
-        admin = False
-
-    # Can't view page unless you're an admin
-    if not admin:
+    if not request.user.is_authenticated:
         data = {'msg': 'You do not have access to this page', 'status': 0, 'link': ''}
         return render(request, 'error.html', {'data': data})
     return render(request, "smartSearch.html")
