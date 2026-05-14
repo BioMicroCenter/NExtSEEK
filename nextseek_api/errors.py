@@ -84,6 +84,11 @@ def translate_error_response_v2(resp, request):
     if getattr(request, "version", None) != "v2":
         return resp
 
+    # Idempotency: already translated (DRF Response with .data["errors"])
+    data = getattr(resp, 'data', None)
+    if isinstance(data, dict) and isinstance(data.get('errors'), list):
+        return resp
+
     try:
         content = getattr(resp, "content", b"")
         body = json.loads((content or b"").decode("utf-8") or "{}")
