@@ -86,6 +86,7 @@ export function useMessages(): UseMessagesReturn {
           messageType: "text",
           bundleId: turn.bundle_id,
           debugEntries: [],
+          artifacts: turn.artifacts ?? undefined,
         });
       }
       return next;
