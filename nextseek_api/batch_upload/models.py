@@ -401,6 +401,7 @@ class NodeRow(BaseModel):
     sample_type: str
     properties: Dict[str, Any] = Field(default_factory=dict)
     parent_titles: List[str] = Field(default_factory=list)
+    parent_title_hashes: List[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="allow")
 
