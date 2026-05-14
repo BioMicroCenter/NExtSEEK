@@ -1859,6 +1859,11 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+bootstrap = [
+    { name = "pytest" },
+    { name = "rich" },
+    { name = "typer" },
+]
 dev = [
     { name = "coverage" },
 ]
@@ -1979,6 +1984,11 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+bootstrap = [
+    { name = "pytest", specifier = ">=8.0.0" },
+    { name = "rich", specifier = ">=13.7.0" },
+    { name = "typer", specifier = ">=0.12.0" },
+]
 dev = [{ name = "coverage" }]
 
 [[package]]

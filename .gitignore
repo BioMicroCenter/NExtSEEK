@@ -186,3 +186,6 @@ CLAUDE.md
 *.codex 
 scripts/investigate_duplicates/outputs/
 show
+
+# Per-instance bootstrap state (per-clone, not shared).
+bootstrap/.instance.json
