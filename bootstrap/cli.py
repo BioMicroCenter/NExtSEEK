@@ -180,6 +180,8 @@ def install(
     with ui.spinner("building"):
         build.start_seek_side(REPO_ROOT, compose_env)
         build.build_and_start_nextseek(REPO_ROOT, compose_env)
+    with ui.spinner(f"waiting for NExtSEEK to respond on :{ports['nextseek']} (gunicorn ~1-2 min to boot)"):
+        build.wait_for_nextseek_http(ports["nextseek"])
     ui.ok("stack up")
 
     # [8/9] Users

@@ -2,10 +2,38 @@
 from __future__ import annotations
 
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from bootstrap.lib import ui
 from bootstrap.lib.docker_ops import DockerOpsError, compose_exec, compose_up
+
+
+def wait_for_nextseek_http(port: int, max_attempts: int = 180, interval: float = 1.0) -> None:
+    """Block until the nextseek_nginx → gunicorn pipeline responds with anything
+    other than 502 Bad Gateway. The container starts in seconds but gunicorn
+    takes another 1–2 minutes to finish collectstatic + migrate before it
+    actually binds. Until then nginx returns 502.
+    """
+    url = f"http://localhost:{port}/"
+    for _ in range(max_attempts):
+        try:
+            with urllib.request.urlopen(url, timeout=5.0) as resp:
+                # Anything not 5xx means gunicorn answered (incl. 200, 302, 404).
+                if resp.getcode() < 500:
+                    return
+        except urllib.error.HTTPError as exc:
+            # urlopen raises on HTTP error codes; 5xx means still booting,
+            # 4xx means alive enough — treat anything < 500 as ready.
+            if exc.code < 500:
+                return
+        except OSError:
+            pass  # connection refused — nginx not up yet
+        time.sleep(interval)
+    raise DockerOpsError(
+        f"NExtSEEK did not respond at {url} after {int(max_attempts * interval)}s"
+    )
 
 
 def _wait_for(
