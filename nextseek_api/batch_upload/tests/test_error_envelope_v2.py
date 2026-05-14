@@ -97,9 +97,16 @@ class TestBatchUploadStart:
 class TestBatchUploadOwnership:
     """Covers _check_ownership 404 site (lines 103-106)."""
 
-    def test_v2_unknown_job_id_returns_jsonapi_404(self, auth_client):
+    def test_v2_unknown_job_id_returns_jsonapi_404(self, auth_client, tmp_path, monkeypatch):
+        # job_index._JOBS_DIR is captured at import time from MEDIA_ROOT; redirect
+        # it to tmp_path so the os.makedirs() in _user_file() doesn't hit a
+        # read-only network share during this test.
+        monkeypatch.setattr(
+            "nextseek_api.batch_upload.job_index._JOBS_DIR",
+            str(tmp_path / "celery_jobs"),
+        )
         resp = auth_client.get(
-            "/nextseek_api/batch-upload/nonexistent-job-id/status/",
+            "/nextseek_api/batch-upload/status/nonexistent-job-id/",
             HTTP_ACCEPT=V2,
         )
         assert resp.status_code == 404
@@ -107,7 +114,11 @@ class TestBatchUploadOwnership:
         assert body["errors"][0]["status"] == "404"
         assert body["errors"][0]["title"] == "Not found"
 
-    def test_v1_unknown_job_id_returns_detail_404(self, auth_client):
-        resp = auth_client.get("/nextseek_api/batch-upload/nonexistent-job-id/status/")
+    def test_v1_unknown_job_id_returns_detail_404(self, auth_client, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "nextseek_api.batch_upload.job_index._JOBS_DIR",
+            str(tmp_path / "celery_jobs"),
+        )
+        resp = auth_client.get("/nextseek_api/batch-upload/status/nonexistent-job-id/")
         assert resp.status_code == 404
         assert resp.json() == {"detail": "Not found."}

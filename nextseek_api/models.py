@@ -1555,7 +1555,10 @@ class FilterLogic(str, Enum):
 class SampleAdvancedSearchRequest(BaseModel):
     sampletype: Optional[Union[str, List[str]]] = None
     attribute: Optional[Union[str, List[str]]] = None
-    filter_searchText: Union[str, List[str]] = Field(..., description='Search text or list of search texts')
+    filter_searchText: Union[str, List[str]] = Field(
+        default="",
+        description='Search text or list of search texts. Empty string permitted for "list all" semantics.',
+    )
     filter_matchType: AdvancedSearchMatchType = AdvancedSearchMatchType.PARTIAL
     attribute_logic: Optional[FilterLogic] = None
     searchText_logic: Optional[FilterLogic] = None
