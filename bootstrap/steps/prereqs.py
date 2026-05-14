@@ -58,15 +58,15 @@ def check_uv() -> PrereqResult:
 def check_disk_space(path: str, gb_required: int = 5) -> PrereqResult:
     """Check that `path` has at least gb_required GB free."""
     total, used, free = shutil.disk_usage(path)
-    free_gb = free // (1024 ** 3)
+    free_gb = free / (1024 ** 3)
     if free_gb < gb_required:
         return PrereqResult(
             name=f"disk:{path}",
             ok=False,
-            detail=f"{free_gb} GB free (need {gb_required})",
+            detail=f"{free_gb:.1f} GB free (need {gb_required})",
             remediation="Free up disk space before installing",
         )
-    return PrereqResult(name=f"disk:{path}", ok=True, detail=f"{free_gb} GB free")
+    return PrereqResult(name=f"disk:{path}", ok=True, detail=f"{free_gb:.1f} GB free")
 
 
 def run_all() -> list[PrereqResult]:

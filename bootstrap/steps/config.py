@@ -19,7 +19,10 @@ class ConfigValues:
 
 
 def _generate_secret_key(length: int = 64) -> str:
-    alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+"
+    # Excludes `$`, `\\`, `"`, `'`, `` ` ``, and `#` so the rendered DJANGO_SECRET_KEY in
+    # docker/nextseek.env is never re-interpolated or quote-corrupted when docker
+    # compose loads the env file. 64 chars across 76 symbols ≈ 400 bits of entropy.
+    alphabet = string.ascii_letters + string.digits + "!@%^&*()-_=+:.<>?"
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
