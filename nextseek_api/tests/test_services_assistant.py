@@ -394,7 +394,7 @@ class QuerySSEPipelineErrorTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_sse_cache_control_headers(self, mock_run_query, mock_adapter_cls):
         """SSE response has Cache-Control: no-cache and X-Accel-Buffering: no."""
-        def fake_run(adapter, config, query, send_event):
+        def fake_run(adapter, config, query, send_event, **kwargs):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run
@@ -411,7 +411,7 @@ class QuerySSEPipelineErrorTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_multiple_events_stream(self, mock_run_query, mock_adapter_cls):
         """Multiple SSE events are streamed in order."""
-        def fake_run(adapter, config, query, send_event):
+        def fake_run(adapter, config, query, send_event, **kwargs):
             send_event("agent_started", {"agent": "parser", "mode": "search"})
             send_event("agent_complete", {"agent": "parser", "summary": {}})
             send_event("agent_started", {"agent": "api_caller", "mode": ""})

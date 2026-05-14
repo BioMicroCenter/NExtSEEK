@@ -369,6 +369,34 @@ def paginate_rows_in_envelope(request, envelope, rows_key='rows', paginator_cls=
         envelope['total'] = len(rows)
     return envelope
 
+
+def build_v2_list_envelope(
+    request,
+    rows,
+    *,
+    count: Optional[int] = None,
+    paginator_cls=StandardResultsSetPagination,
+) -> dict:
+    """Construct a fresh {results, count, next, previous} envelope for v2.
+
+    Does NOT mutate `rows` or any surrounding dict. PageNumberPagination.paginate_queryset
+    returns None when page_size is falsy (e.g., `?page_size=0`); the
+    `page = page or []` guard handles that path.
+    """
+    from rest_framework.request import Request as DRFRequest
+    if not isinstance(request, DRFRequest):
+        request = DRFRequest(request)
+    paginator = paginator_cls()
+    page = paginator.paginate_queryset(list(rows), request)
+    page = page or []
+    return {
+        "results": list(page),
+        "count": count if count is not None else paginator.page.paginator.count,
+        "next": paginator.get_next_link(),
+        "previous": paginator.get_previous_link(),
+    }
+
+
 def resolve_sampletype_to_seek_id(s: str) -> Optional[str]:
     """Resolve a sample type display title to a SEEK numeric id string.
     - If input is numeric, return as-is.

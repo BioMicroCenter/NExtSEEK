@@ -25,7 +25,7 @@ from rest_framework.authentication import BasicAuthentication, TokenAuthenticati
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter, OpenApiResponse
 from drf_spectacular.types import OpenApiTypes
 
 from nextseek_api.assistant.descriptions_evaluator import (
@@ -509,7 +509,31 @@ class EvaluatorViewSet(viewsets.ViewSet):
             OpenApiParameter("page", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
             OpenApiParameter("page_size", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
         ],
-        responses={200: EvaluatorRunsListResponse},
+        responses={
+            200: OpenApiResponse(
+                response=EvaluatorRunsListResponse,
+                examples=[
+                    OpenApiExample(
+                        name="Minimal v2 runs list response",
+                        value={"results": [], "count": 0, "next": None, "previous": None},
+                    ),
+                ],
+            ),
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Invalid query parameter.",
+                examples=[
+                    OpenApiExample(
+                        name="v2 validation error (400)",
+                        value={"errors": [{
+                            "status": "400",
+                            "title": "Invalid query parameter",
+                            "source": {"parameter": "session_id"},
+                        }]},
+                    ),
+                ],
+            ),
+        },
     )
     @action(detail=False, methods=["get"], url_path="runs")
     def runs_list(self, request):

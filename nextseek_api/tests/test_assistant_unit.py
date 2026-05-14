@@ -277,7 +277,7 @@ class ViewSetTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_returns_sse_content_type(self, mock_run_query, mock_adapter_cls):
         """Verify POST /assistant/query/ returns text/event-stream."""
-        def fake_run_query(adapter, chat_config, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event, **kwargs):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run_query
@@ -358,7 +358,7 @@ class ViewSetTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_sse_event_format(self, mock_run_query, mock_adapter_cls):
         """Verify SSE events are correctly formatted and include session_id."""
-        def fake_run_query(adapter, chat_config, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event, **kwargs):
             send_event("agent_started", {"agent": "entity", "mode": ""})
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
@@ -383,7 +383,7 @@ class ViewSetTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_auto_session_reuses_recent(self, mock_run_query, mock_adapter_cls):
         """POST /query/ without session_id reuses the most recent session."""
-        def fake_run_query(adapter, chat_config, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event, **kwargs):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run_query
@@ -407,7 +407,7 @@ class ViewSetTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_auto_session_creates_when_none(self, mock_run_query, mock_adapter_cls):
         """POST /query/ without session_id auto-creates when user has no sessions."""
-        def fake_run_query(adapter, chat_config, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event, **kwargs):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run_query
@@ -435,7 +435,7 @@ class ViewSetTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_explicit_session_still_works(self, mock_run_query, mock_adapter_cls):
         """POST /query/ with explicit session_id still validates ownership."""
-        def fake_run_query(adapter, chat_config, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event, **kwargs):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run_query
@@ -778,7 +778,7 @@ class CsrfExemptionTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_post_query_sse_no_csrf_token(self, mock_run_query, mock_adapter_cls):
         """POST /assistant/query/ must return 200 (SSE), not 403."""
-        def fake_run_query(adapter, chat_config, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event, **kwargs):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
         mock_run_query.side_effect = fake_run_query
 
