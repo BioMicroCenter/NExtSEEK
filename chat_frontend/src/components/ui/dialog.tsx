@@ -8,7 +8,20 @@ const Dialog = DialogPrimitive.Root;
 
 const DialogTrigger = DialogPrimitive.Trigger;
 
-const DialogPortal = DialogPrimitive.Portal;
+/**
+ * Looks up the embedded host (`#chat-assistant-root`) at render time and
+ * portals into it so theme CSS variables (scoped to that element) apply.
+ * Falls back to Radix's default (`document.body`) when the host is absent —
+ * the standalone build uses `:root`-scoped tokens, so body-level portaling
+ * works there.
+ */
+const DialogPortal: React.FC<React.ComponentProps<typeof DialogPrimitive.Portal>> = (props) => {
+  const [container, setContainer] = React.useState<HTMLElement | null>(null);
+  React.useEffect(() => {
+    setContainer(document.getElementById("chat-assistant-root"));
+  }, []);
+  return <DialogPrimitive.Portal {...props} container={container ?? undefined} />;
+};
 
 const DialogClose = DialogPrimitive.Close;
 
