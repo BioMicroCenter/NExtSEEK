@@ -212,9 +212,23 @@ def rebuild(
     instance: str | None = typer.Option(None, "--instance"),
     service: str = typer.Option("nextseek", "--service"),
 ) -> None:
-    """Rebuild and restart one or more services without touching volumes."""
-    typer.echo("rebuild: not yet implemented")
-    raise typer.Exit(code=1)
+    """Rebuild and restart a service without touching volumes."""
+    from bootstrap.lib.docker_ops import compose_up
+
+    state = load_instance(REPO_ROOT)
+    if state is None:
+        ui.fail("no instance found — run 'bootstrap install' first")
+        raise typer.Exit(code=1)
+
+    ui.banner(f"Rebuilding {service} for instance {state.name}")
+    with ui.spinner(f"rebuilding {service}"):
+        compose_up(
+            services=[service],
+            project_dir=REPO_ROOT,
+            env=state.compose_env(),
+            build=True,
+        )
+    ui.ok(f"{service} rebuilt and restarted")
 
 
 @app.command(name="seed-users")
