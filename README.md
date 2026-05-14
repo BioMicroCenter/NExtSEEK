@@ -15,6 +15,11 @@ cd NExtSEEK
 Open http://localhost:8000 and log in with `demo / demopassword` (admin) or
 `user / userpassword` (regular).
 
+> **Going beyond localhost?** Read [`NExtSTEPS.md`](NExtSTEPS.md) — it lists
+> the credentials, env vars, and config files to change before exposing the
+> install to anyone you don't trust. Rotating the demo passwords is the
+> minimum.
+
 ## System requirements
 
 - Docker 24+ and Docker Compose v2
