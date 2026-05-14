@@ -75,6 +75,20 @@ def clear_stale_chat_sessions(repo_root: Path, env: dict[str, str]) -> int:
     )
     if count == 0:
         return 0
+    # assistant_query_task has a FK on assistant_chat_session.session_id, so
+    # the child rows have to go first or the parent DELETE hits constraint
+    # error 1451 (cannot delete parent row). The nested SELECT ... AS stale
+    # wrapper is needed because MySQL forbids referencing the target table
+    # directly in a DELETE's WHERE subquery.
+    cascade = (
+        "DELETE FROM assistant_query_task WHERE session_id IN ("
+        "SELECT session_id FROM ("
+        "SELECT session_id FROM assistant_chat_session "
+        "WHERE title IS NULL OR title = ''"
+        ") AS stale);"
+    )
+    if not _run_delete(cascade, repo_root, env):
+        return 0
     if not _run_delete(
         "DELETE FROM assistant_chat_session WHERE title IS NULL OR title = '';",
         repo_root,
