@@ -1,0 +1,4378 @@
+{
+  "smart_test": {
+    "version": "3.0",
+    "description": "Smart test suite — 21 tests covering every routing path + wizard + memory. T1-T13 are routing/correctness tests; T14-T17 cover the LLM-driven nf-core wizard; T18-T21 cover chat memory recall at varying distances. T1-T13 run in fresh sessions; T14-T21 use multi-turn shared sessions (session_mode='shared') with per-turn pass_criteria.",
+    "pass_criterion_ops": {
+      "eq": "exact equality",
+      "contains": "value is in list (if actual is list) or substring (if actual is string)",
+      "nonempty": "field is truthy / non-empty (value is ignored)",
+      "true": "field is exactly True (value is ignored)",
+      "gte": "int(actual) >= int(value)",
+      "lte": "int(actual) <= int(value)",
+      "mentions": "case-insensitive substring of `value` appears in the string `actual` (use with last_reply, wizard.* string fields)",
+      "matches_re": "regex search against actual string (case-insensitive)"
+    },
+    "session_modes": {
+      "fresh": "default; new SQLiteSessionState per test, results don't persist across tests",
+      "shared": "single session for all turns of this test; chat_log + results_history + wizard state accumulate"
+    },
+    "multi_turn_shape": {
+      "turns": "list[{label, query, pass_criteria, planner_pass_criteria}] — when present, replaces the legacy {setup_queries, query} pair. Each entry runs in order against the same session. Per-turn pass_criteria are evaluated independently; the test passes only if all turns pass."
+    },
+    "special_fields_run_query": {
+      "entity_sampletype_codes": "list of 'code' strings from debug.entity_result.sampletypes",
+      "entity_assay_codes": "list of 'code' strings from debug.entity_result.assays",
+      "entity_projects": "list of project strings from debug.entity_result.projects",
+      "graph_cypher": "debug.graph_plan.cypher string",
+      "neo4j_ok": "debug.graph_result.ok bool",
+      "api_ok": "debug.api_result_meta.ok bool",
+      "wizard.active": "bool — session['nfcore_wizard'].get('active', False)",
+      "wizard.step": "str — current wizard step (pipeline|samples|cohorts|enrichment|confirm|done)",
+      "wizard.pipeline": "str — chosen pipeline key",
+      "wizard.uid_count": "int — len(session['nfcore_wizard']['selection']['uids'])",
+      "wizard.cohort_count": "int — len(session['nfcore_wizard']['selection']['cohort_criteria']) or 1",
+      "wizard.enrichment_count": "int — len(session['nfcore_wizard']['selection']['enrichment_fields'])",
+      "wizard.metadata_summary_present": "bool — True if pinned_context.metadata_summary is set",
+      "wizard_agent.last_action": "str — most recent WizardAgentOutput.action (advance|stay|cancel|restart)",
+      "wizard_agent.last_extracted_keys": "list[str] — keys from most recent WizardAgentOutput.extracted",
+      "chat_log.length": "int — len(session['chat_log'])",
+      "chat_log.latest_mode": "str — most recent turn's mode",
+      "chat_log.latest_bundle_id": "int|null — bundle_id on the most recent turn",
+      "results_history.length": "int — len(session['results_history'])",
+      "last_reply": "str — final assistant reply for this turn (HTML stripped)",
+      "last_target_result_id": "int|null — parser_plan.target_result_id from the most recent turn"
+    },
+    "special_fields_run_query_plan": {
+      "plan_entity_sampletype_codes": "list of 'code' strings from debug.entity.sampletypes",
+      "plan_entity_assay_codes": "list of 'code' strings from debug.entity.assays",
+      "plan_entity_projects": "list of project strings from debug.entity.projects",
+      "plan_first_candidate_mode": "mode of debug.parser.candidates[0]",
+      "plan_first_candidate_report_type": "report_type of debug.parser.candidates[0]",
+      "plan_first_step_tool": "tool of debug.planner.steps[0]",
+      "plan_step1_ok": "debug.step_results[1].ok bool",
+      "plan_step1_api_plan.*": "alias prefix: debug.step_results[1].api_plan — navigate remainder with dot"
+    },
+    "coverage_map_by_subagent": {
+      "entity_agent": "every test (entity_*_codes assertions)",
+      "parser_agent": "every test (parser_plan.mode)",
+      "multi_parser_agent": "every test via planner_pass_criteria (plan_first_candidate_mode)",
+      "api_agent_build_request": "T1, T2, T3 (api_plan.requestBody)",
+      "graph_agent": "T11 (graph_cypher, neo4j_ok)",
+      "reporter_agent": "T6, T7 (summary_mode), T8, T9, T10 (report_type)",
+      "report_writer_agent": "T8, T9, T10 (saved_files manifest). NOT called for NFCORE post-fix; T17 verifies the bypass by checking emission succeeds without an LLMFatalError.",
+      "chatter_agent_answer": "T15/T16 explicitly assert last_reply via 'mentions'/'matches_re'; every other test exercises it implicitly.",
+      "memory_agent_answer": "T4 + T18, T19, T20, T21",
+      "memory_coder_agent": "T20 specifically validates correctness (not just routing). T18/T19/T21 exercise it implicitly.",
+      "system_agent": "T5",
+      "wizard_agent": "T14, T15, T16, T17 (T21 also exercises bundle-skip)",
+      "planner_agent": "every test via planner_pass_criteria",
+      "seqera_agent + seqera/emitter": "exercised by T17 when TOWER_* env is set",
+      "plan_evaluator_agent": "NOT covered (planner-internal; deferred)",
+      "context_engineer_agent": "NOT covered (planner-internal; deferred)"
+    },
+    "tests": [
+      {
+        "id": "T1",
+        "name": "new_search — basic keyword + sampletype",
+        "path": "new_search",
+        "description": "Standard query routes to advanced_search with the correct sampletype extracted.",
+        "pipeline": "run_query",
+        "setup_queries": [],
+        "query": "Find me mice treated with NDMA.",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "MUS"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "/samples/advanced_search"
+          },
+          {
+            "field": "api_plan.requestBody.sampletype",
+            "op": "eq",
+            "value": "MUS"
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "plan_entity_sampletype_codes",
+            "op": "contains",
+            "value": "MUS"
+          },
+          {
+            "field": "plan_first_step_tool",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "plan_step1_api_plan.requestBody.sampletype",
+            "op": "eq",
+            "value": "MUS"
+          }
+        ],
+        "debug_queries": [
+          {
+            "id": "T1_D1",
+            "name": "CD8 antibody search",
+            "purpose": "Different sampletype (AB) with keyword — does the entity agent correctly identify an antibody sampletype?",
+            "query": "Find me all CD8 antibodies in the database.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "new_search"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "new_search"
+              }
+            ]
+          },
+          {
+            "id": "T1_D2",
+            "name": "Keyword-only search (no sampletype)",
+            "purpose": "Verify a keyword-only query still routes to new_search.",
+            "query": "Find samples containing the keyword NDMA.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "new_search"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "new_search"
+              }
+            ]
+          },
+          {
+            "id": "T1_D3",
+            "name": "Fibrin image search",
+            "purpose": "Image sampletype query — does D.IMG or imaging sampletype route to new_search?",
+            "query": "What fibrin images exist in the database?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "new_search"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "new_search"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T2",
+        "name": "new_search — sampletype + multi-assay → parent lookup endpoint",
+        "path": "new_search_multiassay",
+        "description": "NHP + D.FLOW query routes to the parents-by-child-types endpoint rather than advanced_search.",
+        "pipeline": "run_query",
+        "setup_queries": [],
+        "query": "Find monkeys that have both flow cytometry and sequencing data.",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "NHP"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "parents_by_child_types"
+          },
+          {
+            "field": "api_plan.requestBody",
+            "op": "nonempty",
+            "value": null
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "plan_entity_sampletype_codes",
+            "op": "contains",
+            "value": "NHP"
+          },
+          {
+            "field": "plan_step1_api_plan.requestBody",
+            "op": "nonempty",
+            "value": null
+          }
+        ],
+        "debug_queries": [
+          {
+            "id": "T2_D1",
+            "name": "Multi-assay PAT — D.SEQ + D.MSP",
+            "purpose": "Patient sampletype with two assays (sequencing + proteomics) — does the parent lookup trigger for PAT?",
+            "query": "Find me patients that have both sequencing and proteomics data.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "new_search"
+              },
+              {
+                "field": "entity_sampletype_codes",
+                "op": "contains",
+                "value": "PAT"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "new_search"
+              },
+              {
+                "field": "plan_entity_sampletype_codes",
+                "op": "contains",
+                "value": "PAT"
+              }
+            ]
+          },
+          {
+            "id": "T2_D2",
+            "name": "Explicit assay code — D.FLOW",
+            "purpose": "Verify D.FLOW resolves when named explicitly by code.",
+            "query": "Find NHP samples with D.FLOW assay data.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "new_search"
+              },
+              {
+                "field": "entity_assay_codes",
+                "op": "contains",
+                "value": "D.FLOW"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "new_search"
+              },
+              {
+                "field": "plan_entity_assay_codes",
+                "op": "contains",
+                "value": "D.FLOW"
+              }
+            ]
+          },
+          {
+            "id": "T2_D3",
+            "name": "Informal phrasing — flow only",
+            "purpose": "Verify informal phrasing still extracts NHP and routes to new_search.",
+            "query": "Show me monkey samples with flow cytometry data.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "new_search"
+              },
+              {
+                "field": "entity_sampletype_codes",
+                "op": "contains",
+                "value": "NHP"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "new_search"
+              },
+              {
+                "field": "plan_entity_sampletype_codes",
+                "op": "contains",
+                "value": "NHP"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T3",
+        "name": "refine_last_search — filter-based follow-up",
+        "path": "refine_last_search",
+        "description": "A follow-up that narrows the previous search via a new filter must route to refine_last_search.",
+        "pipeline": "run_query",
+        "setup_queries": [
+          "Find all NHP samples in the database."
+        ],
+        "query": "Now filter those to only CD8-depleted animals.",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "refine_last_search"
+          },
+          {
+            "field": "api_plan.requestBody.sampletype",
+            "op": "eq",
+            "value": "NHP"
+          },
+          {
+            "field": "api_result_full.data.total",
+            "op": "nonempty"
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "refine_last_search"
+          },
+          {
+            "field": "plan_step1_api_plan.requestBody.sampletype",
+            "op": "eq",
+            "value": "NHP"
+          },
+          {
+            "field": "step_results.1.count",
+            "op": "nonempty"
+          }
+        ],
+        "debug_queries": [
+          {
+            "id": "T3_D1",
+            "name": "Explicit 'refine' keyword",
+            "purpose": "The word 'refine' should reliably trigger refine_last_search.",
+            "query": "Refine those results to CD8-depleted animals only.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "refine_last_search"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "refine_last_search"
+              }
+            ]
+          },
+          {
+            "id": "T3_D2",
+            "name": "'From those results' framing",
+            "purpose": "Verify 'from those results' is not mistaken for a new search.",
+            "query": "From those results, keep only the CD8-depleted ones.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "refine_last_search"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "refine_last_search"
+              }
+            ]
+          },
+          {
+            "id": "T3_D3",
+            "name": "Filter keyword explicit",
+            "purpose": "Does the 'filter' keyword reliably trigger refine?",
+            "query": "Filter the last search to CD8-depleted animals.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "refine_last_search"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "refine_last_search"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T4",
+        "name": "ask_about_last_results — analytical memory query",
+        "path": "ask_about_last_results",
+        "description": "A question asking about the content/composition of previous results must route to memory, not trigger a new search.",
+        "pipeline": "run_query",
+        "setup_queries": [
+          "Find mice treated with NDMA."
+        ],
+        "query": "What sample types were represented in those results?",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "ask_about_last_results"
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "ask_about_last_results"
+          }
+        ],
+        "debug_queries": [
+          {
+            "id": "T4_D1",
+            "name": "Count question",
+            "purpose": "A simple count question routes to memory (not a new search).",
+            "query": "How many results did that return?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "ask_about_last_results"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "ask_about_last_results"
+              }
+            ]
+          },
+          {
+            "id": "T4_D2",
+            "name": "Explicit 'last search' reference",
+            "purpose": "An unambiguous reference to 'last search' routes to memory.",
+            "query": "From the last search, which samples came from the most recent year?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "ask_about_last_results"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "ask_about_last_results"
+              }
+            ]
+          },
+          {
+            "id": "T4_D3",
+            "name": "Summarization question about prior results",
+            "purpose": "A summarization question about prior results stays in memory, not new search.",
+            "query": "Can you summarize what those results contained?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "ask_about_last_results"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "ask_about_last_results"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T5",
+        "name": "system_question — entity catalog and capabilities lookup",
+        "path": "system_question",
+        "description": "Capability and entity-catalog questions stay in the system agent and never hit the API.",
+        "pipeline": "run_query",
+        "setup_queries": [],
+        "query": "Whats the NIH Reporter link for the Kamm Project? What kind of research do they do?",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "system_question"
+          },
+          {
+            "field": "entity_projects",
+            "op": "contains",
+            "value": "MetNet"
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "system_question"
+          },
+          {
+            "field": "plan_entity_projects",
+            "op": "contains",
+            "value": "MetNet"
+          }
+        ],
+        "debug_queries": [
+          {
+            "id": "T5_D1",
+            "name": "General capabilities question",
+            "purpose": "'What can NExtSEEK do?' routes to system_question.",
+            "query": "What can NExtSEEK do?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "system_question"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "system_question"
+              }
+            ]
+          },
+          {
+            "id": "T5_D2",
+            "name": "Assay catalog question",
+            "purpose": "Assay listing question routes to system_question (not new_search).",
+            "query": "List all available assay types in the system.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "system_question"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "system_question"
+              }
+            ]
+          },
+          {
+            "id": "T5_D3",
+            "name": "Entity definition question",
+            "purpose": "'What is D.SEQ?' for a known entity routes to system_question.",
+            "query": "What is a D.SEQ assay?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "system_question"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "system_question"
+              }
+            ]
+          },
+          {
+            "id": "T5_D4",
+            "name": "Sampletype catalog question",
+            "purpose": "Available sampletype question routes to system_question.",
+            "query": "What sample types can I search for in NExtSEEK?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "system_question"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "system_question"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T6",
+        "name": "reporter — RPPR via colloquial language (Kamm → MetNet)",
+        "path": "reporter_summary_rppr",
+        "description": "Colloquial NIH progress report request with a lab-name project reference (Kamm → MetNet) routes to reporter > summary > RPPR. Also validates entity extracts MetNet from 'Kamm'.",
+        "pipeline": "run_query",
+        "setup_queries": [],
+        "query": "Put together an annual progress report for the Kamm project — I need it for our NIH grant renewal.",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "summary"
+          },
+          {
+            "field": "reporter_plan.summary_mode",
+            "op": "eq",
+            "value": "RPPR"
+          },
+          {
+            "field": "entity_projects",
+            "op": "contains",
+            "value": "MetNet"
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "plan_first_step_tool",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "plan_entity_projects",
+            "op": "contains",
+            "value": "MetNet"
+          }
+        ],
+        "debug_queries": [
+          {
+            "id": "T6_D1",
+            "name": "Explicit RPPR with canonical project name",
+            "purpose": "Using 'RPPR' and 'MetNet' explicitly leaves no ambiguity.",
+            "query": "Generate the RPPR for the MetNet project.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "reporter_plan.summary_mode",
+                "op": "eq",
+                "value": "RPPR"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "plan_first_step_tool",
+                "op": "eq",
+                "value": "reporter"
+              }
+            ]
+          },
+          {
+            "id": "T6_D2",
+            "name": "NIH progress report with lab name",
+            "purpose": "Different colloquial phrasing for RPPR still routes correctly.",
+            "query": "I need the NIH progress report for the Kamm lab.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "reporter_plan.summary_mode",
+                "op": "eq",
+                "value": "RPPR"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "reporter"
+              }
+            ]
+          },
+          {
+            "id": "T6_D3",
+            "name": "All-modes RPPR (full project snapshot)",
+            "purpose": "Asking for samples + protocols + published (full picture) maps to RPPR.",
+            "query": "How many samples, protocols, and published datasets does the MetNet project have?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "reporter"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "reporter"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T7",
+        "name": "reporter — all four summary sub-modes (protocols as top-level)",
+        "path": "reporter_summary_protocols",
+        "description": "Protocols listing routes to reporter > summary > protocols. Debug queries cover the other three summary sub-modes to ensure each one routes correctly.",
+        "pipeline": "run_query",
+        "setup_queries": [],
+        "query": "Show me protocols registered for the CGR project.",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "summary"
+          },
+          {
+            "field": "reporter_plan.summary_mode",
+            "op": "eq",
+            "value": "protocols"
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "plan_first_step_tool",
+            "op": "eq",
+            "value": "reporter"
+          }
+        ],
+        "debug_queries": [
+          {
+            "id": "T7_D1",
+            "name": "Summary mode: samples",
+            "purpose": "A sample count query routes to summary > samples (not protocols).",
+            "query": "How many samples were added to the CGR project this year?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "reporter_plan.reporter_mode",
+                "op": "eq",
+                "value": "summary"
+              },
+              {
+                "field": "reporter_plan.summary_mode",
+                "op": "eq",
+                "value": "samples"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "reporter"
+              }
+            ]
+          },
+          {
+            "id": "T7_D2",
+            "name": "Summary mode: published",
+            "purpose": "A 'published samples' question routes to summary > published.",
+            "query": "What samples from the CGR project have been published?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "reporter_plan.reporter_mode",
+                "op": "eq",
+                "value": "summary"
+              },
+              {
+                "field": "reporter_plan.summary_mode",
+                "op": "eq",
+                "value": "published"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "reporter"
+              }
+            ]
+          },
+          {
+            "id": "T7_D3",
+            "name": "Summary mode: RPPR",
+            "purpose": "A full progress report request routes to summary > RPPR.",
+            "query": "Generate the annual progress report for the CGR project.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "reporter_plan.reporter_mode",
+                "op": "eq",
+                "value": "summary"
+              },
+              {
+                "field": "reporter_plan.summary_mode",
+                "op": "eq",
+                "value": "RPPR"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "reporter"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T8",
+        "name": "report_generation — GEO submission export",
+        "path": "report_generation_geo",
+        "description": "GEO submission request routes to reporter > report_generation with report_type=GEO.",
+        "pipeline": "run_query",
+        "setup_queries": [],
+        "query": "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB.",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "contains",
+            "value": "GEO"
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "plan_first_step_tool",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "plan_first_candidate_report_type",
+            "op": "contains",
+            "value": "GEO"
+          }
+        ],
+        "debug_queries": [
+          {
+            "id": "T8_D1",
+            "name": "Simpler GEO phrasing",
+            "purpose": "Shorter GEO phrasing routes to report_generation.",
+            "query": "Make a GEO report for sample D.SEQ-221031SHA-67-PUB.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "reporter_plan.reporter_mode",
+                "op": "eq",
+                "value": "report_generation"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_step_tool",
+                "op": "eq",
+                "value": "report_generation"
+              }
+            ]
+          },
+          {
+            "id": "T8_D2",
+            "name": "'Export' GEO metadata phrasing",
+            "purpose": "'Export' verb triggers report_generation, not summary.",
+            "query": "Export GEO metadata for D.SEQ-221031SHA-67-PUB.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "reporter_plan.reporter_mode",
+                "op": "eq",
+                "value": "report_generation"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_step_tool",
+                "op": "eq",
+                "value": "report_generation"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T9",
+        "name": "report_generation — SRA submission export",
+        "path": "report_generation_sra",
+        "description": "SRA submission request routes to reporter > report_generation with report_type=SRA.",
+        "pipeline": "run_query",
+        "setup_queries": [],
+        "query": "Build me an SRA submission for D.SEQ-230512FOR-288-PUB, D.SEQ-230512FOR-289-PUB, and D.SEQ-230512FOR-29-PUB.",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "contains",
+            "value": "SRA"
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "plan_first_step_tool",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "plan_first_candidate_report_type",
+            "op": "contains",
+            "value": "SRA"
+          }
+        ],
+        "debug_queries": [
+          {
+            "id": "T9_D1",
+            "name": "SRA for single sample",
+            "purpose": "Single-UID SRA request still routes to report_generation.",
+            "query": "Create an SRA metadata file for D.SEQ-230512FOR-288-PUB.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "reporter_plan.reporter_mode",
+                "op": "eq",
+                "value": "report_generation"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_step_tool",
+                "op": "eq",
+                "value": "report_generation"
+              }
+            ]
+          },
+          {
+            "id": "T9_D2",
+            "name": "'Export' SRA phrasing",
+            "purpose": "'Export' verb with SRA triggers report_generation.",
+            "query": "Export the SRA submission for D.SEQ-230512FOR-289-PUB.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "reporter_plan.reporter_mode",
+                "op": "eq",
+                "value": "report_generation"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_step_tool",
+                "op": "eq",
+                "value": "report_generation"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T10",
+        "name": "report_generation — PRIDE submission export",
+        "path": "report_generation_pride",
+        "description": "PRIDE submission request for a mass spec sample routes to reporter > report_generation with report_type=PRIDE.",
+        "pipeline": "run_query",
+        "setup_queries": [],
+        "query": "Please create a PRIDE submission for the mass spec sample D.MSP-230828GRI-4-PUB.",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "contains",
+            "value": "PRIDE"
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "plan_first_step_tool",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "plan_first_candidate_report_type",
+            "op": "contains",
+            "value": "PRIDE"
+          }
+        ],
+        "debug_queries": [
+          {
+            "id": "T10_D1",
+            "name": "Shorter PRIDE phrasing",
+            "purpose": "Shorter request still identifies PRIDE report type.",
+            "query": "Make a PRIDE submission for D.MSP-230828GRI-4-PUB.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "reporter_plan.reporter_mode",
+                "op": "eq",
+                "value": "report_generation"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_step_tool",
+                "op": "eq",
+                "value": "report_generation"
+              }
+            ]
+          },
+          {
+            "id": "T10_D2",
+            "name": "'Export for PRIDE repository' phrasing",
+            "purpose": "Repository mention with export triggers PRIDE report_generation.",
+            "query": "Export D.MSP-230828GRI-4-PUB for submission to the PRIDE repository.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "reporter_plan.reporter_mode",
+                "op": "eq",
+                "value": "report_generation"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_step_tool",
+                "op": "eq",
+                "value": "report_generation"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T11",
+        "name": "graph_query — multi-capability Neo4j traversal",
+        "path": "graph_query",
+        "description": "Study-scoped + sample-type + assay query requires graph traversal. Debug queries cover three distinct graph capabilities: study scope, subject-level scope, and protocol-based traversal.",
+        "pipeline": "run_query",
+        "setup_queries": [],
+        "query": "Find samples of PBMC type from the GBM study that also have sequencing data.",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          },
+          {
+            "field": "graph_cypher",
+            "op": "nonempty"
+          },
+          {
+            "field": "neo4j_ok",
+            "op": "true"
+          },
+          {
+            "field": "graph_result.count",
+            "op": "nonempty"
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "graph_query"
+          },
+          {
+            "field": "plan_first_step_tool",
+            "op": "eq",
+            "value": "graph_query"
+          },
+          {
+            "field": "plan_step1_ok",
+            "op": "true"
+          },
+          {
+            "field": "step_results.intersection.count",
+            "op": "nonempty"
+          }
+        ],
+        "debug_queries": [
+          {
+            "id": "T11_D1",
+            "name": "Study-scoped sample retrieval",
+            "purpose": "Simpler study scope query — patients in GBM investigation. Validates Investigation→Study→Sample traversal.",
+            "query": "Find me patients from the GBM study.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "graph_query"
+              },
+              {
+                "field": "graph_cypher",
+                "op": "nonempty"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "graph_query"
+              }
+            ]
+          },
+          {
+            "id": "T11_D2",
+            "name": "Subject-scoped sample query",
+            "purpose": "Subject-ID scoped query — what samples does DFCI4 have in the GBM study? Tests ID-based graph lookup.",
+            "query": "What samples does subject DFCI4 have in the GBM study?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "graph_query"
+              },
+              {
+                "field": "graph_cypher",
+                "op": "nonempty"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "graph_query"
+              }
+            ]
+          },
+          {
+            "id": "T11_D3",
+            "name": "Protocol-based traversal",
+            "purpose": "Protocol-title filtered query — samples processed with an RNAseq protocol. Tests DERIVED_FROM.protocol_title filtering.",
+            "query": "Show me samples from the BreakThroughCancer investigation that were processed using an RNAseq protocol.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "graph_query"
+              },
+              {
+                "field": "graph_cypher",
+                "op": "nonempty"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "graph_query"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T12",
+        "name": "unsupported — off-topic query rejection",
+        "path": "unsupported",
+        "description": "Queries with no relation to NExtSEEK must route to unsupported. No debug queries — this is a negative control.",
+        "pipeline": "run_query",
+        "setup_queries": [],
+        "query": "What is today's weather forecast in Boston?",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "unsupported"
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "unsupported"
+          }
+        ],
+        "debug_queries": []
+      },
+      {
+        "id": "T13",
+        "name": "unsupported — visualization and bulk-extraction requests",
+        "path": "unsupported_viz",
+        "description": "Requests for figures, charts, or mass metadata extraction are outside NExtSEEK's scope and must route to unsupported. No debug queries — negative control.",
+        "pipeline": "run_query",
+        "setup_queries": [],
+        "query": "Make me a bar chart of sample counts broken down by type across all projects in NExtSEEK.",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "unsupported"
+          }
+        ],
+        "planner_pass_criteria": [
+          {
+            "field": "plan_first_candidate_mode",
+            "op": "eq",
+            "value": "unsupported"
+          }
+        ],
+        "debug_queries": []
+      },
+      {
+        "id": "T14",
+        "name": "wizard activation — parser routes NFCORE → wizard intercepts",
+        "path": "wizard_activation",
+        "description": "When the parser identifies report_type=NFCORE, the orchestrator's wizard wedge intercepts BEFORE generate_report_outputs runs. Wizard state should be active with step=pipeline, and no actual report artifacts should be emitted yet.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": [
+          "wizard_agent (intro emission)",
+          "parser_agent (NFCORE detection)"
+        ],
+        "turns": [
+          {
+            "label": "setup_search",
+            "query": "Find me mice treated with NDMA.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "new_search"
+              },
+              {
+                "field": "results_history.length",
+                "op": "eq",
+                "value": 1
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "plan_first_candidate_mode",
+                "op": "eq",
+                "value": "new_search"
+              }
+            ]
+          },
+          {
+            "label": "trigger_wizard",
+            "query": "Build me an nf-core samplesheet for those mice.",
+            "pass_criteria": [
+              {
+                "field": "wizard.active",
+                "op": "true",
+                "value": null
+              },
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "pipeline"
+              },
+              {
+                "field": "results_history.length",
+                "op": "eq",
+                "value": 1,
+                "_comment": "wizard intercept means no new bundle should be appended"
+              },
+              {
+                "field": "chat_log.latest_mode",
+                "op": "eq",
+                "value": "nfcore_wizard"
+              },
+              {
+                "field": "last_reply",
+                "op": "mentions",
+                "value": "rnaseq",
+                "_comment": "intro lists available pipelines dynamically from reports/nfcore/"
+              }
+            ],
+            "planner_pass_criteria": [
+              {
+                "field": "wizard.active",
+                "op": "true",
+                "value": null
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T15",
+        "name": "wizard rabbit-hole — pipeline question stays on step",
+        "path": "wizard_rabbit_hole",
+        "description": "Mid-wizard, the user asks a clarifying question (rnaseq vs scrnaseq?). wizard_agent must return action=stay and re-pose the pipeline question. The next user message (a real pipeline choice) should then advance.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": [
+          "wizard_agent (stay vs advance discrimination)"
+        ],
+        "turns": [
+          {
+            "label": "setup_search",
+            "query": "Find me D.SEQ samples in the IMPACT project.",
+            "pass_criteria": []
+          },
+          {
+            "label": "trigger_wizard",
+            "query": "Build me an nf-core samplesheet.",
+            "pass_criteria": [
+              {
+                "field": "wizard.active",
+                "op": "true",
+                "value": null
+              },
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "pipeline"
+              }
+            ]
+          },
+          {
+            "label": "ask_clarifying_question",
+            "query": "What's the difference between rnaseq and scrnaseq?",
+            "pass_criteria": [
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "pipeline",
+                "_comment": "still on pipeline step — did NOT advance"
+              },
+              {
+                "field": "wizard_agent.last_action",
+                "op": "eq",
+                "value": "stay"
+              },
+              {
+                "field": "last_reply",
+                "op": "mentions",
+                "value": "scrnaseq"
+              },
+              {
+                "field": "last_reply",
+                "op": "mentions",
+                "value": "rnaseq"
+              }
+            ]
+          },
+          {
+            "label": "commit_pipeline",
+            "query": "okay use rnaseq",
+            "pass_criteria": [
+              {
+                "field": "wizard.active",
+                "op": "true",
+                "value": null
+              },
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "builder",
+                "_comment": "advance moved to next step"
+              },
+              {
+                "field": "wizard.pipeline",
+                "op": "eq",
+                "value": "rnaseq"
+              },
+              {
+                "field": "wizard_agent.last_action",
+                "op": "eq",
+                "value": "advance"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T16",
+        "name": "wizard escape hatch — off-topic query auto-cancels",
+        "path": "wizard_escape",
+        "description": "Pre-fix bug #2: when the wizard was mid-flight and the user asked an unrelated query, the wizard refused to release control (4+ trapped turns observed). Post-fix the prompt + _is_off_topic_for_step heuristic should auto-cancel. The next normal query then routes through the parser normally.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": [
+          "wizard_agent (cancel-on-out-of-scope)",
+          "parser_agent (post-cancel routing)"
+        ],
+        "turns": [
+          {
+            "label": "setup_search",
+            "query": "Find me D.SEQ samples in project IMPACT.",
+            "pass_criteria": []
+          },
+          {
+            "label": "trigger_wizard",
+            "query": "Build me an nf-core samplesheet.",
+            "pass_criteria": [
+              {
+                "field": "wizard.active",
+                "op": "true",
+                "value": null
+              }
+            ]
+          },
+          {
+            "label": "off_topic_query",
+            "query": "Actually, find me all assays I have access to.",
+            "pass_criteria": [
+              {
+                "field": "wizard.active",
+                "op": "eq",
+                "value": false,
+                "_comment": "wizard MUST release control"
+              },
+              {
+                "field": "wizard_agent.last_action",
+                "op": "eq",
+                "value": "cancel"
+              }
+            ]
+          },
+          {
+            "label": "normal_query_after_escape",
+            "query": "What investigations exist in the database?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "new_search",
+                "_comment": "fresh search, NOT wizard"
+              },
+              {
+                "field": "wizard.active",
+                "op": "eq",
+                "value": false
+              },
+              {
+                "field": "results_history.length",
+                "op": "gte",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T17",
+        "name": "wizard end-to-end emit — NFCORE bypass survives large UID set",
+        "path": "wizard_emit_e2e",
+        "description": "Pre-fix bug #1: 195-UID 'use last search' flow blew up report_writer at 5.1M tokens. Post-fix the emitter synthesizes samplesheet rows directly from accession_metadata. CRITICAL: this test must complete without LLMFatalError and produce a samplesheet.csv on disk.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": [
+          "wizard_agent (full flow)",
+          "generate_report_outputs (NFCORE bypass branch)",
+          "seqera/emitter (row synthesis)"
+        ],
+        "turns": [
+          {
+            "label": "setup_search",
+            "query": "Find me mice treated with NDMA.",
+            "pass_criteria": []
+          },
+          {
+            "label": "trigger_wizard",
+            "query": "Build me an nf-core samplesheet.",
+            "pass_criteria": [
+              {
+                "field": "wizard.active",
+                "op": "true",
+                "value": null
+              }
+            ]
+          },
+          {
+            "label": "pick_pipeline",
+            "query": "rnaseq",
+            "pass_criteria": [
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "builder",
+                "_comment": "pipeline advance moves us into the free-form builder step"
+              }
+            ]
+          },
+          {
+            "label": "use_last_search",
+            "query": "use the UIDs we just filtered",
+            "pass_criteria": [
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "builder",
+                "_comment": "still on builder — selection populated, not advancing"
+              },
+              {
+                "field": "wizard.uid_count",
+                "op": "gte",
+                "value": 100,
+                "_comment": "should pull ALL ~195 mice via memory_query"
+              }
+            ]
+          },
+          {
+            "label": "request_build",
+            "query": "build it",
+            "pass_criteria": [
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "confirm",
+                "_comment": "build-intent finalize_turn(action=advance) → confirm step"
+              }
+            ]
+          },
+          {
+            "label": "confirm_emit",
+            "query": "yes",
+            "pass_criteria": [
+              {
+                "field": "wizard.active",
+                "op": "eq",
+                "value": false,
+                "_comment": "wizard done; cleared"
+              },
+              {
+                "field": "chat_log.latest_mode",
+                "op": "eq",
+                "value": "reporter"
+              },
+              {
+                "field": "results_history.length",
+                "op": "gte",
+                "value": 2,
+                "_comment": "new bundle appended for the emitted samplesheet"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T18",
+        "name": "memory recall — distance 3 bundles back",
+        "path": "memory_dist3",
+        "description": "Parser must resolve 'the first search' (or 'the NDMA mice') to the correct target_result_id even with 2 intervening searches. Pre-fix this was OK at distance 3 (within the old 3-bundle visibility window).",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": [
+          "parser_agent (target_result_id resolution)",
+          "memory_coder_agent"
+        ],
+        "turns": [
+          {
+            "label": "search_A_ndma",
+            "query": "Find me mice treated with NDMA.",
+            "pass_criteria": []
+          },
+          {
+            "label": "search_B_nhp",
+            "query": "Find me NHP samples in IMPACT.",
+            "pass_criteria": []
+          },
+          {
+            "label": "search_C_dseq",
+            "query": "Find me D.SEQ samples in MetNet.",
+            "pass_criteria": []
+          },
+          {
+            "label": "recall_first",
+            "query": "How many NDMA mice did the first search return?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "ask_about_last_results"
+              },
+              {
+                "field": "last_target_result_id",
+                "op": "eq",
+                "value": 1,
+                "_comment": "the NDMA mice bundle, NOT the most recent"
+              },
+              {
+                "field": "last_reply",
+                "op": "mentions",
+                "value": "195"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T19",
+        "name": "memory recall — distance 8 bundles back",
+        "path": "memory_dist8",
+        "description": "Pre-fix bug #10: build_recent_results_summary capped at 3 bundles; anything older was invisible to the parser. Post-fix bumped to 8. This test verifies the parser can pick target_result_id=1 after 7 intervening searches.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": [
+          "parser_agent (deep recall via expanded recent_summary window)"
+        ],
+        "turns": [
+          {
+            "label": "search_1",
+            "query": "Find me mice treated with NDMA.",
+            "pass_criteria": []
+          },
+          {
+            "label": "search_2",
+            "query": "Find me NHP samples in IMPACT.",
+            "pass_criteria": []
+          },
+          {
+            "label": "search_3",
+            "query": "Find me DNA samples.",
+            "pass_criteria": []
+          },
+          {
+            "label": "search_4",
+            "query": "Find me RNA samples.",
+            "pass_criteria": []
+          },
+          {
+            "label": "search_5",
+            "query": "Find me cell line samples.",
+            "pass_criteria": []
+          },
+          {
+            "label": "search_6",
+            "query": "Find me tissue samples in IMPACT.",
+            "pass_criteria": []
+          },
+          {
+            "label": "search_7",
+            "query": "What protocols exist for the IMPACT project?",
+            "pass_criteria": []
+          },
+          {
+            "label": "search_8",
+            "query": "Find me studies in MetNet.",
+            "pass_criteria": []
+          },
+          {
+            "label": "recall_earliest",
+            "query": "Going way back — how many NDMA mice did the very first search return?",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "ask_about_last_results"
+              },
+              {
+                "field": "last_target_result_id",
+                "op": "eq",
+                "value": 1,
+                "_comment": "must reach bundle 1 even at 8-bundles-back depth"
+              },
+              {
+                "field": "last_reply",
+                "op": "mentions",
+                "value": "195"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T20",
+        "name": "memory correctness — no hallucinated filter matches",
+        "path": "memory_correctness_sha",
+        "description": "Pre-fix bug #7: memory_coder returned 3 GRI-prefix UIDs claiming 'from the SHA lab' but those samples had no Lab metadata field at all (it substring-matched against HTML-wrapped URLs). Post-fix the coder must either return real exact-match samples OR explicitly report 'no Lab field present'. This is CORRECTNESS, not routing — pass_criteria validates the answer content against the raw bundle.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": [
+          "memory_coder_agent (correctness, not hallucination)",
+          "field_index in build_memory_data_profile"
+        ],
+        "turns": [
+          {
+            "label": "setup_search_sha",
+            "query": "Find me all D.SEQ samples for the SHA lab.",
+            "pass_criteria": []
+          },
+          {
+            "label": "filter_correctly_or_disclaim",
+            "query": "Of those, which are actually from the SHA lab? Give me UIDs.",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "ask_about_last_results"
+              },
+              {
+                "_comment": "Pass if (a) reply mentions 'no Lab field' or similar disclaimer, OR (b) the UIDs mentioned in reply have field_count > 0 in the bundle. Test runner must implement bundle_field_count special field to check this — until then, manually verify."
+              },
+              {
+                "field": "last_reply",
+                "op": "matches_re",
+                "value": "(no\\s+Lab\\s+field|not\\s+present|cannot\\s+filter\\s+by\\s+lab|field\\s+not\\s+found|D\\.SEQ-[A-Z0-9]+SHA[A-Z0-9-]+)",
+                "_comment": "either explicit disclaimer OR a UID whose embedded lab tag is SHA"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T21",
+        "name": "memory recall after zero-result bundle — bundle skip transparency",
+        "path": "memory_skip_zero",
+        "description": "Pre-fix edge case: when the most recent search returned zero results, the wizard's 'use last search' silently picked an older bundle and the user had no way to know. Post-fix the wizard exposes skipped_bundles and the LLM is instructed to tell the user. Equivalent issue exists for plain memory recall — verify parser still picks the right (non-empty) bundle.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": [
+          "parser_agent (recall past zero-result bundles)",
+          "_last_search_context.skipped_bundles",
+          "wizard_agent (transparent skip)"
+        ],
+        "turns": [
+          {
+            "label": "search_with_results",
+            "query": "Find me mice treated with NDMA.",
+            "pass_criteria": [
+              {
+                "field": "results_history.length",
+                "op": "eq",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "label": "search_zero_result",
+            "query": "Find me NHP samples in a nonexistent investigation called XYZQQQ.",
+            "pass_criteria": [
+              {
+                "field": "results_history.length",
+                "op": "eq",
+                "value": 2,
+                "_comment": "zero-result bundle still appended"
+              }
+            ]
+          },
+          {
+            "label": "trigger_wizard",
+            "query": "Build me an nf-core samplesheet.",
+            "pass_criteria": [
+              {
+                "field": "wizard.active",
+                "op": "true",
+                "value": null
+              }
+            ]
+          },
+          {
+            "label": "pick_rnaseq",
+            "query": "rnaseq",
+            "pass_criteria": []
+          },
+          {
+            "label": "use_last_search_with_skip",
+            "query": "use the last search results",
+            "pass_criteria": [
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "cohorts"
+              },
+              {
+                "field": "wizard.uid_count",
+                "op": "gte",
+                "value": 100,
+                "_comment": "should have walked past the zero-result NHP bundle to the NDMA mice bundle (~195 UIDs)"
+              },
+              {
+                "field": "last_reply",
+                "op": "matches_re",
+                "value": "(NDMA|previous search|earlier search|most recent.+zero|walked past)",
+                "_comment": "wizard must tell the user which bundle was actually used"
+              }
+            ]
+          },
+          {
+            "label": "clean_cancel",
+            "query": "cancel",
+            "pass_criteria": [
+              {
+                "field": "wizard.active",
+                "op": "eq",
+                "value": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T22",
+        "name": "builder-step memory_query inline",
+        "path": "wizard_builder_memory_inline",
+        "description": "Builder-step rabbit-hole: 'how many tumor samples?' answered inline via memory_query tool without canceling the wizard.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": ["wizard_builder (tool dispatch)", "memory_query tool"],
+        "turns": [
+          {
+            "label": "setup_search",
+            "query": "Find me mice treated with NDMA.",
+            "pass_criteria": []
+          },
+          {
+            "label": "trigger_wizard",
+            "query": "Build me an nf-core samplesheet.",
+            "pass_criteria": []
+          },
+          {
+            "label": "pick_pipeline",
+            "query": "rnaseq",
+            "pass_criteria": [
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "builder"
+              }
+            ]
+          },
+          {
+            "label": "pin_search",
+            "query": "use my last search",
+            "pass_criteria": [
+              {
+                "field": "wizard.uid_count",
+                "op": "gte",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "label": "drill_question",
+            "query": "how many of these are tumor samples?",
+            "pass_criteria": [
+              {
+                "field": "wizard.active",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "builder",
+                "_comment": "stayed in builder; did NOT cancel out"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T23",
+        "name": "builder-step off-topic passthrough",
+        "path": "wizard_builder_offtopic",
+        "description": "Off-topic question mid-builder is answered via passthrough_to_parser; wizard state is preserved.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": ["wizard_builder (passthrough_to_parser tool)"],
+        "turns": [
+          {
+            "label": "setup_search",
+            "query": "Find me mice treated with NDMA.",
+            "pass_criteria": []
+          },
+          {
+            "label": "trigger_wizard",
+            "query": "Build me an nf-core samplesheet.",
+            "pass_criteria": []
+          },
+          {
+            "label": "pick_pipeline",
+            "query": "rnaseq",
+            "pass_criteria": []
+          },
+          {
+            "label": "pin_search",
+            "query": "use my last search",
+            "pass_criteria": []
+          },
+          {
+            "label": "offtopic",
+            "query": "what is NDMA?",
+            "pass_criteria": [
+              {
+                "field": "wizard.active",
+                "op": "eq",
+                "value": true,
+                "_comment": "wizard kept state through off-topic question"
+              },
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "builder"
+              },
+              {
+                "field": "last_reply",
+                "op": "matches_re",
+                "value": "(?i)nitros|carcinogen|chemical|compound|N-nitroso",
+                "_comment": "answer mentions NDMA's chemical nature"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T24",
+        "name": "build trigger requires confirm",
+        "path": "wizard_builder_confirm_gate",
+        "description": "'build it' transitions to confirm step but does NOT emit. Only after 'yes' does emit happen.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": ["wizard_builder (advance action)", "wizard confirm step"],
+        "turns": [
+          {
+            "label": "setup_search",
+            "query": "Find me mice treated with NDMA.",
+            "pass_criteria": []
+          },
+          {
+            "label": "trigger_wizard",
+            "query": "Build me an nf-core samplesheet.",
+            "pass_criteria": []
+          },
+          {
+            "label": "pick_pipeline",
+            "query": "rnaseq",
+            "pass_criteria": []
+          },
+          {
+            "label": "pin_search",
+            "query": "use my last search",
+            "pass_criteria": []
+          },
+          {
+            "label": "build_request",
+            "query": "build it",
+            "pass_criteria": [
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "confirm"
+              },
+              {
+                "field": "wizard.active",
+                "op": "eq",
+                "value": true,
+                "_comment": "wizard transitioned to confirm; not yet emitted"
+              }
+            ]
+          },
+          {
+            "label": "confirm_yes",
+            "query": "yes",
+            "pass_criteria": [
+              {
+                "field": "wizard.step",
+                "op": "eq",
+                "value": "done"
+              },
+              {
+                "field": "wizard.active",
+                "op": "eq",
+                "value": false
+              },
+              {
+                "field": "results_history.length",
+                "op": "gte",
+                "value": 2,
+                "_comment": "samplesheet bundle appended"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "full_test": {
+    "description": "Full regression test set — 103 questions covering all routing paths and question types. Pass criteria check routing mode, entity extraction, and endpoint selection. Known bugs are marked in notes and will FAIL until fixed.",
+    "tests": [
+      {
+        "id": "Search-Basic-1",
+        "query": "Find me mice treated with NDMA.",
+        "notes": "Returns mouse samples filtered by NDMA treatment",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "MUS"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "advanced_search"
+          },
+          {
+            "field": "api_plan.requestBody.filter_searchText",
+            "op": "contains",
+            "value": "NDMA"
+          }
+        ],
+        "name": "Search-Basic-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Basic-2",
+        "query": "Find me mice treated with mTB.",
+        "notes": "Returns mouse samples filtered by TB treatment",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "MUS"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "advanced_search"
+          }
+        ],
+        "name": "Search-Basic-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Basic-3",
+        "query": "What monkeys exist in the database?",
+        "notes": "Returns all NHP samples in the system",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "NHP"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "advanced_search"
+          }
+        ],
+        "name": "Search-Basic-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Basic-4",
+        "query": "Find me all CD8 antibodies in the database.",
+        "notes": "Returns AB (Antibody) samples matching CD8 in the Analyte field",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "AB"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "advanced_search"
+          },
+          {
+            "field": "api_plan.requestBody.filter_searchText",
+            "op": "contains",
+            "value": "CD8"
+          }
+        ],
+        "name": "Search-Basic-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Basic-5",
+        "query": "Show me tumor data for patient 4.",
+        "notes": "Returns samples associated with patient ID 4 with tumor-related keyword",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "advanced_search"
+          }
+        ],
+        "name": "Search-Basic-5",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Basic-6",
+        "query": "What GPT data exists in the database?",
+        "notes": "GPT is a non-standard keyword — tests edge-case entity resolution and fuzzy matching",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "D.GPT"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "advanced_search"
+          }
+        ],
+        "name": "Search-Basic-6",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Basic-7",
+        "query": "What fibrin images exist?",
+        "notes": "Returns imaging samples matching fibrin — tests keyword search on D.IMG type",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "D.IMG"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "advanced_search"
+          },
+          {
+            "field": "api_plan.requestBody.filter_searchText",
+            "op": "contains",
+            "value": "fibrin"
+          }
+        ],
+        "name": "Search-Basic-7",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Basic-8",
+        "query": "Find me all zebrafish samples in the database.",
+        "notes": "Zebrafish is not a registered sample type — system should respond gracefully with a clear explanation",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "advanced_search"
+          },
+          {
+            "field": "api_plan.requestBody.filter_searchText",
+            "op": "contains",
+            "value": "zebrafish"
+          }
+        ],
+        "name": "Search-Basic-8",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Attribute-1",
+        "query": "Find tissue samples with organ type Liver.",
+        "notes": "Returns TIS samples filtered by the Organ attribute",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "TIS"
+          },
+          {
+            "field": "api_plan.requestBody.sampletype",
+            "op": "eq",
+            "value": "TIS"
+          },
+          {
+            "field": "api_plan.requestBody.filter_searchText",
+            "op": "contains",
+            "value": "Liver"
+          }
+        ],
+        "name": "Search-Attribute-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Attribute-2",
+        "query": "Find cell samples with CellType set to T Cell.",
+        "notes": "Returns CEL samples filtered by the CellType attribute",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "CEL"
+          },
+          {
+            "field": "api_plan.requestBody.sampletype",
+            "op": "eq",
+            "value": "CEL"
+          }
+        ],
+        "name": "Search-Attribute-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Attribute-3",
+        "query": "Find female mouse samples.",
+        "notes": "Returns MUS samples filtered by Sex=Female",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "MUS"
+          },
+          {
+            "field": "api_plan.requestBody.sampletype",
+            "op": "eq",
+            "value": "MUS"
+          }
+        ],
+        "name": "Search-Attribute-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Attribute-4",
+        "query": "Find RNA samples with a RIN score greater than 7.",
+        "notes": "Returns RNA samples filtered by the RIN quality attribute — filter_searchText should be 'RIN' not a verbose phrase",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "RNA"
+          },
+          {
+            "field": "api_plan.requestBody.sampletype",
+            "op": "eq",
+            "value": "RNA"
+          },
+          {
+            "field": "api_plan.requestBody.filter_searchText",
+            "op": "eq",
+            "value": "RIN"
+          }
+        ],
+        "name": "Search-Attribute-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Attribute-5",
+        "query": "Find sequencing data generated on a NextSeq instrument.",
+        "notes": "Returns D.SEQ samples filtered by the Sequencer attribute",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "D.SEQ"
+          },
+          {
+            "field": "api_plan.requestBody.sampletype",
+            "op": "eq",
+            "value": "D.SEQ"
+          }
+        ],
+        "name": "Search-Attribute-5",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Attribute-6",
+        "query": "Show me flow cytometry data with PFA fixation.",
+        "notes": "Returns D.FLOW samples filtered by the Fixation attribute — filter_searchText should be 'PFA' not 'PFA fixation'",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "D.FLOW"
+          },
+          {
+            "field": "api_plan.requestBody.sampletype",
+            "op": "eq",
+            "value": "D.FLOW"
+          },
+          {
+            "field": "api_plan.requestBody.filter_searchText",
+            "op": "eq",
+            "value": "PFA"
+          }
+        ],
+        "name": "Search-Attribute-6",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Attribute-7",
+        "query": "Find mass spectrometry data of type proteomics.",
+        "notes": "Returns D.MSP samples filtered by the Type attribute",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "D.MSP"
+          },
+          {
+            "field": "api_plan.requestBody.sampletype",
+            "op": "eq",
+            "value": "D.MSP"
+          }
+        ],
+        "name": "Search-Attribute-7",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Attribute-8",
+        "query": "Find bacteria samples with strain mTB.",
+        "notes": "Returns BAC samples filtered by the Strain attribute",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "BAC"
+          },
+          {
+            "field": "api_plan.requestBody.sampletype",
+            "op": "eq",
+            "value": "BAC"
+          }
+        ],
+        "name": "Search-Attribute-8",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-MultiAssay-1",
+        "query": "Find me monkeys that have flow and sequencing data.",
+        "notes": "Returns NHP samples that have both D.FLOW and D.SEQ child samples",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "parents_by_child_types"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "NHP"
+          }
+        ],
+        "name": "Search-MultiAssay-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-MultiAssay-2",
+        "query": "Find samples with both flow cytometry and mass spec data.",
+        "notes": "Returns parent samples with both D.FLOW and D.MSP downstream",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "parents_by_child_types"
+          }
+        ],
+        "name": "Search-MultiAssay-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-MultiAssay-3",
+        "query": "Which mice have both mass spectrometry and RNA sequencing data?",
+        "notes": "Returns MUS samples with both D.MSP and D.SEQ child types",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "parents_by_child_types"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "MUS"
+          }
+        ],
+        "name": "Search-MultiAssay-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-MultiAssay-4",
+        "query": "Show me patients that have both sequencing and imaging data.",
+        "notes": "Returns PAT-linked samples with both D.SEQ and D.IMG downstream",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "parents_by_child_types"
+          }
+        ],
+        "name": "Search-MultiAssay-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-MultiAssay-5",
+        "query": "Find monkeys with proteomics and flow cytometry data.",
+        "notes": "Returns NHP parent samples with D.MSP and D.FLOW child types",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "parents_by_child_types"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "NHP"
+          }
+        ],
+        "name": "Search-MultiAssay-5",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Refine-1",
+        "query": "Which of those monkeys are depleted of CD8?",
+        "notes": "Narrows the prior NHP result set by adding a CD8-depletion attribute filter",
+        "setup_queries": [
+          "Find all NHP samples in the database."
+        ],
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "refine_last_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "NHP"
+          }
+        ],
+        "name": "Search-Refine-1",
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Refine-2",
+        "query": "Try that search again but instead with DFCI4.",
+        "notes": "Re-runs the prior patient tumor query substituting patient ID DFCI4",
+        "setup_queries": [
+          "Show me tumor data for patient 4."
+        ],
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "refine_last_search"
+          }
+        ],
+        "name": "Search-Refine-2",
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Refine-3",
+        "query": "Now filter those to only female animals.",
+        "notes": "Adds Sex=Female constraint to the prior search context",
+        "setup_queries": [
+          "Find all mouse samples in the database."
+        ],
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "refine_last_search"
+          }
+        ],
+        "name": "Search-Refine-3",
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Refine-4",
+        "query": "Narrow those results to samples collected after 2023.",
+        "notes": "Applies a date range filter to the prior result set",
+        "setup_queries": [
+          "Find tissue samples with organ type Liver."
+        ],
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "refine_last_search"
+          }
+        ],
+        "name": "Search-Refine-4",
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Search-Refine-5",
+        "query": "Can you limit those to liver tissue only?",
+        "notes": "Adds Organ=Liver filter to the prior tissue sample search",
+        "setup_queries": [
+          "Find all tissue samples in the database."
+        ],
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "refine_last_search"
+          }
+        ],
+        "name": "Search-Refine-5",
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Memory-1",
+        "query": "What sample types were represented in those results?",
+        "notes": "Extracts distinct sample type codes from the previously retrieved result bundle",
+        "setup_queries": [
+          "Find mice treated with NDMA."
+        ],
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "ask_about_last_results"
+          }
+        ],
+        "name": "Memory-1",
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Memory-2",
+        "query": "How many results came back from that last search?",
+        "notes": "Returns the count from the prior result set without a new API call",
+        "setup_queries": [
+          "Find mice treated with NDMA."
+        ],
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "ask_about_last_results"
+          }
+        ],
+        "name": "Memory-2",
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Memory-3",
+        "query": "What unique sample types are in those results?",
+        "notes": "Lists distinct types from a prior graph query result",
+        "setup_queries": [
+          "Find mice treated with NDMA."
+        ],
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "ask_about_last_results"
+          }
+        ],
+        "name": "Memory-3",
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Memory-4",
+        "query": "What scientists are listed on those samples?",
+        "notes": "Extracts Scientist field values from the prior result bundle",
+        "setup_queries": [
+          "Find all NHP samples in the database."
+        ],
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "ask_about_last_results"
+          }
+        ],
+        "name": "Memory-4",
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Memory-5",
+        "query": "Which of those samples are from 2022?",
+        "notes": "Filters the in-memory result set by year without making a new API call",
+        "setup_queries": [
+          "Find mice treated with NDMA."
+        ],
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "ask_about_last_results"
+          }
+        ],
+        "name": "Memory-5",
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Retrieve-1",
+        "query": "Retrieve all samples associated with NHP-220630FLY-5-PUB.",
+        "notes": "Fetches the full metadata record for the specified NHP sample UID",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "/admin/samples/retrieve/"
+          }
+        ],
+        "name": "Retrieve-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Retrieve-2",
+        "query": "Get the full details for D.SEQ-221031SHA-67-PUB.",
+        "notes": "Retrieves complete sequencing data record including linked files and metadata",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "/admin/samples/retrieve/"
+          }
+        ],
+        "name": "Retrieve-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Retrieve-3",
+        "query": "Pull up the record for TIS-220831FLY-26-PUB.",
+        "notes": "Retrieves full tissue sample record by UID",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "/admin/samples/retrieve/"
+          }
+        ],
+        "name": "Retrieve-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Retrieve-4",
+        "query": "Show me everything we know about CEL-230131KAM-1-PUB2.",
+        "notes": "Retrieves complete cell sample record including all attribute fields",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "/admin/samples/retrieve/"
+          }
+        ],
+        "name": "Retrieve-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "SampleTree-1",
+        "query": "Show me all samples derived from CEL-250319WHI-1-PUB.",
+        "notes": "Returns the downstream derivation tree (children and descendants) for the given cell sample",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "sample-tree"
+          }
+        ],
+        "name": "SampleTree-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "SampleTree-2",
+        "query": "What has been derived from NHP-220630FLY-5-PUB?",
+        "notes": "Returns the full sample tree rooted at the specified NHP record",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "sample-tree"
+          }
+        ],
+        "name": "SampleTree-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "SampleTree-3",
+        "query": "Show me the full lineage of D.SEQ-221031SHA-67-PUB.",
+        "notes": "Returns the ancestor chain from the sequencing file back to the source organism",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "sample-tree"
+          }
+        ],
+        "name": "SampleTree-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "SampleTree-4",
+        "query": "What is the parent chain for NHP-220830FLY-42-PUB",
+        "notes": "Traces the ancestry of a non human primate sample back through intermediate steps to the organism",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "sample-tree"
+          }
+        ],
+        "name": "SampleTree-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Study-1",
+        "query": "Find PBMC samples from the GBM study that also have sequencing data.",
+        "notes": "Returns PBMC-type tissue samples in the GBM study with sequencing descendants in the graph",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Study-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Study-2",
+        "query": "Show me all NHPs in the SRP project.",
+        "notes": "Returns NHP samples linked to the SRP investigation via graph traversal",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "NHP"
+          }
+        ],
+        "name": "Graph-Study-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Study-3",
+        "query": "Find all tissue and cell samples from IMPACT.",
+        "notes": "Returns TIS and CEL samples scoped to the IMPACT investigation",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "TIS"
+          }
+        ],
+        "name": "Graph-Study-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Study-4",
+        "query": "What studies are in the Griffith project?",
+        "notes": "Lists Study nodes linked to the Griffith investigation in the graph",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Study-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Study-5",
+        "query": "Show me samples in the GBM study.",
+        "notes": "Returns all samples associated with the GBM study via graph traversal",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Study-5",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Study-6",
+        "query": "Which investigations have NHP samples with sequencing data?",
+        "notes": "Lists investigations containing NHP samples with D.SEQ descendants in the graph",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Study-6",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Lineage-1",
+        "query": "Find me all mice that have sequencing data.",
+        "notes": "Multi-hop graph traversal from MUS ancestors to D.SEQ descendants — BUG: currently routes to new_search instead of graph_query",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Lineage-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Lineage-2",
+        "query": "What projects have mouse samples?",
+        "notes": "Aggregates investigations containing MUS samples via Sample→Study→Investigation traversal",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Lineage-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Lineage-3",
+        "query": "What projects have samples that undergo Short Read Sequencing?",
+        "notes": "Finds investigations linked to samples with Short Read Sequencing on their derivation path",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Lineage-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Lineage-4",
+        "query": "Which investigations have NHP samples with both flow and sequencing data?",
+        "notes": "Multi-hop traversal combining multi-assay filtering with investigation scope",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Lineage-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Assay-1",
+        "query": "Find samples that underwent single cell sequencing.",
+        "notes": "Returns samples with Single Cell Sequencing as the assay on their derivation edge",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Assay-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Assay-2",
+        "query": "Show me TIS samples that have been processed via Tissue Collection.",
+        "notes": "Returns TIS samples with Tissue Collection assay on their DERIVED_FROM edge",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "TIS"
+          }
+        ],
+        "name": "Graph-Assay-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Assay-3",
+        "query": "Find all DNA samples associated with Short Read Sequencing.",
+        "notes": "Returns DNA samples derived via Short Read Sequencing assay",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Assay-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Assay-4",
+        "query": "Show me samples associated with flow cytometry protocols.",
+        "notes": "Returns samples with any flow cytometry assay name on their derivation path",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Assay-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Assay-5",
+        "query": "Find samples processed via RNA extraction.",
+        "notes": "Returns samples with RNA Extraction as the assay on their DERIVED_FROM edge",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Assay-5",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Assay-6",
+        "query": "Which tissue samples underwent immunohistochemistry?",
+        "notes": "Returns TIS samples with an IHC assay on their DERIVED_FROM relationship",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "TIS"
+          }
+        ],
+        "name": "Graph-Assay-6",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Count-1",
+        "query": "How many mice are in the database?",
+        "notes": "Global count of MUS samples across all studies in the graph",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "MUS"
+          }
+        ],
+        "name": "Graph-Count-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Count-2",
+        "query": "How many TIS samples exist across all studies?",
+        "notes": "Counts all tissue samples in the graph regardless of study or project",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "TIS"
+          }
+        ],
+        "name": "Graph-Count-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Count-3",
+        "query": "How many tissue samples are in the CSBC investigation?",
+        "notes": "Counts TIS samples scoped to the CSBC investigation via graph traversal",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "TIS"
+          }
+        ],
+        "name": "Graph-Count-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Count-4",
+        "query": "How many studies are there in the IMPACT project?",
+        "notes": "Counts Study nodes linked to the IMPACT investigation",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Count-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Graph-Count-5",
+        "query": "What sample types are most common across all investigations?",
+        "notes": "Aggregates sample type distribution across the full graph",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Graph-Count-5",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "System-Entity-1",
+        "query": "What is a D.SEQ sample?",
+        "notes": "Explains the Sequencing Data sample type, its purpose, and key attributes",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "system_question"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "D.SEQ"
+          }
+        ],
+        "name": "System-Entity-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "System-Entity-2",
+        "query": "What metadata fields are tracked for a Tissue Sample?",
+        "notes": "Lists all attributes available on the TIS sample type from the catalog",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "system_question"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "TIS"
+          }
+        ],
+        "name": "System-Entity-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "System-Entity-3",
+        "query": "What sample types are available in the system?",
+        "notes": "Returns the full list of searchable sample type codes and their full names",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "system_question"
+          }
+        ],
+        "name": "System-Entity-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "System-Entity-4",
+        "query": "What is the difference between D.FLOW and A.FLOW?",
+        "notes": "Distinguishes raw flow cytometry data from analyzed flow cytometry results",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "system_question"
+          }
+        ],
+        "name": "System-Entity-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "System-Entity-5",
+        "query": "What attributes can I filter on for NHP samples?",
+        "notes": "Lists the filterable attributes for the Non-Human Primate sample type",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "system_question"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "NHP"
+          }
+        ],
+        "name": "System-Entity-5",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "System-Entity-6",
+        "query": "What assay types are registered in NExtSEEK?",
+        "notes": "Lists available assay types from the assay catalog",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "system_question"
+          }
+        ],
+        "name": "System-Entity-6",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "System-Capabilities-1",
+        "query": "What can you do? List your capabilities.",
+        "notes": "Describes the full set of supported system functions — search, graph queries, reports, exports",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "system_question"
+          }
+        ],
+        "name": "System-Capabilities-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "System-Capabilities-2",
+        "query": "What kinds of reports can I generate?",
+        "notes": "Lists available report types: GEO, SRA, PRIDE, nf-core, project summaries",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "system_question"
+          }
+        ],
+        "name": "System-Capabilities-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "System-Capabilities-3",
+        "query": "Can I search for samples by which study they belong to?",
+        "notes": "Explains that study-scoped search is supported via graph queries",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "system_question"
+          }
+        ],
+        "name": "System-Capabilities-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "System-Capabilities-4",
+        "query": "How do I find samples associated with a specific protocol or assay?",
+        "notes": "Explains protocol-based filtering via graph traversal on DERIVED_FROM edge metadata",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "system_question"
+          }
+        ],
+        "name": "System-Capabilities-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "System-Capabilities-5",
+        "query": "Show me all assays I have access to.",
+        "notes": "Lists all assays available to the authenticated user — BUG: routes to new_search instead of system_question",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "system_question"
+          }
+        ],
+        "name": "System-Capabilities-5",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Reporter-Summary-1",
+        "query": "How many samples were uploaded for IMPACT from 2023 to 2025?",
+        "notes": "Returns sample upload counts for the IMPACT project over the specified date range",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "summary"
+          },
+          {
+            "field": "reporter_plan.summary_mode",
+            "op": "eq",
+            "value": "samples"
+          },
+          {
+            "field": "reporter_plan.project",
+            "op": "eq",
+            "value": "IMPACT"
+          }
+        ],
+        "name": "Reporter-Summary-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Reporter-Summary-2",
+        "query": "How many samples were uploaded last month?",
+        "notes": "Returns sample upload counts using relative date language resolved to the current month",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "summary"
+          },
+          {
+            "field": "reporter_plan.summary_mode",
+            "op": "eq",
+            "value": "samples"
+          }
+        ],
+        "name": "Reporter-Summary-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Reporter-Summary-3",
+        "query": "Show me protocols registered for the CGR project.",
+        "notes": "Returns protocol titles registered under the CGR project",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "summary"
+          },
+          {
+            "field": "reporter_plan.summary_mode",
+            "op": "eq",
+            "value": "protocols"
+          },
+          {
+            "field": "reporter_plan.project",
+            "op": "eq",
+            "value": "CGR"
+          }
+        ],
+        "name": "Reporter-Summary-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Reporter-Summary-4",
+        "query": "Put together an annual progress report for the Kamm project — I need it for our NIH grant renewal.",
+        "notes": "Resolves 'Kamm' to the MetNet project and generates a full RPPR (samples + protocols + published)",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "summary"
+          },
+          {
+            "field": "reporter_plan.summary_mode",
+            "op": "eq",
+            "value": "RPPR"
+          }
+        ],
+        "name": "Reporter-Summary-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Reporter-Summary-5",
+        "query": "Show me published samples for the SRP project.",
+        "notes": "Returns published sample records for the SRP project via graph traversal",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "summary"
+          },
+          {
+            "field": "reporter_plan.summary_mode",
+            "op": "eq",
+            "value": "published"
+          },
+          {
+            "field": "reporter_plan.project",
+            "op": "eq",
+            "value": "SRP"
+          }
+        ],
+        "name": "Reporter-Summary-5",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Reporter-Summary-6",
+        "query": "Generate an annual progress report for CSBC.",
+        "notes": "Generates a full RPPR for the CSBC project covering samples, protocols, and published data",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "summary"
+          },
+          {
+            "field": "reporter_plan.summary_mode",
+            "op": "eq",
+            "value": "RPPR"
+          },
+          {
+            "field": "reporter_plan.project",
+            "op": "eq",
+            "value": "CSBC"
+          }
+        ],
+        "name": "Reporter-Summary-6",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Report-GEO-1",
+        "query": "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB.",
+        "notes": "Generates a GEO submission XLSX for the two specified sequencing samples",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "eq",
+            "value": "GEO"
+          }
+        ],
+        "name": "Report-GEO-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Report-GEO-2",
+        "query": "Create a GEO deposit file for D.SEQ-241219BRY-5-PUB.",
+        "notes": "Generates a GEO submission spreadsheet for a single sequencing sample",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "eq",
+            "value": "GEO"
+          }
+        ],
+        "name": "Report-GEO-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Report-GEO-3",
+        "query": "I need to submit these samples to GEO: D.SEQ-240422SHA-23-PUB, D.SEQ-240422SHA-24-PUB",
+        "notes": "Generates a GEO submission file for two sequencing samples",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "eq",
+            "value": "GEO"
+          }
+        ],
+        "name": "Report-GEO-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Report-SRA-1",
+        "query": "Create an SRA submission for D.SEQ-230512FOR-288-PUB and D.SEQ-230512FOR-289-PUB.",
+        "notes": "Generates an SRA metadata XLSX for the two specified sequencing samples",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "eq",
+            "value": "SRA"
+          }
+        ],
+        "name": "Report-SRA-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Report-SRA-2",
+        "query": "Build an SRA metadata file for D.SEQ-230512FOR-29-PUB.",
+        "notes": "Generates an SRA submission for the specified sequencing sample",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "eq",
+            "value": "SRA"
+          }
+        ],
+        "name": "Report-SRA-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Report-SRA-3",
+        "query": "I need to submit D.SEQ-231213FOR-120-PUB, D.SEQ-231213FOR-121-PUB to the SRA. Can you generate the submission file?",
+        "notes": "Generates an SRA submission file for two sequencing sample UIDs — BUG: parser_plan is null",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "eq",
+            "value": "SRA"
+          }
+        ],
+        "name": "Report-SRA-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Report-PRIDE-1",
+        "query": "Create a PRIDE submission for D.MSP-230828GRI-4-PUB.",
+        "notes": "Generates a PRIDE submission file for the specified mass spectrometry sample",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "eq",
+            "value": "PRIDE"
+          }
+        ],
+        "name": "Report-PRIDE-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Report-PRIDE-2",
+        "query": "I need to submit this proteomics dataset to PRIDE: D.MSP-250606SHO-1-PUB.",
+        "notes": "Generates a PRIDE submission for a placeholder mass spectrometry sample UID",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "eq",
+            "value": "PRIDE"
+          }
+        ],
+        "name": "Report-PRIDE-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Report-PRIDE-3",
+        "query": "Build a PRIDE deposit for D.MSP-241114WHI-110-PUB and D.MSP-241114WHI-108-PUB",
+        "notes": "Generates a PRIDE submission for two mass spectrometry samples",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "eq",
+            "value": "PRIDE"
+          }
+        ],
+        "name": "Report-PRIDE-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Report-NFCORE-1",
+        "query": "Generate an nf-core RNA-seq samplesheet for D.SEQ-221031SHA-67-PUB.",
+        "notes": "Generates an nf-core RNA-seq pipeline CSV samplesheet for the specified sequencing sample",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "eq",
+            "value": "NFCORE_RNASEQ"
+          }
+        ],
+        "name": "Report-NFCORE-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Report-NFCORE-2",
+        "query": "Build a single-cell RNA-seq pipeline CSV for D.SEQ-241114SHA-5-PUB.",
+        "notes": "Generates an nf-core scRNA-seq pipeline samplesheet for a placeholder sample",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "eq",
+            "value": "NFCORE_SCRNASEQ"
+          }
+        ],
+        "name": "Report-NFCORE-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Report-NFCORE-3",
+        "query": "Create an nf-core samplesheet for D.SEQ-240709KAM-4-PUB and D.SEQ-241219BRY-2-PUB.",
+        "notes": "Generates an nf-core RNA-seq CSV samplesheet for two sequencing samples",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "reporter"
+          },
+          {
+            "field": "reporter_plan.reporter_mode",
+            "op": "eq",
+            "value": "report_generation"
+          },
+          {
+            "field": "reporter_plan.report_type",
+            "op": "eq",
+            "value": "NFCORE_RNASEQ"
+          }
+        ],
+        "name": "Report-NFCORE-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Write-Update-1",
+        "query": "Update the scientist field on NHP-220630FLY-1-PUB to Damn Daniel",
+        "notes": "Updates the Scientist attribute on the specified NHP sample record via PATCH",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.method",
+            "op": "eq",
+            "value": "PATCH"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "/nextseek_api/samples/"
+          }
+        ],
+        "name": "Write-Update-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Write-Create-1",
+        "query": "Create Investigation 'Testing 404'.",
+        "notes": "Attempts to create a new investigation record — correctly routes to unsupported (no create endpoint exists)",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "unsupported"
+          }
+        ],
+        "name": "Write-Create-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Write-Create-2",
+        "query": "Register a new mouse sample with strain C57BL/6 and sex Male.",
+        "notes": "Creates a new MUS sample with Strain and Sex attributes via the create sample endpoint",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "api_plan.method",
+            "op": "eq",
+            "value": "POST"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "/nextseek_api/samples/"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "MUS"
+          }
+        ],
+        "name": "Write-Create-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Edge-1",
+        "query": "Show me all FACS data for the monkeys.",
+        "notes": "FACS is a colloquial name for flow cytometry; NHP→D.FLOW lineage requires graph traversal",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "D.FLOW"
+          }
+        ],
+        "name": "Edge-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Edge-2",
+        "query": "What proteomics data exists in the database?",
+        "notes": "Ambiguous term — should resolve primarily to D.MSP (raw); tests fuzzy catalog matching",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "D.MSP"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "advanced_search"
+          }
+        ],
+        "name": "Edge-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Edge-3",
+        "query": "Find me scRNA-seq clustering results.",
+        "notes": "'scRNA-seq clustering' should map to A.SCCL (Single Cell Clustering Analysis) — tests informal assay name resolution",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "A.SCCL"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "advanced_search"
+          }
+        ],
+        "name": "Edge-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Edge-4",
+        "query": "Do we have any western blot data?",
+        "notes": "Colloquial assay name — should map to D.WBLT; tests catalog matching on informal names",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "D.WBLT"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "advanced_search"
+          }
+        ],
+        "name": "Edge-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Edge-5",
+        "query": "Show me analyzed sequencing data.",
+        "notes": "User explicitly says 'analyzed' — should prefer A.ALN or A.GEX over raw D.SEQ",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "new_search"
+          },
+          {
+            "field": "entity_sampletype_codes",
+            "op": "contains",
+            "value": "A.ALN"
+          },
+          {
+            "field": "api_plan.endpoint",
+            "op": "contains",
+            "value": "advanced_search"
+          }
+        ],
+        "name": "Edge-5",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Edge-6",
+        "query": "Find me all PBMCs associated with BTC Patients.",
+        "notes": "Multi-hop traversal: BTC investigation + PAT→PBMC derivation — requires graph_query",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "graph_query"
+          }
+        ],
+        "name": "Edge-6",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Unsupported-1",
+        "query": "Make me a bar chart of sample counts by type.",
+        "notes": "Visualization request — system cannot generate charts; should explain scope limitation",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "unsupported"
+          }
+        ],
+        "name": "Unsupported-1",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Unsupported-2",
+        "query": "Explain what NDMA is and why it's carcinogenic.",
+        "notes": "General domain knowledge question — outside NExtSEEK data scope; should be declined",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "unsupported"
+          }
+        ],
+        "name": "Unsupported-2",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Unsupported-3",
+        "query": "What is today's weather forecast in Boston?",
+        "notes": "Completely unrelated query — should be declined clearly",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "unsupported"
+          }
+        ],
+        "name": "Unsupported-3",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Unsupported-4",
+        "query": "Is treatment A significantly better than treatment B based on our sequencing results?",
+        "notes": "Statistical comparison — outside system scope; should be declined",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "unsupported"
+          }
+        ],
+        "name": "Unsupported-4",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      },
+      {
+        "id": "Unsupported-5",
+        "query": "Download all samples from the database as a spreadsheet.",
+        "notes": "Bulk data extraction without filters — system should route to unsupported, not attempt a search — BUG: currently routes to new_search",
+        "pass_criteria": [
+          {
+            "field": "parser_plan.mode",
+            "op": "eq",
+            "value": "unsupported"
+          }
+        ],
+        "name": "Unsupported-5",
+        "setup_queries": [],
+        "debug_queries": [],
+        "planner_pass_criteria": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,43 @@
+[project]
+name = "chat-nextseek"
+version = "0.1.0"
+description = "Query NExtSEEK data using human language"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "aiohttp>=3.12.15",
+  "aiohttp-sse>=2.2.0",
+  "anthropic>=0.40.0",
+  "mysql-connector-python>=9.1.0",
+  "openai>=2.9.0",
+  "pydantic>=2.9.0",
+  "pandas>=2.3.3",
+  "python-dotenv>=1.2.1",
+  "pyyaml>=6.0.3",
+  "rapidfuzz>=3.14.3",
+  "requests>=2.32.5",
+  "streamlit>=1.52.1",
+  "PyPDF2>=3.0.1",
+  "openpyxl>=3.1.5",
+  "google-genai>=1.62.0",
+  "neo4j>=6.1.0",
+  "boto3>=1.35.0",
+  "mcp>=1.0.0",
+  "baml-py>=0.221.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"chat_nextseek.prompts" = ["*"]
+"chat_nextseek.context" = ["*"]
+"chat_nextseek.evaluator" = ["baml_src/*.baml", "*.md", "docs/*.md"]
+"chat_nextseek.evaluator.dashboard" = ["*.html"]
+"chat_nextseek.evaluator.demo" = ["*.html"]
+"chat_nextseek.reports" = ["*"]
+"chat_nextseek.reports.nfcore" = ["*"]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"

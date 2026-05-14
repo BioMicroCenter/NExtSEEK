@@ -1,0 +1,820 @@
+{
+  "fetched_at": "2026-05-11T16:20:36.286103+00:00",
+  "connections": [
+    {
+      "assay": "Agglutination Assay",
+      "parent_type": "CHM",
+      "child_type": "CHM"
+    },
+    {
+      "assay": "Agglutination Assay",
+      "parent_type": "CHM",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Agglutination Assay",
+      "parent_type": "D.IMG",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Antibody Functional Profiling",
+      "parent_type": "BAC",
+      "child_type": "D.ADCD"
+    },
+    {
+      "assay": "Antibody Functional Profiling",
+      "parent_type": "TIS",
+      "child_type": "D.ADCP"
+    },
+    {
+      "assay": "Antibody Functional Profiling",
+      "parent_type": "BAC",
+      "child_type": "D.ADCP"
+    },
+    {
+      "assay": "Antibody Functional Profiling",
+      "parent_type": "CEL",
+      "child_type": "D.ADDCP"
+    },
+    {
+      "assay": "Antibody Functional Profiling",
+      "parent_type": "CEL",
+      "child_type": "D.ADMP"
+    },
+    {
+      "assay": "Antibody Functional Profiling",
+      "parent_type": "TIS",
+      "child_type": "D.ADNKA"
+    },
+    {
+      "assay": "Antibody Functional Profiling",
+      "parent_type": "CHM",
+      "child_type": "D.ADNKA"
+    },
+    {
+      "assay": "Antibody Functional Profiling",
+      "parent_type": "TIS",
+      "child_type": "D.ADNP"
+    },
+    {
+      "assay": "Antibody Functional Profiling",
+      "parent_type": "BAC",
+      "child_type": "D.ADNP"
+    },
+    {
+      "assay": "Antibody Functional Profiling",
+      "parent_type": "CEL",
+      "child_type": "D.ADNP"
+    },
+    {
+      "assay": "Antibody Functional Profiling Analysis",
+      "parent_type": "D.ADMP",
+      "child_type": "A.ADMP"
+    },
+    {
+      "assay": "Antibody Functional Profiling Analysis",
+      "parent_type": "D.ADNKA",
+      "child_type": "A.ADNKA"
+    },
+    {
+      "assay": "Antibody Functional Profiling Analysis",
+      "parent_type": "D.ADNP",
+      "child_type": "A.ADNP"
+    },
+    {
+      "assay": "Antibody Titer",
+      "parent_type": "TIS",
+      "child_type": "D.TITR"
+    },
+    {
+      "assay": "Antibody Titer Analysis",
+      "parent_type": "D.TITR",
+      "child_type": "A.TITR"
+    },
+    {
+      "assay": "Bacterial Extraction",
+      "parent_type": "TIS",
+      "child_type": "BAC"
+    },
+    {
+      "assay": "Bacterial Extraction - Metadata",
+      "parent_type": "TIS",
+      "child_type": "BAC"
+    },
+    {
+      "assay": "Bacterial Survivability Restriction Assay",
+      "parent_type": "TIS",
+      "child_type": "D.BSRA"
+    },
+    {
+      "assay": "Bacterial Survivability Restriction Assay",
+      "parent_type": "BAC",
+      "child_type": "D.BSRA"
+    },
+    {
+      "assay": "Bacterial Survivability Restriction Assay",
+      "parent_type": "CEL",
+      "child_type": "D.BSRA"
+    },
+    {
+      "assay": "CITESEQ Analysis",
+      "parent_type": "D.SEQ",
+      "child_type": "A.SCXP"
+    },
+    {
+      "assay": "Cell Culture",
+      "parent_type": "CEL",
+      "child_type": "CEL"
+    },
+    {
+      "assay": "Cell Isolation",
+      "parent_type": "TIS",
+      "child_type": "CEL"
+    },
+    {
+      "assay": "Cell Isolation",
+      "parent_type": "MUS",
+      "child_type": "CEL"
+    },
+    {
+      "assay": "Cell Sorting",
+      "parent_type": "D.FLOW",
+      "child_type": "CEL"
+    },
+    {
+      "assay": "Cell Sorting",
+      "parent_type": "CEL",
+      "child_type": "D.FLOW"
+    },
+    {
+      "assay": "Chemical Simulation",
+      "parent_type": "CHM",
+      "child_type": "D.SIM"
+    },
+    {
+      "assay": "Chemical Synthesis",
+      "parent_type": "CHM",
+      "child_type": "CHM"
+    },
+    {
+      "assay": "Chromatin Sequencing Analysis",
+      "parent_type": "D.SEQ",
+      "child_type": "A.CHRM"
+    },
+    {
+      "assay": "Comet Chip",
+      "parent_type": "TIS",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Comet Chip",
+      "parent_type": "CEL",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Comet Chip Analysis",
+      "parent_type": "CEL",
+      "child_type": "A.COMC"
+    },
+    {
+      "assay": "Comet Chip Analysis",
+      "parent_type": "CHM",
+      "child_type": "A.COMC"
+    },
+    {
+      "assay": "Crystallography",
+      "parent_type": "CHM",
+      "child_type": "D.XRS"
+    },
+    {
+      "assay": "Crystallography",
+      "parent_type": "CHM",
+      "child_type": "D.CRY"
+    },
+    {
+      "assay": "Cytokine Luminex - Data Linked",
+      "parent_type": "OOC",
+      "child_type": "D.LMX"
+    },
+    {
+      "assay": "DNA Extraction",
+      "parent_type": "TIS",
+      "child_type": "DNA"
+    },
+    {
+      "assay": "DNA Extraction",
+      "parent_type": "BAC",
+      "child_type": "DNA"
+    },
+    {
+      "assay": "DNA Extraction",
+      "parent_type": "CEL",
+      "child_type": "DNA"
+    },
+    {
+      "assay": "DNA Extraction - Metadata",
+      "parent_type": "TIS",
+      "child_type": "DNA"
+    },
+    {
+      "assay": "Device Creation",
+      "parent_type": "CEL",
+      "child_type": "OOC"
+    },
+    {
+      "assay": "Device Imaging",
+      "parent_type": "OOC",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Digitally Barcoded Mtb Matrix Analysis",
+      "parent_type": "D.SEQ",
+      "child_type": "A.DBMM"
+    },
+    {
+      "assay": "Digitally Barcoded Mtb Matrix Analysis - Data Linked",
+      "parent_type": "D.SEQ",
+      "child_type": "A.DBMM"
+    },
+    {
+      "assay": "ELISA",
+      "parent_type": "CHM",
+      "child_type": "D.ELSA"
+    },
+    {
+      "assay": "ELISA",
+      "parent_type": "CEL",
+      "child_type": "D.ELSA"
+    },
+    {
+      "assay": "ELISA",
+      "parent_type": "ABP",
+      "child_type": "D.ELSA"
+    },
+    {
+      "assay": "ELISA - Data Linked",
+      "parent_type": "TIS",
+      "child_type": "D.ELSA"
+    },
+    {
+      "assay": "FC Receptor Binding Assay",
+      "parent_type": "TIS",
+      "child_type": "D.FCRB"
+    },
+    {
+      "assay": "FC Receptor Binding Assay",
+      "parent_type": "ABP",
+      "child_type": "D.FCRB"
+    },
+    {
+      "assay": "FC Receptor Binding Assay Analysis",
+      "parent_type": "D.FCRB",
+      "child_type": "A.FCRB"
+    },
+    {
+      "assay": "Field Water Sensor Run",
+      "parent_type": "LOC",
+      "child_type": "D.SNSR"
+    },
+    {
+      "assay": "Flow Cytometry",
+      "parent_type": "TIS",
+      "child_type": "D.FLOW"
+    },
+    {
+      "assay": "Flow Cytometry",
+      "parent_type": "CEL",
+      "child_type": "D.FLOW"
+    },
+    {
+      "assay": "Flow Cytometry",
+      "parent_type": "ABP",
+      "child_type": "D.FCS"
+    },
+    {
+      "assay": "Flow Cytometry",
+      "parent_type": "D.SPC",
+      "child_type": "A.SPC"
+    },
+    {
+      "assay": "Flow Cytometry - Data Linked",
+      "parent_type": "ABP",
+      "child_type": "D.FCS"
+    },
+    {
+      "assay": "Flow Cytometry - Data Linked",
+      "parent_type": "TIS",
+      "child_type": "D.FLOW"
+    },
+    {
+      "assay": "Flow Cytometry Analysis",
+      "parent_type": "D.FLOW",
+      "child_type": "A.FLOW"
+    },
+    {
+      "assay": "Flow Cytometry Analysis",
+      "parent_type": "CHM",
+      "child_type": "D.SPC"
+    },
+    {
+      "assay": "Flow Cytometry Analysis - Data Linked",
+      "parent_type": "D.FLOW",
+      "child_type": "A.FLOW"
+    },
+    {
+      "assay": "GPT Assay",
+      "parent_type": "TIS",
+      "child_type": "D.GPT"
+    },
+    {
+      "assay": "GPT Assay",
+      "parent_type": "DNA",
+      "child_type": "D.GPT"
+    },
+    {
+      "assay": "GPT Assay - Data Linked",
+      "parent_type": "TIS",
+      "child_type": "D.GPT"
+    },
+    {
+      "assay": "Gel Permeation Chromatography",
+      "parent_type": "CHM",
+      "child_type": "D.GPC"
+    },
+    {
+      "assay": "Gene Expression Analysis",
+      "parent_type": "D.SEQ",
+      "child_type": "A.GEX"
+    },
+    {
+      "assay": "Gene Expression Analysis - Data Linked",
+      "parent_type": "D.SEQ",
+      "child_type": "A.GEX"
+    },
+    {
+      "assay": "Genome Alignment",
+      "parent_type": "D.SEQ",
+      "child_type": "A.ALN"
+    },
+    {
+      "assay": "Imaging",
+      "parent_type": "CEL",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Imaging",
+      "parent_type": "CHM",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Imaging",
+      "parent_type": "D.XRS",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Imaging",
+      "parent_type": "MUS",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Imaging - Data Linked",
+      "parent_type": "CEL",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Imaging - Data Linked",
+      "parent_type": "OOC",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Imaging Analysis",
+      "parent_type": "D.IMG",
+      "child_type": "A.CCE"
+    },
+    {
+      "assay": "Imaging Analysis",
+      "parent_type": "D.IMG",
+      "child_type": "A.CCI"
+    },
+    {
+      "assay": "Imaging Analysis",
+      "parent_type": "D.IMG",
+      "child_type": "A.CTSC"
+    },
+    {
+      "assay": "Imaging Analysis",
+      "parent_type": "D.IMG",
+      "child_type": "A.IMG"
+    },
+    {
+      "assay": "Imaging Analysis",
+      "parent_type": "D.IMG",
+      "child_type": "A.MIGR"
+    },
+    {
+      "assay": "Imaging Analysis - Data Linked",
+      "parent_type": "D.IMG",
+      "child_type": "A.IMG"
+    },
+    {
+      "assay": "Immunohistochemistry",
+      "parent_type": "ABP",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Immunohistochemistry",
+      "parent_type": "TIS",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Library Prep",
+      "parent_type": "TIS",
+      "child_type": "DNA"
+    },
+    {
+      "assay": "Library Prep",
+      "parent_type": "CEL",
+      "child_type": "DNA"
+    },
+    {
+      "assay": "Library Prep",
+      "parent_type": "BAC",
+      "child_type": "DNA"
+    },
+    {
+      "assay": "Library Prep",
+      "parent_type": "RNA",
+      "child_type": "DNA"
+    },
+    {
+      "assay": "Library Prep",
+      "parent_type": "TIS",
+      "child_type": "RNA"
+    },
+    {
+      "assay": "Library Prep - Metadata",
+      "parent_type": "RNA",
+      "child_type": "DNA"
+    },
+    {
+      "assay": "Library Prep - Metadata",
+      "parent_type": "BAC",
+      "child_type": "DNA"
+    },
+    {
+      "assay": "Luminex",
+      "parent_type": "CEL",
+      "child_type": "D.LMX"
+    },
+    {
+      "assay": "Luminex",
+      "parent_type": "TIS",
+      "child_type": "D.LMX"
+    },
+    {
+      "assay": "Luminex Analysis",
+      "parent_type": "A.LMX",
+      "child_type": "D.FILE"
+    },
+    {
+      "assay": "MVN Imaging Analysis - Data Linked",
+      "parent_type": "D.IMG",
+      "child_type": "A.PERM"
+    },
+    {
+      "assay": "Mass Cytometry - Data Linked",
+      "parent_type": "TIS",
+      "child_type": "D.CYTOF"
+    },
+    {
+      "assay": "Mass Cytometry Analysis - Data Linked",
+      "parent_type": "D.CYTOF",
+      "child_type": "A.CYTOF"
+    },
+    {
+      "assay": "Mass Spectrometry",
+      "parent_type": "CHM",
+      "child_type": "D.MSP"
+    },
+    {
+      "assay": "Mass Spectrometry - Data Linked",
+      "parent_type": "TIS",
+      "child_type": "D.SPC"
+    },
+    {
+      "assay": "Mass Spectrometry Analysis",
+      "parent_type": "D.MSP",
+      "child_type": "A.MSP"
+    },
+    {
+      "assay": "Mass Spectrometry Proteomics",
+      "parent_type": "TIS",
+      "child_type": "D.MSP"
+    },
+    {
+      "assay": "Mass Spectrometry Proteomics",
+      "parent_type": "CEL",
+      "child_type": "D.MSP"
+    },
+    {
+      "assay": "Mass Spectrometry Proteomics",
+      "parent_type": "CHM",
+      "child_type": "D.MSP"
+    },
+    {
+      "assay": "Mass Spectrometry Proteomics Analysis",
+      "parent_type": "D.MSP",
+      "child_type": "A.MSP"
+    },
+    {
+      "assay": "Microfluidic Network Formation - Metadata",
+      "parent_type": "OOC",
+      "child_type": "CEL"
+    },
+    {
+      "assay": "Microfluidic Network Formation - Metadata",
+      "parent_type": "CEL",
+      "child_type": "OOC"
+    },
+    {
+      "assay": "Microfluidic Network Imaging - Data Linked",
+      "parent_type": "OOC",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Modeling",
+      "parent_type": "D.IMG",
+      "child_type": "M.CNN"
+    },
+    {
+      "assay": "Modeling",
+      "parent_type": "D.FCRB",
+      "child_type": "M.LMM"
+    },
+    {
+      "assay": "Modeling",
+      "parent_type": "D.TITR",
+      "child_type": "M.LMM"
+    },
+    {
+      "assay": "Modeling",
+      "parent_type": "D.ADCP",
+      "child_type": "M.LMM"
+    },
+    {
+      "assay": "Modeling",
+      "parent_type": "D.ADNP",
+      "child_type": "M.LMM"
+    },
+    {
+      "assay": "Modeling",
+      "parent_type": "A.GEX",
+      "child_type": "MDL"
+    },
+    {
+      "assay": "Modeling",
+      "parent_type": "A.IMG",
+      "child_type": "MDL"
+    },
+    {
+      "assay": "Modeling",
+      "parent_type": "MDL",
+      "child_type": "A.IMG"
+    },
+    {
+      "assay": "Mouse Challenge",
+      "parent_type": "MUS",
+      "child_type": "TIS"
+    },
+    {
+      "assay": "Mutational Spectra Analysis - Data Linked",
+      "parent_type": "D.SEQ",
+      "child_type": "A.MUSP"
+    },
+    {
+      "assay": "Nuclear Magnetic Resonance",
+      "parent_type": "D.NMR",
+      "child_type": "A.NMR"
+    },
+    {
+      "assay": "Nuclear Magnetic Resonance",
+      "parent_type": "CHM",
+      "child_type": "D.NMR"
+    },
+    {
+      "assay": "Nuclear Magnetic Resonance Analysis",
+      "parent_type": "D.NMR",
+      "child_type": "A.NMR"
+    },
+    {
+      "assay": "PCR",
+      "parent_type": "RNA",
+      "child_type": "D.PCR"
+    },
+    {
+      "assay": "PCR",
+      "parent_type": "CEL",
+      "child_type": "D.PCR"
+    },
+    {
+      "assay": "PCR - Data Linked",
+      "parent_type": "RNA",
+      "child_type": "D.PCR"
+    },
+    {
+      "assay": "PET-CT Scan - Data Linked",
+      "parent_type": "PAV",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "PET/CT Scan",
+      "parent_type": "PAV",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Patient Visit",
+      "parent_type": "NHP",
+      "child_type": "PAV"
+    },
+    {
+      "assay": "Patient Visit",
+      "parent_type": "PAT",
+      "child_type": "PAV"
+    },
+    {
+      "assay": "Patient Visit - Metadata",
+      "parent_type": "NHP",
+      "child_type": "PAV"
+    },
+    {
+      "assay": "Patient Visit - Metadata",
+      "parent_type": "PAT",
+      "child_type": "PAV"
+    },
+    {
+      "assay": "Proteomics Analysis - Data Linked",
+      "parent_type": "D.MSP",
+      "child_type": "A.MSP"
+    },
+    {
+      "assay": "RNA Extraction",
+      "parent_type": "CEL",
+      "child_type": "RNA"
+    },
+    {
+      "assay": "RNA Extraction - Metadata",
+      "parent_type": "CEL",
+      "child_type": "RNA"
+    },
+    {
+      "assay": "RNA Extraction - Metadata",
+      "parent_type": "TIS",
+      "child_type": "RNA"
+    },
+    {
+      "assay": "RNA Extraction - Metadata",
+      "parent_type": "OOC",
+      "child_type": "RNA"
+    },
+    {
+      "assay": "RaDR - Data Linked",
+      "parent_type": "TIS",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Real Time RT-PCR - Data Linked",
+      "parent_type": "RNA",
+      "child_type": "D.PCR"
+    },
+    {
+      "assay": "Sensor Creation",
+      "parent_type": "CHM",
+      "child_type": "SNSR"
+    },
+    {
+      "assay": "Sensor Testing",
+      "parent_type": "SNSR",
+      "child_type": "D.SNSR"
+    },
+    {
+      "assay": "Short Read Sequencing",
+      "parent_type": "DNA",
+      "child_type": "D.SEQ"
+    },
+    {
+      "assay": "Short Read Sequencing",
+      "parent_type": "CEL",
+      "child_type": "D.SEQ"
+    },
+    {
+      "assay": "Short Read Sequencing - Data Linked",
+      "parent_type": "DNA",
+      "child_type": "D.SEQ"
+    },
+    {
+      "assay": "Single Cell Clustering Analysis",
+      "parent_type": "A.SCXP",
+      "child_type": "A.SCCL"
+    },
+    {
+      "assay": "Single Cell Expression Matrix Analysis",
+      "parent_type": "D.SEQ",
+      "child_type": "A.SCXP"
+    },
+    {
+      "assay": "Single Cell Expression Matrix Analysis",
+      "parent_type": "DNA",
+      "child_type": "A.SCXP"
+    },
+    {
+      "assay": "Single Cell Sequencing",
+      "parent_type": "DNA",
+      "child_type": "D.SEQ"
+    },
+    {
+      "assay": "Spectroscopy",
+      "parent_type": "CHM",
+      "child_type": "D.SPC"
+    },
+    {
+      "assay": "Spectroscopy",
+      "parent_type": "CHM",
+      "child_type": "D.XRS"
+    },
+    {
+      "assay": "Spectroscopy",
+      "parent_type": "CHM",
+      "child_type": "D.PRM"
+    },
+    {
+      "assay": "Spectroscopy Analysis",
+      "parent_type": "D.SPC",
+      "child_type": "A.SPC"
+    },
+    {
+      "assay": "SureQuant Analysis",
+      "parent_type": "D.MSP",
+      "child_type": "A.MSP"
+    },
+    {
+      "assay": "Tensiometry",
+      "parent_type": "CHM",
+      "child_type": "D.TNSY"
+    },
+    {
+      "assay": "Tissue Collection",
+      "parent_type": "TIS",
+      "child_type": "CEL"
+    },
+    {
+      "assay": "Tissue Collection",
+      "parent_type": "BAC",
+      "child_type": "CEL"
+    },
+    {
+      "assay": "Tissue Collection",
+      "parent_type": "NHP",
+      "child_type": "CEX"
+    },
+    {
+      "assay": "Tissue Collection",
+      "parent_type": "MUS",
+      "child_type": "PAV"
+    },
+    {
+      "assay": "Tissue Collection",
+      "parent_type": "PAT",
+      "child_type": "PAV"
+    },
+    {
+      "assay": "Tissue Collection",
+      "parent_type": "PAV",
+      "child_type": "TIS"
+    },
+    {
+      "assay": "Tissue Collection",
+      "parent_type": "MUS",
+      "child_type": "TIS"
+    },
+    {
+      "assay": "Tissue Collection",
+      "parent_type": "D.BSRA",
+      "child_type": "TIS"
+    },
+    {
+      "assay": "Tissue Collection",
+      "parent_type": "BAC",
+      "child_type": "TIS"
+    },
+    {
+      "assay": "Tissue Collection - Metadata",
+      "parent_type": "PAV",
+      "child_type": "TIS"
+    },
+    {
+      "assay": "Tissue Collection - Metadata",
+      "parent_type": "MUS",
+      "child_type": "TIS"
+    }
+  ]
+}

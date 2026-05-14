@@ -1,0 +1,41 @@
+{
+  "report_type": "NFCORE_ATACSEQ_SAMPLESHEET",
+  "description": "nf-core/atacseq samplesheet context. Designed for direct creation of the pipeline CSV from study metadata + ENA-resolved FASTQ URLs.",
+  "pipeline": {
+    "name": "nf-core/atacseq",
+    "repository": "https://github.com/nf-core/atacseq",
+    "documentation_url": "https://nf-co.re/atacseq/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Required header columns are: sample, fastq_1, fastq_2, replicate. Additional metadata columns may follow.",
+    "required_columns": [
+      "sample",
+      "fastq_1",
+      "fastq_2",
+      "replicate"
+    ],
+    "optional_columns": [
+      "read_count"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null,
+      "replicate": null
+    }
+  ],
+  "validation_rules": [
+    "Column 1 must be `sample`; the sample value should be a stable biological identifier shared across replicates.",
+    "fastq_1/fastq_2 may be HTTPS URLs (ENA mirror) or local paths.",
+    "replicate is a 1-indexed integer; multiple rows per sample with different replicate values describe biological replicates.",
+    "Single-end libraries leave fastq_2 blank but retain the column header."
+  ],
+  "report_writer_guidance": {
+    "population_priority": [
+      "One row per (biological sample, replicate, run).",
+      "Use accession_rows from the resolver context to populate fastq_1/fastq_2.",
+      "Carry NExtSEEK metadata into treatment/tissue/donor/condition/antibody columns when present."
+    ]
+  }
+}

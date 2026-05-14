@@ -1,0 +1,422 @@
+{
+  "report_type": "NFCORE_SCRNASEQ_SAMPLESHEET",
+  "description": "nf-core/scrnaseq samplesheet context JSON template aligned to the current nf-core/scrnaseq usage documentation. Designed for LLM-friendly parsing and conversion into the main pipeline CSV and any required companion CSVs.",
+  "pipeline": {
+    "name": "nf-core/scrnaseq",
+    "repository": "https://github.com/nf-core/scrnaseq",
+    "documentation_url": "https://nf-co.re/scrnaseq/latest/docs/usage/",
+    "parameters_url": "https://nf-co.re/scrnaseq/latest/parameters",
+    "input_file_type": "csv",
+    "core_rule": "The first 3 columns must be sample, fastq_1, fastq_2. Additional columns may follow for optional or mode-specific inputs.",
+    "required_columns": [
+      "sample",
+      "fastq_1",
+      "fastq_2"
+    ],
+    "optional_columns": [
+      "expected_cells",
+      "seq_center"
+    ],
+    "conditional_columns": {
+      "cellranger_multi": [
+        "feature_type"
+      ],
+      "cellranger_arc": [
+        "sample_type",
+        "fastq_barcode"
+      ]
+    },
+    "auxiliary_companion_files": {
+      "cellranger_multi_barcodes": {
+        "required_when": "Using cellranger-multi with multiplexed FFPE/CMO/OCM data",
+        "parameter": "--cellranger_multi_barcodes",
+        "columns": [
+          "sample",
+          "multiplexed_sample_id",
+          "probe_barcode_ids",
+          "cmo_ids",
+          "ocm_ids",
+          "description"
+        ]
+      }
+    },
+    "multi_run_behavior": "Rows with the same sample value are treated as multiple runs/libraries for the same sample and concatenated before downstream analysis.",
+    "pairing_behavior": "The pipeline expects paired FASTQ inputs in the main samplesheet examples; filenames should match except for R1/R2 where applicable.",
+    "protocol_note": "Protocol/chemistry is set via the --protocol pipeline parameter, not as a standard samplesheet column.",
+    "supported_modes": [
+      "standard",
+      "cellranger_multi",
+      "cellranger_arc"
+    ],
+    "feature_type_allowed_values": [
+      "gex",
+      "vdj",
+      "ab",
+      "crispr",
+      "cmo",
+      "beam"
+    ],
+    "sample_type_allowed_values": [
+      "gex",
+      "atac"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null
+    }
+  ],
+  "pipeline_optional_columns_passthrough": [
+    "expected_cells",
+    "seq_center",
+    "feature_type",
+    "sample_type",
+    "fastq_barcode"
+  ],
+  "cellranger_multi_barcodes_template": [
+    {
+      "sample": null,
+      "multiplexed_sample_id": null,
+      "probe_barcode_ids": null,
+      "cmo_ids": null,
+      "ocm_ids": null,
+      "description": null
+    }
+  ],
+  "examples": {
+    "standard_example": {
+      "sample": "PBMC8K",
+      "fastq_1": "/data/fastq/pbmc8k_S1_L007_R1_001.fastq.gz",
+      "fastq_2": "/data/fastq/pbmc8k_S1_L007_R2_001.fastq.gz",
+      "expected_cells": 10000,
+      "seq_center": "GENOMICS_CORE",
+      "feature_type": "",
+      "sample_type": "",
+      "fastq_barcode": "",
+      "batch": "batch1",
+      "condition": "control",
+      "donor": "donorA",
+      "protocol_hint": "10XV3",
+      "mode_hint": "standard"
+    },
+    "multiple_runs_same_sample_example": [
+      {
+        "sample": "PBMC8K",
+        "fastq_1": "/data/fastq/pbmc8k_S1_L007_R1_001.fastq.gz",
+        "fastq_2": "/data/fastq/pbmc8k_S1_L007_R2_001.fastq.gz",
+        "expected_cells": 10000,
+        "seq_center": "GENOMICS_CORE",
+        "feature_type": "",
+        "sample_type": "",
+        "fastq_barcode": "",
+        "batch": "batch1",
+        "condition": "control",
+        "donor": "donorA",
+        "protocol_hint": "10XV3",
+        "mode_hint": "standard"
+      },
+      {
+        "sample": "PBMC8K",
+        "fastq_1": "/data/fastq/pbmc8k_S1_L008_R1_001.fastq.gz",
+        "fastq_2": "/data/fastq/pbmc8k_S1_L008_R2_001.fastq.gz",
+        "expected_cells": 10000,
+        "seq_center": "GENOMICS_CORE",
+        "feature_type": "",
+        "sample_type": "",
+        "fastq_barcode": "",
+        "batch": "batch1",
+        "condition": "control",
+        "donor": "donorA",
+        "protocol_hint": "10XV3",
+        "mode_hint": "standard_multiple_runs"
+      }
+    ],
+    "cellranger_multi_example": [
+      {
+        "sample": "PBMC_10K_CMO",
+        "fastq_1": "/data/fastq/PBMC_10K_CMO_gex_S2_L001_R1_001.fastq.gz",
+        "fastq_2": "/data/fastq/PBMC_10K_CMO_gex_S2_L001_R2_001.fastq.gz",
+        "expected_cells": 1000,
+        "seq_center": "",
+        "feature_type": "gex",
+        "sample_type": "",
+        "fastq_barcode": "",
+        "batch": "batch2",
+        "condition": "multiplexed",
+        "donor": "mixed",
+        "protocol_hint": "10XV3",
+        "mode_hint": "cellranger_multi"
+      },
+      {
+        "sample": "PBMC_10K_CMO",
+        "fastq_1": "/data/fastq/PBMC_10K_CMO_cmo_S1_L001_R1_001.fastq.gz",
+        "fastq_2": "/data/fastq/PBMC_10K_CMO_cmo_S1_L001_R2_001.fastq.gz",
+        "expected_cells": 1000,
+        "seq_center": "",
+        "feature_type": "cmo",
+        "sample_type": "",
+        "fastq_barcode": "",
+        "batch": "batch2",
+        "condition": "multiplexed",
+        "donor": "mixed",
+        "protocol_hint": "10XV3",
+        "mode_hint": "cellranger_multi"
+      }
+    ],
+    "cellranger_arc_example": [
+      {
+        "sample": "test_scARC",
+        "fastq_1": "/data/fastq/test_scARC_atac_rep1_S1_L001_R1_001.fastq.gz",
+        "fastq_2": "/data/fastq/test_scARC_atac_rep1_S1_L001_R2_001.fastq.gz",
+        "expected_cells": "",
+        "seq_center": "",
+        "feature_type": "",
+        "sample_type": "atac",
+        "fastq_barcode": "/data/fastq/test_scARC_atac_rep1_S1_L001_I2_001.fastq.gz",
+        "batch": "batch3",
+        "condition": "multiome",
+        "donor": "donorB",
+        "protocol_hint": "auto",
+        "mode_hint": "cellranger_arc"
+      },
+      {
+        "sample": "test_scARC",
+        "fastq_1": "/data/fastq/test_scARC_gex_S1_L001_R1_001.fastq.gz",
+        "fastq_2": "/data/fastq/test_scARC_gex_S1_L001_R2_001.fastq.gz",
+        "expected_cells": "",
+        "seq_center": "",
+        "feature_type": "",
+        "sample_type": "gex",
+        "fastq_barcode": "",
+        "batch": "batch3",
+        "condition": "multiome",
+        "donor": "donorB",
+        "protocol_hint": "auto",
+        "mode_hint": "cellranger_arc"
+      }
+    ],
+    "cellranger_multi_barcodes_example": [
+      {
+        "sample": "PBMC_10K_CMO",
+        "multiplexed_sample_id": "PBMC_10K_CMO_PBMCs_human_1",
+        "probe_barcode_ids": "",
+        "cmo_ids": "CMO301",
+        "ocm_ids": "",
+        "description": "PBMCs_human_1"
+      },
+      {
+        "sample": "PBMC_10K_CMO",
+        "multiplexed_sample_id": "PBMC_10K_CMO_PBMCs_human_2",
+        "probe_barcode_ids": "",
+        "cmo_ids": "CMO302",
+        "ocm_ids": "",
+        "description": "PBMCs_human_2"
+      }
+    ]
+  },
+  "validation_rules": [
+    "First 3 columns of the main samplesheet must be exactly: sample, fastq_1, fastq_2.",
+    "The pipeline input file must be comma-separated (CSV).",
+    "Use the same sample value across rows for multiple lanes/runs of the same biological sample.",
+    "fastq_1 and fastq_2 should point to gzipped FASTQ files ending in .fastq.gz or .fq.gz.",
+    "For standard paired FASTQ inputs, filenames should only differ by R1/R2 as a sanity check.",
+    "expected_cells must be an integer when provided; if a sample spans multiple rows, keep the same value on each row.",
+    "seq_center must stay consistent across repeated rows of the same sample if used.",
+    "Add feature_type only for cellranger-multi inputs; allowed values are gex, vdj, ab, crispr, cmo, beam (beam currently unsupported).",
+    "Add sample_type and fastq_barcode for cellranger-arc inputs; sample_type should be gex or atac and fastq_barcode is usually populated for atac rows.",
+    "When using multiplexed FFPE/CMO/OCM data with cellranger-multi, also prepare the companion barcodes CSV.",
+    "FFPE, CMO, and OCM are mutually exclusive within a single cellranger/multi sample.",
+    "Additional context columns for LLM workflows may be appended after official columns, but remove or validate them before strict pipeline execution if necessary."
+  ],
+  "schema": {
+    "sources": [
+      "https://github.com/nf-core/scrnaseq",
+      "https://nf-co.re/scrnaseq/latest/docs/usage/",
+      "https://nf-co.re/scrnaseq/latest/parameters"
+    ],
+    "sections": {
+      "main_samplesheet": {
+        "description": "Primary nf-core/scrnaseq input CSV. Works for standard runs and can be extended for cellranger-multi or cellranger-arc with conditional columns.",
+        "fields": {
+          "sample": {
+            "required": "required",
+            "position_rule": "Must be column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Custom sample name. Reuse the same value across multiple sequencing runs/libraries for the same biological sample so nf-core concatenates them.",
+            "validation_hints": "No commas; spaces are converted to underscores; keep identical across lanes/reruns of the same sample.",
+            "example": "PBMC8K"
+          },
+          "fastq_1": {
+            "required": "required",
+            "position_rule": "Must be column 2",
+            "expected_value": "path string",
+            "allowed_values": ".fastq.gz or .fq.gz",
+            "description": "Full path to read 1 FASTQ file.",
+            "validation_hints": "Use gzipped FASTQ; absolute path recommended; for resequencing, create another row with the same sample and different FASTQ path.",
+            "example": "/data/fastq/PBMC8K_S1_L001_R1_001.fastq.gz"
+          },
+          "fastq_2": {
+            "required": "required",
+            "position_rule": "Must be column 3",
+            "expected_value": "path string",
+            "allowed_values": ".fastq.gz or .fq.gz",
+            "description": "Full path to read 2 FASTQ file.",
+            "validation_hints": "Should pair with fastq_1 and only differ by R1/R2 in standard paired-read data.",
+            "example": "/data/fastq/PBMC8K_S1_L001_R2_001.fastq.gz"
+          },
+          "expected_cells": {
+            "required": "optional",
+            "position_rule": "May appear after the first 3 columns",
+            "expected_value": "integer",
+            "allowed_values": "",
+            "description": "Expected total number of cells for a sample.",
+            "validation_hints": "If repeated rows exist for the same sample, keep the same expected_cells value on each row. Supported by Alevin-fry, STARsolo, and Cellranger; since Cellranger v7 it is usually not recommended.",
+            "example": "10000"
+          },
+          "seq_center": {
+            "required": "optional",
+            "position_rule": "May appear after the first 3 columns",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Sequencing center for the sample.",
+            "validation_hints": "If repeated rows exist for the same sample, keep the same string for all rows. Used for STARsolo BAM outputs only and overrides params.seq_center.",
+            "example": "GENOMICS_CORE"
+          },
+          "feature_type": {
+            "required": "conditional",
+            "position_rule": "Add for cellranger-multi mode",
+            "expected_value": "string",
+            "allowed_values": "gex | vdj | ab | crispr | cmo | beam",
+            "description": "Feature Barcode technology type for cellranger-multi input rows.",
+            "validation_hints": "Use the same sample name across rows that belong to the same physical sample. beam is currently not supported. For multiplexed FFPE/CMO/OCM data, a second barcodes CSV is also needed.",
+            "example": "gex"
+          },
+          "sample_type": {
+            "required": "conditional",
+            "position_rule": "Add for cellranger-arc mode",
+            "expected_value": "string",
+            "allowed_values": "gex | atac",
+            "description": "Data type for Cell Ranger ARC rows.",
+            "validation_hints": "Required only for cellranger-arc. scRNA rows use gex; scATAC rows use atac. Keep scRNA and scATAC file groups distinguishable.",
+            "example": "atac"
+          },
+          "fastq_barcode": {
+            "required": "conditional",
+            "position_rule": "Add for cellranger-arc ATAC rows",
+            "expected_value": "path string or blank",
+            "allowed_values": ".fastq.gz or .fq.gz, blank for gex rows",
+            "description": "Barcode FASTQ path used by Cell Ranger ARC, typically for scATAC rows.",
+            "validation_hints": "Populate for atac rows; leave blank for gex rows. Confirm which file is the barcode FASTQ (often I2) before mapping.",
+            "example": "/data/fastq/test_scARC_atac_rep1_S1_L001_I2_001.fastq.gz"
+          },
+          "batch": {
+            "required": "llm-only",
+            "position_rule": "Optional extra context column after official columns",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Extra context for downstream grouping / design metadata. Not an official nf-core field.",
+            "validation_hints": "Keep only in context templates or strip before strict pipeline submission if needed.",
+            "example": "batch1"
+          },
+          "condition": {
+            "required": "llm-only",
+            "position_rule": "Optional extra context column after official columns",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Experimental condition for LLM processing or later design generation. Not an official nf-core field.",
+            "validation_hints": "Useful for design matrices / metadata joins; may need to be removed from final strict pipeline input.",
+            "example": "control"
+          }
+        }
+      },
+      "cellranger_multi_barcodes": {
+        "description": "Companion CSV required for multiplexed cellranger-multi workflows (CMO/OCM/FFPE-style demultiplexing).",
+        "fields": {
+          "sample": {
+            "required": "required for multiplexed CMO/OCM/FFPE workflows",
+            "position_rule": "Companion barcodes CSV column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Physical sample identifier matching the main samplesheet sample column.",
+            "validation_hints": "Must match a sample value from the main samplesheet.",
+            "example": "PBMC_10K_CMO"
+          },
+          "multiplexed_sample_id": {
+            "required": "required for multiplexed CMO/OCM/FFPE workflows",
+            "position_rule": "Companion barcodes CSV column 2",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "ID for the demultiplexed logical sample within a multiplexed physical sample.",
+            "validation_hints": "Should be unique within the barcodes sheet.",
+            "example": "PBMC_10K_CMO_PBMCs_human_1"
+          },
+          "probe_barcode_ids": {
+            "required": "conditional",
+            "position_rule": "Companion barcodes CSV column 3",
+            "expected_value": "string or blank",
+            "allowed_values": "",
+            "description": "Probe barcode IDs for multiplexed FFPE workflows, when applicable.",
+            "validation_hints": "Leave blank unless using probe barcodes.",
+            "example": ""
+          },
+          "cmo_ids": {
+            "required": "conditional",
+            "position_rule": "Companion barcodes CSV column 4",
+            "expected_value": "string or blank",
+            "allowed_values": "",
+            "description": "CMO barcode IDs for Cell Multiplexing Oligo workflows.",
+            "validation_hints": "Leave blank unless using CMO multiplexing.",
+            "example": "CMO301"
+          },
+          "ocm_ids": {
+            "required": "conditional",
+            "position_rule": "Companion barcodes CSV column 5",
+            "expected_value": "string or blank",
+            "allowed_values": "",
+            "description": "OCM barcode IDs for OCM workflows.",
+            "validation_hints": "Leave blank unless using OCM multiplexing.",
+            "example": ""
+          },
+          "description": {
+            "required": "optional",
+            "position_rule": "Companion barcodes CSV column 6",
+            "expected_value": "string or blank",
+            "allowed_values": "",
+            "description": "Human-readable description of the multiplexed sample.",
+            "validation_hints": "Useful label for LLMs and QC reports.",
+            "example": "PBMCs_human_1"
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Use this file as the single context specification for constructing nf-core/scrnaseq input file(s) from already-scraped study metadata.",
+    "workflow_role": "Selected when the upstream agent identifies report_writing mode and chooses NFCORE:scRNAseq as the report type.",
+    "output_expectation": "Populate the main samplesheet_template and, when needed, also populate the cellranger_multi_barcodes_template companion CSV.",
+    "mode_selection_guidance": [
+      "Use standard mode for ordinary paired FASTQ scRNA-seq inputs.",
+      "Use cellranger_multi mode when the study clearly includes multiple feature types for the same physical sample, such as gex plus cmo, vdj, ab, or crispr.",
+      "Use cellranger_arc mode when the study clearly includes paired gene expression and ATAC data for the same sample."
+    ],
+    "population_priority": [
+      "Assign one logical sample identifier per biological sample or physical sample as appropriate for the selected mode.",
+      "Map read 1 FASTQ files to fastq_1 and read 2 FASTQ files to fastq_2 using file naming or explicit mate metadata.",
+      "For multiple lanes or resequenced runs from the same sample, repeat the same sample value across rows and change only the FASTQ paths.",
+      "Populate feature_type only for cellranger_multi rows.",
+      "Populate sample_type and fastq_barcode only for cellranger_arc rows, with fastq_barcode typically used for ATAC rows.",
+      "Leave expected_cells blank unless it is explicitly known.",
+      "Treat protocol or chemistry as a pipeline parameter suggestion, not as a required samplesheet column."
+    ],
+    "final_checks": [
+      "Column order starts with: sample, fastq_1, fastq_2.",
+      "Conditional columns are only used when the selected mode requires them.",
+      "feature_type values are limited to: gex, vdj, ab, crispr, cmo, beam.",
+      "sample_type values are limited to: gex, atac.",
+      "The companion barcodes CSV is produced only when multiplexed workflows require it."
+    ]
+  }
+}

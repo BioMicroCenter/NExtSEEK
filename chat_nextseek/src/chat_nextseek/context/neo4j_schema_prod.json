@@ -1,0 +1,3062 @@
+{
+  "fetched_at": "2026-03-26T22:19:04.422577+00:00",
+  "node_labels": [
+    "Sample",
+    "SampleType",
+    "Study",
+    "Investigation"
+  ],
+  "relationship_types": [
+    "CHILD_OF",
+    "DERIVED_FROM",
+    "IN_INVESTIGATION",
+    "IN_STUDY",
+    "OF_TYPE"
+  ],
+  "node_properties": {
+    "Sample": [
+      "Parent",
+      "UID",
+      "uuid",
+      "id",
+      "type",
+      "parent_titles",
+      "Protocol",
+      "Organ",
+      "ShipID",
+      "OrganDetail",
+      "ReceiptDate",
+      "Location",
+      "Treatment",
+      "ShipNotes",
+      "TumorFractionFromCNV",
+      "ViableCellCount",
+      "Contact",
+      "VialID",
+      "RelevantTimepoint",
+      "ShipDestination",
+      "CollectionTime",
+      "BALInstilledVolumeUnits",
+      "Concentration",
+      "CFUUnits",
+      "Stains",
+      "ShippingTemperatures_Destination",
+      "CollectionTimeUnits",
+      "VolumeUnits",
+      "TimeToFreezer",
+      "TreatmentTime",
+      "ShipOrigin",
+      "CFU_FileName",
+      "TreatmentDoseUnits",
+      "SurgeryTimepoint",
+      "Treatment2Type",
+      "CFU",
+      "MassUnits",
+      "CFU_FileLink",
+      "BALInstilledVolume",
+      "ConcentrationPerVial",
+      "ArrayNumber",
+      "Protocol2",
+      "TimeOfDetection",
+      "ShippingTemperatures_Origin",
+      "TreatmentDate",
+      "TumorWeightUnits",
+      "BALCollectedVolume",
+      "Protocol3",
+      "Part",
+      "ExtractionInterval",
+      "TumorWeight",
+      "ConcentrationUnits",
+      "Mass",
+      "BALCollectedVolumeUnits",
+      "StudyID",
+      "Volume",
+      "StorageDate",
+      "ShipDate",
+      "Link_OrganWeight",
+      "CEQ",
+      "CEQUnits",
+      "Core",
+      "WeeksSincePrimaryIntervention",
+      "Color",
+      "SampleCollectionDate",
+      "Assay",
+      "TimeUnits",
+      "CellTypes",
+      "Viability%",
+      "NumVials",
+      "TreatmentDose",
+      "CFU/CEQUnits",
+      "AssociatedCNV",
+      "ReceiptNotes",
+      "ExtractionIntervalNotes",
+      "CFU/CEQ",
+      "StorageLocation",
+      "Treatment2DoseUnits",
+      "CellCount",
+      "Treatment2Dose",
+      "StorageSite",
+      "BioSampleAccession",
+      "StorageType",
+      "TreatmentType",
+      "Stimulation",
+      "Publish_uri",
+      "TreatmentTimeUnits",
+      "Treatment2",
+      "Name",
+      "Scientist",
+      "SampleCreationDate",
+      "Catalog#",
+      "Notes",
+      "Type",
+      "DataType",
+      "Instrument",
+      "Path_PrimaryData",
+      "PRIDE_ExperimentType",
+      "ReagentCatalogNum",
+      "QCUser",
+      "ProteinSeqFile",
+      "PRIDE_FileType",
+      "ScanFile",
+      "Labels",
+      "Calibration",
+      "Method",
+      "Link_TMT",
+      "File_TMT",
+      "Software",
+      "Supporting_Links",
+      "PRIDE_Modification",
+      "Link_PSM",
+      "Link_PrimaryData",
+      "IonizationMethod",
+      "QCInstrument",
+      "File_PSM",
+      "Supporting_Files",
+      "PRIDE_Quantification",
+      "Checksum_PrimaryData",
+      "RepositoryID",
+      "ReagentManufacturer",
+      "Checksum_PrimaryType",
+      "MetadataFile",
+      "Identification",
+      "File_PrimaryData",
+      "Repository",
+      "ObjectiveLens",
+      "SlideStain2",
+      "Magnification",
+      "TimeInterval",
+      "Instrument2",
+      "Link_SecondaryData",
+      "Link_BiopsySites",
+      "Foci",
+      "File_SecondaryData",
+      "TotalLungFDGActivity",
+      "Channels",
+      "Targets",
+      "ObjectArea",
+      "ImageArea",
+      "DetectorName",
+      "Fixation",
+      "AntibodyParent",
+      "Wavelengths",
+      "Link_StealthTransform",
+      "SlideAntibodyConcentration",
+      "SlideStain",
+      "AreaUnits",
+      "FluorescentLabels",
+      "Fixative",
+      "Cycles",
+      "ScanMode",
+      "AntibodyConcentrationUnits",
+      "NumFoci",
+      "SingleCellFile",
+      "Link_NeedleTracks",
+      "TotalTime",
+      "Link_Code",
+      "InstrumentType",
+      "Link_Brainmask",
+      "ImageTimepoint",
+      "TotalLungFDGActivityUnits",
+      "StimulationDate",
+      "Dataset",
+      "Link_InjectionSite",
+      "Markers",
+      "RADR_Count",
+      "Z-sections",
+      "Treatment3DoseUnits",
+      "Treatment3Dose",
+      "Treatment3Parent",
+      "Treatment3Route",
+      "Treatment1Type",
+      "Treatment4Parent",
+      "Treatment2Parent",
+      "Treatment4Type",
+      "Treatment3Type",
+      "Treatment2Route",
+      "Classification",
+      "Treatment4",
+      "Treatment3",
+      "Treatment1Reference",
+      "Cohort",
+      "Phenotype",
+      "Treatment2Reference",
+      "Treatment1Dose",
+      "Treatment1DoseUnits",
+      "Genotype",
+      "Strain",
+      "Treatment1",
+      "SourceFacility",
+      "Treatment1Date",
+      "Disease",
+      "Provider",
+      "Treatment2Date",
+      "Treatment1DoseRule",
+      "Treatment2TimeUnits",
+      "Study",
+      "Treatment3DoseRule",
+      "AlternativeIDs"
+    ],
+    "SampleType": [
+      "title",
+      "id"
+    ],
+    "Study": [
+      "title",
+      "description",
+      "id"
+    ],
+    "Investigation": [
+      "id",
+      "title",
+      "description"
+    ]
+  },
+  "node_property_types": {
+    "SampleType": {
+      "id": [
+        "Long"
+      ],
+      "title": [
+        "String"
+      ]
+    },
+    "Study": {
+      "id": [
+        "Long"
+      ],
+      "title": [
+        "String"
+      ],
+      "description": [
+        "String"
+      ]
+    },
+    "Investigation": {
+      "id": [
+        "Long"
+      ],
+      "title": [
+        "String"
+      ],
+      "description": [
+        "String"
+      ]
+    },
+    "Sample": {
+      "id": [
+        "Long"
+      ],
+      "type": [
+        "String"
+      ],
+      "uuid": [
+        "String"
+      ],
+      "parent_titles": [
+        "StringArray"
+      ],
+      "UID": [
+        "String"
+      ],
+      "CultureFormat": [
+        "String"
+      ],
+      "Type": [
+        "String"
+      ],
+      "Parent": [
+        "String"
+      ],
+      "ExposureTime": [
+        "String"
+      ],
+      "MinSeedingDensity": [
+        "String"
+      ],
+      "Scientist": [
+        "String"
+      ],
+      "MediaBase": [
+        "String"
+      ],
+      "Protocol": [
+        "Long",
+        "String"
+      ],
+      "Name": [
+        "String"
+      ],
+      "MediaSupplements": [
+        "String"
+      ],
+      "Notes": [
+        "String"
+      ],
+      "VaccineType": [
+        "String"
+      ],
+      "TreatmentDoseUnits": [
+        "String"
+      ],
+      "COVID19VaxType": [
+        "String"
+      ],
+      "Analyte_Vendor": [
+        "String"
+      ],
+      "TestResult": [
+        "String"
+      ],
+      "ParentF": [
+        "String"
+      ],
+      "SequencingFacilityLink": [
+        "String"
+      ],
+      "StorageTempMax": [
+        "String"
+      ],
+      "Link_ReferenceGenome": [
+        "String"
+      ],
+      "Protocol2": [
+        "String"
+      ],
+      "SecondaryAntibodyLink": [
+        "String"
+      ],
+      "Link_StrainReference": [
+        "String"
+      ],
+      "NegativeControl": [
+        "String"
+      ],
+      "Plate_Vendor": [
+        "String"
+      ],
+      "AnxietyDepression": [
+        "String"
+      ],
+      "AreaUnits": [
+        "String"
+      ],
+      "RelativeHumidity": [
+        "String"
+      ],
+      "ImageTimepoint": [
+        "String"
+      ],
+      "NumInjections": [
+        "String"
+      ],
+      "PlateWash": [
+        "String"
+      ],
+      "CellConcentration": [
+        "String"
+      ],
+      "Link_Brainmask": [
+        "String"
+      ],
+      "Channels": [
+        "String"
+      ],
+      "Protocol_Stimulation": [
+        "String"
+      ],
+      "DeliveryMode": [
+        "String"
+      ],
+      "CellCount_File": [
+        "String"
+      ],
+      "Link_Code": [
+        "String"
+      ],
+      "Cancer": [
+        "String"
+      ],
+      "SolidCulture": [
+        "String"
+      ],
+      "ModulationFrequencyUnits": [
+        "String"
+      ],
+      "Vendor": [
+        "String"
+      ],
+      "Link_BodyWeight": [
+        "String"
+      ],
+      "MetadataFile": [
+        "String"
+      ],
+      "VisibleLesion3_PETCT_ActiveTB": [
+        "String"
+      ],
+      "AbsorbanceUnits": [
+        "String"
+      ],
+      "Checksum_SecondaryData": [
+        "String"
+      ],
+      "StudyID": [
+        "String"
+      ],
+      "Wavelengths": [
+        "String"
+      ],
+      "TaxonomyID": [
+        "String"
+      ],
+      "ModCall": [
+        "String"
+      ],
+      "ProcedureDuration": [
+        "String"
+      ],
+      "DiseaseHistory": [
+        "String"
+      ],
+      "TemperatureStartTime": [
+        "String"
+      ],
+      "TemperatureCompensationCoefficientConductivity": [
+        "String"
+      ],
+      "RecordDate": [
+        "String"
+      ],
+      "SenseAntisenseRatio": [
+        "String"
+      ],
+      "Treatment1Time": [
+        "String"
+      ],
+      "TemperatureEnd": [
+        "String"
+      ],
+      "MiniKnowVersion": [
+        "String"
+      ],
+      "BALInstilledVolume": [
+        "String"
+      ],
+      "Method": [
+        "String"
+      ],
+      "BatteryLevelUnits": [
+        "String"
+      ],
+      "RRID": [
+        "String"
+      ],
+      "Treatment": [
+        "String"
+      ],
+      "CXRScore": [
+        "String"
+      ],
+      "TotalProteinUnits": [
+        "String"
+      ],
+      "CancerHistory": [
+        "String"
+      ],
+      "NegativeControl_Catalog#": [
+        "String"
+      ],
+      "PlateDesign_Link": [
+        "String"
+      ],
+      "VialID": [
+        "String"
+      ],
+      "Treatment2Parent": [
+        "String"
+      ],
+      "TestType2": [
+        "String"
+      ],
+      "TOCEnd": [
+        "String"
+      ],
+      "InputMassRNA": [
+        "String"
+      ],
+      "PrepUser": [
+        "String"
+      ],
+      "SacrificeDescription": [
+        "String"
+      ],
+      "Provider": [
+        "String"
+      ],
+      "Timepoint": [
+        "String"
+      ],
+      "Sex": [
+        "String"
+      ],
+      "RunDuration": [
+        "String"
+      ],
+      "Checksum_TertiaryData": [
+        "String"
+      ],
+      "ShippingTemperatures_Destination": [
+        "String"
+      ],
+      "Cohort": [
+        "String"
+      ],
+      "Surgery": [
+        "String"
+      ],
+      "Stains": [
+        "String"
+      ],
+      "Manufacturer": [
+        "String"
+      ],
+      "Fixation": [
+        "String"
+      ],
+      "KitVendor": [
+        "String"
+      ],
+      "Qtag": [
+        "String"
+      ],
+      "COVID19VaxDate": [
+        "String"
+      ],
+      "Genome": [
+        "String"
+      ],
+      "Other_Respiratory_Pathogens_Number": [
+        "String"
+      ],
+      "TimeInterval": [
+        "String"
+      ],
+      "MeasurementWavelengthUnits": [
+        "String"
+      ],
+      "TB_Recurrence_Window": [
+        "String"
+      ],
+      "Treatment2DoseRule": [
+        "String"
+      ],
+      "TestResultFile2": [
+        "String"
+      ],
+      "Stain": [
+        "String"
+      ],
+      "DESeqFile_Link": [
+        "String"
+      ],
+      "TreatmentTimeUnits": [
+        "String"
+      ],
+      "DissociationConditions": [
+        "String"
+      ],
+      "Code": [
+        "String"
+      ],
+      "TotalLungFDGActivityUnits": [
+        "String"
+      ],
+      "Treatment_LastPositiveCOVID19": [
+        "String"
+      ],
+      "RepositoryLink": [
+        "String"
+      ],
+      "QFN_Data": [
+        "String"
+      ],
+      "VisibleLesion3_PETCT_FDG": [
+        "String"
+      ],
+      "Plate": [
+        "String"
+      ],
+      "Link_BiopsySites": [
+        "String"
+      ],
+      "MaxReads": [
+        "String"
+      ],
+      "VaccinationHistory": [
+        "String"
+      ],
+      "ComparatorReferenceUnits": [
+        "String"
+      ],
+      "ShipOrigin": [
+        "String"
+      ],
+      "Chest_XRAY_Reading": [
+        "String"
+      ],
+      "VisibleLesion4_Total_Glycolytic_Activity": [
+        "String"
+      ],
+      "BarcodeType": [
+        "String"
+      ],
+      "Section#": [
+        "String"
+      ],
+      "MTB_SputumSmear_Result": [
+        "String"
+      ],
+      "MeasurementTechnique": [
+        "String"
+      ],
+      "FluorescenceLinearCalibrationDate": [
+        "String"
+      ],
+      "DateRange": [
+        "String"
+      ],
+      "CAD4TB_6": [
+        "String"
+      ],
+      "PositiveScope": [
+        "String"
+      ],
+      "PRIDE_FileType": [
+        "String"
+      ],
+      "COVID19VaxName": [
+        "String"
+      ],
+      "Concentration": [
+        "String"
+      ],
+      "Culture": [
+        "String"
+      ],
+      "PostOpDiagnosis": [
+        "String"
+      ],
+      "PerinatalHealth": [
+        "String"
+      ],
+      "FlowCellType": [
+        "String"
+      ],
+      "FlowAmount": [
+        "String"
+      ],
+      "Ashermans": [
+        "String"
+      ],
+      "BALInstilledVolumeUnits": [
+        "String"
+      ],
+      "BatteryLevelEndTime": [
+        "String"
+      ],
+      "Medications": [
+        "String"
+      ],
+      "Genotype": [
+        "String"
+      ],
+      "BCAValue": [
+        "String"
+      ],
+      "Treatment2Date": [
+        "String"
+      ],
+      "rRNAPercent": [
+        "String"
+      ],
+      "Treatment3Date": [
+        "String"
+      ],
+      "Link_SecondaryData": [
+        "String"
+      ],
+      "ConcentrationRange": [
+        "String"
+      ],
+      "Matrix": [
+        "String"
+      ],
+      "TreatmentRoute": [
+        "String"
+      ],
+      "SensingVolumeSeparationUnits": [
+        "String"
+      ],
+      "Part": [
+        "String"
+      ],
+      "TimeOfDetection": [
+        "String"
+      ],
+      "Resolution": [
+        "String"
+      ],
+      "Alcohol": [
+        "String"
+      ],
+      "MediaSource": [
+        "String"
+      ],
+      "QC_notes": [
+        "String"
+      ],
+      "PeakFragmentSize": [
+        "String"
+      ],
+      "QFT_Value": [
+        "String"
+      ],
+      "File_PrimaryData": [
+        "String"
+      ],
+      "ReactionStopper": [
+        "String"
+      ],
+      "WaterDepthUnits": [
+        "String"
+      ],
+      "StimulationDate": [
+        "String"
+      ],
+      "RecruitDate": [
+        "String"
+      ],
+      "Treatment5DoseUnits": [
+        "String"
+      ],
+      "Product#": [
+        "String"
+      ],
+      "VisibleLesion1_PETCT_ActiveTB": [
+        "String"
+      ],
+      "Reference": [
+        "String"
+      ],
+      "SourceCode": [
+        "String"
+      ],
+      "GenesDetectedPercent": [
+        "String"
+      ],
+      "Treatment2Dose": [
+        "Long",
+        "String"
+      ],
+      "Color": [
+        "String"
+      ],
+      "TemperatureLinearCalibrationSlope": [
+        "String"
+      ],
+      "ScanID": [
+        "String"
+      ],
+      "ModulationFrequency": [
+        "String"
+      ],
+      "DiseaseStage": [
+        "String"
+      ],
+      "LEDCurrentUnits": [
+        "String"
+      ],
+      "LanderBackLegHeight": [
+        "String"
+      ],
+      "Symptoms": [
+        "String"
+      ],
+      "Tumor_Grade": [
+        "String"
+      ],
+      "VisibleLesion3_PETCT_Location": [
+        "String"
+      ],
+      "Domain": [
+        "String"
+      ],
+      "MTB_LiquidCulture_Speciation": [
+        "String"
+      ],
+      "ReagentManufacturer": [
+        "String"
+      ],
+      "Wavelength": [
+        "String"
+      ],
+      "PlaqueTiter": [
+        "String"
+      ],
+      "RIN": [
+        "String"
+      ],
+      "StatusBCGVaccination": [
+        "String"
+      ],
+      "Isotype": [
+        "String"
+      ],
+      "HeartRateFirstReading": [
+        "String"
+      ],
+      "FluorescenceLinearCalibrationUnits": [
+        "String"
+      ],
+      "TreatmentDate": [
+        "String"
+      ],
+      "Barcode2Type": [
+        "String"
+      ],
+      "BeadFluorescence": [
+        "String"
+      ],
+      "Calibration": [
+        "String"
+      ],
+      "Ethnicity": [
+        "String"
+      ],
+      "Analyte": [
+        "String"
+      ],
+      "BloodPressure_Units": [
+        "String"
+      ],
+      "PrepDate": [
+        "String"
+      ],
+      "VisitFacility": [
+        "String"
+      ],
+      "VisitLocation": [
+        "String"
+      ],
+      "ParticleComp": [
+        "String"
+      ],
+      "ThermometerStart": [
+        "String"
+      ],
+      "Link_InjectionSite": [
+        "String"
+      ],
+      "CardiacIllness": [
+        "String"
+      ],
+      "StorageDate": [
+        "String"
+      ],
+      "IntergenicPercent": [
+        "String"
+      ],
+      "NegativeMatrix": [
+        "String"
+      ],
+      "InsertionSize": [
+        "String"
+      ],
+      "WeeksSincePrimaryIntervention": [
+        "String"
+      ],
+      "PlateBlocker": [
+        "String"
+      ],
+      "InoculumPrep": [
+        "String"
+      ],
+      "Frequency": [
+        "String"
+      ],
+      "SmokeDuration": [
+        "String"
+      ],
+      "TravelHistory": [
+        "String"
+      ],
+      "CFU/CEQUnits": [
+        "String"
+      ],
+      "TB_Recurrence": [
+        "String"
+      ],
+      "Other_Respiratory_Pathogens_Virus": [
+        "String"
+      ],
+      "Instrument": [
+        "String"
+      ],
+      "LinkCohortFile": [
+        "String"
+      ],
+      "TOCStart": [
+        "String"
+      ],
+      "Methaqualone_Use": [
+        "String"
+      ],
+      "ADVPowerLevel": [
+        "String"
+      ],
+      "SurgeryTimepoint": [
+        "String"
+      ],
+      "Arm_Collapsed_Grouping": [
+        "String"
+      ],
+      "File_TMT": [
+        "String"
+      ],
+      "LEDCurrentAvgStart": [
+        "String"
+      ],
+      "Path_PrimaryData": [
+        "String"
+      ],
+      "RADR_Count": [
+        "String"
+      ],
+      "Detector": [
+        "String"
+      ],
+      "Accession": [
+        "String"
+      ],
+      "Baseline_QFN": [
+        "String"
+      ],
+      "F_bp": [
+        "String"
+      ],
+      "Funder": [
+        "String"
+      ],
+      "Yield": [
+        "String"
+      ],
+      "QC_Instrument": [
+        "String"
+      ],
+      "CASNumber": [
+        "String"
+      ],
+      "QCUser": [
+        "String"
+      ],
+      "Dilution": [
+        "String"
+      ],
+      "SlideStain2": [
+        "String"
+      ],
+      "ParentM": [
+        "String"
+      ],
+      "Mobility": [
+        "String"
+      ],
+      "Panel": [
+        "String"
+      ],
+      "CarrierGas": [
+        "String"
+      ],
+      "SubstrainReference": [
+        "String"
+      ],
+      "Waterpipe_Use": [
+        "String"
+      ],
+      "AssociatedCNV": [
+        "String"
+      ],
+      "SubjectLocation": [
+        "String"
+      ],
+      "BMI": [
+        "String"
+      ],
+      "COVID19_Test_Result": [
+        "String"
+      ],
+      "Race": [
+        "String"
+      ],
+      "LibrarySource": [
+        "String"
+      ],
+      "ActiveCOVID19": [
+        "String"
+      ],
+      "RepositoryID": [
+        "String"
+      ],
+      "LanderLeftLegHeight": [
+        "String"
+      ],
+      "IntegrationTimeUnits": [
+        "String"
+      ],
+      "20mers": [
+        "String"
+      ],
+      "TTDCulture": [
+        "String"
+      ],
+      "ModelDescription": [
+        "String"
+      ],
+      "Software": [
+        "String"
+      ],
+      "TumorFractionFromCNV": [
+        "String"
+      ],
+      "VisibleLesion2_PETCT_ActiveTB": [
+        "String"
+      ],
+      "VisibleLesion3_Total_Glycolytic_Activity": [
+        "String"
+      ],
+      "BirthWeightUnits": [
+        "String"
+      ],
+      "OxidationCondition": [
+        "String"
+      ],
+      "Treatment2Reference": [
+        "String"
+      ],
+      "Absorbance1": [
+        "String"
+      ],
+      "ThermometerEnd": [
+        "String"
+      ],
+      "Treatment1DoseRule": [
+        "String"
+      ],
+      "UTRPercent": [
+        "String"
+      ],
+      "ConcentrationPerVial": [
+        "String"
+      ],
+      "Selector": [
+        "String"
+      ],
+      "TemperatureUnits": [
+        "String"
+      ],
+      "Treatment3Dose": [
+        "String"
+      ],
+      "ConcType": [
+        "String"
+      ],
+      "Checksum_PrimaryData": [
+        "String"
+      ],
+      "Treatment3DoseRule": [
+        "String"
+      ],
+      "ConductivityCalibrationUnits": [
+        "String"
+      ],
+      "AntibodyParent": [
+        "String"
+      ],
+      "Link_SearchEngineOutput": [
+        "String"
+      ],
+      "Catalog#": [
+        "String"
+      ],
+      "Cannabis_Use": [
+        "String"
+      ],
+      "Date_LastPositiveCOVID19": [
+        "String"
+      ],
+      "CoughSputum": [
+        "String"
+      ],
+      "ShoreDist": [
+        "String"
+      ],
+      "Treatment3Route": [
+        "String"
+      ],
+      "TimeToFreezer": [
+        "String"
+      ],
+      "SequencingType": [
+        "String"
+      ],
+      "Arm": [
+        "String"
+      ],
+      "StorageTemperatureUnits": [
+        "String"
+      ],
+      "YieldUnits": [
+        "String"
+      ],
+      "DNA Type": [
+        "String"
+      ],
+      "Treatment4": [
+        "String"
+      ],
+      "MTB_LiquidCulture_Result": [
+        "String"
+      ],
+      "HIV_Test_Result": [
+        "String"
+      ],
+      "ValidationDatasets": [
+        "String"
+      ],
+      "HBA1CPercent": [
+        "String"
+      ],
+      "Hemoglobin_Units": [
+        "String"
+      ],
+      "PRIDE_Quantification": [
+        "String"
+      ],
+      "TOCUnits": [
+        "String"
+      ],
+      "FlowAmountUnits": [
+        "String"
+      ],
+      "ExperimentType": [
+        "String"
+      ],
+      "Assay": [
+        "String"
+      ],
+      "Passages": [
+        "String"
+      ],
+      "SelfCare": [
+        "String"
+      ],
+      "Tissue": [
+        "String"
+      ],
+      "Age": [
+        "String"
+      ],
+      "Smoke": [
+        "String"
+      ],
+      "ShipID": [
+        "String"
+      ],
+      "ScanFile": [
+        "String"
+      ],
+      "Top30CountPercent": [
+        "String"
+      ],
+      "TemperatureStart": [
+        "String"
+      ],
+      "HeartRate_Units": [
+        "String"
+      ],
+      "TestResult2": [
+        "String"
+      ],
+      "AnalyteVolumeUnits": [
+        "String"
+      ],
+      "ExpressionKit": [
+        "String"
+      ],
+      "TemperatureLinearCalibrationIntercept": [
+        "String"
+      ],
+      "TiterEfficiency": [
+        "String"
+      ],
+      "CrystalSystem": [
+        "String"
+      ],
+      "LanderRightLegHeight": [
+        "String"
+      ],
+      "Fluorophore": [
+        "String"
+      ],
+      "VisibleLesion4_PETCT_FDG": [
+        "String"
+      ],
+      "StudyTime": [
+        "String"
+      ],
+      "TumorWeightUnits": [
+        "String"
+      ],
+      "CellCounter": [
+        "String"
+      ],
+      "TrainingDatasets": [
+        "String"
+      ],
+      "TimeSinceBCGVax": [
+        "String"
+      ],
+      "SampleCreationDate": [
+        "String"
+      ],
+      "Group_InCohort": [
+        "String"
+      ],
+      "ODFrozen": [
+        "String"
+      ],
+      "BirthWeight": [
+        "String"
+      ],
+      "Treatment_Outcome": [
+        "String"
+      ],
+      "Treatment1Date": [
+        "String"
+      ],
+      "FloorDistUnits": [
+        "String"
+      ],
+      "Location": [
+        "String"
+      ],
+      "CFUUnits": [
+        "String"
+      ],
+      "Treatment5Parent": [
+        "String"
+      ],
+      "QualityHealth": [
+        "String"
+      ],
+      "Link_QualityControlFile": [
+        "String"
+      ],
+      "ChronicRespiratoryDisease": [
+        "String"
+      ],
+      "GPSUnits": [
+        "String"
+      ],
+      "ColonyTiter": [
+        "String"
+      ],
+      "Procedure": [
+        "String"
+      ],
+      "MeasurementType": [
+        "String"
+      ],
+      "MedicineHistory": [
+        "String"
+      ],
+      "MenstrualStage": [
+        "String"
+      ],
+      "AnalyteProcedure": [
+        "String"
+      ],
+      "Gravity": [
+        "String"
+      ],
+      "SacrificeDate": [
+        "String"
+      ],
+      "Treatment3": [
+        "String"
+      ],
+      "QCPlatform": [
+        "String"
+      ],
+      "Checksum_PrimaryType": [
+        "String"
+      ],
+      "Treatment1Type": [
+        "String"
+      ],
+      "Link_TertiaryData": [
+        "String"
+      ],
+      "Repository": [
+        "String"
+      ],
+      "Treatment3Parent": [
+        "String"
+      ],
+      "Source": [
+        "String"
+      ],
+      "ShipDate": [
+        "String"
+      ],
+      "Protocol_Treatment1": [
+        "String"
+      ],
+      "Foci": [
+        "String"
+      ],
+      "LowestBpSystolic": [
+        "String"
+      ],
+      "End_Study_TB_Status": [
+        "String"
+      ],
+      "MGIT_Culture_Result": [
+        "String"
+      ],
+      "Treatment1TimeUnits": [
+        "String"
+      ],
+      "Treatment5": [
+        "String"
+      ],
+      "GenesDetected": [
+        "String"
+      ],
+      "Relationship": [
+        "String"
+      ],
+      "NumAligned": [
+        "String"
+      ],
+      "ReferenceGenome": [
+        "String"
+      ],
+      "NightSweatsCurr": [
+        "String"
+      ],
+      "Fibroid": [
+        "String"
+      ],
+      "Clone": [
+        "String"
+      ],
+      "LEDCurrentAvgEnd": [
+        "String"
+      ],
+      "DemultiplexingTool": [
+        "String"
+      ],
+      "StudyTimeUnits": [
+        "String"
+      ],
+      "Size": [
+        "String"
+      ],
+      "CellCount": [
+        "String"
+      ],
+      "Link_QC": [
+        "String"
+      ],
+      "TumorWeight": [
+        "String"
+      ],
+      "Description": [
+        "String"
+      ],
+      "AlternativeIDs": [
+        "String"
+      ],
+      "ContamPercent": [
+        "String"
+      ],
+      "LowestBpDiastolic": [
+        "String"
+      ],
+      "Band": [
+        "String"
+      ],
+      "FluorescentLabels": [
+        "String"
+      ],
+      "SampleSite": [
+        "String"
+      ],
+      "RandomGlucoseTest": [
+        "String"
+      ],
+      "GeneXpert": [
+        "String"
+      ],
+      "CatalogLink": [
+        "String"
+      ],
+      "UncompensatedConductivityUnits": [
+        "String"
+      ],
+      "Smear_Result": [
+        "String"
+      ],
+      "IndexInlineStartNT": [
+        "String"
+      ],
+      "AssayType": [
+        "String"
+      ],
+      "TubeNumber": [
+        "String"
+      ],
+      "Strain": [
+        "String"
+      ],
+      "File_SecondaryData": [
+        "String"
+      ],
+      "ADVVelocityUnits": [
+        "String"
+      ],
+      "TestType4": [
+        "String"
+      ],
+      "CD4": [
+        "String"
+      ],
+      "LEDCurrentStdevEnd": [
+        "String"
+      ],
+      "Z-sections": [
+        "String"
+      ],
+      "Parity": [
+        "String"
+      ],
+      "Cough": [
+        "String"
+      ],
+      "PathologyReport": [
+        "String"
+      ],
+      "Instrument2": [
+        "String"
+      ],
+      "Mutation": [
+        "String"
+      ],
+      "Blood_Agar_Result": [
+        "String"
+      ],
+      "HormonesHistory": [
+        "String"
+      ],
+      "Arm_Group_Name": [
+        "String"
+      ],
+      "ObjectiveLens": [
+        "String"
+      ],
+      "LocationType": [
+        "String"
+      ],
+      "Standard": [
+        "String"
+      ],
+      "PlateBlockerProcedure": [
+        "String"
+      ],
+      "QCInstrument": [
+        "String"
+      ],
+      "DiagnosisDate": [
+        "String"
+      ],
+      "FMO": [
+        "String"
+      ],
+      "Analyte_Catalog#": [
+        "String"
+      ],
+      "Treatment4Type": [
+        "String"
+      ],
+      "LEDCurrentCalibrationDate": [
+        "String"
+      ],
+      "GenesDataType": [
+        "String"
+      ],
+      "Treatment4Route": [
+        "String"
+      ],
+      "CAD4TB_5": [
+        "String"
+      ],
+      "ExtractionInterval": [
+        "String"
+      ],
+      "AnnotationGTF": [
+        "String"
+      ],
+      "Barcodes": [
+        "String"
+      ],
+      "ADVVelocityRange": [
+        "String"
+      ],
+      "MaxPassage": [
+        "String"
+      ],
+      "DiseaseReference": [
+        "String"
+      ],
+      "N50": [
+        "String"
+      ],
+      "NumAliquot": [
+        "String"
+      ],
+      "Link_Catalog#": [
+        "String"
+      ],
+      "AnalyteConcUnits": [
+        "String"
+      ],
+      "FloorDist": [
+        "String"
+      ],
+      "SourceFacility": [
+        "String"
+      ],
+      "LEDCurrentLinearCalibrationSlope": [
+        "String"
+      ],
+      "CellLineage": [
+        "String"
+      ],
+      "QC": [
+        "String"
+      ],
+      "Barcode2": [
+        "String"
+      ],
+      "Treatment4DoseUnits": [
+        "String"
+      ],
+      "Volume": [
+        "String"
+      ],
+      "Treatment2Route": [
+        "String"
+      ],
+      "Methamphetamine_Use": [
+        "String"
+      ],
+      "SingleCellFile": [
+        "String"
+      ],
+      "CEQUnits": [
+        "String"
+      ],
+      "TotalLungFDGActivity": [
+        "String"
+      ],
+      "DESeqFile": [
+        "String"
+      ],
+      "CDSPercent": [
+        "String"
+      ],
+      "Kit": [
+        "String"
+      ],
+      "TestType3": [
+        "String"
+      ],
+      "MassUnits": [
+        "String"
+      ],
+      "ColonyTiterCount": [
+        "String"
+      ],
+      "ViralLoad": [
+        "String"
+      ],
+      "Viability%": [
+        "String"
+      ],
+      "StorageType": [
+        "String"
+      ],
+      "TestType": [
+        "String"
+      ],
+      "Allergy": [
+        "String"
+      ],
+      "Morphology": [
+        "String"
+      ],
+      "TestResult3": [
+        "String"
+      ],
+      "LiquidCultureResult": [
+        "String"
+      ],
+      "TimeToTB": [
+        "String"
+      ],
+      "VisibleLesion4_PETCT_ActiveTB": [
+        "String"
+      ],
+      "PlaqueTiterCount": [
+        "String"
+      ],
+      "Gestation": [
+        "String"
+      ],
+      "5_3UTR": [
+        "String"
+      ],
+      "VisibleLesion1_Total_Glycolytic_Activity": [
+        "String"
+      ],
+      "Link_NeedleTracks": [
+        "String"
+      ],
+      "Core": [
+        "String"
+      ],
+      "ConductivityCalibrationDate": [
+        "String"
+      ],
+      "ExtractedMolecule": [
+        "String"
+      ],
+      "Treatment5Dose": [
+        "String"
+      ],
+      "Fever": [
+        "String"
+      ],
+      "SpaceGroup": [
+        "String"
+      ],
+      "Treatment1Parent": [
+        "String"
+      ],
+      "ProductNumber": [
+        "String"
+      ],
+      "SMILES": [
+        "String"
+      ],
+      "Titer": [
+        "String"
+      ],
+      "LEDCurrentStdevStart": [
+        "String"
+      ],
+      "DetectorName": [
+        "String"
+      ],
+      "UltraSoundDesc": [
+        "String"
+      ],
+      "GramStaining": [
+        "String"
+      ],
+      "TotalReads": [
+        "String"
+      ],
+      "MeasurementWavelength": [
+        "String"
+      ],
+      "Supporting_Links": [
+        "String"
+      ],
+      "File_PSM": [
+        "String"
+      ],
+      "ExtractionIntervalNotes": [
+        "String"
+      ],
+      "COVID19_PCR_inlast4Weeks": [
+        "String"
+      ],
+      "Checksum_SecondaryType": [
+        "String"
+      ],
+      "WellID": [
+        "String"
+      ],
+      "TreatmentDoseTime": [
+        "String"
+      ],
+      "Detector_Vendor": [
+        "String"
+      ],
+      "StatusCOVID": [
+        "String"
+      ],
+      "ReadLanePct": [
+        "String"
+      ],
+      "PoolDate": [
+        "String"
+      ],
+      "Weight_Units": [
+        "String"
+      ],
+      "EnrollmentDate": [
+        "String"
+      ],
+      "Link_Metadata": [
+        "String"
+      ],
+      "DataDictionary": [
+        "String"
+      ],
+      "ImageArea": [
+        "String"
+      ],
+      "TOCEndTime": [
+        "String"
+      ],
+      "Link_Contamination": [
+        "String"
+      ],
+      "Aligner": [
+        "String"
+      ],
+      "Link_PrimaryData": [
+        "String"
+      ],
+      "UncompensatedConductivityStart": [
+        "String"
+      ],
+      "Tumor_IDH": [
+        "String"
+      ],
+      "Pipeline": [
+        "String"
+      ],
+      "RunDurationUnits": [
+        "String"
+      ],
+      "Barcode": [
+        "String"
+      ],
+      "CompleteDate": [
+        "String"
+      ],
+      "Treatment2DoseUnits": [
+        "String"
+      ],
+      "Household": [
+        "String"
+      ],
+      "TotalProtein": [
+        "String"
+      ],
+      "Checksum_TertiaryType": [
+        "String"
+      ],
+      "Absorbance2Units": [
+        "String"
+      ],
+      "SlideAntibodyConcentration": [
+        "String"
+      ],
+      "Other_Respiratory_Pathogens": [
+        "String"
+      ],
+      "ConductivityEndProbe": [
+        "String"
+      ],
+      "Treatment1Reference": [
+        "String"
+      ],
+      "HumidityUnits": [
+        "String"
+      ],
+      "SmokeDuration_Units": [
+        "String"
+      ],
+      "Protocol3": [
+        "String"
+      ],
+      "Treatment1Dose": [
+        "Long",
+        "String",
+        "Double"
+      ],
+      "COVID19TestType_LastPositiveCOVID19": [
+        "String"
+      ],
+      "GPS": [
+        "String"
+      ],
+      "Indication": [
+        "String"
+      ],
+      "Study": [
+        "String"
+      ],
+      "StorageTempMin": [
+        "String"
+      ],
+      "ReferenceGenomeSource": [
+        "String"
+      ],
+      "Treatment4Date": [
+        "String"
+      ],
+      "PassageNum": [
+        "String"
+      ],
+      "VisibleLesion2_PETCT_Location": [
+        "String"
+      ],
+      "ProviderProduct#": [
+        "String"
+      ],
+      "RegionType": [
+        "String"
+      ],
+      "PlateDesign": [
+        "String"
+      ],
+      "FluorescenceLinearCalibrationSlope": [
+        "String"
+      ],
+      "StorageTempUnits": [
+        "String"
+      ],
+      "Height_Units": [
+        "String"
+      ],
+      "ClassificationCohort": [
+        "String"
+      ],
+      "GeneXPert_Ultra_Ranking": [
+        "String"
+      ],
+      "ThermistorRheostatSetting": [
+        "String"
+      ],
+      "NumVials": [
+        "String"
+      ],
+      "CellCount_Macrophage": [
+        "String"
+      ],
+      "Vial#": [
+        "String"
+      ],
+      "Hemoglobin": [
+        "String"
+      ],
+      "SlideStain": [
+        "String"
+      ],
+      "RecruitReason": [
+        "String"
+      ],
+      "Protocol_Treatment2": [
+        "String"
+      ],
+      "FluorescenceLinearCalibrationIntercept": [
+        "String"
+      ],
+      "ReferenceGenome_Link": [
+        "String"
+      ],
+      "Who4Symptoms": [
+        "String"
+      ],
+      "MostRecent_TB_Treatment_Completion": [
+        "String"
+      ],
+      "TST_Result": [
+        "String"
+      ],
+      "TestResultFile3": [
+        "String"
+      ],
+      "BALCollectedVolumeUnits": [
+        "String"
+      ],
+      "RelevantTimepoint": [
+        "String"
+      ],
+      "HeartRateForthReading": [
+        "String"
+      ],
+      "MGITCulture_Result": [
+        "String"
+      ],
+      "PeakConcUnits": [
+        "String"
+      ],
+      "Treatment1DoseUnits": [
+        "String"
+      ],
+      "DatapointTime": [
+        "String"
+      ],
+      "CEQ": [
+        "String"
+      ],
+      "ReagentBrand": [
+        "String"
+      ],
+      "CAD4TB_7": [
+        "String"
+      ],
+      "Treatment1": [
+        "String"
+      ],
+      "Weight": [
+        "String"
+      ],
+      "MGMT_Promoter_Status": [
+        "String"
+      ],
+      "NumReadsUnits": [
+        "String"
+      ],
+      "BaselineCohort": [
+        "String"
+      ],
+      "Other_Respiratory_Pathogens_Bacteria": [
+        "String"
+      ],
+      "Algorithm": [
+        "String"
+      ],
+      "IndexInlineLength": [
+        "String"
+      ],
+      "FollowUp_QFN": [
+        "String"
+      ],
+      "Previous_COVID19": [
+        "String"
+      ],
+      "Scarring": [
+        "String"
+      ],
+      "LibraryPrep": [
+        "String"
+      ],
+      "StorageLocation": [
+        "String"
+      ],
+      "TOCStartTime": [
+        "String"
+      ],
+      "Reagent": [
+        "String"
+      ],
+      "Treatment1Route": [
+        "String"
+      ],
+      "TotalTime": [
+        "String"
+      ],
+      "Form": [
+        "String"
+      ],
+      "ShipNotes": [
+        "String"
+      ],
+      "CellCount_Link": [
+        "String"
+      ],
+      "Pseudo_Aligner": [
+        "String"
+      ],
+      "CFU/CEQ": [
+        "String"
+      ],
+      "AnalyzedDate": [
+        "String"
+      ],
+      "QCAssay": [
+        "String"
+      ],
+      "UnalignedReads": [
+        "String"
+      ],
+      "Humidity": [
+        "String"
+      ],
+      "ValidationMethod": [
+        "String"
+      ],
+      "PRIDE_ExperimentType": [
+        "String"
+      ],
+      "ConductivityLinearCalibrationSlope": [
+        "String"
+      ],
+      "TB_History": [
+        "String"
+      ],
+      "Height": [
+        "String"
+      ],
+      "HeartRateSecondReading": [
+        "String"
+      ],
+      "CellTypes": [
+        "String"
+      ],
+      "Link_Sequence": [
+        "String"
+      ],
+      "PlateDesign_File": [
+        "String"
+      ],
+      "Relationship_To_TBCase": [
+        "String"
+      ],
+      "ArrayNumber": [
+        "String"
+      ],
+      "FrequencyUnits": [
+        "String"
+      ],
+      "LibraryStrategy": [
+        "String"
+      ],
+      "Classification": [
+        "String"
+      ],
+      "GeneXPert_Ultra_Rif_Resistance": [
+        "String"
+      ],
+      "Symptoms_LastPositiveCOVID19": [
+        "String"
+      ],
+      "ODWavelength": [
+        "String"
+      ],
+      "ConductivityStartProbe": [
+        "String"
+      ],
+      "PositiveMatrix": [
+        "String"
+      ],
+      "ShipDestination": [
+        "String"
+      ],
+      "TimeToTBUnits": [
+        "String"
+      ],
+      "AnalyteVolume": [
+        "String"
+      ],
+      "Checksum_Metadata": [
+        "String"
+      ],
+      "SurvivalTime": [
+        "String"
+      ],
+      "Link_TMT": [
+        "String"
+      ],
+      "Substrain": [
+        "String"
+      ],
+      "Link_StealthTransform": [
+        "String"
+      ],
+      "Substance_Use": [
+        "String"
+      ],
+      "Docker": [
+        "String"
+      ],
+      "GeneXPert_Ultra_Result": [
+        "String"
+      ],
+      "ExonIntronRatio": [
+        "String"
+      ],
+      "ConductivityLinearCalibrationIntercept": [
+        "String"
+      ],
+      "Identification": [
+        "String"
+      ],
+      "Polysubstances_Use": [
+        "String"
+      ],
+      "COVID19_Test_Type": [
+        "String"
+      ],
+      "ConductivityStartTime": [
+        "String"
+      ],
+      "Publish_uri": [
+        "String"
+      ],
+      "QuantificationMethod": [
+        "String"
+      ],
+      "ShippingTemperatures_Origin": [
+        "String"
+      ],
+      "ExonIntergenicRatio": [
+        "String"
+      ],
+      "TimeSinceCOVID": [
+        "String"
+      ],
+      "NumPrepCycles": [
+        "String"
+      ],
+      "BacteriaParent": [
+        "String"
+      ],
+      "BatteryLevelStartTime": [
+        "String"
+      ],
+      "TestResult4": [
+        "String"
+      ],
+      "CD4_Units": [
+        "String"
+      ],
+      "Formula": [
+        "String"
+      ],
+      "RunStartTime": [
+        "String"
+      ],
+      "ExtractionMethod": [
+        "String"
+      ],
+      "LibraryDesign": [
+        "String"
+      ],
+      "Link_PSM": [
+        "String"
+      ],
+      "IntronPercent": [
+        "String"
+      ],
+      "InstrumentType": [
+        "String"
+      ],
+      "Primer": [
+        "String"
+      ],
+      "Link_OrganWeight": [
+        "String"
+      ],
+      "ConcUnits": [
+        "String"
+      ],
+      "Link_SRA": [
+        "String"
+      ],
+      "AnalyteConc": [
+        "String"
+      ],
+      "StorageSite": [
+        "String"
+      ],
+      "SequencingFacilityLocation": [
+        "String"
+      ],
+      "AntibodyConcentrationUnits": [
+        "String"
+      ],
+      "CompensationFCSParent": [
+        "String"
+      ],
+      "SingleStain_Control": [
+        "String"
+      ],
+      "LEDCurrentCalibrationUnits": [
+        "String"
+      ],
+      "KPS_Score": [
+        "String"
+      ],
+      "Contamination": [
+        "String"
+      ],
+      "Age_Units": [
+        "String"
+      ],
+      "Checksum_Barcodes": [
+        "String"
+      ],
+      "Media": [
+        "String"
+      ],
+      "ConcentrationUnits": [
+        "String"
+      ],
+      "File_SearchEngineOutput": [
+        "String"
+      ],
+      "Labels": [
+        "String"
+      ],
+      "SourceCode_Link": [
+        "String"
+      ],
+      "GrowthConditions": [
+        "String"
+      ],
+      "BiosafetyLevel": [
+        "String"
+      ],
+      "ValidationQuality": [
+        "String"
+      ],
+      "ProteinAmount": [
+        "String"
+      ],
+      "RandomGlucoseTest_Units": [
+        "String"
+      ],
+      "ShoreDistUnits": [
+        "String"
+      ],
+      "Detector_Catalog#": [
+        "String"
+      ],
+      "ReceiptDate": [
+        "String"
+      ],
+      "Treatment2TimeUnits": [
+        "String"
+      ],
+      "Protocol_Treatment": [
+        "String"
+      ],
+      "QFT_Result": [
+        "String"
+      ],
+      "EthicsApproval": [
+        "String"
+      ],
+      "BatteryLevelEnd": [
+        "String"
+      ],
+      "TemperatureCalibrationUnits": [
+        "String"
+      ],
+      "Solvent": [
+        "String"
+      ],
+      "UsualActivity": [
+        "String"
+      ],
+      "IUPAC Name": [
+        "String"
+      ],
+      "ModelName": [
+        "String"
+      ],
+      "VisibleLesion2_PETCT_FDG": [
+        "String"
+      ],
+      "MappedPercent": [
+        "String"
+      ],
+      "TestResultFile": [
+        "String"
+      ],
+      "Mass": [
+        "String"
+      ],
+      "ObjectArea": [
+        "String"
+      ],
+      "HeartRateThirdReading": [
+        "String"
+      ],
+      "Species": [
+        "String"
+      ],
+      "ReagenCatalogNum": [
+        "String"
+      ],
+      "ClusterDate": [
+        "String"
+      ],
+      "CountryOfOrigin": [
+        "String"
+      ],
+      "Protocol_Classification": [
+        "String"
+      ],
+      "Treatment2": [
+        "String"
+      ],
+      "PainDiscomfort": [
+        "String"
+      ],
+      "Contact": [
+        "String"
+      ],
+      "R_bp": [
+        "String"
+      ],
+      "Supporting_Files": [
+        "String"
+      ],
+      "TreatmentTime": [
+        "String"
+      ],
+      "Treatment4Parent": [
+        "String"
+      ],
+      "Treatment5Type": [
+        "String"
+      ],
+      "Crystal": [
+        "String"
+      ],
+      "BALCollectedVolume": [
+        "String"
+      ],
+      "WaterDepth": [
+        "String"
+      ],
+      "CxrRadiologistConclusion": [
+        "String"
+      ],
+      "Reporter": [
+        "String"
+      ],
+      "SensingVolumeSeparation": [
+        "String"
+      ],
+      "Ablation": [
+        "String"
+      ],
+      "RandomGlucoseTest_Reading": [
+        "String"
+      ],
+      "ConductivityEndTime": [
+        "String"
+      ],
+      "SampleCollectionDate": [
+        "String"
+      ],
+      "PassageNotes": [
+        "String"
+      ],
+      "OrganDetail": [
+        "String"
+      ],
+      "Treatment3Type": [
+        "String"
+      ],
+      "StudyDesign": [
+        "String"
+      ],
+      "WeightLoss6mo": [
+        "String"
+      ],
+      "SecondaryAntibody": [
+        "String"
+      ],
+      "Targets": [
+        "String"
+      ],
+      "CollectionTime": [
+        "String"
+      ],
+      "Phenotype": [
+        "String"
+      ],
+      "COVIDHistory": [
+        "String"
+      ],
+      "Channel": [
+        "String"
+      ],
+      "Plate_Catalog#": [
+        "String"
+      ],
+      "Link_QualityControl": [
+        "String"
+      ],
+      "Link": [
+        "String"
+      ],
+      "CellConcentrationUnits": [
+        "String"
+      ],
+      "Treatment2Type": [
+        "String"
+      ],
+      "Fixative": [
+        "String"
+      ],
+      "SEEKSubmissionDate": [
+        "String"
+      ],
+      "Mode": [
+        "String"
+      ],
+      "UncompensatedConductivityEnd": [
+        "String"
+      ],
+      "BarcodesDataType": [
+        "String"
+      ],
+      "CoScientist": [
+        "String"
+      ],
+      "CFU": [
+        "String"
+      ],
+      "Link_GTF": [
+        "String"
+      ],
+      "VisibleLesion1_PETCT_Location": [
+        "String"
+      ],
+      "ReceiptNotes": [
+        "String"
+      ],
+      "MatrixDataType": [
+        "String"
+      ],
+      "NumReads": [
+        "String"
+      ],
+      "HIV_Test_Type": [
+        "String"
+      ],
+      "CFU_FileName": [
+        "String"
+      ],
+      "TemperatureEndTime": [
+        "String"
+      ],
+      "BioSampleAccession": [
+        "String"
+      ],
+      "PlateDesign_Checksum": [
+        "String"
+      ],
+      "Metadata": [
+        "String"
+      ],
+      "Genes": [
+        "String"
+      ],
+      "PeakConcentration": [
+        "String"
+      ],
+      "NegativeControl_Vendor": [
+        "String"
+      ],
+      "FlowLane": [
+        "String"
+      ],
+      "File_TertiaryData": [
+        "String"
+      ],
+      "Phage": [
+        "String"
+      ],
+      "PostOpLMP": [
+        "String"
+      ],
+      "Initial_Diagnosis": [
+        "String"
+      ],
+      "AminoAcidMutations": [
+        "String"
+      ],
+      "LibraryType": [
+        "String"
+      ],
+      "StatusHIV": [
+        "String"
+      ],
+      "DataType": [
+        "String"
+      ],
+      "Dataset": [
+        "String"
+      ],
+      "NumFoci": [
+        "String"
+      ],
+      "Absorbance2": [
+        "String"
+      ],
+      "SourceDataFile": [
+        "String"
+      ],
+      "Organ": [
+        "String"
+      ],
+      "VisibleLesion1_PETCT_FDG": [
+        "String"
+      ],
+      "TreatmentType": [
+        "String"
+      ],
+      "IonizationMethod": [
+        "String"
+      ],
+      "DissociationReagents": [
+        "String"
+      ],
+      "MortalityObservation": [
+        "String"
+      ],
+      "SequencingFacility": [
+        "String"
+      ],
+      "Cycles": [
+        "String"
+      ],
+      "IntegrationTime": [
+        "String"
+      ],
+      "ScanMode": [
+        "String"
+      ],
+      "CrystalSize": [
+        "String"
+      ],
+      "Checksum_Genes": [
+        "String"
+      ],
+      "LibrarySelection": [
+        "String"
+      ],
+      "LEDCurrentStartTime": [
+        "String"
+      ],
+      "ViableCellCount": [
+        "String"
+      ],
+      "MTB_SputumSmear_Score": [
+        "String"
+      ],
+      "InstrumentUser": [
+        "String"
+      ],
+      "Stimulation": [
+        "String"
+      ],
+      "Lot#": [
+        "String"
+      ],
+      "Timepoints": [
+        "String"
+      ],
+      "ComparatorReference": [
+        "String"
+      ],
+      "Visible_Lesions_PETCT": [
+        "String"
+      ],
+      "CollectionTimeUnits": [
+        "String"
+      ],
+      "ReagentCatalogNum": [
+        "String"
+      ],
+      "ReferenceCompound": [
+        "String"
+      ],
+      "G/P": [
+        "String"
+      ],
+      "LEDCurrentEndTime": [
+        "String"
+      ],
+      "PRIDE_Modification": [
+        "String"
+      ],
+      "Pregnant": [
+        "String"
+      ],
+      "TimeUnits": [
+        "String"
+      ],
+      "COVID19Vax": [
+        "String"
+      ],
+      "TemperatureCalibrationDate": [
+        "String"
+      ],
+      "StorageTemperature": [
+        "String"
+      ],
+      "New/Reccurent": [
+        "String"
+      ],
+      "DurationUnits": [
+        "String"
+      ],
+      "Sequencer": [
+        "String"
+      ],
+      "Temperature": [
+        "String"
+      ],
+      "Note": [
+        "String"
+      ],
+      "Link_Reviewer": [
+        "String"
+      ],
+      "ModelType": [
+        "String"
+      ],
+      "LEDCurrentLinearCalibrationIntercept": [
+        "String"
+      ],
+      "DateLMP": [
+        "String"
+      ],
+      "Deceased": [
+        "String"
+      ],
+      "Treatment5Route": [
+        "String"
+      ],
+      "DRTB_History": [
+        "String"
+      ],
+      "BatteryLevelStart": [
+        "String"
+      ],
+      "Magnification": [
+        "String"
+      ],
+      "ExperimentalTimepoint": [
+        "String"
+      ],
+      "NegativeScope": [
+        "String"
+      ],
+      "Treatment4Dose": [
+        "String"
+      ],
+      "VolumeUnits": [
+        "String"
+      ],
+      "CFU_FileLink": [
+        "String"
+      ],
+      "TestResultFile4": [
+        "String"
+      ],
+      "N50Units": [
+        "String"
+      ],
+      "MutationFreq": [
+        "String"
+      ],
+      "LanderLegHeightUnits": [
+        "String"
+      ],
+      "VisibleLesion4_PETCT_Location": [
+        "String"
+      ],
+      "VisibleLesion2_Total_Glycolytic_Activity": [
+        "String"
+      ],
+      "Treatment2Time": [
+        "String"
+      ],
+      "Lab": [
+        "String"
+      ],
+      "DatapointTimeUnits": [
+        "String"
+      ],
+      "Ionization": [
+        "String"
+      ],
+      "Hormones": [
+        "String"
+      ],
+      "Disease": [
+        "String"
+      ],
+      "Coscientist": [
+        "String"
+      ],
+      "MetadataDataType": [
+        "String"
+      ],
+      "CellLine": [
+        "String"
+      ],
+      "Link_Matrix": [
+        "String"
+      ],
+      "ID": [
+        "String"
+      ],
+      "ProteinSeqFile": [
+        "String"
+      ],
+      "Treatment3DoseUnits": [
+        "String"
+      ],
+      "TreatmentDose": [
+        "String"
+      ],
+      "Adenomyosis": [
+        "String"
+      ],
+      "DateOfBirth": [
+        "String"
+      ],
+      "MDLNumber": [
+        "String"
+      ],
+      "WavelengthUnits": [
+        "String"
+      ],
+      "LuminexDesign": [
+        "String"
+      ],
+      "Markers": [
+        "String"
+      ],
+      "PipelineVersion": [
+        "String"
+      ]
+    }
+  },
+  "relationship_properties": {
+    "CHILD_OF": [],
+    "DERIVED_FROM": [
+      "internal_assay_title",
+      "internal_assay_id",
+      "assay_id",
+      "parent_id",
+      "child_id",
+      "protocol_id",
+      "protocol_title"
+    ],
+    "IN_INVESTIGATION": [],
+    "IN_STUDY": [],
+    "OF_TYPE": []
+  },
+  "relationship_property_types": {
+    ":`DERIVED_FROM": {
+      "child_id": [
+        "Long"
+      ],
+      "parent_id": [
+        "Long"
+      ],
+      "internal_assay_id": [
+        "Long"
+      ],
+      "protocol_id": [
+        "Long"
+      ],
+      "internal_assay_title": [
+        "String"
+      ],
+      "protocol_title": [
+        "String"
+      ],
+      "assay_id": [
+        "Long"
+      ]
+    }
+  },
+  "relationship_patterns": [
+    {
+      "start": "Study",
+      "type": "IN_INVESTIGATION",
+      "end": "Investigation"
+    },
+    {
+      "start": "Sample",
+      "type": "OF_TYPE",
+      "end": "SampleType"
+    },
+    {
+      "start": "Sample",
+      "type": "CHILD_OF",
+      "end": "Sample"
+    },
+    {
+      "start": "Sample",
+      "type": "DERIVED_FROM",
+      "end": "Sample"
+    },
+    {
+      "start": "Sample",
+      "type": "IN_STUDY",
+      "end": "Study"
+    }
+  ],
+  "vocabulary": {
+    "study_titles": [
+      "Collagen Study",
+      "Endometriosis",
+      "GBM",
+      "Impactb Study",
+      "MIT_SRP",
+      "MetNet",
+      "Quantitative systems biology of glioblastoma cells and their interactions with the neuronal and immunological milieu (CSBC)"
+    ],
+    "investigation_titles": [
+      "BreakThroughCancer",
+      "CSBC",
+      "Collagen Study",
+      "Endometriosis",
+      "Impactb Investigation",
+      "MIT_SRP",
+      "MetNet"
+    ],
+    "internal_assay_titles": [
+      "Agglutination Assay",
+      "Antibody Functional Profiling",
+      "Antibody Functional Profiling Analysis",
+      "Area Under the Curve",
+      "Bacterial Extraction",
+      "Bacterial Survivability Restriction Assay",
+      "Bulk DNA Sequencing",
+      "Cancer Cell Extravasation Analysis",
+      "Cell Culture",
+      "Cell Culture and Organoid Generation",
+      "Cell Extraction",
+      "Cell Imaging",
+      "Cell Isolation",
+      "Cell Line Creation",
+      "Cell Lysate",
+      "Chemical Challenge",
+      "Chemical Synthesis",
+      "Chromatin Sequencing Analysis",
+      "Clot Modeling Analysis",
+      "Comet Chip",
+      "Convolutional Neural Network",
+      "Copy Number Variation Analysis",
+      "Crystallography",
+      "CyTOF Analysis",
+      "DNA Extraction",
+      "Device Imaging",
+      "Digitally Barcoded Mtb Matrix Analysis",
+      "ELISA",
+      "ELISA Assay",
+      "Electron Paramagnetic Resonance",
+      "FC Receptor Binding Assay",
+      "FC Receptor Binding Assay Analysis",
+      "Field Water Sensor Run",
+      "Flow Cytometry",
+      "Flow Cytometry Analysis",
+      "GPT Assay",
+      "Gene Expression Analysis",
+      "Genome Alignment",
+      "HistoPathology",
+      "HistoPathology Analysis",
+      "Imaging",
+      "Imaging Analysis",
+      "Library Creation",
+      "Library Prep",
+      "Linear Mixed Model",
+      "Long Read Sequencing",
+      "Luminex",
+      "Luminex Analysis",
+      "MRI Analysis",
+      "Mass Spectrometry",
+      "Mass Spectrometry Analysis",
+      "Mass Spectrometry Proteomics",
+      "Mass Spectrometry Proteomics Analysis",
+      "Microfluidic Device Creation",
+      "NMR",
+      "NMR Analysis",
+      "PET/CT Scan",
+      "PET/CT Scan Analysis",
+      "Patient Visit",
+      "Permeability Analysis",
+      "Polymerase Chain Reaction (PCR)",
+      "Proteomics",
+      "Proteomics Analysis",
+      "Proximity Extension Assay",
+      "RNA Extraction",
+      "RNA Isolation",
+      "RaDR Image Machine Learning Analysis",
+      "Short Read Sequencing",
+      "Single Cell Clustering Analysis",
+      "Single Cell Expression Analysis",
+      "Single Cell Sequencing",
+      "Slide Imaging",
+      "Spatial Metabolomics",
+      "Spatial Proteomics",
+      "Spatial Transcriptomics Analysis",
+      "Spectroscopy",
+      "Spectroscopy Analysis",
+      "Tensiometry Assay",
+      "Tissue Collection",
+      "Tissue Imaging",
+      "Tissue Sectioning",
+      "Titer Assay",
+      "Titer Assay Analysis",
+      "X-Ray Photoelectron Spectroscopy",
+      "cDNA Generation",
+      "cyCIF Analysis"
+    ],
+    "sampletype_titles": [
+      "A.ADCD",
+      "A.ADCP",
+      "A.ADDCP",
+      "A.ADMP",
+      "A.ADNKA",
+      "A.ADNP",
+      "A.ALN",
+      "A.CCE",
+      "A.CCI",
+      "A.CHRM",
+      "A.CLOT",
+      "A.CNV",
+      "A.COMC",
+      "A.CTSC",
+      "A.CYCF",
+      "A.CYTOF",
+      "A.DBMM",
+      "A.ELSA",
+      "A.FCRB",
+      "A.FLOW",
+      "A.GEX",
+      "A.IMG",
+      "A.IMP",
+      "A.LMX",
+      "A.MIGR",
+      "A.MSP",
+      "A.MUSP",
+      "A.NMR",
+      "A.PERM",
+      "A.PHP",
+      "A.SCCL",
+      "A.SCXP",
+      "A.SPC",
+      "A.SPTX",
+      "A.TITR",
+      "A.WBLT",
+      "AB",
+      "ABP",
+      "BAC",
+      "CEL",
+      "CEX",
+      "CHM",
+      "D.ADCD",
+      "D.ADCP",
+      "D.ADDCP",
+      "D.ADMP",
+      "D.ADNKA",
+      "D.ADNP",
+      "D.ATM",
+      "D.BSRA",
+      "D.CRY",
+      "D.CYTOF",
+      "D.ELSA",
+      "D.FCRB",
+      "D.FCS",
+      "D.FILE",
+      "D.FLOW",
+      "D.GLYN",
+      "D.GPC",
+      "D.GPT",
+      "D.IMG",
+      "D.LMX",
+      "D.MSI",
+      "D.MSP",
+      "D.NMR",
+      "D.ONC",
+      "D.PCR",
+      "D.PEX",
+      "D.PRM",
+      "D.SEQ",
+      "D.SIM",
+      "D.SNSR",
+      "D.SPC",
+      "D.TITR",
+      "D.TNSY",
+      "D.VIA",
+      "D.WBLT",
+      "D.XRS",
+      "DNA",
+      "GAS",
+      "LOC",
+      "LYS",
+      "M.CNN",
+      "M.LMM",
+      "MDL",
+      "MUS",
+      "NHP",
+      "OOC",
+      "PAT",
+      "PAV",
+      "RNA",
+      "SLD",
+      "SNSR",
+      "TIS",
+      "VIR"
+    ]
+  },
+  "graph_topology": [
+    "Study -[:IN_INVESTIGATION]-> Investigation",
+    "Sample -[:OF_TYPE]-> SampleType",
+    "Sample -[:CHILD_OF]-> Sample",
+    "Sample -[:DERIVED_FROM]-> Sample",
+    "Sample -[:IN_STUDY]-> Study"
+  ]
+}

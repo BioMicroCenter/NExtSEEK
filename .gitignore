@@ -185,5 +185,4 @@ CLAUDE.md
 .*_stage/
 *.codex 
 scripts/investigate_duplicates/outputs/
-chat_nextseek/
 show

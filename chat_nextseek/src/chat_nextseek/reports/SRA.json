@@ -1,0 +1,842 @@
+{
+  "report_type": "SRA",
+  "description": "SRA submission JSON template aligned to both SRA_metadata.xlsx (SRA_data sheet) and SRA_biosample.xlsx (Human.1.0 sheet). This context file mirrors the GEO mapping style but targets the paired SRA library and BioSample workbooks plus workbook-specific submission rules.",
+  "report_writer_guidance": {
+    "purpose": "Use this file as the report-writing context for SRA submission drafting from already-scraped metadata.",
+    "workflow_role": "Selected when the upstream agent chooses report_generation with report_type SRA.",
+    "output_expectation": "Populate the libraries and biosamples arrays using the exact workbook header names. Each library row maps to one row in SRA_metadata.xlsx, and each biosample row maps to one row in SRA_biosample.xlsx.",
+    "population_priority": [
+      "Keep one library row per unique combination of sample_name, library_ID, library_strategy, library_layout, platform, and instrument_model.",
+      "Populate one biosample row per submitted sample using the exact row-12 headers from SRA_biosample.xlsx, including the required * prefixes.",
+      "When multiple files belong to the same logical library row, keep them in the same row using filename, filename2, filename3, and filename4.",
+      "Use exact controlled vocabulary values for library_strategy, library_source, library_selection, library_layout, platform, instrument_model, and filetype.",
+      "For required BioSample columns, use a real value when supported; otherwise use 'not collected', 'not applicable', or 'missing' exactly as the workbook instructions allow.",
+      "Leave optional fields null or empty when the metadata does not support a confident assignment.",
+      "assembly and fasta_file should usually be blank unless the submission includes aligned BAM files against a referenced assembly."
+    ],
+    "final_checks": [
+      "libraries.sample_name exactly matches biosamples.*sample_name for the same submitted sample.",
+      "library_ID is short, meaningful, and unique across rows.",
+      "Paired-end libraries use library_layout = paired and keep mate files in the same row.",
+      "BioSample required fields remain populated even when the value must be not collected/not applicable/missing.",
+      "File names are exact basenames including extensions and remain unique across the submission.",
+      "Controlled vocabulary fields use values exactly as listed in controlled_vocabulary."
+    ]
+  },
+  "libraries": [
+    {
+      "sample_name": null,
+      "library_ID": null,
+      "title": null,
+      "library_strategy": null,
+      "library_source": null,
+      "library_selection": null,
+      "library_layout": null,
+      "platform": null,
+      "instrument_model": null,
+      "design_description": null,
+      "filetype": null,
+      "filename": null,
+      "filename2": null,
+      "filename3": null,
+      "filename4": null,
+      "assembly": null,
+      "fasta_file": null
+    }
+  ],
+  "biosamples": [
+    {
+      "*sample_name": null,
+      "sample_title": null,
+      "bioproject_accession": null,
+      "*organism": null,
+      "*isolate": null,
+      "*age": null,
+      "*biomaterial_provider": null,
+      "*collection_date": null,
+      "*geo_loc_name": null,
+      "*sex": null,
+      "*tissue": null,
+      "cell_line": null,
+      "cell_subtype": null,
+      "cell_type": null,
+      "culture_collection": null,
+      "dev_stage": null,
+      "disease": null,
+      "disease_stage": null,
+      "ethnicity": null,
+      "health_state": null,
+      "karyotype": null,
+      "phenotype": null,
+      "population": null,
+      "race": null,
+      "sample_type": null,
+      "treatment": null,
+      "description": null
+    }
+  ],
+  "notes": [
+    "The SRA report now contains two row-based sections: libraries for SRA_metadata.xlsx and biosamples for SRA_biosample.xlsx.",
+    "Each library row represents a sequencing library with a unique combination of sample + library + sequencing strategy + layout + instrument model.",
+    "Each BioSample row represents one sample to be uploaded on the BioSample portal Attributes tab using the Human.1.0 template.",
+    "BioSample required fields are the green row-12 headers prefixed with * in SRA_biosample.xlsx.",
+    "Paired files must be listed in the same library row.",
+    "If multiple files belong to one otherwise identical library row, continue in filename2, filename3, and filename4.",
+    "assembly and fasta_file are mainly relevant when submitting aligned BAM data against an assembly."
+  ],
+  "schema": {
+    "template_source": {
+      "library_workbook": {
+        "file": "SRA_metadata.xlsx",
+        "sheet": "SRA_data",
+        "header_row": 1,
+        "first_data_row": 2,
+        "instructions_sheet": "Contact Info and Instructions",
+        "terms_sheet": "Library and Platform Terms",
+        "submission_note": "The filled SRA_data sheet is typically saved as a tab-delimited file for submission."
+      },
+      "biosample_workbook": {
+        "file": "SRA_biosample.xlsx",
+        "sheet": "Human.1.0",
+        "header_row": 12,
+        "first_data_row": 13,
+        "instructions": [
+          "# This is a submission template for batch deposit of 'Human; version 1.0' samples to the NCBI BioSample database (https://www.ncbi.nlm.nih.gov/biosample/).",
+          "# GREEN fields are mandatory. Your submission will fail if any mandatory fields are not completed. If information is unavailable for any mandatory field, please enter 'not collected',  'not applicable' or 'missing' as appropriate.",
+          "# YELLOW fields are optional. Leave optional fields empty (or delete them) if no information is available.",
+          "# You can add any number of custom fields to fully describe your BioSamples, simply include them in the table.",
+          "# Hover over field name to view definition, or see https://www.ncbi.nlm.nih.gov/biosample/docs/attributes/.",
+          "# CAUTION: Be aware that Excel may automatically apply formatting to your data. In particular, take care with dates, incrementing autofills and special characters like / or -. Doublecheck that your text file is accurate before uploading to BioSample.",
+          "# TO MAKE A SUBMISSION:",
+          "# 1. Complete this template table.",
+          "# 2. Upload the file on the 'Attributes' tab of the BioSample Submission Portal at https://submit.ncbi.nlm.nih.gov/subs/biosample/.",
+          "# If you have any questions, please contact us at biosamplehelp@ncbi.nlm.nih.gov."
+        ],
+        "required_fill_rgb": "FF92D050",
+        "optional_fill_rgb": "FFFFFF00",
+        "submission_note": "Upload the completed file on the 'Attributes' tab of the BioSample Submission Portal."
+      }
+    },
+    "sections": {
+      "libraries": {
+        "description": "One SRA submission row per sequencing library. Rows should correspond directly to the SRA_data sheet in SRA_metadata.xlsx.",
+        "fields": {
+          "sample_name": {
+            "field": "sample_name",
+            "template_key": "sample_name",
+            "required": "required",
+            "description": "BioSample name. This should be identical to the names entered into the BioSample attributes spreadsheet.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Use the exact BioSample sample name.",
+              "Do not invent a new sample label here."
+            ]
+          },
+          "library_ID": {
+            "field": "library_ID",
+            "template_key": "library_ID",
+            "required": "required",
+            "description": "Short unique identifier for the sequencing library. Each library_ID must be unique.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Keep short and meaningful.",
+              "Must be unique across all library rows."
+            ]
+          },
+          "title": {
+            "field": "title",
+            "template_key": "title",
+            "required": "required",
+            "description": "Short description that identifies the dataset on public pages. A good formula is '{methodology} of {organism}: {sample info}'.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Keep concise but specific.",
+              "Include methodology, organism, and distinguishing sample context when possible."
+            ]
+          },
+          "library_strategy": {
+            "field": "library_strategy",
+            "template_key": "library_strategy",
+            "required": "required",
+            "description": "Sequencing strategy for the library.",
+            "expected_value": "controlled vocabulary string",
+            "allowed_terms_ref": "controlled_vocabulary.library_strategy",
+            "validation_hints": [
+              "Use an exact value from controlled_vocabulary.library_strategy."
+            ]
+          },
+          "library_source": {
+            "field": "library_source",
+            "template_key": "library_source",
+            "required": "required",
+            "description": "Biological source category for the library.",
+            "expected_value": "controlled vocabulary string",
+            "allowed_terms_ref": "controlled_vocabulary.library_source",
+            "validation_hints": [
+              "Use an exact value from controlled_vocabulary.library_source."
+            ]
+          },
+          "library_selection": {
+            "field": "library_selection",
+            "template_key": "library_selection",
+            "required": "required",
+            "description": "Library selection or enrichment method.",
+            "expected_value": "controlled vocabulary string",
+            "allowed_terms_ref": "controlled_vocabulary.library_selection",
+            "validation_hints": [
+              "Use an exact value from controlled_vocabulary.library_selection."
+            ]
+          },
+          "library_layout": {
+            "field": "library_layout",
+            "template_key": "library_layout",
+            "required": "required",
+            "description": "Paired-end or single-end layout.",
+            "expected_value": "controlled vocabulary string",
+            "allowed_terms_ref": "controlled_vocabulary.library_layout",
+            "validation_hints": [
+              "Use single or paired exactly.",
+              "Choice must agree with the number and pairing of filenames in the row."
+            ]
+          },
+          "platform": {
+            "field": "platform",
+            "template_key": "platform",
+            "required": "required",
+            "description": "Sequencing platform vendor/category.",
+            "expected_value": "controlled vocabulary string",
+            "allowed_terms_ref": "controlled_vocabulary.platform",
+            "validation_hints": [
+              "Use an exact value from controlled_vocabulary.platform."
+            ]
+          },
+          "instrument_model": {
+            "field": "instrument_model",
+            "template_key": "instrument_model",
+            "required": "required",
+            "description": "Specific sequencing instrument model.",
+            "expected_value": "controlled vocabulary string",
+            "allowed_terms_ref": "controlled_vocabulary.instrument_model_by_platform",
+            "validation_hints": [
+              "Use an exact value listed for the chosen platform.",
+              "Instrument model must be compatible with platform."
+            ]
+          },
+          "design_description": {
+            "field": "design_description",
+            "template_key": "design_description",
+            "required": "required",
+            "description": "Free-form description of the methods used to create the sequencing library; effectively a brief materials and methods section.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Summarize library prep, assay context, and major preparation steps.",
+              "Do not reference internal protocol IDs directly."
+            ]
+          },
+          "filetype": {
+            "field": "filetype",
+            "template_key": "filetype",
+            "required": "required",
+            "description": "Primary submitted data file type for the row.",
+            "expected_value": "controlled vocabulary string",
+            "allowed_terms_ref": "controlled_vocabulary.filetype",
+            "validation_hints": [
+              "Use an exact value from controlled_vocabulary.filetype.",
+              "Make sure file extensions agree with the chosen filetype."
+            ]
+          },
+          "filename": {
+            "field": "filename",
+            "template_key": "filename",
+            "required": "required",
+            "description": "Primary data file name, including extension.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Provide exact basename including extension.",
+              "File names must be unique across the submission."
+            ]
+          },
+          "filename2": {
+            "field": "filename2",
+            "template_key": "filename2",
+            "required": "optional",
+            "description": "Second data file name for the same library row.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Use for mate pairs or additional files belonging to the same logical library row."
+            ]
+          },
+          "filename3": {
+            "field": "filename3",
+            "template_key": "filename3",
+            "required": "optional",
+            "description": "Third data file name for the same library row.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Use only when the same library row has additional files."
+            ]
+          },
+          "filename4": {
+            "field": "filename4",
+            "template_key": "filename4",
+            "required": "optional",
+            "description": "Fourth data file name for the same library row.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Use only when the same library row has additional files."
+            ]
+          },
+          "assembly": {
+            "field": "assembly",
+            "template_key": "assembly",
+            "required": "conditional",
+            "description": "Only for BAM submissions aligned against an NCBI assembly. Provide the NCBI assembly name or accession.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Usually blank for FASTQ-based submissions.",
+              "Required when submitting aligned BAMs against an NCBI assembly."
+            ]
+          },
+          "fasta_file": {
+            "field": "fasta_file",
+            "template_key": "fasta_file",
+            "required": "conditional",
+            "description": "For custom-assembly aligned BAM submissions, provide the assembly FASTA file name used during alignment.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Usually blank for FASTQ-based submissions.",
+              "Only populate for custom-assembly BAM workflows."
+            ]
+          }
+        }
+      },
+      "biosamples": {
+        "description": "One BioSample submission row per sample. Rows should correspond directly to row 12 headers and row 13+ data rows in SRA_biosample.xlsx.",
+        "required_headers": [
+          "*sample_name",
+          "*organism",
+          "*isolate",
+          "*age",
+          "*biomaterial_provider",
+          "*collection_date",
+          "*geo_loc_name",
+          "*sex",
+          "*tissue"
+        ],
+        "optional_headers": [
+          "sample_title",
+          "bioproject_accession",
+          "cell_line",
+          "cell_subtype",
+          "cell_type",
+          "culture_collection",
+          "dev_stage",
+          "disease",
+          "disease_stage",
+          "ethnicity",
+          "health_state",
+          "karyotype",
+          "phenotype",
+          "population",
+          "race",
+          "sample_type",
+          "treatment",
+          "description"
+        ],
+        "fields": {
+          "*sample_name": {
+            "field": "*sample_name",
+            "template_key": "*sample_name",
+            "normalized_field": "sample_name",
+            "required": "required",
+            "description": "Sample Name is a name that you choose for the sample. It can have any format, but we suggest that you make it concise, unique and consistent within your lab, and as informative as possible. Every Sample Name from a single Submitter must be unique.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Required by the BioSample workbook; use 'not collected', 'not applicable', or 'missing' when truly unavailable.",
+              "Must be unique within the submitter account and should match the SRA library sample_name."
+            ]
+          },
+          "sample_title": {
+            "field": "sample_title",
+            "template_key": "sample_title",
+            "normalized_field": "sample_title",
+            "required": "optional",
+            "description": "Title of the sample.",
+            "expected_value": "string"
+          },
+          "bioproject_accession": {
+            "field": "bioproject_accession",
+            "template_key": "bioproject_accession",
+            "normalized_field": "bioproject_accession",
+            "required": "optional",
+            "description": "The accession number of the BioProject(s) to which the BioSample belongs. If the BioSample belongs to more than one BioProject, enter multiple bioproject_accession columns. A valid BioProject accession has prefix PRJN, PRJE or PRJD, e.g., PRJNA12345.",
+            "expected_value": "string",
+            "validation_hints": [
+              "If needed, repeat the column in the final submission file for multiple BioProjects; this JSON template keeps a single value slot."
+            ]
+          },
+          "*organism": {
+            "field": "*organism",
+            "template_key": "*organism",
+            "normalized_field": "organism",
+            "required": "required",
+            "description": "The most descriptive organism name for this sample (to the species, if possible). It is OK to submit an organism name that is not in our database. In the case of a new species, provide the desired organism name, and our taxonomists may assign a provisional taxID. In the case of unidentified species, choose the appropriate Genus and include 'sp.', e.g., \"Escherichia sp.\". When sequencing a genome from a non-metagenomic source, include a strain or isolate name too, e.g., \"Pseudomonas sp. UK4\". For more information about providing a valid organism, including new species, metagenomes (microbiomes) and metagenome-assembled genomes, see https://www.ncbi.nlm.nih.gov/biosample/docs/organism/.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Required by the BioSample workbook; use 'not collected', 'not applicable', or 'missing' when truly unavailable."
+            ]
+          },
+          "*isolate": {
+            "field": "*isolate",
+            "template_key": "*isolate",
+            "normalized_field": "isolate",
+            "required": "required",
+            "description": "identification or description of the specific individual from which this sample was obtained",
+            "expected_value": "string",
+            "validation_hints": [
+              "Required by the BioSample workbook; use 'not collected', 'not applicable', or 'missing' when truly unavailable."
+            ]
+          },
+          "*age": {
+            "field": "*age",
+            "template_key": "*age",
+            "normalized_field": "age",
+            "required": "required",
+            "description": "age at the time of sampling; relevant scale depends on species and study, e.g. could be seconds for amoebae or centuries for trees",
+            "expected_value": "string",
+            "validation_hints": [
+              "Required by the BioSample workbook; use 'not collected', 'not applicable', or 'missing' when truly unavailable."
+            ]
+          },
+          "*biomaterial_provider": {
+            "field": "*biomaterial_provider",
+            "template_key": "*biomaterial_provider",
+            "normalized_field": "biomaterial_provider",
+            "required": "required",
+            "description": "name and address of the lab or PI, or a culture collection identifier",
+            "expected_value": "string",
+            "validation_hints": [
+              "Required by the BioSample workbook; use 'not collected', 'not applicable', or 'missing' when truly unavailable."
+            ]
+          },
+          "*collection_date": {
+            "field": "*collection_date",
+            "template_key": "*collection_date",
+            "normalized_field": "collection_date",
+            "required": "required",
+            "description": "the date on which the sample was collected; date/time ranges are supported by providing two dates from among the supported value formats, delimited by a forward-slash character; collection times are supported by adding \"T\", then the hour and minute after the date, and must be in Coordinated Universal Time (UTC), otherwise known as \"Zulu Time\" (Z); supported formats include \"DD-Mmm-YYYY\", \"Mmm-YYYY\", \"YYYY\" or ISO 8601 standard \"YYYY-mm-dd\", \"YYYY-mm\", \"YYYY-mm-ddThh:mm:ss\"; e.g., 30-Oct-1990, Oct-1990, 1990, 1990-10-30, 1990-10,  21-Oct-1952/15-Feb-1953, 2015-10-11T17:53:03Z; valid non-ISO dates will be automatically transformed to ISO format",
+            "expected_value": "string",
+            "validation_hints": [
+              "Required by the BioSample workbook; use 'not collected', 'not applicable', or 'missing' when truly unavailable.",
+              "Prefer ISO 8601-compatible formats accepted by the workbook."
+            ]
+          },
+          "*geo_loc_name": {
+            "field": "*geo_loc_name",
+            "template_key": "*geo_loc_name",
+            "normalized_field": "geo_loc_name",
+            "required": "required",
+            "description": "Geographical origin of the sample; use the appropriate name from this list https://www.insdc.org/submitting-standards/geo_loc_name-qualifier-vocabulary/. Use a colon to separate the country or ocean from more detailed information about the location, eg \"Canada: Vancouver\" or \"Germany: halfway down Zugspitze, Alps\"",
+            "expected_value": "string",
+            "validation_hints": [
+              "Required by the BioSample workbook; use 'not collected', 'not applicable', or 'missing' when truly unavailable.",
+              "Use the INSDC geo_loc_name vocabulary format shown in the workbook comment."
+            ]
+          },
+          "*sex": {
+            "field": "*sex",
+            "template_key": "*sex",
+            "normalized_field": "sex",
+            "required": "required",
+            "description": "physical sex of sampled organism",
+            "expected_value": "string",
+            "validation_hints": [
+              "Required by the BioSample workbook; use 'not collected', 'not applicable', or 'missing' when truly unavailable."
+            ]
+          },
+          "*tissue": {
+            "field": "*tissue",
+            "template_key": "*tissue",
+            "normalized_field": "tissue",
+            "required": "required",
+            "description": "Type of tissue the sample was taken from.",
+            "expected_value": "string",
+            "validation_hints": [
+              "Required by the BioSample workbook; use 'not collected', 'not applicable', or 'missing' when truly unavailable."
+            ]
+          },
+          "cell_line": {
+            "field": "cell_line",
+            "template_key": "cell_line",
+            "normalized_field": "cell_line",
+            "required": "optional",
+            "description": "Name of the cell line.",
+            "expected_value": "string"
+          },
+          "cell_subtype": {
+            "field": "cell_subtype",
+            "template_key": "cell_subtype",
+            "normalized_field": "cell_subtype",
+            "required": "optional",
+            "description": null,
+            "expected_value": "string",
+            "validation_hints": [
+              "Optional field present in the workbook header; no embedded comment was provided in the template."
+            ]
+          },
+          "cell_type": {
+            "field": "cell_type",
+            "template_key": "cell_type",
+            "normalized_field": "cell_type",
+            "required": "optional",
+            "description": "Type of cell of the sample or from which the sample was obtained.",
+            "expected_value": "string"
+          },
+          "culture_collection": {
+            "field": "culture_collection",
+            "template_key": "culture_collection",
+            "normalized_field": "culture_collection",
+            "required": "optional",
+            "description": "Name of source institute and unique culture identifier. See the description for the proper format and list of allowed institutes, http://www.insdc.org/controlled-vocabulary-culturecollection-qualifier",
+            "expected_value": "string"
+          },
+          "dev_stage": {
+            "field": "dev_stage",
+            "template_key": "dev_stage",
+            "normalized_field": "dev_stage",
+            "required": "optional",
+            "description": "Developmental stage at the time of sampling.",
+            "expected_value": "string"
+          },
+          "disease": {
+            "field": "disease",
+            "template_key": "disease",
+            "normalized_field": "disease",
+            "required": "optional",
+            "description": "list of diseases diagnosed; can include multiple diagnoses. the value of the field depends on host; for humans the terms should be chosen from DO (Disease Ontology), free text for non-human. For DO terms, please see http://gemina.svn.sourceforge.net/viewvc/gemina/trunk/Gemina/ontologies/gemina_symptom.obo?view=log",
+            "expected_value": "string"
+          },
+          "disease_stage": {
+            "field": "disease_stage",
+            "template_key": "disease_stage",
+            "normalized_field": "disease_stage",
+            "required": "optional",
+            "description": "stage of disease at the time of sampling.",
+            "expected_value": "string"
+          },
+          "ethnicity": {
+            "field": "ethnicity",
+            "template_key": "ethnicity",
+            "normalized_field": "ethnicity",
+            "required": "optional",
+            "description": "ethnicity of the subject",
+            "expected_value": "string"
+          },
+          "health_state": {
+            "field": "health_state",
+            "template_key": "health_state",
+            "normalized_field": "health_state",
+            "required": "optional",
+            "description": "Health or disease status of sample at time of collection",
+            "expected_value": "string"
+          },
+          "karyotype": {
+            "field": "karyotype",
+            "template_key": "karyotype",
+            "normalized_field": "karyotype",
+            "required": "optional",
+            "description": null,
+            "expected_value": "string",
+            "validation_hints": [
+              "Optional field present in the workbook header; no embedded comment was provided in the template."
+            ]
+          },
+          "phenotype": {
+            "field": "phenotype",
+            "template_key": "phenotype",
+            "normalized_field": "phenotype",
+            "required": "optional",
+            "description": "Phenotype of sampled organism. For Phenotypic quality Ontology (PATO) (v1.269) terms, please see http://bioportal.bioontology.org/visualize/44601",
+            "expected_value": "string"
+          },
+          "population": {
+            "field": "population",
+            "template_key": "population",
+            "normalized_field": "population",
+            "required": "optional",
+            "description": "for human: ; for plants: filial generation, number of progeny, genetic structure",
+            "expected_value": "string"
+          },
+          "race": {
+            "field": "race",
+            "template_key": "race",
+            "normalized_field": "race",
+            "required": "optional",
+            "description": null,
+            "expected_value": "string",
+            "validation_hints": [
+              "Optional field present in the workbook header; no embedded comment was provided in the template."
+            ]
+          },
+          "sample_type": {
+            "field": "sample_type",
+            "template_key": "sample_type",
+            "normalized_field": "sample_type",
+            "required": "optional",
+            "description": "Sample type, such as cell culture, mixed culture, tissue sample, whole organism, single cell, metagenomic assembly",
+            "expected_value": "string"
+          },
+          "treatment": {
+            "field": "treatment",
+            "template_key": "treatment",
+            "normalized_field": "treatment",
+            "required": "optional",
+            "description": null,
+            "expected_value": "string",
+            "validation_hints": [
+              "Optional field present in the workbook header; no embedded comment was provided in the template."
+            ]
+          },
+          "description": {
+            "field": "description",
+            "template_key": "description",
+            "normalized_field": "description",
+            "required": "optional",
+            "description": "Description of the sample.",
+            "expected_value": "string"
+          }
+        }
+      }
+    }
+  },
+  "controlled_vocabulary": {
+    "authority": "Controlled vocabulary mined directly from SRA_metadata.xlsx (SRA_data validations + Library and Platform Terms sheet). Use these exact terms when populating overlapping GEO/SRA fields so both report types normalize identically.",
+    "library_strategy": [
+      "WGA",
+      "WGS",
+      "WXS",
+      "RNA-Seq",
+      "miRNA-Seq",
+      "WCS",
+      "CLONE",
+      "POOLCLONE",
+      "AMPLICON",
+      "CLONEEND",
+      "FINISHING",
+      "ChIP-Seq",
+      "MNase-Seq",
+      "DNase-Hypersensitivity",
+      "Bisulfite-Seq",
+      "Tn-Seq",
+      "EST",
+      "FL-cDNA",
+      "CTS",
+      "MRE-Seq",
+      "MeDIP-Seq",
+      "MBD-Seq",
+      "Synthetic-Long-Read",
+      "ATAC-seq",
+      "ChIA-PET",
+      "FAIRE-seq",
+      "Hi-C",
+      "ncRNA-Seq",
+      "RAD-Seq",
+      "RIP-Seq",
+      "SELEX",
+      "ssRNA-seq",
+      "Targeted-Capture",
+      "Tethered Chromatin Conformation Capture",
+      "DIP-Seq",
+      "GBS",
+      "Inverse rRNA",
+      "NOMe-Seq",
+      "Ribo-seq",
+      "VALIDATION",
+      "OTHER"
+    ],
+    "library_source": [
+      "GENOMIC",
+      "TRANSCRIPTOMIC",
+      "METAGENOMIC",
+      "METATRANSCRIPTOMIC",
+      "SYNTHETIC",
+      "VIRAL RNA",
+      "GENOMIC SINGLE CELL",
+      "TRANSCRIPTOMIC SINGLE CELL",
+      "OTHER"
+    ],
+    "library_selection": [
+      "RANDOM",
+      "PCR",
+      "RANDOM PCR",
+      "RT-PCR",
+      "HMPR",
+      "MF",
+      "CF-S",
+      "CF-M",
+      "CF-H",
+      "CF-T",
+      "MDA",
+      "MSLL",
+      "cDNA",
+      "ChIP",
+      "MNase",
+      "DNAse",
+      "Hybrid Selection",
+      "Reduced Representation",
+      "Restriction Digest",
+      "5-methylcytidine antibody",
+      "MBD2 protein methyl-CpG binding domain",
+      "CAGE",
+      "RACE",
+      "size fractionation",
+      "Padlock probes capture method",
+      "other",
+      "unspecified",
+      "cDNA_oligo_dT",
+      "cDNA_randomPriming",
+      "Inverse rRNA",
+      "Oligo-dT",
+      "PolyA",
+      "repeat fractionation"
+    ],
+    "library_layout": [
+      "single",
+      "paired"
+    ],
+    "platform": [
+      "_LS454",
+      "ABI_SOLID",
+      "BGISEQ",
+      "CAPILLARY",
+      "COMPLETE_GENOMICS",
+      "DNBSEQ",
+      "ELEMENT",
+      "GENAPSYS",
+      "GENEMIND",
+      "HELICOS",
+      "ILLUMINA",
+      "ION_TORRENT",
+      "OXFORD_NANOPORE",
+      "PACBIO_SMRT",
+      "TAPESTRI",
+      "ULTIMA",
+      "VELA_DIAGNOSTICS"
+    ],
+    "instrument_model_by_platform": {
+      "ILLUMINA": [
+        "HiSeq X Five",
+        "HiSeq X Ten",
+        "Illumina Genome Analyzer",
+        "Illumina Genome Analyzer II",
+        "Illumina Genome Analyzer IIx",
+        "Illumina HiScanSQ",
+        "Illumina HiSeq 1000",
+        "Illumina HiSeq 1500",
+        "Illumina HiSeq 2000",
+        "Illumina HiSeq 2500",
+        "Illumina HiSeq 3000",
+        "Illumina HiSeq 4000",
+        "Illumina HiSeq X",
+        "Illumina MiSeq",
+        "Illumina MiSeq i100",
+        "Illumina MiniSeq",
+        "Illumina NovaSeq 6000",
+        "Illumina NovaSeq X",
+        "Illumina NovaSeq X Plus",
+        "Illumina iSeq 100",
+        "NextSeq 1000",
+        "NextSeq 2000",
+        "NextSeq 500",
+        "NextSeq 550"
+      ],
+      "PACBIO_SMRT": [
+        "PacBio RS",
+        "PacBio RS II",
+        "Revio",
+        "Sequel",
+        "Sequel II",
+        "Sequel IIe",
+        "Onso"
+      ],
+      "ABI_SOLID": [
+        "AB 5500 Genetic Analyzer",
+        "AB 5500xl Genetic Analyzer",
+        "AB 5500x-Wl Genetic Analyzer",
+        "AB SOLiD 3 Plus System",
+        "AB SOLiD 4 System",
+        "AB SOLiD 4hq System",
+        "AB SOLiD PI System",
+        "AB SOLiD System",
+        "AB SOLiD System 2.0",
+        "AB SOLiD System 3.0"
+      ],
+      "ION_TORRENT": [
+        "Ion Torrent PGM",
+        "Ion Torrent Proton",
+        "Ion Torrent S5 XL",
+        "Ion Torrent S5",
+        "Ion Torrent Genexus",
+        "Ion GeneStudio S5",
+        "Ion GeneStudio S5 Plus",
+        "Ion GeneStudio S5 Prime"
+      ],
+      "CAPILLARY": [
+        "AB 310 Genetic Analyzer",
+        "AB 3130 Genetic Analyzer",
+        "AB 3130xL Genetic Analyzer",
+        "AB 3500 Genetic Analyzer",
+        "AB 3500xL Genetic Analyzer",
+        "AB 3730 Genetic Analyzer",
+        "AB 3730xL Genetic Analyzer"
+      ],
+      "BGISEQ": [
+        "BGISEQ-50",
+        "BGISEQ-500",
+        "MGISEQ-2000RS"
+      ],
+      "DNBSEQ": [
+        "DNBSEQ-G400",
+        "DNBSEQ-G50",
+        "DNBSEQ-T7",
+        "DNBSEQ-G400 FAST"
+      ],
+      "GENEMIND": [
+        "FASTASeq 300",
+        "GenoCare 1600",
+        "GenoLab M"
+      ],
+      "_LS454": [
+        "454 GS",
+        "454 GS 20",
+        "454 GS FLX",
+        "454 GS FLX+",
+        "454 GS FLX Titanium",
+        "454 GS Junior"
+      ],
+      "HELICOS": [
+        "Helicos HeliScope"
+      ],
+      "COMPLETE_GENOMICS": [
+        "Complete Genomics"
+      ],
+      "OXFORD_NANOPORE": [
+        "GridION",
+        "MinION",
+        "PromethION"
+      ],
+      "ELEMENT": [
+        "Element AVITI"
+      ]
+    },
+    "filetype": [
+      "fastq",
+      "fq",
+      "fastq.gz",
+      "fq.gz",
+      "bam",
+      "cram",
+      "sra"
+    ]
+  }
+}

@@ -1,0 +1,299 @@
+[
+  {
+    "path": "/nextseek_api/admin/samples/retrieve/",
+    "method": "POST",
+    "description": "Retrieve full scientific metadata for one or more samples by UID or SEEK ID. Returns metadata for the requested samples plus all parent and child (associated) samples in their full lineage. Output is JSON grouped by sample type; set output_format='excel' for an Excel workbook. Use this when the user provides explicit UIDs and wants comprehensive metadata including all associated samples.",
+    "category": "sample_export",
+    "requires_uids": true,
+    "supports_free_text": false,
+    "primary_entities": [
+      "uids"
+    ],
+    "intent_patterns": [
+      "retrieve",
+      "export",
+      "download",
+      "metadata",
+      "associated with"
+    ],
+    "llm_hint": "Use when the user provides explicit UIDs and wants full sample metadata including all related parent/child samples. This is the correct endpoint for 'retrieve all samples associated with UID X' \u2014 not samples/{uid}/ GET. POST body must use field name \"identifiers\" (list of UID strings).",
+    "example_intents": [
+      "Retrieve all metadata for NHP-220630FLY-1-PUB and its derived samples",
+      "Download an Excel spreadsheet with data for samples 12345 and 67890"
+    ],
+    "request_body": {
+      "identifiers": [
+        "<UID_1>",
+        "<UID_2>"
+      ]
+    }
+  },
+  {
+    "path": "/nextseek_api/assays/",
+    "method": "GET",
+    "description": "Retrieve all assays (experimental procedures) you have access to. Returns assay titles, types, technologies used, and IDs for linked studies, samples, and data files.",
+    "category": "assay_list",
+    "requires_uids": false,
+    "supports_free_text": false,
+    "primary_entities": [
+      "assays"
+    ],
+    "intent_patterns": [
+      "assays",
+      "procedures",
+      "what assays"
+    ],
+    "llm_hint": "Use for questions listing available assays or experimental procedures.",
+    "example_intents": [
+      "Show me all available assays",
+      "What experimental procedures have been run on the primate samples?"
+    ]
+  },
+  {
+    "path": "/nextseek_api/sample-tree/{uid}/tree/",
+    "method": "GET",
+    "description": "Return the sample lineage (hierarchy) around a given sample UID. Includes all related samples above and below in the lineage and the parent\u2013child relationships between them. Returns graph-friendly nodes/edges (ID, UUID, sample type, relationships). Use for lineage visualization or when the user wants to see the full derivation tree from a specific sample.",
+    "category": "sample_lineage",
+    "requires_uids": true,
+    "supports_free_text": false,
+    "primary_entities": [
+      "uids"
+    ],
+    "intent_patterns": [
+      "tree",
+      "lineage",
+      "derived from",
+      "came from",
+      "child of",
+      "descendants",
+      "ancestors"
+    ],
+    "llm_hint": "Use when the user wants to see the full sample lineage or derivation tree from a specific known UID. Requires a UID. For full metadata export of associated samples, use admin/samples/retrieve/ instead.",
+    "example_intents": [
+      "Show me all samples derived from NHP-220630FLY-2-PUB",
+      "What tissue and cell samples came from PAT-241113DFC-3?"
+    ]
+  },
+  {
+    "path": "/nextseek_api/sample_types/",
+    "method": "GET",
+    "description": "Retrieve all sample type definitions available in the system. Returns a list of sample type schemas including titles, descriptions, and attribute configurations for categories like tissue samples, cell lines, animals, imaging data, and sequencing data.",
+    "category": "sampletype_list",
+    "requires_uids": false,
+    "supports_free_text": false,
+    "primary_entities": [
+      "sampletypes"
+    ],
+    "intent_patterns": [
+      "what types",
+      "sample types",
+      "categories",
+      "schemas"
+    ],
+    "llm_hint": "Use for questions about what sample types or schemas exist in the system.",
+    "example_intents": [
+      "What types of samples can I register?",
+      "Show me all available sample categories"
+    ]
+  },
+  {
+    "path": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+    "method": "POST",
+    "description": "Find parent samples that have derived samples of ALL specified child types (AND logic). Only returns parents with descendants matching every requested type. Optionally filter by parent sample type. Use when the user wants to find ancestors that have multiple specific types of derived data \u2014 e.g., monkeys that have BOTH flow cytometry AND sequencing data.",
+    "category": "sample_parent_search",
+    "requires_uids": false,
+    "supports_free_text": false,
+    "primary_entities": [
+      "sampletypes",
+      "keywords"
+    ],
+    "intent_patterns": [
+      "which",
+      "find",
+      "have",
+      "both",
+      "all",
+      "parents"
+    ],
+    "llm_hint": "Use when the user wants parent samples that have descendants of multiple specified types (AND logic across child types). E.g., 'monkeys that have both flow and sequencing data', 'animals with tissue AND cell line derivatives'.",
+    "example_intents": [
+      "Which monkeys have both imaging data and sequencing results?",
+      "Find all animals that have tissue samples and cell line derivatives"
+    ]
+  },
+  {
+    "path": "/nextseek_api/samples/",
+    "method": "POST",
+    "description": "Create a new sample in the system. Requires sample type and attributes. Use only when the user explicitly asks to register or create a new sample record.",
+    "category": "sample_create",
+    "requires_uids": false,
+    "supports_free_text": false,
+    "primary_entities": [
+      "sampletypes",
+      "keywords"
+    ],
+    "intent_patterns": [
+      "create",
+      "register",
+      "add",
+      "new sample"
+    ],
+    "llm_hint": "Use only when the user explicitly asks to create or register a new sample.",
+    "example_intents": [
+      "Register a new tissue sample for the water study",
+      "Add a new blood draw sample for PAV-220630FLY-3"
+    ]
+  },
+  {
+    "path": "/nextseek_api/samples/{uid}/",
+    "method": "PATCH",
+    "description": "Update an existing sample by UID. Accepts partial updates via attribute_map. Use when the user explicitly asks to modify, update, or change a field on a specific sample.",
+    "category": "sample_modify",
+    "requires_uids": true,
+    "supports_free_text": false,
+    "primary_entities": [
+      "uids"
+    ],
+    "intent_patterns": [
+      "update",
+      "change",
+      "modify",
+      "set field",
+      "edit"
+    ],
+    "llm_hint": "Use only for explicit update/modify operations on a specific sample UID. Do NOT use for retrieval.",
+    "example_intents": [
+      "Update NHP-220630FLY-1-PUB scientist to John Doe",
+      "Change the study name for sample TIS-230324BOO-39-PUB"
+    ]
+  },
+  {
+    "path": "/nextseek_api/samples/{uid}/",
+    "method": "DELETE",
+    "description": "Permanently delete a sample by UID. Use only when the user explicitly asks to delete or remove a sample record.",
+    "category": "sample_modify",
+    "requires_uids": true,
+    "supports_free_text": false,
+    "primary_entities": [
+      "uids"
+    ],
+    "intent_patterns": [
+      "delete",
+      "remove"
+    ],
+    "llm_hint": "Use only when the user explicitly asks to delete a specific sample.",
+    "example_intents": [
+      "Remove sample NHP-220630FLY-1-PUB from the system",
+      "Delete sample 321"
+    ]
+  },
+  {
+    "path": "/nextseek_api/samples/advanced_search/",
+    "method": "POST",
+    "description": "Search and filter samples by type, attribute values, and free-text keywords. Supports multiple sample types, attribute-based filtering, and partial/exact match modes. Returns paginated list of matching samples with full metadata. This is a broad-purpose search endpoint \u2014 use it for attribute/keyword-based queries when no more specific endpoint applies.",
+    "category": "sample_search",
+    "requires_uids": false,
+    "supports_free_text": true,
+    "primary_entities": [
+      "sampletypes",
+      "assays",
+      "keywords"
+    ],
+    "intent_patterns": [
+      "find",
+      "search",
+      "list",
+      "count",
+      "filter"
+    ],
+    "llm_hint": "Use for attribute or keyword-based sample searches when the user wants to find, list, or filter samples by properties like type, treatment, keyword, or assay \u2014 and no more specific endpoint fits. Do NOT use this as a default for every query.",
+    "example_intents": [
+      "Find all mice treated with NDMA",
+      "Show me all samples associated with T cell depletion",
+      "What CD8 antibodies are in the database?"
+    ]
+  },
+  {
+    "path": "/nextseek_api/investigations/",
+    "method": "GET",
+    "description": "List all investigations (research themes) you have access to. Returns titles, descriptions, and IDs for their child studies. Use when the user wants to enumerate available investigations at the SEEK level.",
+    "category": "investigation_list",
+    "requires_uids": false,
+    "supports_free_text": false,
+    "primary_entities": [
+      "investigations"
+    ],
+    "intent_patterns": [
+      "investigations",
+      "research topics",
+      "what investigations"
+    ],
+    "llm_hint": "Use when the user wants to list investigations at the SEEK platform level. For questions about which samples are IN an investigation or study, use graph_query instead.",
+    "example_intents": [
+      "Show me all ongoing investigations",
+      "What research topics are being studied?"
+    ]
+  },
+  {
+    "path": "/nextseek_api/projects/",
+    "method": "GET",
+    "description": "List all research projects you have access to. Returns project titles, descriptions, and IDs for related investigations and studies. Use when the user wants to enumerate available projects at the SEEK platform level.",
+    "category": "project_list",
+    "requires_uids": false,
+    "supports_free_text": false,
+    "primary_entities": [
+      "projects"
+    ],
+    "intent_patterns": [
+      "projects",
+      "what projects"
+    ],
+    "llm_hint": "Use when the user wants to list projects at the SEEK platform level. For structural questions about project contents (what samples, studies, etc.), use graph_query instead.",
+    "example_intents": [
+      "Show me all projects I am part of"
+    ]
+  },
+  {
+    "path": "/nextseek_api/people/",
+    "method": "GET",
+    "description": "List all registered researchers and users in the system. Returns names, email addresses, institutions, and IDs for associated projects and studies.",
+    "category": "person_list",
+    "requires_uids": false,
+    "supports_free_text": false,
+    "primary_entities": [
+      "people"
+    ],
+    "intent_patterns": [
+      "researchers",
+      "people",
+      "who",
+      "scientists"
+    ],
+    "llm_hint": "Use when the user wants to list researchers or users in the system.",
+    "example_intents": [
+      "Show me all researchers in the system",
+      "Who are the scientists working on primate studies?"
+    ]
+  },
+  {
+    "path": "/nextseek_api/sops/",
+    "method": "GET",
+    "description": "List all standard operating procedures (protocols) you have access to. Returns protocol titles, descriptions, associated projects, and file attachment metadata.",
+    "category": "sop_list",
+    "requires_uids": false,
+    "supports_free_text": false,
+    "primary_entities": [
+      "sops"
+    ],
+    "intent_patterns": [
+      "protocols",
+      "SOPs",
+      "procedures"
+    ],
+    "llm_hint": "Use when the user wants to list available protocols or SOPs.",
+    "example_intents": [
+      "Show me all available protocols",
+      "What procedures are documented for sample collection?"
+    ]
+  }
+]

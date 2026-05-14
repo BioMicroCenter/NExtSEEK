@@ -1,0 +1,37 @@
+{
+  "report_type": "NFCORE_AMPLISEQ_SAMPLESHEET",
+  "description": "nf-core/ampliseq samplesheet context for 16S/ITS/amplicon microbial profiling.",
+  "pipeline": {
+    "name": "nf-core/ampliseq",
+    "repository": "https://github.com/nf-core/ampliseq",
+    "documentation_url": "https://nf-co.re/ampliseq/latest/docs/usage/",
+    "input_file_type": "tsv-or-csv",
+    "core_rule": "Required columns (samplesheet mode): sampleID, forwardReads, reverseReads. Single-end leaves reverseReads blank.",
+    "required_columns": [
+      "sampleID",
+      "forwardReads",
+      "reverseReads"
+    ],
+    "optional_columns": [
+      "run"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "sampleID": null,
+      "forwardReads": null,
+      "reverseReads": null
+    }
+  ],
+  "validation_rules": [
+    "sampleID must be alphanumeric/underscore-only.",
+    "forwardReads/reverseReads may be HTTPS URLs (ENA mirror) or local paths.",
+    "Primer trimming and taxonomy DB are configured via pipeline params, not the samplesheet."
+  ],
+  "report_writer_guidance": {
+    "population_priority": [
+      "One row per sample per run.",
+      "Pull site/subject/timepoint metadata from NExtSEEK when present."
+    ]
+  }
+}

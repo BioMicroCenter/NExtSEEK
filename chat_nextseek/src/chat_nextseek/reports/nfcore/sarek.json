@@ -1,0 +1,51 @@
+{
+  "report_type": "NFCORE_SAREK_SAMPLESHEET",
+  "description": "nf-core/sarek samplesheet context for germline + somatic variant calling.",
+  "pipeline": {
+    "name": "nf-core/sarek",
+    "repository": "https://github.com/nf-core/sarek",
+    "documentation_url": "https://nf-co.re/sarek/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Required columns: patient, sample, lane, fastq_1, fastq_2, sex, status. status=0 normal, status=1 tumor; tumor/normal pairs share a patient id.",
+    "required_columns": [
+      "patient",
+      "sample",
+      "lane",
+      "fastq_1",
+      "fastq_2",
+      "sex",
+      "status"
+    ],
+    "optional_columns": [
+      "bam",
+      "bai",
+      "cram",
+      "crai",
+      "vcf"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "patient": null,
+      "sample": null,
+      "lane": null,
+      "fastq_1": null,
+      "fastq_2": null,
+      "sex": null,
+      "status": null
+    }
+  ],
+  "validation_rules": [
+    "status must be 0 (normal) or 1 (tumor).",
+    "sex must be one of: XX, XY, OTHER (or 'NA' if unknown \u2014 sarek tolerates it).",
+    "patient groups tumor/normal pairs; the same patient appears in multiple rows.",
+    "lane is a per-FASTQ identifier (e.g., L001).",
+    "fastq_1/fastq_2 may be HTTPS URLs (ENA mirror) or local paths."
+  ],
+  "report_writer_guidance": {
+    "population_priority": [
+      "Map NExtSEEK donor \u2192 patient; sample \u2192 sample; tissue type informs status (normal vs tumor).",
+      "Use accession_rows for fastq columns. lane defaults to L001 when not present."
+    ]
+  }
+}

@@ -1,0 +1,202 @@
+[
+  {
+    "path": "/nextseek_api/admin/samples/retrieve/",
+    "method": "POST",
+    "description": "Export full metadata records for samples and their related lineage. This endpoint retrieves complete metadata for the requested samples plus all parent and child samples, including attributes, assays, protocols, and annotations. It supports JSON output grouped by sample type by default, or Excel (.xlsx) export when output_format is set to “excel,” and requires admin privileges. Use this endpoint whenever the user asks to retrieve, export, download, or analyze sample data, even if they refer to “all associated” or “derived” samples. Example queries include: “Retrieve all associated samples and their metadata for NHP-220630FLY-1-PUB,” “Export full metadata for these samples as JSON,” “Download an Excel spreadsheet with data for samples 12345 and 67890,” “Get all sample data for these three monkeys,” and “Export tissue and cell sample metadata derived from this patient.”"
+  },
+  {
+    "path": "/nextseek_api/assays/",
+    "method": "GET",
+    "description": "Retrieve all assays (experimental procedures) you have access to. Returns assay titles, types, technologies used, and IDs for linked studies, samples, and data files. Examples: 'Show me all available assays'; 'What experimental procedures have been run on the primate samples?'"
+  },
+  {
+    "path": "/nextseek_api/assays/",
+    "method": "POST",
+    "description": "Define a new assay (experimental procedure) within a study. Specify the assay type, technology, and link to samples and protocols. Returns the created assay with its assigned ID and metadata. Examples: 'Create a new transcriptomics assay for the immune response study'; 'Add a histology assay to analyze the tissue samples'"
+  },
+  {
+    "path": "/nextseek_api/assays/{uid}/",
+    "method": "GET",
+    "description": "Fetch details for a specific assay by its ID. Returns full metadata including title, assay type, technology used, linked study, associated samples, protocols, and generated data files. Examples: 'Show me the details of the RNA-seq assay'; 'What samples were processed in this flow cytometry experiment?'"
+  },
+  {
+    "path": "/nextseek_api/assays/{uid}/",
+    "method": "PATCH",
+    "description": "Update an existing assay by its ID. Modify title, description, assay type, technology, or linked samples and data files. Returns the updated assay with all current metadata. Examples: 'Update the description for the RNA-seq assay'; 'Add additional samples to the flow cytometry experiment'"
+  },
+  {
+    "path": "/nextseek_api/data_files/",
+    "method": "GET",
+    "description": "Retrieve all data files you have access to, including spreadsheets, images, sequencing outputs, and other research data. Returns file titles, descriptions, content types, and associated projects or assays. Examples: 'Show me all uploaded data files'; 'What sequencing results are available for download?'"
+  },
+  {
+    "path": "/nextseek_api/data_files/",
+    "method": "POST",
+    "description": "Register a new data file by providing a URL or uploading content. Associate with projects, assays, or samples. Returns the created file record with its assigned ID and metadata. Examples: 'Upload the microscopy images from today's experiment'; 'Register a new sequencing output file for the water study'"
+  },
+  {
+    "path": "/nextseek_api/data_files/{uid}/",
+    "method": "GET",
+    "description": "Fetch metadata for a specific data file by ID or name. Returns title, description, file type, download URL, version history, and linked samples or assays. Specify version number to retrieve historical file revisions. Examples: 'Get the CT scan images for this monkey'; 'Show me the flow cytometry results file for sample NHP-220630FLY-1-PUB'"
+  },
+  {
+    "path": "/nextseek_api/data_files/{uid}/",
+    "method": "PATCH",
+    "description": "Update an existing data file's metadata by ID or name. Modify title, description, or project/assay associations. Returns the updated file record with all current metadata. Examples: 'Add a description to the microscopy images'; 'Change the project association for this sequencing file'"
+  },
+  {
+    "path": "/nextseek_api/investigations/",
+    "method": "GET",
+    "description": "Retrieve all investigations (research topics or themes) you have access to. Returns investigation titles, descriptions, and IDs for their parent projects and child studies. Examples: 'Show me all ongoing investigations'; 'What research topics are being studied in the primate project?'"
+  },
+  {
+    "path": "/nextseek_api/investigations/",
+    "method": "POST",
+    "description": "Create a new investigation (research topic) within a project. Define the title, description, and objectives. Returns the created investigation with its assigned ID and metadata. Examples: 'Create a new investigation for studying vaccine efficacy'; 'Add a research topic about tumor microenvironment to the cancer project'"
+  },
+  {
+    "path": "/nextseek_api/investigations/{uid}/",
+    "method": "GET",
+    "description": "Fetch details for a specific investigation by its ID. Returns full metadata including title, description, objectives, linked project, and all associated studies. Examples: 'Show me the details of the immune response investigation'; 'What studies are part of this research topic?'"
+  },
+  {
+    "path": "/nextseek_api/investigations/{uid}/",
+    "method": "PATCH",
+    "description": "Update an existing investigation by its ID. Modify title, description, objectives, or project association. Returns the updated investigation with all current metadata. Examples: 'Rename the vaccine study investigation'; 'Update the objectives for the immune response research topic'"
+  },
+  {
+    "path": "/nextseek_api/people/",
+    "method": "GET",
+    "description": "Retrieve all registered researchers and users in the system. Returns names, email addresses, institutions, and IDs for their associated projects, studies, and contributions. Examples: 'Show me all researchers in the system'; 'Who are the scientists working on primate studies?'"
+  },
+  {
+    "path": "/nextseek_api/people/",
+    "method": "POST",
+    "description": "Register a new researcher or user in the system with their name, email, and institution. Returns the created person record with their assigned ID. Examples: 'Add a new researcher named Jane Doe to the system'; 'Register a collaborator from the partner institution'"
+  },
+  {
+    "path": "/nextseek_api/people/{uid}/",
+    "method": "GET",
+    "description": "Fetch profile details for a specific researcher by their ID. Returns full metadata including name, email, institution, and all linked projects, studies, assays, data files, and publications they have contributed to. Examples: 'Show me Dr. Smith's profile and projects'; 'What studies has this researcher contributed to?'"
+  },
+  {
+    "path": "/nextseek_api/people/{uid}/",
+    "method": "PATCH",
+    "description": "Update an existing researcher's profile by their ID. Modify name, email, institution, or project associations. Returns the updated person record with all current metadata. Examples: 'Update Dr. Smith's email address'; 'Change the institution for this researcher'"
+  },
+  {
+    "path": "/nextseek_api/projects/",
+    "method": "GET",
+    "description": "Retrieve all research projects you have access to. Returns project titles, descriptions, and IDs for related team members, investigations, studies, assays, and data files. Examples: 'Show me all projects I am part of'; 'What research projects are studying water toxicity?'"
+  },
+  {
+    "path": "/nextseek_api/projects/",
+    "method": "POST",
+    "description": "Create a new research project with title, description, and team associations. Returns the created project with its assigned ID and metadata. Examples: 'Create a new project for the cancer biomarker study'; 'Set up a project for the 2024 primate cohort'"
+  },
+  {
+    "path": "/nextseek_api/projects/{uid}/",
+    "method": "GET",
+    "description": "Fetch details for a specific research project by ID or name. Returns full metadata including title, description, team members, linked investigations, studies, assays, protocols, and data files. Examples: 'Show me the details of the primate immunology study'; 'Who are the team members on the water toxicity project?'"
+  },
+  {
+    "path": "/nextseek_api/projects/{uid}/",
+    "method": "PATCH",
+    "description": "Update an existing research project by ID or name. Modify title, description, or team member associations. Returns the updated project with all current metadata. Examples: 'Rename the water study project to Water Toxicity Phase 2'; 'Add a new team member to the primate research project'"
+  },
+  {
+    "path": "/nextseek_api/sample-tree/{uid}/tree/",
+    "method": "GET",
+    "description": "Return the structural lineage graph for a sample. This endpoint retrieves only sample nodes and their parent–child relationships for visualization of the sample hierarchy. It is intended for lineage exploration, graph views, and dependency inspection, and does not return full sample metadata. The response includes sample ID, UUID, sample type, node color, and relationship edges. Use this endpoint when the user wants to see how samples are connected or explore lineage structure, not when they want to export, download, or analyze sample data. Example queries include: “Show me the lineage of NHP-220630FLY-2-PUB,” “Visualize all samples derived from this monkey,” “What tissues and cells are connected to patient PAT-241113DFC-3?”, and “Display the sample hierarchy for this sample.”"
+  },
+  {
+    "path": "/nextseek_api/sample_types/",
+    "method": "GET",
+    "description": "Retrieve all sample type definitions available in the system. Returns a list of sample type schemas including their titles, descriptions, and attribute configurations for categories like tissue samples, cell lines, animals, imaging data, and sequencing data. Examples: 'What types of samples can I register?'; 'Show me all available sample categories'"
+  },
+  {
+    "path": "/nextseek_api/sample_types/",
+    "method": "POST",
+    "description": "Register a new sample type with custom attributes and validation rules. Returns the created sample type with its assigned ID and full schema definition. Examples: 'Create a new sample type for flow cytometry data'; 'Add a custom sample category for behavioral observations'"
+  },
+  {
+    "path": "/nextseek_api/sample_types/{uid}/",
+    "method": "GET",
+    "description": "Fetch details for a specific sample type by ID or name. Returns the full schema definition including title, description, and all attribute specifications that samples of this type must have. Examples: 'What fields are required for tissue samples?'; 'Show me the schema for imaging data samples'"
+  },
+  {
+    "path": "/nextseek_api/sample_types/{uid}/",
+    "method": "PATCH",
+    "description": "Modify an existing sample type's attributes, description, or validation rules. Returns the updated sample type with all current settings. Examples: 'Add a new required field to the tissue sample type'; 'Update the description for sequencing data samples'"
+  },
+  {
+    "path": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+    "method": "POST",
+    "description": "Find parent samples that have derived samples of all specified types. Uses AND logic across types, so only samples with descendants matching every requested type are returned. Optionally filter by parent sample type. Returns a list of matching sample IDs, UIDs, sample types, and descriptions. Examples: 'Which monkeys have both imaging data and sequencing results?'; 'Find all animals that have tissue samples and cell line derivatives'"
+  },
+  {
+    "path": "/nextseek_api/samples/",
+    "method": "POST",
+    "description": "Create a new Sample in SEEK. Requires sample type relationship and attributes. Returns the created sample with its assigned ID, UUID, and metadata. Examples: 'Register a new tissue sample for the water study'; 'Add a new blood draw sample for a monkey taken during this visit (PAV-220630FLY-3)'"
+  },
+  {
+    "path": "/nextseek_api/samples/{uid}/",
+    "method": "GET",
+    "description": "Fetch a single Sample by SEEK id or NExtSEEK UID. Returns sample metadata including title, UUID, created/updated timestamps, and IDs for related entities (sample_type, creators, projects, assays, data_files). Examples: 'Show me the details of sample NHP-220630FLY-2-PUB'; 'What assays are linked to TIS-230324BOO-39-PUB?'"
+  },
+  {
+    "path": "/nextseek_api/samples/{uid}/",
+    "method": "PATCH",
+    "description": "Update an existing Sample by SEEK id or NExtSEEK UID. Accepts partial updates via attribute_map. Returns the updated sample with all current metadata. Examples: 'Update NHP-220630FLY-1-PUB scientist to John Doe'; 'Change the study name for sample TIS-230324BOO-39-PUB to John Doe's study'"
+  },
+  {
+    "path": "/nextseek_api/samples/{uid}/",
+    "method": "DELETE",
+    "description": "Delete a Sample by SEEK id or NExtSEEK UID. Permanently removes the sample from SEEK. Returns confirmation on success. Examples: 'Remove sample NHP-220630FLY-1-PUB from the system'; 'Delete all records for sample 321'"
+  },
+  {
+    "path": "/nextseek_api/samples/advanced_search/",
+    "method": "POST",
+    "description": "Search samples by type, attribute filters, and text matching. Supports multiple sample types, attribute-based filtering, and partial/exact match modes. Returns paginated list of matching samples with full metadata. Can also retrieve all samples of a given type by leaving filter fields empty. Examples: 'Group all monkeys by sex and necropsy date'; 'Find all mice from water study that were treated with NDMA'; 'Show me all samples associated with T cell depletion'; 'Create a barplot comparing the fraction of tumor values for all DFCI3 patient biopsies'; 'How many monkeys have both CT scan data and sequencing data?'"
+  },
+  {
+    "path": "/nextseek_api/sampletypes/{uid}/child_types/",
+    "method": "GET",
+    "description": "Get the distinct types of all samples derived from a given sample. Traverses the sample hierarchy to find all related samples below it. Returns a list of unique sample types with their IDs, titles, and descriptions. Examples: 'What types of samples were collected from NHP-220630FLY-1-PUB?'; 'Does this monkey have any imaging data?'"
+  },
+  {
+    "path": "/nextseek_api/schema/",
+    "method": "GET",
+    "description": "OpenApi3 schema for this API. Format can be selected via content negotiation.\n\n- YAML: application/vnd.oai.openapi\n- JSON: application/vnd.oai.openapi+json"
+  },
+  {
+    "path": "/nextseek_api/schema_rag/ingest/",
+    "method": "POST",
+    "description": "Ingest an OpenAPI schema from a URL for RAG retrieval. Creates a session that can be used for subsequent retrieve calls. The session has a configurable TTL (default 15 minutes)."
+  },
+  {
+    "path": "/nextseek_api/schema_rag/retrieve/",
+    "method": "POST",
+    "description": "Retrieve relevant API endpoints from an ingested schema using semantic search. Uses multi-pass scoring with embedding similarity and optional term boosting. Returns endpoints in minimal or full mode based on request."
+  },
+  {
+    "path": "/nextseek_api/sops/",
+    "method": "GET",
+    "description": "Retrieve all standard operating procedures (protocols) you have access to. Returns protocol titles, descriptions, associated projects, and file attachment metadata. Examples: 'Show me all available protocols'; 'What procedures are documented for sample collection?'"
+  },
+  {
+    "path": "/nextseek_api/sops/",
+    "method": "POST",
+    "description": "Upload a new standard operating procedure document. Attach protocol files (PDF, Word, etc.) and associate with projects. Returns the created protocol with its assigned ID and metadata. Examples: 'Add a new necropsy protocol for the primate study'; 'Upload the updated sample handling procedure'"
+  },
+  {
+    "path": "/nextseek_api/sops/{uid}/",
+    "method": "GET",
+    "description": "Fetch details for a specific protocol document by ID or name. Returns full metadata including title, description, version history, attached files, and linked projects. Optionally specify a version to retrieve historical revisions. Examples: 'Show me the tissue processing protocol'; 'What is the current version of the blood draw procedure?'"
+  },
+  {
+    "path": "/nextseek_api/sops/{uid}/",
+    "method": "PATCH",
+    "description": "Revise an existing protocol document by ID or name. Update title, description, attached files, or project associations. Returns the updated protocol with all current metadata. Examples: 'Update the description for the imaging protocol'; 'Change the project association for the cell culture procedure'"
+  }
+]
