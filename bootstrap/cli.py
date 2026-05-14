@@ -234,11 +234,30 @@ def rebuild(
 @app.command(name="dump-db")
 def dump_db(
     source: str = typer.Option("dev", "--source"),
-    target: str | None = typer.Option(None, "--target"),
 ) -> None:
     """Maintainer-only: regenerate seed dumps from a source DB."""
-    typer.echo("dump-db: not yet implemented")
-    raise typer.Exit(code=1)
+    import subprocess
+
+    regen_dir = REPO_ROOT / "bootstrap" / "seed" / "regenerate"
+    env_file = regen_dir / "dump-source.env"
+    if not env_file.exists():
+        ui.fail(f"{env_file.relative_to(REPO_ROOT)} missing")
+        ui.remediation("This command is maintainer-only. Copy dump-source.env.example and fill in real credentials.")
+        raise typer.Exit(code=2)
+
+    ui.banner(f"Regenerating seed dumps from {source}")
+
+    ui.step(1, 2, "MySQL (dmac + seek_production)")
+    subprocess.run([str(regen_dir / "dump_mysql.sh")], check=True)
+    ui.ok("MySQL dumps written")
+
+    ui.step(2, 2, "Neo4j")
+    subprocess.run(
+        ["uv", "run", "--project", "bootstrap", "--group", "maintainer", "python", str(regen_dir / "dump_neo4j.py")],
+        check=True,
+        cwd=REPO_ROOT,
+    )
+    ui.ok("Neo4j dump written")
 
 
 if __name__ == "__main__":
