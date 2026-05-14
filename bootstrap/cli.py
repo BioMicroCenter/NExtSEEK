@@ -76,6 +76,30 @@ def install(
         compose_project_name=f"nextseek{('-' + name) if prefix else ''}",
         created=datetime.datetime.now().astimezone().isoformat(),
     )
+
+    # Show the install summary before any destructive action (config writes,
+    # volume creation, seed import). --yes skips the prompt but keeps the
+    # summary visible so the user always sees what's about to happen.
+    ui.console.print()
+    ui.console.print("[bold]About to install with this configuration:[/bold]")
+    ui.console.print(f"  Working directory   {REPO_ROOT}")
+    ui.console.print(f"  Instance name       {name}")
+    ui.console.print(f"  Volume prefix       {prefix or '(none)'}")
+    ui.console.print(f"  Compose project     {state.compose_project_name}")
+    ui.console.print("  Published ports:")
+    ui.console.print(f"    NExtSEEK         http://localhost:{ports['nextseek']}")
+    ui.console.print(f"    SEEK             http://localhost:{ports['seek']}")
+    ui.console.print(f"    Neo4j HTTP       http://localhost:{ports['neo4j_http']}")
+    ui.console.print(f"    Neo4j Bolt       bolt://localhost:{ports['neo4j_bolt']}")
+    ui.console.print("  Default credentials (rotate after install per NExtSTEPS.md):")
+    ui.console.print(f"    demo / demopassword   (admin)")
+    ui.console.print(f"    user / userpassword   (regular)")
+    ui.console.print(f"    neo4j / demopassword")
+    ui.console.print(f"  Seed dumps          bootstrap/seed/{{dmac,seek_production,neo4j}}.gz (~24 MB total)")
+    ui.console.print()
+    if not yes:
+        typer.confirm("Proceed?", default=True, abort=True)
+
     save_instance(REPO_ROOT, state)
     ui.ok(f"instance={name} prefix={prefix or '(none)'} ports={ports}")
 

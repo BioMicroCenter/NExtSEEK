@@ -69,9 +69,30 @@ def start_databases(repo_root: Path, env: dict[str, str]) -> None:
         wait_for_neo4j(repo_root, env)
 
 
+def wait_for_seek_filestore(repo_root: Path, env: dict[str, str]) -> None:
+    """Block until SEEK has created its filestore subdirs (avatars/, etc).
+
+    seek and seek_workers share the filestore volume. SEEK's entrypoint mkdir's
+    these on first start; if workers race in parallel they hit 'mkdir: file
+    exists' errors. We start seek first, wait for the dirs, then start workers.
+    """
+    _wait_for(
+        service="seek",
+        check_command=["sh", "-c", "test -d /seek/filestore/avatars"],
+        repo_root=repo_root,
+        env=env,
+        label="SEEK filestore",
+        max_attempts=120,
+        interval=1.0,
+    )
+
+
 def start_seek_side(repo_root: Path, env: dict[str, str]) -> None:
-    """Start SEEK, Solr, and SEEK workers."""
-    compose_up(services=["solr", "seek", "seek_workers"], project_dir=repo_root, env=env)
+    """Start Solr + SEEK, wait for the filestore to initialize, then start workers."""
+    compose_up(services=["solr", "seek"], project_dir=repo_root, env=env)
+    with ui.spinner("waiting for SEEK to initialize the filestore volume"):
+        wait_for_seek_filestore(repo_root, env)
+    compose_up(services=["seek_workers"], project_dir=repo_root, env=env)
 
 
 def build_and_start_nextseek(repo_root: Path, env: dict[str, str]) -> None:
