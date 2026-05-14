@@ -37,6 +37,6 @@ def allocate_ports(desired: dict[str, int]) -> dict[str, int]:
                 claimed.add(candidate)
                 break
             candidate += 1
-            if candidate - start > 200:
+            if candidate - start >= 200:
                 raise RuntimeError(f"No free port for service {name} starting at {start}")
     return result
