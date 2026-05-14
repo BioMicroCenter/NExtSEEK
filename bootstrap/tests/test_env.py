@@ -63,3 +63,22 @@ def test_update_is_idempotent(tmp_path: Path) -> None:
     update_env(p, {"FOO": "bar"})
     update_env(p, {"FOO": "bar"})
     assert p.read_text().count("FOO=") == 1
+
+
+def test_round_trip_preserves_quotes_and_backslashes(tmp_path: Path) -> None:
+    p = tmp_path / "x.env"
+    original = {
+        "WITH_QUOTES": 'has "embedded" quotes',
+        "WITH_BACKSLASH": r"C:\Users\foo",
+        "BOTH": r'mix "of" \ everything',
+    }
+    write_env(p, original)
+    assert read_env(p) == original
+
+
+def test_quote_refuses_newlines(tmp_path: Path) -> None:
+    p = tmp_path / "x.env"
+    with pytest.raises(ValueError, match="newlines"):
+        write_env(p, {"BAD": "line1\nline2"})
+    with pytest.raises(ValueError, match="newlines"):
+        write_env(p, {"BAD": "line1\rline2"})

@@ -10,14 +10,32 @@ _LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
 
 def _unquote(raw: str) -> str:
     raw = raw.rstrip()
-    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"'):
-        return raw[1:-1]
-    return raw
+    if len(raw) < 2 or raw[0] != raw[-1] or raw[0] not in ("'", '"'):
+        return raw
+    inner = raw[1:-1]
+    if raw[0] != '"':
+        return inner
+    # Reverse _quote()'s escaping: undo \" and \\ in one left-to-right pass
+    # so consecutive backslashes don't get double-handled.
+    result: list[str] = []
+    i = 0
+    while i < len(inner):
+        if inner[i] == "\\" and i + 1 < len(inner) and inner[i + 1] in ('\\', '"'):
+            result.append(inner[i + 1])
+            i += 2
+        else:
+            result.append(inner[i])
+            i += 1
+    return "".join(result)
 
 
 def _quote(value: str) -> str:
-    # Always double-quote for stability — readers should strip either kind.
-    escaped = value.replace('"', '\\"')
+    # Env values in this project are passwords, URLs, and paths — never
+    # multi-line content. Refuse newlines so the file always round-trips
+    # cleanly with a single key per line.
+    if "\n" in value or "\r" in value:
+        raise ValueError("env values cannot contain newlines or carriage returns")
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
 
