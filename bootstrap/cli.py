@@ -31,6 +31,7 @@ DEFAULT_PORTS = {"nextseek": 8000, "seek": 3000, "neo4j_http": 7474, "neo4j_bolt
 def install(
     instance: str | None = typer.Option(None, "--instance", help="Named instance for multi-install."),
     port_offset: int | None = typer.Option(None, "--port-offset", help="Add N to every default port."),
+    no_seed: bool = typer.Option(False, "--no-seed", help="Skip seed import entirely (databases will start empty)."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts."),
 ) -> None:
     """First-time install: prereqs, config, volumes, seeds, build, users, validate."""
@@ -78,27 +79,49 @@ def install(
     )
 
     # Show the install summary before any destructive action (config writes,
-    # volume creation, seed import). --yes skips the prompt but keeps the
-    # summary visible so the user always sees what's about to happen.
-    ui.console.print()
-    ui.console.print("[bold]About to install with this configuration:[/bold]")
-    ui.console.print(f"  Working directory   {REPO_ROOT}")
-    ui.console.print(f"  Instance name       {name}")
-    ui.console.print(f"  Volume prefix       {prefix or '(none)'}")
-    ui.console.print(f"  Compose project     {state.compose_project_name}")
-    ui.console.print("  Published ports:")
-    ui.console.print(f"    NExtSEEK         http://localhost:{ports['nextseek']}")
-    ui.console.print(f"    SEEK             http://localhost:{ports['seek']}")
-    ui.console.print(f"    Neo4j HTTP       http://localhost:{ports['neo4j_http']}")
-    ui.console.print(f"    Neo4j Bolt       bolt://localhost:{ports['neo4j_bolt']}")
-    ui.console.print("  Default credentials (rotate after install per NExtSTEPS.md):")
-    ui.console.print(f"    demo / demopassword   (admin)")
-    ui.console.print(f"    user / userpassword   (regular)")
-    ui.console.print(f"    neo4j / demopassword")
-    ui.console.print(f"  Seed dumps          bootstrap/seed/{{dmac,seek_production,neo4j}}.gz (~24 MB total)")
-    ui.console.print()
-    if not yes:
-        typer.confirm("Proceed?", default=True, abort=True)
+    # volume creation, seed import). The prompt accepts plain Y/n or one of a
+    # few flag toggles so the user can adjust without aborting + re-running.
+    # --yes skips the prompt but keeps the summary visible.
+    def _print_summary() -> None:
+        ui.console.print()
+        ui.console.print("[bold]About to install with this configuration:[/bold]")
+        ui.console.print(f"  Working directory   {REPO_ROOT}")
+        ui.console.print(f"  Instance name       {name}")
+        ui.console.print(f"  Volume prefix       {prefix or '(none)'}")
+        ui.console.print(f"  Compose project     {state.compose_project_name}")
+        ui.console.print("  Published ports:")
+        ui.console.print(f"    NExtSEEK         http://localhost:{ports['nextseek']}")
+        ui.console.print(f"    SEEK             http://localhost:{ports['seek']}")
+        ui.console.print(f"    Neo4j HTTP       http://localhost:{ports['neo4j_http']}")
+        ui.console.print(f"    Neo4j Bolt       bolt://localhost:{ports['neo4j_bolt']}")
+        ui.console.print("  Default credentials (rotate after install per NExtSTEPS.md):")
+        ui.console.print(f"    demo / demopassword   (admin)")
+        ui.console.print(f"    user / userpassword   (regular)")
+        ui.console.print(f"    neo4j / demopassword")
+        if no_seed:
+            ui.console.print(f"  Seed import         [yellow]SKIPPED (--no-seed)[/yellow]")
+        else:
+            ui.console.print(f"  Seed import         bootstrap/seed/*.gz (skipped per-db if already populated)")
+        ui.console.print()
+
+    while True:
+        _print_summary()
+        if yes:
+            break
+        response = typer.prompt(
+            "Proceed? [Y/n]  (or --no-seed to toggle the seed-skip flag, then re-prompt)",
+            default="y",
+        ).strip()
+        lower = response.lower()
+        if lower in ("", "y", "yes"):
+            break
+        if lower in ("n", "no"):
+            raise typer.Abort()
+        if response == "--no-seed":
+            no_seed = not no_seed
+            ui.ok(f"toggled: --no-seed = {no_seed}")
+            continue
+        ui.fail(f"unrecognized response {response!r}. valid: y, n, --no-seed")
 
     save_instance(REPO_ROOT, state)
     ui.ok(f"instance={name} prefix={prefix or '(none)'} ports={ports}")
@@ -118,34 +141,39 @@ def install(
     created = volumes.ensure_volumes(prefix)
     ui.ok(f"{len(created)} created, {6 - len(created)} already existed")
 
-    # [6/9] Seeds (gated on populated check)
+    # [6/9] Seeds (gated on populated check, or skipped entirely with --no-seed)
     ui.step(6, total, "Importing seed databases")
-    missing = seed.seed_files_present(REPO_ROOT)
-    if missing:
-        ui.fail(f"missing seed files: {', '.join(missing)}")
-        raise typer.Exit(code=1)
-    build.start_databases(REPO_ROOT, compose_env)
-    if seed.mysql_db_is_populated("dmac", REPO_ROOT, compose_env):
-        ui.ok("dmac already populated; skipping")
+    if no_seed:
+        ui.warn("--no-seed: starting database containers only, no seed import")
+        build.start_databases(REPO_ROOT, compose_env)
+        ui.ok("databases up (empty — populate them yourself or re-run without --no-seed)")
     else:
-        with ui.spinner("loading dmac.sql.gz"):
-            seed.load_mysql_dump(REPO_ROOT / "bootstrap" / "seed" / "dmac.sql.gz", "dmac", REPO_ROOT, compose_env)
-        ui.ok("dmac loaded")
-    if seed.mysql_db_is_populated("seek_production", REPO_ROOT, compose_env):
-        ui.ok("seek_production already populated; skipping")
-    else:
-        with ui.spinner("loading seek_production.sql.gz"):
-            seed.load_mysql_dump(REPO_ROOT / "bootstrap" / "seed" / "seek_production.sql.gz", "seek_production", REPO_ROOT, compose_env)
-        ui.ok("seek_production loaded")
-    if seed.neo4j_is_populated(values.neo4j_password, REPO_ROOT, compose_env):
-        ui.ok("neo4j already populated; skipping")
-    else:
-        ui.info("neo4j.cypher.gz is ~674k CREATE statements — this takes 30-60 min on first install")
-        ui.info(f"watch progress in the Neo4j browser at http://localhost:{ports['neo4j_http']}/")
-        ui.info(f"  log in as neo4j / {values.neo4j_password}, then run:  MATCH (n) RETURN count(n);")
-        with ui.spinner("loading neo4j.cypher.gz (long-running; safe to leave unattended)"):
-            seed.load_neo4j_dump(REPO_ROOT / "bootstrap" / "seed" / "neo4j.cypher.gz", values.neo4j_password, REPO_ROOT, compose_env)
-        ui.ok("neo4j loaded")
+        missing = seed.seed_files_present(REPO_ROOT)
+        if missing:
+            ui.fail(f"missing seed files: {', '.join(missing)}")
+            raise typer.Exit(code=1)
+        build.start_databases(REPO_ROOT, compose_env)
+        if seed.mysql_db_is_populated("dmac", REPO_ROOT, compose_env):
+            ui.ok("dmac already populated; skipping")
+        else:
+            with ui.spinner("loading dmac.sql.gz"):
+                seed.load_mysql_dump(REPO_ROOT / "bootstrap" / "seed" / "dmac.sql.gz", "dmac", REPO_ROOT, compose_env)
+            ui.ok("dmac loaded")
+        if seed.mysql_db_is_populated("seek_production", REPO_ROOT, compose_env):
+            ui.ok("seek_production already populated; skipping")
+        else:
+            with ui.spinner("loading seek_production.sql.gz"):
+                seed.load_mysql_dump(REPO_ROOT / "bootstrap" / "seed" / "seek_production.sql.gz", "seek_production", REPO_ROOT, compose_env)
+            ui.ok("seek_production loaded")
+        if seed.neo4j_is_populated(values.neo4j_password, REPO_ROOT, compose_env):
+            ui.ok("neo4j already populated; skipping")
+        else:
+            ui.info("neo4j.cypher.gz is ~674k CREATE statements — this takes 30-60 min on first install")
+            ui.info(f"watch progress in the Neo4j browser at http://localhost:{ports['neo4j_http']}/")
+            ui.info(f"  log in as neo4j / {values.neo4j_password}, then run:  MATCH (n) RETURN count(n);")
+            with ui.spinner("loading neo4j.cypher.gz (long-running; safe to leave unattended)"):
+                seed.load_neo4j_dump(REPO_ROOT / "bootstrap" / "seed" / "neo4j.cypher.gz", values.neo4j_password, REPO_ROOT, compose_env)
+            ui.ok("neo4j loaded")
 
     # [7/9] Build + start
     ui.step(7, total, "Building NExtSEEK image and starting the stack")
