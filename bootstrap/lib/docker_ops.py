@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 
 class DockerOpsError(RuntimeError):
@@ -17,9 +17,12 @@ def _build_env(overrides: dict[str, str]) -> dict[str, str]:
     return env
 
 
-def _check(result: subprocess.CompletedProcess[str], context: str) -> None:
+def _check(result: subprocess.CompletedProcess[Any], context: str) -> None:
+    """Raise DockerOpsError on non-zero exit. Accepts either str or bytes streams."""
     if result.returncode != 0:
-        raise DockerOpsError(f"{context} failed (exit {result.returncode}): {result.stderr.strip() or result.stdout.strip()}")
+        stderr = result.stderr.decode() if isinstance(result.stderr, bytes) else (result.stderr or "")
+        stdout = result.stdout.decode() if isinstance(result.stdout, bytes) else (result.stdout or "")
+        raise DockerOpsError(f"{context} failed (exit {result.returncode}): {stderr.strip() or stdout.strip()}")
 
 
 def compose_up(
@@ -110,7 +113,8 @@ def volume_exists(name: str) -> bool:
 
 
 def volume_create(name: str) -> None:
-    """Create a docker volume by name. No-op-ish if it already exists (docker handles this)."""
+    """Create a docker volume by name. Raises DockerOpsError if it already exists; callers should
+    check `volume_exists(name)` first when idempotent behavior is needed."""
     result = subprocess.run(
         ["docker", "volume", "create", name],
         capture_output=True,
