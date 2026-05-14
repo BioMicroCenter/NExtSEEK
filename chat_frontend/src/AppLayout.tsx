@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMessages, useProcessingState, useChatApi } from "@/hooks";
 import { useChatRoute } from "@/hooks/useChatRoute";
 import { useSessions } from "@/hooks/useSessions";
@@ -18,9 +18,10 @@ import type { DebugData } from "@/lib/types/chat";
 
 interface AppLayoutProps {
   credentialError: string | null;
+  isAdmin?: boolean;
 }
 
-export function AppLayout({ credentialError }: AppLayoutProps) {
+export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) {
   const [rightOpen, setRightOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("chat.sidebar.collapsed") === "1";
@@ -31,13 +32,30 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
   const { processingState, handleAgentStarted, handleAgentComplete, resetProcessing } = useProcessingState();
   const { isQuerying, sessionId, submitQuery, downloadBundle } = useChatApi();
 
-  const chatRoute = useChatRoute();
+  // Defined BEFORE chatRoute so the callback closes over the right function.
+  // Uses a ref-free pattern: sessions is recreated by useSessions; the popstate
+  // callback dispatches via a fresh ref so it's always the latest setActive.
+  const sessionsRef = useRef<ReturnType<typeof useSessions> | null>(null);
+
+  const chatRoute = useChatRoute({
+    onSessionIdChange: (id) => {
+      const s = sessionsRef.current;
+      if (!s) return;
+      if (id === s.activeSessionId) return;
+      s.setActive(id).catch(() => {
+        addSystemMessage("Couldn't load this conversation.");
+        // Don't push(null) here — popstate is already a user-initiated nav.
+        // The URL is whatever the user navigated to; just surface the error.
+      });
+    },
+  });
   const [service] = useState(() => new NextseekApiService(authService));
   const sessions = useSessions({
     service,
     hydrate: hydrateFromTurns,
     onRouteChange: chatRoute.push,
   });
+  sessionsRef.current = sessions;
 
   useEffect(() => {
     if (chatRoute.sessionIdFromUrl && sessions.activeSessionId !== chatRoute.sessionIdFromUrl) {
@@ -101,7 +119,7 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
   );
 
   const handleSendMessage = useCallback(
-    (text: string, mode: string) => {
+    (text: string, mode: string | { pipeline: "standard" | "plan"; useProd?: boolean }) => {
       addUserMessage(text);
       setDebugData({ entries: [], bundleId: null, query: text });
       const opts =
@@ -149,6 +167,7 @@ export function AppLayout({ credentialError }: AppLayoutProps) {
           processingState={processingState}
           isDisabled={isDisabled}
           onSendMessage={handleSendMessage}
+          isAdmin={isAdmin}
         />
       </div>
       <RightSidebar

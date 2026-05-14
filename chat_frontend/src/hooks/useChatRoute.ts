@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 function readBasename(): string {
   const meta = document.querySelector<HTMLMetaElement>('meta[name="chat-basename"]');
@@ -16,19 +16,35 @@ function parseSessionIdFromPath(basename: string): string | null {
   return match ? match[1] : null;
 }
 
+export interface UseChatRouteOptions {
+  /** Called when the user navigates via browser back/forward and the
+   *  session id in the URL changes. NOT called on the initial mount
+   *  (consumers handle the initial URL themselves so they can show errors). */
+  onSessionIdChange?: (sessionId: string | null) => void;
+}
+
 export interface UseChatRouteReturn {
   sessionIdFromUrl: string | null;
   push: (id: string | null) => void;
 }
 
-export function useChatRoute(): UseChatRouteReturn {
+export function useChatRoute(opts: UseChatRouteOptions = {}): UseChatRouteReturn {
   const [basename] = useState(readBasename);
   const [sessionIdFromUrl, setSessionIdFromUrl] = useState<string | null>(() =>
     parseSessionIdFromPath(basename),
   );
 
+  // Keep callback in a ref so the popstate handler reads the latest version
+  // without re-binding on every render.
+  const onChangeRef = useRef(opts.onSessionIdChange);
+  onChangeRef.current = opts.onSessionIdChange;
+
   useEffect(() => {
-    const onPop = () => setSessionIdFromUrl(parseSessionIdFromPath(basename));
+    const onPop = () => {
+      const next = parseSessionIdFromPath(basename);
+      setSessionIdFromUrl(next);
+      onChangeRef.current?.(next);
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, [basename]);

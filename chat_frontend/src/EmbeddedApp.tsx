@@ -23,20 +23,39 @@ export function EmbeddedApp() {
   });
   const [debugData, setDebugData] = useState<DebugData>({ entries: [], bundleId: null, query: "" });
 
-  const serviceRef = useRef(new NextseekApiService(new SessionAuthService()));
+  const sessionAuthRef = useRef(new SessionAuthService());
+  const serviceRef = useRef(new NextseekApiService(sessionAuthRef.current));
   const [isQuerying, setIsQuerying] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const { messages, addUserMessage, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, hydrateFromTurns } = useMessages();
   const pendingDebugRef = useRef<DebugEntry[]>([]);
   const { processingState, handleAgentStarted, handleAgentComplete, resetProcessing } = useProcessingState();
 
-  const chatRoute = useChatRoute();
+  // Defined BEFORE chatRoute so the callback closes over the right function.
+  // Uses a ref-free pattern: sessions is recreated by useSessions; the popstate
+  // callback dispatches via a fresh ref so it's always the latest setActive.
+  const sessionsRef = useRef<ReturnType<typeof useSessions> | null>(null);
+
+  const chatRoute = useChatRoute({
+    onSessionIdChange: (id) => {
+      const s = sessionsRef.current;
+      if (!s) return;
+      if (id === s.activeSessionId) return;
+      s.setActive(id).catch(() => {
+        addSystemMessage("Couldn't load this conversation.");
+        // Don't push(null) here — popstate is already a user-initiated nav.
+        // The URL is whatever the user navigated to; just surface the error.
+      });
+    },
+  });
   const sessions = useSessions({
     service: serviceRef.current,
     hydrate: hydrateFromTurns,
     onRouteChange: chatRoute.push,
   });
+  sessionsRef.current = sessions;
 
   useEffect(() => {
     if (chatRoute.sessionIdFromUrl && sessions.activeSessionId !== chatRoute.sessionIdFromUrl) {
@@ -46,6 +65,13 @@ export function EmbeddedApp() {
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    fetch("/nextseek_api/assistant/me/", { credentials: "include", headers: sessionAuthRef.current.getAuthHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => { if (me && typeof me.is_admin === "boolean") setIsAdmin(me.is_admin); })
+      .catch(() => { /* non-admin fallback is fine */ });
   }, []);
 
   const handleProgress = useCallback(
@@ -102,7 +128,7 @@ export function EmbeddedApp() {
   );
 
   const handleSendMessage = useCallback(
-    (text: string, mode: string) => {
+    (text: string, mode: string | { pipeline: "standard" | "plan"; useProd?: boolean }) => {
       addUserMessage(text);
       pendingDebugRef.current = [];
       setDebugData({ entries: [], bundleId: null, query: text });
@@ -171,6 +197,7 @@ export function EmbeddedApp() {
           isDisabled={isQuerying}
           onSendMessage={handleSendMessage}
           onArtifactDownload={handleArtifactDownload}
+          isAdmin={isAdmin}
         />
       </div>
       <RightSidebar
