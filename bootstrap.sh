@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # NExtSEEK bootstrap entrypoint.
 #
-# Runs the typer CLI in an isolated uv environment containing only the
-# bootstrap's own deps (typer, rich). --no-project avoids touching the
-# main NExtSEEK [project].dependencies, which require host build tooling
-# (libmysqlclient, etc.) that the bootstrap CLI itself doesn't need.
+# Runs the typer CLI using bootstrap/pyproject.toml as its own uv project,
+# fully isolated from the main NExtSEEK [project].dependencies (which require
+# host build tooling like libmysqlclient that the bootstrap CLI doesn't need).
 
 set -euo pipefail
 
@@ -16,7 +15,4 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 2
 fi
 
-exec uv run --no-project \
-  --with 'typer>=0.12.0' \
-  --with 'rich>=13.7.0' \
-  python -m bootstrap.cli "$@"
+exec uv run --project bootstrap python -m bootstrap "$@"
