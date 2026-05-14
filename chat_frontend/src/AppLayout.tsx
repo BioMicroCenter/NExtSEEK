@@ -32,9 +32,10 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
   const { processingState, handleAgentStarted, handleAgentComplete, resetProcessing } = useProcessingState();
   const { isQuerying, sessionId, submitQuery, downloadBundle } = useChatApi();
 
-  // Defined BEFORE chatRoute so the callback closes over the right function.
-  // Uses a ref-free pattern: sessions is recreated by useSessions; the popstate
-  // callback dispatches via a fresh ref so it's always the latest setActive.
+  // sessionsRef breaks the chicken-and-egg between chatRoute (whose popstate
+  // callback needs setActive) and sessions (returned after chatRoute). The
+  // callback reads sessionsRef.current at dispatch time, so it always sees
+  // the latest sessions object instead of forming a circular dependency.
   const sessionsRef = useRef<ReturnType<typeof useSessions> | null>(null);
 
   const chatRoute = useChatRoute({

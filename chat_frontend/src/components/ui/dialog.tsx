@@ -20,7 +20,9 @@ const DialogPortal: React.FC<React.ComponentProps<typeof DialogPrimitive.Portal>
   React.useEffect(() => {
     setContainer(document.getElementById("chat-assistant-root"));
   }, []);
-  return <DialogPrimitive.Portal {...props} container={container ?? undefined} />;
+  // Prefer explicit caller-supplied container; fall back to the embedded host
+  // when present; let Radix default to document.body otherwise.
+  return <DialogPrimitive.Portal {...props} container={props.container ?? container ?? undefined} />;
 };
 
 const DialogClose = DialogPrimitive.Close;

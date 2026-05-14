@@ -75,7 +75,7 @@ export function SessionListItem({
         <button
           type="button"
           onClick={() => !disabled && onSelect(item.session_id)}
-          className="min-w-0 flex-1 truncate rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="min-w-0 flex-1 truncate rounded-sm text-left ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           title={item.title}
           disabled={disabled}
         >
