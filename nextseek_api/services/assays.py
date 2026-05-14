@@ -4,7 +4,7 @@ import json
 from django.http import HttpResponse
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
 from django.conf import settings
 
 from nextseek_api.helpers import SeekAPIClient
@@ -44,51 +44,45 @@ class AssayProxyViewSet(viewsets.ViewSet):
     @extend_schema(
         operation_id="List Assays",
         description=ASSAY_LIST_DESC,
-        responses={200: AssayListResponse},
+        responses={
+            200: OpenApiResponse(
+                response=AssayListResponse,
+                examples=[
+                    OpenApiExample(
+                        name="List Assays",
+                        value={
+                            "data": [
+                                {
+                                    "id": "351",
+                                    "type": "assays",
+                                    "attributes": {"title": "A Maximal experimental Assay"},
+                                    "links": {"self": "/assays/351"}
+                                }
+                            ],
+                            "jsonapi": {"version": "1.0"},
+                            "links": {"self": "/assays?page[number]=1&page[size]=100"},
+                            "meta": {"base_url": settings.SEEK_URL, "api_version": "v1"}
+                        },
+                    ),
+                    OpenApiExample(
+                        name="Minimal v2 list response",
+                        value={"results": [], "count": 0, "next": None, "previous": None},
+                        media_type="application/vnd.nextseek.v2+json",
+                    ),
+                    OpenApiExample(
+                        name="Realistic v2 list response",
+                        value={
+                            "results": [{"id": "351", "type": "assays", "attributes": {"title": "Assay-1"}}],
+                            "count": 1,
+                            "next": None,
+                            "previous": None,
+                        },
+                        media_type="application/vnd.nextseek.v2+json",
+                    ),
+                ],
+            ),
+        },
         tags=['Assays'],
-        examples=[
-            OpenApiExample(
-                name="List Assays",
-                value={
-                    "data": [
-                        {
-                            "id": "351",
-                            "type": "assays",
-                            "attributes": {"title": "A Maximal experimental Assay"},
-                            "links": {"self": "/assays/351"}
-                        }
-                    ],
-                    "jsonapi": {"version": "1.0"},
-                    "links": {"self": "/assays?page[number]=1&page[size]=100"},
-                    "meta": {"base_url": settings.SEEK_URL, "api_version": "v1"}
-                }
-            ),
-            # v2 contract examples (task-04)
-            OpenApiExample(
-                name="Minimal v2 list response",
-                value={"results": [], "count": 0, "next": None, "previous": None},
-                response_only=True,
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-            OpenApiExample(
-                name="Realistic v2 list response",
-                value={
-                    "results": [{"id": "351", "type": "assays", "attributes": {"title": "Assay-1"}}],
-                    "count": 1,
-                    "next": None,
-                    "previous": None,
-                },
-                response_only=True,
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-            OpenApiExample(
-                name="v2 upstream error (502)",
-                value={"errors": [{"status": "502", "title": "Invalid upstream response"}]},
-                response_only=True,
-                status_codes=["502"],
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-        ],
     )
     def list(self, request):
         body, code, headers, resp = self.client.list_assays(request, params=request.query_params)
@@ -113,56 +107,33 @@ class AssayProxyViewSet(viewsets.ViewSet):
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric). Non-numeric UID resolution not configured.'),
         ],
-        responses={200: AssaySingleResponse},
+        responses={
+            200: OpenApiResponse(
+                response=AssaySingleResponse,
+                examples=[
+                    OpenApiExample(
+                        name="Get Assay",
+                        value={
+                            "data": {
+                                "id": "351",
+                                "type": "assays",
+                                "attributes": {"title": "A Maximal experimental Assay"},
+                                "relationships": {"study": {"data": {"type": "studies", "id": "434"}}},
+                                "links": {"self": "/assays/351"},
+                                "meta": {}
+                            },
+                            "jsonapi": {"version": "1.0"}
+                        },
+                    ),
+                    OpenApiExample(
+                        name="Minimal v2 response",
+                        value={"data": {"id": "351", "type": "assays", "attributes": {"title": "Assay"}}},
+                        media_type="application/vnd.nextseek.v2+json",
+                    ),
+                ],
+            ),
+        },
         tags=['Assays'],
-        examples=[
-            OpenApiExample(
-                name="Get Assay",
-                value={
-                    "data": {
-                        "id": "351",
-                        "type": "assays",
-                        "attributes": {"title": "A Maximal experimental Assay"},
-                        "relationships": {"study": {"data": {"type": "studies", "id": "434"}}},
-                        "links": {"self": "/assays/351"},
-                        "meta": {}
-                    },
-                    "jsonapi": {"version": "1.0"}
-                }
-            ),
-            # v2 contract examples (task-04)
-            OpenApiExample(
-                name="Minimal v2 response",
-                value={"data": {"id": "351", "type": "assays", "attributes": {"title": "Assay"}}},
-                response_only=True,
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-            OpenApiExample(
-                name="Realistic v2 response",
-                value={
-                    "data": {
-                        "id": "351",
-                        "type": "assays",
-                        "attributes": {"title": "A Maximal experimental Assay"},
-                        "relationships": {"study": {"data": {"type": "studies", "id": "434"}}},
-                        "links": {"self": "/assays/351"},
-                    },
-                    "jsonapi": {"version": "1.0"},
-                },
-                response_only=True,
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-            OpenApiExample(
-                name="v2 not found error (404)",
-                value={"errors": [{
-                    "status": "404",
-                    "title": "Assay not found",
-                }]},
-                response_only=True,
-                status_codes=["404"],
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-        ],
     )
     def retrieve(self, request, uid=None, pk=None):
         uid = uid or pk

@@ -5,7 +5,8 @@ import logging
 from django.http import HttpResponse
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
+from drf_spectacular.types import OpenApiTypes
 from pydantic import ValidationError
 from django.conf import settings
 
@@ -79,63 +80,40 @@ class SampleProxyViewSet(viewsets.ViewSet):
                 description='Include validation error details in 502 response'
             ),
         ],
-        responses={200: SampleSingleResponse},
-        tags=['Samples'],
-        examples=[
-            OpenApiExample(
-                name="Get Sample",
-                value={
-                    "data": {
-                        "id": "321",
-                        "type": "samples",
-                        "attributes": {"title": "A Sample"},
-                        "relationships": {
-                            "sample_type": {"data": {"type": "sample_types", "id": "12"}},
-                            "creators": {"data": []},
-                            "projects": {"data": []},
-                            "people": {"data": []},
-                            "assays": {"data": []},
-                            "data_files": {"data": []}
+        responses={
+            200: OpenApiResponse(
+                response=SampleSingleResponse,
+                examples=[
+                    OpenApiExample(
+                        name="Get Sample",
+                        value={
+                            "data": {
+                                "id": "321",
+                                "type": "samples",
+                                "attributes": {"title": "A Sample"},
+                                "relationships": {
+                                    "sample_type": {"data": {"type": "sample_types", "id": "12"}},
+                                    "creators": {"data": []},
+                                    "projects": {"data": []},
+                                    "people": {"data": []},
+                                    "assays": {"data": []},
+                                    "data_files": {"data": []}
+                                },
+                                "links": {"self": "/samples/321"},
+                                "meta": {}
+                            },
+                            "jsonapi": {"version": "1.0"}
                         },
-                        "links": {"self": "/samples/321"},
-                        "meta": {}
-                    },
-                    "jsonapi": {"version": "1.0"}
-                }
+                    ),
+                    OpenApiExample(
+                        name="Minimal v2 response",
+                        value={"data": {"id": "321", "type": "samples", "attributes": {"title": "A Sample"}}},
+                        media_type="application/vnd.nextseek.v2+json",
+                    ),
+                ],
             ),
-            # v2 contract examples (task-04)
-            OpenApiExample(
-                name="Minimal v2 response",
-                value={"data": {"id": "321", "type": "samples", "attributes": {"title": "A Sample"}}},
-                response_only=True,
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-            OpenApiExample(
-                name="Realistic v2 response",
-                value={
-                    "data": {
-                        "id": "321",
-                        "type": "samples",
-                        "attributes": {"title": "A Sample"},
-                        "relationships": {"sample_type": {"data": {"type": "sample_types", "id": "12"}}},
-                        "links": {"self": "/samples/321"},
-                    },
-                    "jsonapi": {"version": "1.0"},
-                },
-                response_only=True,
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-            OpenApiExample(
-                name="v2 not found error (404)",
-                value={"errors": [{
-                    "status": "404",
-                    "title": "Sample not found",
-                }]},
-                response_only=True,
-                status_codes=["404"],
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-        ],
+        },
+        tags=['Samples'],
     )
     def retrieve(self, request, uid=None, pk=None):
         uid = uid or pk
@@ -393,33 +371,32 @@ class SampleProxyViewSet(viewsets.ViewSet):
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or Sample UUID (string)')
         ],
-        responses={200: None},
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Delete acknowledged.",
+                examples=[
+                    OpenApiExample(
+                        name="Minimal v2 delete success",
+                        value={"status": "ok"},
+                    ),
+                ],
+            ),
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Sample not found.",
+                examples=[
+                    OpenApiExample(
+                        name="v2 not found error (404)",
+                        value={"errors": [{
+                            "status": "404",
+                            "title": "Sample not found",
+                        }]},
+                    ),
+                ],
+            ),
+        },
         tags=['Samples'],
-        examples=[
-            # v2 contract examples (task-04)
-            OpenApiExample(
-                name="Minimal v2 delete success",
-                value={"status": "ok"},
-                response_only=True,
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-            OpenApiExample(
-                name="Realistic v2 delete success",
-                value={"status": "ok", "deleted_id": "321"},
-                response_only=True,
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-            OpenApiExample(
-                name="v2 not found error (404)",
-                value={"errors": [{
-                    "status": "404",
-                    "title": "Sample not found",
-                }]},
-                response_only=True,
-                status_codes=["404"],
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-        ],
     )
     def destroy(self, request, uid=None, pk=None):
         uid = uid or pk

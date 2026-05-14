@@ -7,7 +7,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
 from drf_spectacular.types import OpenApiTypes
 
 from nextseek_api.helpers import SeekAPIClient
@@ -55,51 +55,35 @@ class DataFileProxyViewSet(viewsets.ViewSet):
     @extend_schema(
         operation_id="List DataFiles",
         description=DATAFILE_LIST_DESC,
-        responses={200: DataFileListResponse},
+        responses={
+            200: OpenApiResponse(
+                response=DataFileListResponse,
+                examples=[
+                    OpenApiExample(
+                        name="List DataFiles",
+                        value={
+                            "data": [
+                                {
+                                    "id": "560",
+                                    "type": "data_files",
+                                    "attributes": {"title": "DF-20240101-01_Sample-X.csv"},
+                                    "links": {"self": "/data_files/560"}
+                                }
+                            ],
+                            "jsonapi": {"version": "1.0"},
+                            "links": {"self": "/data_files?page[number]=1&page[size]=100"},
+                            "meta": {"base_url": "http://localhost:3000", "api_version": "v1"}
+                        },
+                    ),
+                    OpenApiExample(
+                        name="Minimal v2 list response",
+                        value={"results": [], "count": 0, "next": None, "previous": None},
+                        media_type="application/vnd.nextseek.v2+json",
+                    ),
+                ],
+            ),
+        },
         tags=['DataFiles'],
-        examples=[
-            OpenApiExample(
-                name="List DataFiles",
-                value={
-                    "data": [
-                        {
-                            "id": "560",
-                            "type": "data_files",
-                            "attributes": {"title": "DF-20240101-01_Sample-X.csv"},
-                            "links": {"self": "/data_files/560"}
-                        }
-                    ],
-                    "jsonapi": {"version": "1.0"},
-                    "links": {"self": "/data_files?page[number]=1&page[size]=100"},
-                    "meta": {"base_url": "http://localhost:3000", "api_version": "v1"}
-                }
-            ),
-            # v2 contract examples (task-04)
-            OpenApiExample(
-                name="Minimal v2 list response",
-                value={"results": [], "count": 0, "next": None, "previous": None},
-                response_only=True,
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-            OpenApiExample(
-                name="Realistic v2 list response",
-                value={
-                    "results": [{"id": "560", "type": "data_files", "attributes": {"title": "DF-20240101-01_Sample-X.csv"}}],
-                    "count": 1,
-                    "next": None,
-                    "previous": None,
-                },
-                response_only=True,
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-            OpenApiExample(
-                name="v2 upstream error (502)",
-                value={"errors": [{"status": "502", "title": "Invalid upstream response"}]},
-                response_only=True,
-                status_codes=["502"],
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-        ],
     )
     def list(self, request):
         body, code, headers, resp = self.client.list_data_files(request, params=request.query_params)
@@ -130,56 +114,33 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or NExtSEEK UID (string)'),
             OpenApiParameter(name='version', type=int, location=OpenApiParameter.QUERY, required=True, description='Required DataFile version to fetch', default=1),
         ],
-        responses={200: DataFileSingleResponse},
+        responses={
+            200: OpenApiResponse(
+                response=DataFileSingleResponse,
+                examples=[
+                    OpenApiExample(
+                        name="Get DataFile",
+                        value={
+                            "data": {
+                                "id": "560",
+                                "type": "data_files",
+                                "attributes": {"title": "DF-20240101-01_Sample-X.csv"},
+                                "relationships": {},
+                                "links": {"self": "/data_files/560"},
+                                "meta": {}
+                            },
+                            "jsonapi": {"version": "1.0"}
+                        },
+                    ),
+                    OpenApiExample(
+                        name="Minimal v2 response",
+                        value={"data": {"id": "560", "type": "data_files", "attributes": {"title": "DF.csv"}}},
+                        media_type="application/vnd.nextseek.v2+json",
+                    ),
+                ],
+            ),
+        },
         tags=['DataFiles'],
-        examples=[
-            OpenApiExample(
-                name="Get DataFile",
-                value={
-                    "data": {
-                        "id": "560",
-                        "type": "data_files",
-                        "attributes": {"title": "DF-20240101-01_Sample-X.csv"},
-                        "relationships": {},
-                        "links": {"self": "/data_files/560"},
-                        "meta": {}
-                    },
-                    "jsonapi": {"version": "1.0"}
-                }
-            ),
-            # v2 contract examples (task-04)
-            OpenApiExample(
-                name="Minimal v2 response",
-                value={"data": {"id": "560", "type": "data_files", "attributes": {"title": "DF.csv"}}},
-                response_only=True,
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-            OpenApiExample(
-                name="Realistic v2 response",
-                value={
-                    "data": {
-                        "id": "560",
-                        "type": "data_files",
-                        "attributes": {"title": "DF-20240101-01_Sample-X.csv"},
-                        "relationships": {},
-                        "links": {"self": "/data_files/560"},
-                    },
-                    "jsonapi": {"version": "1.0"},
-                },
-                response_only=True,
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-            OpenApiExample(
-                name="v2 not found error (404)",
-                value={"errors": [{
-                    "status": "404",
-                    "title": "DataFile not found",
-                }]},
-                response_only=True,
-                status_codes=["404"],
-                media_type="application/vnd.nextseek.v2+json",
-            ),
-        ],
     )
     def retrieve(self, request, uid=None, pk=None):
         uid = uid or pk
