@@ -116,7 +116,10 @@ def install(
     if seed.neo4j_is_populated(values.neo4j_password, REPO_ROOT, compose_env):
         ui.ok("neo4j already populated; skipping")
     else:
-        with ui.spinner("loading neo4j.cypher.gz"):
+        ui.info("neo4j.cypher.gz is ~674k CREATE statements — this takes 30-60 min on first install")
+        ui.info(f"watch progress in the Neo4j browser at http://localhost:{ports['neo4j_http']}/")
+        ui.info(f"  log in as neo4j / {values.neo4j_password}, then run:  MATCH (n) RETURN count(n);")
+        with ui.spinner("loading neo4j.cypher.gz (long-running; safe to leave unattended)"):
             seed.load_neo4j_dump(REPO_ROOT / "bootstrap" / "seed" / "neo4j.cypher.gz", values.neo4j_password, REPO_ROOT, compose_env)
         ui.ok("neo4j loaded")
 
@@ -145,6 +148,11 @@ def install(
         raise typer.Exit(code=1)
 
     ui.banner(f"Ready — http://localhost:{ports['nextseek']}/")
+    ui.info("")
+    ui.info("Next steps before this install goes beyond a private localhost demo:")
+    ui.info("  → Read NExtSTEPS.md (top of the repo)")
+    ui.info("  → At minimum: rotate demo/demopassword + user/userpassword via SEEK admin UI")
+    ui.info(f"  → Log in: http://localhost:{ports['nextseek']}/  (demo/demopassword for admin)")
 
 
 @app.command()
