@@ -93,7 +93,7 @@ def install(
         ui.console.print(f"    NExtSEEK         http://localhost:{ports['nextseek']}")
         ui.console.print(f"    SEEK             http://localhost:{ports['seek']}")
         ui.console.print(f"    Neo4j HTTP       http://localhost:{ports['neo4j_http']}")
-        ui.console.print(f"    Neo4j Bolt       bolt://localhost:{ports['neo4j_bolt']}")
+        ui.console.print(f"    Neo4j Bolt       [link=bolt://localhost:{ports['neo4j_bolt']}]bolt://localhost:{ports['neo4j_bolt']}[/link]")
         ui.console.print("  Default credentials (rotate after install per NExtSTEPS.md):")
         ui.console.print(f"    demo / demopassword   (admin)")
         ui.console.print(f"    user / userpassword   (regular)")
