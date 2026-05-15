@@ -31,6 +31,7 @@ from .agents import (  # noqa: E402
     _pipeline_directive_parse,
     _pipeline_sanity_check,
     _pipeline_groupby_resolution,
+    _pipeline_edit_step,
     report_writer_agent,
 )
 from .helpers import (
@@ -500,8 +501,77 @@ def _handle_submit(session, config, *, log_dir):
     raise NotImplementedError("_handle_submit lands in Task 11")
 
 
+def _re_emit_samplesheet(session, config, rows, *, log_dir):
+    """Re-emit samplesheet artifacts with new rows, reusing the existing run dir.
+
+    Reads pipeline_key + cohorts from session state; writes the new
+    samplesheet.csv without re-running the reporter or report_writer.
+    Falls back to a full rebuild if the artifact paths are missing.
+    """
+    from pathlib import Path
+    import csv as _csv
+
+    state = _state(session)
+    artifacts = state.get("build_artifacts") or {}
+    samplesheet_path = artifacts.get("samplesheet")
+    if not samplesheet_path:
+        return _run_build_step(session, config, log_dir=log_dir)
+
+    out_path = Path(samplesheet_path)
+    if not rows:
+        out_path.write_text("", encoding="utf-8")
+    else:
+        fieldnames = list(rows[0].keys())
+        with out_path.open("w", encoding="utf-8", newline="") as f:
+            w = _csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            for r in rows:
+                w.writerow(r)
+
+    return artifacts
+
+
 def _handle_edit(session, config, user_text, *, log_dir):
-    raise NotImplementedError("_handle_edit lands in Task 10")
+    state = _state(session)
+    directive = state.get("directive") or {}
+    rows = state.get("samplesheet_rows") or []
+
+    edit = _pipeline_edit_step(
+        config=config,
+        pipeline_key=directive.get("pipeline_key", "rnaseq"),
+        current_rows=rows,
+        user_text=user_text,
+    )
+
+    if edit.action == "apply":
+        state["samplesheet_rows"] = list(edit.rows)
+        _save_state(session, state)
+        _re_emit_samplesheet(session, config, edit.rows, log_dir=log_dir)
+        return {
+            "action": "ask",
+            "reply": (
+                f"Applied edit — {len(edit.rows)} row(s) remain. "
+                "Reply 'submit' to send to Tower, 'cancel' to drop, or describe more edits."
+            ),
+            "params": None,
+        }
+
+    if edit.action == "ask":
+        return {
+            "action": "ask",
+            "reply": edit.ask_reply or "Could you be more specific?",
+            "params": None,
+        }
+
+    # reject
+    return {
+        "action": "ask",
+        "reply": (
+            f"Can't apply that edit: {edit.reject_reason or 'unknown reason'}. "
+            "Try a different edit, 'submit', or 'cancel'."
+        ),
+        "params": None,
+    }
 
 
 def _handle_groupby_clarification(session, config, user_text, *, log_dir):
