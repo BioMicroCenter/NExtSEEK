@@ -24,7 +24,7 @@ app = typer.Typer(
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-DEFAULT_PORTS = {"nextseek": 8000, "seek": 3000, "neo4j_http": 7474, "neo4j_bolt": 7688}
+DEFAULT_PORTS = {"nextseek": 8000, "seek": 3000, "neo4j_http": 7474, "neo4j_bolt": 7687}
 
 
 @app.command()
