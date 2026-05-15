@@ -145,6 +145,7 @@ _MAX_DISTINCT_VALUES = 200
 
 def list_metadata_fields(
     bundle: dict[str, Any],
+    *,
     sample_types: list[str],
 ) -> dict[str, list[str]]:
     """Return field names keyed by sample type.
@@ -170,6 +171,7 @@ def list_metadata_fields(
 
 def field_distribution_by_sample_type(
     bundle: dict[str, Any],
+    *,
     field_name: str,
 ) -> dict[str, dict[str, Any]]:
     """Return examples and n_populated for a field across all sample types.
@@ -197,6 +199,7 @@ def field_distribution_by_sample_type(
 
 def list_distinct_values(
     bundle: dict[str, Any],
+    *,
     sample_type: str,
     field_name: str,
 ) -> dict[str, Any]:
@@ -244,18 +247,21 @@ def dispatch_groupby_tool_call(
     Returns a JSON-serialisable string for feeding back as tool_result content.
     """
     if name == "list_metadata_fields":
-        result = list_metadata_fields(bundle, tool_input.get("sample_types") or [])
+        result = list_metadata_fields(bundle, sample_types=tool_input.get("sample_types") or [])
     elif name == "field_distribution_by_sample_type":
-        result = field_distribution_by_sample_type(bundle, tool_input.get("field_name", ""))
+        result = field_distribution_by_sample_type(bundle, field_name=tool_input.get("field_name", ""))
     elif name == "list_distinct_values":
         result = list_distinct_values(
             bundle,
-            tool_input.get("sample_type", ""),
-            tool_input.get("field_name", ""),
+            sample_type=tool_input.get("sample_type", ""),
+            field_name=tool_input.get("field_name", ""),
         )
     elif name == "finalize_groupby":
-        result = {"error": "finalize_groupby must be handled by the caller, not dispatched."}
+        raise ValueError(
+            "dispatch_groupby_tool_call should not be invoked for finalize_groupby; "
+            "the caller intercepts it"
+        )
     else:
-        result = {"error": f"Unknown tool: {name!r}"}
+        raise ValueError(f"Unknown group-by tool: {name!r}")
 
     return json.dumps(result)
