@@ -19,6 +19,17 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "default_genome": "GRCh38",
         "default_profile": "docker",
         "required_columns": ["sample", "fastq_1", "fastq_2", "strandedness"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^RNA[-_ ]?seq$",
+            r"^bulk[-_ ]?RNA([-_ ]?seq)?$",
+            r"^RNA[ _]Sample$",
+        ],
+        "pipeline_kind_description": (
+            "Bulk RNA-seq quantification & QC. Needs paired or single-end "
+            "FASTQ from RNA-seq libraries."
+        ),
     },
     "scrnaseq": {
         "repo": "https://github.com/nf-core/scrnaseq",
@@ -28,6 +39,18 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "default_genome": "GRCh38",
         "default_profile": "docker",
         "required_columns": ["sample", "fastq_1", "fastq_2", "expected_cells"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^scRNA[-_ ]?seq$",
+            r"^single[- ]cell([- ]?RNA[- ]?seq)?$",
+            r"^10x[- ]?(Genomics)?$",
+            r"^smart[- ]?seq2?$",
+        ],
+        "pipeline_kind_description": (
+            "Single-cell RNA-seq. Needs 10x/dropseq/smartseq FASTQ pairs "
+            "with expected cell counts."
+        ),
     },
     "atacseq": {
         "repo": "https://github.com/nf-core/atacseq",
@@ -37,6 +60,17 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "default_genome": "GRCh38",
         "default_profile": "docker",
         "required_columns": ["sample", "fastq_1", "fastq_2", "replicate"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^ATAC[-_ ]?seq$",
+            r"^ATAC$",
+            r"chromatin[- ]?accessibility",
+        ],
+        "pipeline_kind_description": (
+            "ATAC-seq peak calling + differential accessibility. Needs "
+            "ATAC-seq FASTQs."
+        ),
     },
     "chipseq": {
         "repo": "https://github.com/nf-core/chipseq",
@@ -48,6 +82,16 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "required_columns": [
             "sample", "fastq_1", "fastq_2", "antibody", "control", "control_replicate",
         ],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^ChIP[-_ ]?seq$",
+            r"^ChIP$",
+        ],
+        "pipeline_kind_description": (
+            "ChIP-seq peak calling vs input/control. Requires antibody and "
+            "control mapping in metadata."
+        ),
     },
     "sarek": {
         "repo": "https://github.com/nf-core/sarek",
@@ -59,6 +103,18 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "required_columns": [
             "patient", "sample", "lane", "fastq_1", "fastq_2", "sex", "status",
         ],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^WGS$",
+            r"^WES$",
+            r"^DNA[-_ ]?seq$",
+            r"variant",
+        ],
+        "pipeline_kind_description": (
+            "Germline + somatic variant calling from WES/WGS. Needs "
+            "patient+sample+sex+status metadata."
+        ),
     },
     "methylseq": {
         "repo": "https://github.com/nf-core/methylseq",
@@ -68,6 +124,15 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "default_genome": "GRCh38",
         "default_profile": "docker",
         "required_columns": ["sample", "fastq_1", "fastq_2"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^WGBS$",
+            r"^RRBS$",
+            r"^EM[-_ ]?seq$",
+            r"methylation",
+        ],
+        "pipeline_kind_description": "Bisulfite / methylation sequencing analysis.",
     },
     "ampliseq": {
         "repo": "https://github.com/nf-core/ampliseq",
@@ -77,6 +142,15 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "default_genome": None,
         "default_profile": "docker",
         "required_columns": ["sampleID", "forwardReads", "reverseReads"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^16S$",
+            r"^ITS$",
+            r"amplicon",
+            r"microbiome",
+        ],
+        "pipeline_kind_description": "16S / ITS amplicon microbial profiling.",
     },
     "fetchngs": {
         "repo": "https://github.com/nf-core/fetchngs",
@@ -86,6 +160,13 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "default_genome": None,
         "default_profile": "docker",
         "required_columns": ["accession"],
+        "samplesheet_input_kind": "accession",
+        "accepted_leaf_sample_types": [],
+        "accepted_assay_patterns": [],
+        "pipeline_kind_description": (
+            "Download FASTQs from SRA/ENA/DDBJ/GEO accessions. Input is "
+            "accession strings, not NExtSEEK lineage."
+        ),
     },
 }
 
