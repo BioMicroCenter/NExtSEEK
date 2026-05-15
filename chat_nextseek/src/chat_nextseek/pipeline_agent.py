@@ -27,7 +27,11 @@ if TYPE_CHECKING:
 
 # Expose LLM helpers at module level so tests can patch them via
 # "chat_nextseek.pipeline_agent._pipeline_directive_parse" etc.
-from .agents import _pipeline_directive_parse, _pipeline_sanity_check  # noqa: E402
+from .agents import (  # noqa: E402
+    _pipeline_directive_parse,
+    _pipeline_sanity_check,
+    _pipeline_groupby_resolution,
+)
 from .helpers import (
     annotate_metadata_with_sampletypes,
     enumerate_lineage_leaves,
@@ -423,20 +427,61 @@ def _run_build_flow(session, config, parsed, *, log_dir):
 
 
 def _run_groupby_or_build(session, config, *, log_dir):
-    """Stub — lands in Tasks 8–9."""
+    """Run the group-by resolution loop (if needed) then advance to build.
+
+    If directive.group_by_phrase is null/empty, skip group-by and call
+    _run_build_step directly (single-cohort build).
+
+    If _pipeline_groupby_resolution returns requires_clarification=True,
+    pause the agent in PHASE_AWAITING_GROUPBY and return the clarifying
+    question to the user.
+
+    Otherwise, store the GroupByResolution in state and call _run_build_step.
+    """
     state = _state(session)
-    state["phase"] = PHASE_AWAITING_VALIDATION
+    directive = state.get("directive") or {}
+    group_by_phrase = directive.get("group_by_phrase") or ""
+    pipeline_key = directive.get("pipeline_key") or ""
+
+    if not group_by_phrase:
+        # Single-cohort build — no group-by resolution needed.
+        return _run_build_step(session, config, log_dir=log_dir)
+
+    # Build the metadata summary for the group-by tools.
+    bundle = state.get("metadata_bundle") or {}
+    try:
+        from .helpers import build_metadata_summary, filter_summary_to_sequencing_lineage
+        summary = build_metadata_summary({"__sample__": bundle})
+        summary = filter_summary_to_sequencing_lineage(summary)
+    except Exception:
+        summary = {"by_sample_type": {}}
+
+    user_hint = state.get("groupby_user_hint") or ""
+
+    resolution = _pipeline_groupby_resolution(
+        config=config,
+        pipeline_key=pipeline_key,
+        group_by_phrase=group_by_phrase,
+        metadata_summary=summary,
+        user_hint=user_hint,
+    )
+
+    if resolution.requires_clarification:
+        # Pause — ask the user to disambiguate.
+        state["phase"] = PHASE_AWAITING_GROUPBY
+        state["candidates_pending_user_pick"] = [
+            c.model_dump() for c in (resolution.candidates or [])
+        ]
+        _save_state(session, state)
+        question = resolution.clarifying_question or "Which field did you mean?"
+        return {"action": "ask", "reply": question, "params": None}
+
+    # Commit the resolution and proceed to build.
+    state["groupby"] = resolution.model_dump()
+    state.pop("groupby_user_hint", None)
+    state.pop("candidates_pending_user_pick", None)
     _save_state(session, state)
-    sanity = state.get("sanity") or {}
-    leaves = sanity.get("leaves_to_use") or []
-    return {
-        "action": "ask",
-        "reply": (
-            f"(Sanity passed: {len(leaves)} leaves. "
-            "Group-by + build land in Tasks 8–9.)"
-        ),
-        "params": None,
-    }
+    return _run_build_step(session, config, log_dir=log_dir)
 
 
 def _run_question_flow(session, config, parsed, *, log_dir):
@@ -458,7 +503,28 @@ def _handle_edit(session, config, user_text, *, log_dir):
 
 
 def _handle_groupby_clarification(session, config, user_text, *, log_dir):
-    raise NotImplementedError("_handle_groupby_clarification lands in Task 8")
+    """Handler invoked when phase=awaiting_groupby_clarification.
+
+    Stores the user's response as a hint, resets phase to directive_parse,
+    and re-runs the group-by resolution loop with the hint attached.
+    """
+    state = _state(session)
+    state["groupby_user_hint"] = user_text
+    state["phase"] = PHASE_DIRECTIVE_PARSE
+    _save_state(session, state)
+    return _run_groupby_or_build(session, config, log_dir=log_dir)
+
+
+def _run_build_step(session, config, *, log_dir):
+    """Build step — lands in Task 9."""
+    state = _state(session)
+    state["phase"] = PHASE_AWAITING_VALIDATION
+    _save_state(session, state)
+    return {
+        "action": "ask",
+        "reply": "(build step lands in Task 9)",
+        "params": None,
+    }
 
 
 def _handle_pipeline_switch(session, config, user_text, *, log_dir):
