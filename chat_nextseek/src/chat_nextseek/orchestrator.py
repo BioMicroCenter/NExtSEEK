@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 from .artifacts import ArtifactStore, build_metadata_bundle, build_saved_report_file_manifest
 from .chat_memory import append_turn, build_tool_summary_for_mode, resolve_bundle_for_recall
 from . import nfcore_wizard
+from . import pipeline_agent
 from .agents import (
     chatter_agent_answer,
     chatter_agent_plan,
@@ -144,6 +145,8 @@ def _write_graph_debug(log_dir: str, ts: str, payload: dict) -> str | None:
         return None
 
 
+# DEPRECATED: superseded by pipeline_agent. Left in place for now;
+# safe to delete once a release cycle has passed with no rollback.
 def _execute_nfcore_wizard(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -275,6 +278,59 @@ def _execute_nfcore_wizard(
     )
 
 
+def _handle_pipeline_agent_turn(
+    session: SessionState | SessionStateProxy,
+    config: ChatConfig,
+    user_text: str,
+    log_dir: str,
+    send_event: SendEvent,
+    artifact_store: ArtifactStore,
+) -> dict[str, Any] | None:
+    """If a pipeline_agent session is active, advance it. Returns the
+    orchestrator payload, or None if the agent requested passthrough
+    (caller should run normal parser).
+
+    This gate runs BEFORE the legacy wizard interceptor so pipeline_agent
+    always wins for in-progress NFCORE flows.
+    """
+    if not pipeline_agent.is_active(session):
+        return None
+    result = pipeline_agent.handle_turn(session, config, user_text, log_dir=log_dir)
+    action = result.get("action")
+    if action == "passthrough":
+        pipeline_agent.clear(session)
+        return None
+    if action == "cancel":
+        reply = result.get("reply") or ""
+        debug_payload = {"pipeline_agent": {"cancelled": True}}
+        session["last_debug"] = debug_payload
+        append_turn(
+            session,
+            user_query=user_text,
+            mode="pipeline_agent",
+            intent_summary="pipeline_agent cancelled",
+            assistant_reply=reply,
+        )
+        return _emit_query_complete(send_event, reply, debug_payload, None)
+    # All non-passthrough/cancel actions (ask, build, submit, etc.) get the
+    # same chat-log treatment: record the turn with the agent's reply and a
+    # snapshot of its state for the debug panel.
+    reply = result.get("reply") or ""
+    snapshot = pipeline_agent.snapshot_for_chat_log(session)
+    debug_payload = {"pipeline_agent": snapshot}
+    session["last_debug"] = debug_payload
+    append_turn(
+        session,
+        user_query=user_text,
+        mode="pipeline_agent",
+        intent_summary="pipeline_agent turn",
+        tool_summary={"phase": snapshot.get("phase")},
+        assistant_reply=reply,
+        wizard_state=snapshot,
+    )
+    return _emit_query_complete(send_event, reply, debug_payload, None)
+
+
 def _handle_wizard_turn(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -371,6 +427,16 @@ def run_query(
             _raw_send_event(event_name, payload)
 
     try:
+        # pipeline_agent gates BEFORE the legacy wizard so an in-progress
+        # samplesheet build always advances even if a stale wizard state
+        # also looks active.
+        pipeline_payload = _handle_pipeline_agent_turn(
+            session, config, user_text, log_dir, send_event, artifact_store,
+        )
+        if pipeline_payload is not None:
+            print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
+            return pipeline_payload
+
         wizard_payload = _handle_wizard_turn(session, config, user_text, log_dir, send_event, artifact_store)
         if wizard_payload is not None:
             print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
@@ -550,25 +616,27 @@ def run_query(
             if reporter_mode == "report_generation":
                 report_type_for_branch = (reporter_plan.report_type or plan.report_type or "").upper()
                 if report_type_for_branch.startswith("NFCORE"):
-                    wizard_start = nfcore_wizard.start(
+                    pa_start = pipeline_agent.start(
                         session,
                         config,
                         user_query=user_text,
                         parser_plan=plan,
                         reporter_plan=reporter_plan,
+                        log_dir=log_dir,
                     )
-                    reply = wizard_start.get("reply") or ""
-                    debug_payload["nfcore_wizard"] = nfcore_wizard.snapshot_for_chat_log(session)
+                    reply = pa_start.get("reply") or ""
+                    snapshot = pipeline_agent.snapshot_for_chat_log(session)
+                    debug_payload["pipeline_agent"] = snapshot
                     session["last_debug"] = debug_payload
                     append_turn(
                         session,
                         user_query=user_text,
-                        mode="nfcore_wizard",
-                        intent_summary="nf-core wizard launched",
+                        mode="pipeline_agent",
+                        intent_summary="pipeline_agent launched",
                         entity_result=entity_result,
-                        tool_summary={"step": "pipeline"},
+                        tool_summary={"phase": snapshot.get("phase")},
                         assistant_reply=reply,
-                        wizard_state=nfcore_wizard.snapshot_for_chat_log(session),
+                        wizard_state=snapshot,
                     )
                     print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
                     return _emit_query_complete(send_event, reply, debug_payload, None)
