@@ -4581,3 +4581,87 @@ def run_reporter_summary(
 
     print(f"[DEBUG][REPORTER] result ok={reporter_result.get('ok')}, rows={reporter_result.get('rows_returned')}, files={list(saved_files.keys())}")
     return reporter_result, saved_files, reporter_summary
+
+
+def enumerate_lineage_leaves(
+    metadata_bundle: dict,
+    *,
+    accepted_types: list[str],
+) -> list[dict[str, str]]:
+    """Walk a NExtSEEK metadata bundle and return every sample whose
+    ``sample_type`` is in ``accepted_types``.
+
+    Returns a list of ``{uid, sample_type, assay, source_uid}`` dicts. ``source_uid``
+    is the top-level (root) sample UID this leaf was reached from, used by the
+    sanity step to report "X source UIDs have zero matching leaves".
+
+    Empty ``accepted_types`` short-circuits to ``[]`` — used by pipelines with
+    ``samplesheet_input_kind="accession"`` (e.g. fetchngs) where lineage isn't
+    walked at all.
+
+    The bundle shape mirrors the reporter API response:
+        {"data": [
+            {"sample_type": "NHP", "samples": [
+                {"uuid": "NHP-1", "metadata": {...}, "children": [
+                    {"uuid": "TIS-1", "metadata": {...}, "children": [
+                        {"uuid": "D.SEQ-1", "metadata": {"UID": "...", "assay_name": "RNA-seq"}},
+                    ]},
+                ]},
+            ]},
+        ]}
+
+    Assay value is read from ``metadata["assay_name"]`` with fallbacks to
+    ``"assay"`` and ``"AssayName"``; missing assay defaults to "".
+    """
+    accepted = set(accepted_types or [])
+    if not accepted:
+        return []
+
+    out: list[dict[str, str]] = []
+
+    def _infer_sample_type_from_uid(uid: str) -> str:
+        """Extract sample type prefix from UID (e.g. 'D.SEQ-1' → 'D.SEQ')."""
+        if not uid:
+            return ""
+        # UID format is typically "TYPE-number" or "TYPE.SUBTYPE-number"
+        match = re.match(r"^([A-Z.]+)-", str(uid))
+        return match.group(1) if match else ""
+
+    def _walk(sample: dict, source_uid: str, leaf_sample_type: str | None) -> None:
+        if not isinstance(sample, dict):
+            return
+        uid = (sample.get("metadata") or {}).get("UID") or sample.get("uuid") or ""
+        md = sample.get("metadata") or {}
+        # Try explicit sample_type first, then infer from UID, then fall back to parent's type
+        st = (
+            md.get("sample_type")
+            or _infer_sample_type_from_uid(str(uid))
+            or leaf_sample_type
+            or ""
+        )
+        # Only emit when sample_type is in accepted set.
+        if st in accepted and uid:
+            assay = (
+                md.get("assay_name")
+                or md.get("assay")
+                or md.get("AssayName")
+                or ""
+            )
+            out.append({
+                "uid": str(uid),
+                "sample_type": st,
+                "assay": str(assay),
+                "source_uid": source_uid,
+            })
+        for child in sample.get("children") or []:
+            _walk(child, source_uid, st)
+
+    for block in (metadata_bundle or {}).get("data") or []:
+        if not isinstance(block, dict):
+            continue
+        block_type = block.get("sample_type")
+        for sample in block.get("samples") or []:
+            root_uid = (sample.get("metadata") or {}).get("UID") or sample.get("uuid") or ""
+            _walk(sample, source_uid=str(root_uid), leaf_sample_type=block_type)
+
+    return out
