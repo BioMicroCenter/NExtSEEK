@@ -31,11 +31,13 @@ from .agents import (  # noqa: E402
     _pipeline_directive_parse,
     _pipeline_sanity_check,
     _pipeline_groupby_resolution,
+    report_writer_agent,
 )
 from .helpers import (
     annotate_metadata_with_sampletypes,
     enumerate_lineage_leaves,
     fetch_reporter_metadata,
+    generate_report_outputs,
 )
 from .seqera.catalog import NFCORE_PIPELINE_CATALOG
 
@@ -516,13 +518,94 @@ def _handle_groupby_clarification(session, config, user_text, *, log_dir):
 
 
 def _run_build_step(session, config, *, log_dir):
-    """Build step — lands in Task 9."""
+    """Build step: constructs cohorts from GroupByResolution and delegates to
+    generate_report_outputs, then transitions to awaiting_validation."""
+    from .schemas import ParserFilters, ParserPlan
+    from .schemas.chat import ReporterPlan
+
     state = _state(session)
+    directive = state.get("directive") or {}
+    sanity = state.get("sanity") or {}
+    groupby = state.get("groupby")  # may be None
+
+    pipeline_key = directive.get("pipeline_key") or "rnaseq"
+    report_type = f"NFCORE_{pipeline_key.upper()}"
+    leaves = list(sanity.get("leaves_to_use") or [])
+
+    cohorts: list[dict] = []
+    if groupby:
+        field = (groupby or {}).get("field") or {}
+        field_name = field.get("field_name", "")
+        for val in (groupby or {}).get("distinct_values") or []:
+            label = f"{pipeline_key}-{field_name}-{val}".lower().replace(" ", "-")
+            cohorts.append({
+                "label": label,
+                "pipeline": pipeline_key,
+                "rationale": f"Cohort split on {field_name}={val} via pipeline_agent.",
+                "enrichment_metadata_fields": [],
+                "cohort_criterion": {field_name: val},
+                "expected_sample_count": 0,
+            })
+    if not cohorts:
+        cohorts = [{
+            "label": pipeline_key,
+            "pipeline": pipeline_key,
+            "rationale": "Single-cohort build via pipeline_agent.",
+            "enrichment_metadata_fields": [],
+            "cohort_criterion": {},
+            "expected_sample_count": len(leaves),
+        }]
+
+    original_query = state.get("original_query") or f"Build nf-core/{pipeline_key} samplesheet."
+    selector_rationale = "Pipeline_agent directive-driven build."
+
+    synthetic_parser_plan = ParserPlan(
+        mode="reporter",
+        report_mode="report_generation",
+        report_type=report_type,
+        intent_summary=f"Pipeline-agent nf-core export ({report_type}).",
+        filters=ParserFilters(uids=leaves),
+    )
+    synthetic_reporter_plan = ReporterPlan(
+        reporter_mode="report_generation",
+        report_type=report_type,
+        uids=leaves,
+        reporter_context={"per_sample_reports": False},
+        notes=selector_rationale,
+    )
+
+    reporter_result, report_writer_output, saved_files, reply_body = generate_report_outputs(
+        config=config,
+        user_query=original_query,
+        parser_plan=synthetic_parser_plan,
+        reporter_plan=synthetic_reporter_plan,
+        uids=leaves,
+        report_type=report_type,
+        pre_supplied_cohorts=cohorts,
+        report_writer_fn=report_writer_agent,
+        log_dir=log_dir,
+        per_sample_reports=False,
+    )
+
+    state["build_artifacts"] = saved_files or {}
     state["phase"] = PHASE_AWAITING_VALIDATION
     _save_state(session, state)
+
+    dropped_summary = sanity.get("dropped_leaves_summary") or ""
+    reply_parts = [
+        f"Built nf-core/{pipeline_key} samplesheet for {len(leaves)} samples in {len(cohorts)} cohort(s).",
+    ]
+    if dropped_summary:
+        reply_parts.append(dropped_summary)
+    reply_parts.append(reply_body or "")
+    reply_parts.append(
+        "\nReply 'submit' to send to Tower, 'cancel' to drop, or describe edits "
+        "(e.g. 'drop SAMPLE-3, change strandedness on SAMPLE-7 to reverse')."
+    )
+
     return {
         "action": "ask",
-        "reply": "(build step lands in Task 9)",
+        "reply": "\n\n".join(p for p in reply_parts if p),
         "params": None,
     }
 
