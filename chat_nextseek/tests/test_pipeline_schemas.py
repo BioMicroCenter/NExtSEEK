@@ -90,8 +90,8 @@ def test_groupby_resolution_committed():
 
 
 def test_groupby_resolution_clarifying():
+    """When clarification is needed, field=None is the canonical shape."""
     out = GroupByResolution(
-        field=FieldRef(sample_type="NHP", field_name="Treatment1"),
         distinct_values=[],
         rationale="multiple candidates",
         requires_clarification=True,
@@ -102,6 +102,7 @@ def test_groupby_resolution_clarifying():
         clarifying_question="Which exposure field?",
     )
     assert out.requires_clarification is True
+    assert out.field is None
     assert len(out.candidates) == 2
 
 
@@ -117,3 +118,21 @@ def test_edit_diff_apply_shape():
 def test_edit_diff_reject_shape():
     out = EditDiffOutput(action="reject", reject_reason="unknown UID")
     assert out.reject_reason == "unknown UID"
+
+
+def test_directive_parse_ignores_extra_llm_fields():
+    """Regression: extra="ignore" lets the LLM emit chain-of-thought-style
+    extra keys without breaking parse. Confirms we never accidentally flip to forbid."""
+    out = DirectiveParseOutput.model_validate(
+        {"sub_mode": "build", "pipeline_key": "rnaseq", "_reasoning": "..."}
+    )
+    assert out.sub_mode == "build"
+    assert out.pipeline_key == "rnaseq"
+    assert not hasattr(out, "_reasoning")
+
+
+def test_samples_ref_named_cohort_accepted():
+    """named_cohort is a valid Literal even though v1 doesn't resolve it."""
+    s = SamplesRef(kind="named_cohort", cohort_name="cohort_A")
+    assert s.kind == "named_cohort"
+    assert s.cohort_name == "cohort_A"

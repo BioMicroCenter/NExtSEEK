@@ -76,7 +76,7 @@ class FieldRef(BaseModel):
 class GroupByResolution(BaseModel):
     """Third LLM step: resolve a user phrase to a canonical metadata field."""
 
-    field: FieldRef
+    field: FieldRef | None = None
     distinct_values: list[str] = Field(default_factory=list)
     rationale: str = ""
     requires_clarification: bool = False
