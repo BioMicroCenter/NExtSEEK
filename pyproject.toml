@@ -139,7 +139,7 @@ DJANGO_SETTINGS_MODULE = "dmac.settings"
 dev = [
     "coverage",
 ]
-# Note: the bootstrap CLI does NOT use a uv dependency group — it runs in an
+# Note: the startup CLI does NOT use a uv dependency group — it runs in an
 # isolated env via `uv run --no-project --with typer --with rich`. This avoids
 # pulling in the main project's deps (mysqlclient et al.) when the host lacks
-# the C build toolchain. See bootstrap.sh.
+# the C build toolchain. See startup.sh.

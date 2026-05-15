@@ -1,0 +1,113 @@
+"""Seed loader for MySQL + Neo4j gzipped dumps."""
+from __future__ import annotations
+
+import gzip
+from pathlib import Path
+
+from startup.lib.docker_ops import compose_exec, DockerOpsError
+
+SEED_FILES: dict[str, str] = {
+    "dmac": "startup/seed/dmac.sql.gz",
+    "seek_production": "startup/seed/seek_production.sql.gz",
+    "neo4j": "startup/seed/neo4j.cypher.gz",
+}
+
+
+def seed_files_present(repo_root: Path) -> list[str]:
+    """Return a list of basenames missing from startup/seed/. Empty list = all present."""
+    missing: list[str] = []
+    for key, rel_path in SEED_FILES.items():
+        full = repo_root / rel_path
+        if not full.exists():
+            missing.append(full.name)
+    return missing
+
+
+def mysql_db_is_populated(database: str, repo_root: Path, env: dict[str, str]) -> bool:
+    """Return True if the named MySQL database already has tables."""
+    try:
+        out = compose_exec(
+            service="db",
+            command=[
+                "mysql",
+                "-uroot",
+                f"-p{env.get('MYSQL_ROOT_PASSWORD', 'seek_root')}",
+                "-N",
+                "-e",
+                f"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '{database}';",
+            ],
+            project_dir=repo_root,
+            env=env,
+        )
+    except DockerOpsError:
+        return False
+    try:
+        return int(out.strip().splitlines()[-1]) > 0
+    except (ValueError, IndexError):
+        return False
+
+
+def neo4j_is_populated(neo4j_password: str, repo_root: Path, env: dict[str, str]) -> bool:
+    """Return True if Neo4j has any nodes."""
+    try:
+        out = compose_exec(
+            service="neo4j",
+            command=[
+                "cypher-shell",
+                "-u",
+                "neo4j",
+                "-p",
+                neo4j_password,
+                "--format",
+                "plain",
+                "MATCH (n) RETURN count(n);",
+            ],
+            project_dir=repo_root,
+            env=env,
+        )
+    except DockerOpsError:
+        return False
+    for line in out.strip().splitlines():
+        token = line.strip()
+        if token.isdigit():
+            return int(token) > 0
+    return False
+
+
+def load_mysql_dump(
+    gz_path: Path, database: str, repo_root: Path, env: dict[str, str]
+) -> None:
+    """Stream gz_path through gunzip | mysql into the named DB."""
+    decompressed = gzip.decompress(gz_path.read_bytes())
+    compose_exec(
+        service="db",
+        command=[
+            "mysql",
+            "-uroot",
+            f"-p{env.get('MYSQL_ROOT_PASSWORD', 'seek_root')}",
+            database,
+        ],
+        project_dir=repo_root,
+        env=env,
+        stdin=decompressed,
+    )
+
+
+def load_neo4j_dump(
+    gz_path: Path, neo4j_password: str, repo_root: Path, env: dict[str, str]
+) -> None:
+    """Stream gz_path through gunzip | cypher-shell into Neo4j."""
+    decompressed = gzip.decompress(gz_path.read_bytes())
+    compose_exec(
+        service="neo4j",
+        command=[
+            "cypher-shell",
+            "-u",
+            "neo4j",
+            "-p",
+            neo4j_password,
+        ],
+        project_dir=repo_root,
+        env=env,
+        stdin=decompressed,
+    )

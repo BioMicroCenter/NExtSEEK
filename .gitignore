@@ -187,8 +187,8 @@ CLAUDE.md
 scripts/investigate_duplicates/outputs/
 show
 
-# Per-instance bootstrap state (per-clone, not shared).
-bootstrap/.instance.json
+# Per-instance startup state (per-clone, not shared).
+startup/.instance.json
 
 # Local design specs + plans (working docs, not part of the public repo)
 docs/superpowers/

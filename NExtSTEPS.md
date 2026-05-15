@@ -1,4 +1,4 @@
-# NExtSTEPS — what to change after `./bootstrap.sh install`
+# NExtSTEPS — what to change after `./startup.sh install`
 
 The default install is wired for **localhost demo**: well-known passwords, no
 TLS, no real API keys, public-facing logins disabled. Anything beyond "running
@@ -14,7 +14,7 @@ what to run to apply.
 
 ### 1a. Rotate the demo user passwords
 
-`./bootstrap.sh install` seeds two accounts:
+`./startup.sh install` seeds two accounts:
 
 | Username | Password | Role |
 |---|---|---|
@@ -45,7 +45,7 @@ Apply: `docker compose up -d --force-recreate nextseek`
 
 ### 1c. Tighten `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS`
 
-Bootstrap writes localhost values:
+Startup writes localhost values:
 
 ```ini
 DJANGO_ALLOWED_HOSTS="127.0.0.1 localhost"
@@ -79,7 +79,7 @@ many places — only rotate the **passwords**, leave names alone.
 new credentials embedded:
 
 ```bash
-./bootstrap.sh reset --keep-config        # preserves your edited db.env
+./startup.sh reset --keep-config        # preserves your edited db.env
 ```
 
 If you want to rotate passwords on an EXISTING populated DB without
@@ -103,7 +103,7 @@ Neo4j's password lives in **two places** that need to match:
 2. `docker/nextseek.env` → `NEXTSEEK_NEO4J_PASSWORD`
 
 > **TODO:** wire `NEO4J_AUTH` to `${NEO4J_PASSWORD:-demopassword}` and pipe
-> the value through from bootstrap. Until then, this is a manual two-file
+> the value through from startup. Until then, this is a manual two-file
 > edit. Tracked under "Future improvements" below.
 
 To rotate:
@@ -121,14 +121,14 @@ To rotate:
 3. Full reset (Neo4j refuses to change AUTH on an existing volume —
    `reset` drops the volume so the new password takes effect):
    ```bash
-   ./bootstrap.sh reset
+   ./startup.sh reset
    ```
 
 ---
 
 ## 3. Django secret key
 
-Bootstrap auto-generates a 64-character secret on every install. If the
+Startup auto-generates a 64-character secret on every install. If the
 current key was ever logged / committed / shared, rotate it:
 
 ```bash
@@ -168,7 +168,7 @@ be able to switch between dev and prod credential sets at runtime.
 
 ## 5. TLS / HTTPS
 
-Bootstrap's nginx config terminates plain HTTP. For anything internet-facing,
+Startup's nginx config terminates plain HTTP. For anything internet-facing,
 front the stack with a TLS-terminating reverse proxy:
 
 - **Caddy** (easiest, automatic Let's Encrypt) → reverse-proxy
@@ -191,7 +191,7 @@ docker compose exec db mysqldump -uroot -p<root-pw> \
   --single-transaction --routines --triggers \
   --databases dmac seek_production | gzip > nextseek-mysql-$(date +%F).sql.gz
 
-# Neo4j — using APOC export (same script bootstrap uses internally)
+# Neo4j — using APOC export (same script startup uses internally)
 docker compose exec neo4j cypher-shell -u neo4j -p <neo4j-pw> \
   "CALL apoc.export.cypher.all('/var/lib/neo4j/import/snapshot.cypher', {format:'plain', cypherFormat:'create'})"
 docker cp $(docker compose ps -q neo4j):/var/lib/neo4j/import/snapshot.cypher \
@@ -202,24 +202,24 @@ docker run --rm -v <prefix>seek-filestore:/data -v "$(pwd):/backup" alpine \
   tar czf /backup/seek-filestore-$(date +%F).tar.gz -C /data .
 ```
 
-Where `<prefix>` is the value from `bootstrap/.instance.json`'s `prefix`
+Where `<prefix>` is the value from `startup/.instance.json`'s `prefix`
 field (empty for default install, `dev-` / `test-` / etc. for named
 instances).
 
-To restore: same commands in reverse, or use `./bootstrap.sh reset` with the
-new dumps dropped into `bootstrap/seed/` (you'd be replacing the shipped
-seed snapshots — see [`bootstrap/README.md`](bootstrap/README.md) for the
+To restore: same commands in reverse, or use `./startup.sh reset` with the
+new dumps dropped into `startup/seed/` (you'd be replacing the shipped
+seed snapshots — see [`startup/README.md`](startup/README.md) for the
 maintainer regen workflow).
 
 ---
 
 ## 7. Updates
 
-To pull new bootstrap / NExtSEEK changes:
+To pull new startup / NExtSEEK changes:
 
 ```bash
 git pull origin main
-./bootstrap.sh rebuild              # rebuilds nextseek image, restarts container
+./startup.sh rebuild              # rebuilds nextseek image, restarts container
                                     # entrypoint runs `manage.py migrate` on startup
 ```
 
@@ -231,7 +231,7 @@ docker compose exec nextseek uv run manage.py collectstatic --noinput
 ```
 
 To pull a new `chat_nextseek` snapshot from its canonical repo, see
-[`bootstrap/scripts/sync_chat_nextseek.sh`](bootstrap/scripts/sync_chat_nextseek.sh).
+[`startup/scripts/sync_chat_nextseek.sh`](startup/scripts/sync_chat_nextseek.sh).
 
 ---
 
@@ -239,13 +239,13 @@ To pull a new `chat_nextseek` snapshot from its canonical repo, see
 
 - **Neo4j password is duplicated** between `docker-compose.yml` and
   `docker/nextseek.env` (§2b). A future patch should parameterize
-  `NEO4J_AUTH` and pipe it through from bootstrap.
-- **No per-service `--*-port` flags in the bootstrap CLI yet** —
+  `NEO4J_AUTH` and pipe it through from startup.
+- **No per-service `--*-port` flags in the startup CLI yet** —
   `--port-offset N` is the only way to shift all ports together.
 - **`docker compose up -d` output is captured, not streamed** — long
   rebuilds appear silent until they finish. Worth adding a `--verbose`
-  bootstrap flag.
-- **No automated TLS bootstrap** — TLS is a manual outside-the-bootstrap
+  startup flag.
+- **No automated TLS startup** — TLS is a manual outside-the-startup
   step. Caddy or Cloudflare Tunnel are the lowest-friction paths.
 
 ---
@@ -255,8 +255,8 @@ To pull a new `chat_nextseek` snapshot from its canonical repo, see
 | Setting | File | Apply with |
 |---|---|---|
 | Demo user passwords | SEEK admin UI (web) | (immediate) |
-| MySQL passwords | `docker/db.env` | `./bootstrap.sh reset --keep-config` or in-place ALTER USER |
-| Neo4j password | `docker-compose.yml` + `docker/nextseek.env` | `./bootstrap.sh reset` (drops volume) |
+| MySQL passwords | `docker/db.env` | `./startup.sh reset --keep-config` or in-place ALTER USER |
+| Neo4j password | `docker-compose.yml` + `docker/nextseek.env` | `./startup.sh reset` (drops volume) |
 | Django secret | `docker/nextseek.env` | `docker compose up -d --force-recreate nextseek` |
 | ALLOWED_HOSTS / CSRF | `docker/nextseek.env` | `docker compose up -d --force-recreate nextseek` |
 | LLM API keys | `docker/nextseek.env` | `docker compose up -d --force-recreate nextseek` |

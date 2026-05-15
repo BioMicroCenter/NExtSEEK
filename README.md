@@ -9,7 +9,7 @@ assistant (chat_nextseek) for natural-language queries.
 ```bash
 git clone <repo-url>
 cd NExtSEEK
-./bootstrap.sh install
+./startup.sh install
 ```
 
 Open http://localhost:8000 and log in with `demo / demopassword` (admin) or
@@ -24,16 +24,16 @@ Open http://localhost:8000 and log in with `demo / demopassword` (admin) or
 
 - Docker 24+ and Docker Compose v2
 - [`uv`](https://docs.astral.sh/uv/) (Python package manager)
-- Python 3.14 (uv will install it on first bootstrap run)
+- Python 3.14 (uv will install it on first startup run)
 - ~5 GB free disk, 4 GB free RAM
 
-## What bootstrap does
+## What startup does
 
-`./bootstrap.sh install` orchestrates the full local Docker stack: prereqs
+`./startup.sh install` orchestrates the full local Docker stack: prereqs
 check, config generation, volume creation, MySQL and Neo4j seed import,
 container build, test-user verification, and health checks. For detail and
 all available subcommands (`reset`, `rebuild`, `doctor`, `dump-db`), see
-[`bootstrap/README.md`](bootstrap/README.md).
+[`startup/README.md`](startup/README.md).
 
 ## Architecture
 
@@ -56,9 +56,9 @@ Common changes you'll make and how to apply them to a running stack:
 | Python views / models / settings (no static asset change) | `docker compose up -d --build nextseek` |
 | Files under `static/` (CSS/JS/images, hand-edited) | `docker compose up -d --build nextseek && docker compose exec nextseek uv run manage.py collectstatic --noinput` |
 | `chat_frontend/` React source | Rebuild per `chat_frontend/README.md`, then `collectstatic` as above |
-| `chat_nextseek/` source pulled in from canonical repo | `bootstrap/scripts/sync_chat_nextseek.sh <source>`, commit, then `./bootstrap.sh rebuild` |
+| `chat_nextseek/` source pulled in from canonical repo | `startup/scripts/sync_chat_nextseek.sh <source>`, commit, then `./startup.sh rebuild` |
 | New Django model field / migration | `docker compose up -d --build nextseek` (entrypoint runs `migrate` on startup) |
-| Full reset (wipe data, re-seed) | `./bootstrap.sh reset` |
+| Full reset (wipe data, re-seed) | `./startup.sh reset` |
 
 The Python-only-rebuild path is the common one. The key gotcha: rebuilding
 does **not** automatically run `collectstatic` — if you changed CSS/JS in
@@ -67,7 +67,7 @@ won't be served.
 
 ## Configuration
 
-After `./bootstrap.sh install`, three config files are written and are then
+After `./startup.sh install`, three config files are written and are then
 yours to edit:
 
 - `docker/db.env` — MySQL credentials (gitignored)
@@ -77,15 +77,15 @@ yours to edit:
   PROD ChatConfig block for the admin-only "PROD" toggle in the chat UI
   (gitignored)
 
-All three are gitignored. Bootstrap can re-render them via `./bootstrap.sh reset`
+All three are gitignored. Startup can re-render them via `./startup.sh reset`
 if you ever want a clean slate.
 
 ## Troubleshooting
 
-Start with `./bootstrap.sh doctor` — it runs every prereq + health check and
+Start with `./startup.sh doctor` — it runs every prereq + health check and
 reports failures with remediation hints.
 
-For deeper issues, see [`bootstrap/README.md`](bootstrap/README.md) → "Known
+For deeper issues, see [`startup/README.md`](startup/README.md) → "Known
 failure modes".
 
 ## Contributing
@@ -99,7 +99,7 @@ Day-to-day chat_nextseek development happens in the canonical repo. To
 ship a new chat_nextseek snapshot into NExtSEEK, run:
 
 ```bash
-bootstrap/scripts/sync_chat_nextseek.sh /path/to/canonical/chat_nextseek
+startup/scripts/sync_chat_nextseek.sh /path/to/canonical/chat_nextseek
 ```
 
 Then commit the changes in NExtSEEK and push.
