@@ -9,6 +9,7 @@ def _state_ready_to_build():
     return {
         "active": True,
         "phase": "directive_parse",
+        "original_query": "run rnaseq on NHP-1, group by exposure",
         "directive": {
             "pipeline_key": "rnaseq",
             "samples_ref": {"kind": "explicit_uids", "uids": ["NHP-1"]},
@@ -51,7 +52,8 @@ def test_build_step_calls_generate_report_outputs_with_cohorts():
                side_effect=fake_generate):
         out = pipeline_agent._run_build_step(session, MagicMock(), log_dir=None)
     assert out["action"] == "ask"
-    assert captured["report_type"] == "NFCORE_RNASEQ"
+    assert captured["parser_plan"].report_type == "NFCORE_RNASEQ"
+    assert captured["reporter_plan"].report_type == "NFCORE_RNASEQ"
     assert captured["uids"] == ["D.SEQ-1", "D.SEQ-2"]
     cohorts = captured["pre_supplied_cohorts"]
     assert len(cohorts) == 2
@@ -97,5 +99,6 @@ def test_build_step_handles_accession_pipeline():
     with patch("chat_nextseek.pipeline_agent.generate_report_outputs",
                side_effect=fake_generate):
         pipeline_agent._run_build_step(session, MagicMock(), log_dir=None)
-    assert captured["report_type"] == "NFCORE_FETCHNGS"
+    assert captured["parser_plan"].report_type == "NFCORE_FETCHNGS"
+    assert captured["reporter_plan"].report_type == "NFCORE_FETCHNGS"
     assert captured["uids"] == ["SRR1", "SRR2"]

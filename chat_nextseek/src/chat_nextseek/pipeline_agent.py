@@ -580,7 +580,6 @@ def _run_build_step(session, config, *, log_dir):
         parser_plan=synthetic_parser_plan,
         reporter_plan=synthetic_reporter_plan,
         uids=leaves,
-        report_type=report_type,
         pre_supplied_cohorts=cohorts,
         report_writer_fn=report_writer_agent,
         log_dir=log_dir,
