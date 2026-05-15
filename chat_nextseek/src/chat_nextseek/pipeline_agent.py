@@ -386,15 +386,26 @@ def _run_build_flow(session, config, parsed, *, log_dir):
     _save_state(session, state)
 
     if sanity.verdict == "mismatch":
-        state["phase"] = PHASE_AWAITING_PIPELINE_SWITCH
-        _save_state(session, state)
-        alt = sanity.suggested_alternative_pipeline or "(no alternative)"
+        alt = sanity.suggested_alternative_pipeline
+        if alt and alt in NFCORE_PIPELINE_CATALOG:
+            state["phase"] = PHASE_AWAITING_PIPELINE_SWITCH
+            _save_state(session, state)
+            return {
+                "action": "ask",
+                "reply": (
+                    f"I can't run {parsed.pipeline_key} on this set — {sanity.confidence_note}. "
+                    f"Did you mean nf-core/{alt}? Reply 'yes {alt}' to switch, "
+                    f"or 'cancel'."
+                ),
+                "params": None,
+            }
+        # No actionable alternative — surface the mismatch and clear.
+        clear(session)
         return {
-            "action": "ask",
+            "action": "cancel",
             "reply": (
                 f"I can't run {parsed.pipeline_key} on this set — {sanity.confidence_note}. "
-                f"Did you mean nf-core/{alt}? Reply 'yes {alt}' to switch, "
-                f"or 'cancel'."
+                f"Try a different pipeline or different samples."
             ),
             "params": None,
         }
@@ -457,7 +468,7 @@ def _handle_pipeline_switch(session, config, user_text, *, log_dir):
     alt = sanity.get("suggested_alternative_pipeline")
     text = (user_text or "").strip().lower()
 
-    if text.startswith("yes") and alt and alt in NFCORE_PIPELINE_CATALOG:
+    if (text == "yes" or text.startswith("yes ")) and alt and alt in NFCORE_PIPELINE_CATALOG:
         from .schemas.pipeline import DirectiveParseOutput
         directive = state.get("directive") or {}
         directive["pipeline_key"] = alt

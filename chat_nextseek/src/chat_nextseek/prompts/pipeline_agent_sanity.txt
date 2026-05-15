@@ -40,6 +40,8 @@ METADATA_FIELD_SUMMARY (for the filtered leaves):
 
 **ambiguous** — the data could plausibly be more than one pipeline (e.g., the metadata says "single-cell" but you're not sure whether scrnaseq or a custom pipeline). Set clarifying_question.
 
+**Verdict precedence.** When the counts qualify for proceed/proceed_with_subset but the metadata reveals genuine pipeline uncertainty (e.g., assay field says "10x Chromium" but pipeline is scrnaseq vs. a custom single-cell pipeline), prefer ambiguous and set clarifying_question. Do NOT use ambiguous as a hedge when counts are clean and the metadata is consistent with the chosen pipeline.
+
 # Hard rules
 
 - leaves_to_use is the FULL list of leaf UIDs to include in the samplesheet — never a placeholder, never a sample of the list.

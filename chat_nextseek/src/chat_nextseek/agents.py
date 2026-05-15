@@ -4454,18 +4454,25 @@ def _pipeline_directive_parse(
     print(f"[DEBUG][PIPELINE_DIRECTIVE] parsing user_query={user_query!r}")
 
     client, model_name, budget = config.get_agent_model("pipeline_directive")
-    return call_llm_structured(
-        config,
-        user_block,
-        DirectiveParseOutput,
-        system=system_prompt,
-        model_name=model_name,
-        temperature=0,
-        log_label="pipeline_directive",
-        usage_label="PIPELINE_DIRECTIVE",
-        thinking_budget=budget,
-        client=client,
-    )
+    try:
+        return call_llm_structured(
+            config,
+            user_block,
+            DirectiveParseOutput,
+            system=system_prompt,
+            model_name=model_name,
+            temperature=0,
+            log_label="pipeline_directive",
+            usage_label="PIPELINE_DIRECTIVE",
+            thinking_budget=budget,
+            client=client,
+        )
+    except Exception as exc:
+        print(f"[DEBUG][PIPELINE_DIRECTIVE] LLM call failed: {exc!r}")
+        return DirectiveParseOutput(
+            sub_mode="reject",
+            rejection_reason=f"Couldn't parse the directive (LLM error: {exc!r}). Try rephrasing.",
+        )
 
 
 def _pipeline_sanity_check(
@@ -4518,15 +4525,24 @@ def _pipeline_sanity_check(
           f"filtered={len(leaves_filtered)} dropped={len(dropped)}")
 
     client, model_name, budget = config.get_agent_model("pipeline_sanity")
-    return call_llm_structured(
-        config,
-        filled,
-        SanityCheckOutput,
-        system="You are a pipeline-vs-data sanity checker. Return only the JSON object.",
-        model_name=model_name,
-        temperature=0,
-        log_label="pipeline_sanity",
-        usage_label="PIPELINE_SANITY",
-        thinking_budget=budget,
-        client=client,
-    )
+    try:
+        return call_llm_structured(
+            config,
+            filled,
+            SanityCheckOutput,
+            system="You are a pipeline-vs-data sanity checker. Return only the JSON object.",
+            model_name=model_name,
+            temperature=0,
+            log_label="pipeline_sanity",
+            usage_label="PIPELINE_SANITY",
+            thinking_budget=budget,
+            client=client,
+        )
+    except Exception as exc:
+        print(f"[DEBUG][PIPELINE_SANITY] LLM call failed: {exc!r}; fail-open")
+        leaf_uids = [leaf["uid"] for leaf in leaves_filtered if leaf.get("uid")]
+        return SanityCheckOutput(
+            verdict="proceed",
+            leaves_to_use=leaf_uids,
+            confidence_note=f"Sanity LLM failed ({exc!r}); proceeding with the {len(leaf_uids)} filtered leaves.",
+        )
