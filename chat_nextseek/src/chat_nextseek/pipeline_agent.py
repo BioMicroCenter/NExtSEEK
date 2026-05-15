@@ -25,9 +25,9 @@ if TYPE_CHECKING:
     from .config import ChatConfig
     from .session import SessionState
 
-# Expose the LLM helper at module level so tests can patch it via
-# "chat_nextseek.pipeline_agent._pipeline_directive_parse".
-from .agents import _pipeline_directive_parse  # noqa: E402
+# Expose LLM helpers at module level so tests can patch them via
+# "chat_nextseek.pipeline_agent._pipeline_directive_parse" etc.
+from .agents import _pipeline_directive_parse, _pipeline_sanity_check  # noqa: E402
 from .helpers import (
     annotate_metadata_with_sampletypes,
     enumerate_lineage_leaves,
@@ -346,11 +346,84 @@ def _resolve_samples(
 
 
 def _run_build_flow(session, config, parsed, *, log_dir):
-    """Implemented across Tasks 6 (resolve) → 7 (sanity) → 8 (groupby) → 9 (build).
-    Stubbed for Task 5 — returns a placeholder reply."""
+    """Full build-flow: resolve → sanity → groupby/build (Tasks 6–9).
+
+    Task 6 added resolution; Task 7 adds the sanity LLM step.
+    _run_groupby_or_build is a stub that lands in Tasks 8–9.
+    """
+    from .schemas.pipeline import SamplesRef
+
+    state = _state(session)
+    state["phase"] = PHASE_DIRECTIVE_PARSE
+
+    # 1. Resolve samples
+    samples_ref = SamplesRef(
+        **(parsed.samples_ref.model_dump() if parsed.samples_ref else {"kind": "last_search"})
+    )
+    resolution = _resolve_samples(config, session, samples_ref, parsed.pipeline_key)
+    if "error" in resolution:
+        clear(session)
+        return {"action": "cancel", "reply": resolution["error"], "params": None}
+    state["resolution"] = {k: v for k, v in resolution.items() if k != "metadata_bundle"}
+    state["metadata_bundle"] = resolution.get("metadata_bundle") or {}
+
+    # 2. Sanity check (skip for accession-based inputs — fetchngs has no lineage)
+    catalog_entry = NFCORE_PIPELINE_CATALOG.get(parsed.pipeline_key, {})
+    if catalog_entry.get("samplesheet_input_kind") == "accession":
+        state["sanity"] = {
+            "verdict": "proceed",
+            "leaves_to_use": resolution.get("accessions") or [],
+        }
+        _save_state(session, state)
+        return _run_groupby_or_build(session, config, log_dir=log_dir)
+
+    sanity = _pipeline_sanity_check(
+        config=config,
+        pipeline_key=parsed.pipeline_key,
+        resolution=resolution,
+    )
+    state["sanity"] = sanity.model_dump()
+    _save_state(session, state)
+
+    if sanity.verdict == "mismatch":
+        state["phase"] = PHASE_AWAITING_PIPELINE_SWITCH
+        _save_state(session, state)
+        alt = sanity.suggested_alternative_pipeline or "(no alternative)"
+        return {
+            "action": "ask",
+            "reply": (
+                f"I can't run {parsed.pipeline_key} on this set — {sanity.confidence_note}. "
+                f"Did you mean nf-core/{alt}? Reply 'yes {alt}' to switch, "
+                f"or 'cancel'."
+            ),
+            "params": None,
+        }
+
+    if sanity.verdict == "ambiguous":
+        state["phase"] = PHASE_AWAITING_SANITY
+        _save_state(session, state)
+        return {
+            "action": "ask",
+            "reply": sanity.clarifying_question or "Need clarification on pipeline match.",
+            "params": None,
+        }
+
+    return _run_groupby_or_build(session, config, log_dir=log_dir)
+
+
+def _run_groupby_or_build(session, config, *, log_dir):
+    """Stub — lands in Tasks 8–9."""
+    state = _state(session)
+    state["phase"] = PHASE_AWAITING_VALIDATION
+    _save_state(session, state)
+    sanity = state.get("sanity") or {}
+    leaves = sanity.get("leaves_to_use") or []
     return {
         "action": "ask",
-        "reply": "(build flow lands in Tasks 6–9; directive parsed successfully)",
+        "reply": (
+            f"(Sanity passed: {len(leaves)} leaves. "
+            "Group-by + build land in Tasks 8–9.)"
+        ),
         "params": None,
     }
 
@@ -378,8 +451,32 @@ def _handle_groupby_clarification(session, config, user_text, *, log_dir):
 
 
 def _handle_pipeline_switch(session, config, user_text, *, log_dir):
-    raise NotImplementedError("_handle_pipeline_switch lands in Task 7")
+    """Handler invoked when phase=awaiting_pipeline_switch."""
+    state = _state(session)
+    sanity = state.get("sanity") or {}
+    alt = sanity.get("suggested_alternative_pipeline")
+    text = (user_text or "").strip().lower()
+
+    if text.startswith("yes") and alt and alt in NFCORE_PIPELINE_CATALOG:
+        from .schemas.pipeline import DirectiveParseOutput
+        directive = state.get("directive") or {}
+        directive["pipeline_key"] = alt
+        state["directive"] = directive
+        _save_state(session, state)
+        return _run_build_flow(session, config,
+                               DirectiveParseOutput(**directive),
+                               log_dir=log_dir)
+
+    clear(session)
+    return {"action": "cancel", "reply": "OK, cancelled.", "params": None}
 
 
 def _handle_sanity_clarification(session, config, user_text, *, log_dir):
-    raise NotImplementedError("_handle_sanity_clarification lands in Task 7")
+    """Handler invoked when phase=awaiting_sanity_clarification."""
+    state = _state(session)
+    if "cancel" in (user_text or "").lower():
+        clear(session)
+        return {"action": "cancel", "reply": "Cancelled.", "params": None}
+    state["sanity"] = {**(state.get("sanity") or {}), "verdict": "proceed"}
+    _save_state(session, state)
+    return _run_groupby_or_build(session, config, log_dir=log_dir)
