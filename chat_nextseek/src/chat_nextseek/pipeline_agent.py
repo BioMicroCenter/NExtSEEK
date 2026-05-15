@@ -501,6 +501,24 @@ def _handle_submit(session, config, *, log_dir):
     raise NotImplementedError("_handle_submit lands in Task 11")
 
 
+def _read_samplesheet_rows(samplesheet_path: str | None) -> list[dict]:
+    """Parse the emitted samplesheet.csv into a list of row dicts so the edit
+    step can mutate it. Returns [] if the file is missing or empty."""
+    if not samplesheet_path:
+        return []
+    from pathlib import Path
+    import csv as _csv
+    path = Path(samplesheet_path)
+    if not path.exists():
+        return []
+    try:
+        with path.open("r", encoding="utf-8", newline="") as f:
+            return list(_csv.DictReader(f))
+    except Exception as exc:
+        print(f"[DEBUG][PIPELINE_BUILD] failed to read samplesheet {path}: {exc!r}")
+        return []
+
+
 def _re_emit_samplesheet(session, config, rows, *, log_dir):
     """Re-emit samplesheet artifacts with new rows, reusing the existing run dir.
 
@@ -657,6 +675,7 @@ def _run_build_step(session, config, *, log_dir):
     )
 
     state["build_artifacts"] = saved_files or {}
+    state["samplesheet_rows"] = _read_samplesheet_rows((saved_files or {}).get("samplesheet"))
     state["phase"] = PHASE_AWAITING_VALIDATION
     _save_state(session, state)
 

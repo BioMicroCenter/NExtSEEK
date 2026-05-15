@@ -102,3 +102,39 @@ def test_build_step_handles_accession_pipeline():
     assert captured["parser_plan"].report_type == "NFCORE_FETCHNGS"
     assert captured["reporter_plan"].report_type == "NFCORE_FETCHNGS"
     assert captured["uids"] == ["SRR1", "SRR2"]
+
+
+def test_build_step_populates_samplesheet_rows_from_emitted_csv(tmp_path):
+    """Regression: Task 10's edit step reads state['samplesheet_rows'] — must
+    be populated by Task 9 from the emitted CSV, otherwise edits silently no-op."""
+    csv_path = tmp_path / "samplesheet.csv"
+    csv_path.write_text(
+        "sample,fastq_1,fastq_2,strandedness\n"
+        "S1,f1.fq,f2.fq,auto\n"
+        "S2,f1.fq,f2.fq,auto\n",
+        encoding="utf-8",
+    )
+    session = {"pipeline_agent": _state_ready_to_build()}
+
+    def fake_generate(**kwargs):
+        return ({}, MagicMock(model_dump=lambda: {}), {"samplesheet": str(csv_path)}, "")
+
+    with patch("chat_nextseek.pipeline_agent.generate_report_outputs",
+               side_effect=fake_generate):
+        pipeline_agent._run_build_step(session, MagicMock(), log_dir=None)
+    rows = session["pipeline_agent"]["samplesheet_rows"]
+    assert len(rows) == 2
+    assert {r["sample"] for r in rows} == {"S1", "S2"}
+
+
+def test_build_step_samplesheet_rows_empty_when_no_csv_path():
+    """When the emitter returns no samplesheet path, samplesheet_rows is []."""
+    session = {"pipeline_agent": _state_ready_to_build()}
+
+    def fake_generate(**kwargs):
+        return ({}, MagicMock(model_dump=lambda: {}), {}, "")
+
+    with patch("chat_nextseek.pipeline_agent.generate_report_outputs",
+               side_effect=fake_generate):
+        pipeline_agent._run_build_step(session, MagicMock(), log_dir=None)
+    assert session["pipeline_agent"]["samplesheet_rows"] == []
