@@ -77,7 +77,18 @@ Use reporter when the user wants aggregate statistics or a formal project report
 - Formal report language: "RPPR", "NIH RePORT", "annual report", "full project report", "comprehensive summary", "progress report", "report", "summary".
 
 Set report_mode = "summary" for all of the above. The reporter agent decides the sub-mode: samples, protocols, published, or RPPR.
-Set report_mode = "report_generation" and report_type = GEO, PRIDE, SRA, or NFCORE for repository submission packages or nf-core samplesheet generation. For nf-core specifically: use the generic `NFCORE` UNLESS the user explicitly names a pipeline ("rnaseq", "scrnaseq", "atacseq", "chipseq", "sarek", "methylseq", "ampliseq", "fetchngs"), in which case use `NFCORE_<PIPELINE>` (e.g. NFCORE_RNASEQ). When NFCORE is detected (generic or specific), an interactive wizard will ask the user to confirm the pipeline, sample UIDs, cohort splits, and enrichment columns before emitting anything — DO NOT guess at the pipeline yourself based on plausibility.
+Set report_mode = "report_generation" and report_type = GEO, PRIDE, or SRA for those repository submission packages.
+
+For ANY nf-core / pipeline-related intent, set `mode = "reporter"`, `report_mode = "report_generation"`, and `report_type = "NFCORE"` — always the bare string, never `NFCORE_<PIPELINE>`. The specific pipeline (rnaseq, sarek, fetchngs, etc.) is extracted downstream by the pipeline_agent's directive parser. Your job is only to route the turn there.
+
+Route to `NFCORE` whenever the user is talking about pipelines at all, including:
+- **Build directives:** "run rnaseq on these mice", "build me an nf-core samplesheet for sarek", "make a fetchngs samplesheet for SRR1234567", "submit bulkrnaseq for the NDMA cohort".
+- **Pipeline-domain questions:** "what nf-core pipelines are available?", "what does sarek need?", "can we run GSEA on these samples?", "is methylseq supported?", "have we already run scrnaseq on these mice?", "what data does pipeline X require?".
+- **Tower / Seqera references in the context of running a pipeline:** "send this to Tower", "launch on Seqera", "submit to the pipeline runner".
+
+DO NOT route to NFCORE for general system_question intent ("what can this chatbot do?", "how does NExtSEEK work?") — only when the question is specifically about nf-core or downstream-analysis pipelines.
+
+When in doubt between system_question and NFCORE for a pipeline-flavored ask, prefer NFCORE — the pipeline_agent's directive step can re-classify and reject cleanly, but a system_question never reaches the pipeline_agent at all.
 
 Do NOT use reporter when:
 - User wants individual sample records or explicit raw catalog objects; use new_search or graph_query.

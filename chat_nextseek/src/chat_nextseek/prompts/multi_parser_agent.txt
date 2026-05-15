@@ -160,7 +160,7 @@ Output valid JSON only. Do not include backticks or prose outside the JSON. Incl
         "uids": [string]
       },
       "report_mode": "summary" | "report_generation" | null,
-      "report_type": "GEO" | "PRIDE" | "SRA" | "NFCORE" | "NFCORE_RNASEQ" | "NFCORE_SCRNASEQ" | "NFCORE_ATACSEQ" | "NFCORE_CHIPSEQ" | "NFCORE_SAREK" | "NFCORE_METHYLSEQ" | "NFCORE_AMPLISEQ" | "NFCORE_FETCHNGS" | string | null,
+      "report_type": "GEO" | "PRIDE" | "SRA" | "NFCORE" | string | null,
       "tool_query": string,
       "criterion_scope": "structural" | "attribute" | "aggregate" | "memory" | "system" | "unsupported",
       "can_intersect": bool,
