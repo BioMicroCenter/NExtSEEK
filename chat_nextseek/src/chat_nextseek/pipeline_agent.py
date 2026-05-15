@@ -266,7 +266,10 @@ def _resolve_samples(
       - source_uids: list[str]
       - leaves_all: list[dict] (every leaf walked, before catalog assay filter)
       - leaves_filtered: list[dict] (leaves that match accepted_assay_patterns)
-      - dropped_by_type_mismatch: list[dict] (leaves whose sample_type isn't in accepted)
+      - dropped_by_type_mismatch: list[dict] — RESERVED, always []. Type filtering
+        happens inside enumerate_lineage_leaves before we see the data, so this
+        bucket can't be populated here. Reserved for a future split if type
+        filtering is moved out of the lineage helper.
       - dropped_by_assay_mismatch: list[dict] (leaves whose assay didn't match)
       - source_uids_with_no_leaves: list[str]
       - accessions: list[str] (only set for kind="accessions")
