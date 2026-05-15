@@ -4619,28 +4619,14 @@ def enumerate_lineage_leaves(
 
     out: list[dict[str, str]] = []
 
-    def _infer_sample_type_from_uid(uid: str) -> str:
-        """Extract sample type prefix from UID (e.g. 'D.SEQ-1' → 'D.SEQ')."""
-        if not uid:
-            return ""
-        # UID format is typically "TYPE-number" or "TYPE.SUBTYPE-number"
-        match = re.match(r"^([A-Z.]+)-", str(uid))
-        return match.group(1) if match else ""
-
     def _walk(sample: dict, source_uid: str, leaf_sample_type: str | None) -> None:
         if not isinstance(sample, dict):
             return
         uid = (sample.get("metadata") or {}).get("UID") or sample.get("uuid") or ""
-        md = sample.get("metadata") or {}
-        # Try explicit sample_type first, then infer from UID, then fall back to parent's type
-        st = (
-            md.get("sample_type")
-            or _infer_sample_type_from_uid(str(uid))
-            or leaf_sample_type
-            or ""
-        )
+        st = leaf_sample_type or ""
         # Only emit when sample_type is in accepted set.
         if st in accepted and uid:
+            md = sample.get("metadata") or {}
             assay = (
                 md.get("assay_name")
                 or md.get("assay")
@@ -4654,7 +4640,12 @@ def enumerate_lineage_leaves(
                 "source_uid": source_uid,
             })
         for child in sample.get("children") or []:
-            _walk(child, source_uid, st)
+            # Children's sample_type comes from the inner-block annotation OR
+            # from each child's own metadata. Reporter response stamps it on
+            # the surrounding block; for nested children we re-read from
+            # metadata.sample_type when available.
+            child_st = (child.get("metadata") or {}).get("sample_type") or st
+            _walk(child, source_uid, child_st)
 
     for block in (metadata_bundle or {}).get("data") or []:
         if not isinstance(block, dict):

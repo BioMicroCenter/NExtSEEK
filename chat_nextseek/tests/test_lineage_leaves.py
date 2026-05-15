@@ -44,10 +44,10 @@ def test_returns_leaves_at_top_level():
 
 def test_returns_leaves_nested_in_children():
     bundle = _bundle(_block("NHP",
-        _sample("NHP-1", children=[
-            _sample("TIS-1", children=[
-                _sample("D.SEQ-1", metadata={"UID": "D.SEQ-1", "assay_name": "RNA-seq"}),
-                _sample("D.SEQ-2", metadata={"UID": "D.SEQ-2", "assay_name": "WGS"}),
+        _sample("NHP-1", metadata={"UID": "NHP-1"}, children=[
+            _sample("TIS-1", metadata={"UID": "TIS-1", "sample_type": "TIS"}, children=[
+                _sample("D.SEQ-1", metadata={"UID": "D.SEQ-1", "sample_type": "D.SEQ", "assay_name": "RNA-seq"}),
+                _sample("D.SEQ-2", metadata={"UID": "D.SEQ-2", "sample_type": "D.SEQ", "assay_name": "WGS"}),
             ]),
         ]),
     ))
@@ -58,9 +58,9 @@ def test_returns_leaves_nested_in_children():
 
 def test_accepted_types_filter_excludes_other_leaves():
     bundle = _bundle(_block("NHP",
-        _sample("NHP-1", children=[
-            _sample("D.SEQ-1", metadata={"UID": "D.SEQ-1", "assay_name": "RNA-seq"}),
-            _sample("A.GSEA-1", metadata={"UID": "A.GSEA-1"}),
+        _sample("NHP-1", metadata={"UID": "NHP-1"}, children=[
+            _sample("D.SEQ-1", metadata={"UID": "D.SEQ-1", "sample_type": "D.SEQ", "assay_name": "RNA-seq"}),
+            _sample("A.GSEA-1", metadata={"UID": "A.GSEA-1", "sample_type": "A.GSEA"}),
         ]),
     ))
     out = enumerate_lineage_leaves(bundle, accepted_types=["D.SEQ"])
@@ -69,8 +69,8 @@ def test_accepted_types_filter_excludes_other_leaves():
 
 def test_carries_source_uid_provenance():
     bundle = _bundle(_block("NHP",
-        _sample("NHP-1", children=[_sample("D.SEQ-1", metadata={"UID": "D.SEQ-1"})]),
-        _sample("NHP-2", children=[_sample("D.SEQ-2", metadata={"UID": "D.SEQ-2"})]),
+        _sample("NHP-1", metadata={"UID": "NHP-1"}, children=[_sample("D.SEQ-1", metadata={"UID": "D.SEQ-1", "sample_type": "D.SEQ"})]),
+        _sample("NHP-2", metadata={"UID": "NHP-2"}, children=[_sample("D.SEQ-2", metadata={"UID": "D.SEQ-2", "sample_type": "D.SEQ"})]),
     ))
     out = enumerate_lineage_leaves(bundle, accepted_types=["D.SEQ"])
     by_uid = {l["uid"]: l for l in out}
@@ -96,4 +96,18 @@ def test_returns_empty_when_accepted_types_empty():
     """Empty accepted_types disables enumeration entirely (e.g. fetchngs)."""
     bundle = _bundle(_block("D.SEQ", _sample("D.SEQ-1")))
     out = enumerate_lineage_leaves(bundle, accepted_types=[])
+    assert out == []
+
+
+def test_does_not_infer_sample_type_from_uid_prefix():
+    """Spec contract: sample_type is taken from block-level annotation or
+    metadata.sample_type, never inferred from the UID prefix. A D.SEQ-like UID
+    with no annotation must NOT be emitted."""
+    # Block-level sample_type is "TIS" but the inner sample has a D.SEQ-shaped UID.
+    # If UID-prefix inference were on, this would emit a D.SEQ leaf erroneously.
+    bundle = {"data": [{"sample_type": "TIS", "samples": [
+        {"uuid": "D.SEQ-imposter",
+         "metadata": {"UID": "D.SEQ-imposter", "assay_name": "RNA-seq"}},
+    ]}]}
+    out = enumerate_lineage_leaves(bundle, accepted_types=["D.SEQ"])
     assert out == []
