@@ -182,13 +182,6 @@ def install(
     for fqn, status in schema_fixups.apply_all(REPO_ROOT, compose_env):
         (ui.ok if status != "applied" else ui.warn)(f"schema fixup {fqn}: {status}")
 
-    # Data cleanup: the dev seed brings along the dev user's chat history
-    # which mostly shows up as untitled "New chat" placeholders. Clear those
-    # so a fresh install presents an empty assistant sidebar.
-    stale_chats = seed_cleanup.clear_stale_chat_sessions(REPO_ROOT, compose_env)
-    if stale_chats > 0:
-        ui.ok(f"cleared {stale_chats} stale chat session(s) with no title")
-
     # [7/9] Build + start
     ui.step(7, total, "Building NExtSEEK image and starting the stack")
     with ui.spinner("building"):
@@ -197,6 +190,19 @@ def install(
     with ui.spinner(f"waiting for NExtSEEK to respond on :{ports['nextseek']} (gunicorn ~1-2 min to boot)"):
         build.wait_for_nextseek_http(ports["nextseek"])
     ui.ok("stack up")
+
+    # Data cleanup: the dev seed brings along the dev user's chat history
+    # which mostly shows up as untitled "New chat" placeholders. Clear those
+    # so a fresh install presents an empty assistant sidebar.
+    #
+    # MUST run after phase 7. The 'title' column is added by Django migration
+    # 0003_chatsession_title (real DDL AddField, not state-only) which runs
+    # when the nextseek container starts — i.e., during phase 7. Running this
+    # earlier hits MySQL error 1054 (Unknown column 'title') because the seed
+    # dump's CREATE TABLE predates that migration.
+    stale_chats = seed_cleanup.clear_stale_chat_sessions(REPO_ROOT, compose_env)
+    if stale_chats > 0:
+        ui.ok(f"cleared {stale_chats} stale chat session(s) with no title")
 
     # [8/9] Users
     ui.step(8, total, "Verifying test users")
