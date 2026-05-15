@@ -6,7 +6,7 @@
       "gemini-3.1-flash-lite-preview": {
         "provider": "gcp",
         "thinking_level": null,
-        "agents": ["api", "reporter", "chatter", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent"]
+        "agents": ["api", "reporter", "chatter", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent", "pipeline_directive", "pipeline_sanity", "pipeline_groupby", "pipeline_edit", "pipeline_question"]
       },
       "us.anthropic.claude-sonnet-4-6": [
         {
@@ -40,7 +40,7 @@
       "gemini-3.1-flash-lite-preview": {
         "provider": "gcp",
         "thinking_level": null,
-        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent"]
+        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent", "pipeline_directive", "pipeline_sanity", "pipeline_groupby", "pipeline_edit", "pipeline_question"]
       },
       "gemini-3.1-pro-preview": {
         "provider": "gcp",
@@ -55,7 +55,7 @@
       "gemini-2.5-flash": {
         "provider": "gcp",
         "thinking_level": null,
-        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent"]
+        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent", "pipeline_directive", "pipeline_sanity", "pipeline_groupby", "pipeline_edit", "pipeline_question"]
       },
       "gemini-2.5-pro": {
         "provider": "gcp",
@@ -70,7 +70,7 @@
       "us.anthropic.claude-sonnet-4-6": {
         "provider": "anth",
         "thinking_level": null,
-        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent"]
+        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent", "pipeline_directive", "pipeline_sanity", "pipeline_groupby", "pipeline_edit", "pipeline_question"]
       },
       "us.anthropic.claude-opus-4-6-v1": [
         {
@@ -92,7 +92,7 @@
       "anthropic.claude-sonnet-4-5-20250929-v1:0": {
         "provider": "anth",
         "thinking_level": null,
-        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent"]
+        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent", "pipeline_directive", "pipeline_sanity", "pipeline_groupby", "pipeline_edit", "pipeline_question"]
       },
       "anthropic.claude-opus-4-5-20251101-v1:0": [
         {
@@ -114,7 +114,7 @@
       "__default__": {
         "provider": null,
         "thinking_level": null,
-        "agents": ["entity", "parser", "api", "reporter", "report_writer", "chatter", "memory", "memory_coder", "graph", "system", "multi_parser", "planner", "context_engineer", "evaluator", "seqera_agent", "wizard_agent", "wizard_builder"]
+        "agents": ["entity", "parser", "api", "reporter", "report_writer", "chatter", "memory", "memory_coder", "graph", "system", "multi_parser", "planner", "context_engineer", "evaluator", "seqera_agent", "wizard_agent", "wizard_builder", "pipeline_directive", "pipeline_sanity", "pipeline_groupby", "pipeline_edit", "pipeline_question"]
       }
     }
   }
