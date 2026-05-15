@@ -24,6 +24,14 @@ def test_is_active_true_on_awaiting_groupby_clarification():
     assert pipeline_agent.is_active(session) is True
 
 
+def test_is_active_false_on_active_but_transient_phase():
+    """active=True + a non-ACTIVE_PHASES phase (directive_parse, submitting,
+    done) must return False — these phases are mid-call, not awaiting input."""
+    for phase in ("directive_parse", "submitting", "done"):
+        session = {"pipeline_agent": {"active": True, "phase": phase}}
+        assert pipeline_agent.is_active(session) is False, phase
+
+
 def test_clear_wipes_state():
     session = {"pipeline_agent": {"active": True, "phase": "awaiting_validation"}}
     pipeline_agent.clear(session)
