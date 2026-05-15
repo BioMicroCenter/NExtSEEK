@@ -41,6 +41,7 @@ from .helpers import (
     generate_report_outputs,
 )
 from .seqera.catalog import NFCORE_PIPELINE_CATALOG
+from .seqera.submitter import submit_launch
 
 
 PIPELINE_AGENT_KEY = "pipeline_agent"
@@ -498,7 +499,59 @@ def _run_question_flow(session, config, parsed, *, log_dir):
 
 
 def _handle_submit(session, config, *, log_dir):
-    raise NotImplementedError("_handle_submit lands in Task 11")
+    state = _state(session)
+    artifacts = state.get("build_artifacts") or {}
+    launch_yml = artifacts.get("launch_yml")
+
+    if not launch_yml:
+        return {
+            "action": "ask",
+            "reply": "No launch artifact to submit. Try rebuilding first, or 'cancel'.",
+            "params": None,
+        }
+
+    tower_env = getattr(config, "tower_env", {}) or {}
+    if not tower_env.get("access_token") or not tower_env.get("workspace"):
+        return {
+            "action": "ask",
+            "reply": (
+                f"Tower env not configured. Samplesheet is at {artifacts.get('samplesheet', '(unknown)')}. "
+                "Submit manually via `seqerakit launch.yml` or configure TOWER_* env vars and retry."
+            ),
+            "params": None,
+        }
+
+    state["phase"] = PHASE_SUBMITTING
+    _save_state(session, state)
+
+    try:
+        run_urls = submit_launch(launch_yml, tower_env=tower_env)
+    except Exception as e:
+        print(f"[DEBUG][PIPELINE_AGENT][submit] error: {e!r}")
+        state["phase"] = PHASE_AWAITING_VALIDATION
+        _save_state(session, state)
+        return {
+            "action": "ask",
+            "reply": f"Submit failed: {e}. Try again or 'cancel'.",
+            "params": None,
+        }
+
+    if not run_urls:
+        state["phase"] = PHASE_AWAITING_VALIDATION
+        _save_state(session, state)
+        return {
+            "action": "ask",
+            "reply": "Tower didn't return any run URLs. Check seqera logs and retry.",
+            "params": None,
+        }
+
+    clear(session)
+    urls_block = "\n".join(f"- {url}" for url in run_urls)
+    return {
+        "action": "execute",
+        "reply": f"Submitted to Tower:\n{urls_block}",
+        "params": {"tower_run_urls": run_urls},
+    }
 
 
 def _read_samplesheet_rows(samplesheet_path: str | None) -> list[dict]:
