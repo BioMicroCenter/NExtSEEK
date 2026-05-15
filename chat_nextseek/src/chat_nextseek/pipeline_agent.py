@@ -32,6 +32,7 @@ from .agents import (  # noqa: E402
     _pipeline_sanity_check,
     _pipeline_groupby_resolution,
     _pipeline_edit_step,
+    _pipeline_question_step,
     report_writer_agent,
 )
 from .helpers import (
@@ -489,13 +490,16 @@ def _run_groupby_or_build(session, config, *, log_dir):
 
 
 def _run_question_flow(session, config, parsed, *, log_dir):
-    """Implemented in Task 12."""
+    """Question sub-mode: answer a pipeline-domain Q&A in one LLM call and clear state."""
+    pinned_summary = _summarize_pinned_bundle(session)
+    state = _state(session)
+    answer = _pipeline_question_step(
+        config=config,
+        user_query=state.get("original_query", ""),
+        pinned_bundle_summary=pinned_summary,
+    )
     clear(session)
-    return {
-        "action": "passthrough",
-        "reply": "(question sub-mode lands in Task 12)",
-        "params": None,
-    }
+    return {"action": "passthrough", "reply": answer, "params": None}
 
 
 def _handle_submit(session, config, *, log_dir):
