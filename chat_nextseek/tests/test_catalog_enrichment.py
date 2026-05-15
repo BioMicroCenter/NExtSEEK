@@ -65,3 +65,18 @@ def test_methylseq_accepts_methylation_terms():
     m = NFCORE_PIPELINE_CATALOG["methylseq"]
     for a in ["WGBS", "RRBS", "EM-seq", "EM_seq", "methylation"]:
         assert any(re.search(p, a, re.IGNORECASE) for p in m["accepted_assay_patterns"]), a
+
+
+def test_sarek_variant_pattern_does_not_overmatch_invariant():
+    """Regression: bare r'variant' pattern would match 'invariant region' (false positive)."""
+    s = NFCORE_PIPELINE_CATALOG["sarek"]
+    assert any(re.search(p, "variant calling", re.IGNORECASE) for p in s["accepted_assay_patterns"])
+    assert any(re.search(p, "variant_filter", re.IGNORECASE) for p in s["accepted_assay_patterns"])
+    assert not any(re.search(p, "invariant region", re.IGNORECASE) for p in s["accepted_assay_patterns"])
+
+
+def test_ampliseq_accepts_long_form_amplicon_assay_names():
+    """Regression: ^16S$ / ^ITS$ strict anchors rejected '16S rRNA', 'ITS1' etc."""
+    a = NFCORE_PIPELINE_CATALOG["ampliseq"]
+    for name in ["16S", "16S rRNA", "16S V3-V4", "ITS", "ITS1", "ITS2", "amplicon", "microbiome"]:
+        assert any(re.search(p, name, re.IGNORECASE) for p in a["accepted_assay_patterns"]), name

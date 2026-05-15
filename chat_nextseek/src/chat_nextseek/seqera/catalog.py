@@ -109,7 +109,7 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             r"^WGS$",
             r"^WES$",
             r"^DNA[-_ ]?seq$",
-            r"variant",
+            r"\bvariant",
         ],
         "pipeline_kind_description": (
             "Germline + somatic variant calling from WES/WGS. Needs "
@@ -132,7 +132,10 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             r"^EM[-_ ]?seq$",
             r"methylation",
         ],
-        "pipeline_kind_description": "Bisulfite / methylation sequencing analysis.",
+        "pipeline_kind_description": (
+            "Bisulfite / methylation sequencing analysis. Needs WGBS / RRBS / "
+            "EM-seq FASTQ inputs."
+        ),
     },
     "ampliseq": {
         "repo": "https://github.com/nf-core/ampliseq",
@@ -145,8 +148,8 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "samplesheet_input_kind": "fastq",
         "accepted_leaf_sample_types": ["D.SEQ"],
         "accepted_assay_patterns": [
-            r"^16S$",
-            r"^ITS$",
+            r"^16S",
+            r"^ITS",
             r"amplicon",
             r"microbiome",
         ],
