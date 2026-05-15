@@ -37,9 +37,9 @@ def test_returns_leaves_at_top_level():
     ))
     out = enumerate_lineage_leaves(bundle, accepted_types=["D.SEQ"])
     assert len(out) == 2
-    assert {l["uid"] for l in out} == {"D.SEQ-1", "D.SEQ-2"}
-    assert all(l["sample_type"] == "D.SEQ" for l in out)
-    assert {l["assay"] for l in out} == {"RNA-seq"}
+    assert {leaf["uid"] for leaf in out} == {"D.SEQ-1", "D.SEQ-2"}
+    assert all(leaf["sample_type"] == "D.SEQ" for leaf in out)
+    assert {leaf["assay"] for leaf in out} == {"RNA-seq"}
 
 
 def test_returns_leaves_nested_in_children():
@@ -53,7 +53,7 @@ def test_returns_leaves_nested_in_children():
     ))
     out = enumerate_lineage_leaves(bundle, accepted_types=["D.SEQ"])
     assert len(out) == 2
-    assert {l["uid"] for l in out} == {"D.SEQ-1", "D.SEQ-2"}
+    assert {leaf["uid"] for leaf in out} == {"D.SEQ-1", "D.SEQ-2"}
 
 
 def test_accepted_types_filter_excludes_other_leaves():
@@ -64,7 +64,7 @@ def test_accepted_types_filter_excludes_other_leaves():
         ]),
     ))
     out = enumerate_lineage_leaves(bundle, accepted_types=["D.SEQ"])
-    assert {l["uid"] for l in out} == {"D.SEQ-1"}
+    assert {leaf["uid"] for leaf in out} == {"D.SEQ-1"}
 
 
 def test_carries_source_uid_provenance():
@@ -73,7 +73,7 @@ def test_carries_source_uid_provenance():
         _sample("NHP-2", metadata={"UID": "NHP-2"}, children=[_sample("D.SEQ-2", metadata={"UID": "D.SEQ-2", "sample_type": "D.SEQ"})]),
     ))
     out = enumerate_lineage_leaves(bundle, accepted_types=["D.SEQ"])
-    by_uid = {l["uid"]: l for l in out}
+    by_uid = {leaf["uid"]: leaf for leaf in out}
     assert by_uid["D.SEQ-1"]["source_uid"] == "NHP-1"
     assert by_uid["D.SEQ-2"]["source_uid"] == "NHP-2"
 
@@ -86,7 +86,7 @@ def test_handles_assay_field_aliases():
         _sample("D.SEQ-3", metadata={"UID": "D.SEQ-3"}),  # no assay
     ))
     out = enumerate_lineage_leaves(bundle, accepted_types=["D.SEQ"])
-    by_uid = {l["uid"]: l for l in out}
+    by_uid = {leaf["uid"]: leaf for leaf in out}
     assert by_uid["D.SEQ-1"]["assay"] == "ATAC-seq"
     assert by_uid["D.SEQ-2"]["assay"] == "ChIP-seq"
     assert by_uid["D.SEQ-3"]["assay"] == ""
