@@ -1,7 +1,7 @@
 services:
   nextseek:
     build: .
-    container_name: "${INSTANCE_PREFIX:-}nextseek"
+    container_name: nextseek
     restart: always
     env_file:
       - ./docker/db.env
@@ -25,10 +25,10 @@ services:
       - nextseek-static-files:/static:ro
     depends_on:
       - nextseek
-      
+
   db: # Database implementation, in this case MySQL
     image: mysql:8.0
-    container_name: "${INSTANCE_PREFIX:-}seek-mysql"
+    container_name: seek-mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --log-error-verbosity=1
     restart: always
     stop_grace_period: 1m30s
@@ -40,7 +40,7 @@ services:
 
   neo4j:
     image: neo4j
-    container_name: "${INSTANCE_PREFIX:-}neo4j"
+    container_name: neo4j
     restart: always
     volumes:
       - neo4j-data:/data
@@ -53,7 +53,7 @@ services:
   seek:
     image: fairdom/seek:1.15.1
 
-    container_name: "${INSTANCE_PREFIX:-}seek"
+    container_name: seek
     command: docker/entrypoint.sh
     restart: always
     environment:
@@ -80,7 +80,7 @@ services:
       #build: .
 
       image: fairdom/seek:1.15.1
-      container_name: "${INSTANCE_PREFIX:-}seek-workers"
+      container_name: seek-workers
       command: docker/start_workers.sh
       restart: always
       environment:
@@ -103,7 +103,7 @@ services:
 
   solr:
     image: fairdom/seek-solr:8.11
-    container_name: "${INSTANCE_PREFIX:-}seek-solr"
+    container_name: seek-solr
     restart: always
     environment:
       SOLR_JAVA_MEM: -Xms512m -Xmx1024m
@@ -113,25 +113,19 @@ services:
       - docker-entrypoint.sh
       - solr-precreate
       - seek
-      - /opt/solr/server/solr/configsets/seek_config      
+      - /opt/solr/server/solr/configsets/seek_config
 
 
 volumes:
   seek-filestore:
-    name: "${INSTANCE_PREFIX:-}seek-filestore"
     external: true
   seek-mysql-db:
-    name: "${INSTANCE_PREFIX:-}seek-mysql-db"
     external: true
   seek-solr-data:
-    name: "${INSTANCE_PREFIX:-}seek-solr-data"
     external: true
   seek-cache:
-    name: "${INSTANCE_PREFIX:-}seek-cache"
     external: true
   nextseek-static-files:
-    name: "${INSTANCE_PREFIX:-}nextseek-static-files"
     external: true
   neo4j-data:
-    name: "${INSTANCE_PREFIX:-}neo4j-data"
     external: true

@@ -28,8 +28,8 @@ from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeli
 from seek.views import get_children_uids, sample_retrieval_data
 from .batch_upload.views import BatchUploadViewSet
 
-# Constants from legacy code
-SEEK_DATABASE = 'default'
+NEXTSEEK_DATABSE = settings.NEXTSEEK_DATABASE
+SEEK_DATABASE = settings.SEEK_DATABASE
 
 # Import serializers
 from .serializers import (
@@ -70,12 +70,13 @@ from nextseek_api.models import (
 def get_clade_color(sample_type):
     """Extract core logic from seek.views.get_clade_color"""
     db = settings.DATABASES[SEEK_DATABASE]
+    nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
     conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
     cursor = conn.cursor()
     query = f"""
-    SELECT c.color FROM dmac.clades c
-    JOIN dmac.sample_types_clades stc ON stc.clade_id = c.id
-    JOIN seek_production.sample_types st ON stc.sample_type_id = st.id
+    SELECT c.color FROM {nextseekdb["NAME"]}.clades c
+    JOIN {nextseekdb["NAME"]}.sample_types_clades stc ON stc.clade_id = c.id
+    JOIN {db["NAME"]}.sample_types st ON stc.sample_type_id = st.id
     WHERE st.title = '{sample_type}'
     """
     
@@ -618,7 +619,7 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
                 conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
                 cursor = conn.cursor()
                 ids_str = ", ".join(str(int(x)) for x in numeric_ids)
-                cursor.execute(f"SELECT id, uuid FROM seek_production.samples WHERE id IN ({ids_str})")
+                cursor.execute(f"SELECT id, uuid FROM {db["NAME"]}.samples WHERE id IN ({ids_str})")
                 rows = cursor.fetchall()
                 id_to_uuid = {str(r[0]): str(r[1]) for r in rows if r and r[0] is not None and r[1] is not None}
                 for sid in numeric_ids:
@@ -654,16 +655,16 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
                 if is_superuser:
                     query = f"""
                     SELECT id, sample_type_id, uuid, json_metadata
-                    FROM seek_production.samples
+                    FROM {db["NAME"]}.samples
                     WHERE uuid IN ({uids_str})
                     """
                 else:
-                    # Avoid SQL syntax error when user has no mapped projects
+                    # Avoid SQL syntax error whemapped projects
                     project_ids_str = ', '.join(["'%s'" % pid for pid in user_project_ids]) if user_project_ids else "''"
                     query = f"""
                     SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
-                    FROM seek_production.samples s
-                    JOIN seek_production.projects_samples ps
+                    FROM {db["NAME"]}.samples s
+                    JOIN {db["NAME"]}.projects_samples ps
                     ON s.id = ps.sample_id
                     WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
                     """

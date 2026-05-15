@@ -8,6 +8,10 @@ from pydantic import ValidationError
 import logging
 import re
 
+from django.conf import settings
+
+SEEK_DATABASE = settings.SEEK_DATABASE
+
 logger = logging.getLogger(__name__)
 cache = {}
 
@@ -21,13 +25,14 @@ def fetch_NHP(term):
     Returns:
         list: A list of results from the database query.
     """
+    db = settings.DATABASES[SEEK_DATABASE]
     try:
-        query = """
+        query = f"""
         SELECT uuid, json_metadata
-        FROM seek_production.samples
-        WHERE uuid = %s;
+        FROM {db["NAME"]}.samples
+        WHERE uuid = {term};
         """
-        nhp_metadata = execute_query(query, (term,))
+        nhp_metadata = execute_query(query)
         return nhp_metadata
     except Exception as e:
         logger.error(f"Error fetching NHP metadata: {e}")
@@ -107,6 +112,7 @@ def fetchAllMetadata(term: str, filter: List[str] = None) -> List[dict]:
         List[dict]: A list of metadata dictionaries for the term and its descendants.
     """
     try:
+        db = settings.DATABASES[SEEK_DATABASE]
         # Fetch all descendant UUIDs
         descendants_uuids = fetch_all_descendants(term)
         if filter:
@@ -125,7 +131,7 @@ def fetchAllMetadata(term: str, filter: List[str] = None) -> List[dict]:
         placeholders = ",".join(["%s"] * len(descendants_uuids))
         query = f"""
         SELECT uuid, json_metadata
-        FROM seek_production.samples
+        FROM {db["NAME"]}.samples
         WHERE uuid IN ({placeholders});
         """
         

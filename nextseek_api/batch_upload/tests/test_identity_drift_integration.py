@@ -477,13 +477,20 @@ def integration_env():
                 """
                 UNWIND $rows AS row
                 MERGE (s:Sample {uuid: row.uuid})
-                SET s.id = row.id, s.type = row.sample_type, s.parent_titles = row.parent_titles
+                SET s.id = row.id, s.type = row.sample_type,
+                    s.parent_titles = row.parent_titles,
+                    s.parent_title_hashes = row.parent_title_hashes
                 """,
                 {"rows": [
-                    {"uuid": UID_DRIFT_A, "id": 1001, "sample_type": NAME_SAMPLE_TYPE, "parent_titles": []},
-                    {"uuid": UID_FILE_PARENT, "id": 1008, "sample_type": FILE_SAMPLE_TYPE, "parent_titles": []},
-                    {"uuid": UID_PREEXISTING_ORPHAN, "id": 1009, "sample_type": NAME_SAMPLE_TYPE, "parent_titles": ["future-parent"]},
-                    {"uuid": UID_OVERSIZED_FILE_PARENT, "id": 1010, "sample_type": FILE_SAMPLE_TYPE, "parent_titles": []},
+                    {"uuid": UID_DRIFT_A, "id": 1001, "sample_type": NAME_SAMPLE_TYPE,
+                     "parent_titles": [], "parent_title_hashes": []},
+                    {"uuid": UID_FILE_PARENT, "id": 1008, "sample_type": FILE_SAMPLE_TYPE,
+                     "parent_titles": [], "parent_title_hashes": []},
+                    {"uuid": UID_PREEXISTING_ORPHAN, "id": 1009, "sample_type": NAME_SAMPLE_TYPE,
+                     "parent_titles": ["future-parent"],
+                     "parent_title_hashes": [hash_identity("future-parent")]},
+                    {"uuid": UID_OVERSIZED_FILE_PARENT, "id": 1010, "sample_type": FILE_SAMPLE_TYPE,
+                     "parent_titles": [], "parent_title_hashes": []},
                 ]},
                 database_=neo4j_db,
             )

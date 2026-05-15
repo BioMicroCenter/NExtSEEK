@@ -20,7 +20,7 @@ from sqlalchemy.engine import Connection
 
 from .config import Neo4jConfig
 from .helpers import UID_RE, collect_parent_tokens, split_parent_field
-from .identity import extract_identity
+from .identity import extract_identity, hash_identity
 from .models import (
     DerivedFromRelRow,
     DirectionComputation,
@@ -539,7 +539,7 @@ def enrich_parent_titles(
                     meta = {}
                 uid_to_identity[uuid_val] = extract_identity(meta, uid=uuid_val)
 
-    # 4. Second pass: build parent_titles for each node
+    # 4. Second pass: build parent_titles AND parent_title_hashes for each node
     for i, node in enumerate(node_rows):
         tokens = node_parent_tokens[i]
         if not tokens:
@@ -558,8 +558,15 @@ def enrich_parent_titles(
                 # Unresolved token — IS the identity
                 titles.append(token)
 
+        if not titles:
+            continue
+
+        hashes = [h for h in (hash_identity(t) for t in titles) if h]
+
         node.parent_titles = titles
+        node.parent_title_hashes = hashes
         node.properties["parent_titles"] = titles
+        node.properties["parent_title_hashes"] = hashes
 
 
 # ── payload building ──────────────────────────────────────────────────────
@@ -1106,15 +1113,24 @@ def upload_all(
         # 1. Ensure constraints
         ensure_constraints(driver, db_name)
 
-        # 1b. Ensure parent_titles index (no-op after first run)
+        # 1b. Index swap: drop legacy parent_titles index, ensure parent_title_hashes index.
+        # Both calls are idempotent; the DROP is a self-healing one-time migration that
+        # has no effect once the legacy index is gone.
         try:
             driver.execute_query(
-                "CREATE INDEX sample_parent_titles IF NOT EXISTS "
-                "FOR (s:Sample) ON (s.parent_titles)",
+                "DROP INDEX sample_parent_titles IF EXISTS",
                 database_=db_name,
             )
         except Exception as exc:
-            log.warning("Failed to create parent_titles index (non-fatal): %s", exc)
+            log.warning("Failed to drop legacy parent_titles index (non-fatal): %s", exc)
+        try:
+            driver.execute_query(
+                "CREATE INDEX sample_parent_title_hashes IF NOT EXISTS "
+                "FOR (s:Sample) ON (s.parent_title_hashes)",
+                database_=db_name,
+            )
+        except Exception as exc:
+            log.warning("Failed to create parent_title_hashes index (non-fatal): %s", exc)
 
         # 2. MERGE Sample nodes
         if node_rows:

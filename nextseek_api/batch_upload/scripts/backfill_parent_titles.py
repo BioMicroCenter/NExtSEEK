@@ -1,8 +1,12 @@
-"""One-time backfill: populate parent_titles on Neo4j Sample nodes.
+"""One-time backfill: populate parent_titles AND parent_title_hashes on Neo4j Sample nodes.
 
 For each sample with a Parent field in json_metadata:
 - UID tokens  -> look up parent's Name/File_PrimaryData from in-memory cache
 - Non-UID tokens (unresolved names) -> use as-is (the token IS the identity)
+
+Both parent_titles (raw strings) and parent_title_hashes (hash_identity()
+digests) are written in lockstep to satisfy the orphan-resolution writer
+contract.
 
 Usage:
     cd /opt/NExtSEEK && .venv/bin/python nextseek_api/batch_upload/scripts/backfill_parent_titles.py
@@ -33,7 +37,7 @@ from sqlalchemy import text
 from nextseek_api.batch_upload.config import Neo4jConfig
 from nextseek_api.batch_upload.db_engine import get_connection
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens, split_parent_field
-from nextseek_api.batch_upload.identity import extract_identity
+from nextseek_api.batch_upload.identity import extract_identity, hash_identity
 
 log = logging.getLogger(__name__)
 logging.basicConfig(
@@ -112,7 +116,12 @@ def backfill() -> None:
                 titles.append(token)
 
         if titles:
-            updates.append({"uuid": uuid_val, "parent_titles": titles})
+            hashes = [h for h in (hash_identity(t) for t in titles) if h]
+            updates.append({
+                "uuid": uuid_val,
+                "parent_titles": titles,
+                "parent_title_hashes": hashes,
+            })
 
     log.info("Will update %d Sample nodes with parent_titles", len(updates))
 
@@ -124,7 +133,8 @@ def backfill() -> None:
             """
             UNWIND $rows AS row
             MATCH (s:Sample {uuid: row.uuid})
-            SET s.parent_titles = row.parent_titles
+            SET s.parent_titles = row.parent_titles,
+                s.parent_title_hashes = row.parent_title_hashes
             """,
             {"rows": batch},
             database_=config.NEO4J_DB,

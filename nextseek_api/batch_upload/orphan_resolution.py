@@ -26,12 +26,13 @@ except ImportError:
 
 
 from .helpers import collect_parent_tokens, split_parent_field
+from .identity import hash_identity
 
 log = logging.getLogger(__name__)
 
 _DISCOVER_CYPHER = """
 MATCH (child:Sample)
-WHERE any(name IN child.parent_titles WHERE name IN $new_identities)
+WHERE any(h IN child.parent_title_hashes WHERE h IN $new_identity_hashes)
 RETURN child.id AS id, child.uuid AS uuid, child.parent_titles AS parent_titles
 """
 
@@ -41,7 +42,7 @@ def discover_orphans(
     database: str,
     identity_map: Dict[str, str],
 ) -> List[dict]:
-    """Query Neo4j for samples whose parent_titles intersect with identity_map keys.
+    """Query Neo4j for samples whose parent_title_hashes intersect with hashed identity_map keys.
 
     Args:
         driver: Neo4j driver instance.
@@ -53,16 +54,20 @@ def discover_orphans(
         - ``id``: Neo4j node ``id`` property (the SEEK sample PK).
         - ``uuid``: the sample UID string.
         - ``parent_titles``: full list of parent title strings from the node.
-        - ``matched_tokens``: ``{identity: uid}`` subset that matched.
+        - ``matched_tokens``: ``{identity: uid}`` subset that matched (exact-case).
     """
     if not identity_map:
         return []
 
-    new_identities = list(identity_map.keys())
+    new_identity_hashes = [
+        h for h in (hash_identity(k) for k in identity_map.keys()) if h
+    ]
+    if not new_identity_hashes:
+        return []
 
     result = driver.execute_query(
         _DISCOVER_CYPHER,
-        {"new_identities": new_identities},
+        {"new_identity_hashes": new_identity_hashes},
         database_=database,
     )
 
@@ -89,7 +94,7 @@ def discover_orphans(
     log.info(
         "Orphan discovery: %d candidates found for %d new identities",
         len(orphans),
-        len(new_identities),
+        len(identity_map),
     )
     return orphans
 
