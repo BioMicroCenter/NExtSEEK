@@ -1,7 +1,7 @@
 {
   "smart_test": {
     "version": "3.0",
-    "description": "Smart test suite — 21 tests covering every routing path + wizard + memory. T1-T13 are routing/correctness tests; T14-T17 cover the LLM-driven nf-core wizard; T18-T21 cover chat memory recall at varying distances. T1-T13 run in fresh sessions; T14-T21 use multi-turn shared sessions (session_mode='shared') with per-turn pass_criteria.",
+    "description": "Smart test suite — covers every routing path + pipeline_agent + memory. T1-T13 are routing/correctness tests; T14 + T17 + T25-T27 cover the pipeline_agent (replaces the legacy nf-core wizard); T15/T16/T18-T24 cover wizard rabbit-holes and chat memory recall. T1-T13 run in fresh sessions; T14+ use multi-turn shared sessions (session_mode='shared') with per-turn pass_criteria.",
     "pass_criterion_ops": {
       "eq": "exact equality",
       "contains": "value is in list (if actual is list) or substring (if actual is string)",
@@ -35,6 +35,10 @@
       "wizard.metadata_summary_present": "bool — True if pinned_context.metadata_summary is set",
       "wizard_agent.last_action": "str — most recent WizardAgentOutput.action (advance|stay|cancel|restart)",
       "wizard_agent.last_extracted_keys": "list[str] — keys from most recent WizardAgentOutput.extracted",
+      "pipeline_agent.phase": "str — session['pipeline_agent']['phase'] (awaiting_validation|awaiting_groupby_clarification|awaiting_pipeline_switch|None)",
+      "pipeline_agent.active": "bool — bool(session.get('pipeline_agent'))",
+      "pipeline_agent.directive.pipeline_key": "str — session['pipeline_agent']['directive']['pipeline_key']",
+      "pipeline_agent.build_artifacts.samplesheet": "str|null — path to emitted samplesheet.csv, or None if not yet built",
       "chat_log.length": "int — len(session['chat_log'])",
       "chat_log.latest_mode": "str — most recent turn's mode",
       "chat_log.latest_bundle_id": "int|null — bundle_id on the most recent turn",
@@ -1345,13 +1349,13 @@
       },
       {
         "id": "T14",
-        "name": "wizard activation — parser routes NFCORE → wizard intercepts",
-        "path": "wizard_activation",
-        "description": "When the parser identifies report_type=NFCORE, the orchestrator's wizard wedge intercepts BEFORE generate_report_outputs runs. Wizard state should be active with step=pipeline, and no actual report artifacts should be emitted yet.",
+        "name": "pipeline_agent activation — directive enters awaiting_validation",
+        "path": "pipeline_agent_activation",
+        "description": "When the user issues a samplesheet directive for an nf-core pipeline, the orchestrator dispatches to pipeline_agent. State should land in awaiting_validation (or awaiting_groupby_clarification / awaiting_pipeline_switch if the pipeline-vs-data sanity check needs input), with chat_log.latest_mode='pipeline_agent'. No actual report artifacts should be emitted yet.",
         "pipeline": "run_query",
         "session_mode": "shared",
         "agent_focus": [
-          "wizard_agent (intro emission)",
+          "pipeline_agent (directive parse + sample resolution)",
           "parser_agent (NFCORE detection)"
         ],
         "turns": [
@@ -1379,40 +1383,35 @@
             ]
           },
           {
-            "label": "trigger_wizard",
-            "query": "Build me an nf-core samplesheet for those mice.",
+            "label": "trigger_pipeline_agent",
+            "query": "Run rnaseq on those mice grouped by Treatment1.",
             "pass_criteria": [
               {
-                "field": "wizard.active",
+                "field": "pipeline_agent.active",
                 "op": "true",
                 "value": null
               },
               {
-                "field": "wizard.step",
-                "op": "eq",
-                "value": "pipeline"
+                "field": "pipeline_agent.phase",
+                "op": "matches_re",
+                "value": "^(awaiting_validation|awaiting_groupby_clarification|awaiting_pipeline_switch)$",
+                "_comment": "directive parsed; agent is paused for user validation (or a clarifying sub-mode)"
               },
               {
                 "field": "results_history.length",
                 "op": "eq",
                 "value": 1,
-                "_comment": "wizard intercept means no new bundle should be appended"
+                "_comment": "pipeline_agent intercept means no new bundle should be appended until submit"
               },
               {
                 "field": "chat_log.latest_mode",
                 "op": "eq",
-                "value": "nfcore_wizard"
-              },
-              {
-                "field": "last_reply",
-                "op": "mentions",
-                "value": "rnaseq",
-                "_comment": "intro lists available pipelines dynamically from reports/nfcore/"
+                "value": "pipeline_agent"
               }
             ],
             "planner_pass_criteria": [
               {
-                "field": "wizard.active",
+                "field": "pipeline_agent.active",
                 "op": "true",
                 "value": null
               }
@@ -1579,14 +1578,13 @@
       },
       {
         "id": "T17",
-        "name": "wizard end-to-end emit — NFCORE bypass survives large UID set",
-        "path": "wizard_emit_e2e",
-        "description": "Pre-fix bug #1: 195-UID 'use last search' flow blew up report_writer at 5.1M tokens. Post-fix the emitter synthesizes samplesheet rows directly from accession_metadata. CRITICAL: this test must complete without LLMFatalError and produce a samplesheet.csv on disk.",
+        "name": "pipeline_agent end-to-end emit — directive → build → submit",
+        "path": "pipeline_agent_emit_e2e",
+        "description": "End-to-end happy path: user issues a directive that resolves samples from the last search, pipeline_agent enters awaiting_validation with a built samplesheet preview, user submits, Tower receives the workflow. CRITICAL: must complete without LLMFatalError and produce a samplesheet.csv on disk.",
         "pipeline": "run_query",
         "session_mode": "shared",
         "agent_focus": [
-          "wizard_agent (full flow)",
-          "generate_report_outputs (NFCORE bypass branch)",
+          "pipeline_agent (full flow: parse → resolve → sanity → groupby → build → submit)",
           "seqera/emitter (row synthesis)"
         ],
         "turns": [
@@ -1596,72 +1594,52 @@
             "pass_criteria": []
           },
           {
-            "label": "trigger_wizard",
-            "query": "Build me an nf-core samplesheet.",
+            "label": "issue_directive",
+            "query": "Run rnaseq on those mice grouped by Treatment1.",
             "pass_criteria": [
               {
-                "field": "wizard.active",
+                "field": "pipeline_agent.active",
                 "op": "true",
                 "value": null
-              }
-            ]
-          },
-          {
-            "label": "pick_pipeline",
-            "query": "rnaseq",
-            "pass_criteria": [
-              {
-                "field": "wizard.step",
-                "op": "eq",
-                "value": "builder",
-                "_comment": "pipeline advance moves us into the free-form builder step"
-              }
-            ]
-          },
-          {
-            "label": "use_last_search",
-            "query": "use the UIDs we just filtered",
-            "pass_criteria": [
-              {
-                "field": "wizard.step",
-                "op": "eq",
-                "value": "builder",
-                "_comment": "still on builder — selection populated, not advancing"
               },
               {
-                "field": "wizard.uid_count",
-                "op": "gte",
-                "value": 100,
-                "_comment": "should pull ALL ~195 mice via memory_query"
-              }
-            ]
-          },
-          {
-            "label": "request_build",
-            "query": "build it",
-            "pass_criteria": [
-              {
-                "field": "wizard.step",
+                "field": "pipeline_agent.phase",
                 "op": "eq",
-                "value": "confirm",
-                "_comment": "build-intent finalize_turn(action=advance) → confirm step"
+                "value": "awaiting_validation",
+                "_comment": "directive parsed, samples resolved, samplesheet built; awaiting user confirm"
+              },
+              {
+                "field": "pipeline_agent.directive.pipeline_key",
+                "op": "eq",
+                "value": "rnaseq"
+              },
+              {
+                "field": "pipeline_agent.build_artifacts.samplesheet",
+                "op": "nonempty",
+                "value": null,
+                "_comment": "samplesheet.csv path must exist on disk"
               }
             ]
           },
           {
-            "label": "confirm_emit",
-            "query": "yes",
+            "label": "confirm_submit",
+            "query": "submit",
             "pass_criteria": [
               {
-                "field": "wizard.active",
+                "field": "pipeline_agent.active",
                 "op": "eq",
                 "value": false,
-                "_comment": "wizard done; cleared"
+                "_comment": "agent state cleared after successful submit"
               },
               {
                 "field": "chat_log.latest_mode",
                 "op": "eq",
-                "value": "reporter"
+                "value": "pipeline_agent"
+              },
+              {
+                "field": "last_reply",
+                "op": "mentions",
+                "value": "Submitted to Tower"
               },
               {
                 "field": "results_history.length",
@@ -2105,6 +2083,149 @@
                 "op": "gte",
                 "value": 2,
                 "_comment": "samplesheet bundle appended"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T25",
+        "name": "pipeline_agent happy-path — search → directive → submit",
+        "path": "pipeline_agent_happy_path",
+        "description": "Search produces a result bundle. User issues a directive that names a pipeline and a group-by field. pipeline_agent parses the directive, resolves samples from the most recent search, builds a samplesheet, and pauses at awaiting_validation. User says 'submit' and the workflow is sent to Tower.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": [
+          "pipeline_agent (directive parse, sample resolution, build, submit)"
+        ],
+        "turns": [
+          {
+            "label": "setup_search",
+            "query": "find me NHP samples with RNA-seq data",
+            "pass_criteria": [
+              {
+                "field": "parser_plan.mode",
+                "op": "eq",
+                "value": "new_search"
+              },
+              {
+                "field": "results_history.length",
+                "op": "eq",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "label": "issue_directive",
+            "query": "run rnaseq on these monkeys, group by Treatment1",
+            "pass_criteria": [
+              {
+                "field": "pipeline_agent.active",
+                "op": "true",
+                "value": null
+              },
+              {
+                "field": "pipeline_agent.phase",
+                "op": "eq",
+                "value": "awaiting_validation"
+              },
+              {
+                "field": "pipeline_agent.directive.pipeline_key",
+                "op": "eq",
+                "value": "rnaseq"
+              },
+              {
+                "field": "chat_log.latest_mode",
+                "op": "eq",
+                "value": "pipeline_agent"
+              }
+            ]
+          },
+          {
+            "label": "submit",
+            "query": "submit",
+            "pass_criteria": [
+              {
+                "field": "last_reply",
+                "op": "mentions",
+                "value": "Submitted to Tower"
+              },
+              {
+                "field": "pipeline_agent.active",
+                "op": "eq",
+                "value": false,
+                "_comment": "state cleared after Tower submit"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T26",
+        "name": "pipeline_agent question sub-mode — catalog lookup leaves no residual state",
+        "path": "pipeline_agent_question_submode",
+        "description": "User asks a catalog/capability question routed through pipeline_agent's question sub-mode. Agent answers from the pipeline catalog and clears state, so the next turn is unaffected.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": [
+          "pipeline_agent (question sub-mode)"
+        ],
+        "turns": [
+          {
+            "label": "ask_catalog",
+            "query": "what nf-core pipelines are available?",
+            "pass_criteria": [
+              {
+                "field": "last_reply",
+                "op": "mentions",
+                "value": "rnaseq"
+              },
+              {
+                "field": "last_reply",
+                "op": "mentions",
+                "value": "sarek"
+              },
+              {
+                "field": "last_reply",
+                "op": "mentions",
+                "value": "fetchngs"
+              },
+              {
+                "field": "pipeline_agent.active",
+                "op": "eq",
+                "value": false,
+                "_comment": "question sub-mode answers and clears; no pending state"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "T27",
+        "name": "pipeline_agent reject path — non-directive routed in does not trap user",
+        "path": "pipeline_agent_reject_non_directive",
+        "description": "If a non-directive NFCORE-classed message reaches pipeline_agent, the agent must reject cleanly and clear its state instead of looping. Under normal parsing this message routes elsewhere; this test verifies the safety net on the edge case where the parser does flag it as NFCORE.",
+        "pipeline": "run_query",
+        "session_mode": "shared",
+        "agent_focus": [
+          "pipeline_agent (reject + state clear on non-directive input)"
+        ],
+        "turns": [
+          {
+            "label": "ambiguous_question",
+            "query": "what's NDMA?",
+            "pass_criteria": [
+              {
+                "field": "last_reply",
+                "op": "matches_re",
+                "value": "(not a samplesheet directive|only run when)",
+                "_comment": "either reject phrasing is acceptable — agent must not pretend this is a build request"
+              },
+              {
+                "field": "pipeline_agent.active",
+                "op": "eq",
+                "value": false,
+                "_comment": "agent did not retain state across the reject"
               }
             ]
           }
