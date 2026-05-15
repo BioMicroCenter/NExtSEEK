@@ -15,6 +15,8 @@ Public surface:
 """
 from __future__ import annotations
 
+import re as _re
+
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -26,6 +28,12 @@ if TYPE_CHECKING:
 # Expose the LLM helper at module level so tests can patch it via
 # "chat_nextseek.pipeline_agent._pipeline_directive_parse".
 from .agents import _pipeline_directive_parse  # noqa: E402
+from .helpers import (
+    annotate_metadata_with_sampletypes,
+    enumerate_lineage_leaves,
+    fetch_reporter_metadata,
+)
+from .seqera.catalog import NFCORE_PIPELINE_CATALOG
 
 
 PIPELINE_AGENT_KEY = "pipeline_agent"
@@ -213,6 +221,125 @@ def _summarize_pinned_bundle(session: "SessionState | SessionStateProxy") -> str
     user_q = last.get("user_query") or ""
     rows = ((last.get("api_result_full") or {}).get("data") or {}).get("rows") or []
     return f"last search: query={user_q!r}, ~{len(rows) if isinstance(rows, list) else 0} rows"
+
+
+def _uids_from_last_search(session: "SessionState | SessionStateProxy") -> list[str]:
+    history = session.get("results_history") or []
+    if not isinstance(history, list):
+        return []
+    for bundle in reversed(history):
+        if not isinstance(bundle, dict):
+            continue
+        api_full = bundle.get("api_result_full") or {}
+        data = api_full.get("data") if isinstance(api_full, dict) else None
+        rows = []
+        if isinstance(data, dict):
+            for key in ("rows", "nodes", "data"):
+                val = data.get(key)
+                if isinstance(val, list):
+                    rows = val
+                    break
+        elif isinstance(data, list):
+            rows = data
+        out: list[str] = []
+        for row in rows or []:
+            if isinstance(row, dict):
+                uid = row.get("uid") or row.get("UID") or row.get("uuid") or row.get("sample_uid")
+                if uid:
+                    out.append(_re.sub(r"<[^>]+>", "", str(uid)).strip())
+            elif isinstance(row, str):
+                out.append(_re.sub(r"<[^>]+>", "", row).strip())
+        if out:
+            return out
+    return []
+
+
+def _resolve_samples(
+    config: "ChatConfig",
+    session: "SessionState | SessionStateProxy",
+    samples_ref: Any,
+    pipeline_key: str,
+) -> dict[str, Any]:
+    """Run the catalog-driven sample resolver.
+
+    Returns a dict with:
+      - source_uids: list[str]
+      - leaves_all: list[dict] (every leaf walked, before catalog assay filter)
+      - leaves_filtered: list[dict] (leaves that match accepted_assay_patterns)
+      - dropped_by_type_mismatch: list[dict] (leaves whose sample_type isn't in accepted)
+      - dropped_by_assay_mismatch: list[dict] (leaves whose assay didn't match)
+      - source_uids_with_no_leaves: list[str]
+      - accessions: list[str] (only set for kind="accessions")
+      - metadata_bundle: the annotated bundle, for downstream consumers
+      - error: str (only set when resolution fails up-front)
+    """
+    catalog = NFCORE_PIPELINE_CATALOG.get(pipeline_key, {})
+    accepted_types = catalog.get("accepted_leaf_sample_types") or []
+    accepted_patterns = [
+        _re.compile(p, _re.IGNORECASE) for p in (catalog.get("accepted_assay_patterns") or [])
+    ]
+    input_kind = catalog.get("samplesheet_input_kind", "fastq")
+
+    if samples_ref.kind == "accessions":
+        if input_kind != "accession":
+            return {"error": f"Accession inputs only work with fetchngs (got {pipeline_key})."}
+        return {
+            "source_uids": [],
+            "accessions": list(samples_ref.accessions),
+            "leaves_all": [],
+            "leaves_filtered": [],
+            "dropped_by_type_mismatch": [],
+            "dropped_by_assay_mismatch": [],
+            "source_uids_with_no_leaves": [],
+            "metadata_bundle": {},
+        }
+
+    if samples_ref.kind == "last_search":
+        source_uids = _uids_from_last_search(session)
+        if not source_uids:
+            return {"error": "No pinned search to use. Run a search first or paste UIDs."}
+    elif samples_ref.kind == "explicit_uids":
+        source_uids = list(samples_ref.uids)
+        if not source_uids:
+            return {"error": "Explicit UIDs requested but none provided."}
+    elif samples_ref.kind == "named_cohort":
+        return {"error": "Named cohorts aren't supported yet — paste UIDs or use last search."}
+    else:
+        return {"error": f"Unknown samples_ref.kind={samples_ref.kind!r}"}
+
+    raw = fetch_reporter_metadata(config, source_uids)
+    if not raw.get("ok"):
+        return {"error": f"Metadata fetch failed: {raw.get('error') or 'unknown error'}"}
+
+    annotated = annotate_metadata_with_sampletypes(config, raw)
+    leaves_all = enumerate_lineage_leaves(annotated, accepted_types=accepted_types)
+
+    leaves_filtered: list[dict] = []
+    dropped_by_assay: list[dict] = []
+    if accepted_patterns:
+        for leaf in leaves_all:
+            assay = leaf.get("assay") or ""
+            if assay and any(pat.search(assay) for pat in accepted_patterns):
+                leaves_filtered.append(leaf)
+            else:
+                dropped_by_assay.append(leaf)
+    else:
+        # No patterns means "accept everything that matched type" (e.g. methylseq edge cases)
+        leaves_filtered = list(leaves_all)
+
+    leaves_seen_sources = {leaf["source_uid"] for leaf in leaves_filtered}
+    orphans = [uid for uid in source_uids if uid not in leaves_seen_sources]
+
+    return {
+        "source_uids": source_uids,
+        "accessions": [],
+        "leaves_all": leaves_all,
+        "leaves_filtered": leaves_filtered,
+        "dropped_by_type_mismatch": [],
+        "dropped_by_assay_mismatch": dropped_by_assay,
+        "source_uids_with_no_leaves": orphans,
+        "metadata_bundle": annotated,
+    }
 
 
 def _run_build_flow(session, config, parsed, *, log_dir):
