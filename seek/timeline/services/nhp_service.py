@@ -30,9 +30,9 @@ def fetch_NHP(term):
         query = f"""
         SELECT uuid, json_metadata
         FROM {db["NAME"]}.samples
-        WHERE uuid = {term};
+        WHERE uuid = %s;
         """
-        nhp_metadata = execute_query(query)
+        nhp_metadata = execute_query(query, (term,))
         return nhp_metadata
     except Exception as e:
         logger.error(f"Error fetching NHP metadata: {e}")

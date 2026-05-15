@@ -1149,7 +1149,7 @@ def extract_ids(data):
 
 def get_clade_color(sample_type):
     db = settings.DATABASES[SEEK_DATABASE]
-    nextseekdb = settings.DATABASES[SEEK_DATABASE]
+    nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
     conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
     cursor = conn.cursor()
     query = f"""
