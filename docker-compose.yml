@@ -11,17 +11,19 @@ services:
       - db
     volumes:
       - nextseek-static-files:/static
-      - ./themes/NextSeek:/app/themes/NextSeek
-      - ./dmac/local_settings.py:/app/dmac/local_settings.py
-      - ./outputs:/app/outputs
-      - ./logs:/app/logs
+      # :z relabels the host path for SELinux-enforcing hosts (Fedora/RHEL).
+      # No-op on macOS/Ubuntu/non-SELinux systems, so safe everywhere.
+      - ./themes/NextSeek:/app/themes/NextSeek:z
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./outputs:/app/outputs:z
+      - ./logs:/app/logs:z
 
   nextseek_nginx:
     image: nginx:latest
     ports:
       - "${NEXTSEEK_PORT:-8000}:80"
     volumes:
-      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro,z
       - nextseek-static-files:/static:ro
     depends_on:
       - nextseek
@@ -35,7 +37,7 @@ services:
     env_file:
       - ./docker/db.env
     volumes:
-      - ./docker/scripts/db:/docker-entrypoint-initdb.d
+      - ./docker/scripts/db:/docker-entrypoint-initdb.d:z
       - seek-mysql-db:/var/lib/mysql
 
   neo4j:
