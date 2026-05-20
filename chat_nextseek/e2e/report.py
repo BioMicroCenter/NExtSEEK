@@ -1,4 +1,4 @@
-"""HTML report generation. One page, family-grouped, collapsible variant cards."""
+"""HTML report generation. One page, family-grouped, per-variant cards."""
 from __future__ import annotations
 
 import html as _html
