@@ -26,16 +26,19 @@ from .protocols import (
     sanitize_protocols_for_llm,
 )
 
-# Symbols that are still in helpers.py at the moment of this move (Tasks 2.18-2.20
-# relocate them). Imported via the helpers forwarder so the forward references
-# resolve at call time once those moves land.
+from .templates_meta import (
+    load_report_template,
+    nfcore_pipeline_from_report_type,
+    normalize_report_type,
+)
+
+# Symbols that are still in helpers.py at the moment of this move (Tasks 2.19-2.20
+# relocate the XLSX exporters). Imported via the helpers forwarder so the forward
+# references resolve at call time once those moves land.
 from ..helpers import (
     export_geo_report_to_seq_xlsx,
     export_sra_biosample_report_to_xlsx,
     export_sra_report_to_xlsx,
-    load_report_template,
-    nfcore_pipeline_from_report_type,
-    normalize_report_type,
 )
 
 
