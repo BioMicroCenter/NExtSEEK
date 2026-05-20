@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 from .artifacts import ArtifactStore, build_metadata_bundle, build_saved_report_file_manifest
 from .chat_memory import append_turn, build_tool_summary_for_mode, resolve_bundle_for_recall
-from . import nfcore_wizard
+from .pipeline import wizard as nfcore_wizard
 from . import pipeline_agent
 from .agents import (
     chatter_agent_answer,
@@ -171,7 +171,6 @@ def _execute_nfcore_wizard(
     # step so they can pick samples, rather than crashing generate_report_outputs.
     uids: list[str] = list(wizard_params.get("uids") or [])
     if not uids:
-        from . import nfcore_wizard
         state = session.get(nfcore_wizard.WIZARD_KEY) or {}
         state["step"] = nfcore_wizard.STEP_BUILDER
         nfcore_wizard._save_state(session, state)
