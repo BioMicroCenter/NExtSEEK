@@ -119,6 +119,31 @@ describe("NextseekApiService", () => {
     expect(onProgress).not.toHaveBeenCalled();
   });
 
+  it("submitQuery appends server detail to onError when body is a NExtSEEK error envelope", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        json: vi.fn().mockResolvedValue({
+          errors: [
+            { title: "Validation error", detail: "query: String should have at most 32000 characters" },
+          ],
+        }),
+      }),
+    );
+
+    const onProgress = vi.fn();
+    const onError = vi.fn();
+
+    await service.submitQuery("test", "standard", {}, onProgress, onError);
+
+    expect(onError).toHaveBeenCalledWith(
+      "Query submission failed: 422 — query: String should have at most 32000 characters",
+    );
+    expect(onProgress).not.toHaveBeenCalled();
+  });
+
   it("submitQuery calls onError when fetch throws", async () => {
     vi.stubGlobal(
       "fetch",

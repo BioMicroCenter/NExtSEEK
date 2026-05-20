@@ -21,6 +21,9 @@ context/old
 
 AGENTS.md
 
+# Design specs / refactor docs (kept local)
+docs/
+
 test/__pycache__
 
 test/*_diff.txt

@@ -11,6 +11,19 @@ import type { AuthService } from "./authTypes";
 
 const POLL_INTERVAL = 2000;
 
+async function readErrorDetail(response: Response): Promise<string | null> {
+  try {
+    const body = await response.json();
+    const first = body?.errors?.[0];
+    if (first?.detail) return String(first.detail);
+    if (first?.title) return String(first.title);
+    if (typeof body?.detail === "string") return body.detail;
+  } catch {
+    // Body wasn't JSON or response.json() unsupported on the mock — fall through.
+  }
+  return null;
+}
+
 export class NextseekApiService {
   private auth: AuthService;
   private _sessionId: string | null = null;
@@ -65,7 +78,12 @@ export class NextseekApiService {
       );
 
       if (!response.ok) {
-        throw new Error(`Query submission failed: ${response.status}`);
+        const detail = await readErrorDetail(response);
+        throw new Error(
+          detail
+            ? `Query submission failed: ${response.status} — ${detail}`
+            : `Query submission failed: ${response.status}`,
+        );
       }
 
       const data: AsyncQueryResponse = await response.json();

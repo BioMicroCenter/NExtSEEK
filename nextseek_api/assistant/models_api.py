@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, ConfigDict
 class QueryRequest(BaseModel):
     """POST /assistant/query/ request body."""
     session_id: Optional[UUID] = Field(None, description="Chat session UUID. If omitted (and force_new is False), reuses the most recently updated session or auto-creates one.")
-    query: str = Field(..., min_length=1, max_length=4000, description="Natural language query")
+    query: str = Field(..., min_length=1, max_length=32000, description="Natural language query")
     mode: str = Field(..., description="What mode to execute the query as. E.g. standard, plan, etc.")
     force_new: bool = Field(False, description="If true and session_id is omitted, always create a new ChatSession instead of reusing the most recent one.")
     use_prod: bool = Field(False, description="If true and a NEXTSEEK_CHAT_CONFIG_PROD is configured, route this query through the prod ChatConfig (real production tables) instead of the default dev/docker one. Admin-only on the UI; ignored if a prod config wasn't built.")
