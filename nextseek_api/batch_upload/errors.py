@@ -17,6 +17,7 @@ class ErrorType(Enum):
     AMBIGUOUS_IDENTITY = "ambiguous_identity"
     VALIDATION_ASSAY = "VALIDATION_ASSAY"
     VALIDATION_SAMPLE_TYPE = "VALIDATION_SAMPLE_TYPE"
+    VALIDATION_ATTRIBUTE_NAME = "VALIDATION_ATTRIBUTE_NAME"
     DB_CONSTRAINT = "DB_CONSTRAINT"
     DB_CONN = "DB_CONN"
     DUPLICATE = "DUPLICATE"
@@ -44,6 +45,7 @@ _SEVERITY_MAP: Dict[ErrorType, Severity] = {
     ErrorType.VALIDATION_METADATA_SHAPE: Severity.ERROR,
     ErrorType.AMBIGUOUS_IDENTITY: Severity.ERROR,
     ErrorType.VALIDATION_SAMPLE_TYPE: Severity.WARNING,
+    ErrorType.VALIDATION_ATTRIBUTE_NAME: Severity.ERROR,
     ErrorType.VALIDATION_ASSAY: Severity.INFO,
     ErrorType.DUPLICATE: Severity.INFO,
     ErrorType.PARENT_FAILED: Severity.ERROR,
@@ -73,6 +75,24 @@ class RowError:
 
 class JsonNormalizationError(Exception):
     """Raised when JSON metadata cannot be parsed or normalized."""
+
+
+class AttributeNameError(Exception):
+    """Raised when json_metadata keys are not defined as sample_attributes for the row's SampleType."""
+
+    def __init__(
+        self,
+        sample_type: str,
+        sample_type_id: int,
+        bad_keys: List[str],
+    ) -> None:
+        self.sample_type = sample_type
+        self.sample_type_id = sample_type_id
+        self.bad_keys = bad_keys
+        super().__init__(
+            f"json_metadata contains {len(bad_keys)} key(s) not defined as attributes "
+            f"for SampleType {sample_type!r}: {bad_keys}"
+        )
 
 
 # ── collector ─────────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nextseek_api.batch_upload.errors import JsonNormalizationError
+from nextseek_api.batch_upload.errors import AttributeNameError, JsonNormalizationError
 from nextseek_api.batch_upload.models import InputRowModel, InsertableSample, SampleMetadata
 from nextseek_api.batch_upload.transform import (
     _normalize_text,
@@ -122,11 +122,13 @@ class TestNormalizeText:
 
 
 class TestBuildInsertable:
+    @patch("nextseek_api.batch_upload.transform.prefetch_sample_type_attributes")
     @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
     @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
-    def test_basic_build(self, mock_resolve, mock_validate):
+    def test_basic_build(self, mock_resolve, mock_validate, mock_attrs):
         mock_resolve.return_value = 42
         mock_validate.return_value = ({1, 2}, set())
+        mock_attrs.return_value = {42: {"Name"}}
 
         row = InputRowModel(
             UID="TEST-260101MIT-1",
@@ -199,11 +201,14 @@ class TestBuildInsertable:
             with pytest.raises(JsonNormalizationError):
                 build_insertable(row, project_id=10, conn=conn)
 
+    @patch("nextseek_api.batch_upload.transform.prefetch_sample_type_attributes")
     @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
     @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
-    def test_canonicalizes_typo_spelling_on_write(self, mock_resolve, mock_validate):
+    def test_canonicalizes_typo_spelling_on_write(self, mock_resolve, mock_validate, mock_attrs):
         mock_resolve.return_value = 42
         mock_validate.return_value = (set(), set())
+        # After canonicalization, key becomes "File_PrimaryData"; that must be allowed.
+        mock_attrs.return_value = {42: {"File_PrimaryData"}}
         row = InputRowModel(
             UID="D.SEQ-260413NA-1",
             SampleType="D.SEQ_files",
@@ -248,11 +253,15 @@ class TestBuildInsertable:
         assert sample.json_metadata == "{}"
         assert sample.title == "TEST-260101MIT-6"
 
+    @patch("nextseek_api.batch_upload.transform.prefetch_sample_type_attributes")
     @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
     @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
-    def test_model_validation_failure_uses_empty_sample_metadata(self, mock_resolve, mock_validate):
+    def test_model_validation_failure_uses_empty_sample_metadata(
+        self, mock_resolve, mock_validate, mock_attrs
+    ):
         mock_resolve.return_value = 42
         mock_validate.return_value = (set(), set())
+        mock_attrs.return_value = {42: {"Name"}}
         row = InputRowModel(
             UID="TEST-260101MIT-7",
             SampleType="NHP_blood",
@@ -262,3 +271,134 @@ class TestBuildInsertable:
         with patch("nextseek_api.batch_upload.transform.SampleMetadata.model_validate", side_effect=ValueError("bad")):
             sample, _ = build_insertable(row, project_id=10, conn=conn)
         assert sample.title == "TEST-260101MIT-7"
+
+
+# ── build_insertable: json_metadata attribute-name check (PR #2) ─────────
+
+
+class TestBuildInsertableAttributeCheck:
+    """Verify that json_metadata keys are set-diffed against sample_attributes
+    for the row's SampleType. No skip-list: every key (including SEEK
+    metadata fields like UID, Parent, Protocol) must exist in the prefetched
+    per-SampleType set."""
+
+    @patch("nextseek_api.batch_upload.transform.prefetch_sample_type_attributes")
+    @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
+    @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
+    def test_all_keys_match_no_error(self, mock_resolve, mock_validate, mock_attrs):
+        mock_resolve.return_value = 42
+        mock_validate.return_value = (set(), set())
+        mock_attrs.return_value = {42: {"Name", "Subject ID"}}
+
+        row = InputRowModel(
+            UID="TEST-260101MIT-1",
+            SampleType="NHP_blood",
+            json_metadata='{"Name": "Test", "Subject ID": "S1"}',
+        )
+        conn = MagicMock()
+        sample, _ = build_insertable(row, project_id=10, conn=conn)
+        assert sample.uuid == "TEST-260101MIT-1"
+
+    @patch("nextseek_api.batch_upload.transform.prefetch_sample_type_attributes")
+    @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
+    @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
+    def test_one_unknown_key_raises(self, mock_resolve, mock_validate, mock_attrs):
+        mock_resolve.return_value = 42
+        mock_validate.return_value = (set(), set())
+        mock_attrs.return_value = {42: {"Name", "Subject ID"}}
+
+        row = InputRowModel(
+            UID="TEST-260101MIT-2",
+            SampleType="NHP_blood",
+            json_metadata='{"Name": "Test", "Subjet ID": "S1"}',  # typo'd "Subjet"
+        )
+        conn = MagicMock()
+        with pytest.raises(AttributeNameError) as exc_info:
+            build_insertable(row, project_id=10, conn=conn)
+        assert exc_info.value.bad_keys == ["Subjet ID"]
+        assert exc_info.value.sample_type == "NHP_blood"
+        assert exc_info.value.sample_type_id == 42
+
+    @patch("nextseek_api.batch_upload.transform.prefetch_sample_type_attributes")
+    @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
+    @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
+    def test_multiple_unknown_keys_all_reported(
+        self, mock_resolve, mock_validate, mock_attrs
+    ):
+        mock_resolve.return_value = 42
+        mock_validate.return_value = (set(), set())
+        mock_attrs.return_value = {42: {"Name"}}
+
+        row = InputRowModel(
+            UID="TEST-260101MIT-3",
+            SampleType="NHP_blood",
+            json_metadata='{"Name": "T", "Subjet ID": "S1", "Heigth": "180"}',
+        )
+        conn = MagicMock()
+        with pytest.raises(AttributeNameError) as exc_info:
+            build_insertable(row, project_id=10, conn=conn)
+        assert set(exc_info.value.bad_keys) == {"Subjet ID", "Heigth"}
+
+    @patch("nextseek_api.batch_upload.transform.prefetch_sample_type_attributes")
+    @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
+    @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
+    def test_seek_conventional_keys_get_no_special_treatment(
+        self, mock_resolve, mock_validate, mock_attrs
+    ):
+        """Regression guard: even UID/Parent/Protocol must be in sample_attributes."""
+        mock_resolve.return_value = 42
+        mock_validate.return_value = (set(), set())
+        # SampleType 42 has *only* "Name" defined — no Parent, no Protocol.
+        mock_attrs.return_value = {42: {"Name"}}
+
+        row = InputRowModel(
+            UID="TEST-260101MIT-4",
+            SampleType="NHP_blood",
+            json_metadata='{"Name": "T", "Parent": "NHP-1", "Protocol": "X"}',
+        )
+        conn = MagicMock()
+        with pytest.raises(AttributeNameError) as exc_info:
+            build_insertable(row, project_id=10, conn=conn)
+        assert set(exc_info.value.bad_keys) == {"Parent", "Protocol"}
+
+    @patch("nextseek_api.batch_upload.transform.prefetch_sample_type_attributes")
+    @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
+    @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
+    def test_empty_json_metadata_no_error(
+        self, mock_resolve, mock_validate, mock_attrs
+    ):
+        mock_resolve.return_value = 42
+        mock_validate.return_value = (set(), set())
+        mock_attrs.return_value = {42: {"Name"}}
+
+        row = InputRowModel(
+            UID="TEST-260101MIT-5",
+            SampleType="NHP_blood",
+            json_metadata="{}",
+        )
+        conn = MagicMock()
+        sample, _ = build_insertable(row, project_id=10, conn=conn)
+        assert sample.uuid == "TEST-260101MIT-5"
+
+    @patch("nextseek_api.batch_upload.transform.prefetch_sample_type_attributes")
+    @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
+    @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
+    def test_sample_type_without_attributes_fails_every_key(
+        self, mock_resolve, mock_validate, mock_attrs
+    ):
+        """If sample_type_id has no rows in sample_attributes, every key is bad."""
+        mock_resolve.return_value = 99
+        mock_validate.return_value = (set(), set())
+        # No entry for sample_type_id 99 → no allowed attributes.
+        mock_attrs.return_value = {}
+
+        row = InputRowModel(
+            UID="TEST-260101MIT-6",
+            SampleType="Orphan_type",
+            json_metadata='{"Name": "T", "Subject ID": "S1"}',
+        )
+        conn = MagicMock()
+        with pytest.raises(AttributeNameError) as exc_info:
+            build_insertable(row, project_id=10, conn=conn)
+        assert set(exc_info.value.bad_keys) == {"Name", "Subject ID"}
+        assert exc_info.value.sample_type_id == 99

@@ -12,7 +12,7 @@ from .config import BatchUploadConfig, Neo4jConfig
 from .convert import merge_files
 from .dag import build_relationships, compute_directions, detect_cycles
 from .db_engine import get_connection
-from .errors import ErrorCollector, ErrorType, _classify_validation_error
+from .errors import AttributeNameError, ErrorCollector, ErrorType, _classify_validation_error
 from .insert import load_existing_samples, process_batches
 from .identity import extract_identity
 from .levels import LevelAssignment, cascade_failures, compute_levels
@@ -443,6 +443,18 @@ def run_batch_upload_multi(
                             error_type=ErrorType.VALIDATION_ASSAY,
                             message=msg,
                         )
+            except AttributeNameError as exc:
+                transform_errors += 1
+                for bad_key in exc.bad_keys:
+                    error_collector.add(
+                        row_index=-1,
+                        uid=row.UID,
+                        error_type=ErrorType.VALIDATION_ATTRIBUTE_NAME,
+                        message=(
+                            f"{bad_key!r} is not a defined attribute for "
+                            f"SampleType {exc.sample_type!r}"
+                        ),
+                    )
             except Exception as exc:
                 transform_errors += 1
                 error_collector.add(
