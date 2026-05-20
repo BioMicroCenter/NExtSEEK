@@ -7,7 +7,14 @@ export interface AsyncQueryResponse {
 // WebSocket progress event envelope
 export interface ProgressEvent {
   event: string;
-  data: AgentStartedData | AgentCompleteData | QueryCompleteData | QueryErrorData | Record<string, unknown>;
+  data:
+    | AgentStartedData
+    | AgentCompleteData
+    | SearchStartedData
+    | SearchCompleteData
+    | QueryCompleteData
+    | QueryErrorData
+    | Record<string, unknown>;
 }
 
 export interface AgentStartedData {
@@ -18,6 +25,38 @@ export interface AgentStartedData {
 export interface AgentCompleteData {
   agent: string;
   summary: Record<string, unknown> | string | null;
+}
+
+/**
+ * Emitted by chat_nextseek's orchestrator (and planner-loop execution)
+ * when an agent kicks off a side-effectful sub-step. Shape varies by
+ * `source`:
+ *   - "neo4j"    → carries `cypher`
+ *   - "api"      → carries `endpoint`, `method`
+ *   - "reporter" → carries `project`, `summary_mode`
+ */
+export interface SearchStartedData {
+  source: "neo4j" | "api" | "reporter" | string;
+  cypher?: string;
+  endpoint?: string;
+  method?: string;
+  project?: string | number;
+  summary_mode?: string;
+  [extra: string]: unknown;
+}
+
+/**
+ * Emitted on completion of the same sub-step. Neo4j carries `count` + `error`;
+ * API carries `endpoint` + HTTP `status`; reporter may carry row counts.
+ */
+export interface SearchCompleteData {
+  source: "neo4j" | "api" | "reporter" | string;
+  count?: number;
+  ok?: boolean;
+  error?: string | null;
+  endpoint?: string;
+  status?: number;
+  [extra: string]: unknown;
 }
 
 import type { Artifact } from "./chat";

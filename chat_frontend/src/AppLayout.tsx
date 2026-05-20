@@ -11,6 +11,8 @@ import type {
   ProgressEvent,
   AgentStartedData,
   AgentCompleteData,
+  SearchStartedData,
+  SearchCompleteData,
   QueryCompleteData,
   QueryErrorData,
 } from "@/lib/types/api";
@@ -29,7 +31,14 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
   const [debugData, setDebugData] = useState<DebugData>({ entries: [], bundleId: null, query: "" });
 
   const { messages, addUserMessage, addAssistantMessage, addSystemMessage, hydrateFromTurns } = useMessages();
-  const { processingState, handleAgentStarted, handleAgentComplete, resetProcessing } = useProcessingState();
+  const {
+    processingState,
+    handleAgentStarted,
+    handleAgentComplete,
+    handleSearchStarted,
+    handleSearchComplete,
+    resetProcessing,
+  } = useProcessingState();
   const { isQuerying, sessionId, submitQuery, downloadBundle } = useChatApi();
 
   // sessionsRef breaks the chicken-and-egg between chatRoute (whose popstate
@@ -92,6 +101,14 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           }));
           break;
         }
+        case "search_started": {
+          handleSearchStarted(event.data as SearchStartedData);
+          break;
+        }
+        case "search_complete": {
+          handleSearchComplete(event.data as SearchCompleteData);
+          break;
+        }
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
@@ -111,7 +128,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         }
       }
     },
-    [handleAgentStarted, handleAgentComplete, addAssistantMessage, addSystemMessage, resetProcessing, sessions],
+    [handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, resetProcessing, sessions],
   );
 
   const handleQueryError = useCallback(

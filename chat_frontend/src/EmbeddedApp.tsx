@@ -11,6 +11,8 @@ import type {
   ProgressEvent,
   AgentStartedData,
   AgentCompleteData,
+  SearchStartedData,
+  SearchCompleteData,
   QueryCompleteData,
   QueryErrorData,
 } from "@/lib/types/api";
@@ -31,7 +33,14 @@ export function EmbeddedApp() {
 
   const { messages, addUserMessage, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, hydrateFromTurns } = useMessages();
   const pendingDebugRef = useRef<DebugEntry[]>([]);
-  const { processingState, handleAgentStarted, handleAgentComplete, resetProcessing } = useProcessingState();
+  const {
+    processingState,
+    handleAgentStarted,
+    handleAgentComplete,
+    handleSearchStarted,
+    handleSearchComplete,
+    resetProcessing,
+  } = useProcessingState();
 
   // sessionsRef breaks the chicken-and-egg between chatRoute (whose popstate
   // callback needs setActive) and sessions (returned after chatRoute). The
@@ -95,6 +104,14 @@ export function EmbeddedApp() {
           setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
           break;
         }
+        case "search_started": {
+          handleSearchStarted(event.data as SearchStartedData);
+          break;
+        }
+        case "search_complete": {
+          handleSearchComplete(event.data as SearchCompleteData);
+          break;
+        }
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
@@ -120,7 +137,7 @@ export function EmbeddedApp() {
         }
       }
     },
-    [handleAgentStarted, handleAgentComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
+    [handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
   );
 
   const handleQueryError = useCallback(
