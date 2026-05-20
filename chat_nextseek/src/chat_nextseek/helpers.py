@@ -3129,81 +3129,6 @@ def run_reporter_summary(
     return reporter_result, saved_files, reporter_summary
 
 
-def enumerate_lineage_leaves(
-    metadata_bundle: dict,
-    *,
-    accepted_types: list[str],
-) -> list[dict[str, str]]:
-    """Walk a NExtSEEK metadata bundle and return every sample whose
-    ``sample_type`` is in ``accepted_types``.
-
-    Returns a list of ``{uid, sample_type, assay, source_uid}`` dicts. ``source_uid``
-    is the top-level (root) sample UID this leaf was reached from, used by the
-    sanity step to report "X source UIDs have zero matching leaves".
-
-    Empty ``accepted_types`` short-circuits to ``[]`` — used by pipelines with
-    ``samplesheet_input_kind="accession"`` (e.g. fetchngs) where lineage isn't
-    walked at all.
-
-    The bundle shape mirrors the reporter API response:
-        {"data": [
-            {"sample_type": "NHP", "samples": [
-                {"uuid": "NHP-1", "metadata": {...}, "children": [
-                    {"uuid": "TIS-1", "metadata": {...}, "children": [
-                        {"uuid": "D.SEQ-1", "metadata": {"UID": "...", "assay_name": "RNA-seq"}},
-                    ]},
-                ]},
-            ]},
-        ]}
-
-    Assay value is read from ``metadata["assay_name"]`` with fallbacks to
-    ``"assay"`` and ``"AssayName"``; missing assay defaults to "".
-    """
-    accepted = set(accepted_types or [])
-    if not accepted:
-        return []
-
-    out: list[dict[str, str]] = []
-
-    def _walk(sample: dict, source_uid: str, leaf_sample_type: str | None) -> None:
-        if not isinstance(sample, dict):
-            return
-        uid = (sample.get("metadata") or {}).get("UID") or sample.get("uuid") or ""
-        st = leaf_sample_type or ""
-        # Only emit when sample_type is in accepted set.
-        if st in accepted and uid:
-            md = sample.get("metadata") or {}
-            assay = (
-                md.get("assay_name")
-                or md.get("assay")
-                or md.get("AssayName")
-                or ""
-            )
-            out.append({
-                "uid": str(uid),
-                "sample_type": st,
-                "assay": str(assay),
-                "source_uid": source_uid,
-            })
-        for child in sample.get("children") or []:
-            # Children's sample_type comes from the inner-block annotation OR
-            # from each child's own metadata. Reporter response stamps it on
-            # the surrounding block; for nested children we re-read from
-            # metadata.sample_type when available.
-            child_st = (child.get("metadata") or {}).get("sample_type") or st
-            _walk(child, source_uid, child_st)
-
-    for block in (metadata_bundle or {}).get("data") or []:
-        if not isinstance(block, dict):
-            continue
-        block_type = block.get("sample_type")
-        for sample in block.get("samples") or []:
-            root_uid = (sample.get("metadata") or {}).get("UID") or sample.get("uuid") or ""
-            _walk(sample, source_uid=str(root_uid), leaf_sample_type=block_type)
-
-    return out
-
-
 # Moved to helpers_new in Phase 2 — re-exported for backward compat
 from .helpers_new.prompts import load_prompt, log_usage, log_prompt  # noqa: E402,F401
 from .helpers_new.json_io import _extract_required_paths, estimate_tokens_from_text, safe_parse_json  # noqa: E402,F401
@@ -3252,4 +3177,5 @@ from .helpers_new.dates import (  # noqa: E402,F401
     _parse_day,
     _day_range_to_yymmdd_bounds,
 )
+from .helpers_new.lineage import enumerate_lineage_leaves  # noqa: E402,F401
 
