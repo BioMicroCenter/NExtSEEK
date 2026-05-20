@@ -26,7 +26,12 @@ from .models import (
 )
 from .neo4j_sync import upload_all
 from .parallel import PARALLEL_THRESHOLD, process_batches_parallel
-from .prefetch import prefetch_assay_ids, prefetch_project_sample_type_links, prefetch_sample_types
+from .prefetch import (
+    prefetch_assay_ids,
+    prefetch_project_sample_type_links,
+    prefetch_sample_type_attributes,
+    prefetch_sample_types,
+)
 from .report import (
     ProgressReporter,
     build_row_summaries,
@@ -412,6 +417,8 @@ def run_batch_upload_multi(
         # Gather unique sample type IDs for project linking
         st_map = prefetch_sample_types(all_titles, conn)
         st_ids = list(st_map.values())
+        if st_ids:
+            prefetch_sample_type_attributes(st_ids, conn)
         if project_id and st_ids:
             prefetch_project_sample_type_links(project_id, st_ids, conn)
 

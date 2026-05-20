@@ -12,6 +12,7 @@ from nextseek_api.batch_upload.prefetch import (
     clear_caches,
     prefetch_assay_ids,
     prefetch_project_sample_type_links,
+    prefetch_sample_type_attributes,
     prefetch_sample_types,
     resolve_sample_type_id,
     validate_assay_ids,
@@ -269,3 +270,56 @@ class TestCacheManagement:
         stats = cache_stats()
         assert stats["sample_type_title_to_id"] == 0
         assert stats["assay_exists"] == 0
+
+
+# ── prefetch_sample_type_attributes ──────────────────────────────────────
+
+
+class TestPrefetchSampleTypeAttributes:
+    def test_empty_id_list_returns_empty_dict(self):
+        conn = MagicMock()
+        result = prefetch_sample_type_attributes([], conn)
+        assert result == {}
+        conn.execute.assert_not_called()
+
+    def test_single_sample_type_returns_attribute_set(self):
+        conn = _make_conn(rows=[
+            (1, "UID"),
+            (1, "Parent"),
+            (1, "Subject ID"),
+        ])
+        result = prefetch_sample_type_attributes([1], conn)
+        assert result == {1: {"UID", "Parent", "Subject ID"}}
+        conn.execute.assert_called_once()
+
+    def test_multiple_sample_types_returns_one_entry_per_id(self):
+        conn = _make_conn(rows=[
+            (1, "UID"),
+            (1, "Parent"),
+            (2, "UID"),
+            (2, "Scan Path"),
+            (3, "UID"),
+        ])
+        result = prefetch_sample_type_attributes([1, 2, 3], conn)
+        assert result == {
+            1: {"UID", "Parent"},
+            2: {"UID", "Scan Path"},
+            3: {"UID"},
+        }
+        conn.execute.assert_called_once()
+
+    def test_cache_hit_issues_no_sql_on_second_call(self):
+        conn = _make_conn(rows=[(1, "UID"), (1, "Parent")])
+        prefetch_sample_type_attributes([1], conn)
+        conn.execute.reset_mock()
+
+        result = prefetch_sample_type_attributes([1], conn)
+        assert result == {1: {"UID", "Parent"}}
+        conn.execute.assert_not_called()
+
+    def test_unknown_sample_type_id_omitted_not_raised(self):
+        # SampleType 99 has no rows in sample_attributes; DB returns nothing for it.
+        conn = _make_conn(rows=[(1, "UID")])
+        result = prefetch_sample_type_attributes([1, 99], conn)
+        assert result == {1: {"UID"}}
+        assert 99 not in result

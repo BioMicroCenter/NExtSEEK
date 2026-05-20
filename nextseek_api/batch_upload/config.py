@@ -49,6 +49,9 @@ class BatchUploadConfig:
         self.title_to_id_cache_max: int = int(
             os.environ.get("TITLE_TO_ID_CACHE_MAX", overrides.get("title_to_id_cache_max", 5000))
         )
+        self.attribute_cache_max: int = int(
+            os.environ.get("ATTRIBUTE_CACHE_MAX", overrides.get("attribute_cache_max", 1000))
+        )
         # Optional row limit for EXTRACT stage (None = no limit)
         self.limit: Optional[int] = overrides.get("limit", None)
         self.update_existing: bool = _env_bool(
