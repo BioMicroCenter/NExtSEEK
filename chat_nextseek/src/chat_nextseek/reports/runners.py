@@ -15,13 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from ..artifacts import ArtifactStore
-from ..helpers_new.dates import (
+from ..helpers.dates import (
     _normalize_project_id,
     _normalize_years,
     _month_range_to_yymmdd_bounds,
     _day_range_to_yymmdd_bounds,
 )
-from ..helpers_new.tools.neo4j import tool_neo4j_query
+from ..helpers.tools.neo4j import tool_neo4j_query
 from .nfcore import top_items
 from .outputs import persist_report_file
 

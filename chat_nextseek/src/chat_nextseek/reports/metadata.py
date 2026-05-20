@@ -9,7 +9,7 @@ import json
 import re
 from typing import Any
 
-from ..helpers_new.tools.nextseek_api import tool_nextseek_api_request
+from ..helpers.tools.nextseek_api import tool_nextseek_api_request
 
 
 def annotate_metadata_with_sampletypes(config, metadata: dict) -> dict:

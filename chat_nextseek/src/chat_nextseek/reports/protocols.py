@@ -19,7 +19,7 @@ import requests
 
 from ..artifacts import ArtifactStore
 from ..config import ChatConfig
-from ..helpers_new.json_io import estimate_tokens_from_text
+from ..helpers.json_io import estimate_tokens_from_text
 
 
 def extract_protocol_refs_from_metadata(metadata: dict) -> list[dict[str, str]]:
