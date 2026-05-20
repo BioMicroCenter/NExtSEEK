@@ -26,7 +26,7 @@ def _pipeline_groupby_resolution(
     The LLM MUST call finalize_groupby before the cap; otherwise raises RuntimeError.
     """
     from ...schemas.pipeline import GroupByResolution, FieldRef
-    from ...pipeline_tools import GROUPBY_TOOL_SCHEMAS, dispatch_groupby_tool_call
+    from ..tools import GROUPBY_TOOL_SCHEMAS, dispatch_groupby_tool_call
 
     MAX_ITER = 5
 

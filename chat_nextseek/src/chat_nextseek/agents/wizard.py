@@ -45,7 +45,7 @@ def _wizard_agent_builder(
 
     Cap: MAX_TOOL_ITERATIONS=5 per turn. Beyond that, raise WizardToolLoopError.
     """
-    from ..builder_tools import BUILDER_TOOL_SCHEMAS, dispatch_tool_call
+    from ..pipeline.builder_tools import BUILDER_TOOL_SCHEMAS, dispatch_tool_call
 
     print(f"[DEBUG][WIZARD_BUILDER] enter user_text={user_text!r} prior_turns={len(history_messages) // 2 if history_messages else 0}")
     client, model_name, _budget = config.get_agent_model("wizard_builder")
