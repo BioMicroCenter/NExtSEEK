@@ -79,44 +79,6 @@ def slim_api_result_for_llm(api_result: dict, max_rows: int = 5, max_chars: int 
     return slimmed
 
 
-def strip_html(value: str | None) -> str | None:
-    """
-    Remove HTML tags from a string while preserving content for display or logging.
-    Returns None when input is None so callers can propagate optional fields cleanly.
-    """
-    if value is None:
-        return None
-    return re.sub(r"<[^>]+>", "", value)
-
-
-def strip_html_recursive(obj):
-    """Recursively strip HTML tags from all string values in a JSON-like structure."""
-    if isinstance(obj, str):
-        return strip_html(obj)
-    if isinstance(obj, dict):
-        return {k: strip_html_recursive(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [strip_html_recursive(v) for v in obj]
-    return obj
-
-
-def load_file_for_memory(path: str) -> str:
-    """Read a result file, stripping HTML from parsed JSON payloads before returning text."""
-    content = Path(path).read_text(encoding="utf-8")
-    try:
-        data = json.loads(content)
-        cleaned = strip_html_recursive(data)
-        return json.dumps(cleaned, indent=2)
-    except Exception:
-        return content
-
-
-def load_json_for_memory(path: str) -> Any:
-    """Read a JSON artifact and recursively strip HTML from string values."""
-    content = Path(path).read_text(encoding="utf-8")
-    return strip_html_recursive(json.loads(content))
-
-
 def _json_type_name(value: Any) -> str:
     if value is None:
         return "null"
@@ -4518,4 +4480,5 @@ def enumerate_lineage_leaves(
 # Moved to helpers_new in Phase 2 — re-exported for backward compat
 from .helpers_new.prompts import load_prompt, log_usage, log_prompt  # noqa: E402,F401
 from .helpers_new.json_io import _extract_required_paths, estimate_tokens_from_text, safe_parse_json  # noqa: E402,F401
+from .helpers_new.text import strip_html, strip_html_recursive, load_file_for_memory, load_json_for_memory  # noqa: E402,F401
 
