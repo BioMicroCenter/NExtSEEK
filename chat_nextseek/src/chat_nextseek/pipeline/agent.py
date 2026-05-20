@@ -28,13 +28,13 @@ if TYPE_CHECKING:
 # Expose LLM helpers at module level so tests can patch them via
 # "chat_nextseek.pipeline_agent._pipeline_directive_parse" etc.
 from ..agents import (  # noqa: E402
-    _pipeline_question_step,
     report_writer_agent,
 )
 from .steps.directive import _pipeline_directive_parse  # noqa: E402
 from .steps.sanity import _pipeline_sanity_check  # noqa: E402
 from .steps.groupby import _pipeline_groupby_resolution  # noqa: E402
 from .steps.edit import _pipeline_edit_step  # noqa: E402
+from .steps.question import _pipeline_question_step  # noqa: E402
 from ..helpers import (
     annotate_metadata_with_sampletypes,
     enumerate_lineage_leaves,

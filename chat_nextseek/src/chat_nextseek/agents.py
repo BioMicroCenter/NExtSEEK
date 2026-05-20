@@ -4428,69 +4428,9 @@ def wizard_agent(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _pipeline_question_step(
-    *,
-    config: "ChatConfig",
-    user_query: str,
-    pinned_bundle_summary: str = "",
-) -> str:
-    """Fifth LLM step. Answers a pipeline-domain question from catalog + capabilities.
-
-    Returns a plain-text answer (no Pydantic wrapping). Falls back to a short
-    error string on LLM failure so the caller can still return a useful reply.
-    """
-    from .seqera.catalog import NFCORE_PIPELINE_CATALOG
-
-    catalog_block_lines = []
-    for k, entry in NFCORE_PIPELINE_CATALOG.items():
-        catalog_block_lines.append(
-            f"- {k}: {entry.get('pipeline_kind_description', '')} "
-            f"(input={entry.get('samplesheet_input_kind', '?')}, "
-            f"leaf_types={entry.get('accepted_leaf_sample_types', [])})"
-        )
-    catalog_block = "\n".join(catalog_block_lines)
-
-    prompt = (
-        config._load_prompt("pipeline_agent_question.txt")
-        .replace("{user_query}", user_query)
-        .replace("{catalog_block}", catalog_block)
-        .replace("{pinned_bundle_summary}", pinned_bundle_summary or "(none)")
-    )
-
-    print(f"[DEBUG][PIPELINE_QUESTION] user_query={user_query!r}")
-
-    client, model_name, budget = config.get_agent_model("pipeline_question")
-    messages = [
-        {"role": "system", "content": prompt},
-        {"role": "user", "content": user_query},
-    ]
-    try:
-        resp = client.chat(
-            model=model_name,
-            temperature=0,
-            messages=messages,
-            thinking_budget=budget,
-        )
-        log_usage(resp, "PIPELINE_QUESTION")
-        answer = (resp.content or "").strip()
-        log_prompt(
-            config.LOG_DIR,
-            "pipeline_question",
-            {
-                "user_query": user_query,
-                "pinned_bundle_summary": pinned_bundle_summary,
-                "messages": messages,
-                "response": answer,
-            },
-        )
-        return answer or "I don't have a clear answer for that. Try the regular assistant."
-    except Exception as exc:
-        print(f"[DEBUG][PIPELINE_QUESTION] LLM call failed: {exc!r}")
-        return f"Couldn't answer that (LLM error: {exc!r}). Try asking the regular assistant."
-
-
 # Pipeline step shims — moved to pipeline/steps/* in Phase 1
 from .pipeline.steps.directive import _pipeline_directive_parse  # noqa: E402,F401
 from .pipeline.steps.sanity import _pipeline_sanity_check  # noqa: E402,F401
 from .pipeline.steps.groupby import _pipeline_groupby_resolution  # noqa: E402,F401
 from .pipeline.steps.edit import _pipeline_edit_step  # noqa: E402,F401
+from .pipeline.steps.question import _pipeline_question_step  # noqa: E402,F401
