@@ -22,8 +22,8 @@ from ..helpers_new.dates import (
     _day_range_to_yymmdd_bounds,
 )
 from ..helpers_new.tools.neo4j import tool_neo4j_query
-from ..helpers import persist_report_file
 from .nfcore import top_items
+from .outputs import persist_report_file
 
 
 def run_project_sample_report(
