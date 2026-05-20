@@ -2,17 +2,29 @@
 from __future__ import annotations
 
 import json
+import random
 import shutil
 import time
+import time as _time
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from chat_nextseek.orchestrator import run_query
 from chat_nextseek.session import SQLiteSessionState
 
-from e2e.catalog import Variant
+from e2e.catalog import Catalog, Variant, load_catalog
 from e2e.criteria import check_pass
+from e2e.manifest import (
+    Manifest,
+    ManifestEntry,
+    filter_for_rerun,
+    load_manifest,
+    write_manifest,
+)
+from e2e.report import generate_html_report
+from e2e.sampler import sample
 
 
 def _make_session(config, user_id: str):
@@ -135,3 +147,94 @@ def run_variant(
         "failed_criteria": overall_failed_criteria,
         "turn_results": turn_results,
     }
+
+
+# ── Suite-level orchestration ────────────────────────────────────────────
+
+
+def run_main(
+    catalog_path: Path,
+    *,
+    ratio: float = 0.33,
+    seed: int | None = None,
+    family: str | None = None,
+    variant_id: str | None = None,
+    rerun_manifest: Path | None = None,
+    failed_only: bool = False,
+    pace_seconds: int = 15,
+    profile: str = "mixed",
+    out_root: Path = Path("outputs"),
+) -> int:
+    """Top-level entry: build the run plan, execute, write manifest + report.
+
+    Returns exit code 0 if every executed variant passes, 1 otherwise.
+    """
+    # Late import — ChatConfig is heavy and pulls in env / catalog parsing
+    from chat_nextseek.config import ChatConfig  # noqa: PLC0415
+
+    cat: Catalog = load_catalog(catalog_path)
+
+    # ── Plan: which variants run this invocation ─────────────────────────
+    if rerun_manifest is not None:
+        prior = load_manifest(rerun_manifest)
+        ids = set(filter_for_rerun(prior, failed_only=failed_only))
+        plan = [v for fam in cat.families.values() for v in fam.variants if v.id in ids]
+        seed = seed or prior.seed
+        ratio = prior.ratio
+    elif variant_id is not None:
+        plan = [v for fam in cat.families.values() for v in fam.variants if v.id == variant_id]
+        if not plan:
+            print(f"[e2e] variant not found: {variant_id}")
+            return 2
+    elif family is not None:
+        fam = cat.families.get(family)
+        if fam is None:
+            print(f"[e2e] family not found: {family}")
+            return 2
+        plan = list(fam.variants)
+    else:
+        actual_seed = seed if seed is not None else int(_time.time())
+        rng = random.Random(actual_seed)
+        plan = sample(cat, ratio=ratio, rng=rng)
+        seed = actual_seed
+
+    if not plan:
+        print("[e2e] no variants planned (nothing to do)")
+        return 0
+
+    ts = datetime.now().strftime("%y%m%d_%H%M%S")
+    out_dir = out_root / f"e2e_{ts}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    started = datetime.now(timezone.utc).isoformat()
+    print(f"[e2e] running {len(plan)} variants → {out_dir}")
+
+    config = ChatConfig()
+    entries: list[ManifestEntry] = []
+    for v in plan:
+        print(f"[e2e]   ▶ {v.id}")
+        result = run_variant(v, config, out_dir, pace_seconds=pace_seconds)
+        entry = ManifestEntry(
+            id=result["id"], family=result["family"],
+            status=result["status"], elapsed_s=result["elapsed_s"],
+            failed_criteria=result.get("failed_criteria", []),
+        )
+        entries.append(entry)
+        print(f"[e2e]   {entry.status.upper()}  {v.id}  ({entry.elapsed_s}s)")
+
+    ended = datetime.now(timezone.utc).isoformat()
+
+    manifest = Manifest(
+        started_at=started, ended_at=ended,
+        ratio=ratio, seed=seed or 0, profile=profile,
+        variants=entries,
+    )
+    manifest_path = out_dir / "manifest.json"
+    write_manifest(manifest, manifest_path)
+
+    report_path = generate_html_report(manifest, out_dir)
+
+    n_pass = sum(1 for e in entries if e.status == "passed")
+    n_total = len(entries)
+    print(f"[e2e] {n_pass}/{n_total} passed — manifest={manifest_path}, report={report_path}")
+    return 0 if n_pass == n_total else 1

@@ -138,3 +138,15 @@ def test_run_variant_handles_orchestrator_exception(tmp_path: Path):
     assert any("EXCEPTION" in fc for fc in result["failed_criteria"])
     # error.txt artifact written
     assert (tmp_path / "adv.boom" / "turns" / "main" / "error.txt").exists()
+
+
+def test_run_main_empty_catalog_clean_exit(tmp_path: Path, monkeypatch):
+    """If catalog has no eligible variants, run_main returns 0 cleanly."""
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text('{"version":"1.0","families":{"f":{"description":"","variants":[]}}}')
+
+    # ChatConfig isn't called when there's nothing to run, but patch to be safe
+    # in case the import line itself fails (e.g., missing .env)
+    from e2e.runner import run_main
+    rc = run_main(catalog_path, ratio=1.0, seed=1, out_root=tmp_path)
+    assert rc == 0
