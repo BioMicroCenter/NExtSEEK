@@ -55,8 +55,23 @@ def main(argv: list[str] | None = None) -> int:
                    help="With --playwright, run a single spot test by id.")
     p.add_argument("--headed", action="store_true",
                    help="With --playwright, run in headed (non-headless) mode.")
+    p.add_argument("--init-env", action="store_true",
+                   help="Generate chat_nextseek/.env from sibling docker + dmac files (target: docker-local).")
+    p.add_argument("--force", action="store_true",
+                   help="With --init-env, overwrite an existing .env.")
 
     args = p.parse_args(argv)
+
+    if args.init_env:
+        from e2e.import_env import write_env  # noqa: PLC0415
+        try:
+            path = write_env(force=args.force)
+        except FileExistsError as exc:
+            print(f"[e2e] {exc}", file=sys.stderr)
+            return 1
+        print(f"[e2e] wrote {path} (target: docker-local)")
+        print(f"[e2e] next: fill in API_USER / API_PASS in {path}, then `uv run e2e.py --list` to verify")
+        return 0
 
     if args.playwright:
         try:
