@@ -202,6 +202,28 @@ def run_batch_upload_multi(
                 warnings["convert_warnings"] = converted.warnings
         except Exception as exc:
             log.exception("CONVERT failed")
+            from pydantic import ValidationError as _PydanticValidationError
+            if isinstance(exc, _PydanticValidationError):
+                sub_errors = exc.errors()
+                for sub in sub_errors:
+                    loc = sub.get("loc", ())
+                    row_idx = loc[0] if loc and isinstance(loc[0], int) else -1
+                    field = ".".join(str(p) for p in loc[1:]) if len(loc) > 1 else ""
+                    raw_msg = sub.get("msg", "")
+                    cleaned = raw_msg.split(", ", 1)[1] if raw_msg.startswith("Value error, ") else raw_msg
+                    message = (
+                        f"INSTRUCTIONS row {row_idx}: {field}: {cleaned}"
+                        if field
+                        else f"INSTRUCTIONS row {row_idx}: {cleaned}"
+                    )
+                    error_collector.add(
+                        row_index=row_idx if isinstance(row_idx, int) else -1,
+                        uid=None,
+                        error_type=ErrorType.VALIDATION_JSON,
+                        message=message,
+                    )
+                summary = f"CONVERT failed: {len(sub_errors)} validation error(s) in INSTRUCTIONS sheet"
+                return _error_result(job_id, summary_path, error_collector, summary, valid_rows=valid_rows)
             error_collector.add(
                 row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
                 message=f"CONVERT failed: {exc}",

@@ -339,9 +339,20 @@ class BatchUploadViewSet(viewsets.ViewSet):
         if result.state == "PROGRESS":
             response["meta"] = result.info or {}
         elif result.state == "SUCCESS":
+            payload = result.result if isinstance(result.result, dict) else {}
             response["result"] = result.result
+            totals = payload.get("totals") or {}
+            errors = payload.get("errors") or []
+            if totals.get("error") or errors:
+                response["job_status"] = "failed"
+                response["error"] = totals.get("error") or "Job completed with errors"
+                response["errors"] = errors
+            else:
+                response["job_status"] = "succeeded"
         elif result.state == "FAILURE":
             response["meta"] = {"error": str(result.result)}
+            response["job_status"] = "failed"
+            response["error"] = str(result.result)
 
         return Response(response)
 

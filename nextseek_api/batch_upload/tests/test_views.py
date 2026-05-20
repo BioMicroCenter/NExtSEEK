@@ -174,6 +174,58 @@ class TestBatchUploadViewSetStatus:
         assert response.status_code == 200
         assert response.data["state"] == "PENDING"
 
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=True)
+    @patch("nextseek_api.batch_upload.views.AsyncResult")
+    def test_status_surfaces_job_level_failure_when_celery_success(
+        self, mock_ar, mock_owns, factory, admin_user,
+    ):
+        """When Celery state is SUCCESS but result.totals.error is set, the
+        response must clearly signal failure at the top level rather than
+        burying the error inside result['totals']['error']."""
+        mock_ar.return_value.state = "SUCCESS"
+        mock_ar.return_value.result = {
+            "job_id": "j1",
+            "summary_path": "/tmp/x.csv",
+            "totals": {"processed": 0, "success": 0, "skipped": 0, "failed": 0,
+                       "error": "CONVERT failed: 7 validation errors"},
+            "errors": [
+                {"type": "VALIDATION_JSON", "message": "INSTRUCTIONS row 0: database_field must be in 'SampleType::AttributeName' format"},
+                {"type": "VALIDATION_JSON", "message": "INSTRUCTIONS row 1: database_field must be in 'SampleType::AttributeName' format"},
+            ],
+        }
+        view = BatchUploadViewSet.as_view({"get": "job_status"})
+        request = factory.get("/api/batch-upload/status/j1/")
+        force_authenticate(request, user=admin_user)
+        response = view(request, job_id="j1")
+        assert response.status_code == 200
+        assert response.data["job_status"] == "failed", (
+            f"expected top-level job_status='failed', got {response.data!r}"
+        )
+        assert response.data.get("errors"), "expected top-level errors list"
+        assert len(response.data["errors"]) == 2
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=True)
+    @patch("nextseek_api.batch_upload.views.AsyncResult")
+    def test_status_succeeded_job_marked_succeeded(
+        self, mock_ar, mock_owns, factory, admin_user,
+    ):
+        """Healthy SUCCESS job must get job_status='succeeded' (regression guard)."""
+        mock_ar.return_value.state = "SUCCESS"
+        mock_ar.return_value.result = {
+            "job_id": "j2",
+            "summary_path": "/tmp/x.csv",
+            "totals": {"processed": 5, "success": 5, "skipped": 0, "failed": 0},
+            "errors": [],
+        }
+        view = BatchUploadViewSet.as_view({"get": "job_status"})
+        request = factory.get("/api/batch-upload/status/j2/")
+        force_authenticate(request, user=admin_user)
+        response = view(request, job_id="j2")
+        assert response.status_code == 200
+        assert response.data["job_status"] == "succeeded"
+
 
 class TestBatchUploadFileUpload:
     """Test client-side Excel file upload."""

@@ -462,6 +462,76 @@ class TestPipelineErrorPathsSummary:
             assert os.path.isfile(summary_path)
 
 
+class TestConvertPydanticValidationSurfacing:
+    """A pydantic ValidationError from CONVERT must yield per-sub-error entries
+    in result['errors'] with a real validation ErrorType, not UNKNOWN."""
+
+    def _raise_validation_error(self, *_args, **_kwargs):
+        from pydantic import TypeAdapter
+        from nextseek_api.batch_upload.models import InstructionRow
+        adapter = TypeAdapter(list[InstructionRow])
+        adapter.validate_python([
+            {"field": "UID", "database_field": ""},
+            {"field": "Sample Name", "database_field": ""},
+        ])
+
+    @patch("nextseek_api.batch_upload.orchestrator.merge_files")
+    def test_pydantic_error_emits_one_entry_per_sub_error(self, mock_merge):
+        from nextseek_api.batch_upload.orchestrator import run_batch_upload_multi
+        mock_merge.side_effect = self._raise_validation_error
+        with tempfile.TemporaryDirectory() as td:
+            result = run_batch_upload_multi(
+                xlsx_paths=["fake.xlsx"], project_id=1, contributor_id=1, output_dir=td,
+            )
+        assert len(result["errors"]) >= 2, (
+            f"expected per-sub-error entries, got {result['errors']!r}"
+        )
+
+    @patch("nextseek_api.batch_upload.orchestrator.merge_files")
+    def test_pydantic_error_uses_validation_error_type_not_unknown(self, mock_merge):
+        from nextseek_api.batch_upload.orchestrator import run_batch_upload_multi
+        mock_merge.side_effect = self._raise_validation_error
+        with tempfile.TemporaryDirectory() as td:
+            result = run_batch_upload_multi(
+                xlsx_paths=["fake.xlsx"], project_id=1, contributor_id=1, output_dir=td,
+            )
+        types = {e["type"] for e in result["errors"]}
+        assert "UNKNOWN" not in types, f"validation errors should not be UNKNOWN: {types}"
+        assert any("VALIDATION" in t for t in types), f"expected a VALIDATION_* type, got {types}"
+
+    @patch("nextseek_api.batch_upload.orchestrator.merge_files")
+    def test_pydantic_error_message_references_field_and_row(self, mock_merge):
+        from nextseek_api.batch_upload.orchestrator import run_batch_upload_multi
+        mock_merge.side_effect = self._raise_validation_error
+        with tempfile.TemporaryDirectory() as td:
+            result = run_batch_upload_multi(
+                xlsx_paths=["fake.xlsx"], project_id=1, contributor_id=1, output_dir=td,
+            )
+        import re
+        # Look for a numeric row reference per sub-error, not just the word "row"
+        # (which can match "InstructionRow" in pydantic's default formatting).
+        messages = [e["message"] for e in result["errors"]]
+        assert any("database_field" in m for m in messages), (
+            f"expected field name in messages, got: {messages!r}"
+        )
+        row_refs = [m for m in messages if re.search(r"row\s+\d+", m, re.IGNORECASE)]
+        assert len(row_refs) >= 2, (
+            f"expected row-N references in messages, got: {messages!r}"
+        )
+
+    @patch("nextseek_api.batch_upload.orchestrator.merge_files")
+    def test_non_validation_exception_still_classified_unknown(self, mock_merge):
+        """Preserve existing behavior for non-pydantic CONVERT errors."""
+        from nextseek_api.batch_upload.orchestrator import run_batch_upload_multi
+        mock_merge.side_effect = RuntimeError("disk full")
+        with tempfile.TemporaryDirectory() as td:
+            result = run_batch_upload_multi(
+                xlsx_paths=["fake.xlsx"], project_id=1, contributor_id=1, output_dir=td,
+            )
+        assert len(result["errors"]) == 1
+        assert result["errors"][0]["type"] == "UNKNOWN"
+
+
 class TestAmbiguousIdentityHandling:
 
     @patch("nextseek_api.batch_upload.orchestrator.Neo4jConfig.from_django_settings")
