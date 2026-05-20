@@ -7,6 +7,8 @@ import {
   MessageSquare,
   Database,
   BookOpen,
+  Network,
+  FileDown,
   Check,
   Loader2,
   ChevronDown,
@@ -23,6 +25,8 @@ const AGENT_ICONS: Record<string, React.ElementType> = {
   chatter: MessageSquare,
   reporter: Database,
   memory: BookOpen,
+  graph: Network,
+  report_writer: FileDown,
 };
 
 interface ProcessingStepperProps {

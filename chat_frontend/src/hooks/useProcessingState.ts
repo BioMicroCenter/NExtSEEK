@@ -23,6 +23,19 @@ const STEP_CONFIGS: Record<string, { label: string; agentName: string }[]> = {
     { label: "Running report", agentName: "reporter" },
     { label: "Summarizing results", agentName: "chatter" },
   ],
+  graph_query: [
+    { label: "Extracting entities", agentName: "entity" },
+    { label: "Planning query", agentName: "parser" },
+    { label: "Running graph query", agentName: "graph" },
+    { label: "Summarizing results", agentName: "chatter" },
+  ],
+  report_generation: [
+    { label: "Extracting entities", agentName: "entity" },
+    { label: "Planning query", agentName: "parser" },
+    { label: "Building report", agentName: "reporter" },
+    { label: "Writing export", agentName: "report_writer" },
+    { label: "Summarizing results", agentName: "chatter" },
+  ],
   ask_about_last_results: [
     { label: "Planning query", agentName: "parser" },
     { label: "Searching memory", agentName: "memory" },
@@ -77,6 +90,38 @@ function formatSearchStartedDetail(d: SearchStartedData): string {
     default:
       return `Running ${d.source}…`;
   }
+}
+
+/**
+ * Map a `search_started`/`search_complete` event's `source` to the agentName
+ * of the step that semantically owns the side-effect. Used to attach details
+ * to the correct row regardless of which step is currently "active" — the
+ * orchestrator can emit agent_complete BEFORE the matching search_started
+ * (graph plans the cypher first, then the neo4j call runs).
+ *
+ * Add a row here when STEP_CONFIGS gains a new mode whose search-emitting
+ * agent has a different name (e.g. a new "pipeline" mode with its own step).
+ */
+const SEARCH_SOURCE_TO_AGENT: Record<string, string> = {
+  neo4j: "graph",
+  api: "http",
+  reporter: "reporter",
+};
+
+function findSearchTargetIndex(steps: Step[], source: string): number {
+  const preferred = SEARCH_SOURCE_TO_AGENT[source];
+  if (preferred) {
+    const i = steps.findIndex((s) => s.agentName === preferred);
+    if (i >= 0) return i;
+  }
+  const active = steps.findIndex((s) => s.status === "active");
+  if (active >= 0) return active;
+  const pending = steps.findIndex((s) => s.status === "pending");
+  if (pending >= 0) return pending;
+  for (let i = steps.length - 1; i >= 0; i--) {
+    if (steps[i].status === "complete") return i;
+  }
+  return -1;
 }
 
 function formatSearchCompleteDetail(d: SearchCompleteData): string {
@@ -165,20 +210,11 @@ export function useProcessingState(): UseProcessingStateReturn {
     });
   }, []);
 
-  /**
-   * Attach a sub-status to whichever step is currently active. If no step is
-   * active (e.g. an out-of-order event), store the detail on the first pending
-   * step so it still shows up rather than disappearing silently.
-   */
   const handleSearchStarted = useCallback((data: SearchStartedData) => {
     const detail = formatSearchStartedDetail(data);
     setState((prev) => {
       if (prev.steps.length === 0) return prev;
-      const activeIdx = prev.steps.findIndex((s) => s.status === "active");
-      const targetIdx =
-        activeIdx >= 0
-          ? activeIdx
-          : prev.steps.findIndex((s) => s.status === "pending");
+      const targetIdx = findSearchTargetIndex(prev.steps, String(data.source));
       if (targetIdx < 0) return prev;
       const steps = prev.steps.map((s, i) => (i === targetIdx ? { ...s, detail } : s));
       return { ...prev, steps };
@@ -189,14 +225,7 @@ export function useProcessingState(): UseProcessingStateReturn {
     const detail = formatSearchCompleteDetail(data);
     setState((prev) => {
       if (prev.steps.length === 0) return prev;
-      // Prefer the active step; fall back to the most recent step that already
-      // has a detail set by `search_started` (handles a late-firing complete).
-      let targetIdx = prev.steps.findIndex((s) => s.status === "active");
-      if (targetIdx < 0) {
-        for (let i = prev.steps.length - 1; i >= 0; i--) {
-          if (prev.steps[i].detail) { targetIdx = i; break; }
-        }
-      }
+      const targetIdx = findSearchTargetIndex(prev.steps, String(data.source));
       if (targetIdx < 0) return prev;
       const steps = prev.steps.map((s, i) => (i === targetIdx ? { ...s, detail } : s));
       return { ...prev, steps };
