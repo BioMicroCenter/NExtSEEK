@@ -89,12 +89,12 @@ def resolve_field(
         if sub == "metadata_summary_present":
             return (wz.get("pinned_context") or {}).get("metadata_summary") is not None
         # generic dot-navigation fallback inside wizard
-        val: Any = wz
+        wz_val: Any = wz
         for part in sub.split("."):
-            if not isinstance(val, dict):
+            if not isinstance(wz_val, dict):
                 return None
-            val = val.get(part)
-        return val
+            wz_val = wz_val.get(part)
+        return wz_val
 
     if field.startswith("pipeline_agent.") and session is not None:
         pa = session.get("pipeline_agent") or {}
@@ -104,12 +104,12 @@ def resolve_field(
         if sub == "phase":
             return pa.get("phase")
         # dot-nav fallback
-        val = pa
+        pa_val: Any = pa
         for part in sub.split("."):
-            if not isinstance(val, dict):
+            if not isinstance(pa_val, dict):
                 return None
-            val = val.get(part)
-        return val
+            pa_val = pa_val.get(part)
+        return pa_val
 
     if field.startswith("chat_log.") and session is not None:
         log = session.get("chat_log") or []
@@ -118,12 +118,12 @@ def resolve_field(
         if sub == "latest_mode":   return log[-1].get("mode") if log else None
         if sub == "latest_bundle_id": return log[-1].get("bundle_id") if log else None
         if log:
-            val = log[-1]
+            log_val: Any = log[-1]
             for part in sub.split("."):
-                if not isinstance(val, dict):
+                if not isinstance(log_val, dict):
                     return None
-                val = val.get(part)
-            return val
+                log_val = log_val.get(part)
+            return log_val
         return None
 
     if field == "results_history.length" and session is not None:
@@ -150,24 +150,24 @@ def resolve_field(
 
     # ── dot-notation fallback ────────────────────────────────────────────
     parts = field.split(".")
-    val: Any = debug
+    dot_val: Any = debug
     aliases_per_part = {"sample_type": ("sampletype",), "sampletype": ("sample_type",)}
     for part in parts:
-        if not isinstance(val, dict):
+        if not isinstance(dot_val, dict):
             return None
-        if part in val:
-            val = val[part]
+        if part in dot_val:
+            dot_val = dot_val[part]
             continue
         # alias fallback
         found = False
         for alt in aliases_per_part.get(part, ()):
-            if alt in val:
-                val = val[alt]
+            if alt in dot_val:
+                dot_val = dot_val[alt]
                 found = True
                 break
         if not found:
             return None
-    return val
+    return dot_val
 
 
 def _check_one(actual: Any, op: str, expected: Any) -> tuple[bool, str]:

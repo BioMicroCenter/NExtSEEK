@@ -5,7 +5,6 @@ import json
 import random
 import shutil
 import time
-import time as _time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -137,7 +136,7 @@ def run_variant(
             overall_passed = False
             for cr in crit_results:
                 if not cr.get("passed"):
-                    overall_failed_criteria.append(f"{turn.label}: {cr.get('field')}")
+                    overall_failed_criteria.append(f"{turn.label}: {cr.get('field')} ({cr.get('op')}={cr.get('value')!r})")
 
     return {
         "id": variant.id,
@@ -193,7 +192,7 @@ def run_main(
             return 2
         plan = list(fam.variants)
     else:
-        actual_seed = seed if seed is not None else int(_time.time())
+        actual_seed = seed if seed is not None else int(time.time())
         rng = random.Random(actual_seed)
         plan = sample(cat, ratio=ratio, rng=rng)
         seed = actual_seed

@@ -14,6 +14,17 @@ def test_resolve_dot_notation():
     assert resolve_field(debug, "parser_plan.mode") == "new_search"
 
 
+def test_resolve_dot_nav_sample_type_alias():
+    """sample_type and sampletype are aliased per-part in dot-notation."""
+    debug = {"api_plan": {"requestBody": {"sampletype": "MUS"}}}
+    # Path uses sample_type; resolver should fall through to sampletype.
+    assert resolve_field(debug, "api_plan.requestBody.sample_type") == "MUS"
+
+    debug2 = {"api_plan": {"requestBody": {"sample_type": "NHP"}}}
+    # Path uses sampletype; resolver should fall through to sample_type.
+    assert resolve_field(debug2, "api_plan.requestBody.sampletype") == "NHP"
+
+
 def test_resolve_entity_sampletype_codes_alias():
     debug = {"entity_result": {"sampletypes": [{"code": "MUS"}, {"code": "NHP"}]}}
     assert resolve_field(debug, "entity_sampletype_codes") == ["MUS", "NHP"]
@@ -102,7 +113,7 @@ def test_check_matches_re():
     assert ok
 
 
-def test_check_unknown_op_raises():
+def test_check_unknown_op_reports_in_result():
     # Pydantic-level validation catches unknown ops before they reach check_pass,
     # but if a runtime injects a malformed criterion as a dict the resolver must
     # report a clear error.

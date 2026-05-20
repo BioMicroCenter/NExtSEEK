@@ -69,9 +69,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.list:
         from e2e.catalog import load_catalog  # noqa: PLC0415
         cat = load_catalog(CATALOG_PATH)
-        for fam_name, fam in cat.families.items():
-            if args.family and fam_name != args.family:
-                continue
+        if args.family and args.family not in cat.families:
+            print(f"[e2e] no family named {args.family!r}. Available: {', '.join(sorted(cat.families))}", file=sys.stderr)
+            return 1
+        families_to_show = (
+            {args.family: cat.families[args.family]}
+            if args.family
+            else cat.families
+        )
+        for fam_name, fam in families_to_show.items():
             print(f"\n== {fam_name} ({len(fam.variants)} variants) ==")
             for v in fam.variants:
                 tags = f" [{','.join(v.tags)}]" if v.tags else ""
