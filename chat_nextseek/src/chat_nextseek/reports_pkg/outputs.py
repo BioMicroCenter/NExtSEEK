@@ -27,18 +27,14 @@ from .protocols import (
 )
 
 from .exporters.geo_xlsx import export_geo_report_to_seq_xlsx
+from .exporters.sra_xlsx import (
+    export_sra_biosample_report_to_xlsx,
+    export_sra_report_to_xlsx,
+)
 from .templates_meta import (
     load_report_template,
     nfcore_pipeline_from_report_type,
     normalize_report_type,
-)
-
-# SRA exporters still live in helpers.py (Task 2.20 relocates them).
-# Imported via the helpers forwarder so forward references resolve at
-# call time once the move lands.
-from ..helpers import (
-    export_sra_biosample_report_to_xlsx,
-    export_sra_report_to_xlsx,
 )
 
 
