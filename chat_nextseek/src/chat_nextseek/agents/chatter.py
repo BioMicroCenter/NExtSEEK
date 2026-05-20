@@ -44,7 +44,10 @@ def chatter_agent_answer(
     is_reporter = reporter_summary is not None
     is_graph = graph_plan is not None
 
-    # ---------- Build mode-appropriate debug JSON ----------
+    # ---------- Build mode-appropriate debug JSON (UI debug panel only) ----------
+    # This JSON is for power-user inspection in the UI — it intentionally
+    # keeps plumbing (endpoint, requestBody, Cypher). The LLM prompt built
+    # further below does NOT see any of this.
     if is_graph:
         debug_info = {
             "entity": {
@@ -81,27 +84,6 @@ def chatter_agent_answer(
             },
         }
     else:
-        search_total = None
-        search_preview_count = 0
-        if isinstance(api_result_full, dict):
-            api_data_full = api_result_full.get("data")
-            if isinstance(api_data_full, dict):
-                search_total = (
-                    api_data_full.get("total")
-                    or api_data_full.get("total_samples")
-                    or api_data_full.get("total_nodes")
-                )
-                preview_items = (
-                    api_data_full.get("rows")
-                    if isinstance(api_data_full.get("rows"), list)
-                    else api_data_full.get("nodes")
-                    if isinstance(api_data_full.get("nodes"), list)
-                    else api_data_full.get("data")
-                    if isinstance(api_data_full.get("data"), list)
-                    else []
-                )
-                search_preview_count = len(preview_items)
-
         debug_info = {
             "entity": {
                 "sampletypes": entity_result.get("sampletypes", []),
@@ -121,59 +103,107 @@ def chatter_agent_answer(
         }
     debug_json = json.dumps(debug_info, indent=2)
 
-    # ---------- Build messages ----------
+    # ---------- Build LLM user_content (UNIVERSAL across modes) ----------
+    # The LLM never sees endpoint names, Cypher, requestBody, or filter
+    # operators. It gets a uniform structure: question + resolved entities
+    # + mode-specific data + result stats + brief instructions.
+
+    def _fmt_entities(items: Any) -> str:
+        if not items:
+            return "(none)"
+        parts = []
+        for it in items:
+            if isinstance(it, dict):
+                code = it.get("code", "")
+                name = it.get("name", "")
+                if code and name and code != name:
+                    parts.append(f"{code} ({name})")
+                else:
+                    parts.append(code or name or "?")
+            else:
+                parts.append(str(it))
+        return ", ".join(parts) if parts else "(none)"
+
+    resolved_sampletypes = _fmt_entities(entity_result.get("sampletypes"))
+    resolved_assays = _fmt_entities(entity_result.get("assays"))
+    resolved_projects = _fmt_entities(entity_result.get("projects"))
+    keywords_list = (entity_result.get("filters") or {}).get("keywords") or []
+    keywords_str = ", ".join(keywords_list) if keywords_list else "(none)"
+
+    # Compute total_matches + preview_count for the mode at hand.
+    total_matches: Any = None
+    preview_count = 0
     if is_graph:
-        graph_plan_json = json.dumps(graph_plan, separators=(",", ":"))
+        total_matches = (graph_result or {}).get("count")
+        preview_count = len(((graph_result or {}).get("data") or [])[:20])
+    elif is_reporter and isinstance(reporter_summary, dict):
+        total_matches = (
+            reporter_summary.get("total_rows")
+            or reporter_summary.get("total")
+            or reporter_summary.get("count")
+        )
+    elif not is_graph and not is_reporter and isinstance(api_result_full, dict):
+        api_data_full = api_result_full.get("data")
+        if isinstance(api_data_full, dict):
+            total_matches = (
+                api_data_full.get("total")
+                or api_data_full.get("total_samples")
+                or api_data_full.get("total_nodes")
+            )
+            preview_items = (
+                api_data_full.get("rows") if isinstance(api_data_full.get("rows"), list)
+                else api_data_full.get("nodes") if isinstance(api_data_full.get("nodes"), list)
+                else api_data_full.get("data") if isinstance(api_data_full.get("data"), list)
+                else []
+            )
+            preview_count = len(preview_items)
+
+    # Mode-specific data section (the actual answer payload).
+    if is_graph:
         records = ((graph_result or {}).get("data") or [])[:20]
         preview_json = json.dumps(records, separators=(",", ":"), default=str)
-        count = (graph_result or {}).get("count", 0)
         ok = (graph_result or {}).get("ok", False)
         error_str = (graph_result or {}).get("error", "")
-        user_content = (
-            "User question:\n"
-            f"{user_query}\n\n"
-            "Graph query plan (Cypher + explanation + parameters):\n"
-            f"{graph_plan_json}\n\n"
-            f"Query status: {'success' if ok else 'failed'}\n"
-            f"Records returned: {count}\n"
-            f"{'Error: ' + error_str if error_str else ''}\n\n"
-            "Result preview (up to 20 records):\n"
-            f"{preview_json}\n\n"
-            "MODE: graph_query — Summarize what the graph query found."
+        data_section = (
+            f"Graph result preview (up to 20 records):\n{preview_json}\n"
+            f"Query status: {'success' if ok else 'failed'}"
+            + (f"\nError: {error_str}" if error_str else "")
         )
+        mode_label = "graph_query"
         log_label = "chatter_graph"
     elif is_reporter:
         summary_json = json.dumps(reporter_summary, separators=(",", ":"))
-        user_content = (
-            "User question:\n"
-            f"{user_query}\n\n"
-            "Reporter summary JSON:\n"
-            f"{summary_json}\n\n"
-            "MODE: reporter — Write a concise narrative summary using ONLY the reporter summary JSON."
-        )
+        data_section = f"Aggregated project report:\n{summary_json}"
+        mode_label = "reporter"
         log_label = "chatter_report"
     else:
-        plan_json = json.dumps(parser_plan, separators=(",", ":"))
-        api_plan_json = json.dumps(api_plan, separators=(",", ":"))
         api_json = json.dumps(api_result_slim, separators=(",", ":"))
-        error_json = json.dumps(error_context, separators=(",", ":")) if error_context else ""
-        user_content = (
-            "User question:\n"
-            f"{user_query}\n\n"
-            "Parser plan JSON:\n"
-            f"{plan_json}\n\n"
-            "API plan JSON:\n"
-            f"{api_plan_json}\n\n"
-            "NExtSEEK API result JSON (slimmed):\n"
-            f"{api_json}\n\n"
-            "Deterministic result stats:\n"
-            f"total_matches={search_total}\n"
-            f"preview_items={search_preview_count}\n\n"
-            f"Error context (if any):\n{error_json}\n\n"
-            "MODE: search — Answer the question using ONLY the information from the API result.\n"
-            "Treat the deterministic result stats above as authoritative for whether results exist."
-        )
+        data_section = f"Matching sample records (slimmed):\n{api_json}"
+        if error_context:
+            error_json = json.dumps(error_context, separators=(",", ":"))
+            data_section += f"\n\nError context:\n{error_json}"
+        mode_label = "search"
         log_label = "chatter"
+
+    user_content = (
+        f"User question:\n{user_query}\n\n"
+        "What the user asked for:\n"
+        f"- Sample types: {resolved_sampletypes}\n"
+        f"- Assays: {resolved_assays}\n"
+        f"- Projects: {resolved_projects}\n"
+        f"- Keywords: {keywords_str}\n\n"
+        f"{data_section}\n\n"
+        "Result statistics:\n"
+        f"- Total matches: {total_matches if total_matches is not None else 'unknown'}\n"
+        f"- Preview rows shown: {preview_count}\n\n"
+        f"MODE: {mode_label}\n\n"
+        "Instructions for this turn:\n"
+        "- Lead with the count or key finding.\n"
+        "- Use resolved entity NAMES (e.g. 'Non-Human Primate'), not codes alone, when introducing the result.\n"
+        "- Mention 2-3 example identifiers (UIDs, names) from the preview verbatim if available.\n"
+        "- Do NOT describe HOW the data was retrieved — no endpoint names, no Cypher, "
+        "no API mechanics, no filter operators (AND/OR), no requestBody."
+    )
 
     from ..chat_memory import history_block
 
