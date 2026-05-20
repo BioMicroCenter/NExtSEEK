@@ -19,7 +19,7 @@ def load_report_template(config, report_type: str | None) -> dict:
     if not template_basename:
         return {}
     try:
-        path = Path(config.BASE_DIR) / "reports" / f"{template_basename}.json"
+        path = Path(config.BASE_DIR) / "reports" / "templates" / f"{template_basename}.json"
         if path.exists():
             return json.loads(path.read_text())
     except Exception as e:

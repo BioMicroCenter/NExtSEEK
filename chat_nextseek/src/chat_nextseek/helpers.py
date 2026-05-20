@@ -87,8 +87,8 @@ from .helpers_new.dates import (  # noqa: E402,F401
     _day_range_to_yymmdd_bounds,
 )
 from .helpers_new.lineage import enumerate_lineage_leaves  # noqa: E402,F401
-from .reports_pkg.runners import run_project_sample_report, run_project_protocols_report, run_project_published_report, run_reporter_summary  # noqa: E402,F401
-from .reports_pkg.metadata import (  # noqa: E402,F401
+from .reports.runners import run_project_sample_report, run_project_protocols_report, run_project_published_report, run_reporter_summary  # noqa: E402,F401
+from .reports.metadata import (  # noqa: E402,F401
     annotate_metadata_with_sampletypes,
     fetch_reporter_metadata,
     _scalar_for_summary,
@@ -99,7 +99,7 @@ from .reports_pkg.metadata import (  # noqa: E402,F401
     build_accession_metadata_lookup,
     filter_summary_for_deg,
 )
-from .reports_pkg.protocols import (  # noqa: E402,F401
+from .reports.protocols import (  # noqa: E402,F401
     extract_protocol_refs_from_metadata,
     _request_protocol_record,
     fetch_protocols,
@@ -108,21 +108,21 @@ from .reports_pkg.protocols import (  # noqa: E402,F401
     sanitize_protocols_for_llm,
     download_and_extract_protocol_blobs,
 )
-from .reports_pkg.nfcore import (  # noqa: E402,F401
+from .reports.nfcore import (  # noqa: E402,F401
     top_items,
     _extract_nfcore_samplesheet_rows,
     _accession_matches_criterion,
     _handle_nfcore_artifacts,
     _build_cohort_summary_md,
 )
-from .reports_pkg.outputs import persist_report_file, generate_report_outputs  # noqa: E402,F401
-from .reports_pkg.templates_meta import (  # noqa: E402,F401
+from .reports.outputs import persist_report_file, generate_report_outputs  # noqa: E402,F401
+from .reports.templates_meta import (  # noqa: E402,F401
     load_report_template,
     normalize_report_type,
     nfcore_pipeline_from_report_type,
     get_report_template_basename,
 )
-from .reports_pkg.exporters.geo_xlsx import (  # noqa: E402,F401
+from .reports.exporters.geo_xlsx import (  # noqa: E402,F401
     _copy_row_format,
     _write_cell,
     _write_list_down,
@@ -137,7 +137,7 @@ from .reports_pkg.exporters.geo_xlsx import (  # noqa: E402,F401
     _populate_geo_seq_workbook,
     export_geo_report_to_seq_xlsx,
 )
-from .reports_pkg.exporters.sra_xlsx import (  # noqa: E402,F401
+from .reports.exporters.sra_xlsx import (  # noqa: E402,F401
     _extract_sra_section_reports,
     _worksheet_headers,
     _write_template_rows,
@@ -145,7 +145,7 @@ from .reports_pkg.exporters.sra_xlsx import (  # noqa: E402,F401
     export_sra_report_to_xlsx,
     export_sra_biosample_report_to_xlsx,
 )
-from .reports_pkg.exporters.csv import (  # noqa: E402,F401
+from .reports.exporters.csv import (  # noqa: E402,F401
     _coerce_scalar_csv_value,
     _normalize_rows_for_csv,
     _extract_report_section_rows,

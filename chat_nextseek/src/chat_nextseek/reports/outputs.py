@@ -438,7 +438,7 @@ def generate_report_outputs(
         try:
             sra_workbooks = export_sra_report_to_xlsx(
                 merged_path,
-                str(Path(config.BASE_DIR) / "reports" / "SRA_metadata.xlsx"),
+                str(Path(config.BASE_DIR) / "reports" / "templates" / "SRA_metadata.xlsx"),
                 Path(merged_path).parent,
                 one_workbook_per_uid=False,
             )
@@ -450,7 +450,7 @@ def generate_report_outputs(
         try:
             biosample_workbooks = export_sra_biosample_report_to_xlsx(
                 merged_path,
-                str(Path(config.BASE_DIR) / "reports" / "SRA_biosample.xlsx"),
+                str(Path(config.BASE_DIR) / "reports" / "templates" / "SRA_biosample.xlsx"),
                 Path(merged_path).parent,
                 one_workbook_per_uid=False,
             )

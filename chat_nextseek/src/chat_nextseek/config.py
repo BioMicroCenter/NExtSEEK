@@ -189,7 +189,7 @@ class ChatConfig:
         env_config_map["OUTPUTS_DIR"] = os.path.expanduser(os.getenv("NEXTSEEK_OUTPUTS_DIR", env_config_map["XDG_STATE_HOME"] + "/chat_nextseek/outputs/"))
         env_config_map["PROMPTS_DIR"] = os.getenv("PROMPTS_DIR", str(env_config_map["BASE_DIR"]) + "/prompts")
         env_config_map["CONTEXT_DIR"] = os.getenv("CONTEXT_DIR", str(env_config_map["BASE_DIR"]) + "/context")
-        env_config_map["SEQ_TEMPLATE_PATH"] = os.getenv("SEQ_TEMPLATE_PATH", str(env_config_map["BASE_DIR"]) + "/reports/GEO_template.xlsx")
+        env_config_map["SEQ_TEMPLATE_PATH"] = os.getenv("SEQ_TEMPLATE_PATH", str(env_config_map["BASE_DIR"]) + "/reports/templates/GEO_template.xlsx")
         env_config_map["CATALOG_FILE"] = os.getenv("CATALOG_FILE")
         raw_catalog = os.getenv("AGENT_MODEL_CATALOG")
         env_config_map["AGENT_MODEL_CATALOG"] = json.loads(raw_catalog) if raw_catalog else None

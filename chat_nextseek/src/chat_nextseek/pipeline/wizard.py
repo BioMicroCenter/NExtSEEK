@@ -118,7 +118,7 @@ def _pipeline_catalog_for_prompt(config: "ChatConfig") -> list[dict[str, Any]]:
         NFCORE_PIPELINE_CATALOG = {}
 
     out: list[dict[str, Any]] = []
-    base_dir = Path(config.BASE_DIR) / "reports" / "nfcore"
+    base_dir = Path(config.BASE_DIR) / "reports" / "templates" / "nfcore"
     if not base_dir.is_dir():
         return out
     for path in sorted(base_dir.glob("*.json")):
