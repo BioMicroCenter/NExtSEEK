@@ -334,7 +334,8 @@ def cmd_smart_test(args: argparse.Namespace) -> int:
     Legacy flag semantics:
       -st               -> e2e --ratio 0.33 (default sample)
       -ft               -> e2e --ratio full (all variants)
-      --only, --both, -p, -i   -> removed (planner pipeline retiring; use e2e.py for advanced flags)
+      --both, -p, -i      -> removed (planner pipeline retiring; use e2e.py for advanced flags)
+      --only              -> re-scoped to -runtest (no longer applies to -st)
     """
     from pathlib import Path
     from e2e.runner import run_main
