@@ -1,0 +1,1299 @@
+{
+  "version": "1.0",
+  "families": {
+    "search_advanced": {
+      "description": "Queries that route to /samples/advanced_search/ — keyword + sampletype + attribute filtering.",
+      "variants": [
+        {
+          "family": "search_advanced",
+          "id": "advanced.basic_ndma",
+          "name": "Mice treated with NDMA — keyword + sampletype",
+          "tags": ["smoke", "regression"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find me mice treated with NDMA.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",                       "op": "eq",       "value": "new_search"},
+                {"field": "entity_sampletype_codes",                "op": "contains", "value": "MUS"},
+                {"field": "api_plan.endpoint",                      "op": "contains", "value": "advanced_search"},
+                {"field": "api_plan.requestBody.filter_searchText", "op": "contains", "value": "NDMA"},
+                {"field": "api_ok",                                 "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "search_advanced",
+          "id": "advanced.cd8_antibodies",
+          "name": "CD8 antibodies — sampletype AB + keyword CD8",
+          "tags": ["smoke"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find me all CD8 antibodies in the database.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",                       "op": "eq",       "value": "new_search"},
+                {"field": "entity_sampletype_codes",                "op": "contains", "value": "AB"},
+                {"field": "api_plan.endpoint",                      "op": "contains", "value": "advanced_search"},
+                {"field": "api_plan.requestBody.filter_searchText", "op": "contains", "value": "CD8"},
+                {"field": "api_ok",                                 "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "search_advanced",
+          "id": "advanced.what_monkeys_exist",
+          "name": "Bare sampletype enumeration — NHP",
+          "tags": [],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What monkeys exist in the database?",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+                {"field": "entity_sampletype_codes", "op": "contains", "value": "NHP"},
+                {"field": "api_plan.endpoint",       "op": "contains", "value": "advanced_search"},
+                {"field": "api_ok",                  "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "search_advanced",
+          "id": "advanced.rna_rin_score",
+          "name": "RNA samples with RIN score attribute",
+          "tags": ["attribute"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find RNA samples with a RIN score greater than 7.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",                       "op": "eq",       "value": "new_search"},
+                {"field": "entity_sampletype_codes",                "op": "contains", "value": "RNA"},
+                {"field": "api_plan.requestBody.sampletype",        "op": "eq",       "value": "RNA"},
+                {"field": "api_plan.requestBody.filter_searchText", "op": "contains", "value": "RIN"},
+                {"field": "api_ok",                                 "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "search_advanced",
+          "id": "advanced.female_mice",
+          "name": "Sex attribute filter on MUS",
+          "tags": ["attribute"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find female mouse samples.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+                {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
+                {"field": "api_plan.endpoint",       "op": "contains", "value": "advanced_search"},
+                {"field": "api_ok",                  "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "search_advanced",
+          "id": "advanced.nextseq_instrument",
+          "name": "Sequencing data on NextSeq instrument",
+          "tags": ["attribute"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find sequencing data generated on a NextSeq instrument.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",                       "op": "eq",       "value": "new_search"},
+                {"field": "api_plan.endpoint",                      "op": "contains", "value": "advanced_search"},
+                {"field": "api_plan.requestBody.filter_searchText", "op": "contains", "value": "NextSeq"},
+                {"field": "api_ok",                                 "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "search_advanced",
+          "id": "advanced.zero_result_zebrafish",
+          "name": "Negative control — zebrafish not in catalog",
+          "tags": ["edge-case"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find me all zebrafish samples in the database.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq",       "value": "new_search"},
+                {"field": "api_plan.endpoint","op": "contains", "value": "advanced_search"},
+                {"field": "api_ok",           "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "search_advanced",
+          "id": "advanced.bacteria_mtb",
+          "name": "Bacteria sampletype + mTB strain",
+          "tags": ["attribute"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find bacteria samples with strain mTB.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",                       "op": "eq",       "value": "new_search"},
+                {"field": "entity_sampletype_codes",                "op": "contains", "value": "BAC"},
+                {"field": "api_plan.requestBody.filter_searchText", "op": "contains", "value": "mTB"},
+                {"field": "api_ok",                                 "op": "true"}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "search_tree": {
+      "description": "Derivation tree lookup via /sample-tree/{uid}/tree/.",
+      "variants": [
+        {
+          "family": "search_tree", "id": "tree.cel_descendants",
+          "name": "Sample tree — CEL descendants",
+          "tags": ["smoke"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Show me all samples derived from CEL-250319WHI-1-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "sample-tree"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "CEL-250319WHI-1-PUB"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_tree", "id": "tree.nhp_lineage",
+          "name": "Sample tree — NHP descendants",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "What samples descend from NHP-220630FLY-5-PUB?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "sample-tree"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "NHP-220630FLY-5-PUB"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_tree", "id": "tree.dseq_leaf",
+          "name": "Sample tree — leaf sample (no descendants)",
+          "tags": ["edge-case"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Show me the derivation tree for D.SEQ-221031SHA-67-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "sample-tree"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "D.SEQ-221031SHA-67-PUB"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_tree", "id": "tree.msp_lineage",
+          "name": "Sample tree — mass spec lineage",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "What's the lineage of D.MSP-230828GRI-4-PUB?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "sample-tree"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "D.MSP-230828GRI-4-PUB"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_tree", "id": "tree.walk_up",
+          "name": "Sample tree — walk-up phrasing",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Walk me up the derivation chain from D.SEQ-230512FOR-288-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "sample-tree"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "D.SEQ-230512FOR-288-PUB"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_tree", "id": "tree.missing_uid",
+          "name": "Sample tree — nonexistent UID (graceful failure)",
+          "tags": ["edge-case"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Show me children of XXX-999999ZZZ-1-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "sample-tree"}
+            ]
+          }]
+        },
+        {
+          "family": "search_tree", "id": "tree.derivation_of_dmsp",
+          "name": "Sample tree — alt phrasing (parent direction)",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "What is D.MSP-230828GRI-4-PUB derived from?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "sample-tree"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_tree", "id": "tree.then_ask_about",
+          "name": "Sample tree → memory follow-up",
+          "tags": ["multi-turn"], "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Show me everything derived from NHP-220630FLY-5-PUB.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+                {"field": "api_plan.endpoint", "op": "contains", "value": "sample-tree"},
+                {"field": "api_ok",            "op": "true"}
+              ]
+            },
+            {
+              "label": "follow_up",
+              "query": "Of those, which are sequencing samples?",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq",  "value": "ask_about_last_results"},
+                {"field": "chat_log.length",  "op": "gte", "value": 2}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "search_parents_by_child": {
+      "description": "Parents-by-child-types endpoint — find parent samples by descendant assay/sampletype.",
+      "variants": [
+        {
+          "family": "search_parents_by_child", "id": "pbct.monkeys_flow_and_seq",
+          "name": "NHPs with flow + sequencing data",
+          "tags": ["smoke"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Find me monkeys that have flow and sequencing data.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+              {"field": "entity_sampletype_codes", "op": "contains", "value": "NHP"},
+              {"field": "api_plan.endpoint",       "op": "contains", "value": "parents_by_child_types"},
+              {"field": "api_ok",                  "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_parents_by_child", "id": "pbct.flow_and_msp",
+          "name": "Samples with flow + mass spec data",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Find samples with both flow cytometry and mass spec data.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "parents_by_child_types"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_parents_by_child", "id": "pbct.mice_msp_rnaseq",
+          "name": "Mice with mass spec + RNA-seq",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Which mice have both mass spectrometry and RNA sequencing data?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+              {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
+              {"field": "api_plan.endpoint",       "op": "contains", "value": "parents_by_child_types"},
+              {"field": "api_ok",                  "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_parents_by_child", "id": "pbct.patients_seq_imaging",
+          "name": "Patients with sequencing + imaging",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Show me patients that have both sequencing and imaging data.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "parents_by_child_types"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_parents_by_child", "id": "pbct.monkeys_proteomics_flow",
+          "name": "NHPs with proteomics + flow",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Find monkeys with proteomics and flow cytometry data.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+              {"field": "entity_sampletype_codes", "op": "contains", "value": "NHP"},
+              {"field": "api_plan.endpoint",       "op": "contains", "value": "parents_by_child_types"},
+              {"field": "api_ok",                  "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_parents_by_child", "id": "pbct.mice_crispr",
+          "name": "Mice with CRISPR knockout data",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Which mice have CRISPR knockout data?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+              {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
+              {"field": "api_plan.endpoint",       "op": "contains", "value": "parents_by_child_types"},
+              {"field": "api_ok",                  "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_parents_by_child", "id": "pbct.no_match",
+          "name": "No-match negative case",
+          "tags": ["edge-case"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Find zebrafish with single-cell ATAC-seq data.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "parents_by_child_types"}
+            ]
+          }]
+        },
+        {
+          "family": "search_parents_by_child", "id": "pbct.three_assays",
+          "name": "Three-assay combination",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Find mice with flow cytometry, sequencing, AND mass spec data.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+              {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
+              {"field": "api_plan.endpoint",       "op": "contains", "value": "parents_by_child_types"},
+              {"field": "api_ok",                  "op": "true"}
+            ]
+          }]
+        }
+      ]
+    },
+    "search_retrieve": {
+      "description": "Sample retrieval by UID — POST /admin/samples/retrieve/ or GET /samples/{uid}/.",
+      "variants": [
+        {
+          "family": "search_retrieve", "id": "retrieve.single_nhp",
+          "name": "Single NHP retrieval",
+          "tags": ["smoke"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Retrieve all samples associated with: NHP-220630FLY-5-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "retrieve"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_retrieve", "id": "retrieve.batch_two_dseq",
+          "name": "Batch retrieval — two D.SEQ UIDs",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Retrieve D.SEQ-221031SHA-65-PUB and D.SEQ-221031SHA-67-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "retrieve"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_retrieve", "id": "retrieve.large_batch",
+          "name": "Large batch — 5 UIDs",
+          "tags": ["boundary"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Look up these samples: D.SEQ-230512FOR-288-PUB, D.SEQ-230512FOR-289-PUB, D.SEQ-221031SHA-65-PUB, D.SEQ-221031SHA-67-PUB, NHP-220630FLY-5-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "retrieve"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_retrieve", "id": "retrieve.mixed_valid_invalid",
+          "name": "Mixed valid + invalid UID",
+          "tags": ["edge-case"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Get me NHP-220630FLY-5-PUB and XYZ-999999ZZZ-1-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "retrieve"}
+            ]
+          }]
+        },
+        {
+          "family": "search_retrieve", "id": "retrieve.single_msp",
+          "name": "Single mass-spec retrieval (alt phrasing)",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Show me details for D.MSP-230828GRI-4-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "retrieve"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_retrieve", "id": "retrieve.cel_single",
+          "name": "Single CEL retrieval (fetch phrasing)",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Fetch CEL-250319WHI-1-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "retrieve"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_retrieve", "id": "retrieve.metadata_filter",
+          "name": "Published-version retrieval",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Pull the published version of D.SEQ-230512FOR-288-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+              {"field": "api_plan.endpoint", "op": "contains", "value": "retrieve"},
+              {"field": "api_ok",            "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "search_retrieve", "id": "retrieve.then_inspect",
+          "name": "Retrieve → memory follow-up on a metadata field",
+          "tags": ["multi-turn"], "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Retrieve D.SEQ-221031SHA-65-PUB and D.SEQ-221031SHA-67-PUB.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",  "op": "eq",       "value": "new_search"},
+                {"field": "api_plan.endpoint", "op": "contains", "value": "retrieve"},
+                {"field": "api_ok",            "op": "true"}
+              ]
+            },
+            {
+              "label": "inspect",
+              "query": "What's the Scientist field on those samples?",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq",       "value": "ask_about_last_results"},
+                {"field": "last_reply",       "op": "mentions", "value": "Scientist"}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "refine_and_recall": {
+      "description": "refine_last_search + ask_about_last_results — memory_coder / memory_agent paths. All multi-turn.",
+      "variants": [
+        {
+          "family": "refine_and_recall", "id": "refrec.refine_to_cd8",
+          "name": "Refine — NHPs depleted of CD8",
+          "tags": ["smoke"], "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me NHP samples in the IMPACT project.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+                {"field": "entity_sampletype_codes", "op": "contains", "value": "NHP"},
+                {"field": "api_ok",                  "op": "true"}
+              ]
+            },
+            {
+              "label": "refine",
+              "query": "Which of those monkeys are depleted of CD8?",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",        "op": "eq",       "value": "refine_last_search"},
+                {"field": "entity_sampletype_codes", "op": "contains", "value": "NHP"},
+                {"field": "api_ok",                  "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "refine_and_recall", "id": "refrec.refine_to_female",
+          "name": "Refine — restrict to female samples",
+          "tags": [], "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me mouse samples in the Kamm project.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+                {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
+                {"field": "api_ok",                  "op": "true"}
+              ]
+            },
+            {
+              "label": "refine",
+              "query": "Now filter those to only female animals.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq", "value": "refine_last_search"},
+                {"field": "api_ok",           "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "refine_and_recall", "id": "refrec.refine_after_2023",
+          "name": "Refine — date filter narrowing",
+          "tags": [], "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me D.SEQ samples for the SHA lab.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq",   "value": "new_search"},
+                {"field": "api_ok",           "op": "true"}
+              ]
+            },
+            {
+              "label": "refine",
+              "query": "Narrow those results to samples collected after 2023.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq", "value": "refine_last_search"},
+                {"field": "api_ok",           "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "refine_and_recall", "id": "refrec.refine_liver",
+          "name": "Refine — narrow to liver tissue",
+          "tags": [], "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find tissue samples from the IMPACT project.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq",   "value": "new_search"},
+                {"field": "api_ok",           "op": "true"}
+              ]
+            },
+            {
+              "label": "refine",
+              "query": "Can you limit those to liver tissue only?",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq", "value": "refine_last_search"},
+                {"field": "api_ok",           "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "refine_and_recall", "id": "refrec.memory_how_many",
+          "name": "Memory — count of last results",
+          "tags": ["smoke"], "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me mice treated with NDMA.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+                {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
+                {"field": "api_ok",                  "op": "true"}
+              ]
+            },
+            {
+              "label": "recall",
+              "query": "How many results came back from that last search?",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq",         "value": "ask_about_last_results"},
+                {"field": "last_reply",       "op": "matches_re", "value": "\\b\\d+\\b"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "refine_and_recall", "id": "refrec.memory_unique_types",
+          "name": "Memory — unique sample types in results",
+          "tags": [], "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Show me tissue and cell samples from IMPACT.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq",   "value": "new_search"},
+                {"field": "api_ok",           "op": "true"}
+              ]
+            },
+            {
+              "label": "recall",
+              "query": "What unique sample types are in those results?",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq",       "value": "ask_about_last_results"},
+                {"field": "last_reply",       "op": "mentions", "value": "TIS"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "refine_and_recall", "id": "refrec.memory_scientists",
+          "name": "Memory — Scientist field enumeration",
+          "tags": [], "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me D.SEQ samples in the SHA lab.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq",   "value": "new_search"},
+                {"field": "api_ok",           "op": "true"}
+              ]
+            },
+            {
+              "label": "recall",
+              "query": "What scientists are listed on those samples?",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq",       "value": "ask_about_last_results"},
+                {"field": "last_reply",       "op": "mentions", "value": "Scientist"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "refine_and_recall", "id": "refrec.chained_filter",
+          "name": "Chained memory — count then UID extraction",
+          "tags": ["multi-turn"], "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me all D.SEQ samples for the SHA lab.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq",   "value": "new_search"},
+                {"field": "api_ok",           "op": "true"}
+              ]
+            },
+            {
+              "label": "count",
+              "query": "How many were returned in that search?",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq", "value": "ask_about_last_results"}
+              ]
+            },
+            {
+              "label": "extract_uids",
+              "query": "Of those, give me the first 3 UIDs.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode", "op": "eq",         "value": "ask_about_last_results"},
+                {"field": "chat_log.length",  "op": "gte",        "value": 3},
+                {"field": "last_reply",       "op": "matches_re", "value": "D\\.SEQ"}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "graph_query": {
+      "description": "Cypher-routed Neo4j queries via graph_agent.",
+      "variants": [
+        {
+          "family": "graph_query", "id": "graph.pbmc_gbm_seq",
+          "name": "PBMC samples from GBM study with sequencing",
+          "tags": ["smoke"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Find PBMC samples from the GBM study that also have sequencing data.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "graph_query"},
+              {"field": "graph_cypher",     "op": "nonempty"},
+              {"field": "neo4j_ok",         "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "graph_query", "id": "graph.nhp_srp",
+          "name": "All NHPs in SRP project",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Show me all NHPs in the SRP project.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "graph_query"},
+              {"field": "graph_cypher",     "op": "contains", "value": "SRP"},
+              {"field": "neo4j_ok",         "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "graph_query", "id": "graph.tissue_cell_impact",
+          "name": "Tissue + cell samples in IMPACT",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Find all tissue and cell samples from IMPACT.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "graph_query"},
+              {"field": "graph_cypher",     "op": "contains", "value": "IMPACT"},
+              {"field": "neo4j_ok",         "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "graph_query", "id": "graph.studies_in_griffith",
+          "name": "Studies in Griffith project",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "What studies are in the Griffith project?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "graph_query"},
+              {"field": "graph_cypher",     "op": "nonempty"},
+              {"field": "neo4j_ok",         "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "graph_query", "id": "graph.mice_with_seq",
+          "name": "Multi-hop DERIVED_FROM — mice with sequencing",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Find me all mice that have sequencing data.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "graph_query"},
+              {"field": "graph_cypher",     "op": "contains", "value": "DERIVED_FROM"},
+              {"field": "neo4j_ok",         "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "graph_query", "id": "graph.investigations_nhp_seq",
+          "name": "Investigations with NHP + sequencing",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Which investigations have NHP samples with sequencing data?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "graph_query"},
+              {"field": "graph_cypher",     "op": "nonempty"},
+              {"field": "neo4j_ok",         "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "graph_query", "id": "graph.assay_short_read",
+          "name": "DNA samples via Short Read Sequencing",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Find all DNA samples associated with Short Read Sequencing.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "graph_query"},
+              {"field": "graph_cypher",     "op": "contains", "value": "Short Read"},
+              {"field": "neo4j_ok",         "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "graph_query", "id": "graph.assay_flow_protocols",
+          "name": "Samples via flow cytometry protocols",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Show me samples associated with flow cytometry protocols.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "graph_query"},
+              {"field": "graph_cypher",     "op": "nonempty"},
+              {"field": "neo4j_ok",         "op": "true"}
+            ]
+          }]
+        }
+      ]
+    },
+    "reporting": {
+      "description": "Reporter SQL summaries + report_writer artifact generation (GEO / SRA / PRIDE).",
+      "variants": [
+        {
+          "family": "reporting", "id": "report.samples_uploaded_impact",
+          "name": "SQL summary — samples uploaded for IMPACT 2023-2025",
+          "tags": ["smoke"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "How many samples were uploaded for IMPACT from 2023 to 2025?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",            "op": "eq", "value": "reporter"},
+              {"field": "reporter_plan.reporter_mode", "op": "eq", "value": "summary"},
+              {"field": "reporter_plan.summary_mode",  "op": "eq", "value": "samples"},
+              {"field": "reporter_plan.project",       "op": "eq", "value": "IMPACT"}
+            ]
+          }]
+        },
+        {
+          "family": "reporting", "id": "report.samples_last_month",
+          "name": "SQL summary — date parsing (last month)",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "How many samples were uploaded last month?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",            "op": "eq", "value": "reporter"},
+              {"field": "reporter_plan.reporter_mode", "op": "eq", "value": "summary"},
+              {"field": "reporter_plan.summary_mode",  "op": "eq", "value": "samples"}
+            ]
+          }]
+        },
+        {
+          "family": "reporting", "id": "report.protocols_cgr",
+          "name": "SQL summary — protocols for CGR project",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Show me protocols registered for the CGR project.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",            "op": "eq", "value": "reporter"},
+              {"field": "reporter_plan.reporter_mode", "op": "eq", "value": "summary"},
+              {"field": "reporter_plan.summary_mode",  "op": "eq", "value": "protocols"},
+              {"field": "reporter_plan.project",       "op": "eq", "value": "CGR"}
+            ]
+          }]
+        },
+        {
+          "family": "reporting", "id": "report.progress_kamm",
+          "name": "Annual progress report — Kamm",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Put together an annual progress report for the Kamm project — I need it for our NIH grant.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",            "op": "eq", "value": "reporter"},
+              {"field": "reporter_plan.reporter_mode", "op": "eq", "value": "summary"},
+              {"field": "reporter_plan.project",       "op": "eq", "value": "Kamm"}
+            ]
+          }]
+        },
+        {
+          "family": "reporting", "id": "report.published_srp",
+          "name": "SQL summary — published samples for SRP",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Show me published samples for the SRP project.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",           "op": "eq", "value": "reporter"},
+              {"field": "reporter_plan.summary_mode", "op": "eq", "value": "published"},
+              {"field": "reporter_plan.project",      "op": "eq", "value": "SRP"}
+            ]
+          }]
+        },
+        {
+          "family": "reporting", "id": "report.geo_submission",
+          "name": "GEO submission — artifact emission",
+          "tags": ["artifact"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",                          "op": "eq",   "value": "reporter"},
+              {"field": "reporter_plan.report_type",                 "op": "eq",   "value": "GEO"},
+              {"field": "api_artifact.geo_seq.xlsx",                 "op": "true"},
+              {"field": "api_artifact.geo_seq.xlsx.rows_gte",        "op": "gte",  "value": 2}
+            ]
+          }]
+        },
+        {
+          "family": "reporting", "id": "report.sra_submission",
+          "name": "SRA submission — artifact emission",
+          "tags": ["artifact"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Build me an SRA submission for D.SEQ-230512FOR-288-PUB, D.SEQ-230512FOR-289-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",          "op": "eq",   "value": "reporter"},
+              {"field": "reporter_plan.report_type", "op": "eq",   "value": "SRA"},
+              {"field": "api_artifact.sra_seq.xlsx", "op": "true"}
+            ]
+          }]
+        },
+        {
+          "family": "reporting", "id": "report.pride_submission",
+          "name": "PRIDE submission — artifact emission",
+          "tags": ["artifact"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Please create a PRIDE submission for the mass spec sample D.MSP-230828GRI-4-PUB.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",          "op": "eq",   "value": "reporter"},
+              {"field": "reporter_plan.report_type", "op": "eq",   "value": "PRIDE"},
+              {"field": "api_artifact.pride.xlsx",   "op": "true"}
+            ]
+          }]
+        }
+      ]
+    },
+    "pipeline_nfcore": {
+      "description": "pipeline_agent end-to-end (directive → sanity → groupby → emit). Tower-submit variant gated on TOWER_ACCESS_TOKEN.",
+      "variants": [
+        {
+          "family": "pipeline_nfcore", "id": "pipeline.activation_rnaseq",
+          "name": "pipeline_agent activation — enters awaiting_validation",
+          "tags": ["smoke", "multi-turn"], "requires_env": [],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find me mice treated with NDMA.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+                {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
+                {"field": "api_ok",                  "op": "true"}
+              ]
+            },
+            {
+              "label": "trigger_pipeline",
+              "query": "Run rnaseq on those mice grouped by Treatment1.",
+              "pass_criteria": [
+                {"field": "pipeline_agent.active", "op": "true"},
+                {"field": "pipeline_agent.phase",  "op": "eq", "value": "awaiting_validation"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "pipeline_nfcore", "id": "pipeline.end_to_end_emit",
+          "name": "End-to-end — directive → submit → samplesheet artifact",
+          "tags": ["smoke", "multi-turn", "artifact"], "requires_env": [],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find me mice treated with NDMA.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+                {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
+                {"field": "api_ok",                  "op": "true"}
+              ]
+            },
+            {
+              "label": "issue_directive",
+              "query": "Run rnaseq on those mice grouped by Treatment1.",
+              "pass_criteria": [
+                {"field": "pipeline_agent.active", "op": "true"}
+              ]
+            },
+            {
+              "label": "confirm_submit",
+              "query": "submit",
+              "pass_criteria": [
+                {"field": "pipeline_agent.active",            "op": "true"},
+                {"field": "api_artifact.samplesheet.csv",     "op": "true"},
+                {"field": "api_artifact.samplesheet.csv.rows_gte", "op": "gte", "value": 1}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "pipeline_nfcore", "id": "pipeline.happy_path_nhp_rnaseq",
+          "name": "NHP RNA-seq happy path",
+          "tags": ["multi-turn", "artifact"], "requires_env": [],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find me NHP samples with RNA-seq data.",
+              "pass_criteria": [
+                {"field": "parser_plan.mode",        "op": "eq",       "value": "new_search"},
+                {"field": "entity_sampletype_codes", "op": "contains", "value": "NHP"},
+                {"field": "api_ok",                  "op": "true"}
+              ]
+            },
+            {
+              "label": "issue_directive",
+              "query": "Run rnaseq on these monkeys, group by Treatment1.",
+              "pass_criteria": [
+                {"field": "pipeline_agent.active", "op": "true"}
+              ]
+            },
+            {
+              "label": "submit",
+              "query": "submit",
+              "pass_criteria": [
+                {"field": "pipeline_agent.active",        "op": "true"},
+                {"field": "api_artifact.samplesheet.csv", "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "pipeline_nfcore", "id": "pipeline.question_submode",
+          "name": "Catalog question — pipeline_agent stays inactive",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "what nf-core pipelines are available?",
+            "pass_criteria": [
+              {"field": "last_reply", "op": "nonempty"}
+            ]
+          }]
+        },
+        {
+          "family": "pipeline_nfcore", "id": "pipeline.reject_non_directive",
+          "name": "Domain question — must NOT trap user in pipeline mode",
+          "tags": ["edge-case"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "what's NDMA?",
+            "pass_criteria": [
+              {"field": "pipeline_agent.active", "op": "eq", "value": false}
+            ]
+          }]
+        },
+        {
+          "family": "pipeline_nfcore", "id": "pipeline.sarek_multi_cohort",
+          "name": "Sarek pipeline with multi-cohort split",
+          "tags": ["multi-turn", "artifact"], "requires_env": [],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find me D.SEQ samples in the IMPACT project.",
+              "pass_criteria": [
+                {"field": "api_ok", "op": "true"}
+              ]
+            },
+            {
+              "label": "issue_directive",
+              "query": "Run sarek on those samples, split into cohorts by LibraryStrategy.",
+              "pass_criteria": [
+                {"field": "pipeline_agent.active", "op": "true"}
+              ]
+            },
+            {
+              "label": "submit",
+              "query": "submit",
+              "pass_criteria": [
+                {"field": "pipeline_agent.active",                   "op": "true"},
+                {"field": "pipeline_agent.directive.pipeline_key",   "op": "eq", "value": "sarek"},
+                {"field": "api_artifact.samplesheet.csv",            "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "pipeline_nfcore", "id": "pipeline.edit_after_sanity",
+          "name": "Edit groupby field mid-flight then submit",
+          "tags": ["multi-turn", "artifact"], "requires_env": [],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find me mice treated with NDMA.",
+              "pass_criteria": [
+                {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
+                {"field": "api_ok",                  "op": "true"}
+              ]
+            },
+            {
+              "label": "issue_directive",
+              "query": "Run rnaseq on those mice grouped by Sex.",
+              "pass_criteria": [
+                {"field": "pipeline_agent.active", "op": "true"}
+              ]
+            },
+            {
+              "label": "edit_groupby",
+              "query": "Actually use Treatment1 instead of Sex for grouping.",
+              "pass_criteria": [
+                {"field": "pipeline_agent.active", "op": "true"}
+              ]
+            },
+            {
+              "label": "submit",
+              "query": "submit",
+              "pass_criteria": [
+                {"field": "pipeline_agent.active",        "op": "true"},
+                {"field": "api_artifact.samplesheet.csv", "op": "true"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "pipeline_nfcore", "id": "pipeline.tower_submit",
+          "name": "Tower submission — env-gated end-to-end",
+          "tags": ["tower", "multi-turn"], "requires_env": ["TOWER_ACCESS_TOKEN", "TOWER_WORKSPACE_ID"],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find me mice treated with NDMA.",
+              "pass_criteria": [
+                {"field": "api_ok", "op": "true"}
+              ]
+            },
+            {
+              "label": "issue_directive",
+              "query": "Run rnaseq on those mice grouped by Treatment1, submit to Tower.",
+              "pass_criteria": [
+                {"field": "pipeline_agent.active", "op": "true"}
+              ]
+            },
+            {
+              "label": "submit",
+              "query": "submit",
+              "pass_criteria": [
+                {"field": "pipeline_agent.active", "op": "true"},
+                {"field": "last_reply",            "op": "mentions", "value": "Tower"}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "system_and_unsupported": {
+      "description": "system_question (catalog/capability lookups) + unsupported routing (out-of-scope queries).",
+      "variants": [
+        {
+          "family": "system_and_unsupported", "id": "sys.dseq_definition",
+          "name": "Definition — what is D.SEQ",
+          "tags": ["smoke"], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "What is a D.SEQ sample?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "system_question"},
+              {"field": "last_reply",       "op": "mentions", "value": "sequencing"}
+            ]
+          }]
+        },
+        {
+          "family": "system_and_unsupported", "id": "sys.tissue_metadata_fields",
+          "name": "Metadata fields for tissue",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "What metadata fields are tracked for a Tissue Sample?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode",        "op": "eq",       "value": "system_question"},
+              {"field": "entity_sampletype_codes", "op": "contains", "value": "TIS"}
+            ]
+          }]
+        },
+        {
+          "family": "system_and_unsupported", "id": "sys.sampletypes_available",
+          "name": "Catalog — sample types available",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "What sample types are available in the system?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "system_question"},
+              {"field": "last_reply",       "op": "nonempty"}
+            ]
+          }]
+        },
+        {
+          "family": "system_and_unsupported", "id": "sys.dflow_vs_aflow",
+          "name": "Concept — D.FLOW vs A.FLOW",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "What is the difference between D.FLOW and A.FLOW?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "system_question"},
+              {"field": "last_reply",       "op": "mentions", "value": "flow"}
+            ]
+          }]
+        },
+        {
+          "family": "system_and_unsupported", "id": "sys.capabilities",
+          "name": "Self-introspection — what can you do",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "What can you do? List your capabilities.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "system_question"},
+              {"field": "last_reply",       "op": "nonempty"}
+            ]
+          }]
+        },
+        {
+          "family": "system_and_unsupported", "id": "sys.study_search_howto",
+          "name": "How-to — search by study",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Can I search for samples by which study they belong to?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq",       "value": "system_question"},
+              {"field": "last_reply",       "op": "mentions", "value": "study"}
+            ]
+          }]
+        },
+        {
+          "family": "system_and_unsupported", "id": "unsup.weather",
+          "name": "Out-of-scope — weather",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "What is today's weather forecast in Boston?",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq", "value": "unsupported"}
+            ]
+          }]
+        },
+        {
+          "family": "system_and_unsupported", "id": "unsup.domain_chemistry",
+          "name": "Out-of-scope — general chemistry question",
+          "tags": [], "requires_env": [],
+          "turns": [{
+            "label": "main",
+            "query": "Explain what NDMA is and why it's carcinogenic.",
+            "pass_criteria": [
+              {"field": "parser_plan.mode", "op": "eq", "value": "unsupported"}
+            ]
+          }]
+        }
+      ]
+    }
+  }
+}
