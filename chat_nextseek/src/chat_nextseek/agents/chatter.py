@@ -130,12 +130,32 @@ def chatter_agent_answer(
     keywords_list = (entity_result.get("filters") or {}).get("keywords") or []
     keywords_str = ", ".join(keywords_list) if keywords_list else "(none)"
 
-    # Compute total_matches + preview_count for the mode at hand.
+    # Compute total_matches + preview_count for the mode at hand, AND
+    # pre-extract a few example identifiers so the LLM doesn't have to dig.
     total_matches: Any = None
     preview_count = 0
+    example_ids: list[str] = []
+
+    def _harvest_ids(items: Any, limit: int = 3) -> list[str]:
+        """Pull UIDs/UUIDs/names from a list of row dicts. Order: uuid > uid > id > name."""
+        out: list[str] = []
+        for row in (items or [])[:limit * 2]:
+            if not isinstance(row, dict):
+                continue
+            for key in ("uuid", "uid", "UID", "UUID", "id", "name", "title"):
+                val = row.get(key)
+                if isinstance(val, str) and val:
+                    out.append(val)
+                    break
+            if len(out) >= limit:
+                break
+        return out
+
     if is_graph:
+        graph_data = ((graph_result or {}).get("data") or [])
         total_matches = (graph_result or {}).get("count")
-        preview_count = len(((graph_result or {}).get("data") or [])[:20])
+        preview_count = len(graph_data[:20])
+        example_ids = _harvest_ids(graph_data)
     elif is_reporter and isinstance(reporter_summary, dict):
         total_matches = (
             reporter_summary.get("total_rows")
@@ -150,13 +170,19 @@ def chatter_agent_answer(
                 or api_data_full.get("total_samples")
                 or api_data_full.get("total_nodes")
             )
+            # The API result uses different keys for the list of records
+            # depending on endpoint: "samples" (sample search), "rows"
+                                                            # (generic), "nodes" (graph-shaped),
+            # "data" (catch-all). Check all of them.
             preview_items = (
                 api_data_full.get("rows") if isinstance(api_data_full.get("rows"), list)
                 else api_data_full.get("nodes") if isinstance(api_data_full.get("nodes"), list)
+                else api_data_full.get("samples") if isinstance(api_data_full.get("samples"), list)
                 else api_data_full.get("data") if isinstance(api_data_full.get("data"), list)
                 else []
             )
             preview_count = len(preview_items)
+            example_ids = _harvest_ids(preview_items)
 
     # Mode-specific data section (the actual answer payload).
     if is_graph:
@@ -185,6 +211,14 @@ def chatter_agent_answer(
         mode_label = "search"
         log_label = "chatter"
 
+    examples_block = ""
+    if example_ids:
+        examples_block = (
+            "Example identifiers from the result (MENTION these verbatim in your answer):\n"
+            + "\n".join(f"- {eid}" for eid in example_ids)
+            + "\n\n"
+        )
+
     user_content = (
         f"User question:\n{user_query}\n\n"
         "What the user asked for:\n"
@@ -196,13 +230,20 @@ def chatter_agent_answer(
         "Result statistics:\n"
         f"- Total matches: {total_matches if total_matches is not None else 'unknown'}\n"
         f"- Preview rows shown: {preview_count}\n\n"
+        f"{examples_block}"
         f"MODE: {mode_label}\n\n"
         "Instructions for this turn:\n"
         "- Lead with the count or key finding.\n"
         "- Use resolved entity NAMES (e.g. 'Non-Human Primate'), not codes alone, when introducing the result.\n"
-        "- Mention 2-3 example identifiers (UIDs, names) from the preview verbatim if available.\n"
-        "- Do NOT describe HOW the data was retrieved — no endpoint names, no Cypher, "
-        "no API mechanics, no filter operators (AND/OR), no requestBody."
+        + (
+            "- MUST mention all example identifiers listed above verbatim — they are pre-extracted for you.\n"
+            if example_ids else
+            "- Mention 2-3 example identifiers (UIDs, names) from the preview verbatim if available.\n"
+        )
+        + "- Do NOT describe HOW the data was retrieved — no endpoint names, no Cypher, "
+        "no API mechanics, no filter operators (AND/OR), no requestBody.\n"
+        "- Skip filler phrases like 'diverse set', 'I have truncated the list', 'feel free to refine'. "
+        "Be informative and brief."
     )
 
     from ..chat_memory import history_block

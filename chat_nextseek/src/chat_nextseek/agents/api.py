@@ -31,6 +31,14 @@ def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIR
     schema = config.get_schema_for_endpoint(endpoint)
     methods = (schema or {}).get("methods") or []
     default_method = (schema or {}).get("method") or (methods[0] if methods else "POST")
+    # Catalog entries often specify the HTTP method as a singular `method` field
+    # rather than a `methods` list. Normalize so the validation at the bottom of
+    # this function (which checks `api_plan.method in methods`) actually fires
+    # — without this, an LLM that ignores the "Available methods: [GET]" hint
+    # can send POST against a GET-only endpoint and the request goes out as-is
+    # (→ "405 Method Not Allowed").
+    if not methods and default_method:
+        methods = [default_method]
     # Also pull enriched catalog entry (has request_body, llm_hint, requires_uids, etc.)
     enriched_entry = next((ep for ep in config.MIN_API_ENDPOINTS if ep.get("path") == endpoint), None)
     schema_text = (
