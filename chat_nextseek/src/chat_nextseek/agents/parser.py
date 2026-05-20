@@ -318,7 +318,7 @@ def _canonical_multi_parse(
     """Run the canonical routing pass used by both the standard parser and planner pipeline."""
     print("\n[DEBUG][MULTI_PARSER] User query:", user_query)
 
-    from .chat_memory import history_block
+    from ..chat_memory import history_block
 
     entity_dict = entity_result.model_dump() if hasattr(entity_result, "model_dump") else entity_result
     recent_summary = build_recent_results_summary(session)
@@ -461,7 +461,7 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
     Invoke the single-path parser used by the standard pipeline.
     Embeds recent session context plus catalog endpoints into the prompt and returns a ParserPlan.
     """
-    from .chat_memory import history_block
+    from ..chat_memory import history_block
 
     recent_summary = build_recent_results_summary(session)
     chat_history = history_block(session)

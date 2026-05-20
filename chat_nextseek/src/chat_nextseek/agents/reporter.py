@@ -235,7 +235,7 @@ def report_writer_agent(
     canonical_report_type = normalize_report_type(plan.report_type)
     model_cls = ReportWriterOutput
     if canonical_report_type == "GEO":
-        from .schemas import ReportWriterOutputGEO
+        from ..schemas import ReportWriterOutputGEO
         model_cls = ReportWriterOutputGEO
     messages = [
         {"role": "system", "content": config.REPORT_WRITER_SYSTEM_PROMPT},

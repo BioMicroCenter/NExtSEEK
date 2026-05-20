@@ -175,7 +175,7 @@ def chatter_agent_answer(
         )
         log_label = "chatter"
 
-    from .chat_memory import history_block
+    from ..chat_memory import history_block
 
     messages: list[dict] = [{"role": "system", "content": config.CHATTER_SYSTEM_PROMPT}]
     chat_history = history_block(session) if session is not None else ""
@@ -341,7 +341,7 @@ def chatter_agent_plan(
 
     steps_text = "\n\n".join(steps_for_prompt)
 
-    from .chat_memory import history_block
+    from ..chat_memory import history_block
 
     chatter_client, chatter_model, chatter_budget = config.get_agent_model("chatter")
     messages: list[dict] = [
