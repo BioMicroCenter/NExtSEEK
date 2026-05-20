@@ -1,7 +1,7 @@
 """Submit step: hand the emitted launch.yml to seqera/submitter."""
 from unittest.mock import MagicMock, patch
 
-from chat_nextseek import pipeline_agent
+from chat_nextseek.pipeline import agent as pipeline_agent
 
 
 def _state_with_launch_yml():
@@ -18,7 +18,7 @@ def test_submit_calls_submit_launch_and_clears():
     session = _state_with_launch_yml()
     config = MagicMock()
     config.tower_env = {"access_token": "tok", "workspace": "ws"}
-    with patch("chat_nextseek.pipeline_agent.submit_launch",
+    with patch("chat_nextseek.pipeline.agent.submit_launch",
                return_value=["https://tower/run/1"]) as sub:
         out = pipeline_agent._handle_submit(session, config, log_dir=None)
     assert "https://tower/run/1" in out["reply"]
@@ -30,7 +30,7 @@ def test_submit_with_no_run_urls_keeps_state():
     session = _state_with_launch_yml()
     config = MagicMock()
     config.tower_env = {"access_token": "tok", "workspace": "ws"}
-    with patch("chat_nextseek.pipeline_agent.submit_launch", return_value=[]):
+    with patch("chat_nextseek.pipeline.agent.submit_launch", return_value=[]):
         out = pipeline_agent._handle_submit(session, config, log_dir=None)
     assert "didn't return" in out["reply"].lower() or "no run" in out["reply"].lower()
     assert session["pipeline_agent"].get("active") is True

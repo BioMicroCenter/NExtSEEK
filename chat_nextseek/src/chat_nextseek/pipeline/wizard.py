@@ -598,7 +598,7 @@ def _wizard_builder_history_messages(
 
 
 def _wizard_agent_builder(config, session, user_text, **kwargs):
-    """Module-level shim so tests can patch 'chat_nextseek.nfcore_wizard._wizard_agent_builder'.
+    """Module-level shim so tests can patch 'chat_nextseek.pipeline.wizard._wizard_agent_builder'.
 
     Delegates to agents._wizard_agent_builder; imported lazily to avoid circular imports.
     """

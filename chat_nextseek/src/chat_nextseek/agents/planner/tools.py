@@ -403,7 +403,7 @@ def _plan_tool_report_generation(
         rplan = rplan.model_copy(update=reporter_updates)
     report_type_value = (rplan.report_type or "").upper()
     if report_type_value.startswith("NFCORE"):
-        from . import nfcore_wizard
+        from chat_nextseek.pipeline import wizard as nfcore_wizard
 
         wizard_result = nfcore_wizard.start(
             session,

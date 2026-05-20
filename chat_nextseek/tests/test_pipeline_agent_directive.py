@@ -1,7 +1,7 @@
 """Directive parse step — covers all sub_modes + edge cases."""
 from unittest.mock import MagicMock, patch
 
-from chat_nextseek import pipeline_agent
+from chat_nextseek.pipeline import agent as pipeline_agent
 from chat_nextseek.schemas.pipeline import DirectiveParseOutput, SamplesRef
 
 
@@ -13,7 +13,7 @@ def _config():
 
 def _patch_directive(retval):
     return patch(
-        "chat_nextseek.pipeline_agent._pipeline_directive_parse",
+        "chat_nextseek.pipeline.agent._pipeline_directive_parse",
         return_value=retval,
     )
 
@@ -26,7 +26,7 @@ def test_start_with_build_directive_stores_parsed_state():
         samples_ref=SamplesRef(kind="last_search"),
         group_by_phrase="exposure",
     )), patch(
-        "chat_nextseek.pipeline_agent._run_build_flow",
+        "chat_nextseek.pipeline.agent._run_build_flow",
         return_value={"action": "ask", "reply": "ok", "params": None},
     ):
         out = pipeline_agent.start(

@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from chat_nextseek import nfcore_wizard
+from chat_nextseek.pipeline import wizard as nfcore_wizard
 from chat_nextseek.schemas import WizardAgentOutput
 
 
@@ -28,7 +28,7 @@ def test_handle_builder_step_stay_merges_selection_updates():
     session = _starting_session()
     config = MagicMock()
 
-    with patch("chat_nextseek.nfcore_wizard._wizard_agent_builder") as wa:
+    with patch("chat_nextseek.pipeline.wizard._wizard_agent_builder") as wa:
         wa.return_value = WizardAgentOutput(
             action="stay",
             selection_updates={"uids": ["U1", "U2"]},
@@ -49,8 +49,8 @@ def test_handle_builder_step_advance_transitions_to_confirm():
     session["nfcore_wizard"]["selection"]["uids"] = ["U1", "U2"]
     config = MagicMock()
 
-    with patch("chat_nextseek.nfcore_wizard._wizard_agent_builder") as wa, \
-         patch("chat_nextseek.nfcore_wizard._check_sequencing_presence",
+    with patch("chat_nextseek.pipeline.wizard._wizard_agent_builder") as wa, \
+         patch("chat_nextseek.pipeline.wizard._check_sequencing_presence",
                return_value={"has_sequencing": True, "sampled": 2, "error": None}):
         wa.return_value = WizardAgentOutput(
             action="advance",
@@ -71,8 +71,8 @@ def test_handle_builder_step_advance_blocked_when_no_sequencing_data():
     session["nfcore_wizard"]["selection"]["uids"] = ["U1", "U2", "U3"]
     config = MagicMock()
 
-    with patch("chat_nextseek.nfcore_wizard._wizard_agent_builder") as wa, \
-         patch("chat_nextseek.nfcore_wizard._check_sequencing_presence",
+    with patch("chat_nextseek.pipeline.wizard._wizard_agent_builder") as wa, \
+         patch("chat_nextseek.pipeline.wizard._check_sequencing_presence",
                return_value={"has_sequencing": False, "sampled": 3, "error": None}):
         wa.return_value = WizardAgentOutput(
             action="advance",
@@ -97,8 +97,8 @@ def test_handle_builder_step_advance_proceeds_when_metadata_fetch_errors():
     session["nfcore_wizard"]["selection"]["uids"] = ["U1", "U2"]
     config = MagicMock()
 
-    with patch("chat_nextseek.nfcore_wizard._wizard_agent_builder") as wa, \
-         patch("chat_nextseek.nfcore_wizard._check_sequencing_presence",
+    with patch("chat_nextseek.pipeline.wizard._wizard_agent_builder") as wa, \
+         patch("chat_nextseek.pipeline.wizard._check_sequencing_presence",
                return_value={"has_sequencing": True, "sampled": 0, "error": "API down"}):
         wa.return_value = WizardAgentOutput(
             action="advance",
@@ -123,7 +123,7 @@ def test_check_sequencing_presence_detects_d_seq_in_summary():
         },
         "lineage_edges": [],
     }
-    with patch("chat_nextseek.nfcore_wizard._build_metadata_field_summary",
+    with patch("chat_nextseek.pipeline.wizard._build_metadata_field_summary",
                return_value=fake_summary):
         result = nfcore_wizard._check_sequencing_presence(config, ["U1", "U2"])
 
@@ -144,7 +144,7 @@ def test_check_sequencing_presence_returns_false_when_no_d_seq():
         },
         "lineage_edges": [],
     }
-    with patch("chat_nextseek.nfcore_wizard._build_metadata_field_summary",
+    with patch("chat_nextseek.pipeline.wizard._build_metadata_field_summary",
                return_value=fake_summary):
         result = nfcore_wizard._check_sequencing_presence(config, ["U1", "U2", "U3"])
 
@@ -172,8 +172,8 @@ def test_pipeline_can_be_set_via_selection_updates():
     session = _starting_session(pipeline=None)
     config = MagicMock()
 
-    with patch("chat_nextseek.nfcore_wizard._wizard_agent_builder") as wa, \
-         patch("chat_nextseek.nfcore_wizard._known_pipeline_keys",
+    with patch("chat_nextseek.pipeline.wizard._wizard_agent_builder") as wa, \
+         patch("chat_nextseek.pipeline.wizard._known_pipeline_keys",
                return_value=["rnaseq", "scrnaseq", "sarek"]):
         wa.return_value = WizardAgentOutput(
             action="stay",
@@ -195,8 +195,8 @@ def test_invalid_pipeline_rejected_with_helpful_reply():
     session = _starting_session(pipeline=None)
     config = MagicMock()
 
-    with patch("chat_nextseek.nfcore_wizard._wizard_agent_builder") as wa, \
-         patch("chat_nextseek.nfcore_wizard._known_pipeline_keys",
+    with patch("chat_nextseek.pipeline.wizard._wizard_agent_builder") as wa, \
+         patch("chat_nextseek.pipeline.wizard._known_pipeline_keys",
                return_value=["rnaseq", "scrnaseq", "sarek"]):
         wa.return_value = WizardAgentOutput(
             action="stay",
@@ -218,8 +218,8 @@ def test_advance_refused_when_pipeline_missing():
     session["nfcore_wizard"]["selection"]["uids"] = ["U1", "U2"]
     config = MagicMock()
 
-    with patch("chat_nextseek.nfcore_wizard._wizard_agent_builder") as wa, \
-         patch("chat_nextseek.nfcore_wizard._known_pipeline_keys",
+    with patch("chat_nextseek.pipeline.wizard._wizard_agent_builder") as wa, \
+         patch("chat_nextseek.pipeline.wizard._known_pipeline_keys",
                return_value=["rnaseq", "scrnaseq"]):
         wa.return_value = WizardAgentOutput(
             action="advance",
@@ -240,8 +240,8 @@ def test_advance_refused_when_uids_missing():
     # selection.uids stays []
     config = MagicMock()
 
-    with patch("chat_nextseek.nfcore_wizard._wizard_agent_builder") as wa, \
-         patch("chat_nextseek.nfcore_wizard._known_pipeline_keys",
+    with patch("chat_nextseek.pipeline.wizard._wizard_agent_builder") as wa, \
+         patch("chat_nextseek.pipeline.wizard._known_pipeline_keys",
                return_value=["rnaseq", "scrnaseq"]):
         wa.return_value = WizardAgentOutput(
             action="advance",
@@ -286,7 +286,7 @@ def test_handle_builder_step_cancel_clears_state():
     session = _starting_session()
     config = MagicMock()
 
-    with patch("chat_nextseek.nfcore_wizard._wizard_agent_builder") as wa:
+    with patch("chat_nextseek.pipeline.wizard._wizard_agent_builder") as wa:
         wa.return_value = WizardAgentOutput(
             action="cancel",
             selection_updates={},
@@ -304,7 +304,7 @@ def test_handle_builder_step_tool_loop_error_keeps_state_and_explains():
     session = _starting_session()
     config = MagicMock()
 
-    with patch("chat_nextseek.nfcore_wizard._wizard_agent_builder",
+    with patch("chat_nextseek.pipeline.wizard._wizard_agent_builder",
                side_effect=WizardToolLoopError("looped")):
         result = nfcore_wizard._handle_builder_step(session, config, "hi")
 
@@ -324,7 +324,7 @@ def test_handle_builder_step_partial_selection_updates_preserve_other_keys():
     }
     config = MagicMock()
 
-    with patch("chat_nextseek.nfcore_wizard._wizard_agent_builder") as wa:
+    with patch("chat_nextseek.pipeline.wizard._wizard_agent_builder") as wa:
         wa.return_value = WizardAgentOutput(
             action="stay",
             selection_updates={"enrichment_fields": ["Timepoint", "LibraryStrategy"]},
@@ -373,7 +373,7 @@ def test_start_initializes_builder_step_directly():
     config = MagicMock()
     config.WIZARD_AGENT_SYSTEM_PROMPT = "x"
     session = {}
-    with patch("chat_nextseek.nfcore_wizard.format_available_pipelines",
+    with patch("chat_nextseek.pipeline.wizard.format_available_pipelines",
                return_value="rnaseq, scrnaseq"):
         result = nfcore_wizard.start(
             session, config,
@@ -405,7 +405,7 @@ def test_start_then_is_active_remains_active():
     config = MagicMock()
     config.WIZARD_AGENT_SYSTEM_PROMPT = "x"
     session = {}
-    with patch("chat_nextseek.nfcore_wizard.format_available_pipelines",
+    with patch("chat_nextseek.pipeline.wizard.format_available_pipelines",
                return_value="rnaseq, scrnaseq"):
         nfcore_wizard.start(
             session, config,
@@ -435,8 +435,8 @@ def test_restart_action_resets_to_builder_step():
     # non-builder steps). handle_turn() returns the restart-handling result.
     with patch("chat_nextseek.agents.wizard_agent") as wa:
         wa.return_value = WizardAgentOutput(action="restart", extracted={}, reply="ok, starting over")
-        with patch("chat_nextseek.nfcore_wizard._step_context", return_value={}), \
-             patch("chat_nextseek.nfcore_wizard.format_available_pipelines",
+        with patch("chat_nextseek.pipeline.wizard._step_context", return_value={}), \
+             patch("chat_nextseek.pipeline.wizard.format_available_pipelines",
                    return_value="rnaseq, scrnaseq"):
             result = nfcore_wizard.handle_turn(session, config, "start over")
 
@@ -523,7 +523,7 @@ def test_handle_builder_step_passes_history_messages_from_chat_log():
 
     Falls back to assistant_reply_preview when assistant_reply is absent
     (back-compat with older chat_log turns)."""
-    from chat_nextseek.nfcore_wizard import _handle_builder_step
+    from chat_nextseek.pipeline.wizard import _handle_builder_step
 
     session = {
         "chat_log": [
@@ -547,7 +547,7 @@ def test_handle_builder_step_passes_history_messages_from_chat_log():
         from chat_nextseek.schemas.wizard import WizardAgentOutput
         return WizardAgentOutput(action="stay", selection_updates={}, reply="ok")
 
-    with patch("chat_nextseek.nfcore_wizard._wizard_agent_builder",
+    with patch("chat_nextseek.pipeline.wizard._wizard_agent_builder",
                side_effect=fake_builder):
         _handle_builder_step(session, MagicMock(), "what fields exist?")
 
@@ -564,7 +564,7 @@ def test_wizard_builder_history_prefers_full_assistant_reply_over_preview():
     the LLM to re-derive (and drift from) prior commitments — observed in
     session 05963e55... where 10 proposed UIDs were swapped for a different
     10 by turn 8 because the preview cut off at UID 6."""
-    from chat_nextseek.nfcore_wizard import _wizard_builder_history_messages
+    from chat_nextseek.pipeline.wizard import _wizard_builder_history_messages
 
     long_reply = (
         "Here are the 10 UIDs: NHP-1, NHP-2, NHP-3, NHP-4, NHP-5, NHP-6, NHP-7, "
@@ -592,7 +592,7 @@ def test_wizard_builder_history_prefers_full_assistant_reply_over_preview():
 def test_wizard_builder_history_falls_back_to_preview_when_full_reply_missing():
     """Older chat_log turns may only have assistant_reply_preview; the helper
     must still surface them (back-compat)."""
-    from chat_nextseek.nfcore_wizard import _wizard_builder_history_messages
+    from chat_nextseek.pipeline.wizard import _wizard_builder_history_messages
 
     session = {
         "chat_log": [

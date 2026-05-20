@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from chat_nextseek.builder_tools import (
+from chat_nextseek.pipeline.builder_tools import (
     BUILDER_TOOL_SCHEMAS,
     dispatch_tool_call,
 )
@@ -31,7 +31,7 @@ def test_dispatch_memory_query_calls_memory_agent():
         "nfcore_wizard": {"pinned_context": {"bundle_id": 7}},
     }
     config = MagicMock()
-    with patch("chat_nextseek.builder_tools.memory_agent_answer") as m:
+    with patch("chat_nextseek.pipeline.builder_tools.memory_agent_answer") as m:
         m.return_value = "There are 195 mice."
         out = dispatch_tool_call(
             config=config,

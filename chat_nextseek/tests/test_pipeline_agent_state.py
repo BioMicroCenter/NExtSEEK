@@ -1,5 +1,5 @@
 """Pipeline-agent state lifecycle: is_active, clear, snapshot_for_chat_log."""
-from chat_nextseek import pipeline_agent
+from chat_nextseek.pipeline import agent as pipeline_agent
 
 
 def test_is_active_false_on_empty_session():

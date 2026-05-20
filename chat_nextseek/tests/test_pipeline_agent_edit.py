@@ -1,7 +1,7 @@
 """Edit step: applies a user edit message to the in-memory samplesheet."""
 from unittest.mock import MagicMock, patch
 
-from chat_nextseek import pipeline_agent
+from chat_nextseek.pipeline import agent as pipeline_agent
 from chat_nextseek.schemas.pipeline import EditDiffOutput
 
 
@@ -21,8 +21,8 @@ def _state_at_validation():
 
 def test_edit_apply_re_emits_artifacts():
     session = {"pipeline_agent": _state_at_validation()}
-    with patch("chat_nextseek.pipeline_agent._pipeline_edit_step") as edit, \
-         patch("chat_nextseek.pipeline_agent._re_emit_samplesheet",
+    with patch("chat_nextseek.pipeline.agent._pipeline_edit_step") as edit, \
+         patch("chat_nextseek.pipeline.agent._re_emit_samplesheet",
                return_value={"samplesheet": "/tmp/run/samplesheet.csv"}):
         edit.return_value = EditDiffOutput(
             action="apply",
@@ -40,7 +40,7 @@ def test_edit_apply_re_emits_artifacts():
 
 def test_edit_ask_pauses_for_clarification():
     session = {"pipeline_agent": _state_at_validation()}
-    with patch("chat_nextseek.pipeline_agent._pipeline_edit_step") as edit:
+    with patch("chat_nextseek.pipeline.agent._pipeline_edit_step") as edit:
         edit.return_value = EditDiffOutput(
             action="ask",
             ask_reply="Which samples are 'the bad ones'?",
@@ -52,7 +52,7 @@ def test_edit_ask_pauses_for_clarification():
 
 def test_edit_reject_keeps_state_and_explains():
     session = {"pipeline_agent": _state_at_validation()}
-    with patch("chat_nextseek.pipeline_agent._pipeline_edit_step") as edit:
+    with patch("chat_nextseek.pipeline.agent._pipeline_edit_step") as edit:
         edit.return_value = EditDiffOutput(
             action="reject",
             reject_reason="SAMPLE-999 isn't in the current set.",

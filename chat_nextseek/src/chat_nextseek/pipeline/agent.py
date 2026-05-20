@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from ..session import SessionState
 
 # Expose LLM helpers at module level so tests can patch them via
-# "chat_nextseek.pipeline_agent._pipeline_directive_parse" etc.
+# "chat_nextseek.pipeline.agent._pipeline_directive_parse" etc.
 from ..agents import (  # noqa: E402
     report_writer_agent,
 )

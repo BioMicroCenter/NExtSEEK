@@ -46,7 +46,7 @@ def test_single_tool_call_then_finalize_returns_wizard_agent_output():
                        "reply": "Loaded 2 samples."}},
         ]),
     ])
-    with patch("chat_nextseek.builder_tools.dispatch_tool_call",
+    with patch("chat_nextseek.pipeline.builder_tools.dispatch_tool_call",
                return_value="[\"U1\", \"U2\"]") as disp:
         out = _wizard_agent_builder(
             config=config, session=session, user_text="use my last search",
@@ -73,7 +73,7 @@ def test_finalize_only_in_first_response_returns_immediately():
          "input": {"action": "stay", "selection_updates": {}, "reply": "ack"}},
     ]))
 
-    with patch("chat_nextseek.builder_tools.dispatch_tool_call") as disp:
+    with patch("chat_nextseek.pipeline.builder_tools.dispatch_tool_call") as disp:
         out = _wizard_agent_builder(
             config=config, session=session, user_text="hi",
         )
@@ -93,7 +93,7 @@ def test_loop_cap_raises_wizard_tool_loop_error():
          "input": {"question": "anything"}},
     ]))
 
-    with patch("chat_nextseek.builder_tools.dispatch_tool_call", return_value="some result"):
+    with patch("chat_nextseek.pipeline.builder_tools.dispatch_tool_call", return_value="some result"):
         with pytest.raises(WizardToolLoopError):
             _wizard_agent_builder(
                 config=config, session=session, user_text="hi",
@@ -162,7 +162,7 @@ def test_history_messages_are_prepended_before_current_user_text():
         {"role": "assistant", "content": "Cohort, Sex, Genotype, ..."},
     ]
 
-    with patch("chat_nextseek.builder_tools.dispatch_tool_call"):
+    with patch("chat_nextseek.pipeline.builder_tools.dispatch_tool_call"):
         out = _wizard_agent_builder(
             config=config, session=session,
             user_text="filter by Cohort",
@@ -194,7 +194,7 @@ def test_history_messages_default_none_preserves_current_behavior():
         ])
 
     client.chat_with_tools = MagicMock(side_effect=fake_chat_with_tools)
-    with patch("chat_nextseek.builder_tools.dispatch_tool_call"):
+    with patch("chat_nextseek.pipeline.builder_tools.dispatch_tool_call"):
         _wizard_agent_builder(
             config=config, session=session, user_text="hi",
         )
@@ -218,7 +218,7 @@ def test_empty_history_messages_list_is_equivalent_to_none():
         ])
 
     client.chat_with_tools = MagicMock(side_effect=fake_chat_with_tools)
-    with patch("chat_nextseek.builder_tools.dispatch_tool_call"):
+    with patch("chat_nextseek.pipeline.builder_tools.dispatch_tool_call"):
         _wizard_agent_builder(
             config=config, session=session, user_text="hi",
             history_messages=[],
@@ -264,7 +264,7 @@ def test_end_turn_with_text_synthesizes_finalize_turn_stay():
             {"type": "text", "text": "Here are the 29 fields: ..."},
         ]),
     ])
-    with patch("chat_nextseek.builder_tools.dispatch_tool_call",
+    with patch("chat_nextseek.pipeline.builder_tools.dispatch_tool_call",
                return_value="(field summary)"):
         out = _wizard_agent_builder(
             config=config, session=session, user_text="what fields exist?",

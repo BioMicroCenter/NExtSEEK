@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 from .artifacts import ArtifactStore, build_metadata_bundle, build_saved_report_file_manifest
 from .chat_memory import append_turn, build_tool_summary_for_mode, resolve_bundle_for_recall
 from .pipeline import wizard as nfcore_wizard
-from . import pipeline_agent
+from .pipeline import agent as pipeline_agent
 from .agents import (
     chatter_agent_answer,
     chatter_agent_plan,

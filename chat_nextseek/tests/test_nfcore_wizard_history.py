@@ -1,4 +1,4 @@
-from chat_nextseek.nfcore_wizard import _wizard_builder_history_messages
+from chat_nextseek.pipeline.wizard import _wizard_builder_history_messages
 
 
 def _turn(turn_id, mode, user_query, assistant_reply, wizard_step=None):

@@ -1,7 +1,7 @@
 """Group-by resolution: tool dispatch + LLM loop + clarification handling."""
 from unittest.mock import MagicMock, patch
 
-from chat_nextseek import pipeline_agent, pipeline_tools
+from chat_nextseek.pipeline import agent as pipeline_agent, tools as pipeline_tools
 from chat_nextseek.schemas.pipeline import FieldRef, GroupByResolution
 
 
@@ -64,8 +64,8 @@ def _state_at_groupby_phase(group_by_phrase="exposure"):
 
 def test_groupby_committed_advances_to_build():
     session = {"pipeline_agent": _state_at_groupby_phase()}
-    with patch("chat_nextseek.pipeline_agent._pipeline_groupby_resolution") as gb, \
-         patch("chat_nextseek.pipeline_agent._run_build_step",
+    with patch("chat_nextseek.pipeline.agent._pipeline_groupby_resolution") as gb, \
+         patch("chat_nextseek.pipeline.agent._run_build_step",
                return_value={"action": "ask", "reply": "built", "params": None}):
         gb.return_value = GroupByResolution(
             field=FieldRef(sample_type="NHP", field_name="Treatment1"),
@@ -79,7 +79,7 @@ def test_groupby_committed_advances_to_build():
 
 def test_groupby_clarification_pauses_phase():
     session = {"pipeline_agent": _state_at_groupby_phase()}
-    with patch("chat_nextseek.pipeline_agent._pipeline_groupby_resolution") as gb:
+    with patch("chat_nextseek.pipeline.agent._pipeline_groupby_resolution") as gb:
         gb.return_value = GroupByResolution(
             field=FieldRef(sample_type="NHP", field_name="Treatment1"),
             distinct_values=[],
@@ -105,8 +105,8 @@ def test_groupby_clarification_handler_re_resolves_with_hint():
             {"sample_type": "NHP", "field_name": "Treatment1Dose"},
         ],
     }}
-    with patch("chat_nextseek.pipeline_agent._pipeline_groupby_resolution") as gb, \
-         patch("chat_nextseek.pipeline_agent._run_build_step",
+    with patch("chat_nextseek.pipeline.agent._pipeline_groupby_resolution") as gb, \
+         patch("chat_nextseek.pipeline.agent._run_build_step",
                return_value={"action": "ask", "reply": "built", "params": None}):
         gb.return_value = GroupByResolution(
             field=FieldRef(sample_type="NHP", field_name="Treatment1Dose"),
@@ -121,8 +121,8 @@ def test_groupby_clarification_handler_re_resolves_with_hint():
 
 def test_groupby_skipped_when_phrase_is_null_single_cohort_build():
     session = {"pipeline_agent": {**_state_at_groupby_phase(group_by_phrase=None)}}
-    with patch("chat_nextseek.pipeline_agent._pipeline_groupby_resolution") as gb, \
-         patch("chat_nextseek.pipeline_agent._run_build_step",
+    with patch("chat_nextseek.pipeline.agent._pipeline_groupby_resolution") as gb, \
+         patch("chat_nextseek.pipeline.agent._run_build_step",
                return_value={"action": "ask", "reply": "built", "params": None}):
         out = pipeline_agent._run_groupby_or_build(session, MagicMock(), log_dir=None)
     assert out["reply"] == "built"

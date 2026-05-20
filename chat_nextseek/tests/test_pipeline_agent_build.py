@@ -2,7 +2,7 @@
 renders artifacts."""
 from unittest.mock import MagicMock, patch
 
-from chat_nextseek import pipeline_agent
+from chat_nextseek.pipeline import agent as pipeline_agent
 
 
 def _state_ready_to_build():
@@ -48,7 +48,7 @@ def test_build_step_calls_generate_report_outputs_with_cohorts():
             "Built it.",
         )
 
-    with patch("chat_nextseek.pipeline_agent.generate_report_outputs",
+    with patch("chat_nextseek.pipeline.agent.generate_report_outputs",
                side_effect=fake_generate):
         out = pipeline_agent._run_build_step(session, MagicMock(), log_dir=None)
     assert out["action"] == "ask"
@@ -74,7 +74,7 @@ def test_build_step_single_cohort_when_no_groupby():
         captured.update(kwargs)
         return ({}, MagicMock(model_dump=lambda: {}), {}, "")
 
-    with patch("chat_nextseek.pipeline_agent.generate_report_outputs",
+    with patch("chat_nextseek.pipeline.agent.generate_report_outputs",
                side_effect=fake_generate):
         pipeline_agent._run_build_step(session, MagicMock(), log_dir=None)
     cohorts = captured["pre_supplied_cohorts"]
@@ -96,7 +96,7 @@ def test_build_step_handles_accession_pipeline():
         captured.update(kwargs)
         return ({}, MagicMock(model_dump=lambda: {}), {}, "")
 
-    with patch("chat_nextseek.pipeline_agent.generate_report_outputs",
+    with patch("chat_nextseek.pipeline.agent.generate_report_outputs",
                side_effect=fake_generate):
         pipeline_agent._run_build_step(session, MagicMock(), log_dir=None)
     assert captured["parser_plan"].report_type == "NFCORE_FETCHNGS"
@@ -119,7 +119,7 @@ def test_build_step_populates_samplesheet_rows_from_emitted_csv(tmp_path):
     def fake_generate(**kwargs):
         return ({}, MagicMock(model_dump=lambda: {}), {"samplesheet": str(csv_path)}, "")
 
-    with patch("chat_nextseek.pipeline_agent.generate_report_outputs",
+    with patch("chat_nextseek.pipeline.agent.generate_report_outputs",
                side_effect=fake_generate):
         pipeline_agent._run_build_step(session, MagicMock(), log_dir=None)
     rows = session["pipeline_agent"]["samplesheet_rows"]
@@ -134,7 +134,7 @@ def test_build_step_samplesheet_rows_empty_when_no_csv_path():
     def fake_generate(**kwargs):
         return ({}, MagicMock(model_dump=lambda: {}), {}, "")
 
-    with patch("chat_nextseek.pipeline_agent.generate_report_outputs",
+    with patch("chat_nextseek.pipeline.agent.generate_report_outputs",
                side_effect=fake_generate):
         pipeline_agent._run_build_step(session, MagicMock(), log_dir=None)
     assert session["pipeline_agent"]["samplesheet_rows"] == []
