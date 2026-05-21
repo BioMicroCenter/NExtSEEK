@@ -24,6 +24,7 @@ dependencies = [
   "boto3>=1.35.0",
   "mcp>=1.0.0",
   "baml-py>=0.221.0",
+  "sentence-transformers>=3.0",
 ]
 
 [tool.setuptools.packages.find]
