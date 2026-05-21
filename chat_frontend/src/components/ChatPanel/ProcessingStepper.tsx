@@ -42,7 +42,7 @@ export function ProcessingStepper({ steps }: ProcessingStepperProps) {
   const completedCount = steps.filter((s) => s.status === "complete").length;
 
   return (
-    <div className="border-b bg-muted/20">
+    <div data-testid="stepper" className="border-b bg-muted/20">
       {/* Collapsed summary bar */}
       <button
         type="button"
@@ -79,6 +79,8 @@ export function ProcessingStepper({ steps }: ProcessingStepperProps) {
               return (
                 <div
                   key={step.agentName}
+                  data-testid={`step-${step.agentName}`}
+                  data-status={step.status}
                   className={cn(
                     "flex items-start gap-2 rounded-md px-2 py-1 text-sm",
                     step.status === "pending" && "text-muted-foreground/50",

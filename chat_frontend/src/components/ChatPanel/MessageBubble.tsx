@@ -51,10 +51,11 @@ function stripDebugSections(content: string): {
 
 interface MessageBubbleProps {
   message: Message;
+  index?: number;
   onArtifactDownload?: (bundleId: number, artifactKey: string) => void;
 }
 
-export function MessageBubble({ message, onArtifactDownload }: MessageBubbleProps) {
+export function MessageBubble({ message, index, onArtifactDownload }: MessageBubbleProps) {
   const [debugOpen, setDebugOpen] = useState(false);
 
   // Strip debug sections from assistant messages
@@ -79,6 +80,9 @@ export function MessageBubble({ message, onArtifactDownload }: MessageBubbleProp
 
   return (
     <div
+      data-testid="message-bubble"
+      data-role={message.isUser ? "user" : "assistant"}
+      data-bubble-index={index ?? 0}
       className={cn(
         "flex flex-col py-1",
         message.isUser ? "items-end" : "items-start",

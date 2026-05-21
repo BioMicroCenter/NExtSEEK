@@ -10,7 +10,8 @@
           "name": "Mice treated with NDMA \u2014 keyword + sampletype",
           "tags": [
             "smoke",
-            "regression"
+            "regression",
+            "playwright"
           ],
           "requires_env": [],
           "turns": [
@@ -5711,7 +5712,8 @@
           "id": "report.geo_submission",
           "name": "GEO submission \u2014 artifact emission",
           "tags": [
-            "artifact"
+            "artifact",
+            "playwright"
           ],
           "requires_env": [],
           "turns": [
@@ -5737,6 +5739,10 @@
                   "field": "api_artifact.geo_seq.xlsx.rows_gte",
                   "op": "gte",
                   "value": 2
+                },
+                {
+                  "field": "ui_text.artifacts.geo_seq.xlsx.downloaded",
+                  "op": "true"
                 }
               ]
             }
@@ -7340,7 +7346,8 @@
           "name": "pipeline_agent activation \u2014 enters awaiting_validation",
           "tags": [
             "smoke",
-            "multi-turn"
+            "multi-turn",
+            "playwright"
           ],
           "requires_env": [],
           "turns": [
@@ -7376,6 +7383,10 @@
                   "field": "pipeline_agent.phase",
                   "op": "eq",
                   "value": "awaiting_validation"
+                },
+                {
+                  "field": "ui_text.assistant_reply",
+                  "op": "nonempty"
                 }
               ]
             }
@@ -9148,7 +9159,8 @@
           "id": "refrec.refine_to_cd8",
           "name": "Refine \u2014 NHPs depleted of CD8",
           "tags": [
-            "smoke"
+            "smoke",
+            "playwright"
           ],
           "requires_env": [],
           "turns": [
@@ -9189,6 +9201,10 @@
                 {
                   "field": "api_ok",
                   "op": "true"
+                },
+                {
+                  "field": "trio",
+                  "op": "trio_match"
                 }
               ]
             }

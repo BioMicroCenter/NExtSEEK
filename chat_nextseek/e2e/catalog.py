@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 class PassCriterion(BaseModel):
     field: str
-    op: Literal["eq", "contains", "nonempty", "true", "gte", "lte", "mentions", "matches_re"]
+    op: Literal["eq", "contains", "nonempty", "true", "gte", "lte", "mentions", "matches_re", "trio_match"]
     value: Any = None
 
 

@@ -10,6 +10,7 @@ interface NewChatButtonProps {
 export function NewChatButton({ collapsed, disabled, onClick }: NewChatButtonProps) {
   return (
     <Button
+      data-testid="new-chat-button"
       variant="outline"
       size={collapsed ? "icon" : "default"}
       onClick={onClick}

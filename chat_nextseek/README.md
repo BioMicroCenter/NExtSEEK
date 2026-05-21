@@ -152,6 +152,39 @@ uv run e2e.py --init-env [--force]               # generate chat_nextseek/.env f
 
 Sampler enforces `max(1, round(N × ratio))` per family so every family gets at least one variant per run (variants whose `requires_env` aren't satisfied are reported as `skipped`, e.g. the `pipeline_nfcore` Tower-submit variant needs `TOWER_ACCESS_TOKEN`).
 
+### Browser E2E (Phase E)
+
+A subset of catalog variants are tagged for browser-driven testing via Playwright,
+in addition to the in-process CLI run. The browser tier runs against the
+docker UI at `localhost:8000` and asserts the full UI ↔ console.txt ↔ MySQL
+chat_log trio for memory variants.
+
+**Run modes:**
+```bash
+uv run e2e.py                          # CLI tier + browser tier on tagged variants
+uv run e2e.py --no-playwright          # CLI only
+uv run e2e.py --playwright             # browser tier only (no CLI)
+uv run e2e.py --playwright --spot advanced.basic_ndma   # one browser variant
+uv run e2e.py --playwright --headed    # open Chromium with a visible window
+uv run e2e.py --playwright --video     # record video.webm per variant
+```
+
+**Prerequisites:**
+- Docker container running (`docker compose up nextseek`)
+- Container image rebuilt after the frontend testid commit (`docker compose build nextseek`) — required so the served `chat_frontend` dist carries the `data-testid` selectors that `e2e/playwright/pages.py` relies on
+- `chat_nextseek/.env` populated (`uv run e2e.py --init-env`)
+- Chromium installed for Playwright (`uv run playwright install chromium` — one-time)
+
+**Output:** Each browser run produces `outputs/e2e_<ts>/playwright/<vid>/`
+containing `trace.zip` (Playwright trace, openable via `npx playwright show-trace`),
+`screenshot.png`, `ws_frames.jsonl` (every WebSocket frame received),
+`ui_text.json`, `mysql_chat_log.json`, and `trio_diff.txt` (only on trio_match failure).
+
+**Tagging more variants:** Add `"playwright"` to a variant's `tags` array in
+`e2e/catalog.json`. The runner picks it up on the next run with no other
+config changes. See `docs/superpowers/specs/2026-05-21-e2e-playwright-design.md`
+for the full design.
+
 ## Architecture
 
 **Pipeline** (`-q`):

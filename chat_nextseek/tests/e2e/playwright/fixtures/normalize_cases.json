@@ -1,0 +1,13 @@
+[
+  {"name": "plain", "input": "hello world", "expected": "hello world"},
+  {"name": "leading_trailing_ws", "input": "  hello world  ", "expected": "hello world"},
+  {"name": "internal_ws_collapse", "input": "hello    world\n\n\nfoo", "expected": "hello world foo"},
+  {"name": "html_strip_simple", "input": "<p>hello <b>world</b></p>", "expected": "hello world"},
+  {"name": "html_entities", "input": "AT&amp;T &lt;3", "expected": "AT&T <3"},
+  {"name": "markdown_bold_preserved", "input": "**bold** text", "expected": "**bold** text"},
+  {"name": "code_fence_preserved", "input": "before\n```py\nprint(1)\n```\nafter", "expected": "before ```py print(1) ``` after"},
+  {"name": "empty", "input": "", "expected": ""},
+  {"name": "only_ws", "input": "   \n\n\t  ", "expected": ""},
+  {"name": "tags_with_attrs", "input": "<div class='x'>hi</div>", "expected": "hi"},
+  {"name": "nested_tags", "input": "<p>one <span>two <em>three</em></span></p>", "expected": "one two three"}
+]

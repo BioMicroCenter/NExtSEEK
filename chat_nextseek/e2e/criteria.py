@@ -59,16 +59,55 @@ def resolve_field(
     session: Any = None,
     last_reply: str | None = None,
     run_root: Path | None = None,
+    browser_ctx: dict | None = None,
+    mysql_chat_log: list[dict] | None = None,
 ) -> Any:
     """Resolve a pass-criterion field from debug dict + optional session/reply/run_root.
 
     Field families:
     - api_artifact.<filename>[.rows_gte] — filesystem checks against run_root/files/
     - wizard.*, chat_log.*, pipeline_agent.* — session-state aliases
+    - ui_text.* — browser DOM checks via browser_ctx["chat_page"]
+    - mysql_chat_log.* — MySQL chat_log row aliases
     - last_reply, last_target_result_id — recent-turn aliases
     - entity_*, api_ok, graph_cypher, neo4j_ok — top-level run_query debug aliases
     - dot-notation fallback — navigate nested dicts
     """
+    # ── browser-tier resolvers ──────────────────────────────────────────
+    if field.startswith("ui_text.") and browser_ctx is not None:
+        chat_page = browser_ctx.get("chat_page")
+        downloaded = browser_ctx.get("downloaded_artifacts") or set()
+        sub = field[len("ui_text."):]
+        if sub == "assistant_reply":
+            return chat_page.latest_assistant_reply() if chat_page else ""
+        if sub == "bubble_count":
+            return chat_page.bubble_count() if chat_page else 0
+        if sub.startswith("artifacts."):
+            art_sub = sub[len("artifacts."):]
+            if art_sub.endswith(".downloaded"):
+                fname = art_sub[:-len(".downloaded")]
+                return fname in downloaded
+            return chat_page.has_artifact(art_sub) if chat_page else False
+        if sub.startswith("stepper."):
+            step_name = sub[len("stepper."):]
+            return chat_page.stepper_status(step_name) if chat_page else None
+        return None
+
+    if field.startswith("mysql_chat_log.") and mysql_chat_log is not None:
+        sub = field[len("mysql_chat_log."):]
+        if sub == "length":
+            return len(mysql_chat_log)
+        if not mysql_chat_log:
+            return None
+        latest = mysql_chat_log[-1]
+        if sub == "latest_reply":
+            return latest.get("assistant_reply")
+        if sub == "latest_mode":
+            return latest.get("mode")
+        if sub == "latest_query":
+            return latest.get("user_query")
+        return None
+
     if field.startswith("api_artifact."):
         return _api_artifact_resolve(field, run_root)
 
@@ -217,12 +256,17 @@ def check_pass(
     session: Any = None,
     last_reply: str | None = None,
     run_root: Path | None = None,
+    browser_ctx: dict | None = None,
+    console_text: str | None = None,
+    mysql_chat_log: list[dict] | None = None,
 ) -> tuple[bool, list[dict]]:
-    """Evaluate every criterion against debug/session/last_reply/run_root.
+    """Evaluate every criterion. Browser kwargs are optional and used only by
+    ui_text.* / mysql_chat_log.* / trio_match criteria.
 
-    Returns (all_passed, per_criterion_results) where each result is
-    {field, op, value, passed, reason}.
+    Returns (all_passed, per_criterion_results).
     """
+    from e2e.playwright.trio import trio_match as _trio  # noqa: PLC0415
+
     results = []
     for crit in criteria:
         if isinstance(crit, PassCriterion):
@@ -233,12 +277,34 @@ def check_pass(
             continue
         if not field or not op:
             continue
-        actual = resolve_field(debug, field, session=session, last_reply=last_reply, run_root=run_root)
+
+        if op == "trio_match":
+            chat_page = (browser_ctx or {}).get("chat_page")
+            ui = chat_page.latest_assistant_reply() if chat_page else ""
+            cons = console_text or ""
+            mysql_reply = ""
+            if mysql_chat_log:
+                mysql_reply = mysql_chat_log[-1].get("assistant_reply") or ""
+            passed, reason, diff = _trio(ui, cons, mysql_reply)
+            results.append({
+                "field": field, "op": op, "value": expected,
+                "passed": passed,
+                "reason": f"{field}: trio_match — {reason}",
+                "diff": diff,
+            })
+            continue
+
+        actual = resolve_field(
+            debug, field,
+            session=session, last_reply=last_reply, run_root=run_root,
+            browser_ctx=browser_ctx, mysql_chat_log=mysql_chat_log,
+        )
         passed, reason = _check_one(actual, op, expected)
         results.append({
             "field": field, "op": op, "value": expected,
             "passed": passed,
             "reason": f"{field}: {reason}",
         })
+
     all_passed = all(r["passed"] for r in results) if results else True
     return all_passed, results

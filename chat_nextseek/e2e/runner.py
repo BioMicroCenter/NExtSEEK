@@ -26,6 +26,21 @@ from e2e.report import generate_html_report
 from e2e.sampler import sample
 
 
+def _probe_ui_reachable(ui_url: str, *, api_user: str, api_pass: str, timeout_s: float = 5.0) -> bool:
+    """HTTP HEAD against /nextseek_api/assistant/me/. Returns True iff 200 OK."""
+    import requests  # noqa: PLC0415
+    try:
+        r = requests.head(
+            f"{ui_url.rstrip('/')}/nextseek_api/assistant/me/",
+            auth=(api_user, api_pass),
+            timeout=timeout_s,
+            allow_redirects=False,
+        )
+        return r.status_code == 200
+    except requests.RequestException:
+        return False
+
+
 def _make_session(config, user_id: str):
     """Build a fresh SQLiteSessionState. Pulled out so tests can stub it."""
     return SQLiteSessionState(config.SESSION_DB_PATH, user_id)
@@ -163,6 +178,10 @@ def run_main(
     pace_seconds: int = 15,
     profile: str = "mixed",
     out_root: Path = Path("outputs"),
+    skip_cli: bool = False,
+    skip_playwright: bool = False,
+    headed: bool = False,
+    video: bool = False,
 ) -> int:
     """Top-level entry: build the run plan, execute, write manifest + report.
 
@@ -210,16 +229,54 @@ def run_main(
 
     config = ChatConfig()
     entries: list[ManifestEntry] = []
-    for v in plan:
-        print(f"[e2e]   ▶ {v.id}")
-        result = run_variant(v, config, out_dir, pace_seconds=pace_seconds)
-        entry = ManifestEntry(
-            id=result["id"], family=result["family"],
-            status=result["status"], elapsed_s=result["elapsed_s"],
-            failed_criteria=result.get("failed_criteria", []),
-        )
-        entries.append(entry)
-        print(f"[e2e]   {entry.status.upper()}  {v.id}  ({entry.elapsed_s}s)")
+    if not skip_cli:
+        for v in plan:
+            print(f"[e2e]   ▶ {v.id}")
+            result = run_variant(v, config, out_dir, pace_seconds=pace_seconds)
+            entry = ManifestEntry(
+                id=result["id"], family=result["family"],
+                status=result["status"], elapsed_s=result["elapsed_s"],
+                failed_criteria=result.get("failed_criteria", []),
+            )
+            entries.append(entry)
+            print(f"[e2e]   {entry.status.upper()}  {v.id}  ({entry.elapsed_s}s)")
+
+    # ── Phase 2: Playwright dispatch on tagged variants ──────────────────
+    if not skip_playwright:
+        from e2e.playwright.runner import run_variant_browser  # noqa: PLC0415
+        pw_plan = [v for v in plan if "playwright" in v.tags]
+        if pw_plan:
+            ui_url = getattr(config, "NEXTSEEK_UI_URL", None) or "http://localhost:8000"
+            api_user = getattr(config, "API_USER", "demo")
+            api_pass = getattr(config, "API_PASS", "demopassword")
+            if _probe_ui_reachable(ui_url, api_user=api_user, api_pass=api_pass):
+                pw_root = out_dir / "playwright"
+                pw_root.mkdir(parents=True, exist_ok=True)
+                for v in pw_plan:
+                    print(f"[e2e]   ▶ {v.id}.browser")
+                    pw_result = run_variant_browser(
+                        v, config, pw_root / v.id,
+                        pace_seconds=pace_seconds,
+                        headed=headed,
+                        video=video,
+                    )
+                    entry = ManifestEntry(
+                        id=f"{pw_result['id']}.browser",
+                        family=pw_result["family"],
+                        status=pw_result["status"],
+                        elapsed_s=pw_result["elapsed_s"],
+                        failed_criteria=pw_result.get("failed_criteria", []),
+                    )
+                    entries.append(entry)
+                    print(f"[e2e]   {entry.status.upper()}  {v.id}.browser  ({entry.elapsed_s}s)")
+            else:
+                print(f"[e2e] UI not reachable at {ui_url} — skipping {len(pw_plan)} browser variant(s)")
+                for v in pw_plan:
+                    entries.append(ManifestEntry(
+                        id=f"{v.id}.browser", family=v.family,
+                        status="skipped", elapsed_s=0.0,
+                        reason=f"UI not reachable at {ui_url}",
+                    ))
 
     ended = datetime.now(timezone.utc).isoformat()
 
@@ -234,6 +291,7 @@ def run_main(
     report_path = generate_html_report(manifest, out_dir)
 
     n_pass = sum(1 for e in entries if e.status == "passed")
+    n_fail = sum(1 for e in entries if e.status == "failed")
     n_total = len(entries)
     print(f"[e2e] {n_pass}/{n_total} passed — manifest={manifest_path}, report={report_path}")
-    return 0 if n_pass == n_total else 1
+    return 0 if n_fail == 0 else 1
