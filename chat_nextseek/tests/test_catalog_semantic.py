@@ -372,3 +372,87 @@ def test_semantic_index_rebuilds_on_corrupt_cache(tmp_path):
     )
     assert idx.ready is True
     assert len(idx.query("apple", top_n=5)) == 1
+
+
+from chat_nextseek.helpers.tools.catalog_match import shortlist_catalog
+
+
+def test_shortlist_catalog_3tuple_return_with_no_indexes():
+    """Without indexes, falls back to legacy lexical path, but still returns 3-tuple."""
+    sampletypes = [{"SampleType": "MUS", "Name": "Mouse", "Tags": "mouse"}]
+    assays = [{"Name": "Flow Cytometry", "Tags": "FACS"}]
+    result = shortlist_catalog("find mice", sampletypes, assays)
+    assert isinstance(result, tuple)
+    assert len(result) == 3
+    st_short, a_short, diag = result
+    assert isinstance(st_short, list)
+    assert isinstance(a_short, list)
+    assert isinstance(diag, dict)
+    assert diag["enabled"] is False  # semantic path didn't run
+
+
+def test_shortlist_catalog_includes_code_hit_unconditionally(tmp_path):
+    """Item whose code appears verbatim is always included even if
+    semantic+lexical both rank it last."""
+    sampletypes = [
+        {"SampleType": "MUS", "Name": "Mouse", "Tags": "mouse",
+         "Description": "experimental rodent model"},
+    ] + [
+        {"SampleType": f"X{i}", "Name": f"Filler {i}", "Tags": f"unrelated {i}",
+         "Description": f"placeholder {i}"}
+        for i in range(50)
+    ]
+    sampletype_idx = SemanticIndex(
+        catalog=sampletypes, name="hit_st",
+        doc_fn=doc_sampletype,
+        id_fn=lambda x: x["SampleType"],
+        cache_dir=tmp_path, encoder=_fake_encoder(),
+    )
+    st_short, a_short, diag = shortlist_catalog(
+        "MUS samples please",
+        sampletypes, [],
+        sampletype_index=sampletype_idx,
+        assay_index=None,
+        min_k=10, max_k=20, ratio=0.7,
+    )
+    st_codes = {x["SampleType"] for x in st_short}
+    assert "MUS" in st_codes
+    assert diag["enabled"] is True
+    assert diag["sampletype_ranks"]["MUS"]["code_hit"] is True
+
+
+def test_shortlist_catalog_diagnostics_shape(tmp_path):
+    sampletypes = [{"SampleType": "A", "Name": "alpha", "Tags": "first"}]
+    assays = [{"Name": "Alphabet", "Tags": "letters"}]
+    st_idx = SemanticIndex(catalog=sampletypes, name="diag_st",
+        doc_fn=doc_sampletype, id_fn=lambda x: x["SampleType"],
+        cache_dir=tmp_path, encoder=_fake_encoder())
+    a_idx = SemanticIndex(catalog=assays, name="diag_a",
+        doc_fn=doc_assay, id_fn=lambda x: x["Name"],
+        cache_dir=tmp_path, encoder=_fake_encoder())
+    _, _, diag = shortlist_catalog("alpha", sampletypes, assays,
+        sampletype_index=st_idx, assay_index=a_idx)
+    assert "sampletype_codes" in diag
+    assert "sampletype_ranks" in diag
+    assert "assay_codes" in diag
+    assert "assay_ranks" in diag
+    assert "enabled" in diag
+    assert "fallback_reason" in diag
+
+
+def test_shortlist_catalog_falls_back_when_index_not_ready(tmp_path):
+    """Unready index → legacy lexical path used, diag.enabled=False."""
+    def broken(texts):
+        raise RuntimeError("model gone")
+    sampletypes = [{"SampleType": "MUS", "Name": "Mouse", "Tags": "mouse"}]
+    st_idx = SemanticIndex(catalog=sampletypes, name="fallback_st",
+        doc_fn=doc_sampletype, id_fn=lambda x: x["SampleType"],
+        cache_dir=tmp_path, encoder=broken)
+    assert st_idx.ready is False
+    st_short, a_short, diag = shortlist_catalog(
+        "find mice", sampletypes, [],
+        sampletype_index=st_idx, assay_index=None,
+    )
+    assert diag["enabled"] is False
+    assert diag["fallback_reason"] is not None
+    assert len(st_short) == 1  # lexical-only path still returned the item

@@ -88,47 +88,215 @@ def shortlist_catalog(
     sampletypes: list[dict],
     assays: list[dict],
     k_st: int = 50,
-    k_a: int = 50,
+    k_a: int = 75,
+    *,
+    sampletype_index=None,  # SemanticIndex | None
+    assay_index=None,       # SemanticIndex | None
+    ratio: float = 0.7,
+    min_k: int = 10,
+    max_k: int = 80,
+) -> tuple[list[dict], list[dict], dict]:
+    """Return shortlisted (sampletypes, assays, diagnostics) for an entity prompt.
+
+    Three paths:
+      1. No semantic indexes provided / unready → legacy rapidfuzz-only top-K
+         (k_st=50, k_a=75 by default). `diagnostics.enabled = False`.
+      2. Semantic indexes ready → hybrid: lexical (rapidfuzz) + semantic
+         (cosine) + code-hit, fused with RRF, dynamic-cutoff by
+         (ratio, min_k, max_k). Code-hit items always included.
+      3. Any unexpected failure inside the hybrid path → fall through to
+         legacy lexical path; `diagnostics.fallback_reason` records why.
+    """
+    diagnostics: dict = {
+        "sampletype_codes": [],
+        "sampletype_ranks": {},
+        "assay_codes": [],
+        "assay_ranks": {},
+        "enabled": False,
+        "fallback_reason": None,
+    }
+
+    # Path 1/3: no/unready indexes → legacy
+    st_ready = sampletype_index is not None and getattr(sampletype_index, "ready", False)
+    a_ready  = assay_index is not None and getattr(assay_index, "ready", False)
+    if not (st_ready or a_ready):
+        if sampletype_index is not None and not st_ready:
+            diagnostics["fallback_reason"] = getattr(sampletype_index, "fail_reason", "sampletype index not ready")
+        elif assay_index is not None and not a_ready:
+            diagnostics["fallback_reason"] = getattr(assay_index, "fail_reason", "assay index not ready")
+        st_short, a_short = _legacy_shortlist(user_text, sampletypes, assays, k_st, k_a)
+        diagnostics["sampletype_codes"] = [x.get("SampleType") for x in st_short if x.get("SampleType")]
+        diagnostics["assay_codes"] = [x.get("Name") for x in a_short if x.get("Name")]
+        return st_short, a_short, diagnostics
+
+    try:
+        if st_ready:
+            st_short, st_ranks = _hybrid_shortlist(
+                user_text, sampletypes, sampletype_index,
+                id_field="SampleType", lex_doc_fn=_doc_from_sampletype, code_key="SampleType",
+                ratio=ratio, min_k=min_k, max_k=max_k,
+            )
+        else:
+            st_short = _legacy_shortlist_one(user_text, sampletypes, k_st, _doc_from_sampletype, code_key="SampleType")
+            st_ranks = {}
+        if a_ready:
+            a_short, a_ranks = _hybrid_shortlist(
+                user_text, assays, assay_index,
+                id_field="Name", lex_doc_fn=_doc_from_assay, code_key=None,
+                ratio=ratio, min_k=min_k, max_k=max_k,
+            )
+        else:
+            a_short = _legacy_shortlist_one(user_text, assays, k_a, _doc_from_assay, code_key=None)
+            a_ranks = {}
+        diagnostics["sampletype_codes"] = [x.get("SampleType") for x in st_short if x.get("SampleType")]
+        diagnostics["sampletype_ranks"] = st_ranks
+        diagnostics["assay_codes"] = [x.get("Name") for x in a_short if x.get("Name")]
+        diagnostics["assay_ranks"] = a_ranks
+        diagnostics["enabled"] = True
+        return st_short, a_short, diagnostics
+    except Exception as exc:  # noqa: BLE001
+        diagnostics["fallback_reason"] = f"hybrid path failure: {type(exc).__name__}: {exc}"
+        st_short, a_short = _legacy_shortlist(user_text, sampletypes, assays, k_st, k_a)
+        diagnostics["sampletype_codes"] = [x.get("SampleType") for x in st_short if x.get("SampleType")]
+        diagnostics["assay_codes"] = [x.get("Name") for x in a_short if x.get("Name")]
+        return st_short, a_short, diagnostics
+
+
+def _legacy_shortlist(
+    user_text: str, sampletypes: list[dict], assays: list[dict], k_st: int, k_a: int,
 ) -> tuple[list[dict], list[dict]]:
-    """
-    Return the top-k sampletypes and assays most similar to the user_text.
-    Falls back gracefully if fuzzy matching lib is missing.
-    """
+    """Original two-catalog rapidfuzz-only shortlister, preserved for fallback."""
+    q_norm = _norm_text(user_text)
+    if not q_norm:
+        return (sampletypes[:k_st], assays[:k_a])
+    return (
+        _legacy_shortlist_one(user_text, sampletypes or [], k_st, _doc_from_sampletype, code_key="SampleType"),
+        _legacy_shortlist_one(user_text, assays or [], k_a, _doc_from_assay, code_key=None),
+    )
+
+
+def _legacy_shortlist_one(
+    user_text: str, items: list[dict], k: int, doc_fn, code_key: str | None,
+) -> list[dict]:
     q_norm = _norm_text(user_text)
     q_tokens = _tokenize(user_text)
     if not q_norm:
-        return (sampletypes[:k_st], assays[:k_a])
+        return items[:k]
+    scored = []
+    for item in items:
+        doc, doc_tokens = doc_fn(item)
+        doc_norm = _norm_text(doc)
+        overlap = 0.0
+        if q_tokens and doc_tokens:
+            overlap = (len(q_tokens & doc_tokens) / max(len(q_tokens), 1)) * 100.0
+        code_bonus = 0.0
+        code_hit = False
+        if code_key:
+            code = (item.get(code_key) or "").lower()
+            if code:
+                code_plain = code.replace(".", "")
+                q_norm_nospace = q_norm.replace(" ", "")
+                if code in q_norm or code_plain in q_norm_nospace:
+                    code_bonus += 35.0; code_hit = True
+                if code in q_tokens or code_plain in q_tokens:
+                    code_bonus += 15.0; code_hit = True
+        score = _score_pair(q_norm, doc_norm, overlap, code_bonus)
+        scored.append((code_hit, score, item))
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [item for _, _, item in scored[:k]]
 
-    def shortlist(items: list[dict], doc_fn, k: int, code_key: str | None = None) -> list[dict]:
-        scored = []
-        for item in items:
-            doc, doc_tokens = doc_fn(item)
-            doc_norm = _norm_text(doc)
-            overlap = 0.0
-            if q_tokens and doc_tokens:
-                overlap = (len(q_tokens & doc_tokens) / max(len(q_tokens), 1)) * 100.0
 
-            code_bonus = 0.0
-            code_hit = False
-            if code_key:
-                code = (item.get(code_key) or "").lower()
-                if code:
-                    code_plain = code.replace(".", "")
-                    q_norm_nospace = q_norm.replace(" ", "")
-                    if code in q_norm or code_plain in q_norm_nospace:
-                        code_bonus += 35.0
-                        code_hit = True
-                    if code in q_tokens or code_plain in q_tokens:
-                        code_bonus += 15.0
-                        code_hit = True
+def _hybrid_shortlist(
+    user_text: str,
+    catalog: list[dict],
+    sem_index,            # SemanticIndex
+    *,
+    id_field: str,
+    lex_doc_fn,
+    code_key: str | None,
+    ratio: float, min_k: int, max_k: int,
+) -> tuple[list[dict], dict]:
+    """Run lexical + semantic + code-hit, fuse with RRF, dynamic-cutoff.
 
-            score = _score_pair(q_norm, doc_norm, overlap, code_bonus)
-            scored.append((code_hit, score, item))
+    Returns (shortlisted_items, ranks_dict) where ranks_dict is keyed by
+    the item's id_field value.
+    """
+    from chat_nextseek.helpers.tools.catalog_semantic import fuse_rrf, dynamic_cutoff  # noqa: PLC0415
 
-        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        return [item for _, _, item in scored[:k]]
+    q_norm = _norm_text(user_text)
+    q_tokens = _tokenize(user_text)
 
-    return (
-        shortlist(sampletypes or [], _doc_from_sampletype, k_st, code_key="SampleType"),
-        shortlist(assays or [], _doc_from_assay, k_a),
-    )
+    # Lexical ranking — full catalog, sorted desc by score, take top max_k
+    lex_scored: list[tuple[dict, float]] = []
+    for item in catalog:
+        doc, doc_tokens = lex_doc_fn(item)
+        doc_norm = _norm_text(doc)
+        overlap = 0.0
+        if q_tokens and doc_tokens:
+            overlap = (len(q_tokens & doc_tokens) / max(len(q_tokens), 1)) * 100.0
+        code_bonus = 0.0
+        if code_key:
+            code = (item.get(code_key) or "").lower()
+            if code:
+                code_plain = code.replace(".", "")
+                q_norm_nospace = q_norm.replace(" ", "")
+                if code in q_norm or code_plain in q_norm_nospace:
+                    code_bonus += 35.0
+                if code in q_tokens or code_plain in q_tokens:
+                    code_bonus += 15.0
+        score = _score_pair(q_norm, doc_norm, overlap, code_bonus)
+        lex_scored.append((item, score))
+    lex_scored.sort(key=lambda x: -x[1])
+    lex_ranked: list[tuple[dict, float, int]] = [
+        (item, score, rank + 1) for rank, (item, score) in enumerate(lex_scored[:max_k])
+    ]
+
+    # Semantic ranking
+    sem_ranked: list[tuple[dict, float, int]] = sem_index.query(user_text, top_n=max_k)
+
+    # Code-hit set (unconditional inclusion)
+    code_hits: list[dict] = []
+    code_hit_ids: set[str] = set()
+    if code_key:
+        for item in catalog:
+            code = (item.get(code_key) or "").lower()
+            if not code:
+                continue
+            code_plain = code.replace(".", "")
+            q_norm_nospace = q_norm.replace(" ", "")
+            if code in q_norm or code_plain in q_norm_nospace or code in q_tokens or code_plain in q_tokens:
+                code_hits.append(item)
+                code_hit_ids.add(item.get(id_field, ""))
+
+    # RRF fuse lex + sem
+    fused = fuse_rrf(lex_ranked, sem_ranked, id_fn=lambda x: x.get(id_field, ""), k=60)
+    fused_kept = dynamic_cutoff(fused, ratio=ratio, min_k=min_k, max_k=max_k)
+
+    # Union: code-hits first (preserve catalog order), then fused minus duplicates
+    seen: set[str] = set()
+    result: list[dict] = []
+    for item in code_hits:
+        key = item.get(id_field, "")
+        if key in seen:
+            continue
+        result.append(item); seen.add(key)
+    for item in fused_kept:
+        key = item.get(id_field, "")
+        if key in seen:
+            continue
+        result.append(item); seen.add(key)
+
+    # Build ranks dict for diagnostics
+    lex_ranks = {item.get(id_field, ""): rank for item, _, rank in lex_ranked}
+    sem_ranks = {item.get(id_field, ""): rank for item, _, rank in sem_ranked}
+    fused_ranks = {item.get(id_field, ""): rank + 1 for rank, (item, _) in enumerate(fused)}
+    ranks: dict = {}
+    for item in result:
+        key = item.get(id_field, "")
+        ranks[key] = {
+            "lex":     lex_ranks.get(key),
+            "sem":     sem_ranks.get(key),
+            "fused":   fused_ranks.get(key),
+            "code_hit": key in code_hit_ids,
+        }
+    return result, ranks

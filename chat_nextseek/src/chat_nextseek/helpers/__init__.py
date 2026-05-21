@@ -46,6 +46,14 @@ from .tools.catalog_match import (  # noqa: F401
     _score_pair,
     shortlist_catalog,
 )
+from .tools.catalog_semantic import (  # noqa: F401
+    SemanticIndex,
+    fuse_rrf,
+    dynamic_cutoff,
+    doc_sampletype,
+    doc_assay,
+    doc_endpoint,
+)
 from .dates import (  # noqa: F401
     _normalize_project_id,
     _normalize_years,
