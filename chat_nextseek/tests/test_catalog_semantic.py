@@ -456,3 +456,32 @@ def test_shortlist_catalog_falls_back_when_index_not_ready(tmp_path):
     assert diag["enabled"] is False
     assert diag["fallback_reason"] is not None
     assert len(st_short) == 1  # lexical-only path still returned the item
+
+
+def test_shortlist_catalog_falls_back_on_hybrid_exception(tmp_path):
+    """If the hybrid path itself raises after the index reports ready, the
+    function still returns a usable 3-tuple via the legacy fallback and
+    records the exception in diagnostics.fallback_reason."""
+    sampletypes = [{"SampleType": "MUS", "Name": "Mouse", "Tags": "mouse"}]
+    st_idx = SemanticIndex(
+        catalog=sampletypes, name="exception_st",
+        doc_fn=doc_sampletype, id_fn=lambda x: x["SampleType"],
+        cache_dir=tmp_path, encoder=_fake_encoder(),
+    )
+    assert st_idx.ready is True
+
+    # Patch query() to raise — simulates a hybrid-path failure after the
+    # readiness check passes. (query()'s own except returns [], so to
+    # reach the outer except in shortlist_catalog we patch the method.)
+    def explosive_query(text, top_n=80):
+        raise ValueError("synthetic hybrid-path failure")
+    st_idx.query = explosive_query  # type: ignore[method-assign]
+
+    st_short, a_short, diag = shortlist_catalog(
+        "find mice", sampletypes, [],
+        sampletype_index=st_idx, assay_index=None,
+    )
+    assert diag["enabled"] is False
+    assert diag["fallback_reason"] is not None
+    assert "synthetic hybrid-path failure" in diag["fallback_reason"]
+    assert len(st_short) == 1  # legacy fallback still returned the item
