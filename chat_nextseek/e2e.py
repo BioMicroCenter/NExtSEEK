@@ -70,7 +70,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[e2e] {exc}", file=sys.stderr)
             return 1
         print(f"[e2e] wrote {path} (target: docker-local)")
-        print(f"[e2e] next: fill in API_USER / API_PASS in {path}, then `uv run e2e.py --list` to verify")
+        print(f"[e2e] API_USER/API_PASS default to demo/demopassword; edit {path} if your docker user differs")
+        print(f"[e2e] next: `uv run e2e.py --list` to verify, or `uv run e2e.py --variant advanced.basic_ndma` to smoke-test")
         return 0
 
     if args.playwright:
