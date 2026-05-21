@@ -258,3 +258,59 @@ def test_semantic_index_rebuilds_on_hash_mismatch(tmp_path: Path):
         doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
         cache_dir=tmp_path, encoder=counting_encoder)
     assert len(encoder_calls) == 2  # rebuilt
+
+
+def test_semantic_index_query_returns_top_n(tmp_path):
+    catalog = [
+        {"id": "apple",  "text": "apple"},
+        {"id": "banana", "text": "banana"},
+        {"id": "cherry", "text": "cherry"},
+    ]
+    idx = SemanticIndex(
+        catalog=catalog, name="fruit",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=_fake_encoder(),
+    )
+    results = idx.query("apple", top_n=2)
+    assert len(results) == 2
+    # All entries are (item_dict, float_score, int_rank)
+    for entry in results:
+        item, score, rank = entry
+        assert isinstance(item, dict)
+        assert isinstance(score, float)
+        assert isinstance(rank, int)
+    # Ranks are 1-indexed and ordered
+    assert [r for _, _, r in results] == [1, 2]
+    # Top-1 should be "apple" because the query text exactly matches its doc
+    assert results[0][0]["id"] == "apple"
+
+
+def test_semantic_index_query_scores_sorted_desc(tmp_path):
+    catalog = [{"id": str(i), "text": f"item-{i}"} for i in range(20)]
+    idx = SemanticIndex(
+        catalog=catalog, name="many",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=_fake_encoder(),
+    )
+    results = idx.query("item-5", top_n=10)
+    scores = [s for _, s, _ in results]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_semantic_index_query_top_n_caps_at_catalog_size(tmp_path):
+    catalog = [{"id": "only", "text": "only"}]
+    idx = SemanticIndex(
+        catalog=catalog, name="solo",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=_fake_encoder(),
+    )
+    assert len(idx.query("anything", top_n=50)) == 1
+
+
+def test_semantic_index_query_empty_catalog(tmp_path):
+    idx = SemanticIndex(
+        catalog=[], name="empty",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=_fake_encoder(),
+    )
+    assert idx.query("anything", top_n=5) == []

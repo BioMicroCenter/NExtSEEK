@@ -178,6 +178,36 @@ class SemanticIndex:
     def fail_reason(self) -> str | None:
         return self._fail_reason
 
+    def query(self, text: str, top_n: int = 80) -> list[tuple[dict, float, int]]:
+        """Return top-N items by cosine similarity to `text`.
+
+        Returns a list of (item, score, rank_1_indexed). If the index
+        is not ready (load failure) returns an empty list; callers
+        should fall back to the lexical-only path.
+        """
+        if not self._ready or self._embeddings is None or self._embeddings.size == 0:
+            return []
+        encoder = self._encoder if self._encoder is not None else self._load_default_encoder()
+        try:
+            q = encoder([text])
+        except Exception as exc:  # noqa: BLE001
+            _LOG.warning("SemanticIndex[%s] query encoding failed: %s", self._name, exc)
+            return []
+        q = np.asarray(q, dtype=np.float32)
+        q = self._l2_normalize(q)
+        sims = (self._embeddings @ q[0])  # cosine because both sides are L2-normalized
+        top_n_eff = min(top_n, sims.shape[0])
+        top_idx = np.argpartition(-sims, top_n_eff - 1)[:top_n_eff]
+        top_idx = top_idx[np.argsort(-sims[top_idx])]
+        out: list[tuple[dict, float, int]] = []
+        for rank0, i in enumerate(top_idx):
+            item_id = self._item_ids[int(i)]
+            item = self._items_by_id.get(item_id)
+            if item is None:
+                continue
+            out.append((item, float(sims[int(i)]), rank0 + 1))
+        return out
+
     def _initialize(self) -> None:
         target_hash = _catalog_hash(self._catalog)
         if self._cache_path.exists():
