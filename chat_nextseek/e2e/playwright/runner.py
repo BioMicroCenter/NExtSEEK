@@ -21,7 +21,16 @@ from e2e.playwright.ws import WSCapture, wait_for_query_complete
 
 
 def _ui_url(config: Any) -> str:
-    return getattr(config, "NEXTSEEK_UI_URL", None) or "http://localhost:8000"
+    """Base URL for the chat UI.
+
+    Default `http://nextseek_nginx` is the nginx service name within the
+    docker compose network — what reachable when the runner executes inside
+    the `nextseek` container via `docker exec`. nginx serves /static/ assets
+    directly (no Django APPEND_SLASH redirect) and proxies the rest to
+    gunicorn. For host-based usage, set NEXTSEEK_UI_URL=http://localhost:8000
+    in chat_nextseek/.env.
+    """
+    return getattr(config, "NEXTSEEK_UI_URL", None) or "http://nextseek_nginx"
 
 
 def _chat_url(config: Any) -> str:
