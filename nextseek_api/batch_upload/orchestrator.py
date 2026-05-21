@@ -469,9 +469,14 @@ def _run_pre_insert_stages(
     with get_connection() as conn:
         for row in valid_rows:
             try:
-                sample, warnings = build_insertable(row, project_id, conn)
+                # NB: bind the per-row warnings to a distinct name. Reusing
+                # ``warnings`` here would clobber the ``warnings`` dict holding
+                # ``convert_warnings`` (e.g. dropped-column warnings), so those
+                # would never reach res.warnings / the report / the validation
+                # response.
+                sample, row_warnings = build_insertable(row, project_id, conn)
                 insertable_samples.append(sample)
-                for category, msgs in warnings.items():
+                for category, msgs in row_warnings.items():
                     for msg in msgs:
                         error_collector.add(
                             row_index=-1,

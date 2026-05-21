@@ -197,8 +197,16 @@
 				const result = await response.json();
 				renderValidationResult(result);
 			} else {
-				statusBox.value = "Error: validation request failed.\n";
-				statusBox.value += `Status code: ${response.status}`;
+				let detail = `Status code: ${response.status}`;
+				try {
+					const errBody = await response.json();
+					if (errBody && errBody.detail) {
+						detail = errBody.detail;
+					}
+				} catch (e) {
+					// non-JSON error body — keep the status-code fallback
+				}
+				statusBox.value = "Validation request failed: " + detail + "\n";
 			}
 		} catch (e) {
 			$.messager.progress("close");

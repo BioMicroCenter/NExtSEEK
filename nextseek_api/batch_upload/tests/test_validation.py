@@ -139,6 +139,33 @@ class TestRunValidationMulti:
         assert "name_check" in result.checks_run
         assert "name_check" not in result.checks_skipped
 
+    def test_convert_warnings_propagate_to_result(self):
+        """convert_warnings (e.g. dropped-column warnings) reach ValidationResult.warnings.
+
+        Regression guard: the TRANSFORM loop must not rebind/clobber the
+        `warnings` dict that carries `convert_warnings`. Before the fix, the
+        dropped-column warnings added in CONVERT never reached the response.
+        """
+        rows = [_make_row(UID_A)]
+
+        def _merge_with_warnings(paths):
+            return ConvertedBatch(
+                rows=rows,
+                source_files=paths or ["dummy"],
+                warnings=["SAMPLES column 'Foo' silently dropped — not declared in INSTRUCTIONS.Field."],
+            )
+
+        result = _run_validation(
+            rows,
+            FakeDB(),
+            extra_patches={
+                "nextseek_api.batch_upload.orchestrator.merge_files": _merge_with_warnings,
+            },
+        )
+
+        assert "convert_warnings" in result.warnings
+        assert any("Foo" in w for w in result.warnings["convert_warnings"])
+
     def test_empty_input_aborts_with_error_totals(self):
         """No rows after CONVERT -> aborted: valid=False, totals.error set."""
         result = _run_validation([], FakeDB())
