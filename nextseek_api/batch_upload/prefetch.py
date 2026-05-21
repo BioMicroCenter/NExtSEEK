@@ -81,9 +81,19 @@ def prefetch_assay_ids(assay_ids: List[int], conn: Connection) -> Set[int]:
 
 
 def prefetch_project_sample_type_links(
-    project_id: int, sample_type_ids: List[int], conn: Connection
+    project_id: int,
+    sample_type_ids: List[int],
+    conn: Connection,
+    mutate_project_links: bool = True,
 ) -> None:
-    """Ensure project <-> sample_type links exist, creating missing ones."""
+    """Ensure project <-> sample_type links exist, creating missing ones.
+
+    When ``mutate_project_links`` is False, missing links are detected but NOT
+    created — no INSERT is issued. This is the validate-mode path
+    (``run_validation_multi``), where the pipeline must have zero side effects.
+    In that case only already-existing links are recorded in the cache, so a
+    later real upload still creates the missing ones.
+    """
     if not project_id or not sample_type_ids:
         return
 
@@ -107,7 +117,7 @@ def prefetch_project_sample_type_links(
 
     # Create missing links
     to_create = [st for st in unchecked if st not in existing]
-    if to_create:
+    if to_create and mutate_project_links:
         values_parts = []
         insert_params = {}
         for i, st in enumerate(to_create):
@@ -125,9 +135,10 @@ def prefetch_project_sample_type_links(
             project_id,
         )
 
-    # Update cache
+    # Update cache. In validate mode (no mutation) only existing links are
+    # cached — never-created links must stay uncached so a real upload sees them.
     with _CACHE_LOCK:
-        all_linked = existing | set(to_create)
+        all_linked = existing | (set(to_create) if mutate_project_links else set())
         _PROJECT_SAMPLE_TYPE_LINKED.setdefault(project_id, set()).update(all_linked)
 
 

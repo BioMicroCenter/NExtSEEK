@@ -6,6 +6,7 @@ import os
 import time
 import uuid as uuid_mod
 import json
+from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from .config import BatchUploadConfig, Neo4jConfig
@@ -129,57 +130,85 @@ def _build_neo4j_only_outcomes(
     )
 
 
-def run_batch_upload_multi(
+@dataclass
+class PreInsertResult:
+    """Outcome of the pre-INSERT pipeline stages (CONVERT..TRANSFORM).
+
+    Either signals an early abort (``aborted=True``) or carries the full
+    continue-state the INSERT/NEO4J/REPORT stages need. Callers
+    (``run_batch_upload_multi``, ``run_validation_multi``) own terminal-result
+    construction — job_id, summary CSV, etc. — so this stays free of
+    job-management concerns.
+    """
+    aborted: bool = False
+    abort_kind: str = ""  # "" | "error" | "cancelled"
+    abort_message: str = ""
+    error_collector: ErrorCollector = field(default_factory=ErrorCollector)
+    warnings: Dict[str, object] = field(default_factory=dict)
+    # None until CONVERT begins — mirrors the original orchestrator, where the
+    # pre-CONVERT cancel check fires before ``valid_rows`` is bound (so the
+    # cancelled-result helper receives no rows and writes no fallback CSV).
+    valid_rows: Optional[List[InputRowModel]] = None
+    insertable_samples: List[InsertableSample] = field(default_factory=list)
+    level_assignment: Optional[LevelAssignment] = None
+    direction_computation: Optional[DirectionComputation] = None
+    parents_of: Dict[str, Set[str]] = field(default_factory=dict)
+    children_of: Dict[str, Set[str]] = field(default_factory=dict)
+    name_matched_outcomes: Dict[str, RowOutcome] = field(default_factory=dict)
+    uid_gen_failed_outcomes: Dict[str, RowOutcome] = field(default_factory=dict)
+    generated_uids: Set[str] = field(default_factory=set)
+    uid_gen_report: Dict = field(default_factory=lambda: {"uids_generated": 0})
+    transform_errors: int = 0
+
+
+def _run_pre_insert_stages(
     xlsx_paths: List[str],
     project_id: int,
     contributor_id: int,
     lababbv: str = "NA",
     config: Optional[BatchUploadConfig] = None,
-    checkpoint_dir: str = "",
-    resume_uid: Optional[str] = None,
-    should_stop: Optional[Callable[[], bool]] = None,
-    output_dir: Optional[str] = None,
     rows: Optional[List[dict]] = None,
     neo4j_only: bool = False,
-) -> Dict:
-    """Execute the full batch upload pipeline for one or more files.
+    should_stop: Optional[Callable[[], bool]] = None,
+    run_name_check: bool = True,
+    run_dag: bool = True,
+    mutate_project_links: bool = True,
+) -> PreInsertResult:
+    """Run CONVERT -> NAME_CHECK -> UID_GEN -> DAG -> LEVELS -> PREFETCH -> TRANSFORM.
 
-    If ``rows`` is provided (list of InputRowModel dicts), Stage 0 (CONVERT) is
-    skipped entirely.  Ontology validation only applies to file upload mode;
-    in rows mode it is not performed (deferred).
+    Stops before INSERT. Shared by the full upload pipeline
+    (``run_batch_upload_multi``) and the sync validation flow
+    (``run_validation_multi``). NAME_CHECK and DAG/LEVELS are skipped when the
+    corresponding flag is False (driven by validation's ``checks`` parameter).
+    When ``mutate_project_links`` is False the PREFETCH stage does NOT INSERT
+    into projects_sample_types — validate mode has no side effects.
 
-    Stage 0 CONVERT (format detection + merge) -> NAME_CHECK -> UID_GEN -> DAG -> LEVELS
-    -> PREFETCH -> TRANSFORM -> INSERT -> NEO4J -> REPORT.
+    Returns a :class:`PreInsertResult`: either ``aborted=True`` with an
+    abort kind/message, or the full continue-state for the INSERT stages.
     """
     if config is None:
         config = BatchUploadConfig()
 
-    job_id = str(uuid_mod.uuid4())
-    t0 = time.perf_counter()
-    error_collector = ErrorCollector()
-    neo4j_metrics: Optional[Metrics] = None
-    generated_uids: set = set()
-    uid_gen_report: dict = {"uids_generated": 0}
-    uid_gen_failed_outcomes: Dict[str, RowOutcome] = {}
-
-    if not output_dir:
-        from django.conf import settings
-        output_dir = os.path.join(
-            getattr(settings, "MEDIA_ROOT", "/tmp"),
-            "batch_upload_reports",
-        )
-    os.makedirs(output_dir, exist_ok=True)
-    summary_path = os.path.join(output_dir, f"summary_{job_id}.csv")
-
-    log.info("=== BATCH UPLOAD START (job=%s) ===", job_id)
-    log.info("Input: %s | project_id=%d | contributor_id=%d", xlsx_paths, project_id, contributor_id)
+    res = PreInsertResult()
+    error_collector = res.error_collector
 
     # ── Stage 0: CONVERT (format detection, multi-file merge, ontology) ───
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path, error_collector=error_collector)
+        res.aborted = True
+        res.abort_kind = "cancelled"
+        return res
 
     valid_rows: List[InputRowModel] = []
     warnings: Dict[str, object] = {}
+
+    def _abort(kind: str, message: str = "") -> PreInsertResult:
+        # Every abort past the pre-CONVERT cancel carries the current rows,
+        # matching the original orchestrator's ``valid_rows=valid_rows`` args.
+        res.valid_rows = valid_rows
+        res.aborted = True
+        res.abort_kind = kind
+        res.abort_message = message
+        return res
 
     if rows is not None:
         log.info("Stage 0: CONVERT (skipped -- %d rows provided directly)", len(rows))
@@ -201,7 +230,7 @@ def run_batch_upload_multi(
                         error_type=ErrorType.VALIDATION_JSON,
                         message=f"{v.attribute}={v.value!r} not in allowed terms for {v.vocab_name}",
                     )
-                return _error_result(job_id, summary_path, error_collector, msg, valid_rows=valid_rows)
+                return _abort("error", msg)
             valid_rows = converted.rows
             if converted.warnings:
                 warnings["convert_warnings"] = converted.warnings
@@ -228,26 +257,26 @@ def run_batch_upload_multi(
                         message=message,
                     )
                 summary = f"CONVERT failed: {len(sub_errors)} validation error(s) in INSTRUCTIONS sheet"
-                return _error_result(job_id, summary_path, error_collector, summary, valid_rows=valid_rows)
+                return _abort("error", summary)
             error_collector.add(
                 row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
                 message=f"CONVERT failed: {exc}",
             )
-            return _error_result(job_id, summary_path, error_collector, str(exc), valid_rows=valid_rows)
+            return _abort("error", str(exc))
 
     log.info("CONVERT: %d valid rows", len(valid_rows))
 
     if not valid_rows:
-        return _error_result(job_id, summary_path, error_collector, "No valid rows after CONVERT", valid_rows=valid_rows)
+        return _abort("error", "No valid rows after CONVERT")
 
     # ── Stage 1.25: NAME_CHECK ──────────────────────────────────────────
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
+        return _abort("cancelled")
 
     name_matched_outcomes: Dict[str, RowOutcome] = {}
 
-    if neo4j_only:
-        log.info("Stage 1.25: NAME_CHECK (skipped -- neo4j_only mode)")
+    if neo4j_only or not run_name_check:
+        log.info("Stage 1.25: NAME_CHECK (skipped)")
     else:
         log.info("Stage 1.25: NAME_CHECK")
 
@@ -304,7 +333,7 @@ def run_batch_upload_multi(
 
     # ── Stage 1.5: UID_GEN ───────────────────────────────────────────────
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
+        return _abort("cancelled")
 
     if neo4j_only:
         log.info("Stage 1.5: UID_GEN (skipped -- neo4j_only mode)")
@@ -336,75 +365,79 @@ def run_batch_upload_multi(
         uids_before_gen = {r.UID for r in valid_rows if r.UID is not None}
         try:
             with get_connection() as conn:
-                valid_rows, uid_gen_report = run_uid_gen(
+                valid_rows, res.uid_gen_report = run_uid_gen(
                     rows=valid_rows,
                     lababbv=lababbv,
                     conn=conn,
                     error_collector=error_collector,
                 )
-            uid_gen_failed_outcomes = {
+            res.uid_gen_failed_outcomes = {
                 failed["uid"]: RowOutcome(status="failed", reason=failed["reason"])
-                for failed in uid_gen_report.get("failed_rows", [])
+                for failed in res.uid_gen_report.get("failed_rows", [])
                 if failed.get("uid")
             }
-            generated_uids = {r.UID for r in valid_rows if r.UID is not None} - uids_before_gen
-            if uid_gen_report.get("uids_generated", 0) > 0:
-                log.info("UID_GEN: generated %d UIDs", uid_gen_report["uids_generated"])
-            if uid_gen_report.get("duplicates_removed", 0) > 0:
-                log.info("UID_GEN: removed %d duplicates", uid_gen_report["duplicates_removed"])
+            res.generated_uids = {r.UID for r in valid_rows if r.UID is not None} - uids_before_gen
+            if res.uid_gen_report.get("uids_generated", 0) > 0:
+                log.info("UID_GEN: generated %d UIDs", res.uid_gen_report["uids_generated"])
+            if res.uid_gen_report.get("duplicates_removed", 0) > 0:
+                log.info("UID_GEN: removed %d duplicates", res.uid_gen_report["duplicates_removed"])
         except Exception as exc:
             log.exception("UID_GEN failed")
             error_collector.add(
                 row_index=-1, uid=None, error_type=ErrorType.UNKNOWN,
                 message=f"UID_GEN failed: {exc}",
             )
-            return _error_result(job_id, summary_path, error_collector, str(exc), valid_rows=valid_rows)
+            return _abort("error", str(exc))
 
     if not valid_rows:
-        return _error_result(job_id, summary_path, error_collector, "No valid rows after UID_GEN", valid_rows=valid_rows)
+        return _abort("error", "No valid rows after UID_GEN")
 
-    # ── Stage 2: DAG ──────────────────────────────────────────────────────
-    if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
+    # ── Stage 2: DAG + Stage 2.5: LEVELS ─────────────────────────────────
+    if run_dag:
+        if should_stop and should_stop():
+            return _abort("cancelled")
 
-    log.info("Stage 2/7: DAG")
-    direction_computation = compute_directions(valid_rows)
-    parents_of, children_of, edges = build_relationships(valid_rows)
-    cycles = detect_cycles(edges)
-    if cycles:
-        log.warning("DAG: %d cycle(s) detected: %s", len(cycles), cycles[:5])
+        log.info("Stage 2/7: DAG")
+        res.direction_computation = compute_directions(valid_rows)
+        parents_of, children_of, edges = build_relationships(valid_rows)
+        res.parents_of = parents_of
+        res.children_of = children_of
+        cycles = detect_cycles(edges)
+        if cycles:
+            log.warning("DAG: %d cycle(s) detected: %s", len(cycles), cycles[:5])
 
-    # ── Stage 2.5: LEVELS ────────────────────────────────────────────────
-    if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
+        if should_stop and should_stop():
+            return _abort("cancelled")
 
-    log.info("Stage 2.5: LEVELS")
-    level_assignment = compute_levels(
-        rows=valid_rows,
-        parents_of=parents_of,
-        children_of=children_of,
-        cycles=cycles,
-        conn_factory=get_connection,
-    )
-    log.info(
-        "LEVELS: max_level=%d, orphans=%d, cycle_uids=%d, external_parents=%d",
-        level_assignment.max_level,
-        len(level_assignment.orphan_uids),
-        len(level_assignment.cycle_uids),
-        len(level_assignment.external_parents),
-    )
-    if level_assignment.orphan_uids:
-        for uid in sorted(level_assignment.orphan_uids):
-            error_collector.add(
-                row_index=-1,
-                uid=uid,
-                error_type=ErrorType.VALIDATION_JSON,
-                message="Parent UID(s) not found in batch or database; treating as root sample",
-            )
+        log.info("Stage 2.5: LEVELS")
+        res.level_assignment = compute_levels(
+            rows=valid_rows,
+            parents_of=parents_of,
+            children_of=children_of,
+            cycles=cycles,
+            conn_factory=get_connection,
+        )
+        log.info(
+            "LEVELS: max_level=%d, orphans=%d, cycle_uids=%d, external_parents=%d",
+            res.level_assignment.max_level,
+            len(res.level_assignment.orphan_uids),
+            len(res.level_assignment.cycle_uids),
+            len(res.level_assignment.external_parents),
+        )
+        if res.level_assignment.orphan_uids:
+            for uid in sorted(res.level_assignment.orphan_uids):
+                error_collector.add(
+                    row_index=-1,
+                    uid=uid,
+                    error_type=ErrorType.VALIDATION_JSON,
+                    message="Parent UID(s) not found in batch or database; treating as root sample",
+                )
+    else:
+        log.info("Stage 2/7: DAG (skipped)")
 
     # ── Stage 3: PREFETCH ─────────────────────────────────────────────────
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
+        return _abort("cancelled")
 
     log.info("Stage 3/7: PREFETCH")
     all_titles = list({r.SampleType for r in valid_rows})
@@ -420,11 +453,14 @@ def run_batch_upload_multi(
         if st_ids:
             prefetch_sample_type_attributes(st_ids, conn)
         if project_id and st_ids:
-            prefetch_project_sample_type_links(project_id, st_ids, conn)
+            prefetch_project_sample_type_links(
+                project_id, st_ids, conn,
+                mutate_project_links=mutate_project_links,
+            )
 
     # ── Stage 4: TRANSFORM ────────────────────────────────────────────────
     if should_stop and should_stop():
-        return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector)
+        return _abort("cancelled")
 
     log.info("Stage 4/7: TRANSFORM")
     insertable_samples: List[InsertableSample] = []
@@ -471,7 +507,93 @@ def run_batch_upload_multi(
     )
 
     if not insertable_samples:
-        return _error_result(job_id, summary_path, error_collector, "No samples after transform", valid_rows=valid_rows)
+        return _abort("error", "No samples after transform")
+
+    # ── Success: hand the continue-state to the caller ───────────────────
+    res.valid_rows = valid_rows
+    res.warnings = warnings
+    res.insertable_samples = insertable_samples
+    res.name_matched_outcomes = name_matched_outcomes
+    res.transform_errors = transform_errors
+    return res
+
+
+def run_batch_upload_multi(
+    xlsx_paths: List[str],
+    project_id: int,
+    contributor_id: int,
+    lababbv: str = "NA",
+    config: Optional[BatchUploadConfig] = None,
+    checkpoint_dir: str = "",
+    resume_uid: Optional[str] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
+    output_dir: Optional[str] = None,
+    rows: Optional[List[dict]] = None,
+    neo4j_only: bool = False,
+) -> Dict:
+    """Execute the full batch upload pipeline for one or more files.
+
+    If ``rows`` is provided (list of InputRowModel dicts), Stage 0 (CONVERT) is
+    skipped entirely.  Ontology validation only applies to file upload mode;
+    in rows mode it is not performed (deferred).
+
+    Stage 0 CONVERT (format detection + merge) -> NAME_CHECK -> UID_GEN -> DAG -> LEVELS
+    -> PREFETCH -> TRANSFORM -> INSERT -> NEO4J -> REPORT.
+    """
+    if config is None:
+        config = BatchUploadConfig()
+
+    job_id = str(uuid_mod.uuid4())
+    t0 = time.perf_counter()
+    neo4j_metrics: Optional[Metrics] = None
+
+    if not output_dir:
+        from django.conf import settings
+        output_dir = os.path.join(
+            getattr(settings, "MEDIA_ROOT", "/tmp"),
+            "batch_upload_reports",
+        )
+    os.makedirs(output_dir, exist_ok=True)
+    summary_path = os.path.join(output_dir, f"summary_{job_id}.csv")
+
+    log.info("=== BATCH UPLOAD START (job=%s) ===", job_id)
+    log.info("Input: %s | project_id=%d | contributor_id=%d", xlsx_paths, project_id, contributor_id)
+
+    # ── Stages 0-4: CONVERT .. TRANSFORM ─────────────────────────────────
+    pre = _run_pre_insert_stages(
+        xlsx_paths=xlsx_paths,
+        project_id=project_id,
+        contributor_id=contributor_id,
+        lababbv=lababbv,
+        config=config,
+        rows=rows,
+        neo4j_only=neo4j_only,
+        should_stop=should_stop,
+    )
+    error_collector = pre.error_collector
+
+    if pre.aborted:
+        if pre.abort_kind == "cancelled":
+            return _cancelled_result(
+                job_id, summary_path,
+                valid_rows=pre.valid_rows, error_collector=error_collector,
+            )
+        return _error_result(
+            job_id, summary_path, error_collector, pre.abort_message,
+            valid_rows=pre.valid_rows,
+        )
+
+    valid_rows = pre.valid_rows
+    warnings = pre.warnings
+    insertable_samples = pre.insertable_samples
+    level_assignment = pre.level_assignment
+    direction_computation = pre.direction_computation
+    children_of = pre.children_of
+    parents_of = pre.parents_of
+    name_matched_outcomes = pre.name_matched_outcomes
+    uid_gen_failed_outcomes = pre.uid_gen_failed_outcomes
+    generated_uids = pre.generated_uids
+    uid_gen_report = pre.uid_gen_report
 
     # ── Stage 5: INSERT (level-by-level) ────────────────────────────────
     if neo4j_only:
