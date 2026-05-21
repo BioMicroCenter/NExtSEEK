@@ -742,14 +742,31 @@ class ConvertedBatch(BaseModel):
 class BatchUploadError(BaseModel):
     """One entry in the orchestrator's terminal ``errors[]`` list.
 
-    Produced by ErrorCollector during pipeline execution and projected
-    to this minimal {type, message} shape by ``_error_result`` /
-    ``_cancelled_result`` in orchestrator.py before being returned as part
-    of BatchUploadResult. This is the public API shape — internal RowError
-    has additional fields (row_index, uid, severity) not currently surfaced.
+    Produced by ErrorCollector during pipeline execution and projected to this
+    public shape before being returned as part of BatchUploadResult /
+    ValidationResult. ``row`` and ``uid`` locate the offending row when the
+    error is attributable to one; both are None for whole-file or stage-level
+    errors. The internal RowError additionally carries ``severity``, which is
+    not surfaced here.
     """
     type: str = Field(..., description="ErrorType enum value, e.g. 'VALIDATION_ATTRIBUTE_NAME'.")
     message: str = Field(..., description="Human-readable error message.")
+    row: Optional[int] = Field(
+        None,
+        description=(
+            "0-based row index of the offending row within the SAMPLES data, "
+            "when the error is attributable to a specific row. None for "
+            "whole-file / stage-level errors."
+        ),
+    )
+    uid: Optional[str] = Field(
+        None,
+        description=(
+            "UID of the offending row, when it has one (update rows, or rows "
+            "with a pre-assigned UID). New samples have no UID at validation "
+            "time, so this is None for them — use `row` to locate them."
+        ),
+    )
 
 
 class BatchUploadTotals(BaseModel):

@@ -25,14 +25,27 @@ log = logging.getLogger(__name__)
 _ALL_CHECKS = ("structure", "name_check", "dag")
 
 
-def _project_errors(error_collector: ErrorCollector) -> List[BatchUploadError]:
-    """Project ErrorCollector entries to the public {type, message} shape.
+def _project_errors(
+    error_collector: ErrorCollector,
+    generated_uids: Set[str],
+) -> List[BatchUploadError]:
+    """Project ErrorCollector entries to the public BatchUploadError shape.
 
-    Mirrors ``run_batch_upload_multi``'s terminal ``errors[]`` projection,
-    including its first-50 cap.
+    Carries ``row`` (0-based SAMPLES row index) and ``uid`` so the caller can
+    locate the offending row. ``row_index`` of -1 (the pipeline's "no row"
+    sentinel) maps to ``row=None``. ``uid`` is reported only when the row
+    genuinely had one (update rows / pre-assigned UIDs): UIDs that UID_GEN
+    auto-generated for new samples are throwaway in validate mode (lababbv is
+    "NA", nothing is inserted), so they are suppressed — use ``row`` to locate
+    new samples. Capped at the first 50 errors.
     """
     return [
-        BatchUploadError(type=e.error_type.value, message=e.message)
+        BatchUploadError(
+            type=e.error_type.value,
+            message=e.message,
+            row=e.row_index if isinstance(e.row_index, int) and e.row_index >= 0 else None,
+            uid=e.uid if (e.uid and e.uid not in generated_uids) else None,
+        )
         for e in error_collector.all_errors()[:50]
     ]
 
@@ -43,9 +56,10 @@ def _finalize(
     warnings: dict,
     checks_run: List[str],
     checks_skipped: List[str],
+    generated_uids: Set[str],
 ) -> ValidationResult:
     """Assemble a ValidationResult from pipeline output."""
-    errors = _project_errors(error_collector)
+    errors = _project_errors(error_collector, generated_uids)
     valid = not errors and totals.error is None
     if valid:
         summary = "No issues"
@@ -128,7 +142,10 @@ def run_validation_multi(
             error=pre.abort_message or None,
             cancelled=(pre.abort_kind == "cancelled"),
         )
-        return _finalize(totals, error_collector, {}, checks_run, checks_skipped)
+        return _finalize(
+            totals, error_collector, {}, checks_run, checks_skipped,
+            pre.generated_uids,
+        )
 
     # Continue-state: the pipeline ran through TRANSFORM.
     insertable_count = len(pre.insertable_samples)
@@ -137,9 +154,14 @@ def run_validation_multi(
     # ``dag`` check: surface dependency cycles as errors. The full pipeline only
     # emits CYCLE_UNRESOLVABLE during INSERT, which validation never reaches.
     if run_dag and pre.level_assignment and pre.level_assignment.cycle_uids:
+        uid_to_row_idx = {
+            r.UID: r.original_row_index
+            for r in (pre.valid_rows or [])
+            if r.UID is not None and r.original_row_index is not None
+        }
         for uid in sorted(pre.level_assignment.cycle_uids):
             error_collector.add(
-                row_index=-1,
+                row_index=uid_to_row_idx.get(uid, -1),
                 uid=uid,
                 error_type=ErrorType.CYCLE_UNRESOLVABLE,
                 message="Sample is part of a dependency cycle",
@@ -154,5 +176,6 @@ def run_validation_multi(
         uids_generated=pre.uid_gen_report.get("uids_generated", 0),
     )
     return _finalize(
-        totals, error_collector, pre.warnings, checks_run, checks_skipped
+        totals, error_collector, pre.warnings, checks_run, checks_skipped,
+        pre.generated_uids,
     )

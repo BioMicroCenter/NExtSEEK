@@ -108,6 +108,48 @@ class TestRunValidationMulti:
         assert len(attr_errors) == 1
         assert "BadKey" in attr_errors[0].message
 
+    def test_transform_error_carries_row_and_pre_assigned_uid(self):
+        """A TRANSFORM error is attributed to its row index, and to its UID when
+        the row had one pre-assigned (the update case)."""
+        good = InputRowModel(
+            UID=UID_A, SampleType="NHP_blood", json_metadata="{}",
+            assay_ids=[], original_row_index=0,
+        )
+        bad = InputRowModel(
+            UID=UID_B, SampleType="NHP_blood", json_metadata='{"BadKey":"x"}',
+            assay_ids=[], original_row_index=1,
+        )
+
+        result = _run_validation([good, bad], FakeDB())
+
+        attr_errors = [e for e in result.errors if e.type == "VALIDATION_ATTRIBUTE_NAME"]
+        assert len(attr_errors) == 1
+        assert attr_errors[0].row == 1
+        assert attr_errors[0].uid == UID_B
+
+    def test_new_sample_error_has_row_but_no_generated_uid(self):
+        """For a new sample (no pre-assigned UID), the error carries `row` but not
+        the throwaway UID that UID_GEN generated in validate mode."""
+        good = InputRowModel(
+            UID=UID_A, SampleType="NHP_blood", json_metadata="{}",
+            assay_ids=[], original_row_index=0,
+        )
+        new_bad = InputRowModel(
+            UID=None, SampleType="NHP_blood", json_metadata='{"BadKey":"x"}',
+            assay_ids=[], original_row_index=3,
+        )
+
+        # UID_GEN injects the generated UID into json_metadata as a "UID" key;
+        # the no-skip-list check then requires "UID" to be a declared attribute.
+        result = _run_validation(
+            [good, new_bad], FakeDB(sample_attributes={1: {"Parent", "UID"}})
+        )
+
+        attr_errors = [e for e in result.errors if e.type == "VALIDATION_ATTRIBUTE_NAME"]
+        assert len(attr_errors) == 1
+        assert attr_errors[0].row == 3
+        assert attr_errors[0].uid is None
+
     def test_name_check_reports_existing_name_as_skipped(self):
         """checks=name_check: a row whose Name already exists -> counted as skipped."""
         # One UID-less row that NAME_CHECK will match against the DB, plus one

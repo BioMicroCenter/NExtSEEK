@@ -235,7 +235,15 @@
 			lines.push("");
 			lines.push("Errors (" + errors.length + "):");
 			for (const e of errors) {
-				lines.push("  - [" + e.type + "] " + e.message);
+				let loc = "";
+				if (e.row !== null && e.row !== undefined) {
+					loc = "row " + e.row;
+				}
+				if (e.uid) {
+					loc = loc ? loc + " (" + e.uid + ")" : e.uid;
+				}
+				const prefix = loc ? loc + ": " : "";
+				lines.push("  - " + prefix + "[" + e.type + "] " + e.message);
 			}
 		}
 		const warnings = result.warnings || {};

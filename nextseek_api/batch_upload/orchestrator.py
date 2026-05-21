@@ -425,9 +425,14 @@ def _run_pre_insert_stages(
             len(res.level_assignment.external_parents),
         )
         if res.level_assignment.orphan_uids:
+            uid_to_row_idx = {
+                r.UID: r.original_row_index
+                for r in valid_rows
+                if r.UID is not None and r.original_row_index is not None
+            }
             for uid in sorted(res.level_assignment.orphan_uids):
                 error_collector.add(
-                    row_index=-1,
+                    row_index=uid_to_row_idx.get(uid, -1),
                     uid=uid,
                     error_type=ErrorType.VALIDATION_JSON,
                     message="Parent UID(s) not found in batch or database; treating as root sample",
@@ -468,6 +473,9 @@ def _run_pre_insert_stages(
 
     with get_connection() as conn:
         for row in valid_rows:
+            # Real spreadsheet row index, so TRANSFORM errors can be located.
+            # -1 means "no row" (e.g. programmatic rows with no original index).
+            row_idx = row.original_row_index if row.original_row_index is not None else -1
             try:
                 # NB: bind the per-row warnings to a distinct name. Reusing
                 # ``warnings`` here would clobber the ``warnings`` dict holding
@@ -479,7 +487,7 @@ def _run_pre_insert_stages(
                 for category, msgs in row_warnings.items():
                     for msg in msgs:
                         error_collector.add(
-                            row_index=-1,
+                            row_index=row_idx,
                             uid=row.UID,
                             error_type=ErrorType.VALIDATION_ASSAY,
                             message=msg,
@@ -488,7 +496,7 @@ def _run_pre_insert_stages(
                 transform_errors += 1
                 for bad_key in exc.bad_keys:
                     error_collector.add(
-                        row_index=-1,
+                        row_index=row_idx,
                         uid=row.UID,
                         error_type=ErrorType.VALIDATION_ATTRIBUTE_NAME,
                         message=(
@@ -499,7 +507,7 @@ def _run_pre_insert_stages(
             except Exception as exc:
                 transform_errors += 1
                 error_collector.add(
-                    row_index=-1,
+                    row_index=row_idx,
                     uid=row.UID,
                     error_type=_classify_validation_error(str(exc)),
                     message=f"TRANSFORM failed: {exc}",
