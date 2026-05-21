@@ -59,9 +59,9 @@ def test_load_prod_overrides_real():
 
 def test_render_dotenv_docker_local_smoke():
     content = render_dotenv(target="docker-local")
-    # Required lines
-    assert 'API_USER=""' in content
-    assert 'API_PASS=""' in content
+    # Required lines — API creds default to docker-bootstrap demo/demopassword
+    assert 'API_USER="demo"' in content
+    assert 'API_PASS="demopassword"' in content
     assert 'SESSION_DB_TYPE="sqlite"' in content
     assert 'SESSION_DB_PATH="db.sqlite"' in content
     # Prod overrides present as comments
