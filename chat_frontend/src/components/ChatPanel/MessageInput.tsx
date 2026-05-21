@@ -51,10 +51,11 @@ export function MessageInput({ onSend, disabled, isAdmin = false }: MessageInput
   const pillInactive = "bg-background hover:bg-accent";
 
   return (
-    <div className="border-t bg-background px-4 py-3">
+    <div data-testid="message-input" className="border-t bg-background px-4 py-3">
       <div className="flex items-end gap-2">
         <textarea
           ref={textareaRef}
+          data-testid="chat-input"
           className="flex-1 resize-none rounded-lg border bg-transparent px-3 py-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           placeholder="Ask NExtSEEK a question..."
           value={value}
@@ -101,6 +102,7 @@ export function MessageInput({ onSend, disabled, isAdmin = false }: MessageInput
           )}
         </div>
         <Button
+          data-testid="send-button"
           className="shrink-0 rounded-lg p-0"
           style={{ width: 40, height: 40 }}
           onClick={handleSend}

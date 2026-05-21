@@ -24,7 +24,7 @@ export function ChatPanel({
   const { scrollRef } = useAutoScroll([messages, processingState.steps]);
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div data-testid="chat-panel" className="flex flex-1 flex-col overflow-hidden">
       {processingState.isProcessing && (
         <ProcessingStepper steps={processingState.steps} />
       )}
