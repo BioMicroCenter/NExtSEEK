@@ -314,3 +314,61 @@ def test_semantic_index_query_empty_catalog(tmp_path):
         cache_dir=tmp_path, encoder=_fake_encoder(),
     )
     assert idx.query("anything", top_n=5) == []
+
+
+def test_semantic_index_unhealthy_when_encoder_raises_at_init(tmp_path):
+    def broken_encoder(texts):
+        raise RuntimeError("model load failed")
+    catalog = [{"id": "a", "text": "apple"}]
+    idx = SemanticIndex(
+        catalog=catalog, name="broken",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=broken_encoder,
+    )
+    assert idx.ready is False
+    assert idx.fail_reason is not None
+    assert "model load failed" in idx.fail_reason
+
+
+def test_semantic_index_query_returns_empty_when_not_ready(tmp_path):
+    def broken_encoder(texts):
+        raise RuntimeError("nope")
+    idx = SemanticIndex(
+        catalog=[{"id": "a", "text": "apple"}], name="broken2",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=broken_encoder,
+    )
+    assert idx.query("apple", top_n=5) == []
+
+
+def test_semantic_index_query_returns_empty_on_query_time_failure(tmp_path):
+    """If the encoder works at init but fails on query-time encoding,
+    query returns empty rather than raising."""
+    call_count = {"n": 0}
+
+    def encoder(texts):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return _fake_encoder()(texts)  # init succeeds
+        raise RuntimeError("query failed")
+
+    idx = SemanticIndex(
+        catalog=[{"id": "a", "text": "apple"}], name="flaky",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=encoder,
+    )
+    assert idx.ready is True
+    assert idx.query("apple", top_n=5) == []
+
+
+def test_semantic_index_rebuilds_on_corrupt_cache(tmp_path):
+    """Corrupt .npz file → rebuild silently."""
+    cached = tmp_path / "corrupt.embeddings.npz"
+    cached.write_bytes(b"not a real npz file")
+    idx = SemanticIndex(
+        catalog=[{"id": "a", "text": "apple"}], name="corrupt",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=_fake_encoder(),
+    )
+    assert idx.ready is True
+    assert len(idx.query("apple", top_n=5)) == 1
