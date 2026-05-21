@@ -69,7 +69,7 @@ def test_pipeline_agent_intercepts_before_wizard_in_run_query():
          patch("chat_nextseek.orchestrator.parser_agent"), \
          patch("chat_nextseek.orchestrator.reporter_agent"), \
          patch("chat_nextseek.orchestrator.shortlist_catalog",
-               return_value=([], [])):
+               return_value=([], [], {"sampletype_codes": [], "assay_codes": [], "sampletype_ranks": {}, "assay_ranks": {}, "enabled": False, "fallback_reason": None})):
         result = orchestrator.run_query(
             session=session,
             config=config,
@@ -135,7 +135,7 @@ def test_nfcore_activation_calls_pipeline_agent_start_not_wizard_start():
          patch("chat_nextseek.orchestrator.fix_sample_endpoint",
                side_effect=lambda d: d), \
          patch("chat_nextseek.orchestrator.shortlist_catalog",
-               return_value=([], [])):
+               return_value=([], [], {"sampletype_codes": [], "assay_codes": [], "sampletype_ranks": {}, "assay_ranks": {}, "enabled": False, "fallback_reason": None})):
         result = orchestrator.run_query(
             session=session,
             config=config,
