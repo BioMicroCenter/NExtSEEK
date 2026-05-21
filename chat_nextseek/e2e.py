@@ -55,6 +55,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="With --playwright, run a single spot test by id.")
     p.add_argument("--headed", action="store_true",
                    help="With --playwright, run in headed (non-headless) mode.")
+    p.add_argument("--no-playwright", action="store_true",
+                   help="Skip the Phase E browser run (CLI only).")
+    p.add_argument("--no-cli", action="store_true",
+                   help="Skip the Phase A CLI run (Playwright only). Implied by --playwright.")
+    p.add_argument("--video", action="store_true",
+                   help="With --playwright, capture video.webm per browser variant.")
     p.add_argument("--init-env", action="store_true",
                    help="Generate chat_nextseek/.env from sibling docker + dmac files (target: docker-local).")
     p.add_argument("--force", action="store_true",
@@ -73,14 +79,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[e2e] API_USER/API_PASS default to demo/demopassword; edit {path} if your docker user differs")
         print(f"[e2e] next: `uv run e2e.py --list` to verify, or `uv run e2e.py --variant advanced.basic_ndma` to smoke-test")
         return 0
-
-    if args.playwright:
-        try:
-            from e2e.playwright.runner import run_main as run_playwright  # noqa: PLC0415
-        except ImportError:
-            print("[e2e] Playwright runner not yet installed. See Phase E plan.")
-            return 2
-        return run_playwright(spot=args.spot, headed=args.headed)
 
     if args.list:
         from e2e.catalog import load_catalog  # noqa: PLC0415
@@ -109,17 +107,25 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[e2e] regenerated {path}")
         return 0
 
+    if args.playwright:
+        # Playwright-only mode: equivalent to --no-cli
+        args.no_cli = True
+
     from e2e.runner import run_main  # noqa: PLC0415
     return run_main(
         CATALOG_PATH,
         ratio=args.ratio,
         seed=args.seed,
         family=args.family,
-        variant_id=args.variant,
+        variant_id=args.variant or args.spot,
         rerun_manifest=args.rerun,
         failed_only=args.failed_only,
         pace_seconds=args.pace,
         profile=args.profile,
+        skip_cli=getattr(args, "no_cli", False),
+        skip_playwright=getattr(args, "no_playwright", False),
+        headed=args.headed,
+        video=getattr(args, "video", False),
     )
 
 
