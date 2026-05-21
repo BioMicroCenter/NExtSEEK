@@ -130,14 +130,36 @@ def test_doc_assay_falls_back_to_snake_case_alternative_key():
     assert "Bar" in doc
 
 
-def test_doc_endpoint_includes_path_and_tags_list():
+def test_doc_endpoint_includes_real_schema_fields():
+    """Verify doc_endpoint pulls intent_patterns + example_intents + llm_hint
+    from the real catalog schema, not a hypothetical summary/tags shape."""
     item = {
         "path": "/samples/advanced_search/",
-        "summary": "Search for samples by criteria",
-        "description": "Returns paginated rows.",
-        "tags": ["samples", "search"],
+        "method": "POST",
+        "category": "samples",
+        "description": "Search samples with filters.",
+        "intent_patterns": ["retrieve", "find", "search"],
+        "example_intents": ["find me mice", "show samples with NDMA"],
+        "llm_hint": "Use this endpoint for filtered sample retrieval.",
     }
     doc = doc_endpoint(item)
     assert "/samples/advanced_search/" in doc
-    assert "samples search" in doc or "samples" in doc
-    assert "paginated" in doc
+    assert "samples" in doc                     # category
+    assert "Search samples with filters" in doc # description
+    assert "retrieve" in doc                    # intent_patterns
+    assert "find me mice" in doc                # example_intents
+    assert "filtered sample retrieval" in doc   # llm_hint
+
+
+def test_doc_endpoint_works_on_real_catalog_row():
+    """Smoke test against the live catalog file: every row produces a
+    non-empty doc string with the path included."""
+    import json
+    from pathlib import Path
+    path = Path("src/chat_nextseek/context/min_api_endpoints_enriched.json")
+    data = json.loads(path.read_text())
+    assert data, "catalog is empty"
+    for ep in data:
+        doc = doc_endpoint(ep)
+        assert doc, f"empty doc for {ep.get('path')}"
+        assert ep.get("path") in doc

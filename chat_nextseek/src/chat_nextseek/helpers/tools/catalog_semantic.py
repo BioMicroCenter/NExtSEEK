@@ -95,12 +95,23 @@ def doc_assay(assay: dict) -> str:
 
 
 def doc_endpoint(ep: dict) -> str:
-    """Embeddable text for an API endpoint catalog item."""
-    tags = ep.get("tags") or []
-    tags_str = " ".join(tags) if isinstance(tags, list) else str(tags)
+    """Embeddable text for an API endpoint catalog item.
+
+    Concatenates path + category + description + intent_patterns +
+    example_intents + llm_hint. The list-valued intent_patterns and
+    example_intents (joined by space) are the highest-signal fields
+    for matching free-text user queries to endpoints.
+    """
+    def _list_or_str(value) -> str:
+        if isinstance(value, list):
+            return " ".join(str(v) for v in value)
+        return str(value) if value else ""
+
     return _join_nonempty([
         ep.get("path") or "",
-        ep.get("summary") or "",
+        ep.get("category") or "",
         ep.get("description") or "",
-        tags_str,
+        _list_or_str(ep.get("intent_patterns")),
+        _list_or_str(ep.get("example_intents")),
+        ep.get("llm_hint") or "",
     ])
