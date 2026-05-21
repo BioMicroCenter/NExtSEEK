@@ -18,13 +18,10 @@ Test harness:
   uv run cli.py -runtest test_case_1          # run test suite across all models
   uv run cli.py -runtest test_case_1 -m gcp  # run test suite for GCP only
 
-Smart test suite (routing-path diagnostics, auto debug on failure):
-  uv run cli.py -st                           # all tests, mixed profile
-  uv run cli.py -st -m gcp                   # GCP profile
-  uv run cli.py -st -p                       # planner pipeline
-  uv run cli.py -st --both                   # standard then planner (3-min pause), auto combined report
-  uv run cli.py -st --only T1,T5,T9         # subset by test ID
-  uv run cli.py -st -i                       # interactively pick output dir(s) and regenerate report
+E2E test suite (routes through e2e.runner.run_main):
+  uv run cli.py -st                           # default ratio 0.33 sample of catalog variants
+  uv run cli.py -ft                           # full run (ratio=1.0, all variants)
+  uv run e2e.py --help                        # advanced flags: --seed, --family, --variant, --rerun, --report, ...
 """
 
 from __future__ import annotations
@@ -189,15 +186,12 @@ def _prod_env_override(enabled: bool):
 def _build_streamlit_command(
     mode: str | None,
     extra_args: list[str],
-    planner: bool = False,
 ) -> list[str]:
     """Assemble the `streamlit run app.py` command, forwarding mode and trailing args."""
     base = ["uv", "run", "--", "streamlit", "run", "app.py"]
     app_cli: list[str] = []
     if mode:
         app_cli.extend(["-m", mode])
-    if planner:
-        app_cli.append("-p")
     for arg in extra_args:
         if arg == "--" and not app_cli:
             continue
@@ -224,7 +218,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         command = _build_streamlit_command(
             args.mode,
             args.extra or [],
-            planner=bool(args.planner),
         )
         return _run(command, env=_build_prod_subprocess_env(bool(args.prod)))
 
@@ -332,28 +325,26 @@ def cmd_runtest(args: argparse.Namespace) -> int:
     only = getattr(args, "smart_only", None)
 
     with _prod_env_override(bool(args.prod)):
-        return run_test_suite(suite_name, models, planner=args.planner, only=only)
+        return run_test_suite(suite_name, models, planner=False, only=only)
 
 
 def cmd_smart_test(args: argparse.Namespace) -> int:
-    """Run the smart diagnostic test suite (routing-path tests + auto debug sub-queries)."""
-    from smart_test import main as smart_main
+    """Route -st (smart test) and -ft (full test) through the new e2e.py runner.
 
-    argv: list[str] = []
-    if args.mode:
-        argv.extend(["-m", args.mode])
-    if getattr(args, "planner", False):
-        argv.append("-p")
-    if getattr(args, "smart_both", False):
-        argv.append("--both")
-    if getattr(args, "smart_interactive", False):
-        argv.append("-i")
-    if args.smart_only:
-        argv.extend(["--only", args.smart_only])
-    if getattr(args, "full_test", False):
-        argv.append("-ft")
+    Legacy flag semantics:
+      -st               -> e2e --ratio 0.33 (default sample)
+      -ft               -> e2e --ratio full (all variants)
+      --both, -p, -i      -> removed (planner pipeline retiring; use e2e.py for advanced flags)
+      --only              -> re-scoped to -runtest (no longer applies to -st)
+    """
+    from pathlib import Path
+    from e2e.runner import run_main
+
+    catalog_path = Path(__file__).parent / "e2e" / "catalog.json"
+    ratio = 1.0 if getattr(args, "full_test", False) else 0.33
+    profile = args.mode or os.environ.get("NEXTSEEK_MODE", "mixed")
     with _prod_env_override(bool(args.prod)):
-        return smart_main(argv)
+        return run_main(catalog_path, ratio=ratio, profile=profile)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -386,15 +377,11 @@ def build_parser() -> argparse.ArgumentParser:
             "  Test suites:\n"
             "    uv run cli.py -runtest test_case_1           run suite across all models\n"
             "    uv run cli.py -runtest test_case_1 -m gcp    run suite for GCP only\n"
-            "    uv run cli.py -runtest test_case_1 -p        run suite using planner pipeline\n"
-            "    uv run cli.py -runtest test_case_1 -m gcp -p run suite for GCP only, planner pipeline\n"
             "\n"
-            "  Smart test suite (10 routing-path diagnostics, auto debug on failure):\n"
-            "    uv run cli.py -st                            all 10 tests, mixed profile\n"
-            "    uv run cli.py -st -m gcp                    GCP profile\n"
-            "    uv run cli.py -st --only T1,T5,T9           subset by test ID\n"
-            "    uv run cli.py -st --both                    standard then planner (3-min pause)\n"
-            "    uv run smart_test.py --list                  list all tests\n"
+            "  E2E test suite (routes through e2e.runner.run_main):\n"
+            "    uv run cli.py -st                            default ratio 0.33 sample of catalog variants\n"
+            "    uv run cli.py -ft                            full run (ratio=1.0, all variants)\n"
+            "    uv run e2e.py --help                         advanced flags (--seed, --family, --variant, --rerun, --report, ...)\n"
         ),
     )
 
@@ -469,53 +456,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run a named test suite (e.g. test_case_1) across all models, or just the model specified by -m.",
     )
     parser.add_argument(
-        "-p", "--planner",
-        action="store_true",
-        default=False,
-        help="Use the planner pipeline (run_query_plan) when running a test suite via -runtest.",
-    )
-    parser.add_argument(
         "-st", "--smart-test",
         action="store_true",
         default=False,
         dest="smart_test",
-        help="Run the smart diagnostic test suite (10 routing-path tests, auto debug on failure).",
+        help="Run E2E test suite (default ratio 0.33). For advanced flags use: uv run e2e.py --help",
     )
     parser.add_argument(
         "--only",
         type=str,
         default=None,
         dest="smart_only",
-        metavar="T1,T2,...",
+        metavar="K1,K2,...",
         help=(
-            "Comma-separated test IDs (or prefixes) to run when using -st OR -runtest. "
-            "For -st, exact match on test IDs (e.g. 'T1,T5,T9'). "
-            "For -runtest, prefix match on case keys (e.g. 'W3,W4' matches W3_* and W4_* in wizard_e2e)."
+            "Comma-separated case-key prefixes to run when using -runtest "
+            "(e.g. 'W3,W4' matches W3_* and W4_* in wizard_e2e)."
         ),
-    )
-    parser.add_argument(
-        "--both",
-        action="store_true",
-        default=False,
-        dest="smart_both",
-        help="With -st: run standard pipeline then (after 3-min pause) planner pipeline.",
-    )
-    parser.add_argument(
-        "-i", "--interactive",
-        action="store_true",
-        default=False,
-        dest="smart_interactive",
-        help="With -st: interactively pick output dir(s) from outputs/ and regenerate report.",
     )
     parser.add_argument(
         "-ft", "--full-test",
         action="store_true",
         default=False,
         dest="full_test",
-        help=(
-            "With -st: run the full regression test set (90 questions, no pass criteria). "
-            "E.g. uv run cli.py -st -ft or uv run cli.py -st -ft -p"
-        ),
+        help="Run full E2E (ratio=1.0). Equivalent to: uv run e2e.py --ratio full",
     )
 
     parser.add_argument(
