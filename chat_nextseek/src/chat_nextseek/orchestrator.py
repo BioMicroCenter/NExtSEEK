@@ -442,12 +442,17 @@ def run_query(
             return wizard_payload
 
         send_event("agent_started", {"agent": "catalog", "mode": ""})
-        sampletypes_short, assays_short = shortlist_catalog(
+        sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(
             user_text,
             config.MIN_SAMPLETYPES or [],
             config.MIN_ASSAYS or [],
             k_st=50,
             k_a=75,
+            sampletype_index=getattr(config, "SAMPLETYPE_INDEX", None),
+            assay_index=getattr(config, "ASSAY_INDEX", None),
+            ratio=getattr(config, "SEMANTIC_RATIO", 0.7),
+            min_k=getattr(config, "SEMANTIC_MIN_K", 10),
+            max_k=getattr(config, "SEMANTIC_MAX_K", 80),
         )
         if not sampletypes_short:
             sampletypes_short = config.MIN_SAMPLETYPES or []
@@ -477,6 +482,9 @@ def run_query(
         debug_payload: dict[str, Any] = {
             "entity_result": entity_result.model_dump(),
             "parser_plan": plan.model_dump(),
+            "shortlist_sampletype_codes": shortlist_diag.get("sampletype_codes", []),
+            "shortlist_assay_codes": shortlist_diag.get("assay_codes", []),
+            "shortlist_diagnostics": shortlist_diag,
             "api_plan": None,
             "reporter_plan": None,
             "reporter_result": None,
@@ -1309,12 +1317,17 @@ def run_query_plan(
             return wizard_payload
 
         send_event("agent_started", {"agent": "catalog", "mode": "plan"})
-        sampletypes_short, assays_short = shortlist_catalog(
+        sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(
             user_text,
             config.MIN_SAMPLETYPES or [],
             config.MIN_ASSAYS or [],
             k_st=50,
             k_a=75,
+            sampletype_index=getattr(config, "SAMPLETYPE_INDEX", None),
+            assay_index=getattr(config, "ASSAY_INDEX", None),
+            ratio=getattr(config, "SEMANTIC_RATIO", 0.7),
+            min_k=getattr(config, "SEMANTIC_MIN_K", 10),
+            max_k=getattr(config, "SEMANTIC_MAX_K", 80),
         )
         sampletypes_short = sampletypes_short or config.MIN_SAMPLETYPES or []
         assays_short = assays_short or config.MIN_ASSAYS or []
@@ -1342,6 +1355,9 @@ def run_query_plan(
             "planner": None,
             "planner_iterations": [],
             "entity": entity_result.model_dump(),
+            "shortlist_sampletype_codes": shortlist_diag.get("sampletype_codes", []),
+            "shortlist_assay_codes": shortlist_diag.get("assay_codes", []),
+            "shortlist_diagnostics": shortlist_diag,
             "provisional_reply": None,
             "evaluator": None,
             "replan_attempted": False,

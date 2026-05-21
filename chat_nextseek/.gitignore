@@ -45,3 +45,6 @@ src/chat_nextseek.egg-info
 .codex/
 .cursor/
 baml_client/
+
+# Semantic catalog embedding caches (regenerated from JSON catalogs)
+src/chat_nextseek/context/*.embeddings.npz

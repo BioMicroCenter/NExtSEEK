@@ -179,6 +179,8 @@ def resolve_field(
     aliases = {
         "entity_sampletype_codes": lambda d: _codes((d.get("entity_result") or {}).get("sampletypes", [])),
         "entity_assay_codes":      lambda d: _codes((d.get("entity_result") or {}).get("assays", [])),
+        "shortlist_sampletype_codes": lambda d: d.get("shortlist_sampletype_codes") or [],
+        "shortlist_assay_codes":      lambda d: d.get("shortlist_assay_codes") or [],
         "entity_projects":         lambda d: (d.get("entity_result") or {}).get("projects", []),
         "graph_cypher":            lambda d: (d.get("graph_plan") or {}).get("cypher") or "",
         "neo4j_ok":                lambda d: (d.get("graph_result") or {}).get("ok", False),
