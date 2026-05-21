@@ -30,6 +30,26 @@ def _ui_url(config: Any) -> str:
     return getattr(config, "NEXTSEEK_UI_URL", None) or "http://localhost:8000"
 
 
+def _chat_url(config: Any) -> str:
+    """The Django page that embeds the chat React app (smartSearch view)."""
+    return f"{_ui_url(config).rstrip('/')}/seek/assistant/"
+
+
+def _login_django_session(page: Any, ui_url: str, user: str, password: str, *, timeout_ms: int = 15_000) -> None:
+    """Drive the Django login form to establish a session cookie.
+
+    The chat React app is embedded into the smartSearch Django template
+    (`/seek/assistant/`), whose view requires `request.user.is_authenticated`.
+    HTTP Basic Auth alone (used for `/nextseek_api/*` REST calls) does not
+    create a Django session, so we must POST the login form first.
+    """
+    page.goto(f"{ui_url.rstrip('/')}/login/", timeout=timeout_ms)
+    page.locator('input[name="username"]').fill(user)
+    page.locator('input[name="password"]').fill(password)
+    page.locator('input[name="password"]').press("Enter")
+    page.wait_for_load_state("networkidle", timeout=timeout_ms)
+
+
 def run_variant_browser(
     variant: Variant,
     config: Any,
@@ -87,7 +107,16 @@ def run_variant_browser(
         page.on("response", _on_resp)
 
         try:
-            page.goto(ui_url)
+            # Establish Django session via form login, THEN navigate to the
+            # smartSearch page that embeds the chat React app. Basic Auth
+            # header (set on the context above) continues to serve REST
+            # calls the React app makes to `/nextseek_api/*`.
+            _login_django_session(
+                page, ui_url,
+                getattr(config, "API_USER", "demo"),
+                getattr(config, "API_PASS", "demopassword"),
+            )
+            page.goto(_chat_url(config))
             chat = ChatPage(page)
             chat.open_new_chat()
 
