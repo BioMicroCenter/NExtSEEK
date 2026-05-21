@@ -30,3 +30,52 @@ def test_dynamic_cutoff_zero_top_score():
     """All scores 0 → fall back to min_k items (no ratio meaning)."""
     scored = [("a", 0.0), ("b", 0.0), ("c", 0.0)]
     assert dynamic_cutoff(scored, ratio=0.7, min_k=2, max_k=10) == ["a", "b"]
+
+
+from chat_nextseek.helpers.tools.catalog_semantic import fuse_rrf
+
+
+def test_fuse_rrf_single_ranker():
+    """Single ranker → fused score is just its 1/(k+rank)."""
+    ranking = [({"id": "a"}, 0.9, 1), ({"id": "b"}, 0.5, 2)]
+    result = fuse_rrf(ranking, id_fn=lambda x: x["id"], k=60)
+    # a: 1/61, b: 1/62; a > b
+    assert [item["id"] for item, _ in result] == ["a", "b"]
+    # spot-check score values
+    assert abs(result[0][1] - 1 / 61) < 1e-9
+    assert abs(result[1][1] - 1 / 62) < 1e-9
+
+
+def test_fuse_rrf_combines_two_rankers():
+    """Item ranked well in both rankers beats item ranked well in only one."""
+    lex = [({"id": "a"}, 1.0, 1), ({"id": "b"}, 0.9, 2), ({"id": "c"}, 0.8, 3)]
+    sem = [({"id": "b"}, 0.95, 1), ({"id": "a"}, 0.85, 2), ({"id": "d"}, 0.7, 3)]
+    result = fuse_rrf(lex, sem, id_fn=lambda x: x["id"], k=60)
+    ids = [item["id"] for item, _ in result]
+    # a: 1/61 + 1/62; b: 1/62 + 1/61; both equal — tied at top
+    # c: 1/63 only; d: 1/63 only — tied lower
+    assert set(ids[:2]) == {"a", "b"}
+    assert set(ids[2:]) == {"c", "d"}
+
+
+def test_fuse_rrf_partial_overlap():
+    """Item in only one ranker still contributes that ranker's score."""
+    lex = [({"id": "lex_only"}, 0.99, 1)]
+    sem = [({"id": "sem_only"}, 0.99, 1)]
+    result = fuse_rrf(lex, sem, id_fn=lambda x: x["id"], k=60)
+    assert len(result) == 2
+    # Both rank-1 in their own list → fused score 1/61 each
+    assert all(abs(score - 1 / 61) < 1e-9 for _, score in result)
+
+
+def test_fuse_rrf_empty_inputs():
+    assert fuse_rrf(id_fn=lambda x: x["id"], k=60) == []
+    assert fuse_rrf([], [], id_fn=lambda x: x["id"], k=60) == []
+
+
+def test_fuse_rrf_preserves_item_object():
+    """Output items are the original dicts, not just ids."""
+    lex = [({"id": "a", "name": "Alpha"}, 0.9, 1)]
+    result = fuse_rrf(lex, id_fn=lambda x: x["id"], k=60)
+    item, _ = result[0]
+    assert item == {"id": "a", "name": "Alpha"}

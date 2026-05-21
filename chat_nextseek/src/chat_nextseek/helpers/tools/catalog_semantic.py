@@ -5,7 +5,7 @@ with semantic embedding-based retrieval and graceful fallback.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 
 def dynamic_cutoff(
@@ -37,3 +37,31 @@ def dynamic_cutoff(
     if len(kept) > max_k:
         kept = kept[:max_k]
     return kept
+
+
+def fuse_rrf(
+    *ranked_lists: list[tuple[Any, float, int]],
+    id_fn: Callable[[Any], str],
+    k: int = 60,
+) -> list[tuple[Any, float]]:
+    """Reciprocal Rank Fusion across any number of ranked lists.
+
+    Each input is a list of (item, score, rank_1_indexed). Items are
+    keyed by `id_fn(item)` so the same logical item across rankers
+    accumulates fused score. Output is sorted descending by fused
+    score; only the FIRST observed item-object for each id is kept
+    in the output.
+
+    `k=60` is the canonical RRF smoothing constant (Cormack et al. 2009):
+    high enough that rank-1 in one ranker does not dominate rank-2
+    in both rankers.
+    """
+    scores: dict[str, float] = {}
+    items: dict[str, Any] = {}
+    for ranking in ranked_lists:
+        for item, _score, rank in ranking:
+            key = id_fn(item)
+            scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank)
+            items.setdefault(key, item)
+    ordered_keys = sorted(scores.keys(), key=lambda key: -scores[key])
+    return [(items[key], scores[key]) for key in ordered_keys]
