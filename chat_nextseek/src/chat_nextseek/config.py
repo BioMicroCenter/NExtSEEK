@@ -75,6 +75,57 @@ class ChatConfig:
         self.MIN_ASSAYS = self._load_json_list("min_assays_db.json", "min assays (db)")
         self.MIN_PROJECTS = self.FULL_PROJECTS
         self.MIN_API_ENDPOINTS = self._load_json_list("min_api_endpoints_enriched.json", "min API endpoints")
+
+        # ── Semantic shortlist configuration ─────────────────────────
+        self.SEMANTIC_SHORTLIST_ENABLED = self._coerce_bool(
+            os.getenv("SEMANTIC_SHORTLIST_ENABLED"), default=False
+        )
+        self.SEMANTIC_ENDPOINTS_ENABLED = self._coerce_bool(
+            os.getenv("SEMANTIC_ENDPOINTS_ENABLED"), default=False
+        )
+        self.SEMANTIC_MODEL_NAME = os.getenv(
+            "SEMANTIC_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2"
+        )
+        self.SEMANTIC_RATIO = float(os.getenv("SEMANTIC_RATIO", "0.7"))
+        self.SEMANTIC_MIN_K = int(os.getenv("SEMANTIC_MIN_K", "10"))
+        self.SEMANTIC_MAX_K = int(os.getenv("SEMANTIC_MAX_K", "80"))
+
+        self.SAMPLETYPE_INDEX = None
+        self.ASSAY_INDEX = None
+        self.ENDPOINT_INDEX = None
+        if self.SEMANTIC_SHORTLIST_ENABLED:
+            from chat_nextseek.helpers.tools.catalog_semantic import (  # noqa: PLC0415
+                SemanticIndex, doc_sampletype, doc_assay,
+            )
+            self.SAMPLETYPE_INDEX = SemanticIndex(
+                catalog=self.MIN_SAMPLETYPES,
+                name="sampletypes",
+                doc_fn=doc_sampletype,
+                id_fn=lambda x: x.get("SampleType", ""),
+                cache_dir=Path(self.CONTEXT_DIR),
+                model_name=self.SEMANTIC_MODEL_NAME,
+            )
+            self.ASSAY_INDEX = SemanticIndex(
+                catalog=self.MIN_ASSAYS,
+                name="assays",
+                doc_fn=doc_assay,
+                id_fn=lambda x: x.get("Name", ""),
+                cache_dir=Path(self.CONTEXT_DIR),
+                model_name=self.SEMANTIC_MODEL_NAME,
+            )
+        if self.SEMANTIC_ENDPOINTS_ENABLED:
+            from chat_nextseek.helpers.tools.catalog_semantic import (  # noqa: PLC0415
+                SemanticIndex, doc_endpoint,
+            )
+            self.ENDPOINT_INDEX = SemanticIndex(
+                catalog=self.MIN_API_ENDPOINTS,
+                name="endpoints",
+                doc_fn=doc_endpoint,
+                id_fn=lambda x: x.get("path", ""),
+                cache_dir=Path(self.CONTEXT_DIR),
+                model_name=self.SEMANTIC_MODEL_NAME,
+            )
+
         self.MIN_GRAPH_SCHEMA = self._load_json("min_graph_schema.json", "min graph schema") or {}
         if not getattr(self, "AGENT_MODEL_CATALOG", None):
             if getattr(self, "CATALOG_FILE", None):
