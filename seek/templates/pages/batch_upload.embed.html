@@ -162,35 +162,96 @@
 					}
 					}, 1000)};
 					
-					async function validateSampleSheet() {
-						statusBox.value = "Validating file\n";
-						
-						const formData = new FormData(sample_validation_form);
-						
-						try {
-							$.messager.progress({
-								title: "Please wait",
-								msg: "Uploading file for validation..."
-								})
-								const response = await fetch("/seek/samplesvalidate/", {
-									method: "POST",
-									headers: {"X-CSRFTOKEN": getCookie("csrftoken")},
-									body: formData
-									});
-									if (response.ok) {
-										$.messager.progress("close")
-										const response_json = await response.json()
-										statusBox.value += response_json['msg']
-										} else {
-											$.messager.progress("close")
-											statusBox.value = "Error: Could not submit sample upload job.\n"
-											statusBox.value += `Status code: ${response.status}`
-										}
-										} catch (e) {
-											$.messager.progress("close")
-											console.error(e);
-										}
-									}
+	async function validateSampleSheet() {
+		const fileInput = document.getElementById("sample_validation_file");
+		const projectId = document.getElementById("project_id").value;
+
+		if (!fileInput.files.length) {
+			statusBox.value = "Select a sample sheet to validate.\n";
+			return;
+		}
+		if (!projectId) {
+			statusBox.value = "Select a project before validating.\n";
+			return;
+		}
+
+		statusBox.value = "Validating sample sheet...\n";
+
+		const formData = new FormData();
+		for (let i = 0; i < fileInput.files.length; i++) {
+			formData.append("file", fileInput.files[i]);
+		}
+		formData.append("project_id", projectId);
+
+		try {
+			$.messager.progress({
+				title: "Please wait",
+				msg: "Validating sample sheet..."
+			});
+			const response = await fetch("/nextseek_api/batch-upload/validate/", {
+				method: "POST",
+				body: formData
+			});
+			$.messager.progress("close");
+			if (response.ok) {
+				const result = await response.json();
+				renderValidationResult(result);
+			} else {
+				statusBox.value = "Error: validation request failed.\n";
+				statusBox.value += `Status code: ${response.status}`;
+			}
+		} catch (e) {
+			$.messager.progress("close");
+			statusBox.value += `Validation error: ${e.message}\n`;
+			console.error(e);
+		}
+	}
+
+	function renderValidationResult(result) {
+		const lines = [];
+		const totals = result.totals || {};
+		lines.push(result.valid
+			? "PASSED - " + result.summary
+			: "FAILED - " + result.summary);
+		lines.push(
+			"Rows: " + (totals.processed || 0) + " processed, "
+			+ (totals.success || 0) + " ok, "
+			+ (totals.skipped || 0) + " skipped, "
+			+ (totals.failed || 0) + " failed"
+		);
+		if (totals.error) {
+			lines.push("Pipeline error: " + totals.error);
+		}
+		const errors = result.errors || [];
+		if (errors.length) {
+			lines.push("");
+			lines.push("Errors (" + errors.length + "):");
+			for (const e of errors) {
+				lines.push("  - [" + e.type + "] " + e.message);
+			}
+		}
+		const warnings = result.warnings || {};
+		const warnEntries = [];
+		for (const key of Object.keys(warnings)) {
+			const val = warnings[key];
+			const items = Array.isArray(val) ? val : [val];
+			for (const item of items) {
+				warnEntries.push(item);
+			}
+		}
+		if (warnEntries.length) {
+			lines.push("");
+			lines.push("Warnings (" + warnEntries.length + "):");
+			for (const w of warnEntries) {
+				lines.push("  - " + w);
+			}
+		}
+		if (result.checks_run && result.checks_run.length) {
+			lines.push("");
+			lines.push("Checks run: " + result.checks_run.join(", "));
+		}
+		statusBox.value = lines.join("\n") + "\n";
+	}
 									
 									async function uploadSamples() {
 										const project_id = document.getElementById('project_id').value;
