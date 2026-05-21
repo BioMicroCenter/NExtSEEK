@@ -9,7 +9,7 @@ import time
 from celery.result import AsyncResult
 from django.conf import settings
 from django.http import FileResponse
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from pydantic import BaseModel, Field
 from rest_framework import status, viewsets
 from rest_framework.authentication import BasicAuthentication, TokenAuthentication
@@ -22,15 +22,19 @@ from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 
 from .celery_app import app as celery_app
 from .job_index import list_jobs, register_job, user_owns_job
-from .models import InputRowModel
+from .models import InputRowModel, ValidationResult
 from .tasks import run_batch_upload_task
+from .validation import run_validation_multi
 from nextseek_api.endpoint_descriptions import (
     BATCH_UPLOAD_START_DESC,
     BATCH_UPLOAD_STATUS_DESC,
     BATCH_UPLOAD_CANCEL_DESC,
     BATCH_UPLOAD_SUMMARY_DESC,
     BATCH_UPLOAD_LIST_DESC,
+    BATCH_UPLOAD_VALIDATE_DESC,
 )
+
+_VALIDATE_ALLOWED_CHECKS = {"structure", "name_check", "dag"}
 
 log = logging.getLogger(__name__)
 
@@ -317,6 +321,212 @@ class BatchUploadViewSet(viewsets.ViewSet):
             {"job_id": task.id, "status": "queued"},
             status=status.HTTP_202_ACCEPTED,
         )
+
+    @extend_schema(
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "array",
+                        "items": {"type": "string", "format": "binary"},
+                        "description": "One or more Excel (.xlsx) files to validate.",
+                    },
+                    "project_id": {
+                        "type": "integer",
+                        "description": "SEEK project ID. Required; no project mutation occurs.",
+                    },
+                    "checks": {
+                        "type": "string",
+                        "description": (
+                            "Comma-separated subset of: structure, name_check, dag. "
+                            "Default: structure."
+                        ),
+                        "default": "structure",
+                    },
+                },
+                "required": ["project_id"],
+            },
+            "application/json": BatchUploadStartRequest,
+        },
+        responses={
+            200: OpenApiResponse(
+                response=ValidationResult,
+                description="Validation result (synchronous).",
+                examples=[
+                    OpenApiExample(
+                        "Valid file, structure-only",
+                        value={
+                            "job_id": None,
+                            "summary_path": None,
+                            "totals": {
+                                "processed": 12, "success": 12, "skipped": 0,
+                                "failed": 0, "error": None, "cancelled": False,
+                            },
+                            "errors": [],
+                            "warnings": {},
+                            "valid": True,
+                            "summary": "No issues",
+                            "checks_run": ["structure"],
+                            "checks_skipped": ["dag", "name_check"],
+                        },
+                        response_only=True,
+                    ),
+                    OpenApiExample(
+                        "Attribute-name typo",
+                        value={
+                            "job_id": None,
+                            "summary_path": None,
+                            "totals": {
+                                "processed": 12, "success": 11, "skipped": 0,
+                                "failed": 1, "error": None, "cancelled": False,
+                            },
+                            "errors": [{
+                                "type": "VALIDATION_ATTRIBUTE_NAME",
+                                "message": "'Subjet ID' is not a defined attribute for SampleType 'NHP'",
+                            }],
+                            "warnings": {},
+                            "valid": False,
+                            "summary": "1 issue(s) found",
+                            "checks_run": ["structure"],
+                            "checks_skipped": ["dag", "name_check"],
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+            400: OpenApiResponse(description="Missing input, missing project_id, or invalid checks value"),
+            401: OpenApiResponse(description="Authentication required"),
+            413: OpenApiResponse(description="Total upload size exceeds limit"),
+            422: OpenApiResponse(description="Pydantic validation error on rows or request body"),
+        },
+        description=BATCH_UPLOAD_VALIDATE_DESC,
+    )
+    @action(detail=False, methods=["post"], url_path="validate")
+    def validate(self, request):
+        """POST /api/batch-upload/validate/ -- synchronously validate a batch upload.
+
+        Runs the pipeline through TRANSFORM (stops before INSERT) and returns a
+        ValidationResult. No Celery job, no summary CSV, no database side effects.
+
+        Two input modes (rows wins if both provided):
+        1. Direct rows: JSON body with 'rows' containing List[InputRowModel]
+        2. File upload: multipart/form-data with one or more .xlsx files under 'file'
+        """
+        uploaded_files = request.FILES.getlist("file")
+        raw_rows = request.data.get("rows")
+        xlsx_paths: list[str] = []
+        validated_rows = None
+
+        # ── checks parameter (query param or multipart form field) ──
+        checks_param = (
+            request.query_params.get("checks")
+            or request.data.get("checks")
+            or "structure"
+        )
+        if not isinstance(checks_param, str):
+            checks_param = "structure"
+        checks = {c.strip() for c in checks_param.split(",") if c.strip()}
+        if not checks or not checks <= _VALIDATE_ALLOWED_CHECKS:
+            return Response(
+                {"detail": "checks must be a comma-separated subset of: structure, name_check, dag"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate project_id up front — before any file is saved to disk — so a
+        # bad request never leaves an orphan temp file behind.
+        project_id = request.data.get("project_id")
+        if project_id is None:
+            return Response(
+                {"detail": "project_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            project_id = int(project_id)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "project_id must be an integer"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Mode 1: Direct rows (JSON, checked first -- rows wins) ──
+        if raw_rows is not None:
+            from pydantic import ValidationError as PydanticValidationError
+
+            try:
+                req = BatchUploadStartRequest.model_validate(request.data)
+            except PydanticValidationError as e:
+                return Response(
+                    {"detail": f"Request validation failed: {e.error_count()} error(s)", "errors": e.errors()},
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
+            validated_rows = req.rows
+            if not validated_rows:
+                return Response(
+                    {"detail": "rows must be a non-empty list of InputRowModel objects."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # ── Mode 2: File upload (multipart) ──
+        elif uploaded_files:
+            total_size = 0
+            for uf in uploaded_files:
+                if not (uf.name or "").lower().endswith(".xlsx"):
+                    return Response(
+                        {"detail": "Only .xlsx files are accepted."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                total_size += uf.size
+            max_bytes = getattr(settings, "BATCH_UPLOAD_MAX_TOTAL_BYTES", 200 * 1024 * 1024)
+            if total_size > max_bytes:
+                mb_limit = max_bytes / (1024 * 1024)
+                mb_actual = total_size / (1024 * 1024)
+                return Response(
+                    {"detail": f"Total upload size ({mb_actual:.1f} MB) exceeds limit ({mb_limit:.0f} MB)."},
+                    status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                )
+            for uf in uploaded_files:
+                xlsx_paths.append(_save_uploaded_file(uf))
+
+        # ── Neither provided ──
+        else:
+            return Response(
+                {"detail": "Either upload .xlsx file(s) or provide rows in JSON body."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validation is read-only and never inserts; contributor_id is unused by
+        # the pre-INSERT stages, so the (potentially slow) _resolve_user_context
+        # SEEK lookup is skipped. lababbv defaults to "NA" inside run_validation_multi.
+        contributor_id = getattr(request.user, "pk", 0) or 0
+
+        try:
+            if validated_rows is not None:
+                result = run_validation_multi(
+                    xlsx_paths=[],
+                    project_id=project_id,
+                    contributor_id=contributor_id,
+                    checks=checks,
+                    rows=[r.model_dump() for r in validated_rows],
+                )
+            else:
+                result = run_validation_multi(
+                    xlsx_paths=xlsx_paths,
+                    project_id=project_id,
+                    contributor_id=contributor_id,
+                    checks=checks,
+                )
+        finally:
+            # Validation is synchronous — the temp upload files are no longer
+            # needed once run_validation_multi returns (unlike /start/, where
+            # the Celery task owns the files).
+            for path in xlsx_paths:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+        return Response(result.model_dump(), status=status.HTTP_200_OK)
 
     @extend_schema(
         responses={200: BatchUploadStatusResponse},

@@ -214,6 +214,42 @@ class TestConvertSamplesToInputRows:
             if os.path.isfile(path):
                 os.unlink(path)
 
+    def test_undeclared_sample_column_surfaces_warning(self):
+        """A SAMPLES column not declared in INSTRUCTIONS.Field is reported as a warning."""
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[{"UID": "A.Sample-260331MIT-7", "Name": "s1", "NotInInstructions": "x"}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 42, "Direction": 1}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert len(batch.rows) == 1
+            dropped = [w for w in batch.warnings if "NotInInstructions" in w]
+            assert len(dropped) == 1
+            assert "silently dropped" in dropped[0]
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+    def test_no_warning_when_all_sample_columns_declared(self):
+        """When every SAMPLES column is declared in INSTRUCTIONS, no dropped-column warning."""
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "Name", "Database Field": "A.Sample::Name", "Field Type": "Text", "Ontology": None},
+            ],
+            samples_rows=[{"UID": "A.Sample-260331MIT-7", "Name": "s1"}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 42, "Direction": 1}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert len(batch.rows) == 1
+            assert not any("silently dropped" in w for w in batch.warnings)
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
     def test_ontology_uses_attribute_name_when_field_differs(self):
         path = _make_traditional_xlsx(
             instructions_rows=[

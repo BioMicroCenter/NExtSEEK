@@ -139,11 +139,18 @@ def _prepare_traditional_row(
     row_dict: dict,
     field_name_by_normalized: Dict[str, str],
     attr_name_by_normalized: Dict[str, str],
-) -> Tuple[str | None, dict, dict]:
-    """Extract row UID plus filtered metadata and ontology views."""
+) -> Tuple[str | None, dict, dict, set]:
+    """Extract row UID plus filtered metadata and ontology views.
+
+    The fourth return value is the set of SAMPLES column headers that carried a
+    non-empty value but are NOT declared in INSTRUCTIONS.Field — those columns
+    are silently dropped from json_metadata. parse_traditional_file aggregates
+    them into a structured warning.
+    """
     row_uid: str | None = None
     metadata: dict = {}
     ontology_row: dict = {}
+    dropped_columns: set = set()
 
     for col, val in row_dict.items():
         if val is None:
@@ -163,6 +170,10 @@ def _prepare_traditional_row(
 
         canonical_field = field_name_by_normalized.get(normalized_col)
         if canonical_field is None:
+            # Column has data but is not declared in INSTRUCTIONS.Field — it is
+            # dropped from json_metadata (quiet data loss). Record it so the
+            # caller can surface a warning.
+            dropped_columns.add(str(col))
             continue
 
         json_safe_value = _coerce_traditional_cell_value(val)
@@ -171,7 +182,7 @@ def _prepare_traditional_row(
         if ontology_attr:
             ontology_row[ontology_attr] = json_safe_value
 
-    return row_uid, metadata, ontology_row
+    return row_uid, metadata, ontology_row, dropped_columns
 
 
 def _read_sheet(
@@ -274,7 +285,7 @@ def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
         for row_dict in samples_dicts
     ]
     if specs:
-        row_dicts_for_ont = [ontology_row for _uid, _meta, ontology_row in prepared_rows]
+        row_dicts_for_ont = [ontology_row for _uid, _meta, ontology_row, _dropped in prepared_rows]
         ont_result = validate_ontology_bulk(row_dicts_for_ont, specs)
         if not ont_result.is_valid:
             return ConvertedBatch(
@@ -287,7 +298,19 @@ def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
     # Convert SAMPLES to InputRowModel list (one record per row)
     all_input_rows: List[dict] = []
     warnings: List[str] = []
-    for idx, (row_uid, meta, _ontology_row) in enumerate(prepared_rows):
+
+    # Surface SAMPLES columns silently dropped because they are not declared in
+    # INSTRUCTIONS.Field — quiet data loss the user should know about.
+    dropped_columns: set = set()
+    for _uid, _meta, _ontology_row, dropped in prepared_rows:
+        dropped_columns |= dropped
+    for col in sorted(dropped_columns):
+        warnings.append(
+            f"SAMPLES column {col!r} silently dropped — "
+            f"not declared in INSTRUCTIONS.Field."
+        )
+
+    for idx, (row_uid, meta, _ontology_row, _dropped) in enumerate(prepared_rows):
         if not meta:
             continue  # empty row
 
