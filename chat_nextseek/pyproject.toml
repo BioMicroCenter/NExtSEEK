@@ -24,6 +24,8 @@ dependencies = [
   "boto3>=1.35.0",
   "mcp>=1.0.0",
   "baml-py>=0.221.0",
+  "playwright>=1.60.0",
+  "beautifulsoup4>=4.14.3",
 ]
 
 [tool.setuptools.packages.find]
