@@ -1,5 +1,17 @@
 """Unit tests for catalog_semantic: SemanticIndex, fuse_rrf, dynamic_cutoff."""
-from chat_nextseek.helpers.tools.catalog_semantic import dynamic_cutoff
+import hashlib
+from pathlib import Path
+
+import numpy as np
+
+from chat_nextseek.helpers.tools.catalog_semantic import (
+    SemanticIndex,
+    doc_assay,
+    doc_endpoint,
+    doc_sampletype,
+    dynamic_cutoff,
+    fuse_rrf,
+)
 
 
 def test_dynamic_cutoff_respects_ratio():
@@ -30,9 +42,6 @@ def test_dynamic_cutoff_zero_top_score():
     """All scores 0 → fall back to min_k items (no ratio meaning)."""
     scored = [("a", 0.0), ("b", 0.0), ("c", 0.0)]
     assert dynamic_cutoff(scored, ratio=0.7, min_k=2, max_k=10) == ["a", "b"]
-
-
-from chat_nextseek.helpers.tools.catalog_semantic import fuse_rrf
 
 
 def test_fuse_rrf_single_ranker():
@@ -79,13 +88,6 @@ def test_fuse_rrf_preserves_item_object():
     result = fuse_rrf(lex, id_fn=lambda x: x["id"], k=60)
     item, _ = result[0]
     assert item == {"id": "a", "name": "Alpha"}
-
-
-from chat_nextseek.helpers.tools.catalog_semantic import (
-    doc_sampletype,
-    doc_assay,
-    doc_endpoint,
-)
 
 
 def test_doc_sampletype_concatenates_fields():
@@ -165,25 +167,19 @@ def test_doc_endpoint_works_on_real_catalog_row():
         assert ep.get("path") in doc
 
 
-import hashlib
-import numpy as np
-import pytest
-from pathlib import Path
-
-from chat_nextseek.helpers.tools.catalog_semantic import SemanticIndex
-
-
 def _fake_encoder(dim: int = 8):
     """Deterministic stand-in for sentence-transformers.
 
-    Maps each input string to a unit-norm vector derived from sha256.
-    Stable across calls, distinguishable per input, dimension `dim`.
+    Maps each input string to a unit-norm vector by hashing to bytes,
+    scaling to [0,1] floats, then L2-normalizing. Stable across calls,
+    distinguishable per input. Avoids reinterpreting raw sha256 bytes
+    as float32 (which produces overflow warnings + NaN norms).
     """
     def encode(texts: list[str]) -> np.ndarray:
         out = np.zeros((len(texts), dim), dtype=np.float32)
         for i, text in enumerate(texts):
             h = hashlib.sha256(text.encode("utf-8")).digest()
-            vec = np.frombuffer(h[: dim * 4], dtype=np.float32).copy()
+            vec = np.frombuffer(h[:dim], dtype=np.uint8).astype(np.float32) / 255.0
             norm = np.linalg.norm(vec)
             if norm > 0:
                 vec = vec / norm
