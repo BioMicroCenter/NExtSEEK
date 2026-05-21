@@ -75,17 +75,14 @@ Per-agent model routing is configured via either `CATALOG_FILE` (path to `agent_
 uv run cli.py -s                            # Streamlit UI, default mixed profile
 uv run cli.py -s -m gcp                     # Streamlit UI, pure GCP
 uv run cli.py -s -m anth                    # Streamlit UI, Anthropic Bedrock
-uv run cli.py -s -p                         # Streamlit UI, planner pipeline mode
 uv run cli.py -q "Find me mice treated with NDMA."          # Standalone query
-uv run cli.py -qp "Find NDMA mice in the GBM study"         # Standalone, planner pipeline
 uv run cli.py -m oai -q "Find me mice treated with NDMA."   # Standalone, OpenAI
 uv run cli.py -q "Find mice" -prod                          # Standalone, production credentials
-uv run cli.py -st                           # Smart test suite (all routing paths)
-uv run cli.py -st --both                   # Standard + planner runs with combined HTML report
-uv run cli.py -st --only T1,T5,T9         # Subset of smart tests
-uv run cli.py -st -ft                     # Full regression test (103 questions)
-uv run cli.py -st -i                       # Interactive: pick output dir(s) and regenerate report
+uv run cli.py -st                           # E2E test suite (default ratio 0.33; routes via e2e.py)
+uv run cli.py -ft                           # E2E full run (all variants; ratio=1.0)
 ```
+
+For advanced E2E flags (`--seed`, `--family`, `--variant`, `--rerun`, `--list`, etc.) use `e2e.py` directly — see the [Testing](#testing) section.
 
 ### Python Package
 
@@ -105,22 +102,59 @@ print(result["reply"])
 result = run_query(session, config, "Which are from 2024?")
 ```
 
-## Test Queries
+## Testing
 
-The full set of example queries used for testing is defined in [`testing.json`](testing.json) and executed by [`smart_test.py`](smart_test.py). The smart test suite covers 13 routing-path diagnostic tests with auto-debug sub-queries, plus a 103-question full regression set.
+Two complementary surfaces:
+
+### Unit tests — `pytest tests/`
+
+Module-level tests covering pydantic schemas, catalog matching, lineage extraction, pipeline-agent step-functions, etc. Fast (~0.5s). The `tests/evaluator/` subdir is excluded by default (Django-stack dependent):
 
 ```bash
-uv run smart_test.py --list               # List all test IDs and descriptions
-uv run cli.py -st                         # Run the 13 smart tests
-uv run cli.py -st -ft                     # Run the full 103-question regression
-uv run cli.py -st --both                  # Smart tests: standard + planner, combined report
+uv run --with pytest --with pytest-asyncio pytest tests/ --ignore=tests/evaluator -q
 ```
 
-Tests cover: keyword search, sampletype + assay search, UID search, lineage/graph queries, reporter summaries (samples/protocols/published/RPPR), report generation (GEO/SRA/nf-core/PRIDE), follow-up memory queries, system/capabilities questions, and negative controls.
+### E2E tests — `e2e.py`
+
+End-to-end variants exercising every active agent via `chat_nextseek.orchestrator.run_query`. Catalog at [`e2e/catalog.json`](e2e/catalog.json): **362 variants across 11 task families** (each one assays / NExtSEEK-endpoint combination):
+
+| Family | Variants | What it covers |
+|---|---|---|
+| `search_advanced` | 66 | `/samples/advanced_search/` — keyword + sampletype + attribute filters |
+| `search_tree` | 15 | `/sample-tree/{uid}/tree/` — lineage / derivation |
+| `search_parents_by_child` | 18 | `/sample_types/get_parents/parents_by_child_types/` — find parents by descendant assay |
+| `search_retrieve` | 19 | `/admin/samples/retrieve/` and `/samples/{uid}/` — UID lookup |
+| `refine_and_recall` | 47 | Multi-turn refine + ask-about-last-results (uses `chat_log` + `results_history`) |
+| `graph_query` | 59 | Neo4j Cypher via graph_agent — counts, multi-hop, project/study scope |
+| `reporting` | 64 | Reporter SQL summaries + GEO / SRA / PRIDE artifact emission |
+| `pipeline_nfcore` | 21 | nf-core directive parse → sanity → groupby → samplesheet emit (+ Tower submit) |
+| `system_question` | 27 | Catalog / capability / definition lookups |
+| `unsupported` | 7 | Out-of-scope (weather, charts, statistical analysis) |
+| `writes_unsupported` | 19 | Destructive admin (create investigation, register sample, update field) — must route to unsupported |
+
+```bash
+uv run e2e.py                                    # default: sample at ratio 0.33 (~120 variants)
+uv run e2e.py --ratio full                       # all 362 variants
+uv run e2e.py --ratio 0.1 --seed 42              # ~11 variants (one per family, reproducible)
+uv run e2e.py --family pipeline_nfcore           # one family only
+uv run e2e.py --variant advanced.basic_ndma      # one variant (the cheapest smoke)
+uv run e2e.py --list                             # enumerate every variant
+uv run e2e.py --rerun outputs/e2e_<ts>/manifest.json [--failed-only]
+uv run e2e.py --report outputs/e2e_<ts>/         # regenerate HTML from a prior run dir
+uv run e2e.py --init-env [--force]               # generate chat_nextseek/.env from sibling NExtSEEK docker + dmac sources
+```
+
+`cli.py -st` and `cli.py -ft` are thin shims over `e2e.py`. Every run writes:
+
+- `outputs/e2e_<ts>/manifest.json` — sampled variants + pass/fail + seed + ratio
+- `outputs/e2e_<ts>/report.html` — single-page family-grouped report
+- `outputs/e2e_<ts>/<variant_id>/turns/<label>/` — per-turn query, reply, debug.json, orchestrator run-root
+
+Sampler enforces `max(1, round(N × ratio))` per family so every family gets at least one variant per run (variants whose `requires_env` aren't satisfied are reported as `skipped`, e.g. the `pipeline_nfcore` Tower-submit variant needs `TOWER_ACCESS_TOKEN`).
 
 ## Architecture
 
-**Standard pipeline** (`-q`):
+**Pipeline** (`-q`):
 ```
 User Query
     |
@@ -130,10 +164,11 @@ User Query
     |
     |-> [API Agent]      -- construct HTTP request -> NExtSEEK REST API
     |-> [Reporter Agent] -- SQL/Neo4j project reports (samples/protocols/published/RPPR)
-    |       +-> [Report Writer Agent] -- GEO / SRA / nf-core / PRIDE submission exports
+    |       +-> [Report Writer Agent] -- GEO / SRA / PRIDE submission exports
     |-> [Graph Agent]    -- generate Cypher -> Neo4j graph DB
     |-> [Memory Agent]   -- answer follow-ups from cached results
     |       +-> [Memory Coder] -- structured code generation for deterministic computation
+    |-> [Pipeline Agent] -- nf-core / Seqera Tower submission flow (directive → sanity → groupby → emit)
     +-> [System Agent]   -- answer capabilities / catalog entity questions
     |
 [Chatter Agent]  -- summarize results for the user
@@ -141,15 +176,27 @@ User Query
 Response
 ```
 
-**Planner pipeline** (`-qp` / `-p` in Streamlit):
+Each agent can be independently routed to a different LLM provider via the catalog defined by `CATALOG_FILE` or `AGENT_MODEL_CATALOG`. The default profile uses GCP Gemini flash-lite for most agents, Anthropic Sonnet for entity/memory, and Anthropic Opus with extended thinking for the parser and report writer.
+
+### Package layout (`src/chat_nextseek/`)
+
 ```
-User Query -> [Entity Agent] -> [Multi Parser] -> [Planner Agent] -> [Executor Loop per step]
-                                (candidates)     (Opus, PlannerOutput)  |-- _run_plan_tool
-                                                                        +-- [Context Engineer]
-             -> [Plan Chatter] -> [Evaluator] -> (replan on failure)
+agents/              entity, parser, api, reporter, chatter, memory, system, graph, seqera, wizard, planner/
+helpers/             generic utilities + tools/ (nextseek_api, neo4j, catalog_match, memory_code)
+pipeline/            pipeline_agent + steps/ (directive, sanity, groupby, edit, question), wizard, builder_tools
+reports/             runners, metadata, protocols, nfcore, outputs, templates_meta + exporters/ + templates/
+schemas/             Pydantic models
+prompts/             *.txt prompt files
+seqera/              Tower client + Datasets v2 + ENA + samplesheet emitter
+context/             cached catalogs (API spec, sampletypes, assays, Neo4j)
+evaluator/           BAML eval harness + dashboard
+portable.py          stable public surface for external consumers (dmac_assistant plugin)
+orchestrator.py      multi-agent dispatcher
+config.py            ChatConfig: env + catalog loading
+session.py           SQLite + MySQL session state
 ```
 
-Each agent can be independently routed to a different LLM provider via the catalog defined by `CATALOG_FILE` or `AGENT_MODEL_CATALOG`. The default profile uses GCP Gemini flash-lite for most agents, Anthropic Sonnet for entity/memory, and Anthropic Opus with extended thinking for the parser and report writer.
+`agents.py` and `helpers.py` were previously monolith modules and now exist only as their respective folder packages. External consumers should import via `chat_nextseek.portable`; legacy `chat_nextseek.agents.<name>` / `chat_nextseek.helpers.<name>` import paths remain pinned by `tests/test_portable_contract.py`.
 
 ## nf-core / Seqera integration
 
