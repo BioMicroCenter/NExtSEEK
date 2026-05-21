@@ -14,9 +14,8 @@ Standalone query:
 
 Test harness:
   uv run cli.py -t -r 260127                  # comparison report from reference run
-  uv run cli.py -t code                       # scan for unused functions
-  uv run cli.py -runtest test_case_1          # run test suite across all models
-  uv run cli.py -runtest test_case_1 -m gcp  # run test suite for GCP only
+  uv run cli.py -st                          # E2E test suite (default ratio 0.33)
+  uv run cli.py -ft                          # E2E full run (ratio=1.0)
 
 E2E test suite (routes through e2e.runner.run_main):
   uv run cli.py -st                           # default ratio 0.33 sample of catalog variants
@@ -258,23 +257,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_test(args: argparse.Namespace) -> int:
-    """Proxy to `test.py` for report generation or static code scans."""
-    cmd = ["uv", "run", "test.py"]
-
-    # Check for positional test mode in extra args (e.g., -t code)
-    test_mode = args.test_mode
-    extra = args.extra or []
-    if extra and extra[0] in ("report", "code"):
-        test_mode = extra[0]
-
-    if test_mode:
-        cmd.extend(["-m", test_mode])
-    if args.report:
-        cmd.extend(["-i", args.report])
-    return _run(cmd, env=_build_prod_subprocess_env(bool(args.prod)))
-
-
 def cmd_query_plan(args: argparse.Namespace) -> int:
     """Run a query through the planner pipeline (multi-step capable)."""
     from chat_nextseek.config import ChatConfig
@@ -314,28 +296,12 @@ def cmd_query_plan(args: argparse.Namespace) -> int:
 
 
 
-def cmd_runtest(args: argparse.Namespace) -> int:
-    """Run a test suite across models."""
-    from test import run_test_suite
-
-    suite_name = args.runtest
-    models = None
-    if args.mode:
-        models = [args.mode]
-    only = getattr(args, "smart_only", None)
-
-    with _prod_env_override(bool(args.prod)):
-        return run_test_suite(suite_name, models, planner=False, only=only)
-
-
 def cmd_smart_test(args: argparse.Namespace) -> int:
     """Route -st (smart test) and -ft (full test) through the new e2e.py runner.
 
     Legacy flag semantics:
       -st               -> e2e --ratio 0.33 (default sample)
       -ft               -> e2e --ratio full (all variants)
-      --both, -p, -i      -> removed (planner pipeline retiring; use e2e.py for advanced flags)
-      --only              -> re-scoped to -runtest (no longer applies to -st)
     """
     from pathlib import Path
     from e2e.runner import run_main
@@ -372,12 +338,6 @@ def build_parser() -> argparse.ArgumentParser:
             "\n"
             "  Test harness:\n"
             "    uv run cli.py -t -r 260127                 generate comparison report from reference run YYMMDD folder\n"
-            "    uv run cli.py -t code                      scan for unused functions across source files\n"
-            "\n"
-            "  Test suites:\n"
-            "    uv run cli.py -runtest test_case_1           run suite across all models\n"
-            "    uv run cli.py -runtest test_case_1 -m gcp    run suite for GCP only\n"
-            "\n"
             "  E2E test suite (routes through e2e.runner.run_main):\n"
             "    uv run cli.py -st                            default ratio 0.33 sample of catalog variants\n"
             "    uv run cli.py -ft                            full run (ratio=1.0, all variants)\n"
@@ -430,48 +390,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="QUERY",
         help="Run a query through the planner pipeline (Opus+thinking planner, multi-step capable).",
     )
-    # Test mode flags
-    parser.add_argument(
-        "-t", "--test",
-        action="store_true",
-        default=False,
-        help="Run the test harness. Use with -r YYMMDD for a comparison report, or pass 'code' as positional arg for unused-function scan.",
-    )
-    parser.add_argument(
-        "--test-mode",
-        choices=["report", "code"],
-        default="report",
-        help="Test harness mode: 'report' generates a comparison Excel from reference runs, 'code' scans for unused functions.",
-    )
-    parser.add_argument(
-        "-r", "--report",
-        type=str,
-        metavar="YYMMDD",
-        help="Reference run date folder to use when generating a comparison report (e.g. 260127).",
-    )
-    parser.add_argument(
-        "-runtest",
-        type=str,
-        metavar="SUITE",
-        help="Run a named test suite (e.g. test_case_1) across all models, or just the model specified by -m.",
-    )
     parser.add_argument(
         "-st", "--smart-test",
         action="store_true",
         default=False,
         dest="smart_test",
         help="Run E2E test suite (default ratio 0.33). For advanced flags use: uv run e2e.py --help",
-    )
-    parser.add_argument(
-        "--only",
-        type=str,
-        default=None,
-        dest="smart_only",
-        metavar="K1,K2,...",
-        help=(
-            "Comma-separated case-key prefixes to run when using -runtest "
-            "(e.g. 'W3,W4' matches W3_* and W4_* in wizard_e2e)."
-        ),
     )
     parser.add_argument(
         "-ft", "--full-test",
@@ -498,11 +422,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.smart_test or args.full_test:
         return cmd_smart_test(args)
 
-    if args.runtest:
-        return cmd_runtest(args)
 
-    if args.test:
-        return cmd_test(args)
 
     if args.query_plan:
         return cmd_query_plan(args)
