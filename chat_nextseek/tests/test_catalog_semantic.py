@@ -79,3 +79,65 @@ def test_fuse_rrf_preserves_item_object():
     result = fuse_rrf(lex, id_fn=lambda x: x["id"], k=60)
     item, _ = result[0]
     assert item == {"id": "a", "name": "Alpha"}
+
+
+from chat_nextseek.helpers.tools.catalog_semantic import (
+    doc_sampletype,
+    doc_assay,
+    doc_endpoint,
+)
+
+
+def test_doc_sampletype_concatenates_fields():
+    item = {
+        "SampleType": "MUS",
+        "Name": "Mouse",
+        "Tags": "mouse, murine, rodent",
+        "Description": "A mouse sample represents an experimental animal.",
+    }
+    doc = doc_sampletype(item)
+    assert "MUS" in doc
+    assert "Mouse" in doc
+    assert "murine" in doc
+    assert "experimental animal" in doc
+    assert " | " in doc
+
+
+def test_doc_sampletype_skips_empty_fields():
+    item = {"SampleType": "X", "Name": "", "Tags": None}
+    doc = doc_sampletype(item)
+    assert doc == "X"
+
+
+def test_doc_assay_prefers_canonical_alternative_key():
+    item = {
+        "Name": "Flow Cytometry",
+        "Alternative Assay Names": "FACS, immunophenotyping",
+        "Tags": "single cell",
+        "Description": "A laser-based technique.",
+    }
+    doc = doc_assay(item)
+    assert "FACS" in doc
+    assert "Flow Cytometry" in doc
+
+
+def test_doc_assay_falls_back_to_snake_case_alternative_key():
+    item = {
+        "Name": "Foo",
+        "alternative_assay_names": "Bar, Baz",
+    }
+    doc = doc_assay(item)
+    assert "Bar" in doc
+
+
+def test_doc_endpoint_includes_path_and_tags_list():
+    item = {
+        "path": "/samples/advanced_search/",
+        "summary": "Search for samples by criteria",
+        "description": "Returns paginated rows.",
+        "tags": ["samples", "search"],
+    }
+    doc = doc_endpoint(item)
+    assert "/samples/advanced_search/" in doc
+    assert "samples search" in doc or "samples" in doc
+    assert "paginated" in doc

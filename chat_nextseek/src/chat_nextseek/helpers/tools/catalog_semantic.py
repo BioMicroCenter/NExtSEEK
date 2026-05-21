@@ -65,3 +65,42 @@ def fuse_rrf(
             items.setdefault(key, item)
     ordered_keys = sorted(scores.keys(), key=lambda key: -scores[key])
     return [(items[key], scores[key]) for key in ordered_keys]
+
+
+def _join_nonempty(parts: list[str]) -> str:
+    return " | ".join(p for p in parts if p)
+
+
+def doc_sampletype(st: dict) -> str:
+    """Embeddable text for a sampletype catalog item."""
+    return _join_nonempty([
+        st.get("SampleType") or "",
+        st.get("Name") or "",
+        st.get("Tags") or "",
+        st.get("Description") or "",
+    ])
+
+
+def doc_assay(assay: dict) -> str:
+    """Embeddable text for an assay catalog item. Honors both PascalCase
+    and snake_case alternative-names keys (catalog has historically used both).
+    """
+    alt = assay.get("Alternative Assay Names") or assay.get("alternative_assay_names") or ""
+    return _join_nonempty([
+        assay.get("Name") or "",
+        alt,
+        assay.get("Tags") or "",
+        assay.get("Description") or "",
+    ])
+
+
+def doc_endpoint(ep: dict) -> str:
+    """Embeddable text for an API endpoint catalog item."""
+    tags = ep.get("tags") or []
+    tags_str = " ".join(tags) if isinstance(tags, list) else str(tags)
+    return _join_nonempty([
+        ep.get("path") or "",
+        ep.get("summary") or "",
+        ep.get("description") or "",
+        tags_str,
+    ])
