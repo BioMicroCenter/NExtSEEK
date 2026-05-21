@@ -29,6 +29,28 @@ from ..schemas import (
 )
 
 
+def _endpoints_for_prompt(config, user_text: str) -> str:
+    """Render the API endpoints catalog as JSON for the parser prompt.
+
+    With SEMANTIC_ENDPOINTS_ENABLED=true, semantically shortlists endpoints
+    against user_text using the cached embedding index. Otherwise dumps
+    the full catalog (today's behavior, byte-identical).
+    """
+    import json  # noqa: PLC0415
+    idx = getattr(config, "ENDPOINT_INDEX", None)
+    if idx is not None and idx.ready:
+        from chat_nextseek.helpers.tools.catalog_semantic import dynamic_cutoff  # noqa: PLC0415
+        scored = idx.query(user_text, top_n=getattr(config, "SEMANTIC_MAX_K", 80))
+        kept = dynamic_cutoff(
+            [(item, score) for item, score, _ in scored],
+            ratio=getattr(config, "SEMANTIC_RATIO", 0.7),
+            min_k=getattr(config, "SEMANTIC_MIN_K", 10),
+            max_k=getattr(config, "SEMANTIC_MAX_K", 80),
+        )
+        return json.dumps(kept, indent=2)
+    return json.dumps(config.MIN_API_ENDPOINTS, indent=2)
+
+
 _BULK_EXPORT_INTENT_RE = re.compile(r"\b(download|export|dump|spreadsheet|csv|xlsx|excel)\b", re.IGNORECASE)
 _BULK_SCOPE_RE = re.compile(
     r"\b(all|every|entire|whole)\b.{0,40}\b(sample|samples|record|records|database|db)\b|"
@@ -323,7 +345,7 @@ def _canonical_multi_parse(
     entity_dict = entity_result.model_dump() if hasattr(entity_result, "model_dump") else entity_result
     recent_summary = build_recent_results_summary(session)
     chat_history = history_block(session)
-    endpoints_json = json.dumps(config.MIN_API_ENDPOINTS, indent=2)
+    endpoints_json = _endpoints_for_prompt(config, user_query)
     graph_schema_json = json.dumps(config.MIN_GRAPH_SCHEMA, indent=2) if config.MIN_GRAPH_SCHEMA else "{}"
 
     messages: list[dict[str, str]] = [
@@ -470,7 +492,7 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
     else:
         entity_payload = entity_result or {}
     entity_json = json.dumps(entity_payload, indent=2)
-    endpoints_json = json.dumps(config.MIN_API_ENDPOINTS, indent=2)
+    endpoints_json = _endpoints_for_prompt(config, user_query)
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": config.PARSER_SYSTEM_PROMPT},
