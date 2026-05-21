@@ -5,7 +5,6 @@ The Playwright stack is hoisted to module-level imports so tests can patch it.
 """
 from __future__ import annotations
 
-import base64
 import json
 import time
 import traceback
@@ -19,11 +18,6 @@ from e2e.criteria import check_pass
 from e2e.playwright.mysql import fetch_chat_session_row
 from e2e.playwright.pages import ChatPage
 from e2e.playwright.ws import WSCapture, wait_for_query_complete
-
-
-def _basic_auth_header(user: str, password: str) -> str:
-    token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
-    return f"Basic {token}"
 
 
 def _ui_url(config: Any) -> str:
@@ -68,10 +62,6 @@ def run_variant_browser(
     artifacts_dir = out_dir / "artifacts"
     artifacts_dir.mkdir(exist_ok=True)
 
-    auth_header = _basic_auth_header(
-        getattr(config, "API_USER", "demo"),
-        getattr(config, "API_PASS", "demopassword"),
-    )
     ui_url = _ui_url(config)
 
     turn_results: list[dict] = []
@@ -84,7 +74,13 @@ def run_variant_browser(
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=not headed)
-        context_kwargs = {"extra_http_headers": {"Authorization": auth_header}}
+        # No Basic Auth header injection: the smartSearch view uses Django
+        # session auth (established via the login form below), and the React
+        # app's REST calls go through SessionAuthService which uses cookies.
+        # Adding an Authorization header here causes browsers to send it on
+        # third-party CDN font requests (CORS blocked) and triggers Django's
+        # APPEND_SLASH redirect on /static/ which breaks the React bundle.
+        context_kwargs: dict[str, Any] = {}
         if video:
             context_kwargs["record_video_dir"] = str(out_dir)
         ctx = browser.new_context(**context_kwargs)
