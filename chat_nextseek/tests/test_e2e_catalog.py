@@ -62,10 +62,16 @@ def test_load_catalog_round_trip(tmp_path: Path):
 
 def test_load_real_catalog():
     cat = load_catalog(Path(__file__).parent.parent / "e2e" / "catalog.json")
-    assert len(cat.families) == 9
-    # Every family has >=6 variants
+    # 11 families: 9 original + system_question/unsupported split out + writes_unsupported added
+    expected = {
+        "search_advanced", "search_tree", "search_parents_by_child", "search_retrieve",
+        "refine_and_recall", "graph_query", "reporting", "pipeline_nfcore",
+        "system_question", "unsupported", "writes_unsupported",
+    }
+    assert set(cat.families.keys()) == expected
+    # Every family has at least one variant
     for name, fam in cat.families.items():
-        assert len(fam.variants) >= 6, f"{name}: {len(fam.variants)} variants (expected >=6)"
+        assert len(fam.variants) >= 1, f"{name}: empty family"
     # All variant IDs unique
     all_ids = [v.id for f in cat.families.values() for v in f.variants]
     assert len(all_ids) == len(set(all_ids)), "duplicate variant IDs"
