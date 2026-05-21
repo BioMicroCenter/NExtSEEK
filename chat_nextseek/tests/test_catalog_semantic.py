@@ -163,3 +163,102 @@ def test_doc_endpoint_works_on_real_catalog_row():
         doc = doc_endpoint(ep)
         assert doc, f"empty doc for {ep.get('path')}"
         assert ep.get("path") in doc
+
+
+import hashlib
+import numpy as np
+import pytest
+from pathlib import Path
+
+from chat_nextseek.helpers.tools.catalog_semantic import SemanticIndex
+
+
+def _fake_encoder(dim: int = 8):
+    """Deterministic stand-in for sentence-transformers.
+
+    Maps each input string to a unit-norm vector derived from sha256.
+    Stable across calls, distinguishable per input, dimension `dim`.
+    """
+    def encode(texts: list[str]) -> np.ndarray:
+        out = np.zeros((len(texts), dim), dtype=np.float32)
+        for i, text in enumerate(texts):
+            h = hashlib.sha256(text.encode("utf-8")).digest()
+            vec = np.frombuffer(h[: dim * 4], dtype=np.float32).copy()
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vec = vec / norm
+            out[i] = vec
+        return out
+    return encode
+
+
+def test_semantic_index_ready_with_fake_encoder(tmp_path: Path):
+    catalog = [{"id": "a", "text": "apple"}, {"id": "b", "text": "banana"}]
+    idx = SemanticIndex(
+        catalog=catalog,
+        name="testcat",
+        doc_fn=lambda item: item["text"],
+        id_fn=lambda item: item["id"],
+        cache_dir=tmp_path,
+        encoder=_fake_encoder(),
+    )
+    assert idx.ready is True
+
+
+def test_semantic_index_writes_npz(tmp_path: Path):
+    catalog = [{"id": "a", "text": "apple"}]
+    SemanticIndex(
+        catalog=catalog, name="testcat",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=_fake_encoder(),
+    )
+    cached = tmp_path / "testcat.embeddings.npz"
+    assert cached.exists()
+    data = np.load(cached, allow_pickle=False)
+    assert "embeddings" in data
+    assert "item_ids" in data
+    assert "catalog_hash" in data
+    assert "model_name" in data
+    assert data["embeddings"].shape == (1, 8)
+
+
+def test_semantic_index_reuses_npz_when_hash_matches(tmp_path: Path):
+    catalog = [{"id": "a", "text": "apple"}]
+    encoder_calls = []
+
+    def counting_encoder(texts):
+        encoder_calls.append(list(texts))
+        return _fake_encoder()(texts)
+
+    SemanticIndex(
+        catalog=catalog, name="testcat",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=counting_encoder,
+    )
+    assert len(encoder_calls) == 1  # initial embed
+
+    # Second instantiation with SAME catalog content
+    SemanticIndex(
+        catalog=catalog, name="testcat",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=counting_encoder,
+    )
+    assert len(encoder_calls) == 1  # cache hit, no re-embed
+
+
+def test_semantic_index_rebuilds_on_hash_mismatch(tmp_path: Path):
+    catalog_v1 = [{"id": "a", "text": "apple"}]
+    catalog_v2 = [{"id": "a", "text": "apricot"}]  # changed
+    encoder_calls = []
+
+    def counting_encoder(texts):
+        encoder_calls.append(list(texts))
+        return _fake_encoder()(texts)
+
+    SemanticIndex(catalog=catalog_v1, name="testcat",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=counting_encoder)
+    SemanticIndex(catalog=catalog_v2, name="testcat",
+        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+        cache_dir=tmp_path, encoder=counting_encoder)
+    assert len(encoder_calls) == 2  # rebuilt
