@@ -157,8 +157,8 @@ def test_doc_endpoint_works_on_real_catalog_row():
     """Smoke test against the live catalog file: every row produces a
     non-empty doc string with the path included."""
     import json
-    from pathlib import Path
-    path = Path("src/chat_nextseek/context/min_api_endpoints_enriched.json")
+    repo_root = Path(__file__).resolve().parent.parent
+    path = repo_root / "src" / "chat_nextseek" / "context" / "min_api_endpoints_enriched.json"
     data = json.loads(path.read_text())
     assert data, "catalog is empty"
     for ep in data:

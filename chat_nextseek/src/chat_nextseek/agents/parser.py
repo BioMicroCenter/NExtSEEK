@@ -36,7 +36,6 @@ def _endpoints_for_prompt(config, user_text: str) -> str:
     against user_text using the cached embedding index. Otherwise dumps
     the full catalog (today's behavior, byte-identical).
     """
-    import json  # noqa: PLC0415
     idx = getattr(config, "ENDPOINT_INDEX", None)
     if idx is not None and idx.ready:
         from chat_nextseek.helpers.tools.catalog_semantic import dynamic_cutoff  # noqa: PLC0415
