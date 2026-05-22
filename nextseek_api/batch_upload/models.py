@@ -769,6 +769,31 @@ class BatchUploadError(BaseModel):
     )
 
 
+class BatchUploadErrorGroup(BaseModel):
+    """A set of /validate/ errors collapsed by identical ``(type, message)``.
+
+    Issue C of the 2026-05-22 /validate/ UI handoff: a sheet where many rows
+    fail the same check produced one flat ``BatchUploadError`` per row —
+    visually identical lines differing only in ``row``. Grouping by
+    ``(type, message)`` gives the UI one block per distinct failure while
+    ``count`` / ``rows`` / ``uids`` preserve which rows were affected.
+
+    This is a presentation aid layered on top of the flat ``errors`` list; it
+    is NOT a cap — ``errors`` still carries every error (see Issue B).
+    """
+    type: str = Field(..., description="ErrorType enum value shared by every error in the group.")
+    message: str = Field(..., description="Human-readable message shared by every error in the group.")
+    count: int = Field(..., description="Number of errors in the group.")
+    rows: List[int] = Field(
+        default_factory=list,
+        description="Sorted, de-duplicated 0-based row indices of the affected rows. Row-less (whole-file) errors contribute to `count` but not here.",
+    )
+    uids: List[str] = Field(
+        default_factory=list,
+        description="Sorted, de-duplicated UIDs of affected rows that had a pre-assigned one.",
+    )
+
+
 class BatchUploadTotals(BaseModel):
     """The ``totals`` sub-dict in the orchestrator's terminal result.
 
@@ -832,6 +857,10 @@ class ValidationResult(BatchUploadResult):
     concept; it is INSERT-stage internal state, not a pipeline result.
     """
     valid: bool = Field(..., description="True iff `errors` is empty AND `totals.error` is None.")
-    summary: str = Field(..., description="One-line human summary, e.g. '5 issue(s) found' or 'No issues'.")
+    summary: str = Field(..., description="One-line human summary, e.g. '5 issue(s) found in 2 distinct error(s)' or 'No issues'.")
     checks_run: List[str] = Field(..., description="Validation stages that executed for this request.")
     checks_skipped: List[str] = Field(default_factory=list, description="Stages NOT requested via the `checks` parameter.")
+    error_groups: List[BatchUploadErrorGroup] = Field(
+        default_factory=list,
+        description="`errors` collapsed by identical (type, message); each group lists every affected row/uid. A presentation aid — `errors` remains the complete, uncapped list. Empty when there are no errors.",
+    )

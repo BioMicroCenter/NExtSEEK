@@ -15,7 +15,12 @@ import time
 from typing import List, Optional, Set
 
 from .errors import ErrorCollector, ErrorType
-from .models import BatchUploadError, BatchUploadTotals, ValidationResult
+from .models import (
+    BatchUploadError,
+    BatchUploadErrorGroup,
+    BatchUploadTotals,
+    ValidationResult,
+)
 from .orchestrator import _run_pre_insert_stages
 
 log = logging.getLogger(__name__)
@@ -54,6 +59,42 @@ def _project_errors(
     ]
 
 
+def _group_errors(errors: List[BatchUploadError]) -> List[BatchUploadErrorGroup]:
+    """Collapse a flat error list into groups keyed by ``(type, message)``.
+
+    A sheet where many rows fail the same check yields one flat error per row
+    — visually identical entries differing only in ``row``. Grouping gives the
+    UI one block per distinct failure. Groups are returned in first-seen order;
+    each group's ``rows``/``uids`` are sorted and de-duplicated. This is purely
+    a presentation aid — it does NOT drop any error (the flat ``errors`` list
+    stays complete).
+    """
+    order: List[tuple] = []
+    by_key: dict = {}
+    for e in errors:
+        key = (e.type, e.message)
+        agg = by_key.get(key)
+        if agg is None:
+            agg = {"count": 0, "rows": set(), "uids": set()}
+            by_key[key] = agg
+            order.append(key)
+        agg["count"] += 1
+        if e.row is not None:
+            agg["rows"].add(e.row)
+        if e.uid:
+            agg["uids"].add(e.uid)
+    return [
+        BatchUploadErrorGroup(
+            type=key[0],
+            message=key[1],
+            count=by_key[key]["count"],
+            rows=sorted(by_key[key]["rows"]),
+            uids=sorted(by_key[key]["uids"]),
+        )
+        for key in order
+    ]
+
+
 def _finalize(
     totals: BatchUploadTotals,
     error_collector: ErrorCollector,
@@ -64,12 +105,20 @@ def _finalize(
 ) -> ValidationResult:
     """Assemble a ValidationResult from pipeline output."""
     errors = _project_errors(error_collector, generated_uids)
+    error_groups = _group_errors(errors)
     valid = not errors and totals.error is None
     if valid:
         summary = "No issues"
+    elif not errors:
+        # No row-attributed errors, but the pipeline aborted (totals.error set).
+        summary = "1 issue(s) found"
+    elif len(error_groups) < len(errors):
+        summary = (
+            f"{len(errors)} issue(s) found "
+            f"in {len(error_groups)} distinct error(s)"
+        )
     else:
-        issue_count = len(errors) or (1 if totals.error else 0)
-        summary = f"{issue_count} issue(s) found"
+        summary = f"{len(errors)} issue(s) found"
     return ValidationResult(
         job_id=None,
         summary_path=None,
@@ -80,6 +129,7 @@ def _finalize(
         summary=summary,
         checks_run=checks_run,
         checks_skipped=checks_skipped,
+        error_groups=error_groups,
     )
 
 

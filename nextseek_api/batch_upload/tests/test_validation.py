@@ -140,6 +140,45 @@ class TestRunValidationMulti:
         # The honest summary reflects the true total, not a capped count.
         assert "60 issue(s) found" in result.summary
 
+    def test_errors_grouped_by_type_and_message(self):
+        """Issue C: errors sharing a (type, message) collapse into one group
+        listing every affected row; distinct errors stay separate groups."""
+        good = InputRowModel(
+            UID=UID_A, SampleType="NHP_blood", json_metadata="{}",
+            assay_ids=[], original_row_index=0,
+        )
+        # 5 rows fail on the same undeclared key -> identical (type, message).
+        same = [
+            InputRowModel(
+                UID=f"NHP-260101TST-{i + 100}", SampleType="NHP_blood",
+                json_metadata='{"BadKey":"x"}', assay_ids=[],
+                original_row_index=i + 1,
+            )
+            for i in range(5)
+        ]
+        # 1 row fails on a different key -> a second, distinct group.
+        other = InputRowModel(
+            UID="NHP-260101TST-200", SampleType="NHP_blood",
+            json_metadata='{"OtherKey":"y"}', assay_ids=[],
+            original_row_index=6,
+        )
+
+        result = _run_validation([good, *same, other], FakeDB())
+
+        # Flat list stays complete and uncapped.
+        assert len(result.errors) == 6
+        # Grouped view: 2 distinct (type, message) pairs.
+        assert len(result.error_groups) == 2
+        big = next(g for g in result.error_groups if g.count == 5)
+        assert big.type == "VALIDATION_ATTRIBUTE_NAME"
+        assert "BadKey" in big.message
+        assert sorted(big.rows) == [1, 2, 3, 4, 5]
+        small = next(g for g in result.error_groups if g.count == 1)
+        assert "OtherKey" in small.message
+        assert small.rows == [6]
+        # Honest summary names both numbers.
+        assert result.summary == "6 issue(s) found in 2 distinct error(s)"
+
     def test_transform_error_carries_row_and_pre_assigned_uid(self):
         """A TRANSFORM error is attributed to its row index, and to its UID when
         the row had one pre-assigned (the update case)."""

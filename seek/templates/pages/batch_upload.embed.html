@@ -231,7 +231,27 @@
 			lines.push("Pipeline error: " + totals.error);
 		}
 		const errors = result.errors || [];
-		if (errors.length) {
+		const groups = result.error_groups || [];
+		if (groups.length) {
+			// Grouped view: one block per distinct (type, message).
+			lines.push("");
+			lines.push("Errors (" + errors.length + " total, " + groups.length + " distinct):");
+			for (const g of groups) {
+				const rows = g.rows || [];
+				let detail;
+				if (rows.length) {
+					const shown = rows.slice(0, 25);
+					detail = " — " + g.count + " row(s): " + shown.join(", ");
+					if (rows.length > shown.length) {
+						detail += ", +" + (rows.length - shown.length) + " more";
+					}
+				} else {
+					detail = " — " + g.count + " occurrence(s)";
+				}
+				lines.push("  - [" + g.type + "] " + g.message + detail);
+			}
+		} else if (errors.length) {
+			// Fallback: flat list (backend without the grouped view).
 			lines.push("");
 			lines.push("Errors (" + errors.length + "):");
 			for (const e of errors) {
