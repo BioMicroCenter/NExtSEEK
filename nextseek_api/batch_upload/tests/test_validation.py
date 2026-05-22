@@ -108,6 +108,38 @@ class TestRunValidationMulti:
         assert len(attr_errors) == 1
         assert "BadKey" in attr_errors[0].message
 
+    def test_all_errors_surface_uncapped(self):
+        """Every error must surface — no silent cap.
+
+        Regression guard for Issue B: `_project_errors` previously truncated
+        the list at the first 50 entries, so a sheet with >50 bad rows lost
+        the rest with no signal. A 60-bad-row sheet must yield 60 errors.
+        """
+        # One surviving good row so the pipeline does not abort empty.
+        good = InputRowModel(
+            UID=UID_A, SampleType="NHP_blood", json_metadata="{}",
+            assay_ids=[], original_row_index=0,
+        )
+        bad = [
+            InputRowModel(
+                UID=f"NHP-260101TST-{i + 100}",
+                SampleType="NHP_blood",
+                json_metadata='{"BadKey":"x"}',
+                assay_ids=[],
+                original_row_index=i + 1,
+            )
+            for i in range(60)
+        ]
+
+        result = _run_validation([good, *bad], FakeDB())
+
+        assert result.valid is False
+        assert result.totals.failed == 60
+        attr_errors = [e for e in result.errors if e.type == "VALIDATION_ATTRIBUTE_NAME"]
+        assert len(attr_errors) == 60
+        # The honest summary reflects the true total, not a capped count.
+        assert "60 issue(s) found" in result.summary
+
     def test_transform_error_carries_row_and_pre_assigned_uid(self):
         """A TRANSFORM error is attributed to its row index, and to its UID when
         the row had one pre-assigned (the update case)."""

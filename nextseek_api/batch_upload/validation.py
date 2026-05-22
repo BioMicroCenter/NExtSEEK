@@ -37,7 +37,11 @@ def _project_errors(
     genuinely had one (update rows / pre-assigned UIDs): UIDs that UID_GEN
     auto-generated for new samples are throwaway in validate mode (lababbv is
     "NA", nothing is inserted), so they are suppressed — use ``row`` to locate
-    new samples. Capped at the first 50 errors.
+    new samples.
+
+    Every collected error is returned — no cap. A validator that silently
+    truncated its output would defeat its own purpose; callers that need a
+    bounded view group via :func:`_group_errors`.
     """
     return [
         BatchUploadError(
@@ -46,7 +50,7 @@ def _project_errors(
             row=e.row_index if isinstance(e.row_index, int) and e.row_index >= 0 else None,
             uid=e.uid if (e.uid and e.uid not in generated_uids) else None,
         )
-        for e in error_collector.all_errors()[:50]
+        for e in error_collector.all_errors()
     ]
 
 
