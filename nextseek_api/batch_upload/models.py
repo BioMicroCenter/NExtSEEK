@@ -857,7 +857,7 @@ class ValidationResult(BatchUploadResult):
     concept; it is INSERT-stage internal state, not a pipeline result.
     """
     valid: bool = Field(..., description="True iff `errors` is empty AND `totals.error` is None.")
-    summary: str = Field(..., description="One-line human summary, e.g. '5 issue(s) found in 2 distinct error(s)' or 'No issues'.")
+    summary: str = Field(..., description="One-line human summary, e.g. '2 distinct errors (5 total)' or 'No issues'.")
     checks_run: List[str] = Field(..., description="Validation stages that executed for this request.")
     checks_skipped: List[str] = Field(default_factory=list, description="Stages NOT requested via the `checks` parameter.")
     error_groups: List[BatchUploadErrorGroup] = Field(

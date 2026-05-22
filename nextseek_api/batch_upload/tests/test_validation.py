@@ -138,7 +138,8 @@ class TestRunValidationMulti:
         attr_errors = [e for e in result.errors if e.type == "VALIDATION_ATTRIBUTE_NAME"]
         assert len(attr_errors) == 60
         # The honest summary reflects the true total, not a capped count.
-        assert "60 issue(s) found" in result.summary
+        # All 60 rows fail the same check -> one distinct (type, message) group.
+        assert result.summary == "1 distinct error (60 total)"
 
     def test_errors_grouped_by_type_and_message(self):
         """Issue C: errors sharing a (type, message) collapse into one group
@@ -177,7 +178,7 @@ class TestRunValidationMulti:
         assert "OtherKey" in small.message
         assert small.rows == [6]
         # Honest summary names both numbers.
-        assert result.summary == "6 issue(s) found in 2 distinct error(s)"
+        assert result.summary == "2 distinct errors (6 total)"
 
     def test_transform_error_carries_row_and_pre_assigned_uid(self):
         """A TRANSFORM error is attributed to its row index, and to its UID when
@@ -286,7 +287,7 @@ class TestRunValidationMulti:
         assert result.valid is False
         assert result.totals.error == "No valid rows after CONVERT"
         assert result.totals.processed == 0
-        assert result.summary == "1 issue(s) found"
+        assert result.summary == "Validation could not complete"
 
     def test_dag_check_reports_cycle_in_errors(self):
         """checks=dag: a dependency cycle is surfaced as CYCLE_UNRESOLVABLE errors."""

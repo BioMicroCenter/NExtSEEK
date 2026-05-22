@@ -30,6 +30,11 @@ log = logging.getLogger(__name__)
 _ALL_CHECKS = ("structure", "name_check", "dag")
 
 
+def _plural(n: int) -> str:
+    """Return '' for a count of 1, 's' otherwise — for singular/plural phrasing."""
+    return "" if n == 1 else "s"
+
+
 def _project_errors(
     error_collector: ErrorCollector,
     generated_uids: Set[str],
@@ -107,18 +112,18 @@ def _finalize(
     errors = _project_errors(error_collector, generated_uids)
     error_groups = _group_errors(errors)
     valid = not errors and totals.error is None
+    n_err, n_grp = len(errors), len(error_groups)
     if valid:
         summary = "No issues"
     elif not errors:
-        # No row-attributed errors, but the pipeline aborted (totals.error set).
-        summary = "1 issue(s) found"
-    elif len(error_groups) < len(errors):
-        summary = (
-            f"{len(errors)} issue(s) found "
-            f"in {len(error_groups)} distinct error(s)"
-        )
+        # Pipeline aborted before any row-level error was collected
+        # (totals.error carries the reason — e.g. "No valid rows after CONVERT").
+        summary = "Validation could not complete"
+    elif n_grp < n_err:
+        # Many errors collapse into fewer distinct (type, message) groups.
+        summary = f"{n_grp} distinct error{_plural(n_grp)} ({n_err} total)"
     else:
-        summary = f"{len(errors)} issue(s) found"
+        summary = f"{n_err} error{_plural(n_err)} found"
     return ValidationResult(
         job_id=None,
         summary_path=None,

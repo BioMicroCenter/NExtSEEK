@@ -387,7 +387,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
                             }],
                             "warnings": {},
                             "valid": False,
-                            "summary": "1 issue(s) found",
+                            "summary": "1 error found",
                             "checks_run": ["structure"],
                             "checks_skipped": ["dag", "name_check"],
                         },
