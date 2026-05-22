@@ -17,6 +17,17 @@
 						<td>
 							<input type="file" form="sample_validation" name="excelfile_upload" id="sample_validation_file" style="height:28px;width:220px" required>
 							<br>
+							<label for="validate_project_id">Project:&nbsp;&nbsp;&nbsp;</label>
+							<input id="validate_project_id" form="sample_validation" class="easyui-combobox" name="project_id" style="width:50%;" data-options="
+																	 valueField: 'id',
+																	 textField: 'title',
+																	 editable: true,
+																	 filter: function(q, row) {
+																		 var opts = $(this).combobox('options');
+																		 return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0;
+																 	 },
+																	 onSelect: function(rec) { }" required>
+							<br>
 							<button type="submit" form="sample_validation" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true">
 								Validate Samples
 							</button>
@@ -25,7 +36,7 @@
 							<input type="file" form="sample_upload" name="file" id="sample_upload_file" style="height:28px;width:220px" multiple required>
 							<br>
 							<label for="project_id">Project:&nbsp;&nbsp;&nbsp;</label>
-							<input id="project_id" form="file_upload" class="easyui-combobox" name="project_id" style="width:50%;" data-options="
+							<input id="project_id" form="sample_upload" class="easyui-combobox" name="project_id" style="width:50%;" data-options="
 																	 valueField: 'id',
 																	 textField: 'title',
 																	 editable: true,
@@ -36,7 +47,7 @@
 																	 onSelect: function(rec) { }" required>
 							<br>
 							<label for="institution_id">Lab:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</label>
-							<input id="institution_id" form="sample_upload" class="easyui-combobox" name="project_id" style="width:50%;" data-options="data: lab_options,
+							<input id="institution_id" form="sample_upload" class="easyui-combobox" name="institution_id" style="width:50%;" data-options="data: lab_options,
 																	 valueField: 'id',
 																	 textField: 'title',
 																	 editable: true,
@@ -116,6 +127,7 @@
 				}
 			}
 			$("#project_id").combobox("loadData", projectsData)
+			$("#validate_project_id").combobox("loadData", projectsData)
 		}
 		
 		function setLabUsers(rec) {
@@ -164,7 +176,7 @@
 					
 	async function validateSampleSheet() {
 		const fileInput = document.getElementById("sample_validation_file");
-		const projectId = document.getElementById("project_id").value;
+		const projectId = document.getElementById("validate_project_id").value;
 
 		if (!fileInput.files.length) {
 			statusBox.value = "Select a sample sheet to validate.\n";
