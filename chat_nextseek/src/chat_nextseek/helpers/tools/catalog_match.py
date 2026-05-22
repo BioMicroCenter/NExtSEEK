@@ -226,6 +226,15 @@ def _hybrid_shortlist(
     q_norm = _norm_text(user_text)
     q_tokens = _tokenize(user_text)
 
+    # The semantic index may be built from a richer catalog than `catalog`
+    # (e.g. FULL assays for embedding, MIN passed in here for LLM consumption).
+    # Map id_field → MIN entry so every returned item comes from `catalog`,
+    # never from sem_index._items_by_id.
+    catalog_by_id: dict[str, dict] = {item.get(id_field, ""): item for item in catalog}
+
+    def _to_min(item: dict) -> dict:
+        return catalog_by_id.get(item.get(id_field, ""), item)
+
     # Lexical ranking — full catalog, sorted desc by score, take top max_k
     lex_scored: list[tuple[dict, float]] = []
     for item in catalog:
@@ -272,15 +281,19 @@ def _hybrid_shortlist(
     fused = fuse_rrf(lex_ranked, sem_ranked, id_fn=lambda x: x.get(id_field, ""), k=60)
     fused_kept = dynamic_cutoff(fused, ratio=ratio, min_k=min_k, max_k=max_k)
 
-    # Union: code-hits first (preserve catalog order), then fused minus duplicates
+    # Union: code-hits first (preserve catalog order), then fused minus duplicates.
+    # Remap every item to its MIN counterpart so the caller never sees objects
+    # that originated from the semantic index's (possibly richer) catalog.
     seen: set[str] = set()
     result: list[dict] = []
     for item in code_hits:
+        item = _to_min(item)
         key = item.get(id_field, "")
         if key in seen:
             continue
         result.append(item); seen.add(key)
     for item in fused_kept:
+        item = _to_min(item)
         key = item.get(id_field, "")
         if key in seen:
             continue

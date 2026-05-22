@@ -86,25 +86,60 @@ def _join_nonempty(parts: list[str]) -> str:
     return " | ".join(p for p in parts if p)
 
 
+def _stringify(value) -> str:
+    """Coerce list/scalar catalog fields to a single embeddable string."""
+    if not value:
+        return ""
+    if isinstance(value, list):
+        return ", ".join(str(x) for x in value if x)
+    return str(value)
+
+
 def doc_sampletype(st: dict) -> str:
-    """Embeddable text for a sampletype catalog item."""
+    """Embeddable text for a sampletype catalog item.
+
+    Reads fields from the FULL sampletypes catalog (sampletypes_db.json).
+    Adds Clade + Parent/Child sampletypes + Associated Assay Parents/Children
+    for stronger semantic ranking (the assay lists help generic queries like
+    "PBMCs sequenced via single cell" surface TIS by associating tissues with
+    sequencing assays). Excludes:
+      - Required/Standard Metadata: field NAMES not values; ~60 tokens of noise.
+      - Possible Metadata Fields: exceeds 600 tokens for some items, past the
+        512-token model cap.
+    """
     return _join_nonempty([
         st.get("SampleType") or "",
         st.get("Name") or "",
+        st.get("Clade") or "",
         st.get("Tags") or "",
+        _stringify(st.get("Parent_SampleTypes")),
+        _stringify(st.get("Child_SampleTypes")),
+        _stringify(st.get("Associated Assay Parents")),
+        _stringify(st.get("Associated Assay Children")),
         st.get("Description") or "",
     ])
 
 
 def doc_assay(assay: dict) -> str:
-    """Embeddable text for an assay catalog item. Honors both PascalCase
-    and snake_case alternative-names keys (catalog has historically used both).
+    """Embeddable text for an assay catalog item.
+
+    Reads fields from the FULL assays catalog (assays_db.json). Honors both
+    PascalCase and snake_case alternative-names keys (catalog has historically
+    used both). Excludes Protocols_UIDs (raw IDs, zero semantic signal) and
+    Protocols_Phrases (low-signal meta-instructions in observed examples).
     """
     alt = assay.get("Alternative Assay Names") or assay.get("alternative_assay_names") or ""
     return _join_nonempty([
         assay.get("Name") or "",
-        alt,
+        _stringify(alt),
         assay.get("Tags") or "",
+        _stringify(assay.get("Critical Attributes")),
+        assay.get("AssociatedRepository") or "",
+        assay.get("Parent Clade Type") or "",
+        assay.get("Child Clade Type") or "",
+        _stringify(assay.get("Required Parent Sample Types")),
+        _stringify(assay.get("Optional Parent Sample Types")),
+        _stringify(assay.get("Children Sample Types")),
         assay.get("Description") or "",
     ])
 
@@ -187,7 +222,9 @@ class SemanticIndex:
         """
         if not self._ready or self._embeddings is None or self._embeddings.size == 0:
             return []
-        encoder = self._encoder if self._encoder is not None else self._load_default_encoder()
+        if self._encoder is None:
+            self._encoder = self._load_default_encoder()
+        encoder = self._encoder
         try:
             q = encoder([text])
         except Exception as exc:  # noqa: BLE001

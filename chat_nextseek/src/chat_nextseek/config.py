@@ -76,6 +76,12 @@ class ChatConfig:
         self.MIN_PROJECTS = self.FULL_PROJECTS
         self.MIN_API_ENDPOINTS = self._load_json_list("min_api_endpoints_enriched.json", "min API endpoints")
 
+        # FULL catalogs used only as embedding sources for the semantic indexes
+        # (richer fields → better cosine separation). LLM still sees the MIN
+        # catalogs; _hybrid_shortlist remaps results back to MIN by id_field.
+        self.FULL_SAMPLETYPES = self._load_json_list("sampletypes_db.json", "full sampletypes (embedding source)")
+        self.FULL_ASSAYS = self._load_json_list("assays_db.json", "full assays (embedding source)")
+
         # ── Semantic shortlist configuration ─────────────────────────
         self.SEMANTIC_SHORTLIST_ENABLED = self._coerce_bool(
             os.getenv("SEMANTIC_SHORTLIST_ENABLED"), default=False
@@ -98,7 +104,7 @@ class ChatConfig:
                 SemanticIndex, doc_sampletype, doc_assay,
             )
             self.SAMPLETYPE_INDEX = SemanticIndex(
-                catalog=self.MIN_SAMPLETYPES,
+                catalog=self.FULL_SAMPLETYPES,
                 name="sampletypes",
                 doc_fn=doc_sampletype,
                 id_fn=lambda x: x.get("SampleType", ""),
@@ -106,7 +112,7 @@ class ChatConfig:
                 model_name=self.SEMANTIC_MODEL_NAME,
             )
             self.ASSAY_INDEX = SemanticIndex(
-                catalog=self.MIN_ASSAYS,
+                catalog=self.FULL_ASSAYS,
                 name="assays",
                 doc_fn=doc_assay,
                 id_fn=lambda x: x.get("Name", ""),
