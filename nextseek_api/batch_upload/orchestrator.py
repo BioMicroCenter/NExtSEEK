@@ -215,6 +215,13 @@ def _run_pre_insert_stages(
         from pydantic import TypeAdapter
         adapter = TypeAdapter(List[InputRowModel])
         valid_rows = adapter.validate_python(rows)
+        # Direct-rows callers (the /validate/ and /start/ JSON paths) bypass
+        # CONVERT, the only other writer of original_row_index. Backfill the
+        # array position so per-row error attribution works for the JSON path
+        # too. A client that supplied its own index is left untouched.
+        for _idx, _m in enumerate(valid_rows):
+            if _m.original_row_index is None:
+                _m.original_row_index = _idx
     else:
         log.info("Stage 0: CONVERT")
         try:
@@ -473,8 +480,9 @@ def _run_pre_insert_stages(
 
     with get_connection() as conn:
         for row in valid_rows:
-            # Real spreadsheet row index, so TRANSFORM errors can be located.
-            # -1 means "no row" (e.g. programmatic rows with no original index).
+            # Real input row index, so TRANSFORM errors can be located.
+            # original_row_index is set by CONVERT (file path) and by the
+            # direct-rows branch above; -1 is a defensive fallback only.
             row_idx = row.original_row_index if row.original_row_index is not None else -1
             try:
                 # NB: bind the per-row warnings to a distinct name. Reusing
