@@ -228,6 +228,9 @@ class GeminiClient(BaseLLMClient):
             # Fallback: HTTP status codes in the error message
             if any(code in msg for code in ("500", "502", "503", "504")) or "UNAVAILABLE" in msg.upper():
                 raise LLMServiceUnavailableError(msg) from e
+            # 404 model-not-found / deprecated: treat as recoverable so the provider chain takes over
+            if "404" in msg or "NOT_FOUND" in msg.upper() or "no longer available" in msg.lower():
+                raise LLMServiceUnavailableError(msg) from e
             raise LLMError(msg) from e
 
         text = ""
@@ -463,24 +466,33 @@ class BedrockClient(BaseLLMClient):
         from botocore.exceptions import ClientError
 
         system_blocks, converted = self._convert_messages(messages)
-        # Extended thinking requires temperature=1 per Anthropic/Bedrock docs
-        effective_temp = 1 if thinking_budget is not None else temperature
+        # Opus 4.7 / Mythos: adaptive thinking only; temperature/top_p/top_k forbidden.
+        is_adaptive_only = "opus-4-7" in model or "mythos" in model
+        inference_config: dict[str, Any] = {"maxTokens": self.max_output_tokens}
+        if not is_adaptive_only:
+            # Extended thinking on older models requires temperature=1.
+            inference_config["temperature"] = 1 if thinking_budget is not None else temperature
         kwargs: dict[str, Any] = {
             "modelId": model,
             "messages": converted,
-            "inferenceConfig": {
-                "temperature": effective_temp,
-                "maxTokens": self.max_output_tokens,
-            },
+            "inferenceConfig": inference_config,
         }
         if system_blocks:
             kwargs["system"] = system_blocks
         if thinking_budget is not None:
-            kwargs["additionalModelRequestFields"] = {
-                "thinking": {"type": "enabled", "budget_tokens": thinking_budget}
-            }
-            # max_tokens must cover thinking tokens + text output tokens
-            kwargs["inferenceConfig"]["maxTokens"] = max(self.max_output_tokens, thinking_budget + 2048)
+            if is_adaptive_only:
+                _BUDGET_TO_EFFORT = {4000: "low", 8000: "medium", 16000: "high"}
+                effort = _BUDGET_TO_EFFORT.get(thinking_budget, "high")
+                kwargs["additionalModelRequestFields"] = {
+                    "thinking": {"type": "adaptive"},
+                    "output_config": {"effort": effort},
+                }
+            else:
+                kwargs["additionalModelRequestFields"] = {
+                    "thinking": {"type": "enabled", "budget_tokens": thinking_budget}
+                }
+                # max_tokens must cover thinking tokens + text output tokens
+                kwargs["inferenceConfig"]["maxTokens"] = max(self.max_output_tokens, thinking_budget + 2048)
 
         try:
             resp = self.client.converse(**kwargs)
@@ -640,14 +652,16 @@ class BedrockClient(BaseLLMClient):
             for tool in tools
         ]
 
+        # Opus 4.7 / Mythos forbid temperature/top_p/top_k.
+        is_adaptive_only = "opus-4-7" in model or "mythos" in model
+        inference_config: dict[str, Any] = {"maxTokens": max_tokens or self.max_output_tokens}
+        if not is_adaptive_only:
+            inference_config["temperature"] = temperature
         kwargs: dict[str, Any] = {
             "modelId": model,
             "messages": converse_messages,
             "system": [{"text": system}] if system else [],
-            "inferenceConfig": {
-                "temperature": temperature,
-                "maxTokens": max_tokens or self.max_output_tokens,
-            },
+            "inferenceConfig": inference_config,
         }
         if tool_specs:
             kwargs["toolConfig"] = {"tools": tool_specs}

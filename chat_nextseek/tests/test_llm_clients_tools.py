@@ -33,7 +33,7 @@ def test_chat_with_tools_returns_normalized_tool_use_block():
     client = _bedrock_client_with_mock_converse(converse_resp)
 
     result = client.chat_with_tools(
-        model="us.anthropic.claude-opus-4-6-v1",
+        model="us.anthropic.claude-opus-4-7",
         messages=[{"role": "user", "content": "how many samples?"}],
         tools=[{"name": "memory_query", "description": "ask memory",
                 "input_schema": {"type": "object",
@@ -60,7 +60,7 @@ def test_chat_with_tools_returns_normalized_text_block_when_done():
     client = _bedrock_client_with_mock_converse(converse_resp)
 
     result = client.chat_with_tools(
-        model="us.anthropic.claude-opus-4-6-v1",
+        model="us.anthropic.claude-opus-4-7",
         messages=[{"role": "user", "content": "go"}],
         tools=[],
         system="sys",
@@ -76,7 +76,7 @@ def test_chat_with_tools_passes_tools_to_converse_in_toolconfig_shape():
     client = _bedrock_client_with_mock_converse(converse_resp)
 
     client.chat_with_tools(
-        model="us.anthropic.claude-opus-4-6-v1",
+        model="us.anthropic.claude-opus-4-7",
         messages=[{"role": "user", "content": "go"}],
         tools=[
             {"name": "tool_a", "description": "A",
@@ -101,7 +101,7 @@ def test_chat_with_tools_forwards_messages_in_converse_shape():
     client = _bedrock_client_with_mock_converse(converse_resp)
 
     client.chat_with_tools(
-        model="us.anthropic.claude-opus-4-6-v1",
+        model="us.anthropic.claude-opus-4-7",
         messages=[{"role": "user", "content": "hello"}],
         tools=[],
         system="sys",
@@ -124,7 +124,7 @@ def test_chat_with_tools_handles_tool_use_only_response_no_text_block():
     client = _bedrock_client_with_mock_converse(converse_resp)
 
     result = client.chat_with_tools(
-        model="us.anthropic.claude-opus-4-6-v1",
+        model="us.anthropic.claude-opus-4-7",
         messages=[{"role": "user", "content": "only tumor"}],
         tools=[],
         system="sys",
@@ -151,7 +151,7 @@ def test_chat_with_tools_handles_multiple_tool_use_blocks_in_one_response():
     client = _bedrock_client_with_mock_converse(converse_resp)
 
     result = client.chat_with_tools(
-        model="us.anthropic.claude-opus-4-6-v1",
+        model="us.anthropic.claude-opus-4-7",
         messages=[{"role": "user", "content": "do two things"}],
         tools=[],
         system="sys",
@@ -169,7 +169,7 @@ def test_chat_with_tools_omits_toolconfig_when_tools_empty():
     client = _bedrock_client_with_mock_converse(converse_resp)
 
     client.chat_with_tools(
-        model="us.anthropic.claude-opus-4-6-v1",
+        model="us.anthropic.claude-opus-4-7",
         messages=[{"role": "user", "content": "go"}],
         tools=[],
         system="sys",
@@ -186,7 +186,7 @@ def test_chat_with_tools_translates_anthropic_tool_use_block_to_converse_shape()
     client = _bedrock_client_with_mock_converse(converse_resp)
 
     client.chat_with_tools(
-        model="us.anthropic.claude-opus-4-6-v1",
+        model="us.anthropic.claude-opus-4-7",
         messages=[
             {"role": "user", "content": "use memory"},
             {"role": "assistant", "content": [
@@ -229,7 +229,7 @@ def test_chat_with_tools_translates_mixed_text_and_tool_use_in_assistant_message
     client = _bedrock_client_with_mock_converse(converse_resp)
 
     client.chat_with_tools(
-        model="us.anthropic.claude-opus-4-6-v1",
+        model="us.anthropic.claude-opus-4-7",
         messages=[
             {"role": "user", "content": "go"},
             {"role": "assistant", "content": [
@@ -255,7 +255,7 @@ def test_chat_with_tools_passes_through_already_bedrock_shaped_blocks():
     client = _bedrock_client_with_mock_converse(converse_resp)
 
     client.chat_with_tools(
-        model="us.anthropic.claude-opus-4-6-v1",
+        model="us.anthropic.claude-opus-4-7",
         messages=[
             {"role": "user", "content": [
                 {"text": "already bedrock-shaped text block"},

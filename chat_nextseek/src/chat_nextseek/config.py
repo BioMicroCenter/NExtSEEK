@@ -285,9 +285,9 @@ class ChatConfig:
                 raise RuntimeError("GCP mode selected but GCP_API_KEY is not set.")
             _gcp_defaults = {
                 "gcp:lite": "gemini-2.5-flash",
-                "gcp:current": "gemini-3.1-flash-lite-preview",
+                "gcp:current": "gemini-3.5-flash",
             }
-            env_config_map["LLM_MODEL"] = os.getenv("GCP_LLM_MODEL", _gcp_defaults.get(_mode, "gemini-3.1-flash-lite-preview"))
+            env_config_map["LLM_MODEL"] = os.getenv("GCP_LLM_MODEL", _gcp_defaults.get(_mode, "gemini-3.5-flash"))
         elif _mode == "anth" or _mode.startswith("anth:"):
             # Routes through AWS Bedrock (Claude models via cross-region inference).
             if not env_config_map["AWS_BEARER_TOKEN_BEDROCK"] and not getattr(self, "AWS_BEARER_TOKEN_BEDROCK", None):
@@ -310,7 +310,7 @@ class ChatConfig:
             # Override the default model via BEDROCK_LLM_MODEL
             _BEDROCK_ALIAS_MAP = {
                 "aws:son":      "us.anthropic.claude-sonnet-4-6",   # cross-region inference profile
-                "aws:opus":     "us.anthropic.claude-opus-4-6-v1",  # cross-region inference profile
+                "aws:opus":     "us.anthropic.claude-opus-4-7",  # cross-region inference profile
                 "aws:ds":       "deepseek.v3.2",
                 "aws:qwen-nxt": "qwen.qwen3-next-80b-a3b",
                 "aws:glm":      "zai.glm-4.7",

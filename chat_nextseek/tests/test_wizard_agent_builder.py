@@ -16,7 +16,7 @@ def _resp(stop_reason, blocks):
 def _config_with_mock_client(client):
     config = MagicMock()
     config.WIZARD_AGENT_SYSTEM_PROMPT = "(builder system prompt)"
-    config.get_agent_model = MagicMock(return_value=(client, "us.anthropic.claude-opus-4-6-v1", None))
+    config.get_agent_model = MagicMock(return_value=(client, "us.anthropic.claude-opus-4-7", None))
     return config
 
 

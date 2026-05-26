@@ -3,24 +3,17 @@
   "default": {
     "_comment": "Mixed profile (no -m flag): GCP flash for most agents, Anthropic Opus+high-thinking for parser and report_writer.",
     "models": {
-      "gemini-3.1-flash-lite-preview": {
+      "gemini-3.5-flash": {
         "provider": "gcp",
         "thinking_level": null,
-        "agents": ["api", "reporter", "chatter", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent", "pipeline_directive", "pipeline_sanity", "pipeline_groupby", "pipeline_edit", "pipeline_question"]
+        "agents": ["entity", "api", "reporter", "chatter", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent", "pipeline_directive", "pipeline_sanity", "pipeline_groupby", "pipeline_edit", "pipeline_question"]
       },
-      "us.anthropic.claude-sonnet-4-6": [
-        {
-          "provider": "anth",
-          "thinking_level": "low",
-          "agents": ["entity"]
-        },
-        {
-          "provider": "anth",
-          "thinking_level": null,
-          "agents": ["memory"]
-        }
-      ],
-      "us.anthropic.claude-opus-4-6-v1": [
+      "us.anthropic.claude-sonnet-4-6": {
+        "provider": "anth",
+        "thinking_level": null,
+        "agents": ["memory"]
+      },
+      "us.anthropic.claude-opus-4-7": [
         {
           "provider": "anth",
           "thinking_level": "high",
@@ -37,7 +30,7 @@
   "gcp:current": {
     "_comment": "Pure GCP current-gen (-m gcp:current): flash-lite for most, pro-preview for heavy reasoning agents.",
     "models": {
-      "gemini-3.1-flash-lite-preview": {
+      "gemini-3.5-flash": {
         "provider": "gcp",
         "thinking_level": null,
         "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent", "pipeline_directive", "pipeline_sanity", "pipeline_groupby", "pipeline_edit", "pipeline_question"]
@@ -72,7 +65,7 @@
         "thinking_level": null,
         "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent", "pipeline_directive", "pipeline_sanity", "pipeline_groupby", "pipeline_edit", "pipeline_question"]
       },
-      "us.anthropic.claude-opus-4-6-v1": [
+      "us.anthropic.claude-opus-4-7": [
         {
           "provider": "anth",
           "thinking_level": "high",
