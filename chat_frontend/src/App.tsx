@@ -3,7 +3,7 @@ import { AppLayout } from "./AppLayout";
 import { Loader2 } from "lucide-react";
 
 function App() {
-  const { isReady, error } = useCredentialCheck();
+  const { isReady, error, isAdmin } = useCredentialCheck();
 
   if (!isReady) {
     return (
@@ -13,7 +13,7 @@ function App() {
     );
   }
 
-  return <AppLayout credentialError={error} />;
+  return <AppLayout credentialError={error} isAdmin={isAdmin} />;
 }
 
 export default App;

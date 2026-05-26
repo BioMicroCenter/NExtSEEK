@@ -1,12 +1,28 @@
 import type {
   AsyncQueryResponse,
   ProgressEvent,
+  SessionListItem,
+  SessionListResponse,
+  SessionDetailWithTurns,
   TestCase,
   TestCasesResponse,
 } from "@/lib/types/api";
 import type { AuthService } from "./authTypes";
 
 const POLL_INTERVAL = 2000;
+
+async function readErrorDetail(response: Response): Promise<string | null> {
+  try {
+    const body = await response.json();
+    const first = body?.errors?.[0];
+    if (first?.detail) return String(first.detail);
+    if (first?.title) return String(first.title);
+    if (typeof body?.detail === "string") return body.detail;
+  } catch {
+    // Body wasn't JSON or response.json() unsupported on the mock — fall through.
+  }
+  return null;
+}
 
 export class NextseekApiService {
   private auth: AuthService;
@@ -22,11 +38,29 @@ export class NextseekApiService {
 
   async submitQuery(
     query: string,
-    mode: string,
+    mode: string | { pipeline: "standard" | "plan"; useProd?: boolean },
+    opts: { sessionId?: string | null; forceNew?: boolean },
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
   ): Promise<void> {
     const baseUrl = this.auth.getApiBaseUrl();
+
+    // Build body — accept either the legacy plain-string mode or the new
+    // {pipeline, useProd} shape coming from MessageInput.
+    let modeStr: string;
+    let useProd = false;
+    if (typeof mode === "string") {
+      modeStr = mode;
+    } else {
+      modeStr = mode.pipeline;
+      useProd = Boolean(mode.useProd);
+    }
+    const body: Record<string, unknown> = { query, mode: modeStr, use_prod: useProd };
+    if (opts.sessionId) {
+      body.session_id = opts.sessionId;
+    } else if (opts.forceNew) {
+      body.force_new = true;
+    }
 
     // 1. POST async query
     let taskId: string;
@@ -39,12 +73,17 @@ export class NextseekApiService {
             "Content-Type": "application/json",
             ...this.auth.getAuthHeaders(),
           },
-          body: JSON.stringify({ "query": query, "mode": mode }),
+          body: JSON.stringify(body),
         },
       );
 
       if (!response.ok) {
-        throw new Error(`Query submission failed: ${response.status}`);
+        const detail = await readErrorDetail(response);
+        throw new Error(
+          detail
+            ? `Query submission failed: ${response.status} — ${detail}`
+            : `Query submission failed: ${response.status}`,
+        );
       }
 
       const data: AsyncQueryResponse = await response.json();
@@ -257,6 +296,63 @@ export class NextseekApiService {
     );
     if (!response.ok) {
       throw new Error(`Failed to fetch bundle: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async listSessions(): Promise<SessionListResponse> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const response = await fetch(
+      `${baseUrl}/nextseek_api/assistant/sessions/`,
+      { headers: { ...this.auth.getAuthHeaders() } },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to list sessions: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async renameSession(sessionId: string, title: string): Promise<SessionListItem> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const response = await fetch(
+      `${baseUrl}/nextseek_api/assistant/sessions/${sessionId}/`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...this.auth.getAuthHeaders(),
+        },
+        body: JSON.stringify({ title }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to rename session: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const response = await fetch(
+      `${baseUrl}/nextseek_api/assistant/sessions/${sessionId}/`,
+      {
+        method: "DELETE",
+        headers: { ...this.auth.getAuthHeaders() },
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to delete session: ${response.status}`);
+    }
+  }
+
+  async fetchSessionTurns(sessionId: string): Promise<SessionDetailWithTurns> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const response = await fetch(
+      `${baseUrl}/nextseek_api/assistant/sessions/${sessionId}/?include=turns`,
+      { headers: { ...this.auth.getAuthHeaders() } },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to load session: ${response.status}`);
     }
     return response.json();
   }

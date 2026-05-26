@@ -1,23 +1,22 @@
 {% extends "base.html" %}
 {% load static %}
-{% block main %}
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" href="/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Timeline</title>
-    <script type="module" crossorigin src="{% static 'js/sample_timeline/assets/js/index-CuCgNdMs.js' %}"></script>
-    <link rel="modulepreload" crossorigin href="{% static 'js/sample_timeline/assets/js/react-vendor-Do3KTdZX.js' %}">
-    <link rel="modulepreload" crossorigin href="{% static 'js/sample_timeline/assets/js/timeline-vendor-nKglPnfE.js' %}">
-    <link rel="modulepreload" crossorigin href="{% static 'js/sample_timeline/assets/js/mui-vendor-BdEjCsjk.js' %}">
-    <link rel="modulepreload" crossorigin href="{% static 'js/sample_timeline/assets/js/animation-B5UqUtY4.js' %}">
-    <link rel="stylesheet" crossorigin href="{% static 'js/sample_timeline/assets/asset/style-DlAoHTdd.css' %}">
-  </head>
-  <body>
-    <div id="root"></div>
-  </body>
-</html>
+{% block title %}Sample Timeline - NExtSEEK{% endblock %}
 
+{% block extra_head %}
+<script type="module" crossorigin src="{% static 'js/sample_timeline/assets/js/index-CuCgNdMs.js' %}"></script>
+<link rel="modulepreload" crossorigin href="{% static 'js/sample_timeline/assets/js/react-vendor-Do3KTdZX.js' %}">
+<link rel="modulepreload" crossorigin href="{% static 'js/sample_timeline/assets/js/timeline-vendor-nKglPnfE.js' %}">
+<link rel="modulepreload" crossorigin href="{% static 'js/sample_timeline/assets/js/mui-vendor-BdEjCsjk.js' %}">
+<link rel="modulepreload" crossorigin href="{% static 'js/sample_timeline/assets/js/animation-B5UqUtY4.js' %}">
+<link rel="stylesheet" crossorigin href="{% static 'js/sample_timeline/assets/asset/style-DlAoHTdd.css' %}">
+<style>
+#timeline-root {
+    width: 100%;
+    min-height: calc(100vh - var(--header-height) - var(--footer-height) - 3rem);
+}
+</style>
+{% endblock %}
+
+{% block main %}
+<div id="root" id="timeline-root"></div>
 {% endblock %}

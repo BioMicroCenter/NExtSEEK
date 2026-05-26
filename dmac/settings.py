@@ -81,7 +81,7 @@ STATIC_URL = "/static/"
 
 
 STATICFILES_DIRS = [
-    "/app/themes/SmartAdmin/static",
+    "/app/themes/NextSeek/static",
     "/app/static"
 ]
 
@@ -101,7 +101,7 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [
-            os.path.join(PROJECT_ROOT, "themes.SmartAdmin.templates"),
+            os.path.join(PROJECT_ROOT, "themes", "NextSeek", "templates"),
         ],
         "OPTIONS": {
             "context_processors": [
@@ -134,7 +134,7 @@ if DJANGO_VERSION < (1, 9):
 
 INSTALLED_APPS = (
     "seek",
-    "themes.SmartAdmin",
+    "themes.NextSeek",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -276,6 +276,12 @@ STORAGES = {
 		"BACKEND": "django.core.files.storage.FileSystemStorage",
 	},
 	"staticfiles": {
+		# Reverted from ManifestStaticFilesStorage on 2026-05-12 because the
+		# vendored jquery-easyui-1.5.2/ tree isn't reachable by collectstatic
+		# in this layout, and the manifest backend raises ValueError on any
+		# {% static %} reference missing from the manifest. See v2 spec
+		# section 2.1 — proper fix is to either ship a curated STATICFILES_DIRS
+		# that includes easyui, or use a manifest_strict=False subclass.
 		"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
 	},
 }
@@ -283,6 +289,9 @@ STORAGES = {
 DATABASE_ROUTERS = ['seek.dbrouters.CustomRouter']
 
 ACCOUNTS_PROFILE_MODEL = "seek.User_profile"
+
+LOG_DIR = os.getenv("LOG_DIR", "/app/logs")
+os.makedirs(LOG_DIR, exist_ok=True)
 
 LOGGING = {
     'version': 1,
@@ -297,25 +306,25 @@ LOGGING = {
         'django_crontab': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'django_crontab.log',
+            'filename': os.path.join(LOG_DIR, 'django_crontab.log'),
             'formatter': 'verbose'
         },
         'logfile': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'django.log',
-            'formatter': 'verbose' 
+            'filename': os.path.join(LOG_DIR, 'django.log'),
+            'formatter': 'verbose'
         },
         'seekfile': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'seek.log',
+            'filename': os.path.join(LOG_DIR, 'seek.log'),
             'formatter': 'verbose'
         },
         'nextseekfile': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'nextseek.log',
+            'filename': os.path.join(LOG_DIR, 'nextseek.log'),
             'formatter': 'verbose'
         },
     },

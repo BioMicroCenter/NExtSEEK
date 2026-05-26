@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import type { Step, ProcessingState } from "@/lib/types/chat";
+import type { SearchStartedData, SearchCompleteData } from "@/lib/types/api";
 
 const STEP_CONFIGS: Record<string, { label: string; agentName: string }[]> = {
   new_search: [
@@ -20,6 +21,19 @@ const STEP_CONFIGS: Record<string, { label: string; agentName: string }[]> = {
     { label: "Extracting entities", agentName: "entity" },
     { label: "Planning query", agentName: "parser" },
     { label: "Running report", agentName: "reporter" },
+    { label: "Summarizing results", agentName: "chatter" },
+  ],
+  graph_query: [
+    { label: "Extracting entities", agentName: "entity" },
+    { label: "Planning query", agentName: "parser" },
+    { label: "Running graph query", agentName: "graph" },
+    { label: "Summarizing results", agentName: "chatter" },
+  ],
+  report_generation: [
+    { label: "Extracting entities", agentName: "entity" },
+    { label: "Planning query", agentName: "parser" },
+    { label: "Building report", agentName: "reporter" },
+    { label: "Writing export", agentName: "report_writer" },
     { label: "Summarizing results", agentName: "chatter" },
   ],
   ask_about_last_results: [
@@ -50,7 +64,89 @@ interface UseProcessingStateReturn {
   processingState: ProcessingState;
   handleAgentStarted: (agent: string, mode: string) => void;
   handleAgentComplete: (agent: string) => void;
+  handleSearchStarted: (data: SearchStartedData) => void;
+  handleSearchComplete: (data: SearchCompleteData) => void;
   resetProcessing: () => void;
+}
+
+/** One-line summary of an in-flight side-effect, surfaced as Step.detail. */
+function formatSearchStartedDetail(d: SearchStartedData): string {
+  switch (d.source) {
+    case "neo4j": {
+      const cy = typeof d.cypher === "string" ? d.cypher.trim().replace(/\s+/g, " ") : "";
+      const head = cy.length > 80 ? cy.slice(0, 77) + "…" : cy;
+      return head ? `Querying Neo4j: ${head}` : "Querying Neo4j…";
+    }
+    case "api": {
+      const method = d.method ? String(d.method).toUpperCase() : "GET";
+      const endpoint = d.endpoint ? String(d.endpoint) : "(unknown endpoint)";
+      return `Calling ${endpoint} (${method})`;
+    }
+    case "reporter": {
+      const project = d.project != null ? String(d.project) : "?";
+      const mode = d.summary_mode ? String(d.summary_mode) : "summary";
+      return `Running ${mode} report on project ${project}`;
+    }
+    default:
+      return `Running ${d.source}…`;
+  }
+}
+
+/**
+ * Map a `search_started`/`search_complete` event's `source` to the agentName
+ * of the step that semantically owns the side-effect. Used to attach details
+ * to the correct row regardless of which step is currently "active" — the
+ * orchestrator can emit agent_complete BEFORE the matching search_started
+ * (graph plans the cypher first, then the neo4j call runs).
+ *
+ * Add a row here when STEP_CONFIGS gains a new mode whose search-emitting
+ * agent has a different name (e.g. a new "pipeline" mode with its own step).
+ */
+const SEARCH_SOURCE_TO_AGENT: Record<string, string> = {
+  neo4j: "graph",
+  api: "http",
+  reporter: "reporter",
+};
+
+function findSearchTargetIndex(steps: Step[], source: string): number {
+  const preferred = SEARCH_SOURCE_TO_AGENT[source];
+  if (preferred) {
+    const i = steps.findIndex((s) => s.agentName === preferred);
+    if (i >= 0) return i;
+  }
+  const active = steps.findIndex((s) => s.status === "active");
+  if (active >= 0) return active;
+  const pending = steps.findIndex((s) => s.status === "pending");
+  if (pending >= 0) return pending;
+  for (let i = steps.length - 1; i >= 0; i--) {
+    if (steps[i].status === "complete") return i;
+  }
+  return -1;
+}
+
+function formatSearchCompleteDetail(d: SearchCompleteData): string {
+  const isErr = d.error != null || d.ok === false;
+  switch (d.source) {
+    case "neo4j": {
+      if (isErr) return `Neo4j error: ${d.error ?? "unknown"}`;
+      const n = typeof d.count === "number" ? d.count : "?";
+      return `Neo4j: ${n} row${n === 1 ? "" : "s"}`;
+    }
+    case "api": {
+      if (isErr) return `API error: ${d.error ?? "unknown"}`;
+      const parts: string[] = ["API"];
+      if (typeof d.status === "number") parts.push(String(d.status));
+      if (typeof d.count === "number") parts.push(`${d.count} row${d.count === 1 ? "" : "s"}`);
+      else if (d.endpoint) parts.push(String(d.endpoint));
+      return parts.join(" · ");
+    }
+    case "reporter": {
+      if (isErr) return `Reporter error: ${d.error ?? "unknown"}`;
+      return typeof d.count === "number" ? `Report ready · ${d.count} row${d.count === 1 ? "" : "s"}` : "Report ready";
+    }
+    default:
+      return isErr ? `${d.source} error: ${d.error ?? "unknown"}` : `${d.source} done`;
+  }
 }
 
 export function useProcessingState(): UseProcessingStateReturn {
@@ -103,9 +199,35 @@ export function useProcessingState(): UseProcessingStateReturn {
 
   const handleAgentComplete = useCallback((agent: string) => {
     setState((prev) => {
+      // Mark the agent's step complete AND clear its `detail` — the side-effect
+      // it was reporting has finished alongside the agent itself.
       const steps = prev.steps.map((s) =>
-        s.agentName === agent ? { ...s, status: "complete" as const } : s,
+        s.agentName === agent
+          ? { ...s, status: "complete" as const, detail: undefined }
+          : s,
       );
+      return { ...prev, steps };
+    });
+  }, []);
+
+  const handleSearchStarted = useCallback((data: SearchStartedData) => {
+    const detail = formatSearchStartedDetail(data);
+    setState((prev) => {
+      if (prev.steps.length === 0) return prev;
+      const targetIdx = findSearchTargetIndex(prev.steps, String(data.source));
+      if (targetIdx < 0) return prev;
+      const steps = prev.steps.map((s, i) => (i === targetIdx ? { ...s, detail } : s));
+      return { ...prev, steps };
+    });
+  }, []);
+
+  const handleSearchComplete = useCallback((data: SearchCompleteData) => {
+    const detail = formatSearchCompleteDetail(data);
+    setState((prev) => {
+      if (prev.steps.length === 0) return prev;
+      const targetIdx = findSearchTargetIndex(prev.steps, String(data.source));
+      if (targetIdx < 0) return prev;
+      const steps = prev.steps.map((s, i) => (i === targetIdx ? { ...s, detail } : s));
       return { ...prev, steps };
     });
   }, []);
@@ -119,5 +241,12 @@ export function useProcessingState(): UseProcessingStateReturn {
     });
   }, []);
 
-  return { processingState: state, handleAgentStarted, handleAgentComplete, resetProcessing };
+  return {
+    processingState: state,
+    handleAgentStarted,
+    handleAgentComplete,
+    handleSearchStarted,
+    handleSearchComplete,
+    resetProcessing,
+  };
 }

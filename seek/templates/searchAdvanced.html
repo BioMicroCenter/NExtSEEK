@@ -93,6 +93,11 @@ $(function(){
     }]);
 });
 </script>
+{# Desktop: full EasyUI tabs (Sample Search, Advanced, Retrieval, Retrieval-v2,
+   Deletion). Mobile (<768px): only the Advanced filter form is exposed, via the
+   .m-only pane below. The three admin tabs (Retrieval / Retrieval-v2 / Deletion)
+   are desktop-only workflows by design and are not re-rendered on mobile. #}
+<div class="d-only">
 <div id="search_tab" class="easyui-tabs" style="width:auto;height:1400px;">
     <div title="Sample Search" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
 	<div class="easyui-layout" style="width:auto;height:900px;">
@@ -152,4 +157,121 @@ $(function(){
     </div>
 
 </div>
+</div>{# /.d-only — end of desktop EasyUI tabs #}
+
+<div class="m-only">
+    <h1 class="m-result-count" id="m_result_count">Sample Search</h1>
+
+    <details class="m-filter-form" open>
+        <summary>Filters</summary>
+        <div class="m-filter-body">
+            <label for="m_keyword">Keyword</label>
+            <input type="search" id="m_keyword" placeholder="e.g. mouse" autocomplete="off">
+
+            <label for="m_sampletype">Sample type</label>
+            <select id="m_sampletype">
+                <option value="0">All types</option>
+                {% for opt in report.type_options %}
+                <option value="{{ opt.id }}">{{ opt.title }}</option>
+                {% endfor %}
+            </select>
+
+            <label for="m_match">Match</label>
+            <select id="m_match">
+                <option value="PARTIAL">Partial</option>
+                <option value="EXACT">Exact</option>
+            </select>
+
+            <button class="m-filter-submit" type="button" onclick="runMobileSearch()">Search</button>
+        </div>
+    </details>
+
+    <ul class="m-results" id="m_results">
+        <li class="m-result-row" style="color: var(--ns-muted); border: none;">
+            <em>Run a search to see results here.</em>
+        </li>
+    </ul>
+</div>
+
+<script>
+// Mobile Sample Search bridge — hits the same GET /seek/searchAdvanced/ that
+// the desktop EasyUI grid uses (see seek/templates/pages/searchAdvanced_search.embed.html).
+// Renders the JSON rows into a tappable card list.
+function runMobileSearch() {
+    var kw = document.getElementById('m_keyword').value.trim();
+    var st = document.getElementById('m_sampletype').value || '0';
+    var match = document.getElementById('m_match').value || 'PARTIAL';
+    if (!kw) { return; }
+    var params = new URLSearchParams({
+        sampletype_id: st,
+        attribute: 'none',
+        filter_logic: 'AND',
+        filter_searchValue: kw,
+        filter_searchText: kw,
+        filter_matchType: match
+    });
+    var list = document.getElementById('m_results');
+    var count = document.getElementById('m_result_count');
+    list.innerHTML = '<li class="m-result-row" style="color:var(--ns-muted); border:none;"><em>Searching…</em></li>';
+
+    fetch('/seek/searchAdvanced/?' + params.toString(), { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.status !== 1) {
+                count.textContent = 'Sample Search';
+                list.innerHTML = '<li class="m-result-row" style="color:var(--ns-muted); border:none;"><em>' + escapeMobileHtml(data.msg || 'Search failed') + '</em></li>';
+                return;
+            }
+            var rows = data.rows || [];
+            var total = data.total != null ? data.total : rows.length;
+            // Cap rendered rows on mobile — DOM with thousands of nodes is unusable on phone.
+            // Desktop EasyUI grid handles pagination natively; here we keep it simple.
+            var MOBILE_RENDER_CAP = 100;
+            var truncated = rows.length > MOBILE_RENDER_CAP;
+            var renderRows = truncated ? rows.slice(0, MOBILE_RENDER_CAP) : rows;
+            count.textContent = truncated
+                ? 'Showing ' + MOBILE_RENDER_CAP + ' of ' + total + ' — refine search to narrow'
+                : total + ' result' + (total === 1 ? '' : 's');
+            if (rows.length === 0) {
+                list.innerHTML = '<li class="m-result-row" style="color:var(--ns-muted); border:none;"><em>No matches.</em></li>';
+                return;
+            }
+            list.innerHTML = renderRows.map(renderMobileRow).join('');
+        })
+        .catch(function (err) {
+            console.error('mobile search failed', err);
+            list.innerHTML = '<li class="m-result-row" style="color:var(--ns-muted); border:none;"><em>Search failed — see console.</em></li>';
+        });
+}
+
+function renderMobileRow(r) {
+    var uid    = String(r.uuid || '');
+    var sttype = String(r.sample_type || '');
+    // attributeValue is HTML-formatted; strip tags and clamp length
+    var attrs  = String(r.attributeValue || '').replace(/<[^>]*>/g, '').trim().slice(0, 80);
+    var meta = [sttype, attrs].filter(function (s) { return s.length > 0; }).map(escapeMobileHtml).join(' · ');
+    return '<li class="m-result-row">'
+         +   '<a href="/seek/sampletree/uid=' + encodeURIComponent(uid) + '/">'
+         +     '<div class="r-line1"><span class="r-uid">' + escapeMobileHtml(uid) + '</span></div>'
+         +     '<div class="r-line2">' + meta + '</div>'
+         +   '</a>'
+         + '</li>';
+}
+
+function escapeMobileHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
+
+// Submit on Enter inside the keyword input
+document.addEventListener('DOMContentLoaded', function () {
+    var kwInput = document.getElementById('m_keyword');
+    if (kwInput) {
+        kwInput.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); runMobileSearch(); }
+        });
+    }
+});
+</script>
 {% endblock %}

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Getting Started — NExtSEEK" %}{% endblock %}
+
+{% block main %}
+<div class="help-page">
+
+  <header class="help-hero">
+    <p class="help-eyebrow">{% trans "Tutorials" %}</p>
+    <h1>{% trans "Getting Started with NExtSEEK" %}</h1>
+    <p class="help-lede">
+      {% blocktrans trimmed %}
+      NExtSEEK helps you collect, organize, and share scientific metadata
+      so your data stays FAIR and reproducible. This page walks you
+      through the basics.
+      {% endblocktrans %}
+    </p>
+    <nav class="help-toc">
+      <a href="#what-is">{% trans "What is NExtSEEK?" %}</a>
+      <a href="#uploading">{% trans "Uploading samples" %}</a>
+      <a href="#searching">{% trans "Searching by UID or text" %}</a>
+      <a href="#nessie">{% trans "Using Nessie" %}</a>
+      <a href="#workflows">{% trans "Common workflows" %}</a>
+    </nav>
+  </header>
+
+  <section id="what-is" class="help-section">
+    <h2>{% trans "What is NExtSEEK?" %}</h2>
+    <p>
+      {% blocktrans trimmed %}
+      NExtSEEK extends the SEEK platform with discrete, mutable sample
+      types and a graph-style assay model. Samples are nodes; assays
+      connect them. The point is to capture enough structured metadata
+      that other researchers (and you, six months from now) can
+      actually reuse the data.
+      {% endblocktrans %}
+    </p>
+  </section>
+
+  <section id="uploading" class="help-section">
+    <h2>{% trans "Uploading samples" %}</h2>
+    <ol>
+      <li>{% blocktrans trimmed %}Go to <strong>Data Entry → Assay Sheet Upload</strong> in the sidebar.{% endblocktrans %}</li>
+      <li>{% blocktrans trimmed %}Download a sample Excel template from the upload dialog if you don't already have one.{% endblocktrans %}</li>
+      <li>{% blocktrans trimmed %}Fill in your sample rows. Only the first worksheet is processed.{% endblocktrans %}</li>
+      <li>{% blocktrans trimmed %}Upload. The batch system stages the parse, validates against the schema, then commits.{% endblocktrans %}</li>
+    </ol>
+  </section>
+
+  <section id="searching" class="help-section">
+    <h2>{% trans "Searching by UID or text" %}</h2>
+    <p>
+      {% blocktrans trimmed %}
+      <strong>By UID:</strong> use the <em>Search by UID…</em> input in
+      the sidebar's Quick Access section. Enter a sample UID and hit
+      Enter — you'll land directly on its sample-tree view.
+      {% endblocktrans %}
+    </p>
+    <p>
+      {% blocktrans trimmed %}
+      <strong>By text or filters:</strong> use
+      <strong>Data Query → Sample Search</strong> in the sidebar. You can
+      filter by project, sample type, date, and any indexed attribute.
+      {% endblocktrans %}
+    </p>
+  </section>
+
+  <section id="nessie" class="help-section">
+    <h2>{% trans "Using Nessie" %}</h2>
+    <p>
+      {% blocktrans trimmed %}
+      Nessie is the NExtSEEK assistant. You can ask plain-language
+      questions about your data, schema, or workflows.
+      {% endblocktrans %}
+    </p>
+    <p>
+      {% blocktrans trimmed %}
+      The fastest way in: type your question into the <em>Ask Nessie…</em>
+      input in the sidebar. Press Enter and you'll land in the chat with
+      your question already typed — click send to ask. You can also open
+      the full chat directly via the <strong>Talk to Nessie</strong> link
+      on the home dashboard.
+      {% endblocktrans %}
+    </p>
+  </section>
+
+  <section id="workflows" class="help-section">
+    <h2>{% trans "Common workflows" %}</h2>
+    <h3>{% trans "Get a sample's full lineage" %}</h3>
+    <ol>
+      <li>{% trans "Search by UID in Quick Access." %}</li>
+      <li>{% blocktrans trimmed %}You'll arrive at the sample-tree view, which shows all parent and child samples + linked assays.{% endblocktrans %}</li>
+    </ol>
+    <h3>{% trans "Pull a project's samples into Excel" %}</h3>
+    <ol>
+      <li>{% blocktrans trimmed %}Go to <strong>Projects</strong> in the sidebar.{% endblocktrans %}</li>
+      <li>{% blocktrans trimmed %}Open the project page → <em>Export samples</em>.{% endblocktrans %}</li>
+    </ol>
+    <h3>{% trans "Publish data externally" %}</h3>
+    <ol>
+      <li>{% trans "Open the project page." %}</li>
+      <li>{% blocktrans trimmed %}Use <em>Publish</em> to push to GEO / SRA / PRIDE / etc. via SEEK's integrations.{% endblocktrans %}</li>
+    </ol>
+  </section>
+
+  <section class="help-section help-cta">
+    <h2>{% trans "Still stuck?" %}</h2>
+    <p>
+      {% blocktrans trimmed %}
+      Email <a href="mailto:fairdata@mit.edu">fairdata@mit.edu</a> or
+      check the
+      <a href="https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/"
+        target="_blank" rel="noopener">full documentation</a>.
+      {% endblocktrans %}
+    </p>
+  </section>
+
+</div>
+{% endblock %}

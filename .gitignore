@@ -14,8 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -160,10 +160,14 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-themes/SmartAdmin
 dmac/local_settings.py
 local_settings.py
 .DS_Store
+
+# Real env files are gitignored — secrets must never land in git.
+# See docker/nextseek.env.example for the template.
+docker/nextseek.env
+docker/db.env
 internal_docs/
 .cursor/
 .claude/
@@ -181,3 +185,10 @@ CLAUDE.md
 .*_stage/
 *.codex 
 scripts/investigate_duplicates/outputs/
+show
+
+# Per-instance startup state (per-clone, not shared).
+startup/.instance.json
+
+# Local design specs + plans (working docs, not part of the public repo)
+docs/superpowers/

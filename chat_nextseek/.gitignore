@@ -1,0 +1,50 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Environment variables
+.env
+
+# Log outputs
+outputs/
+
+# old stuff
+old/
+context/old
+
+AGENTS.md
+
+# Design specs / refactor docs (kept local)
+docs/
+
+test/__pycache__
+
+test/*_diff.txt
+
+schemas/__pycache__
+
+.claude
+
+src/chat_nextseek.egg-info
+
+# Literal ~ directory (created by XDG path bug)
+\~
+
+# SQLite session database
+*.sqlite
+
+# MCP config (contains machine-local paths)
+.mcp.json
+.codex/
+.cursor/
+baml_client/
+
+# Semantic catalog embedding caches (regenerated from JSON catalogs)
+src/chat_nextseek/context/*.embeddings.npz

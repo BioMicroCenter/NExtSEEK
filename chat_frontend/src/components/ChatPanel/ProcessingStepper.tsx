@@ -7,6 +7,8 @@ import {
   MessageSquare,
   Database,
   BookOpen,
+  Network,
+  FileDown,
   Check,
   Loader2,
   ChevronDown,
@@ -23,6 +25,8 @@ const AGENT_ICONS: Record<string, React.ElementType> = {
   chatter: MessageSquare,
   reporter: Database,
   memory: BookOpen,
+  graph: Network,
+  report_writer: FileDown,
 };
 
 interface ProcessingStepperProps {
@@ -38,7 +42,7 @@ export function ProcessingStepper({ steps }: ProcessingStepperProps) {
   const completedCount = steps.filter((s) => s.status === "complete").length;
 
   return (
-    <div className="border-b bg-muted/20">
+    <div data-testid="stepper" className="border-b bg-muted/20">
       {/* Collapsed summary bar */}
       <button
         type="button"
@@ -48,6 +52,11 @@ export function ProcessingStepper({ steps }: ProcessingStepperProps) {
         <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
         <span className="flex-1 text-left font-medium">
           {activeStep ? activeStep.label : "Processing"}...
+          {activeStep?.detail && (
+            <span className="ml-1.5 text-xs font-normal opacity-70">
+              · {activeStep.detail}
+            </span>
+          )}
           <span className="ml-1.5 text-xs opacity-60">
             ({completedCount}/{steps.length})
           </span>
@@ -70,8 +79,10 @@ export function ProcessingStepper({ steps }: ProcessingStepperProps) {
               return (
                 <div
                   key={step.agentName}
+                  data-testid={`step-${step.agentName}`}
+                  data-status={step.status}
                   className={cn(
-                    "flex items-center gap-2 rounded-md px-2 py-1 text-sm",
+                    "flex items-start gap-2 rounded-md px-2 py-1 text-sm",
                     step.status === "pending" && "text-muted-foreground/50",
                     step.status === "active" && "bg-primary/5 text-primary font-medium",
                     step.status === "complete" && "text-muted-foreground",
@@ -79,15 +90,30 @@ export function ProcessingStepper({ steps }: ProcessingStepperProps) {
                   )}
                 >
                   {step.status === "active" ? (
-                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                    <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
                   ) : step.status === "complete" ? (
-                    <Check className="h-3.5 w-3.5 shrink-0 text-green-600" />
+                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600" />
                   ) : step.status === "error" ? (
-                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   ) : (
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   )}
-                  <span>{step.label}</span>
+                  <div className="min-w-0 flex-1">
+                    <span>{step.label}</span>
+                    {step.detail && (
+                      <div
+                        className={cn(
+                          "mt-0.5 truncate font-mono text-xs",
+                          step.status === "active"
+                            ? "text-primary/70"
+                            : "text-muted-foreground/70",
+                        )}
+                        title={step.detail}
+                      >
+                        {step.detail}
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}

@@ -1,0 +1,486 @@
+{
+  "report_type": "GEO",
+  "description": "GEO metadata JSON template aligned to GEO_template.xlsx (Metadata sheet).",
+  "study": {
+    "*title": null,
+    "*summary (abstract)": null,
+    "*experimental design": null,
+    "contributor": [],
+    "supplementary file": []
+  },
+  "samples": [
+    {
+      "*library name": null,
+      "*title": null,
+      "*library strategy": null,
+      "*organism": null,
+      "**tissue": null,
+      "**cell line": null,
+      "**cell type": null,
+      "genotype": null,
+      "treatment": null,
+      "batch": null,
+      "*molecule": null,
+      "*single or paired-end": null,
+      "*instrument model": null,
+      "description": null,
+      "processed data file": null,
+      "processed data file (2)": null,
+      "*raw file": null,
+      "raw file": null,
+      "raw file (2)": null,
+      "raw file (3)": null
+    }
+  ],
+  "protocols": {
+    "growth protocol": null,
+    "treatment protocol": null,
+    "*extract protocol": null,
+    "*library construction protocol": null,
+    "*data processing step": null,
+    "data processing step": [],
+    "*genome build/assembly": null,
+    "*processed data files format and content": null,
+    "processed data files format and content": []
+  },
+  "paired_end_experiments": [
+    {
+      "file name 1": null,
+      "file name 2": null,
+      "file name 3": null,
+      "file name 4": null
+    }
+  ],
+  "notes": "Populate values per GEO_template.xlsx. Keep required fields (prefixed with *) and recommended sample attributes (prefixed with **) as appropriate; leave null/empty if unavailable.",
+  "checksums": {
+    "raw_data_files": [
+      {
+        "file name": null,
+        "file checksum": null
+      }
+    ],
+    "processed_data_files": [
+      {
+        "file name": null,
+        "file checksum": null
+      }
+    ],
+    "notes": "Provide MD5 checksums for each uploaded raw/processed file to help GEO verify file integrity."
+  },
+  "schema": {
+    "template_source": {
+      "file": "GEO_template.xlsx",
+      "sheet": "Metadata",
+      "geo_last_updated_note": "This file was last updated by GEO on Dec 17, 2024."
+    },
+    "sections": {
+      "study": {
+        "description": "STUDY section describes the overall GEO Series (GSE) record. Content is displayed publicly and should summarize the experiment at a study level.",
+        "fields": {
+          "*title": {
+            "field": "title",
+            "template_key": "*title",
+            "required": "required",
+            "description": "Overall study title for the GEO Series (GSE). Should be short but descriptive and unique. Avoid overly generic titles.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*summary (abstract)": {
+            "field": "summary (abstract)",
+            "template_key": "*summary (abstract)",
+            "required": "required",
+            "description": "Study-level abstract/summary for the GEO Series. Provide background, experimental context, what was measured, and the main goals. 1\u20133 paragraphs is typical.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*experimental design": {
+            "field": "experimental design",
+            "template_key": "*experimental design",
+            "required": "required",
+            "description": "Describe the experimental design and variables: groups/conditions, timepoints, replicates, controls, randomization, and how samples relate to conditions. Mention any key covariates.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "contributor": {
+            "field": "contributor",
+            "template_key": "contributor",
+            "required": "optional",
+            "description": "People who contributed to generating the dataset (often authors). Use full names. Include multiple rows if needed.",
+            "expected_value": "string or list",
+            "examples": [],
+            "validation_hints": []
+          },
+          "supplementary file": {
+            "field": "supplementary file",
+            "template_key": "supplementary file",
+            "required": "optional",
+            "description": "Optional additional files to accompany the GEO Series record (e.g., README, sample metadata CSV, QC reports). Provide file names as they will appear in the submission.",
+            "expected_value": "string or list",
+            "examples": [],
+            "validation_hints": []
+          }
+        }
+      },
+      "samples": {
+        "description": "SAMPLES section defines one GEO Sample (GSM) per row (one library per row). Titles, library names, and raw files must be unique. Use extra raw/processed columns for technical replicates or multiple outputs.",
+        "fields": {
+          "*library name": {
+            "field": "library name",
+            "template_key": "*library name",
+            "required": "required",
+            "description": "Unique identifier for each library/sample in this submission. Often corresponds to internal sample ID or library prep ID. Must be unique across rows.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*title": {
+            "field": "title",
+            "template_key": "*title",
+            "required": "required",
+            "description": "Short title for the GEO Sample (GSM). Should uniquely identify the biological material and condition (e.g., 'WT lung, day 7, replicate 1').",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*library strategy": {
+            "field": "library strategy",
+            "template_key": "*library strategy",
+            "required": "required",
+            "description": "Sequencing strategy (e.g., RNA-Seq, ChIP-Seq, ATAC-Seq, WGS, scRNA-Seq, etc.). Use controlled terms from GEO/SRA when possible.",
+            "expected_value": "string",
+            "examples": [
+              "RNA-Seq",
+              "ATAC-Seq",
+              "ChIP-Seq",
+              "scRNA-Seq",
+              "WGS"
+            ],
+            "validation_hints": []
+          },
+          "*organism": {
+            "field": "organism",
+            "template_key": "*organism",
+            "required": "required",
+            "description": "Scientific name of the organism (e.g., Homo sapiens, Mus musculus). Should match NCBI Taxonomy naming.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "**tissue": {
+            "field": "tissue",
+            "template_key": "**tissue",
+            "required": "conditional",
+            "description": "Tissue of origin (conditional). Use standardized anatomical terms when possible (e.g., UBERON). For single-cell, may be broader organ/tissue source.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "**cell line": {
+            "field": "cell line",
+            "template_key": "**cell line",
+            "required": "conditional",
+            "description": "Cell line name if applicable (conditional). Include vendor/catalog and/or accession if available (e.g., ATCC). Leave blank for primary tissue without cell line.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "**cell type": {
+            "field": "cell type",
+            "template_key": "**cell type",
+            "required": "conditional",
+            "description": "Cell type (conditional). For scRNA/immune studies, use standard terms (e.g., Cell Ontology) when possible.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "genotype": {
+            "field": "genotype",
+            "template_key": "genotype",
+            "required": "optional",
+            "description": "Genotype of the sample/organism (e.g., WT, knockout, transgenic allele). Include relevant loci and zygosity if known.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "treatment": {
+            "field": "treatment",
+            "template_key": "treatment",
+            "required": "optional",
+            "description": "Treatments or perturbations applied (drug, infection, stimulation, vaccination), including dose, route, duration, and time since treatment.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "batch": {
+            "field": "batch",
+            "template_key": "batch",
+            "required": "optional",
+            "description": "Batch identifier capturing known technical batches (prep batch, sequencing run, lane, date). Helps downstream users account for batch effects.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*molecule": {
+            "field": "molecule",
+            "template_key": "*molecule",
+            "required": "required",
+            "description": "Molecule extracted for library prep (e.g., total RNA, polyA RNA, genomic DNA, chromatin, nuclei).",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*single or paired-end": {
+            "field": "single or paired-end",
+            "template_key": "*single or paired-end",
+            "required": "required",
+            "description": "Indicate whether reads are single-end or paired-end. Must be consistent with raw files provided.",
+            "expected_value": "string",
+            "examples": [
+              "single-end",
+              "paired-end"
+            ],
+            "validation_hints": []
+          },
+          "*instrument model": {
+            "field": "instrument model",
+            "template_key": "*instrument model",
+            "required": "required",
+            "description": "Sequencing instrument model (e.g., Illumina NovaSeq 6000, NextSeq 2000). Prefer exact model names.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "description": {
+            "field": "description",
+            "template_key": "description",
+            "required": "optional",
+            "description": "Additional sample/library description. Useful for specifying finer details not captured elsewhere (e.g., isolation method, enrichment, fraction, indexing scheme).",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "processed data file": {
+            "field": "processed data file",
+            "template_key": "processed data file",
+            "required": "optional",
+            "description": "Name of processed data file(s) associated with this sample/library (e.g., count matrix, peak calls, BAM, bedGraph). If multiple, list each in separate 'processed data file' columns.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "processed data file (2)": {
+            "field": "processed data file (2)",
+            "template_key": "processed data file (2)",
+            "required": "optional",
+            "description": "",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*raw file": {
+            "field": "raw file",
+            "template_key": "*raw file",
+            "required": "required",
+            "description": "Name(s) of raw sequencing files for this library (e.g., FASTQ files). For technical replicates, use additional 'raw file' columns. All listed here should also appear in the experiment tables when relevant.",
+            "expected_value": "string",
+            "examples": [
+              "SAMPLE1_R1.fastq.gz",
+              "SAMPLE1_R2.fastq.gz"
+            ],
+            "validation_hints": []
+          },
+          "raw file": {
+            "field": "raw file",
+            "template_key": "raw file",
+            "required": "optional",
+            "description": "Name(s) of raw sequencing files for this library (e.g., FASTQ files). For technical replicates, use additional 'raw file' columns. All listed here should also appear in the experiment tables when relevant.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "raw file (2)": {
+            "field": "raw file (2)",
+            "template_key": "raw file (2)",
+            "required": "optional",
+            "description": "",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "raw file (3)": {
+            "field": "raw file (3)",
+            "template_key": "raw file (3)",
+            "required": "optional",
+            "description": "",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          }
+        }
+      },
+      "protocols": {
+        "description": "PROTOCOLS section captures experimental and computational methods used to generate raw and processed data.",
+        "fields": {
+          "growth protocol": {
+            "field": "growth protocol",
+            "template_key": "growth protocol",
+            "required": "optional",
+            "description": "Describe how organisms/cells were grown or maintained prior to treatment and collection (media, temperature, passage, housing).",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "treatment protocol": {
+            "field": "treatment protocol",
+            "template_key": "treatment protocol",
+            "required": "optional",
+            "description": "Describe any treatment/perturbation protocol (drug, infection, stimulation, vaccination), including dose, route, timepoints, and controls.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*extract protocol": {
+            "field": "extract protocol",
+            "template_key": "*extract protocol",
+            "required": "required",
+            "description": "Protocol for extracting the biomolecule (RNA/DNA/chromatin/nuclei). Include kit names, key steps, and any deviations from standard methods.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*library construction protocol": {
+            "field": "library construction protocol",
+            "template_key": "*library construction protocol",
+            "required": "required",
+            "description": "Library prep protocol: kit, input amount, fragmentation, barcoding/indexing, amplification cycles, size selection, and any single-cell platform details (e.g., 10x).",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*data processing step": {
+            "field": "data processing step",
+            "template_key": "*data processing step",
+            "required": "required",
+            "description": "Describe computational processing steps used to generate processed files (software, versions, parameters, reference genomes, QC thresholds). If multiple steps, list them in order.",
+            "expected_value": "string or list",
+            "examples": [],
+            "validation_hints": [
+              "Include software name + version",
+              "Include key parameters (e.g., aligner settings, filtering thresholds)",
+              "Describe order of steps if multiple"
+            ]
+          },
+          "data processing step": {
+            "field": "data processing step",
+            "template_key": "data processing step",
+            "required": "optional",
+            "description": "Describe computational processing steps used to generate processed files (software, versions, parameters, reference genomes, QC thresholds). If multiple steps, list them in order.",
+            "expected_value": "string or list",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*genome build/assembly": {
+            "field": "genome build/assembly",
+            "template_key": "*genome build/assembly",
+            "required": "required",
+            "description": "Reference genome build/assembly used for alignment/quantification (e.g., GRCh38, mm10). Include release/version if applicable.",
+            "expected_value": "string",
+            "examples": [
+              "GRCh38",
+              "GRCm39",
+              "mm10",
+              "TAIR10"
+            ],
+            "validation_hints": []
+          },
+          "*processed data files format and content": {
+            "field": "processed data files format and content",
+            "template_key": "*processed data files format and content",
+            "required": "required",
+            "description": "Describe each processed data file type, format (e.g., TSV, H5AD, BAM), and what columns/fields contain. Include units and coordinate systems where relevant.",
+            "expected_value": "string or list",
+            "examples": [],
+            "validation_hints": []
+          },
+          "processed data files format and content": {
+            "field": "processed data files format and content",
+            "template_key": "processed data files format and content",
+            "required": "optional",
+            "description": "Describe each processed data file type, format (e.g., TSV, H5AD, BAM), and what columns/fields contain. Include units and coordinate systems where relevant.",
+            "expected_value": "string or list",
+            "examples": [],
+            "validation_hints": []
+          }
+        }
+      },
+      "paired_end_experiments": {
+        "description": "PAIRED-END EXPERIMENTS lists the FASTQ (or equivalent) files for paired-end sequencing. Raw files listed here should also be listed in each sample row under raw file columns.",
+        "fields": {
+          "file name 1": {
+            "field": "file name 1",
+            "template_key": "file name 1",
+            "required": "optional",
+            "description": "Raw read file for mate 1 (R1). FASTQ (or equivalent). Provide the exact file name uploaded.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "file name 2": {
+            "field": "file name 2",
+            "template_key": "file name 2",
+            "required": "optional",
+            "description": "Raw read file for mate 2 (R2). FASTQ (or equivalent). Provide the exact file name uploaded.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "file name 3": {
+            "field": "file name 3",
+            "template_key": "file name 3",
+            "required": "optional",
+            "description": "Optional additional raw file for the same experiment (e.g., index reads I1/I2, or additional lanes), depending on platform/template guidance.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "file name 4": {
+            "field": "file name 4",
+            "template_key": "file name 4",
+            "required": "optional",
+            "description": "Optional additional raw file for the same experiment (e.g., second index read or additional lane).",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          }
+        }
+      },
+      "checksums": {
+        "description": "MD5 checksums for raw and processed files. GEO recommends providing MD5 to verify file integrity after transfer.",
+        "tables": {
+          "raw_data_files": {
+            "columns": [
+              "file name",
+              "file checksum (MD5)"
+            ],
+            "rows": []
+          },
+          "processed_data_files": {
+            "columns": [
+              "file name",
+              "file checksum (MD5)"
+            ],
+            "rows": []
+          }
+        },
+        "calculation_notes": [
+          "Unix: md5sum <file>",
+          "macOS: md5 <file>",
+          "Windows (cmd): certutil -hashfile <file> MD5"
+        ]
+      }
+    }
+  }
+}

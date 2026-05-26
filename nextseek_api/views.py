@@ -28,7 +28,7 @@ from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeli
 from seek.views import get_children_uids, sample_retrieval_data
 from .batch_upload.views import BatchUploadViewSet
 
-NEXTSEEK_DATABSE = settings.NEXTSEEK_DATABASE
+NEXTSEEK_DATABASE = settings.NEXTSEEK_DATABASE
 SEEK_DATABASE = settings.SEEK_DATABASE
 
 # Import serializers
@@ -659,7 +659,7 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
                     WHERE uuid IN ({uids_str})
                     """
                 else:
-                    # Avoid SQL syntax error whemapped projects
+                    # Avoid SQL syntax error when user has no mapped projects
                     project_ids_str = ', '.join(["'%s'" % pid for pid in user_project_ids]) if user_project_ids else "''"
                     query = f"""
                     SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata

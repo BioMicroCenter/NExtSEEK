@@ -35,7 +35,7 @@ if settings.USE_MODELTRANSLATION:
     ]
 
 urlpatterns += [
-    re_path("^$", direct_to_template, {"template": "index.html"}, name="home"),
+    re_path("^$", views.home, name="home"),
     re_path("^", include("mezzanine.urls")),
     re_path(r'^accounts/login/', views.login_seek, name="login_seek"),
     re_path(r'^accounts/signup/', views.signup_seek, name="signup_seek"),

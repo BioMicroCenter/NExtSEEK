@@ -7,7 +7,14 @@ export interface AsyncQueryResponse {
 // WebSocket progress event envelope
 export interface ProgressEvent {
   event: string;
-  data: AgentStartedData | AgentCompleteData | QueryCompleteData | QueryErrorData | Record<string, unknown>;
+  data:
+    | AgentStartedData
+    | AgentCompleteData
+    | SearchStartedData
+    | SearchCompleteData
+    | QueryCompleteData
+    | QueryErrorData
+    | Record<string, unknown>;
 }
 
 export interface AgentStartedData {
@@ -20,6 +27,38 @@ export interface AgentCompleteData {
   summary: Record<string, unknown> | string | null;
 }
 
+/**
+ * Emitted by chat_nextseek's orchestrator (and planner-loop execution)
+ * when an agent kicks off a side-effectful sub-step. Shape varies by
+ * `source`:
+ *   - "neo4j"    → carries `cypher`
+ *   - "api"      → carries `endpoint`, `method`
+ *   - "reporter" → carries `project`, `summary_mode`
+ */
+export interface SearchStartedData {
+  source: "neo4j" | "api" | "reporter" | string;
+  cypher?: string;
+  endpoint?: string;
+  method?: string;
+  project?: string | number;
+  summary_mode?: string;
+  [extra: string]: unknown;
+}
+
+/**
+ * Emitted on completion of the same sub-step. Neo4j carries `count` + `error`;
+ * API carries `endpoint` + HTTP `status`; reporter may carry row counts.
+ */
+export interface SearchCompleteData {
+  source: "neo4j" | "api" | "reporter" | string;
+  count?: number;
+  ok?: boolean;
+  error?: string | null;
+  endpoint?: string;
+  status?: number;
+  [extra: string]: unknown;
+}
+
 import type { Artifact } from "./chat";
 
 export interface QueryCompleteData {
@@ -27,11 +66,13 @@ export interface QueryCompleteData {
   debug: Record<string, unknown>;
   bundle_id: number;
   artifacts?: Artifact[] | null;
+  session_id?: string;
 }
 
 export interface QueryErrorData {
   error: string;
   agent?: string;
+  session_id?: string;
 }
 
 // GET /assistant/me/ response
@@ -57,4 +98,36 @@ export interface SessionResponse {
 export interface TestCase {
   id: string;
   prompt: string;
+}
+
+// GET /assistant/sessions/ row
+export interface SessionListItem {
+  session_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  query_count: number;
+  preview: string;
+}
+
+// GET /assistant/sessions/ response
+export interface SessionListResponse {
+  total: number;
+  sessions: SessionListItem[];
+}
+
+// One turn from a session's results_history projection
+export interface Turn {
+  bundle_id: number;
+  user_query: string;
+  reply: string;
+  mode: string;
+  ts?: string | null;
+  artifacts?: Artifact[] | null;
+}
+
+// GET /assistant/sessions/{id}/?include=turns response
+export interface SessionDetailWithTurns extends SessionResponse {
+  title?: string | null;
+  turns?: Turn[] | null;
 }

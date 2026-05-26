@@ -1,0 +1,2437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NextSeek Eval Demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+/* NextSeek Eval Demo Presentation */
+/* CSS Design System ported from T2Viz: evaluators-ai-agents-2026-03-25.html */
+
+/* ===== CSS Variables ===== */
+:root {
+    --bg: #FFFFFF;
+    --surface: #F8F6FC;
+    --surface-alt: #F0EDF5;
+    --text: #1a1a2e;
+    --text-muted: #6b7280;
+    --text-light: #9ca3af;
+    --accent: #A31F34;
+    --accent-light: #c8102e;
+    --accent-dark: #8a1a2c;
+    --purple: #7C3AED;
+    --success: #22c55e;
+    --success-light: #dcfce7;
+    --warning: #f59e0b;
+    --error: #ef4444;
+    --border: #e5e7eb;
+    --border-light: #f3f4f6;
+    --code-bg: #1e1e2e;
+    --code-text: #cdd6f4;
+    --code-keyword: #cba6f7;
+    --code-type: #89b4fa;
+    --code-string: #a6e3a1;
+    --code-comment: #6c7086;
+    --font-heading: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+    --slide-padding: 40px;
+    --card-padding: 24px;
+    --gap-sm: 12px;
+    --gap-md: 24px;
+    --gap-lg: 40px;
+    --transition-fast: 150ms ease;
+    --transition-normal: 300ms ease;
+    --transition-slow: 500ms ease;
+}
+
+/* ===== Base Reset ===== */
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+}
+
+body.mode-slides {
+    overflow: hidden;
+}
+
+body.mode-dashboard {
+    overflow: auto;
+}
+
+body {
+    font-family: var(--font-body);
+    font-size: 18px;
+    line-height: 1.6;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== Typography ===== */
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--text);
+}
+
+h1 { font-size: 3rem; font-weight: 700; }
+h2 { font-size: 2.25rem; margin-bottom: var(--gap-lg); }
+h3 { font-size: 1.5rem; margin-bottom: var(--gap-sm); }
+p { color: var(--text-muted); }
+
+/* ===== Progress Bar ===== */
+.progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: var(--border-light);
+    z-index: 1000;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--purple));
+    width: 0%;
+    transition: width var(--transition-normal);
+}
+
+/* ===== Navigation Dots (hidden) ===== */
+.nav-dots { display: none; }
+
+/* ===== Keyboard Hints ===== */
+.keyboard-hints {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    display: flex;
+    gap: 12px;
+    z-index: 1000;
+}
+
+.hint-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 11px;
+}
+
+/* ===== Slide Counter ===== */
+.slide-counter {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 14px;
+    color: var(--text-muted);
+    z-index: 1000;
+}
+
+/* ===== Speaker Notes Panel ===== */
+.notes-panel {
+    position: fixed;
+    top: 0;
+    right: -400px;
+    width: 400px;
+    height: 100%;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    box-shadow: -4px 0 20px rgba(0,0,0,0.1);
+    z-index: 2000;
+    transition: right var(--transition-normal);
+    display: flex;
+    flex-direction: column;
+}
+
+.notes-panel.visible { right: 0; }
+
+.notes-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+}
+
+.notes-header h3 { font-size: 1rem; margin: 0; }
+
+.notes-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    font-size: 24px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all var(--transition-fast);
+}
+
+.notes-close:hover {
+    background: var(--border-light);
+    color: var(--text);
+}
+
+.notes-content {
+    flex: 1;
+    padding: 24px;
+    overflow-y: auto;
+    font-size: 16px;
+    line-height: 1.7;
+    color: var(--text);
+    white-space: pre-wrap;
+}
+
+/* ===== Overview Mode ===== */
+.overview-mode {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    z-index: 3000;
+    display: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-content: center;
+    gap: 20px;
+    padding: 40px;
+    overflow-y: auto;
+}
+
+.overview-mode.visible { display: flex; }
+
+.overview-thumb {
+    width: 200px;
+    height: 120px;
+    background: var(--surface);
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+    border: 2px solid transparent;
+}
+
+.overview-thumb:hover {
+    transform: scale(1.05);
+    border-color: var(--accent);
+}
+
+.overview-thumb.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px rgba(163, 31, 52, 0.2);
+}
+
+.thumb-number {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+/* ===== Slides Container ===== */
+.slides-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+/* ===== Individual Slides ===== */
+.slide {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--slide-padding);
+    background: var(--bg);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(50px);
+    transition: all var(--transition-slow);
+}
+
+.slide.active {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+}
+
+.slide.prev { transform: translateX(-50px); }
+.slide.next { transform: translateX(50px); }
+
+.slide-content {
+    max-width: 1400px;
+    width: 100%;
+    text-align: center;
+}
+
+/* ===== Title Slide ===== */
+.title-slide {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--gap-md);
+}
+
+.title-badge {
+    display: inline-block;
+    padding: 8px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 30px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.tagline {
+    font-size: 1.5rem;
+    color: var(--text-muted);
+    max-width: 700px;
+}
+
+.subtitle {
+    font-size: 1.25rem;
+    color: var(--text-muted);
+    margin-bottom: var(--gap-md);
+}
+
+.presenter-name {
+    font-size: 1.25rem;
+    color: var(--text);
+    font-weight: 500;
+}
+
+.presenter-affiliation {
+    font-size: 1rem;
+    color: var(--text-muted);
+}
+
+/* ===== Logo Styles ===== */
+.logo-row {
+    display: flex;
+    gap: var(--gap-lg);
+    margin-top: var(--gap-lg);
+    align-items: center;
+    justify-content: center;
+}
+
+.logo-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.logo-text {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--text);
+    padding: 8px 16px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+}
+
+.logo-text.mit { color: var(--accent); border-color: var(--accent); }
+.logo-text.koch { color: var(--purple); border-color: var(--purple); }
+
+/* ===== Card Styles ===== */
+.concept-grid,
+.meta-grid,
+.benefits-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--gap-md);
+    text-align: left;
+}
+
+.concept-card,
+.meta-card,
+.benefit-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: var(--card-padding);
+    transition: all var(--transition-fast);
+}
+
+.concept-card:hover,
+.meta-card:hover,
+.benefit-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+}
+
+.card-icon {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    margin-bottom: var(--gap-sm);
+    font-size: 24px;
+}
+
+.card-icon.accent { background: rgba(163, 31, 52, 0.1); color: var(--accent); }
+.card-icon.purple { background: rgba(124, 58, 237, 0.1); color: var(--purple); }
+.card-icon.success { background: rgba(34, 197, 94, 0.1); color: var(--success); }
+.card-icon.warning { background: rgba(245, 158, 11, 0.1); color: var(--warning); }
+
+.card-icon svg { width: 24px; height: 24px; }
+
+/* ===== Callout ===== */
+.callout {
+    background: var(--surface);
+    border-left: 4px solid var(--border);
+    border-radius: 0 12px 12px 0;
+    padding: 16px 24px;
+    margin-top: var(--gap-md);
+    text-align: left;
+    font-size: 1.05rem;
+}
+
+.callout.accent { border-left-color: var(--accent); }
+.callout.purple { border-left-color: var(--purple); }
+.callout.success { border-left-color: var(--success); }
+
+/* ===== Two Column Layout ===== */
+.two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gap-lg);
+    text-align: left;
+}
+
+.col-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: var(--card-padding);
+}
+
+.col-panel h3 {
+    font-size: 1.35rem;
+    margin-bottom: var(--gap-md);
+}
+
+.col-panel ul {
+    list-style: none;
+    padding: 0;
+}
+
+.col-panel li {
+    padding: 6px 0;
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.col-panel li:last-child { border-bottom: none; }
+
+.col-panel li strong { color: var(--text); }
+
+.col-label {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--gap-sm);
+}
+
+.col-label.judge { background: rgba(163,31,52,0.1); color: var(--accent); }
+.col-label.programmatic { background: rgba(124,58,237,0.1); color: var(--purple); }
+.col-label.hybrid { background: rgba(34,197,94,0.1); color: var(--success); }
+
+/* ===== Workflow Diagram ===== */
+.workflow-diagram {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: var(--gap-sm);
+    flex-wrap: wrap;
+    margin: var(--gap-lg) 0;
+}
+
+.workflow-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+}
+
+.workflow-step span {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    max-width: 90px;
+    text-align: center;
+    line-height: 1.3;
+}
+
+.step-circle {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 20px;
+}
+
+.step-circle svg { width: 24px; height: 24px; }
+.step-circle.accent { background: rgba(163,31,52,0.1); border-color: var(--accent); color: var(--accent); }
+.step-circle.purple { background: rgba(124,58,237,0.1); border-color: var(--purple); color: var(--purple); }
+.step-circle.success { background: var(--success-light); border-color: var(--success); color: var(--success); }
+.step-circle.warning { background: rgba(245,158,11,0.1); border-color: var(--warning); color: var(--warning); }
+.step-circle.eval {
+    border-style: dashed;
+    border-width: 3px;
+}
+
+.workflow-arrow {
+    font-size: 24px;
+    color: var(--border);
+    padding-top: 16px;
+}
+
+.workflow-arrow.accent { color: var(--accent); }
+
+/* ===== Code Block Styles ===== */
+.code-section {
+    text-align: left;
+    margin: var(--gap-md) 0;
+}
+
+.code-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 8px 8px 0 0;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #fff;
+}
+
+.code-label.judge-label { background: var(--accent); }
+.code-label.hybrid-label { background: var(--success); color: var(--text); }
+.code-label.programmatic-label { background: var(--purple); }
+
+.code-project {
+    font-size: 11px;
+    font-weight: 400;
+    opacity: 0.8;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.code-block {
+    background: var(--code-bg);
+    border-radius: 0 12px 12px 12px;
+    padding: 20px 24px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--code-text);
+    tab-size: 2;
+    white-space: pre;
+}
+
+.code-block .kw { color: var(--code-keyword); }
+.code-block .ty { color: var(--code-type); }
+.code-block .st { color: var(--code-string); }
+.code-block .cm { color: var(--code-comment); font-style: italic; }
+.code-block .fn { color: #f9e2af; }
+
+/* ===== Mention Cards (smaller, inline) ===== */
+.mention-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--gap-sm);
+    margin-top: var(--gap-md);
+    text-align: left;
+}
+
+.mention-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    font-size: 0.85rem;
+}
+
+.mention-card h4 {
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+    color: var(--text);
+}
+
+.mention-card p {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.mention-card .eval-type {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 6px;
+}
+
+.eval-type.judge { background: rgba(163,31,52,0.1); color: var(--accent); }
+.eval-type.hybrid { background: rgba(34,197,94,0.1); color: var(--success); }
+.eval-type.prog { background: rgba(124,58,237,0.1); color: var(--purple); }
+
+/* ===== Pipeline Loop Diagram ===== */
+.pipeline-loop {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    margin: var(--gap-md) auto;
+    max-width: 900px;
+    position: relative;
+}
+
+.pipeline-row {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+    position: relative;
+}
+
+.pipeline-node {
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 18px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text);
+    text-align: center;
+    min-width: 120px;
+    position: relative;
+}
+
+.pipeline-node.evaluator {
+    border-style: dashed;
+    border-width: 3px;
+    border-color: var(--accent);
+    background: rgba(163, 31, 52, 0.05);
+}
+
+.pipeline-node.evaluator.hybrid {
+    border-color: var(--success);
+    background: rgba(34, 197, 94, 0.05);
+}
+
+.pipeline-node.context {
+    border-color: var(--purple);
+    background: rgba(124, 58, 237, 0.05);
+    border-style: dashed;
+}
+
+.pipeline-node small {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-top: 2px;
+}
+
+.pipeline-arrow-down {
+    font-size: 20px;
+    color: var(--border);
+    line-height: 1;
+    padding: 4px 0;
+}
+
+.pipeline-arrow-right {
+    font-size: 20px;
+    color: var(--border);
+}
+
+.retry-label {
+    font-size: 0.65rem;
+    color: var(--accent);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.retry-label.hybrid { color: var(--success); }
+
+.pipeline-side-group {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-sm);
+}
+
+.retry-arrows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.7rem;
+    color: var(--accent);
+    font-weight: 500;
+    padding: 4px 8px;
+    border-left: 2px dashed var(--accent);
+}
+
+.retry-arrows.hybrid {
+    border-left-color: var(--success);
+    color: var(--success);
+}
+
+/* ===== Circular Ring Diagram ===== */
+.circular-ring {
+    position: relative;
+    width: 380px;
+    height: 380px;
+    margin: var(--gap-md) auto;
+}
+
+.ring-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    z-index: 2;
+}
+
+.ring-center h3 {
+    font-size: 1rem;
+    color: var(--accent);
+    margin: 0;
+    line-height: 1.3;
+}
+
+.ring-step {
+    position: absolute;
+    background: #FFFFFF;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 14px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--text);
+    text-align: center;
+    white-space: nowrap;
+    transform: translate(-50%, -50%);
+    z-index: 1;
+}
+
+.ring-step.highlight {
+    border-color: var(--accent);
+    background: #FDF5F6;
+}
+
+.ring-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+}
+
+/* ===== Cycle Diagram ===== */
+.cycle-diagram {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin: var(--gap-lg) 0;
+    max-width: 900px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.cycle-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cycle-node {
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 18px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text);
+    white-space: nowrap;
+}
+
+.cycle-node.highlight {
+    border-color: var(--accent);
+    background: rgba(163,31,52,0.05);
+}
+
+.cycle-arrow {
+    font-size: 18px;
+    color: var(--text-light);
+}
+
+/* ===== Takeaway List ===== */
+.takeaway-list {
+    text-align: left;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.takeaway-list li {
+    padding: 14px 0;
+    font-size: 1.15rem;
+    color: var(--text);
+    border-bottom: 1px solid var(--border-light);
+    list-style: none;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.takeaway-list li:last-child { border-bottom: none; }
+
+.takeaway-bullet {
+    width: 8px;
+    height: 8px;
+    min-width: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-top: 8px;
+}
+
+/* ===== Section Header Slide ===== */
+.section-header-slide {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--gap-md);
+}
+
+.section-header-slide h1 {
+    font-size: 2.5rem;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* ===== Animations ===== */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-item {
+    animation: fadeInUp 0.5s ease both;
+    animation-play-state: paused;
+}
+
+/* ============================================================
+   Dashboard-Specific CSS (additions to T2Viz base)
+   ============================================================ */
+
+/* Mode switcher */
+.mode-nav { position: fixed; top: 4px; left: 50%; transform: translateX(-50%); z-index: 1001; display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 4px; }
+.mode-tab { padding: 8px 24px; border-radius: 20px; border: none; background: transparent; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--text-muted); transition: all var(--transition-fast); }
+.mode-tab.active { background: var(--accent); color: white; }
+
+/* Dashboard layout */
+.dashboard-container { max-width: 1400px; margin: 60px auto 40px; padding: 0 var(--slide-padding); }
+.dashboard-header { margin-bottom: var(--gap-lg); }
+
+/* Stage cards for pipeline flow */
+.stage-card { background: var(--surface); border: 2px solid var(--border); border-radius: 12px; padding: var(--card-padding); transition: all var(--transition-normal); }
+.stage-card.idle { opacity: 0.5; }
+.stage-card.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(163,31,52,0.1); }
+.stage-card.complete { border-color: var(--success); }
+.stage-card.error { border-color: var(--error); }
+
+/* Connection status */
+.connection-indicator { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.connection-dot { width: 8px; height: 8px; border-radius: 50%; }
+.connection-dot.connected { background: var(--success); }
+.connection-dot.disconnected { background: var(--error); }
+
+/* Spinner */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+.spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+/* Mode visibility */
+body.mode-slides #slides-mode { display: block; height: 100vh; }
+body.mode-slides #dashboard-mode { display: none; }
+body.mode-slides .keyboard-hints { display: flex; }
+body.mode-slides .slide-counter { display: block; }
+body.mode-slides .progress-bar { display: block; }
+
+body.mode-dashboard #slides-mode { display: none; }
+body.mode-dashboard #dashboard-mode { display: block; }
+body.mode-dashboard .keyboard-hints { display: none; }
+body.mode-dashboard .slide-counter { display: none; }
+body.mode-dashboard .progress-bar { display: none; }
+
+.dashboard-controls { display: flex; align-items: center; gap: var(--gap-md); }
+.dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--gap-lg); }
+
+/* === Dashboard Analytics === */
+.analytics-section { margin-top: var(--gap-lg); }
+.score-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--gap-md); margin-bottom: var(--gap-lg); }
+.score-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: var(--card-padding); text-align: center; }
+.score-card-pass { border-left: 4px solid var(--success); }
+.score-card-retry { border-left: 4px solid var(--warning); }
+.score-card-fail { border-left: 4px solid var(--error); }
+.score-value { display: block; font-size: 2.5rem; font-weight: 700; color: var(--text); }
+.score-label { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+.charts-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap-md); margin-bottom: var(--gap-lg); }
+.chart-container { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: var(--card-padding); position: relative; height: 320px; }
+.chart-container canvas { max-height: 250px; }
+.chart-container h3 { font-size: 14px; color: var(--text-muted); margin-bottom: var(--gap-sm); }
+.chart-fallback { padding: var(--gap-sm); }
+
+.query-details { margin-bottom: var(--gap-lg); }
+.query-detail-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: var(--card-padding); margin-bottom: var(--gap-sm); cursor: pointer; transition: all var(--transition-fast); }
+.query-detail-card:hover { border-color: var(--accent); }
+.query-detail-header { display: flex; justify-content: space-between; align-items: center; }
+.query-text { font-weight: 500; font-size: 15px; }
+.verdict-badge { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+.verdict-badge.pass { background: var(--success-light); color: var(--success); }
+.verdict-badge.retry { background: rgba(245,158,11,0.1); color: var(--warning); }
+.verdict-badge.fail { background: rgba(239,68,68,0.1); color: var(--error); }
+.query-detail-body { display: none; margin-top: var(--gap-sm); }
+.query-detail-card.expanded .query-detail-body { display: block; }
+.score-pills { display: flex; gap: 8px; margin: 8px 0; }
+.score-pill { padding: 4px 10px; border-radius: 6px; font-size: 12px; }
+.score-pill.pass { background: var(--success-light); color: var(--success); }
+.score-pill.partial { background: rgba(245,158,11,0.1); color: var(--warning); }
+.score-pill.fail { background: rgba(239,68,68,0.1); color: var(--error); }
+
+.retry-comparison { margin-bottom: var(--gap-lg); }
+.retry-comp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: var(--card-padding); margin-bottom: var(--gap-sm); }
+.retry-comp-grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: var(--gap-md); align-items: center; }
+.retry-comp-side h4 { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+.delta-indicator { font-size: 18px; text-align: center; }
+.delta-improved { color: var(--success); }
+.delta-same { color: var(--text-light); }
+.delta-degraded { color: var(--error); }
+
+.fallback-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.fallback-bar-label { width: 100px; font-size: 12px; color: var(--text-muted); text-align: right; }
+.fallback-bar-track { flex: 1; height: 18px; background: var(--border); border-radius: 4px; overflow: hidden; }
+.fallback-bar-fill { height: 100%; border-radius: 4px; }
+.fallback-bar-value { width: 30px; font-size: 12px; color: var(--text-muted); }
+.fallback-legend { display: flex; gap: 12px; margin-top: 8px; }
+.fallback-legend-item { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-muted); }
+.fallback-legend-swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.fallback-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fallback-table th, .fallback-table td { padding: 4px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+.fallback-table th { color: var(--text-muted); font-weight: 600; }
+</style>
+</head>
+<body class="mode-slides">
+
+    <!-- Mode Switcher Nav Bar -->
+    <nav class="mode-nav">
+        <button class="mode-tab active" data-testid="mode-tab-presentation" onclick="switchMode('slides')">Presentation</button>
+        <button class="mode-tab" data-testid="mode-tab-dashboard" onclick="switchMode('dashboard')">Dashboard</button>
+    </nav>
+
+    <!-- Progress Bar -->
+    <div class="progress-bar" data-testid="progress-bar">
+        <div class="progress-fill" id="progress-fill"></div>
+    </div>
+
+    <!-- Nav Dots (hidden) -->
+    <div class="nav-dots" id="nav-dots"></div>
+
+    <!-- Speaker Notes Panel -->
+    <div class="notes-panel" id="notes-panel" data-testid="notes-panel">
+        <div class="notes-header">
+            <h3>Speaker Notes</h3>
+            <button class="notes-close" onclick="toggleNotes()">&times;</button>
+        </div>
+        <div class="notes-content" id="notes-content"></div>
+    </div>
+
+    <!-- Overview Mode -->
+    <div class="overview-mode" id="overview-mode"></div>
+
+    <!-- Slides Mode -->
+    <div id="slides-mode" data-testid="slides-container">
+        <main class="slides-container">
+            <!-- SECTION: SLIDES-START -->
+
+            <!-- Slide 1: Title -->
+            <section class="slide" data-testid="slide-1-title" data-notes="This presentation covers NextSeekEval, an automated evaluation system for NExtSEEK assistant responses. We will explore why evaluation matters, how evaluators work as loop governors, the two-function BAML evaluator design, discriminated retry signals by path mode, and the end-to-end data flow. By the end you will understand how structured LLM-as-Judge evaluation closes the feedback loop for AI agent orchestration.">
+                <div class="slide-content">
+                    <div class="section-header-slide">
+                        <span class="title-badge">NextSeekEval</span>
+                        <h1>NextSeekEval: AI-Powered Evaluation for NExtSEEK</h1>
+                        <p class="subtitle">Automated quality assessment with LLM-as-Judge and intelligent retry</p>
+                        <div class="logo-row">
+                            <div class="logo-container"><span class="logo-text mit">MIT</span></div>
+                            <div class="logo-container"><span class="logo-text koch">Koch Institute</span></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 2: The Problem -->
+            <section class="slide" data-testid="slide-2-problem" data-notes="NExtSEEK is a conversational search assistant for biomedical data. It routes queries through multiple path modes — search, graph, plan, reporter — and returns structured results. But without evaluation, there is no feedback loop. Agents produce results, but quality goes unchecked. Wrong data can be returned without detection — silent failures that erode trust. Manual review by domain experts does not scale to the volume of queries a production system handles. These three problems motivate automated evaluation.">
+                <div class="slide-content">
+                    <h2>Why Evaluate Agent Responses?</h2>
+                    <div class="concept-grid">
+                        <div class="concept-card animate-item" style="animation-delay: 0.1s">
+                            <div class="card-icon accent">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            </div>
+                            <h3>No Feedback Loop</h3>
+                            <p>Agents produce results but quality is unchecked — no systematic way to know if responses are correct or complete.</p>
+                        </div>
+                        <div class="concept-card animate-item" style="animation-delay: 0.2s">
+                            <div class="card-icon warning">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            </div>
+                            <h3>Silent Failures</h3>
+                            <p>Wrong data returned without detection — incorrect routing, missing results, or partial answers go unnoticed.</p>
+                        </div>
+                        <div class="concept-card animate-item" style="animation-delay: 0.3s">
+                            <div class="card-icon purple">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                            </div>
+                            <h3>Manual Review</h3>
+                            <p>Human review by domain experts does not scale to the volume and variety of queries in a production system.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 3: What Are Evaluators? -->
+            <section class="slide" data-testid="slide-3-evaluators" data-notes="Evaluators are quality gates in agent orchestration. They sit between the agent response and the final output, assessing whether the response meets quality criteria. Think of them as loop governors — they observe the output, judge its quality, and decide whether to accept the result or trigger a retry with an improved query. The circular flow shows: a query enters the system, the agent produces a response, the evaluator judges it, makes a decision, and either accepts or retries. The evaluator node is the critical control point.">
+                <div class="slide-content">
+                    <h2>Evaluators as Loop Governors</h2>
+                    <div class="circular-ring animate-item" style="animation-delay: 0.1s">
+                        <svg class="ring-svg" viewBox="0 0 380 380">
+                            <circle cx="190" cy="190" r="140" fill="none" stroke="var(--border)" stroke-width="2" stroke-dasharray="6 4" opacity="0.5"/>
+                            <defs>
+                                <marker id="arrowhead-eval" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                                    <polygon points="0 0, 8 3, 0 6" fill="var(--accent)"/>
+                                </marker>
+                            </defs>
+                            <path d="M190 50 A140 140 0 0 1 330 190" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrowhead-eval)" class="svg-edge" style="transition: stroke-dashoffset 1.2s ease 0.2s"/>
+                            <path d="M330 190 A140 140 0 0 1 190 330" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrowhead-eval)" class="svg-edge" style="transition: stroke-dashoffset 1.2s ease 0.5s"/>
+                            <path d="M190 330 A140 140 0 0 1 50 190" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrowhead-eval)" class="svg-edge" style="transition: stroke-dashoffset 1.2s ease 0.8s"/>
+                            <path d="M50 190 A140 140 0 0 1 190 50" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrowhead-eval)" class="svg-edge" style="transition: stroke-dashoffset 1.2s ease 1.1s"/>
+                        </svg>
+                        <div class="ring-center">
+                            <h3>Quality<br>Gate</h3>
+                        </div>
+                        <div class="ring-step" style="top: 5%; left: 50%;">Query</div>
+                        <div class="ring-step" style="top: 30%; left: 92%;">Agent</div>
+                        <div class="ring-step" style="top: 70%; left: 92%;">Response</div>
+                        <div class="ring-step highlight" style="top: 95%; left: 50%;">Evaluator</div>
+                        <div class="ring-step" style="top: 70%; left: 8%;">Decision</div>
+                        <div class="ring-step" style="top: 30%; left: 8%;">Retry / Accept</div>
+                    </div>
+                    <p style="margin-top: var(--gap-md); max-width: 700px; margin-left: auto; margin-right: auto;">Evaluators observe agent output, judge quality against structured criteria, and decide whether to accept or retry — closing the feedback loop.</p>
+                </div>
+            </section>
+
+            <!-- Slide 4: Two Paradigms -->
+            <section class="slide" data-testid="slide-4-paradigms" data-notes="There are two fundamental approaches to evaluation. LLM-as-Judge uses structured prompts to assess responses across multiple criteria — correctness, completeness, routing quality. It is flexible and can handle nuanced judgments, but is slower and costs per call. Programmatic evaluation uses rule-based checks — did the API return 200, are there rows in the result, is the bundle present. It is deterministic and fast, but rigid and cannot assess semantic quality. NextSeekEval uses a hybrid approach: programmatic signals feed into the LLM judge as structured context, combining the speed of rules with the flexibility of language model assessment.">
+                <div class="slide-content">
+                    <h2>LLM-as-Judge vs. Programmatic</h2>
+                    <div class="two-col animate-item" style="animation-delay: 0.1s">
+                        <div class="col-panel">
+                            <span class="col-label judge">LLM-as-Judge</span>
+                            <h3>Structured Prompts</h3>
+                            <ul>
+                                <li><strong>Multi-criteria scoring</strong> — correctness, completeness, routing</li>
+                                <li><strong>Flexible assessment</strong> — handles nuanced, open-ended judgments</li>
+                                <li><strong>Structured output</strong> — returns typed Score enums (PASS/PARTIAL/FAIL)</li>
+                                <li><strong>Trade-off</strong> — slower, costs per LLM call</li>
+                            </ul>
+                        </div>
+                        <div class="col-panel">
+                            <span class="col-label programmatic">Programmatic</span>
+                            <h3>Rule-Based Checks</h3>
+                            <ul>
+                                <li><strong>Deterministic signals</strong> — API status, row counts, bundle presence</li>
+                                <li><strong>Fast execution</strong> — no LLM round-trip required</li>
+                                <li><strong>Binary outcomes</strong> — pass/fail on concrete conditions</li>
+                                <li><strong>Trade-off</strong> — rigid, cannot assess semantic quality</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="callout accent animate-item" style="animation-delay: 0.3s">
+                        <strong>NextSeekEval uses: Hybrid</strong> — Programmatic signals feed into the LLM judge as structured context, combining speed with flexibility.
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 5: Architecture -->
+            <section class="slide" data-testid="slide-5-architecture" data-notes="The NextSeekEval system architecture is a 6-stage async pipeline. Stage 1: Submit Query — an async POST to the NExtSEEK assistant endpoint, returning a task_id and session_id. Stage 2: Poll Status — exponential backoff polling (1s, 2s, 4s up to 30s) until the task completes or times out at 5 minutes. Stage 3: Fetch Context — retrieves the normalized evaluator retry-context payload with typed signals. Stage 4: Judge Response — the BAML LLM evaluator scores correctness, completeness, and routing quality. Stage 5: Decide Retry — a second BAML function determines the verdict (PASS/RETRY/FAIL) and generates structured suggestions. Stage 6: Execute Retry — if retry is warranted, submits a refined query. Each stage passes strongly-typed data to the next.">
+                <div class="slide-content">
+                    <h2>System Architecture</h2>
+                    <div class="pipeline-loop animate-item" style="animation-delay: 0.1s">
+                        <svg viewBox="0 0 1100 220" style="width: 100%; max-width: 1100px; height: auto;">
+                            <defs>
+                                <marker id="arrow-pipe" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                                    <polygon points="0 0, 8 3, 0 6" fill="var(--accent)"/>
+                                </marker>
+                            </defs>
+                            <!-- Stage boxes -->
+                            <rect x="10" y="30" width="140" height="60" rx="12" fill="var(--surface)" stroke="var(--border)" stroke-width="2"/>
+                            <text x="80" y="55" text-anchor="middle" font-size="13" font-weight="600" fill="var(--text)">Submit Query</text>
+                            <text x="80" y="75" text-anchor="middle" font-size="10" fill="var(--text-muted)">async POST</text>
+
+                            <rect x="200" y="30" width="140" height="60" rx="12" fill="var(--surface)" stroke="var(--border)" stroke-width="2"/>
+                            <text x="270" y="55" text-anchor="middle" font-size="13" font-weight="600" fill="var(--text)">Poll Status</text>
+                            <text x="270" y="75" text-anchor="middle" font-size="10" fill="var(--text-muted)">exp. backoff</text>
+
+                            <rect x="390" y="30" width="140" height="60" rx="12" fill="var(--surface)" stroke="var(--border)" stroke-width="2"/>
+                            <text x="460" y="55" text-anchor="middle" font-size="13" font-weight="600" fill="var(--text)">Fetch Context</text>
+                            <text x="460" y="75" text-anchor="middle" font-size="10" fill="var(--text-muted)">retry-context</text>
+
+                            <rect x="580" y="30" width="140" height="60" rx="12" fill="rgba(163,31,52,0.05)" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 4"/>
+                            <text x="650" y="55" text-anchor="middle" font-size="13" font-weight="600" fill="var(--accent)">Judge Response</text>
+                            <text x="650" y="75" text-anchor="middle" font-size="10" fill="var(--text-muted)">BAML LLM</text>
+
+                            <rect x="770" y="30" width="140" height="60" rx="12" fill="rgba(163,31,52,0.05)" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 4"/>
+                            <text x="840" y="55" text-anchor="middle" font-size="13" font-weight="600" fill="var(--accent)">Decide Retry</text>
+                            <text x="840" y="75" text-anchor="middle" font-size="10" fill="var(--text-muted)">structured verdict</text>
+
+                            <rect x="960" y="30" width="130" height="60" rx="12" fill="var(--surface)" stroke="var(--border)" stroke-width="2"/>
+                            <text x="1025" y="55" text-anchor="middle" font-size="13" font-weight="600" fill="var(--text)">Execute Retry</text>
+                            <text x="1025" y="75" text-anchor="middle" font-size="10" fill="var(--text-muted)">new query</text>
+
+                            <!-- Animated edges between stages -->
+                            <line x1="150" y1="60" x2="200" y2="60" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrow-pipe)" class="svg-edge" style="transition: stroke-dashoffset 0.8s ease 0.2s"/>
+                            <line x1="340" y1="60" x2="390" y2="60" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrow-pipe)" class="svg-edge" style="transition: stroke-dashoffset 0.8s ease 0.4s"/>
+                            <line x1="530" y1="60" x2="580" y2="60" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrow-pipe)" class="svg-edge" style="transition: stroke-dashoffset 0.8s ease 0.6s"/>
+                            <line x1="720" y1="60" x2="770" y2="60" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrow-pipe)" class="svg-edge" style="transition: stroke-dashoffset 0.8s ease 0.8s"/>
+                            <line x1="910" y1="60" x2="960" y2="60" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrow-pipe)" class="svg-edge" style="transition: stroke-dashoffset 0.8s ease 1.0s"/>
+
+                            <!-- Retry loop arrow back from Execute Retry to Submit Query -->
+                            <path d="M1025 90 L1025 160 Q1025 180 1005 180 L75 180 Q55 180 55 160 L55 90" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrow-pipe)" class="svg-edge" style="transition: stroke-dashoffset 1.5s ease 1.2s"/>
+                            <text x="540" y="198" text-anchor="middle" font-size="11" font-weight="600" fill="var(--accent)" text-transform="uppercase" letter-spacing="1">RETRY LOOP (max 1)</text>
+                        </svg>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 6: BAML Evaluator Functions -->
+            <section class="slide" data-testid="slide-6-baml" data-notes="NextSeekEval splits evaluation into two BAML functions following the separation of concerns principle. JudgeAssistantResponse takes an EvaluatorInput (with lookup, run, routing, and retry_context sections) and returns an EvaluationJudgment with per-criterion scores using the Score enum: PASS, PARTIAL, or FAIL for correctness, completeness, and routing quality, plus reasoning text. DecideRetry takes both the input and the judgment and returns a RetryDecision with an overall Verdict (PASS, RETRY, or FAIL), a should_retry boolean, structured suggestions using SuggestionCategory enums, and a retry_query when retry is warranted. This separation means judgment is independent of the retry decision — you can change retry logic without changing scoring.">
+                <div class="slide-content">
+                    <h2>Two-Function Evaluator Design</h2>
+                    <div class="two-col animate-item" style="animation-delay: 0.1s">
+                        <div class="col-panel">
+                            <div class="code-section">
+                                <span class="code-label judge-label">JudgeAssistantResponse</span>
+                                <div class="code-block"><span class="kw">function</span> <span class="fn">JudgeAssistantResponse</span>(
+  input: <span class="ty">EvaluatorInput</span>
+) -> <span class="ty">EvaluationJudgment</span>
+
+<span class="kw">enum</span> <span class="ty">Score</span> {
+  <span class="st">PASS</span>
+  <span class="st">PARTIAL</span>
+  <span class="st">FAIL</span>
+}
+
+<span class="kw">class</span> <span class="ty">EvaluationJudgment</span> {
+  correctness     <span class="ty">Score</span>
+  completeness    <span class="ty">Score</span>
+  routing_quality <span class="ty">Score</span>
+  reasoning       <span class="ty">string</span>
+}</div>
+                            </div>
+                        </div>
+                        <div class="col-panel">
+                            <div class="code-section">
+                                <span class="code-label programmatic-label">DecideRetry</span>
+                                <div class="code-block"><span class="kw">function</span> <span class="fn">DecideRetry</span>(
+  input: <span class="ty">EvaluatorInput</span>,
+  judgment: <span class="ty">EvaluationJudgment</span>
+) -> <span class="ty">RetryDecision</span>
+
+<span class="kw">enum</span> <span class="ty">Verdict</span> {
+  <span class="st">PASS</span>
+  <span class="st">RETRY</span>
+  <span class="st">FAIL</span>
+}
+
+<span class="kw">class</span> <span class="ty">RetryDecision</span> {
+  verdict      <span class="ty">Verdict</span>
+  should_retry <span class="ty">bool</span>
+  suggestions  <span class="ty">Suggestion[]</span>
+  retry_query  <span class="ty">string?</span>
+}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 7: Discriminated Retry Signals -->
+            <section class="slide" data-testid="slide-7-signals" data-notes="RetrySignals uses a discriminated union by PathMode. Each path mode produces different signals relevant to its execution. SearchSignals tracks api_ok, api_status_code, and rows_returned — the key indicators for API search quality. GraphSignals tracks graph_ok and rows_returned for graph database queries. PlanSignals tracks steps_total, steps_executed, steps_ok, steps_failed, and stop_reason for multi-step plan execution. Common signals shared across all modes include assistant_status, query_error_present, bundle_present, has_artifacts, and has_prior_context. This discriminated approach prevents evaluator confusion — the LLM judge sees only the signals relevant to the path mode that was actually executed.">
+                <div class="slide-content">
+                    <h2>Smart Signals by Path Mode</h2>
+                    <div class="concept-grid" style="grid-template-columns: repeat(4, 1fr);">
+                        <div class="concept-card animate-item" style="animation-delay: 0.1s">
+                            <div class="card-icon success">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            </div>
+                            <h3>SearchSignals</h3>
+                            <ul style="list-style: none; padding: 0; font-size: 0.85rem; color: var(--text-muted);">
+                                <li><strong>api_ok</strong> — API returned success</li>
+                                <li><strong>api_status_code</strong> — HTTP status</li>
+                                <li><strong>rows_returned</strong> — result count</li>
+                            </ul>
+                        </div>
+                        <div class="concept-card animate-item" style="animation-delay: 0.2s">
+                            <div class="card-icon purple">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><line x1="12" y1="9" x2="5" y2="8"/><line x1="12" y1="9" x2="19" y2="8"/><line x1="12" y1="15" x2="5" y2="16"/><line x1="12" y1="15" x2="19" y2="16"/></svg>
+                            </div>
+                            <h3>GraphSignals</h3>
+                            <ul style="list-style: none; padding: 0; font-size: 0.85rem; color: var(--text-muted);">
+                                <li><strong>graph_ok</strong> — query succeeded</li>
+                                <li><strong>rows_returned</strong> — result count</li>
+                            </ul>
+                        </div>
+                        <div class="concept-card animate-item" style="animation-delay: 0.3s">
+                            <div class="card-icon accent">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                            </div>
+                            <h3>PlanSignals</h3>
+                            <ul style="list-style: none; padding: 0; font-size: 0.85rem; color: var(--text-muted);">
+                                <li><strong>steps_total</strong> — planned steps</li>
+                                <li><strong>steps_ok</strong> — succeeded</li>
+                                <li><strong>stop_reason</strong> — why stopped</li>
+                            </ul>
+                        </div>
+                        <div class="concept-card animate-item" style="animation-delay: 0.4s">
+                            <div class="card-icon warning">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+                            </div>
+                            <h3>Common</h3>
+                            <ul style="list-style: none; padding: 0; font-size: 0.85rem; color: var(--text-muted);">
+                                <li><strong>bundle_present</strong></li>
+                                <li><strong>has_artifacts</strong></li>
+                                <li><strong>has_prior_context</strong></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 8: Evaluation Flow Detail -->
+            <section class="slide" data-testid="slide-8-flow" data-notes="Data flows through the evaluator with type safety at every boundary. Server-side Pydantic models (EvaluatorRetryContextResponse with its sub-models: EvaluatorLookup, EvaluatorRunMeta, EvaluatorRouting, EvaluatorRetryContext) are fetched from the retry-context endpoint. The convert_to_baml_input() function transforms these into BAML types (EvaluatorInput) — no generic dicts, no string flattening. The BAML evaluator produces structured output (EvaluationJudgment, RetryDecision) which maps back to Pydantic report models. Every conversion is explicit and typed, so schema mismatches surface as validation errors rather than silent corruption.">
+                <div class="slide-content">
+                    <h2>Data Flow Through the Evaluator</h2>
+                    <div class="cycle-diagram animate-item" style="animation-delay: 0.1s">
+                        <div class="cycle-step">
+                            <div class="cycle-node">Server Models<br><small style="font-size: 0.7rem; color: var(--text-muted);">Pydantic</small></div>
+                            <span class="cycle-arrow">&rarr;</span>
+                        </div>
+                        <div class="cycle-step">
+                            <div class="cycle-node highlight">convert_to_baml_input()<br><small style="font-size: 0.7rem; color: var(--text-muted);">type transform</small></div>
+                            <span class="cycle-arrow">&rarr;</span>
+                        </div>
+                        <div class="cycle-step">
+                            <div class="cycle-node">BAML Types<br><small style="font-size: 0.7rem; color: var(--text-muted);">EvaluatorInput</small></div>
+                            <span class="cycle-arrow">&rarr;</span>
+                        </div>
+                        <div class="cycle-step">
+                            <div class="cycle-node highlight">LLM Evaluation<br><small style="font-size: 0.7rem; color: var(--text-muted);">Judge + Decide</small></div>
+                            <span class="cycle-arrow">&rarr;</span>
+                        </div>
+                        <div class="cycle-step">
+                            <div class="cycle-node">Structured Output<br><small style="font-size: 0.7rem; color: var(--text-muted);">Judgment + Decision</small></div>
+                        </div>
+                    </div>
+                    <div class="two-col animate-item" style="animation-delay: 0.3s; margin-top: var(--gap-md);">
+                        <div class="col-panel">
+                            <h3>Input Types</h3>
+                            <ul>
+                                <li><strong>EvaluatorLookup</strong> — task_id, session_id, bundle_id</li>
+                                <li><strong>EvaluatorRunMeta</strong> — query, mode, status, timing</li>
+                                <li><strong>EvaluatorRouting</strong> — path_mode, execution details</li>
+                                <li><strong>EvaluatorRetryContext</strong> — signals, artifacts, reply</li>
+                            </ul>
+                        </div>
+                        <div class="col-panel">
+                            <h3>Output Types</h3>
+                            <ul>
+                                <li><strong>EvaluationJudgment</strong> — per-criterion Score enums</li>
+                                <li><strong>RetryDecision</strong> — Verdict, should_retry, suggestions</li>
+                                <li><strong>Suggestion</strong> — SuggestionCategory + description</li>
+                                <li><strong>EvalReport</strong> — complete evaluation record</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 9: Test Strategy -->
+            <section class="slide" data-testid="slide-9-testing" data-notes="NextSeekEval uses evaluation-driven development. Test cases are organized by path mode to cover the evaluation space systematically. new_search has 4 cases covering common search patterns. refine_last_search has 1 case testing query refinement. graph_query has 2 cases for graph database queries. reporter has 2 cases for report generation. negative_controls has 1 case to verify the evaluator correctly identifies failures. An example flow: the mice_ndma test case submits a search query, gets a PARTIAL score, the evaluator decides RETRY with structured suggestions, submits a refined query, and the retry receives a PASS — demonstrating the full evaluation loop.">
+                <div class="slide-content">
+                    <h2>Evaluation-Driven Development</h2>
+                    <div class="two-col animate-item" style="animation-delay: 0.1s">
+                        <div class="col-panel">
+                            <h3>Test Case Categories</h3>
+                            <ul>
+                                <li style="border-left: 3px solid var(--success); padding-left: 12px;"><strong>new_search</strong> (4 cases) — common search patterns</li>
+                                <li style="border-left: 3px solid var(--purple); padding-left: 12px;"><strong>refine_last_search</strong> (1 case) — query refinement</li>
+                                <li style="border-left: 3px solid var(--accent); padding-left: 12px;"><strong>graph_query</strong> (2 cases) — graph database queries</li>
+                                <li style="border-left: 3px solid var(--warning); padding-left: 12px;"><strong>reporter</strong> (2 cases) — report generation</li>
+                                <li style="border-left: 3px solid var(--error); padding-left: 12px;"><strong>negative_controls</strong> (1 case) — failure detection</li>
+                            </ul>
+                        </div>
+                        <div class="col-panel">
+                            <h3>Example Flow</h3>
+                            <div class="cycle-diagram" style="margin: var(--gap-sm) 0; max-width: 100%;">
+                                <div class="cycle-step">
+                                    <div class="cycle-node">mice_ndma</div>
+                                    <span class="cycle-arrow">&rarr;</span>
+                                </div>
+                                <div class="cycle-step">
+                                    <div class="cycle-node" style="border-color: var(--warning); background: rgba(245,158,11,0.05);">PARTIAL</div>
+                                    <span class="cycle-arrow">&rarr;</span>
+                                </div>
+                                <div class="cycle-step">
+                                    <div class="cycle-node highlight">RETRY</div>
+                                    <span class="cycle-arrow">&rarr;</span>
+                                </div>
+                                <div class="cycle-step">
+                                    <div class="cycle-node">refined query</div>
+                                    <span class="cycle-arrow">&rarr;</span>
+                                </div>
+                                <div class="cycle-step">
+                                    <div class="cycle-node" style="border-color: var(--success); background: rgba(34,197,94,0.05);">PASS</div>
+                                </div>
+                            </div>
+                            <p style="font-size: 0.9rem; margin-top: var(--gap-sm);">Structured suggestions guide the retry query — not just "try again" but specific improvements.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Slide 10: Key Takeaways -->
+            <section class="slide" data-testid="slide-10-takeaways" data-notes="Five key takeaways from this presentation. First, evaluators close the feedback loop — without them, agents operate blind. Second, LLM-as-Judge provides flexible multi-criteria quality scoring that goes beyond simple pass/fail. Third, discriminated signals by path mode prevent one-size-fits-all evaluation that confuses the judge. Fourth, structured suggestions guide retry queries with specific improvements, not generic retry attempts. Fifth, type safety at every boundary — Pydantic models, BAML types, enum constraints — prevents silent data corruption that plagues loosely-typed evaluation systems.">
+                <div class="slide-content">
+                    <h2>Key Takeaways</h2>
+                    <ul class="takeaway-list animate-item" style="animation-delay: 0.1s">
+                        <li>
+                            <span class="takeaway-bullet"></span>
+                            <span><strong>Evaluators close the feedback loop</strong> — agents improve through structured assessment, not blind operation.</span>
+                        </li>
+                        <li>
+                            <span class="takeaway-bullet" style="background: var(--purple);"></span>
+                            <span><strong>LLM-as-Judge provides flexible, multi-criteria quality scoring</strong> — correctness, completeness, and routing quality in a single pass.</span>
+                        </li>
+                        <li>
+                            <span class="takeaway-bullet" style="background: var(--success);"></span>
+                            <span><strong>Discriminated signals prevent one-size-fits-all evaluation</strong> — each path mode gets signals relevant to its execution.</span>
+                        </li>
+                        <li>
+                            <span class="takeaway-bullet" style="background: var(--warning);"></span>
+                            <span><strong>Structured suggestions guide retry queries</strong> — not just "try again" but specific improvements with SuggestionCategory enums.</span>
+                        </li>
+                        <li>
+                            <span class="takeaway-bullet" style="background: var(--error);"></span>
+                            <span><strong>Type safety at every boundary prevents silent data corruption</strong> — Pydantic models, BAML types, and enum constraints throughout.</span>
+                        </li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- SECTION: SLIDES-END -->
+        </main>
+    </div>
+
+    <!-- Keyboard Hints (slides mode only) -->
+    <div class="keyboard-hints">
+        <div class="hint-pill"><kbd>&larr;</kbd><kbd>&rarr;</kbd> Navigate</div>
+        <div class="hint-pill"><kbd>S</kbd> Notes</div>
+        <div class="hint-pill"><kbd>O</kbd> Overview</div>
+        <div class="hint-pill"><kbd>F</kbd> Fullscreen</div>
+        <div class="hint-pill"><kbd>P</kbd> Presenter</div>
+    </div>
+
+    <!-- Slide Counter -->
+    <div class="slide-counter" id="slide-counter">1 / 1</div>
+
+    <!-- Dashboard Mode -->
+    <div id="dashboard-mode" data-testid="dashboard-container">
+        <div class="dashboard-container" id="dashboard-content" data-testid="dashboard">
+            <div class="dashboard-header">
+                <h2>NextSeekEval Results</h2>
+                <div class="dashboard-controls">
+                    <span id="report-meta" data-testid="report-meta" style="font-size:13px;color:var(--text-muted);"></span>
+                </div>
+            </div>
+
+
+            <!-- SECTION: DASHBOARD-ANALYTICS-START -->
+            <div class="analytics-section" id="analytics-section" data-testid="analytics-section">
+              <!-- Score Cards -->
+              <div class="score-cards" data-testid="score-cards">
+                <div class="score-card" data-testid="card-total">
+                  <span class="score-value" id="sc-total">&mdash;</span>
+                  <span class="score-label">Total Queries</span>
+                </div>
+                <div class="score-card score-card-pass" data-testid="card-passed">
+                  <span class="score-value" id="sc-passed">&mdash;</span>
+                  <span class="score-label">Passed</span>
+                </div>
+                <div class="score-card score-card-retry" data-testid="card-retried">
+                  <span class="score-value" id="sc-retried">&mdash;</span>
+                  <span class="score-label">Retried</span>
+                </div>
+                <div class="score-card score-card-fail" data-testid="card-failed">
+                  <span class="score-value" id="sc-failed">&mdash;</span>
+                  <span class="score-label">Failed</span>
+                </div>
+              </div>
+
+              <!-- Charts Row -->
+              <div class="charts-row" data-testid="charts-row">
+                <div class="chart-container">
+                  <h3>Score Distribution by Criterion</h3>
+                  <canvas id="chart-bar" data-testid="chart-bar" width="400" height="250"></canvas>
+                  <div id="chart-bar-fallback" class="chart-fallback" style="display:none"></div>
+                </div>
+                <div class="chart-container">
+                  <h3>Verdict Distribution</h3>
+                  <canvas id="chart-donut" data-testid="chart-donut" width="300" height="250"></canvas>
+                  <div id="chart-donut-fallback" class="chart-fallback" style="display:none"></div>
+                </div>
+                <div class="chart-container">
+                  <h3>Per-Query Score Comparison</h3>
+                  <canvas id="chart-radar" data-testid="chart-radar" width="350" height="250"></canvas>
+                  <div id="chart-radar-fallback" class="chart-fallback" style="display:none"></div>
+                </div>
+              </div>
+
+              <!-- Per-Query Details -->
+              <div class="query-details" data-testid="query-details">
+                <h3>Per-Query Results</h3>
+                <div id="query-details-list"></div>
+              </div>
+
+              <!-- Retry Comparison -->
+              <div class="retry-comparison" data-testid="retry-comparison">
+                <h3>Retry Comparisons</h3>
+                <div id="retry-comparison-list"></div>
+              </div>
+            </div>
+            <!-- SECTION: DASHBOARD-ANALYTICS-END -->
+        </div>
+    </div>
+
+    <!-- Embedded Report Data (injected by render_dashboard.py) -->
+    <script>
+    var EMBEDDED_REPORT_DATA = /* __EMBEDDED_DATA__ */null;
+    </script>
+
+    <!-- [REMOVED: Dashboard Flow JS Module — replaced by embedded data] -->
+    <script>
+    /* DashboardFlow IIFE removed — analytics reads from EMBEDDED_REPORT_DATA */
+    void 0; /* placeholder to keep script tag valid */
+    </script>
+
+
+    <!-- Analytics JS Module -->
+    <script>
+    (function() {
+        'use strict';
+
+        var CHART_COLORS = {
+            pass: '#22c55e',
+            partial: '#f59e0b',
+            fail: '#ef4444',
+            retry: '#f59e0b'
+        };
+        var SCORE_MAP = { PASS: 2, PARTIAL: 1, FAIL: 0 };
+        var DELTA_SYMBOLS = { improved: '\u2191', same: '\u2014', degraded: '\u2193' };
+        var CRITERIA = ['correctness', 'completeness', 'routing_quality'];
+
+        var barChart = null, donutChart = null, radarChart = null;
+        var chartJsAvailable = false;
+
+        function initAnalytics() {
+            chartJsAvailable = typeof Chart !== 'undefined';
+            if (!chartJsAvailable) {
+                console.warn('Chart.js not available \u2014 using fallback rendering');
+                showFallbacks();
+            }
+        }
+
+        // --- Score Cards ---
+        function updateScoreCards(report) {
+            if (!report) return;
+            var el;
+            el = document.getElementById('sc-total');
+            if (el) el.textContent = report.queries_total != null ? report.queries_total : '\u2014';
+            el = document.getElementById('sc-passed');
+            if (el) el.textContent = report.queries_passed != null ? report.queries_passed : '\u2014';
+            el = document.getElementById('sc-retried');
+            if (el) el.textContent = report.queries_retried != null ? report.queries_retried : '\u2014';
+            el = document.getElementById('sc-failed');
+            if (el) el.textContent = report.queries_failed != null ? report.queries_failed : '\u2014';
+        }
+
+        // --- Bar Chart ---
+        function renderBarChart(criterionScores) {
+            if (!criterionScores) return;
+            var ctx = document.getElementById('chart-bar');
+            if (!ctx) return;
+            if (barChart) barChart.destroy();
+
+            var labels = CRITERIA.map(function(c) {
+                return c.replace('_', ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+            });
+            var passData = [], partialData = [], failData = [];
+            CRITERIA.forEach(function(c) {
+                var s = criterionScores[c] || { PASS: 0, PARTIAL: 0, FAIL: 0 };
+                passData.push(s.PASS || 0);
+                partialData.push(s.PARTIAL || 0);
+                failData.push(s.FAIL || 0);
+            });
+
+            barChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'PASS', data: passData, backgroundColor: CHART_COLORS.pass },
+                        { label: 'PARTIAL', data: partialData, backgroundColor: CHART_COLORS.partial },
+                        { label: 'FAIL', data: failData, backgroundColor: CHART_COLORS.fail }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { stepSize: 1 } }
+                    }
+                }
+            });
+        }
+
+        // --- Donut Chart ---
+        function renderDonutChart(verdictDist) {
+            if (!verdictDist) return;
+            var ctx = document.getElementById('chart-donut');
+            if (!ctx) return;
+            if (donutChart) donutChart.destroy();
+
+            var labels = ['PASS', 'RETRY', 'FAIL'];
+            var data = [verdictDist.PASS || 0, verdictDist.RETRY || 0, verdictDist.FAIL || 0];
+            var total = data.reduce(function(a, b) { return a + b; }, 0);
+
+            donutChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: [CHART_COLORS.pass, CHART_COLORS.retry, CHART_COLORS.fail],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '60%',
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 12 } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.label + ': ' + context.parsed + ' (' + (total > 0 ? Math.round(context.parsed / total * 100) : 0) + '%)';
+                                }
+                            }
+                        }
+                    }
+                },
+                plugins: [{
+                    id: 'centerText',
+                    beforeDraw: function(chart) {
+                        var width = chart.width, height = chart.height, cCtx = chart.ctx;
+                        cCtx.restore();
+                        var fontSize = (height / 114).toFixed(2);
+                        cCtx.font = 'bold ' + fontSize + 'em sans-serif';
+                        cCtx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text') || '#111';
+                        cCtx.textBaseline = 'middle';
+                        cCtx.textAlign = 'center';
+                        cCtx.fillText(total, width / 2, height / 2);
+                        cCtx.save();
+                    }
+                }]
+            });
+        }
+
+        // --- Radar Chart ---
+        function renderRadarChart(results) {
+            if (!results || !results.length) return;
+            var ctx = document.getElementById('chart-radar');
+            if (!ctx) return;
+            if (radarChart) radarChart.destroy();
+
+            var labels = CRITERIA.map(function(c) {
+                return c.replace('_', ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+            });
+            var palette = ['#6366f1', '#ec4899', '#14b8a6', '#f97316', '#8b5cf6', '#06b6d4', '#84cc16', '#ef4444'];
+            var limited = results.slice(0, 8);
+            var datasets = limited.map(function(r, i) {
+                var j = r.judgment || {};
+                return {
+                    label: r.query.length > 30 ? r.query.substring(0, 30) + '\u2026' : r.query,
+                    data: CRITERIA.map(function(c) { return SCORE_MAP[j[c]] != null ? SCORE_MAP[j[c]] : 0; }),
+                    borderColor: palette[i % palette.length],
+                    backgroundColor: palette[i % palette.length] + '20',
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    fill: true
+                };
+            });
+
+            radarChart = new Chart(ctx, {
+                type: 'radar',
+                data: { labels: labels, datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            min: 0, max: 2,
+                            ticks: {
+                                stepSize: 1,
+                                callback: function(v) { return ['FAIL', 'PARTIAL', 'PASS'][v] || ''; }
+                            },
+                            pointLabels: { font: { size: 11 } }
+                        }
+                    },
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        // --- Per-Query Details ---
+        function renderQueryDetails(results) {
+            var container = document.getElementById('query-details-list');
+            if (!container || !results) return;
+            while (container.firstChild) container.removeChild(container.firstChild);
+
+            results.forEach(function(r) {
+                var verdict = r.retry_decision ? r.retry_decision.verdict : 'PASS';
+                var verdictClass = verdict === 'PASS' ? 'pass' : verdict === 'RETRY' ? 'retry' : 'fail';
+                var j = r.judgment || {};
+
+                var card = document.createElement('div');
+                card.className = 'query-detail-card';
+                card.setAttribute('data-testid', 'query-detail-card');
+
+                // Header
+                var header = document.createElement('div');
+                header.className = 'query-detail-header';
+                var querySpan = document.createElement('span');
+                querySpan.className = 'query-text';
+                querySpan.textContent = r.query;
+                var badge = document.createElement('span');
+                badge.className = 'verdict-badge ' + verdictClass;
+                badge.textContent = verdict;
+                header.appendChild(querySpan);
+                header.appendChild(badge);
+                card.appendChild(header);
+
+                // Body
+                var body = document.createElement('div');
+                body.className = 'query-detail-body';
+
+                // Score pills
+                var pills = document.createElement('div');
+                pills.className = 'score-pills';
+                CRITERIA.forEach(function(c) {
+                    var score = j[c] || 'FAIL';
+                    var pillClass = score === 'PASS' ? 'pass' : score === 'PARTIAL' ? 'partial' : 'fail';
+                    var pill = document.createElement('span');
+                    pill.className = 'score-pill ' + pillClass;
+                    pill.textContent = c.replace('_', ' ') + ': ' + score;
+                    pills.appendChild(pill);
+                });
+                body.appendChild(pills);
+
+                // Reasoning
+                if (j.reasoning) {
+                    var reasonP = document.createElement('p');
+                    reasonP.style.cssText = 'font-size:13px;color:var(--text-muted);margin:8px 0;';
+                    reasonP.textContent = j.reasoning;
+                    body.appendChild(reasonP);
+                }
+
+                // Suggestions
+                if (r.retry_decision && r.retry_decision.suggestions && r.retry_decision.suggestions.length) {
+                    var ul = document.createElement('ul');
+                    ul.style.cssText = 'font-size:13px;color:var(--text-muted);margin:4px 0;padding-left:16px;';
+                    r.retry_decision.suggestions.forEach(function(s) {
+                        var li = document.createElement('li');
+                        var strong = document.createElement('strong');
+                        strong.textContent = s.category + ':';
+                        li.appendChild(strong);
+                        li.appendChild(document.createTextNode(' ' + s.description));
+                        ul.appendChild(li);
+                    });
+                    body.appendChild(ul);
+                }
+
+                // Retry result
+                if (r.retry_result) {
+                    var retryDiv = document.createElement('div');
+                    retryDiv.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border);';
+                    var retryLabel = document.createElement('strong');
+                    retryLabel.style.fontSize = '13px';
+                    retryLabel.textContent = 'Retried';
+                    retryDiv.appendChild(retryLabel);
+
+                    var retryPills = document.createElement('div');
+                    retryPills.className = 'score-pills';
+                    var rj = r.retry_result.retry_judgment || {};
+                    CRITERIA.forEach(function(c) {
+                        var score = rj[c] || 'FAIL';
+                        var pillClass = score === 'PASS' ? 'pass' : score === 'PARTIAL' ? 'partial' : 'fail';
+                        var pill = document.createElement('span');
+                        pill.className = 'score-pill ' + pillClass;
+                        pill.textContent = c.replace('_', ' ') + ': ' + score;
+                        retryPills.appendChild(pill);
+                    });
+                    retryDiv.appendChild(retryPills);
+                    body.appendChild(retryDiv);
+                }
+
+                card.appendChild(body);
+                card.addEventListener('click', function() {
+                    card.classList.toggle('expanded');
+                });
+                container.appendChild(card);
+            });
+        }
+
+        // --- Retry Comparisons ---
+        function renderRetryComparisons(comparisons) {
+            var container = document.getElementById('retry-comparison-list');
+            if (!container) return;
+            while (container.firstChild) container.removeChild(container.firstChild);
+            if (!comparisons || !comparisons.length) {
+                var noData = document.createElement('p');
+                noData.style.cssText = 'font-size:13px;color:var(--text-muted);';
+                noData.textContent = 'No retries in this run.';
+                container.appendChild(noData);
+                return;
+            }
+
+            comparisons.forEach(function(comp) {
+                var card = document.createElement('div');
+                card.className = 'retry-comp-card';
+                card.setAttribute('data-testid', 'retry-comp-card');
+
+                // Query label
+                var qlabel = document.createElement('div');
+                qlabel.style.cssText = 'font-weight:500;margin-bottom:8px;font-size:14px;';
+                qlabel.textContent = comp.query || '';
+                card.appendChild(qlabel);
+
+                // Grid
+                var grid = document.createElement('div');
+                grid.className = 'retry-comp-grid';
+
+                // Original side
+                var origSide = document.createElement('div');
+                origSide.className = 'retry-comp-side';
+                var origH4 = document.createElement('h4');
+                origH4.textContent = 'Original';
+                origSide.appendChild(origH4);
+                var origPills = document.createElement('div');
+                origPills.className = 'score-pills';
+                origPills.style.flexDirection = 'column';
+                CRITERIA.forEach(function(c) {
+                    var score = comp.original_scores ? comp.original_scores[c] || 'FAIL' : 'FAIL';
+                    var cls = score === 'PASS' ? 'pass' : score === 'PARTIAL' ? 'partial' : 'fail';
+                    var pill = document.createElement('span');
+                    pill.className = 'score-pill ' + cls;
+                    pill.textContent = c.replace('_', ' ') + ': ' + score;
+                    origPills.appendChild(pill);
+                });
+                origSide.appendChild(origPills);
+
+                // Delta column
+                var deltaCol = document.createElement('div');
+                deltaCol.style.cssText = 'display:flex;flex-direction:column;gap:4px;align-items:center;';
+                CRITERIA.forEach(function(c) {
+                    var delta = comp.deltas ? comp.deltas[c] || 'same' : 'same';
+                    var span = document.createElement('span');
+                    span.className = 'delta-indicator delta-' + delta;
+                    span.textContent = DELTA_SYMBOLS[delta] || '\u2014';
+                    deltaCol.appendChild(span);
+                });
+
+                // Retry side
+                var retrySide = document.createElement('div');
+                retrySide.className = 'retry-comp-side';
+                var retryH4 = document.createElement('h4');
+                retryH4.textContent = 'Retry';
+                retrySide.appendChild(retryH4);
+                var retryPills = document.createElement('div');
+                retryPills.className = 'score-pills';
+                retryPills.style.flexDirection = 'column';
+                CRITERIA.forEach(function(c) {
+                    var score = comp.retry_scores ? comp.retry_scores[c] || 'FAIL' : 'FAIL';
+                    var cls = score === 'PASS' ? 'pass' : score === 'PARTIAL' ? 'partial' : 'fail';
+                    var pill = document.createElement('span');
+                    pill.className = 'score-pill ' + cls;
+                    pill.textContent = c.replace('_', ' ') + ': ' + score;
+                    retryPills.appendChild(pill);
+                });
+                retrySide.appendChild(retryPills);
+
+                grid.appendChild(origSide);
+                grid.appendChild(deltaCol);
+                grid.appendChild(retrySide);
+                card.appendChild(grid);
+                container.appendChild(card);
+            });
+        }
+
+        // --- Fallback Rendering ---
+        function showFallbacks() {
+            ['chart-bar', 'chart-donut', 'chart-radar'].forEach(function(id) {
+                var canvas = document.getElementById(id);
+                var fallback = document.getElementById(id + '-fallback');
+                if (canvas) canvas.style.display = 'none';
+                if (fallback) fallback.style.display = 'block';
+            });
+        }
+
+        function renderBarFallback(criterionScores) {
+            var el = document.getElementById('chart-bar-fallback');
+            if (!el || !criterionScores) return;
+            while (el.firstChild) el.removeChild(el.firstChild);
+            CRITERIA.forEach(function(c) {
+                var s = criterionScores[c] || { PASS: 0, PARTIAL: 0, FAIL: 0 };
+                var total = (s.PASS || 0) + (s.PARTIAL || 0) + (s.FAIL || 0);
+                var label = c.replace('_', ' ');
+                ['PASS', 'PARTIAL', 'FAIL'].forEach(function(v) {
+                    var count = s[v] || 0;
+                    var pct = total > 0 ? Math.round(count / total * 100) : 0;
+                    var color = v === 'PASS' ? CHART_COLORS.pass : v === 'PARTIAL' ? CHART_COLORS.partial : CHART_COLORS.fail;
+
+                    var row = document.createElement('div');
+                    row.className = 'fallback-bar-row';
+
+                    var lbl = document.createElement('span');
+                    lbl.className = 'fallback-bar-label';
+                    lbl.textContent = label + ' ' + v;
+                    row.appendChild(lbl);
+
+                    var track = document.createElement('div');
+                    track.className = 'fallback-bar-track';
+                    var fill = document.createElement('div');
+                    fill.className = 'fallback-bar-fill';
+                    fill.style.width = pct + '%';
+                    fill.style.background = color;
+                    track.appendChild(fill);
+                    row.appendChild(track);
+
+                    var val = document.createElement('span');
+                    val.className = 'fallback-bar-value';
+                    val.textContent = count;
+                    row.appendChild(val);
+
+                    el.appendChild(row);
+                });
+            });
+        }
+
+        function renderDonutFallback(verdictDist) {
+            var el = document.getElementById('chart-donut-fallback');
+            if (!el || !verdictDist) return;
+            while (el.firstChild) el.removeChild(el.firstChild);
+            var total = (verdictDist.PASS || 0) + (verdictDist.RETRY || 0) + (verdictDist.FAIL || 0);
+
+            var totalDiv = document.createElement('div');
+            totalDiv.style.cssText = 'text-align:center;font-size:2rem;font-weight:700;margin-bottom:8px;';
+            totalDiv.textContent = total;
+            el.appendChild(totalDiv);
+
+            var legend = document.createElement('div');
+            legend.className = 'fallback-legend';
+            legend.style.flexDirection = 'column';
+
+            [['PASS', CHART_COLORS.pass], ['RETRY', CHART_COLORS.retry], ['FAIL', CHART_COLORS.fail]].forEach(function(pair) {
+                var v = pair[0], color = pair[1];
+                var count = verdictDist[v] || 0;
+                var pct = total > 0 ? Math.round(count / total * 100) : 0;
+                var item = document.createElement('div');
+                item.className = 'fallback-legend-item';
+                var swatch = document.createElement('span');
+                swatch.className = 'fallback-legend-swatch';
+                swatch.style.background = color;
+                item.appendChild(swatch);
+                item.appendChild(document.createTextNode(' ' + v + ': ' + count + ' (' + pct + '%)'));
+                legend.appendChild(item);
+            });
+            el.appendChild(legend);
+        }
+
+        function renderRadarFallback(results) {
+            var el = document.getElementById('chart-radar-fallback');
+            if (!el || !results) return;
+            while (el.firstChild) el.removeChild(el.firstChild);
+            var limited = results.slice(0, 8);
+
+            var table = document.createElement('table');
+            table.className = 'fallback-table';
+
+            var thead = document.createElement('thead');
+            var headRow = document.createElement('tr');
+            var thQ = document.createElement('th');
+            thQ.textContent = 'Query';
+            headRow.appendChild(thQ);
+            CRITERIA.forEach(function(c) {
+                var th = document.createElement('th');
+                th.textContent = c.replace('_', ' ');
+                headRow.appendChild(th);
+            });
+            thead.appendChild(headRow);
+            table.appendChild(thead);
+
+            var tbody = document.createElement('tbody');
+            limited.forEach(function(r) {
+                var j = r.judgment || {};
+                var row = document.createElement('tr');
+                var tdQ = document.createElement('td');
+                tdQ.textContent = r.query.length > 40 ? r.query.substring(0, 40) + '\u2026' : r.query;
+                row.appendChild(tdQ);
+                CRITERIA.forEach(function(c) {
+                    var td = document.createElement('td');
+                    td.textContent = j[c] || 'N/A';
+                    row.appendChild(td);
+                });
+                tbody.appendChild(row);
+            });
+            table.appendChild(tbody);
+            el.appendChild(table);
+        }
+
+        // --- Public API ---
+        window.updateAnalytics = function(dashboardData) {
+            if (!dashboardData) return;
+            updateScoreCards(dashboardData.report);
+            if (chartJsAvailable) {
+                renderBarChart(dashboardData.criterion_scores);
+                renderDonutChart(dashboardData.verdict_distribution);
+                renderRadarChart(dashboardData.report.results);
+            } else {
+                renderBarFallback(dashboardData.criterion_scores);
+                renderDonutFallback(dashboardData.verdict_distribution);
+                renderRadarFallback(dashboardData.report.results);
+            }
+            renderQueryDetails(dashboardData.report.results);
+            renderRetryComparisons(dashboardData.retry_comparisons);
+        };
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initAnalytics();
+            if (window.EMBEDDED_REPORT_DATA) {
+                window.updateAnalytics(window.EMBEDDED_REPORT_DATA);
+                var meta = document.getElementById('report-meta');
+                if (meta && window.EMBEDDED_REPORT_DATA.report) {
+                    var r = window.EMBEDDED_REPORT_DATA.report;
+                    meta.textContent = 'Run ' + (r.run_id || '') + ' \u2014 ' + (r.created_at || '');
+                }
+            }
+        });
+    })();
+    </script>
+
+
+    <script>
+        // ============================================================
+        // Presentation State
+        // ============================================================
+        let currentSlide = 0;
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+        let notesVisible = false;
+        let overviewVisible = false;
+        let isSyncing = false;
+        let presenterPopup = null;
+        let currentMode = 'slides'; // 'slides' or 'dashboard'
+
+        // Expose for testing
+        window.presentationReady = false;
+        window.currentSlide = 0;
+        window.totalSlides = totalSlides;
+
+        // ============================================================
+        // Initialize
+        // ============================================================
+        document.addEventListener('DOMContentLoaded', function() {
+            createNavDots();
+            handleHashNavigation();
+            updateSlide();
+            window.presentationReady = true;
+        });
+
+        function createNavDots() {
+            var navDots = document.getElementById('nav-dots');
+            for (var i = 0; i < totalSlides; i++) {
+                var dot = document.createElement('button');
+                dot.className = 'nav-dot' + (i === 0 ? ' active' : '');
+                dot.setAttribute('aria-label', 'Go to slide ' + (i + 1));
+                dot.setAttribute('data-slide', i);
+                dot.onclick = (function(idx) { return function() { goToSlide(idx); }; })(i);
+                navDots.appendChild(dot);
+            }
+        }
+
+        function handleHashNavigation() {
+            var hash = window.location.hash;
+            if (hash && hash.indexOf('#/') === 0) {
+                var slideNum = parseInt(hash.substring(2), 10);
+                if (!isNaN(slideNum) && slideNum >= 0 && slideNum < totalSlides) {
+                    currentSlide = slideNum;
+                }
+            }
+        }
+
+        // ============================================================
+        // Slide Update
+        // ============================================================
+        function updateSlide() {
+            for (var i = 0; i < slides.length; i++) {
+                slides[i].classList.remove('active', 'prev', 'next');
+                if (i === currentSlide) {
+                    slides[i].classList.add('active');
+                } else if (i < currentSlide) {
+                    slides[i].classList.add('prev');
+                } else {
+                    slides[i].classList.add('next');
+                }
+            }
+
+            var dots = document.querySelectorAll('.nav-dot');
+            for (var i = 0; i < dots.length; i++) {
+                dots[i].classList.toggle('active', i === currentSlide);
+            }
+
+            var progress = ((currentSlide + 1) / totalSlides) * 100;
+            document.getElementById('progress-fill').style.width = progress + '%';
+            document.getElementById('slide-counter').textContent = (currentSlide + 1) + ' / ' + totalSlides;
+            history.replaceState(null, null, '#/' + currentSlide);
+
+            var noteContent = slides[currentSlide].getAttribute('data-notes') || 'No notes for this slide.';
+            document.getElementById('notes-content').textContent = noteContent;
+
+            triggerAnimations();
+            window.currentSlide = currentSlide;
+
+            if (!isSyncing && presenterPopup && !presenterPopup.closed) {
+                presenterPopup.postMessage({ type: 'slideChange', index: currentSlide }, '*');
+            }
+        }
+
+        window.addEventListener('message', function(e) {
+            if (e.data && e.data.type === 'slideChange' && e.data.index !== currentSlide) {
+                isSyncing = true;
+                goToSlide(e.data.index);
+                isSyncing = false;
+            }
+        });
+
+        // ============================================================
+        // Animations
+        // ============================================================
+        function triggerAnimations() {
+            var activeSlide = slides[currentSlide];
+            var items = activeSlide.querySelectorAll('.animate-item');
+            for (var i = 0; i < items.length; i++) {
+                items[i].style.animationPlayState = 'running';
+            }
+            animateSVGPaths(activeSlide);
+        }
+
+        function animateSVGPaths(slide) {
+            var edges = slide.querySelectorAll('.svg-edge');
+            for (var i = 0; i < edges.length; i++) {
+                var edge = edges[i];
+                var len = edge.getTotalLength ? edge.getTotalLength() : 300;
+                edge.style.strokeDasharray = len;
+                edge.style.strokeDashoffset = len;
+                edge.style.setProperty('--path-length', len);
+            }
+        }
+
+        // ============================================================
+        // Navigation Functions
+        // ============================================================
+        function goToSlide(index) {
+            if (index >= 0 && index < totalSlides) {
+                currentSlide = index;
+                updateSlide();
+            }
+        }
+        window.goToSlide = goToSlide;
+
+        function nextSlide() {
+            if (currentSlide < totalSlides - 1) {
+                currentSlide++;
+                updateSlide();
+            }
+        }
+        window.nextSlide = nextSlide;
+
+        function prevSlide() {
+            if (currentSlide > 0) {
+                currentSlide--;
+                updateSlide();
+            }
+        }
+        window.prevSlide = prevSlide;
+
+        // ============================================================
+        // Notes Panel
+        // ============================================================
+        function toggleNotes() {
+            notesVisible = !notesVisible;
+            var panel = document.getElementById('notes-panel');
+            panel.classList.toggle('visible', notesVisible);
+        }
+        window.toggleNotes = toggleNotes;
+
+        // ============================================================
+        // Overview Mode
+        // ============================================================
+        function toggleOverview() {
+            overviewVisible = !overviewVisible;
+            var overview = document.getElementById('overview-mode');
+
+            if (overviewVisible) {
+                while (overview.firstChild) overview.removeChild(overview.firstChild);
+                for (var i = 0; i < slides.length; i++) {
+                    var thumb = document.createElement('div');
+                    thumb.className = 'overview-thumb' + (i === currentSlide ? ' active' : '');
+                    var num = document.createElement('span');
+                    num.className = 'thumb-number';
+                    num.textContent = (i + 1);
+                    thumb.appendChild(num);
+                    thumb.onclick = (function(idx) {
+                        return function() { goToSlide(idx); toggleOverview(); };
+                    })(i);
+                    overview.appendChild(thumb);
+                }
+                overview.classList.add('visible');
+            } else {
+                overview.classList.remove('visible');
+            }
+        }
+        window.toggleOverview = toggleOverview;
+
+        // ============================================================
+        // Fullscreen
+        // ============================================================
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(function(err) {
+                    console.log('Fullscreen error:', err);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+        window.toggleFullscreen = toggleFullscreen;
+
+        // ============================================================
+        // Presenter View
+        // ============================================================
+        function openPresenterView() {
+            var slideData = [];
+            for (var i = 0; i < slides.length; i++) {
+                var h2 = slides[i].querySelector('.slide-content h2');
+                slideData.push({
+                    title: h2 ? h2.textContent.trim() : 'Slide ' + (i + 1),
+                    notes: slides[i].getAttribute('data-notes') || 'No notes for this slide.'
+                });
+            }
+
+            var popupHTML = '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+                '<title>Presenter View — NextSeek Eval</title>' +
+                '<style>' +
+                '*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }' +
+                'body { background: #1a1a2e; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }' +
+                '.top-bar { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: #16213e; border-bottom: 1px solid #0f3460; flex-shrink: 0; }' +
+                '.top-bar button { background: #0f3460; color: #e0e0e0; border: 1px solid #533483; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: background 0.2s; }' +
+                '.top-bar button:hover { background: #533483; }' +
+                '.slide-info { font-size: 18px; font-weight: 600; color: #fff; }' +
+                '.timer { font-size: 18px; font-variant-numeric: tabular-nums; color: #a78bfa; font-weight: 600; }' +
+                '.panels { display: flex; flex: 1; overflow: hidden; }' +
+                '.current-notes { flex: 0 0 65%; padding: 30px; overflow-y: auto; border-right: 1px solid #0f3460; }' +
+                '.current-notes h3 { color: #a78bfa; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }' +
+                '.current-notes .notes-text { font-size: 18px; line-height: 1.7; color: #fff; white-space: pre-wrap; }' +
+                '.next-preview { flex: 0 0 35%; padding: 30px; overflow-y: auto; background: #12122a; }' +
+                '.next-preview h3 { color: #666; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }' +
+                '.next-title { font-size: 16px; font-weight: 600; color: #888; margin-bottom: 12px; }' +
+                '.next-notes { font-size: 14px; line-height: 1.6; color: #666; white-space: pre-wrap; }' +
+                '</style></head><body>' +
+                '<div class="top-bar">' +
+                '  <button id="prev-btn">&larr; Prev</button>' +
+                '  <span class="slide-info" id="slide-info">Slide 1 / ' + totalSlides + '</span>' +
+                '  <button id="next-btn">Next &rarr;</button>' +
+                '  <span class="timer" id="timer">T: 00:00</span>' +
+                '</div>' +
+                '<div class="panels">' +
+                '  <div class="current-notes">' +
+                '    <h3>Current Slide Notes</h3>' +
+                '    <div class="notes-text" id="current-notes-text"></div>' +
+                '  </div>' +
+                '  <div class="next-preview">' +
+                '    <h3>Next Up</h3>' +
+                '    <div class="next-title" id="next-title"></div>' +
+                '    <div class="next-notes" id="next-notes"></div>' +
+                '  </div>' +
+                '</div>' +
+                '<script>' +
+                'var slideData = ' + JSON.stringify(slideData) + ';' +
+                'var totalSlides = ' + totalSlides + ';' +
+                'var currentIndex = ' + currentSlide + ';' +
+                '' +
+                'function updateDisplay() {' +
+                '  document.getElementById("slide-info").textContent = "Slide " + (currentIndex + 1) + " / " + totalSlides;' +
+                '  document.getElementById("current-notes-text").textContent = slideData[currentIndex].notes;' +
+                '  if (currentIndex < totalSlides - 1) {' +
+                '    document.getElementById("next-title").textContent = slideData[currentIndex + 1].title;' +
+                '    var preview = slideData[currentIndex + 1].notes;' +
+                '    document.getElementById("next-notes").textContent = preview.length > 200 ? preview.substring(0, 200) + "..." : preview;' +
+                '  } else {' +
+                '    document.getElementById("next-title").textContent = "End of presentation";' +
+                '    document.getElementById("next-notes").textContent = "";' +
+                '  }' +
+                '}' +
+                '' +
+                'document.getElementById("prev-btn").onclick = function() {' +
+                '  if (currentIndex > 0) {' +
+                '    currentIndex--;' +
+                '    updateDisplay();' +
+                '    if (window.opener) window.opener.postMessage({ type: "slideChange", index: currentIndex }, "*");' +
+                '  }' +
+                '};' +
+                '' +
+                'document.getElementById("next-btn").onclick = function() {' +
+                '  if (currentIndex < totalSlides - 1) {' +
+                '    currentIndex++;' +
+                '    updateDisplay();' +
+                '    if (window.opener) window.opener.postMessage({ type: "slideChange", index: currentIndex }, "*");' +
+                '  }' +
+                '};' +
+                '' +
+                'window.addEventListener("message", function(e) {' +
+                '  if (e.data && e.data.type === "slideChange") {' +
+                '    currentIndex = e.data.index;' +
+                '    updateDisplay();' +
+                '  }' +
+                '});' +
+                '' +
+                'var startTime = Date.now();' +
+                'setInterval(function() {' +
+                '  var elapsed = Math.floor((Date.now() - startTime) / 1000);' +
+                '  var mins = String(Math.floor(elapsed / 60)).padStart(2, "0");' +
+                '  var secs = String(elapsed % 60).padStart(2, "0");' +
+                '  document.getElementById("timer").textContent = "T: " + mins + ":" + secs;' +
+                '}, 1000);' +
+                '' +
+                'document.addEventListener("keydown", function(e) {' +
+                '  if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); document.getElementById("next-btn").click(); }' +
+                '  if (e.key === "ArrowLeft") { e.preventDefault(); document.getElementById("prev-btn").click(); }' +
+                '});' +
+                '' +
+                'updateDisplay();' +
+                '<\/script></body></html>';
+
+            var blob = new Blob([popupHTML], { type: 'text/html' });
+            var url = URL.createObjectURL(blob);
+            presenterPopup = window.open(url, 'presenterView', 'width=900,height=600,menubar=no,toolbar=no');
+            if (!presenterPopup) {
+                alert('Popup blocked. Please allow popups for this page to use Presenter View.');
+            }
+        }
+        window.openPresenterView = openPresenterView;
+
+        // ============================================================
+        // Keyboard Navigation (only active in slides mode)
+        // ============================================================
+        document.addEventListener('keydown', function(e) {
+            // Keyboard shortcuts only fire in presentation mode
+            if (currentMode !== 'slides') return;
+
+            if (overviewVisible && e.key === 'Escape') {
+                toggleOverview();
+                return;
+            }
+            switch (e.key) {
+                case 'ArrowRight':
+                case ' ':
+                case 'PageDown':
+                    e.preventDefault();
+                    nextSlide();
+                    break;
+                case 'ArrowLeft':
+                case 'PageUp':
+                    e.preventDefault();
+                    prevSlide();
+                    break;
+                case 's': case 'S':
+                    toggleNotes();
+                    break;
+                case 'o': case 'O':
+                    toggleOverview();
+                    break;
+                case 'f': case 'F':
+                    toggleFullscreen();
+                    break;
+                case 'p': case 'P':
+                    openPresenterView();
+                    break;
+                case 'Escape':
+                    if (notesVisible) toggleNotes();
+                    break;
+                case 'Home':
+                    e.preventDefault();
+                    goToSlide(0);
+                    break;
+                case 'End':
+                    e.preventDefault();
+                    goToSlide(totalSlides - 1);
+                    break;
+            }
+        });
+
+        // ============================================================
+        // Touch Support (only active in slides mode)
+        // ============================================================
+        var touchStartX = 0;
+        document.addEventListener('touchstart', function(e) {
+            touchStartX = e.changedTouches[0].screenX;
+        }, { passive: true });
+
+        document.addEventListener('touchend', function(e) {
+            if (currentMode !== 'slides') return;
+            var diff = touchStartX - e.changedTouches[0].screenX;
+            if (Math.abs(diff) > 50) {
+                if (diff > 0) nextSlide();
+                else prevSlide();
+            }
+        }, { passive: true });
+
+        // ============================================================
+        // Hash Change
+        // ============================================================
+        window.addEventListener('hashchange', function() {
+            handleHashNavigation();
+            updateSlide();
+        });
+
+        // ============================================================
+        // Mode Switch JS
+        // ============================================================
+        function switchMode(mode) {
+            currentMode = mode;
+            var body = document.body;
+            body.classList.remove('mode-slides', 'mode-dashboard');
+            body.classList.add('mode-' + mode);
+
+            // Update tab active states
+            var tabs = document.querySelectorAll('.mode-tab');
+            for (var i = 0; i < tabs.length; i++) {
+                tabs[i].classList.remove('active');
+            }
+
+            if (mode === 'slides') {
+                document.querySelector('[data-testid="mode-tab-presentation"]').classList.add('active');
+            } else {
+                document.querySelector('[data-testid="mode-tab-dashboard"]').classList.add('active');
+            }
+        }
+        window.switchMode = switchMode;
+    </script>
+</body>
+</html>

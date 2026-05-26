@@ -1,0 +1,196 @@
+[
+  {
+    "name": "Break Through Cancer",
+    "alternative_names": [
+      "BTC"
+    ],
+    "entity_type": "investigation",
+    "project_id": 9,
+    "parent_project": null,
+    "pi": null,
+    "research_focus": null,
+    "key_data_types": [],
+    "description": "Break Through Cancer investigation.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "Break Through Cancer BTC"
+  },
+  {
+    "name": "CSBC",
+    "alternative_names": [
+      "Forest",
+      "White",
+      "U54"
+    ],
+    "entity_type": "investigation",
+    "project_id": 10,
+    "parent_project": null,
+    "pi": "White, Forest M. (MIT, contact); Michor, Franziska (co-PI)",
+    "research_focus": "Quantitative systems biology of glioblastoma; tumor-neural-immune interactions in the GBM microenvironment; integrated computational modeling to identify therapeutic strategies",
+    "key_data_types": [
+      "Phosphoproteomics",
+      "Multi-omics",
+      "Computational / multi-scale modeling",
+      "Patient biopsies",
+      "In vitro tumor models"
+    ],
+    "description": "MIT/DFCI NCI U54 Center for Systems Biology of Glioblastoma (GBM). Investigates interactions between neurons, immune cells, and tumor cells to build validated computational models of the tumor microenvironment and identify therapeutic targets.",
+    "nih_reporter_link": "https://reporter.nih.gov/project-details/11181562",
+    "fairdomhub_published_link": "https://fairdomhub.org/projects/441",
+    "tags": "CSBC Forest White U54"
+  },
+  {
+    "name": "GBM",
+    "alternative_names": [
+      "GBM_BTC"
+    ],
+    "entity_type": "study",
+    "project_id": 9,
+    "parent_project": "Break Through Cancer",
+    "pi": null,
+    "research_focus": null,
+    "key_data_types": [],
+    "description": "GBM study within the Break Through Cancer investigation.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "GBM GBM_BTC Break Through Cancer BTC"
+  },
+  {
+    "name": "Griffith",
+    "alternative_names": [
+      "Endometriosis",
+      "Endo",
+      "CGR",
+      "CGR-ENDO"
+    ],
+    "entity_type": "investigation",
+    "project_id": 7,
+    "parent_project": null,
+    "pi": null,
+    "research_focus": null,
+    "key_data_types": [],
+    "description": "Griffith investigation, also referenced as the endometriosis or CGR scope.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "Griffith Endometriosis Endo CGR CGR-ENDO"
+  },
+  {
+    "name": "Impact",
+    "alternative_names": [
+      "IMPACT",
+      "Fortune",
+      "Immunology"
+    ],
+    "entity_type": "investigation",
+    "project_id": 2,
+    "parent_project": null,
+    "pi": "Fortune, Sarah (Harvard, contact); Flynn, Joanne (U Pittsburgh, co-lead); Boom, Robert (Case Western, co-lead); Bryson, Bryan (MIT); Lauffenburger, Douglas (MIT); Shalek, Alex (MIT)",
+    "research_focus": "Host-pathogen interactions in tuberculosis; characterizing protective vs. non-protective immunological responses to Mycobacterium tuberculosis to inform vaccine design",
+    "key_data_types": [
+      "Flow cytometry / CyTOF",
+      "Single-cell sequencing (incl. TCR)",
+      "Systems serology",
+      "Innate immune profiling",
+      "PET-CT imaging",
+      "Immunohistochemistry / fluorescence",
+      "Spatial transcriptomics",
+      "Bacterial barcoding (genetically barcoded Mtb strain)"
+    ],
+    "description": "Multi-center NIH-funded consortium (Hi-IMPAcTB) studying host immune response to Mtb across mice, NHPs, and humans using multi-modal data from lungs and blood.",
+    "nih_reporter_link": "https://reporter.nih.gov/project-details/11423351",
+    "fairdomhub_published_link": "https://fairdomhub.org/projects/222",
+    "tags": "Impact IMPACT Fortune Immunology"
+  },
+  {
+    "name": "MetNet",
+    "alternative_names": [
+      "Kamm",
+      "Friedl"
+    ],
+    "entity_type": "investigation",
+    "project_id": 4,
+    "parent_project": null,
+    "pi": "Kamm, Roger D. (MIT, contact); Shenoy, Vivek (co-PI); Friedl, Peter (co-investigator)",
+    "research_focus": "Mechanical determinants of metastatic cancer colonization, dormancy, and outgrowth; mechano-adaptation of circulating tumor cells during extravasation and organ-selective colonization",
+    "key_data_types": [
+      "In vitro 3D microfluidic models",
+      "In vivo / intravital imaging",
+      "Transcriptomics / genomics",
+      "Computational modeling",
+      "Hemodynamics / biomechanics assays"
+    ],
+    "description": "MIT NCI U54 MetNet Center studying how mechanical and molecular stresses drive metastatic colonization, dormancy, and outgrowth across organs. Integrates engineered in vitro systems, in vivo models, and computational approaches to identify anti-metastatic therapeutic strategies.",
+    "nih_reporter_link": "https://reporter.nih.gov/project-details/10911866",
+    "fairdomhub_published_link": "https://fairdomhub.org/projects/340",
+    "tags": "MetNet Kamm Friedl"
+  },
+  {
+    "name": "PUBLISHED",
+    "alternative_names": [],
+    "entity_type": "project",
+    "project_id": 6,
+    "parent_project": null,
+    "pi": null,
+    "research_focus": null,
+    "key_data_types": [],
+    "description": "Published project scope used by reporting workflows.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "PUBLISHED Published"
+  },
+  {
+    "name": "RMS-NGC",
+    "alternative_names": [
+      "Khoeler",
+      "Koehler",
+      "Angela",
+      "Broad"
+    ],
+    "entity_type": "investigation",
+    "project_id": 12,
+    "parent_project": null,
+    "pi": null,
+    "research_focus": null,
+    "key_data_types": [],
+    "description": "RMS-NGC investigation.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "RMS-NGC Khoeler Koehler Angela Broad"
+  },
+  {
+    "name": "Shoulders",
+    "alternative_names": [],
+    "entity_type": "investigation",
+    "project_id": 11,
+    "parent_project": null,
+    "pi": null,
+    "research_focus": null,
+    "key_data_types": [],
+    "description": "Shoulders investigation.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "Shoulders"
+  },
+  {
+    "name": "SRP",
+    "alternative_names": [
+      "Engelward"
+    ],
+    "entity_type": "investigation",
+    "project_id": 3,
+    "parent_project": null,
+    "pi": "Engelward, Bevin P. (MIT)",
+    "research_focus": "Environmental health impacts of N-nitrosamines; hazardous chemical sensing, mutagenicity, cancer risk, and remediation of contaminated drinking water in affected communities (Wilmington, MA and Passamaquoddy Tribe)",
+    "key_data_types": [
+      "Multi-omics",
+      "Cell microarray / animate sensors",
+      "Mouse models (mutagenesis)",
+      "Environmental chemical sensors",
+      "Citizen science / community water sampling"
+    ],
+    "description": "MIT Superfund Research Program (P42) funded by NIEHS studying N-nitrosamines at the Olin Chemical Superfund Site and beyond. Integrates engineering, biology, and community engagement to sense contaminants, assess health risk, and develop water treatment technologies.",
+    "nih_reporter_link": "https://reporter.nih.gov/project-details/11126712",
+    "fairdomhub_published_link": "https://fairdomhub.org/projects/221",
+    "tags": "SRP Engelward"
+  }
+]

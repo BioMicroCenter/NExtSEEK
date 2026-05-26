@@ -78,7 +78,7 @@ describe("NextseekApiService", () => {
     const onError = vi.fn();
 
     // Fire and forget — we just want to verify the POST was made
-    service.submitQuery("test query", "standard", onProgress, onError);
+    service.submitQuery("test query", "standard", {}, onProgress, onError);
 
     // Let microtasks run so fetch resolves and WS opens
     await vi.advanceTimersByTimeAsync(10);
@@ -88,7 +88,7 @@ describe("NextseekApiService", () => {
       "http://localhost/nextseek_api/assistant/query/async/",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ query: "test query" }),
+        body: JSON.stringify({ query: "test query", mode: "standard", use_prod: false }),
       }),
     );
 
@@ -113,9 +113,34 @@ describe("NextseekApiService", () => {
     const onProgress = vi.fn();
     const onError = vi.fn();
 
-    await service.submitQuery("test", "standard", onProgress, onError);
+    await service.submitQuery("test", "standard", {}, onProgress, onError);
 
     expect(onError).toHaveBeenCalledWith("Query submission failed: 500");
+    expect(onProgress).not.toHaveBeenCalled();
+  });
+
+  it("submitQuery appends server detail to onError when body is a NExtSEEK error envelope", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        json: vi.fn().mockResolvedValue({
+          errors: [
+            { title: "Validation error", detail: "query: String should have at most 32000 characters" },
+          ],
+        }),
+      }),
+    );
+
+    const onProgress = vi.fn();
+    const onError = vi.fn();
+
+    await service.submitQuery("test", "standard", {}, onProgress, onError);
+
+    expect(onError).toHaveBeenCalledWith(
+      "Query submission failed: 422 — query: String should have at most 32000 characters",
+    );
     expect(onProgress).not.toHaveBeenCalled();
   });
 
@@ -128,7 +153,7 @@ describe("NextseekApiService", () => {
     const onProgress = vi.fn();
     const onError = vi.fn();
 
-    await service.submitQuery("test", "standard", onProgress, onError);
+    await service.submitQuery("test", "standard", {}, onProgress, onError);
 
     expect(onError).toHaveBeenCalledWith("Network error");
   });

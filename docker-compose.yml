@@ -11,19 +11,23 @@ services:
       - db
     volumes:
       - nextseek-static-files:/static
-      - ./path/to/SmartAdmin:/app/themes/SmartAdmin
-      - ./dmac/local_settings.py:/app/dmac/local_settings.py
+      # :z relabels the host path for SELinux-enforcing hosts (Fedora/RHEL).
+      # No-op on macOS/Ubuntu/non-SELinux systems, so safe everywhere.
+      - ./themes/NextSeek:/app/themes/NextSeek:z
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./outputs:/app/outputs:z
+      - ./logs:/app/logs:z
 
   nextseek_nginx:
     image: nginx:latest
     ports:
-      - "127.0.0.1:8000:80"
+      - "${NEXTSEEK_PORT:-8000}:80"
     volumes:
-      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro,z
       - nextseek-static-files:/static:ro
     depends_on:
       - nextseek
-      
+
   db: # Database implementation, in this case MySQL
     image: mysql:8.0
     container_name: seek-mysql
@@ -33,7 +37,7 @@ services:
     env_file:
       - ./docker/db.env
     volumes:
-      - ./docker/scripts/db:/docker-entrypoint-initdb.d
+      - ./docker/scripts/db:/docker-entrypoint-initdb.d:z
       - seek-mysql-db:/var/lib/mysql
 
   neo4j:
@@ -43,13 +47,13 @@ services:
     volumes:
       - neo4j-data:/data
     environment:
-      NEO4J_AUTH: "neo4j/neo4j_password"
+      NEO4J_AUTH: "neo4j/demopassword"
     ports:
-      - "127.0.0.1:7474:7474"
-      - "127.0.0.1:7687:7687"
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
 
   seek:
-    image: fairdom/seek:1.17
+    image: fairdom/seek:1.15.1
 
     container_name: seek
     command: docker/entrypoint.sh
@@ -66,7 +70,7 @@ services:
       - seek-filestore:/seek/filestore
       - seek-cache:/seek/tmp/cache
     ports:
-      - "127.0.0.1:3000:3000"
+      - "${SEEK_PORT:-3000}:3000"
     depends_on:
       - db
       - solr
@@ -77,7 +81,7 @@ services:
   seek_workers: # The SEEK delayed job workers
       #build: .
 
-      image: fairdom/seek:1.17
+      image: fairdom/seek:1.15.1
       container_name: seek-workers
       command: docker/start_workers.sh
       restart: always
@@ -111,7 +115,7 @@ services:
       - docker-entrypoint.sh
       - solr-precreate
       - seek
-      - /opt/solr/server/solr/configsets/seek_config      
+      - /opt/solr/server/solr/configsets/seek_config
 
 
 volumes:

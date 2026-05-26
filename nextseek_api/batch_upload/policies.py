@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import List, Tuple
+from typing import Any, List, Optional, Tuple
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -14,6 +14,46 @@ log = logging.getLogger(__name__)
 
 # Fallback counter for mocked connections where LAST_INSERT_ID() is unavailable
 _FAKE_NEXT_POLICY_ID: int = 1
+
+
+def _extract_last_insert_id(row: Any) -> Optional[int]:
+    """Extract LAST_INSERT_ID from tuple, mapping, or SQLAlchemy Row objects."""
+    if row is None:
+        return None
+
+    try:
+        first_value = row[0]
+    except Exception:
+        first_value = None
+    if first_value is not None:
+        try:
+            return int(first_value)
+        except Exception:
+            pass
+
+    mapping = getattr(row, "_mapping", None)
+    if mapping is not None:
+        try:
+            value = mapping.get("id")
+        except Exception:
+            value = None
+        if value is not None:
+            try:
+                return int(value)
+            except Exception:
+                pass
+
+    try:
+        value = row["id"]
+    except Exception:
+        value = None
+    if value is not None:
+        try:
+            return int(value)
+        except Exception:
+            pass
+
+    return None
 
 
 def insert_policies_for_uids(
@@ -60,14 +100,7 @@ def insert_policies_for_uids(
     first_id = None
     try:
         first_id_row = conn.execute(text("SELECT LAST_INSERT_ID() AS id")).fetchone()
-        if first_id_row is not None:
-            if isinstance(first_id_row, tuple):
-                first_id = int(first_id_row[0]) if first_id_row[0] is not None else None
-            else:
-                try:
-                    first_id = int(first_id_row["id"])
-                except Exception:
-                    pass
+        first_id = _extract_last_insert_id(first_id_row)
     except Exception:
         first_id = None
 
