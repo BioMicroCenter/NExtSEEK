@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NExtSEEK Native Evaluator Demo</title>
+  <style>
+    :root {
+      --bg: #09111a;
+      --bg-alt: #0f1b26;
+      --panel: rgba(11, 22, 33, 0.82);
+      --panel-strong: rgba(14, 28, 41, 0.94);
+      --line: rgba(149, 182, 212, 0.18);
+      --text: #edf6ff;
+      --muted: #9ab1c8;
+      --accent: #7be0c3;
+      --accent-strong: #3ecaa7;
+      --warning: #f5b85c;
+      --danger: #ef7d75;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.36);
+      --mono: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
+      --sans: "Instrument Sans", "Avenir Next", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(123, 224, 195, 0.18), transparent 32%),
+        radial-gradient(circle at bottom right, rgba(88, 128, 255, 0.18), transparent 34%),
+        linear-gradient(160deg, #071019 0%, #0b1520 48%, #050b11 100%);
+      overflow: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 36px 36px;
+      mask-image: radial-gradient(circle at center, rgba(0,0,0,0.8), transparent 85%);
+      pointer-events: none;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 340px 1fr 360px;
+      min-height: 100vh;
+      gap: 1px;
+      background: rgba(255,255,255,0.04);
+    }
+
+    .rail,
+    .workspace,
+    .inspector {
+      background: var(--panel);
+      backdrop-filter: blur(18px);
+    }
+
+    .rail {
+      padding: 28px 24px;
+      overflow-y: auto;
+    }
+
+    .brand {
+      margin-bottom: 28px;
+      animation: riseIn 600ms ease both;
+    }
+
+    .brand-kicker {
+      color: var(--accent);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      font-size: 11px;
+      margin-bottom: 10px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 0.96;
+      letter-spacing: -0.04em;
+      max-width: 8ch;
+    }
+
+    .brand p {
+      margin: 14px 0 0;
+      color: var(--muted);
+      line-height: 1.45;
+      max-width: 25ch;
+    }
+
+    .meta-strip {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 28px;
+      padding: 14px 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .meta-row strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .case-group {
+      margin-bottom: 26px;
+      animation: riseIn 600ms ease both;
+      animation-delay: 80ms;
+    }
+
+    .case-group h2 {
+      margin: 0 0 10px;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .case-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .case-button {
+      appearance: none;
+      background: transparent;
+      color: var(--text);
+      border: 1px solid transparent;
+      border-radius: 16px;
+      padding: 14px 16px;
+      text-align: left;
+      cursor: pointer;
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+    }
+
+    .case-button:hover,
+    .case-button.is-active {
+      transform: translateX(4px);
+      border-color: rgba(123, 224, 195, 0.36);
+      background: rgba(123, 224, 195, 0.08);
+    }
+
+    .case-button strong {
+      display: block;
+      font-size: 15px;
+      margin-bottom: 4px;
+      line-height: 1.3;
+    }
+
+    .case-button span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 100vh;
+    }
+
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 26px 30px 20px;
+      border-bottom: 1px solid var(--line);
+      animation: fadeIn 700ms ease both;
+    }
+
+    .toolbar-copy h2 {
+      margin: 0;
+      font-size: 16px;
+      letter-spacing: 0.01em;
+    }
+
+    .toolbar-copy p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .run-button {
+      appearance: none;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+      color: #072019;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 14px 22px;
+      cursor: pointer;
+      box-shadow: 0 18px 38px rgba(62, 202, 167, 0.24);
+      transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+    }
+
+    .run-button:hover { transform: translateY(-2px); box-shadow: 0 22px 44px rgba(62, 202, 167, 0.32); }
+    .run-button:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; transform: none; }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+      gap: 0;
+      min-height: 0;
+    }
+
+    .stream-pane,
+    .summary-pane {
+      min-height: 0;
+      overflow: hidden;
+      padding: 28px 30px 34px;
+    }
+
+    .stream-pane { border-right: 1px solid var(--line); }
+
+    .pane-label {
+      margin: 0 0 18px;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .stage-stack {
+      display: grid;
+      gap: 12px;
+      overflow-y: auto;
+      max-height: calc(100vh - 180px);
+      padding-right: 4px;
+    }
+
+    .stage-row {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 18px;
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      opacity: 0;
+      transform: translateY(12px);
+      animation: riseIn 260ms ease forwards;
+    }
+
+    .stage-name {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      padding-top: 2px;
+    }
+
+    .stage-body {
+      display: grid;
+      gap: 8px;
+    }
+
+    .stage-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      width: fit-content;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.04);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text);
+    }
+
+    .stage-status::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .stage-status[data-status="completed"]::before { background: var(--accent); box-shadow: 0 0 12px rgba(123, 224, 195, 0.55); }
+    .stage-status[data-status="started"]::before { background: var(--warning); }
+    .stage-status[data-status="error"]::before { background: var(--danger); }
+
+    .stage-payload {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .summary-pane {
+      background: var(--panel-strong);
+      overflow-y: auto;
+      display: grid;
+      gap: 22px;
+      align-content: start;
+    }
+
+    .summary-head h3 {
+      margin: 0;
+      font-size: 26px;
+      letter-spacing: -0.03em;
+    }
+
+    .summary-head p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .metric-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      padding: 14px 0 18px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 26px;
+      letter-spacing: -0.04em;
+      margin-bottom: 6px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .summary-block {
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .summary-block h4 {
+      margin: 0 0 12px;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .kv {
+      display: grid;
+      gap: 8px;
+      font-size: 14px;
+    }
+
+    .kv div {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      color: var(--muted);
+    }
+
+    .kv strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .json-box {
+      margin: 0;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 18px;
+      background: rgba(0,0,0,0.18);
+      color: #cfe2f6;
+      font-size: 12px;
+      line-height: 1.55;
+      font-family: var(--mono);
+      white-space: pre-wrap;
+      overflow-x: auto;
+      max-height: 280px;
+    }
+
+    .inspector {
+      padding: 28px 24px;
+      border-left: 1px solid var(--line);
+      overflow-y: auto;
+    }
+
+    .inspector h2 {
+      margin: 0 0 10px;
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .sample-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .sample-item {
+      padding: 14px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .sample-item strong {
+      display: block;
+      font-size: 15px;
+      margin-bottom: 4px;
+    }
+
+    .sample-item span {
+      color: var(--muted);
+      display: block;
+      line-height: 1.5;
+      font-size: 13px;
+    }
+
+    .empty-state {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+      margin-top: 22px;
+    }
+
+    @keyframes riseIn {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @media (max-width: 1200px) {
+      body { overflow: auto; }
+      .shell { grid-template-columns: 1fr; }
+      .rail, .workspace, .inspector { min-height: auto; }
+      .main-grid { grid-template-columns: 1fr; }
+      .stream-pane { border-right: 0; border-bottom: 1px solid var(--line); }
+      .inspector { border-left: 0; border-top: 1px solid var(--line); }
+      .stage-stack { max-height: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand">
+        <div class="brand-kicker">Local Developer Surface</div>
+        <h1>NExtSEEK Evaluator</h1>
+        <p>Ported onto the native evaluator workflow in this repo. Pick a test case, stream the stages, inspect the report.</p>
+      </div>
+      <div class="meta-strip">
+        <div class="meta-row"><span>Engine</span><strong id="engineMode">native</strong></div>
+        <div class="meta-row"><span>Transport</span><strong>POST + SSE</strong></div>
+        <div class="meta-row"><span>Scope</span><strong>new evaluator only</strong></div>
+      </div>
+      <div id="caseGroups"></div>
+    </aside>
+
+    <main class="workspace">
+      <div class="toolbar">
+        <div class="toolbar-copy">
+          <h2 id="selectedPrompt">Choose a demo case to begin.</h2>
+          <p id="selectedDescription">The stage stream below mirrors the local evaluator workflow and report surface.</p>
+        </div>
+        <button id="runButton" class="run-button" disabled>Run Evaluation</button>
+      </div>
+      <div class="main-grid">
+        <section class="stream-pane">
+          <div class="pane-label">Live Stage Stream</div>
+          <div id="stageStack" class="stage-stack">
+            <div class="empty-state">Stage events appear here once a case is selected and executed.</div>
+          </div>
+        </section>
+        <section class="summary-pane">
+          <div class="summary-head">
+            <h3>Result Summary</h3>
+            <p>Focused, utility-first visibility into the report payload emitted by the native evaluator demo workflow.</p>
+          </div>
+          <div class="metric-strip">
+            <div class="metric"><strong id="passCount">0</strong><span>Pass</span></div>
+            <div class="metric"><strong id="retryCount">0</strong><span>Retry</span></div>
+            <div class="metric"><strong id="failCount">0</strong><span>Fail</span></div>
+          </div>
+          <div class="summary-block">
+            <h4>Active Query</h4>
+            <div class="kv" id="activeQuery">
+              <div><span>State</span><strong>idle</strong></div>
+            </div>
+          </div>
+          <div class="summary-block">
+            <h4>Latest Report JSON</h4>
+            <pre id="reportJson" class="json-box">Waiting for a completed result event.</pre>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <aside class="inspector">
+      <h2>Sample Data</h2>
+      <div id="sampleList" class="sample-list"></div>
+      <div class="summary-block">
+        <h4>How To Use</h4>
+        <div class="kv">
+          <div><span>1</span><strong>Pick a seeded test case</strong></div>
+          <div><span>2</span><strong>Run the native evaluator</strong></div>
+          <div><span>3</span><strong>Inspect stages and report deltas</strong></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const state = {
+      selectedCase: null,
+      running: false,
+    };
+
+    const caseGroups = document.getElementById("caseGroups");
+    const stageStack = document.getElementById("stageStack");
+    const sampleList = document.getElementById("sampleList");
+    const selectedPrompt = document.getElementById("selectedPrompt");
+    const selectedDescription = document.getElementById("selectedDescription");
+    const runButton = document.getElementById("runButton");
+    const engineMode = document.getElementById("engineMode");
+    const passCount = document.getElementById("passCount");
+    const retryCount = document.getElementById("retryCount");
+    const failCount = document.getElementById("failCount");
+    const activeQuery = document.getElementById("activeQuery");
+    const reportJson = document.getElementById("reportJson");
+
+    const pretty = (value) => JSON.stringify(value, null, 2);
+
+    function updateSelection(button, testCase) {
+      document.querySelectorAll(".case-button").forEach((node) => node.classList.remove("is-active"));
+      button.classList.add("is-active");
+      state.selectedCase = testCase;
+      selectedPrompt.textContent = testCase.prompt;
+      selectedDescription.textContent = testCase.description || "Native evaluator test case";
+      runButton.disabled = false;
+      activeQuery.innerHTML = `<div><span>Selected</span><strong>${testCase.key}</strong></div><div><span>Mode</span><strong>${testCase.category}</strong></div>`;
+    }
+
+    function appendStage(event) {
+      if (stageStack.querySelector(".empty-state")) {
+        stageStack.innerHTML = "";
+      }
+
+      const row = document.createElement("article");
+      row.className = "stage-row";
+      const payloadText = event.payload ? pretty(event.payload) : "No payload";
+      row.innerHTML = `
+        <div class="stage-name">${event.stage}</div>
+        <div class="stage-body">
+          <div class="stage-status" data-status="${event.status}">${event.status}</div>
+          <pre class="stage-payload">${payloadText}</pre>
+        </div>
+      `;
+      stageStack.appendChild(row);
+      stageStack.scrollTop = stageStack.scrollHeight;
+    }
+
+    function renderSummary(payload) {
+      const report = payload.report || {};
+      passCount.textContent = report.queries_passed ?? 0;
+      retryCount.textContent = report.queries_retried ?? 0;
+      failCount.textContent = report.queries_failed ?? 0;
+      const active = report.results && report.results[0] ? report.results[0] : null;
+      if (active) {
+        activeQuery.innerHTML = `
+          <div><span>Query</span><strong>${active.query}</strong></div>
+          <div><span>Status</span><strong>${active.status}</strong></div>
+          <div><span>Verdict</span><strong>${active.retry_decision ? active.retry_decision.verdict : "n/a"}</strong></div>
+        `;
+      }
+      reportJson.textContent = pretty(payload);
+    }
+
+    async function loadHealth() {
+      const response = await fetch("/api/health");
+      const payload = await response.json();
+      engineMode.textContent = payload.mode || "native";
+    }
+
+    async function loadSampleData() {
+      const response = await fetch("/api/sample-data");
+      const payload = await response.json();
+      sampleList.innerHTML = "";
+      payload.forEach((item) => {
+        const node = document.createElement("div");
+        node.className = "sample-item";
+        node.innerHTML = `
+          <strong>${item.prompt}</strong>
+          <span>${item.correctness} / ${item.completeness} / ${item.routing_quality}</span>
+          <span>${item.retried ? "Retry path exercised" : "Single-pass judgment"}</span>
+        `;
+        sampleList.appendChild(node);
+      });
+    }
+
+    async function loadTestCases() {
+      const response = await fetch("/api/test-cases");
+      const payload = await response.json();
+      caseGroups.innerHTML = "";
+      payload.categories.forEach((category) => {
+        const group = document.createElement("section");
+        group.className = "case-group";
+        group.innerHTML = `<h2>${category.name}</h2><div class="case-list"></div>`;
+        const list = group.querySelector(".case-list");
+        category.cases.forEach((testCase) => {
+          const button = document.createElement("button");
+          button.className = "case-button";
+          button.type = "button";
+          const caseData = { ...testCase, category: category.name };
+          button.innerHTML = `<strong>${testCase.prompt}</strong><span>${testCase.description || "Run evaluator workflow"}</span>`;
+          button.addEventListener("click", () => updateSelection(button, caseData));
+          list.appendChild(button);
+        });
+        caseGroups.appendChild(group);
+      });
+    }
+
+    async function runEvaluation() {
+      if (!state.selectedCase || state.running) {
+        return;
+      }
+      state.running = true;
+      runButton.disabled = true;
+      stageStack.innerHTML = "";
+      reportJson.textContent = "Waiting for completed result...";
+      passCount.textContent = "0";
+      retryCount.textContent = "0";
+      failCount.textContent = "0";
+
+      const response = await fetch("/api/evaluate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ test_case: state.selectedCase.key }),
+      });
+
+      if (!response.ok || !response.body) {
+        appendStage({ stage: "error", status: "error", payload: { message: "Could not open SSE response" } });
+        state.running = false;
+        runButton.disabled = false;
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() || "";
+
+        for (const chunk of chunks) {
+          const dataLine = chunk.split("\n").find((line) => line.startsWith("data:"));
+          if (!dataLine) continue;
+          const event = JSON.parse(dataLine.slice(5).trim());
+          appendStage(event);
+          if (event.stage === "result" && event.payload) {
+            renderSummary(event.payload);
+          }
+        }
+      }
+
+      state.running = false;
+      runButton.disabled = false;
+    }
+
+    runButton.addEventListener("click", runEvaluation);
+
+    Promise.all([loadHealth(), loadSampleData(), loadTestCases()]).catch((error) => {
+      stageStack.innerHTML = `<div class="empty-state">Failed to load demo data: ${error.message}</div>`;
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,883 @@
+{
+  "report_type": "PRIDE",
+  "description": "PRIDE / ProteomeXchange submission summary JSON template aligned to the ProteomeXchange Submission Summary File Format v2.2.1.",
+  "format": {
+    "version": "2.2.1",
+    "source_document": "pride.pdf",
+    "output_type": "tab-delimited PRIDE submission summary file",
+    "field_separator": "tab",
+    "encoding": "UTF-8 preferred",
+    "case_sensitive": true,
+    "date_format": "ISO 8601",
+    "decimal_separator": ".",
+    "line_prefixes": {
+      "metadata": "MTD",
+      "file_mapping_header": "FMH",
+      "file_mapping_entry": "FME",
+      "sample_metadata_header": "SMH",
+      "sample_metadata_entry": "SME",
+      "comment": "COM"
+    },
+    "cv_param_format": {
+      "serialization": "[CV label, accession, name, value]",
+      "template": {
+        "cv_label": null,
+        "accession": null,
+        "name": null,
+        "value": null
+      },
+      "notes": [
+        "Leave unavailable CV fields empty within the four-part structure.",
+        "User params are also allowed in this same four-part structure when CV terms cannot be given."
+      ]
+    }
+  },
+  "project_metadata": {
+    "*submitter_name": null,
+    "*submitter_email": null,
+    "*submitter_affiliation": null,
+    "*lab_head_name": null,
+    "*lab_head_email": null,
+    "*lab_head_affiliation": null,
+    "*submitter_pride_login": null,
+    "*project_title": null,
+    "*project_description": null,
+    "project_tag": [],
+    "*sample_processing_protocol": null,
+    "*data_processing_protocol": null,
+    "other_omics_link": [],
+    "*keywords": [],
+    "*submission_type": null,
+    "*experiment_type": [
+      {
+        "cv_label": null,
+        "accession": null,
+        "name": null,
+        "value": null
+      }
+    ],
+    "**reason_for_partial": null,
+    "*species": [
+      {
+        "cv_label": null,
+        "accession": null,
+        "name": null,
+        "value": null
+      }
+    ],
+    "*tissue": [
+      {
+        "cv_label": null,
+        "accession": null,
+        "name": null,
+        "value": null
+      }
+    ],
+    "cell_type": [
+      {
+        "cv_label": null,
+        "accession": null,
+        "name": null,
+        "value": null
+      }
+    ],
+    "disease": [
+      {
+        "cv_label": null,
+        "accession": null,
+        "name": null,
+        "value": null
+      }
+    ],
+    "quantification": [
+      {
+        "cv_label": null,
+        "accession": null,
+        "name": null,
+        "value": null
+      }
+    ],
+    "*instrument": [
+      {
+        "cv_label": null,
+        "accession": null,
+        "name": null,
+        "value": null
+      }
+    ],
+    "**modification": [
+      {
+        "cv_label": null,
+        "accession": null,
+        "name": null,
+        "value": null
+      }
+    ],
+    "additional": [
+      {
+        "cv_label": null,
+        "accession": null,
+        "name": null,
+        "value": null
+      }
+    ],
+    "pubmed_id": [],
+    "resubmission_px": null,
+    "reanalysis_px": []
+  },
+  "file_mapping": [
+    {
+      "*file_id": null,
+      "*file_type": null,
+      "*file_path": null,
+      "**file_mapping": []
+    }
+  ],
+  "sample_metadata": [
+    {
+      "*file_id": null,
+      "*species": [
+        {
+          "cv_label": null,
+          "accession": null,
+          "name": null,
+          "value": null
+        }
+      ],
+      "*tissue": [
+        {
+          "cv_label": null,
+          "accession": null,
+          "name": null,
+          "value": null
+        }
+      ],
+      "cell_type": [
+        {
+          "cv_label": null,
+          "accession": null,
+          "name": null,
+          "value": null
+        }
+      ],
+      "disease": [
+        {
+          "cv_label": null,
+          "accession": null,
+          "name": null,
+          "value": null
+        }
+      ],
+      "quantification": [
+        {
+          "cv_label": null,
+          "accession": null,
+          "name": null,
+          "value": null
+        }
+      ],
+      "*instrument": [
+        {
+          "cv_label": null,
+          "accession": null,
+          "name": null,
+          "value": null
+        }
+      ],
+      "**modification": [
+        {
+          "cv_label": null,
+          "accession": null,
+          "name": null,
+          "value": null
+        }
+      ],
+      "*experimental_factor": null
+    }
+  ],
+  "notes": [
+    "Populate values for the PRIDE submission summary file. Required fields are prefixed with * and conditional fields are prefixed with **.",
+    "Repeated MTD fields should become separate metadata lines in the final tab-delimited submission file.",
+    "All file names in the submission must be unique.",
+    "For COMPLETE submissions, provide RAW and RESULT files; if RESULT files are mzIdentML 1.1, PEAK files are also required.",
+    "For PARTIAL submissions, provide RAW files and corresponding SEARCH engine output files.",
+    "Sample metadata applies to RESULT files and should be serialized as SMH/SME rows. The PRIDE PDF shows this for COMPLETE submissions; the PARTIAL example does not include a sample metadata section.",
+    "Use controlled vocabulary terms wherever possible, especially for species, tissue, cell type, disease, instrument, and protein modifications."
+  ],
+  "schema": {
+    "template_source": {
+      "file": "pride.pdf",
+      "title": "ProteomeXchange Submission Summary File Format",
+      "version": "2.2.1",
+      "dated": "August 9th 2016"
+    },
+    "submission_variants": {
+      "COMPLETE": {
+        "description": "Requires RAW files and RESULT files in PRIDE XML 2.1 or mzIdentML 1.1 format.",
+        "required_file_types": [
+          "raw",
+          "result"
+        ],
+        "conditional_requirements": [
+          "If RESULT files are mzIdentML 1.1, PEAK files used directly in the search are also required.",
+          "RESULT rows should map to the RAW files on which they are based.",
+          "Sample metadata rows correspond to RESULT file_id values."
+        ]
+      },
+      "PARTIAL": {
+        "description": "Requires RAW files and corresponding SEARCH engine output files.",
+        "required_file_types": [
+          "raw",
+          "search"
+        ],
+        "conditional_requirements": [
+          "reason_for_partial should explain why a COMPLETE submission was not possible.",
+          "reason_for_partial should mention the search engine and/or pipeline used to generate the results.",
+          "SEARCH rows should map to the RAW files on which they are based."
+        ]
+      }
+    },
+    "controlled_vocabularies": {
+      "recommended_ontologies": {
+        "species": "NEWT (UniProt Taxonomy Database)",
+        "instrument": "MS (PSI Mass Spectrometry CV)",
+        "modification": "PSI-MOD or UNIMOD, with PSI-MOD preferred",
+        "tissue": "BTO (BRENDA Tissue Ontology)",
+        "cell_type": "CL (Cell Ontology)",
+        "disease": "DOID (Disease Ontology)",
+        "quantification": "PRIDE ontology terms are recommended"
+      },
+      "experiment_type_allowed_terms": [
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000427",
+          "name": "Top-down proteomics",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000429",
+          "name": "Shotgun proteomics",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000430",
+          "name": "Chemical cross-linking coupled with mass spectrometry proteomics",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000433",
+          "name": "Affinity purification coupled with mass spectrometry proteomics",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000311",
+          "name": "SRM/MRM",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000447",
+          "name": "SWATH MS",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000451",
+          "name": "MSE",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000452",
+          "name": "HDMSE",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000453",
+          "name": "PAcIFIC",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000454",
+          "name": "All-ion fragmentation",
+          "value": null
+        },
+        {
+          "cv_label": "MS",
+          "accession": "MS:1002521",
+          "name": "Mass spectrometry imaging",
+          "value": null
+        }
+      ],
+      "quantification_allowed_terms": [
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000318",
+          "name": "18O",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000320",
+          "name": "AQUA",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000319",
+          "name": "ICAT",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000321",
+          "name": "ICPL",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000315",
+          "name": "SILAC",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000314",
+          "name": "TMT",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000313",
+          "name": "iTRAQ",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000323",
+          "name": "TIC",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000322",
+          "name": "emPAI",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000435",
+          "name": "Peptide counting",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000436",
+          "name": "Spectral counting",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000437",
+          "name": "Protein Abundance Index - PAI",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000438",
+          "name": "Spectrum count/molecular weight",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000439",
+          "name": "Spectral Abundance Factor - SAF",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000440",
+          "name": "Normalized Spectral Abundance Factor - NSAF",
+          "value": null
+        },
+        {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000441",
+          "name": "APEX - Absolute Protein Expression",
+          "value": null
+        }
+      ],
+      "special_cv_terms": {
+        "tissue_not_applicable": {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000442",
+          "name": "Tissue not applicable to dataset",
+          "value": null
+        },
+        "no_ptms_included": {
+          "cv_label": "PRIDE",
+          "accession": "PRIDE:0000398",
+          "name": "No PTMs are included in the dataset",
+          "value": null
+        },
+        "generic_instrument_model": {
+          "cv_label": "MS",
+          "accession": "MS:1000031",
+          "name": "instrument model",
+          "value": "CUSTOM NAME"
+        }
+      }
+    },
+    "reusable_templates": {
+      "cv_param": {
+        "cv_label": null,
+        "accession": null,
+        "name": null,
+        "value": null
+      },
+      "file_mapping_entry": {
+        "*file_id": null,
+        "*file_type": null,
+        "*file_path": null,
+        "**file_mapping": []
+      },
+      "sample_metadata_entry": {
+        "*file_id": null,
+        "*species": [
+          {
+            "cv_label": null,
+            "accession": null,
+            "name": null,
+            "value": null
+          }
+        ],
+        "*tissue": [
+          {
+            "cv_label": null,
+            "accession": null,
+            "name": null,
+            "value": null
+          }
+        ],
+        "cell_type": [
+          {
+            "cv_label": null,
+            "accession": null,
+            "name": null,
+            "value": null
+          }
+        ],
+        "disease": [
+          {
+            "cv_label": null,
+            "accession": null,
+            "name": null,
+            "value": null
+          }
+        ],
+        "quantification": [
+          {
+            "cv_label": null,
+            "accession": null,
+            "name": null,
+            "value": null
+          }
+        ],
+        "*instrument": [
+          {
+            "cv_label": null,
+            "accession": null,
+            "name": null,
+            "value": null
+          }
+        ],
+        "**modification": [
+          {
+            "cv_label": null,
+            "accession": null,
+            "name": null,
+            "value": null
+          }
+        ],
+        "*experimental_factor": null
+      }
+    },
+    "sections": {
+      "project_metadata": {
+        "description": "Project-level metadata lines serialized with the MTD prefix. Repeated values become repeated MTD lines.",
+        "fields": {
+          "*submitter_name": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "First name and surname of the submitter."
+          },
+          "*submitter_email": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "Submitter email address; also used as the login username to ProteomeXchange and for dataset ownership."
+          },
+          "*submitter_affiliation": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "Institute or university affiliation of the submitter."
+          },
+          "*lab_head_name": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "Principal investigator or lab head name. Duplicate submitter info here if they are the same person."
+          },
+          "*lab_head_email": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "Principal investigator or lab head email address."
+          },
+          "*lab_head_affiliation": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "Institute or university affiliation of the principal investigator or lab head."
+          },
+          "*submitter_pride_login": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "PRIDE account username. Submitters need to have a PRIDE account."
+          },
+          "*project_title": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "Title of the project being submitted."
+          },
+          "*project_description": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "Short public description or abstract of the experiment.",
+            "validation_hints": [
+              "Minimum 50 characters",
+              "Maximum 5000 characters"
+            ]
+          },
+          "project_tag": {
+            "required": "optional",
+            "multiplicity": "0..N",
+            "expected_value": "array of strings",
+            "description": "Repository-assigned project tags used when the dataset is part of a larger project."
+          },
+          "*sample_processing_protocol": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "Short description of the sample processing protocol.",
+            "validation_hints": [
+              "Minimum 50 characters",
+              "Maximum 5000 characters"
+            ]
+          },
+          "*data_processing_protocol": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "Short description of the data processing protocol.",
+            "validation_hints": [
+              "Minimum 50 characters",
+              "Maximum 5000 characters"
+            ]
+          },
+          "other_omics_link": {
+            "required": "optional",
+            "multiplicity": "0..N",
+            "expected_value": "array of strings",
+            "description": "Links or short statements pointing to related omics datasets generated by the same study."
+          },
+          "*keywords": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "array of strings",
+            "description": "Keywords describing dataset content and experiment type. Serialize as a comma-separated string in the final submission.",
+            "validation_hints": [
+              "A minimum of three keywords is recommended"
+            ]
+          },
+          "*submission_type": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "allowed_values": [
+              "COMPLETE",
+              "PARTIAL"
+            ],
+            "description": "Submission completeness category based on the types of files being submitted."
+          },
+          "*experiment_type": {
+            "required": "required",
+            "multiplicity": "1..N",
+            "expected_value": "array of CV params",
+            "description": "Experiment type CV terms."
+          },
+          "**reason_for_partial": {
+            "required": "conditional",
+            "multiplicity": "0..1",
+            "expected_value": "string",
+            "description": "Explain why a COMPLETE submission was not possible.",
+            "required_when": "submission_type = PARTIAL"
+          },
+          "*species": {
+            "required": "required",
+            "multiplicity": "1..N",
+            "expected_value": "array of CV params",
+            "description": "Species represented in the dataset.",
+            "ontology": "NEWT only"
+          },
+          "*tissue": {
+            "required": "required",
+            "multiplicity": "1..N",
+            "expected_value": "array of CV params",
+            "description": "Tissue terms for the dataset. If no tissue applies, use the special PRIDE tissue-not-applicable CV term.",
+            "ontology": "BTO"
+          },
+          "cell_type": {
+            "required": "optional",
+            "multiplicity": "0..N",
+            "expected_value": "array of CV params",
+            "description": "Cell type terms for the dataset.",
+            "ontology": "CL"
+          },
+          "disease": {
+            "required": "optional",
+            "multiplicity": "0..N",
+            "expected_value": "array of CV params",
+            "description": "Disease terms for the dataset.",
+            "ontology": "DOID"
+          },
+          "quantification": {
+            "required": "optional",
+            "multiplicity": "0..N",
+            "expected_value": "array of CV params",
+            "description": "Quantification technique terms recommended from the PRIDE ontology."
+          },
+          "*instrument": {
+            "required": "required",
+            "multiplicity": "1..N",
+            "expected_value": "array of CV params",
+            "description": "Instrument model terms.",
+            "ontology": "MS (PSI-MS)"
+          },
+          "**modification": {
+            "required": "conditional",
+            "multiplicity": "1..N",
+            "expected_value": "array of CV params",
+            "description": "Protein modification terms. If no PTMs were reported, use the special no-PTMs CV term.",
+            "ontology": "PSI-MOD or UNIMOD",
+            "required_when": "Required for PARTIAL submissions; optional for COMPLETE submissions"
+          },
+          "additional": {
+            "required": "optional",
+            "multiplicity": "0..N",
+            "expected_value": "array of CV params or user params",
+            "description": "Additional parameters describing the submission."
+          },
+          "pubmed_id": {
+            "required": "optional",
+            "multiplicity": "0..N",
+            "expected_value": "array of strings",
+            "description": "PubMed IDs assigned to related publications. One ID per line in final serialization."
+          },
+          "resubmission_px": {
+            "required": "optional",
+            "multiplicity": "0..1",
+            "expected_value": "string",
+            "description": "Original ProteomeXchange accession when resubmitting a previously submitted dataset."
+          },
+          "reanalysis_px": {
+            "required": "optional",
+            "multiplicity": "0..N",
+            "expected_value": "array of strings",
+            "description": "ProteomeXchange accessions for datasets that are being reanalyzed."
+          }
+        }
+      },
+      "file_mapping": {
+        "description": "Tabular section serialized with one FMH header row followed by FME rows describing files and relationships.",
+        "columns": {
+          "*file_id": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "integer or string integer",
+            "description": "Unique file ID as a consecutive non-negative integer starting with 1."
+          },
+          "*file_type": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "Predefined PRIDE file type.",
+            "allowed_values": [
+              "result",
+              "raw",
+              "peak",
+              "search",
+              "quant",
+              "gel",
+              "fasta",
+              "spectrum_library",
+              "ms_image_data",
+              "optical_image",
+              "other"
+            ]
+          },
+          "*file_path": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "Absolute path of the file."
+          },
+          "**file_mapping": {
+            "required": "conditional",
+            "multiplicity": "1 for mapped derived files",
+            "expected_value": "array of file_id values",
+            "description": "IDs of files related to this file. RESULT files in COMPLETE submissions and SEARCH files in PARTIAL submissions should list the RAW file IDs on which they are based.",
+            "required_when": "Derived rows such as RESULT or SEARCH need mappings"
+          }
+        },
+        "supported_file_types": {
+          "result": {
+            "description": "Result files in mzIdentML 1.1 or PRIDE XML 2.1.",
+            "required_when": "COMPLETE",
+            "notes": [
+              "If using mzIdentML 1.1, PEAK files directly used in the search are mandatory."
+            ]
+          },
+          "raw": {
+            "description": "Mass spectrometer output files such as binary files, mzML, mzXML, or mzData.",
+            "required_when": "All submissions"
+          },
+          "peak": {
+            "description": "Processed peak list files such as MGF, dta, ms2, pkl, or heavily processed mzML/mzXML/mzData files.",
+            "required_when": "COMPLETE with mzIdentML result files"
+          },
+          "search": {
+            "description": "Search engine output files such as Mascot DAT, pep.xml, or prot.xml.",
+            "required_when": "PARTIAL"
+          },
+          "quant": {
+            "description": "Quantification analysis output files such as MaxQuant outputs.",
+            "required_when": "Optional"
+          },
+          "gel": {
+            "description": "Gel image files such as TIF, JPG, PNG, or GIF.",
+            "required_when": "Optional"
+          },
+          "fasta": {
+            "description": "Sequence database files containing protein sequences used by the search engine.",
+            "required_when": "Optional"
+          },
+          "spectrum_library": {
+            "description": "Spectrum library used during the analysis.",
+            "required_when": "Optional"
+          },
+          "ms_image_data": {
+            "description": "Mass spectrometry imaging data such as imzML or hdr files.",
+            "required_when": "Optional"
+          },
+          "optical_image": {
+            "description": "Optical image files.",
+            "required_when": "Optional"
+          },
+          "other": {
+            "description": "Other files relevant to the submission, such as scripts.",
+            "required_when": "Optional"
+          }
+        },
+        "validation_hints": [
+          "All submitted file names must be unique.",
+          "Serialize one FMH header line before FME rows."
+        ]
+      },
+      "sample_metadata": {
+        "description": "Tabular section serialized with one SMH header row followed by SME rows. Each row corresponds to a RESULT file_id and its sample details.",
+        "applicability": "Used for RESULT files. Shown in the COMPLETE example; not shown in the PARTIAL example because that example has SEARCH rather than RESULT files.",
+        "columns": {
+          "*file_id": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "integer or string integer",
+            "description": "File ID of the RESULT entry described by this sample row."
+          },
+          "*species": {
+            "required": "required",
+            "multiplicity": "1..N",
+            "expected_value": "array of CV params",
+            "description": "Species term(s) for this RESULT file.",
+            "ontology": "NEWT"
+          },
+          "*tissue": {
+            "required": "required",
+            "multiplicity": "1..N",
+            "expected_value": "array of CV params",
+            "description": "Tissue term(s) for this RESULT file.",
+            "ontology": "BTO"
+          },
+          "cell_type": {
+            "required": "optional",
+            "multiplicity": "0..N",
+            "expected_value": "array of CV params",
+            "description": "Cell type term(s) for this RESULT file.",
+            "ontology": "CL"
+          },
+          "disease": {
+            "required": "optional",
+            "multiplicity": "0..N",
+            "expected_value": "array of CV params",
+            "description": "Disease term(s) for this RESULT file.",
+            "ontology": "DOID"
+          },
+          "quantification": {
+            "required": "optional",
+            "multiplicity": "0..N",
+            "expected_value": "array of CV params",
+            "description": "Quantification term(s) for this RESULT file."
+          },
+          "*instrument": {
+            "required": "required",
+            "multiplicity": "1..N",
+            "expected_value": "array of CV params",
+            "description": "Instrument model term(s) for this RESULT file.",
+            "ontology": "MS (PSI-MS)"
+          },
+          "**modification": {
+            "required": "conditional",
+            "multiplicity": "0..N",
+            "expected_value": "array of CV params",
+            "description": "Modification term(s) for this RESULT file. If no PTMs were reported, use the no-PTMs CV term."
+          },
+          "*experimental_factor": {
+            "required": "required",
+            "multiplicity": "1",
+            "expected_value": "string",
+            "description": "Short description of the experimental factor for the RESULT file, such as treatment, replicate, strain, age, or disease state."
+          }
+        }
+      }
+    },
+    "serialization_guidance": [
+      "Every non-empty line in the final PRIDE submission file must begin with the correct three-letter prefix followed by a tab.",
+      "Use one MTD line per metadata value. Repeated metadata entries such as species, instrument, and project_tag become multiple MTD lines.",
+      "Serialize keywords as a comma-separated value string on a single MTD keywords line.",
+      "Serialize CV params exactly as [CV label, accession, name, value].",
+      "Serialize one FMH header row before the FME file rows.",
+      "Serialize one SMH header row before SME sample rows when sample metadata is applicable."
+    ]
+  }
+}

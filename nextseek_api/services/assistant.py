@@ -39,7 +39,10 @@ from nextseek_api.assistant.descriptions import (
     ASSISTANT_QUERY_ASYNC_DESC,
     ASSISTANT_QUERY_DESC,
     ASSISTANT_SESSION_CREATE_DESC,
+    ASSISTANT_SESSION_DELETE_DESC,
     ASSISTANT_SESSION_DETAIL_DESC,
+    ASSISTANT_SESSION_PATCH_DESC,
+    ASSISTANT_SESSIONS_LIST_DESC,
     ASSISTANT_TASK_PROGRESS_DESC,
     ASSISTANT_TEST_CASES_DESC,
 )
@@ -50,11 +53,16 @@ from nextseek_api.assistant.models_api import (
     QueryRequest,
     SessionCreateResponse,
     SessionDetailResponse,
+    SessionListItem,
+    SessionListResponse,
+    SessionPatchRequest,
     TaskProgressResponse,
     TestCaseItem,
     TestCaseListResponse,
+    Turn,
 )
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
+from nextseek_api.assistant.excel_export import extract_table_artifacts
 from rest_framework.authentication import (
     BasicAuthentication,
     SessionAuthentication,
@@ -112,11 +120,84 @@ def _error_response(title: str, detail: str, http_status: int) -> Response:
     )
 
 
+def _auto_title_if_unset(chat_session: ChatSession) -> None:
+    """Populate ChatSession.title from the first user query if currently NULL.
+
+    Idempotent: subsequent calls on a session with a title set are a no-op.
+    A manually-set title is therefore never overwritten — frontend rename
+    always wins.
+    """
+    if chat_session.title:
+        return
+    history = chat_session.results_history or []
+    first_user_query = ""
+    for bundle in history:
+        uq = (bundle or {}).get("user_query")
+        if uq:
+            first_user_query = uq
+            break
+    if not first_user_query:
+        return
+    title = " ".join(first_user_query.split())[:60]
+    if not title:
+        return
+    chat_session.title = title
+    chat_session.save(update_fields=["title", "updated_at"])
+
+
+def _select_chat_config(request, req) -> ChatConfig:
+    """Pick the ChatConfig instance for this request.
+
+    Returns ``settings.NEXTSEEK_CHAT_CONFIG_PROD`` when the request asked for
+    ``use_prod=True`` AND the caller is admin AND a prod config was actually
+    built in ``local_settings.py``. Falls back to the default
+    ``NEXTSEEK_CHAT_CONFIG`` in every other case.
+    """
+    if not getattr(req, "use_prod", False):
+        return settings.NEXTSEEK_CHAT_CONFIG
+    user = getattr(request, "user", None)
+    is_admin = bool(getattr(user, "is_staff", False) or getattr(user, "is_superuser", False))
+    if not is_admin:
+        return settings.NEXTSEEK_CHAT_CONFIG
+    prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
+    if prod_config is None:
+        return settings.NEXTSEEK_CHAT_CONFIG
+    return prod_config
+
+
 class AssistantViewSet(viewsets.ViewSet):
     """ViewSet for the NExtSEEK Assistant (multi-agent chat)."""
 
     authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated, UserInParticipatingProject]
+
+    # ------------------------------------------------------------------
+    # Helpers for the sessions list/detail
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _project_session_list_row(cs: ChatSession) -> dict:
+        """Project a ChatSession into the SessionListItem shape.
+
+        Reads `results_history` once to compute `query_count` and `preview`.
+        Falls back to "New chat" when `title` is null.
+        """
+        history = cs.results_history or []
+        first_user_query = ""
+        for bundle in history:
+            uq = (bundle or {}).get("user_query")
+            if uq:
+                first_user_query = uq
+                break
+        preview = " ".join(first_user_query.split())[:80]
+        return SessionListItem(
+            session_id=cs.session_id,
+            title=cs.title or "New chat",
+            created_at=cs.created_at,
+            updated_at=cs.updated_at,
+            query_count=len(history),
+            preview=preview,
+        ).model_dump(mode="json")
 
     def _check_auth(self, request):
         """Check authentication via BASIC, SESSION, or TOKEN."""
@@ -152,6 +233,39 @@ class AssistantViewSet(viewsets.ViewSet):
         )
 
     # ------------------------------------------------------------------
+    # 1b. GET /assistant/sessions/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Assistant: List Sessions",
+        description=ASSISTANT_SESSIONS_LIST_DESC,
+        tags=["Assistant"],
+        responses={200: SessionListResponse},
+    )
+    @action(detail=False, methods=["get"], url_path="sessions")
+    def list_sessions(self, request):
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        # Two-step lookup: only the PK enters the ORDER BY query so the
+        # JSON columns (results_history / last_debug) never land in the
+        # MySQL sort buffer (regression: error 1038 once results_history
+        # grew beyond sort_buffer_size).
+        ids = list(
+            ChatSession.objects.filter(user=request.user)
+            .order_by("-updated_at")
+            .values_list("session_id", flat=True)[:50]
+        )
+        rows = []
+        for sid in ids:
+            cs = ChatSession.objects.get(session_id=sid)
+            rows.append(self._project_session_list_row(cs))
+        return Response(
+            {"total": len(rows), "sessions": rows},
+            status=status.HTTP_200_OK,
+        )
+
+    # ------------------------------------------------------------------
     # 2. POST /assistant/sessions/
     # ------------------------------------------------------------------
     @extend_schema(
@@ -160,7 +274,7 @@ class AssistantViewSet(viewsets.ViewSet):
         tags=["Assistant"],
         responses={201: SessionCreateResponse},
     )
-    @action(detail=False, methods=["post"], url_path="sessions")
+    @list_sessions.mapping.post
     def create_session(self, request):
         authed, err = self._check_auth(request)
         if not authed:
@@ -202,15 +316,129 @@ class AssistantViewSet(viewsets.ViewSet):
             return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
 
         history = session.results_history or []
+        payload = SessionDetailResponse(
+            session_id=session.session_id,
+            created_at=session.created_at,
+            query_count=len(history),
+            has_results=bool(history),
+        ).model_dump(mode="json")
+
+        include = request.query_params.get("include", "")
+        include_set = {p.strip() for p in include.split(",") if p.strip()}
+        if "turns" in include_set:
+            payload["title"] = session.title or "New chat"
+            chat_log = (session.extra_state or {}).get("chat_log") or []
+            bundles_by_id = {b.get("id"): b for b in history if isinstance(b, dict)}
+            turns: list[dict[str, Any]] = []
+            if chat_log:
+                for entry in chat_log:
+                    if not (entry or {}).get("user_query"):
+                        continue
+                    bid = entry.get("bundle_id")
+                    bundle = bundles_by_id.get(bid) if bid is not None else None
+                    # Prefer the full reply stored directly on the chat_log entry
+                    # (wizard turns don't produce bundles, so this is the only
+                    # full-text source for them). Fall back to the bundle's
+                    # terminal_reply for legacy entries written before
+                    # assistant_reply existed, then to the 280-char preview.
+                    reply = (
+                        entry.get("assistant_reply")
+                        or (bundle.get("terminal_reply") or bundle.get("reply") if bundle else None)
+                        or entry.get("assistant_reply_preview", "")
+                    ) or ""
+                    artifacts = extract_table_artifacts(bundle) if bundle else None
+                    turns.append(
+                        Turn(
+                            bundle_id=bid if bid is not None else 0,
+                            user_query=entry.get("user_query", ""),
+                            reply=reply,
+                            mode=entry.get("mode", ""),
+                            ts=entry.get("ts"),
+                            artifacts=artifacts or None,
+                        ).model_dump(mode="json")
+                    )
+            else:
+                turns = [
+                    Turn(
+                        bundle_id=b.get("id", 0),
+                        user_query=b.get("user_query", ""),
+                        reply=b.get("terminal_reply") or b.get("reply") or "",
+                        mode=b.get("mode", ""),
+                        ts=b.get("ts"),
+                        artifacts=(extract_table_artifacts(b) or None),
+                    ).model_dump(mode="json")
+                    for b in history
+                    if (b or {}).get("user_query")
+                ]
+            payload["turns"] = turns
+
+        return Response(payload, status=status.HTTP_200_OK)
+
+    # ------------------------------------------------------------------
+    # 3b. PATCH /assistant/sessions/{session_id}/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Assistant: Rename Session",
+        description=ASSISTANT_SESSION_PATCH_DESC,
+        tags=["Assistant"],
+        request=SessionPatchRequest,
+        responses={200: SessionListItem},
+    )
+    @get_session.mapping.patch
+    def patch_session(self, request, session_id=None):
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        try:
+            session = ChatSession.objects.get(session_id=session_id)
+        except ChatSession.DoesNotExist:
+            return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
+
+        if session.user_id != request.user.pk:
+            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+
+        raw_title = (request.data or {}).get("title")
+        if not isinstance(raw_title, str):
+            return _error_response("Validation error", "Field 'title' is required and must be a string.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+        trimmed = raw_title.strip()
+        if not trimmed:
+            return _error_response("Validation error", "Field 'title' must not be empty after trim.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+        if len(trimmed) > 200:
+            return _error_response("Validation error", "Field 'title' is too long (max 200 chars).", status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        session.title = trimmed
+        session.save(update_fields=["title", "updated_at"])
         return Response(
-            SessionDetailResponse(
-                session_id=session.session_id,
-                created_at=session.created_at,
-                query_count=len(history),
-                has_results=bool(history),
-            ).model_dump(mode="json"),
+            self._project_session_list_row(session),
             status=status.HTTP_200_OK,
         )
+
+    # ------------------------------------------------------------------
+    # 3c. DELETE /assistant/sessions/{session_id}/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Assistant: Delete Session",
+        description=ASSISTANT_SESSION_DELETE_DESC,
+        tags=["Assistant"],
+        responses={204: None},
+    )
+    @get_session.mapping.delete
+    def delete_session(self, request, session_id=None):
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        try:
+            session = ChatSession.objects.get(session_id=session_id)
+        except ChatSession.DoesNotExist:
+            return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
+
+        if session.user_id != request.user.pk:
+            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+
+        session.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     # ------------------------------------------------------------------
     # 4. POST /assistant/query/  (SSE streaming)
@@ -262,6 +490,9 @@ class AssistantViewSet(viewsets.ViewSet):
                     "Session not found or you do not own it.",
                     status.HTTP_404_NOT_FOUND,
                 )
+        elif req.force_new:
+            # Frontend "New chat" path — unconditionally create.
+            chat_session = ChatSession.objects.create(user=request.user)
         else:
             # No session_id — reuse most recent or auto-create
             chat_session = (
@@ -291,13 +522,26 @@ class AssistantViewSet(viewsets.ViewSet):
             api_user = request.session.get("username")
             api_pass = request.session.get("password")
 
+        chat_config = _select_chat_config(request, req)
+
+        # When the request routed to the prod ChatConfig, swap the
+        # session-derived credentials for the prod config's baked-in
+        # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
+        # prod NExtSEEK with prod credentials — the local session user (e.g.
+        # "demo") doesn't exist on prod and would otherwise produce a 401.
+        prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
+        if prod_config is not None and chat_config is prod_config:
+            if chat_config.API_USER and chat_config.API_PASS:
+                api_user = chat_config.API_USER
+                api_pass = chat_config.API_PASS
+
         def _run_pipeline() -> None:
             try:
                 match getattr(req, "mode", "standard"):
                     case "plan":
-                        run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_query_plan(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
                     case _:
-                        run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_query(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
             except Exception:
                 logger.exception("Unhandled pipeline error")
                 send_event("query_error", {
@@ -307,6 +551,7 @@ class AssistantViewSet(viewsets.ViewSet):
                 })
             finally:
                 adapter.save()
+                _auto_title_if_unset(chat_session)
                 event_queue.put(None)  # sentinel
 
         thread = threading.Thread(target=_run_pipeline, daemon=True)
@@ -373,6 +618,9 @@ class AssistantViewSet(viewsets.ViewSet):
                     "Session not found or you do not own it.",
                     status.HTTP_404_NOT_FOUND,
                 )
+        elif req.force_new:
+            # Frontend "New chat" path — unconditionally create.
+            chat_session = ChatSession.objects.create(user=request.user)
         else:
             chat_session = (
                 ChatSession.objects.filter(user=request.user)
@@ -405,13 +653,26 @@ class AssistantViewSet(viewsets.ViewSet):
             api_user = request.session.get("username")
             api_pass = request.session.get("password")
 
+        chat_config = _select_chat_config(request, req)
+
+        # When the request routed to the prod ChatConfig, swap the
+        # session-derived credentials for the prod config's baked-in
+        # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
+        # prod NExtSEEK with prod credentials — the local session user (e.g.
+        # "demo") doesn't exist on prod and would otherwise produce a 401.
+        prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
+        if prod_config is not None and chat_config is prod_config:
+            if chat_config.API_USER and chat_config.API_PASS:
+                api_user = chat_config.API_USER
+                api_pass = chat_config.API_PASS
+
         def _run_pipeline() -> None:
             try:
                 match getattr(req, "mode", "standard"):
                     case "plan":
-                        run_query_plan(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_query_plan(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
                     case _:
-                        run_query(adapter, settings.NEXTSEEK_CHAT_CONFIG, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_query(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
             except Exception:
                 logger.exception("Unhandled pipeline error (async)")
                 send_event("query_error", {
@@ -421,6 +682,7 @@ class AssistantViewSet(viewsets.ViewSet):
                 })
             finally:
                 adapter.save()
+                _auto_title_if_unset(chat_session)
 
         thread = threading.Thread(target=_run_pipeline, daemon=True)
         thread.start()

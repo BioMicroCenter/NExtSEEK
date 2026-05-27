@@ -1,0 +1,189 @@
+{% load static %}
+<style>
+/* ── Home page ───────────────────────────────────── */
+.home-wrap {
+    max-width: 660px;
+    margin: 0 auto;
+    padding: 3.5rem 1rem 4rem;
+    text-align: center;
+}
+
+.home-greeting {
+    font-family: var(--ns-font-display);
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--ns-ink);
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+    margin-bottom: 0.5rem;
+}
+
+.home-sub {
+    font-size: 0.92rem;
+    color: var(--ns-muted);
+    margin-bottom: 2.25rem;
+    font-family: var(--ns-font-body);
+}
+
+/* UID Search hero */
+.home-search {
+    display: flex;
+    max-width: 480px;
+    margin: 0 auto 2.5rem;
+    box-shadow: 0 2px 16px rgba(163,31,52,0.1);
+    border-radius: 9px;
+    overflow: hidden;
+}
+
+.home-search input {
+    flex: 1;
+    border: 1.5px solid var(--ns-border);
+    border-right: none;
+    padding: 0.75rem 1.1rem;
+    font-family: var(--ns-font-body);
+    font-size: 0.975rem;
+    color: var(--ns-body);
+    background: var(--ns-white);
+    outline: none;
+    transition: border-color 0.18s;
+    border-radius: 9px 0 0 9px;
+}
+.home-search input::placeholder { color: var(--ns-muted); }
+.home-search input:focus {
+    border-color: var(--ns-crimson);
+}
+
+.home-search button {
+    padding: 0 1.4rem;
+    background: var(--ns-crimson);
+    border: 1.5px solid var(--ns-crimson);
+    color: #fff;
+    font-family: var(--ns-font-body);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.18s;
+    white-space: nowrap;
+    border-radius: 0 9px 9px 0;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+.home-search button:hover { background: var(--ns-crimson-hover); border-color: var(--ns-crimson-hover); }
+
+/* Shortcut pills */
+.home-shortcuts-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ns-muted);
+    margin-bottom: 0.85rem;
+}
+
+.home-shortcuts {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.shortcut-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.85rem;
+    background: var(--ns-white);
+    border: 1px solid var(--ns-border);
+    border-radius: 999px;
+    font-family: var(--ns-font-body);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--ns-body);
+    text-decoration: none;
+    transition: all 0.18s;
+    box-shadow: var(--ns-shadow-xs);
+}
+.shortcut-pill i {
+    font-size: 0.85rem;
+    color: var(--ns-muted);
+    transition: color 0.18s;
+}
+.shortcut-pill:hover {
+    background: var(--ns-crimson-soft);
+    border-color: var(--ns-crimson-border);
+    color: var(--ns-crimson);
+    text-decoration: none;
+    box-shadow: 0 2px 8px rgba(163,31,52,0.1);
+    transform: translateY(-1px);
+}
+.shortcut-pill:hover i { color: var(--ns-crimson); }
+
+@media (max-width: 575.98px) {
+    .home-wrap { padding: 2rem 0.5rem 3rem; }
+    .home-greeting { font-size: 1.55rem; }
+    .home-search { max-width: 100%; }
+    .home-shortcuts { gap: 0.4rem; }
+    .shortcut-pill { font-size: 0.78rem; padding: 0.38rem 0.7rem; }
+}
+</style>
+
+<div class="home-wrap">
+
+    <h1 class="home-greeting">Welcome to NExtSEEK</h1>
+    <p class="home-sub">Scientific Metadata Management - MIT BioMicro Center</p>
+
+    <!-- UID Search -->
+    <div class="home-search">
+        <input
+            type="text"
+            id="home-uid-input"
+            placeholder="Talk to Nessie..."
+            aria-label="Talk to Nessie"
+        >
+        <button type="button" onclick="homeNavUID()">
+            <i class="bi bi-chat-dots"></i> Ask
+        </button>
+    </div>
+
+    <!-- Shortcuts -->
+    <p class="home-shortcuts-label">Quick access</p>
+    <div class="home-shortcuts">
+        <a href="/seek/samples/upload/" class="shortcut-pill">
+            <i class="bi bi-file-earmark-spreadsheet"></i> Assay Upload
+        </a>
+        <a href="/seek/data/upload/" class="shortcut-pill">
+            <i class="bi bi-file-earmark-zip"></i> File Upload
+        </a>
+        <a href="/seek/search/" class="shortcut-pill">
+            <i class="bi bi-collection-fill"></i> Sample Search
+        </a>
+        <a href="/seek/datafile/query/" class="shortcut-pill">
+            <i class="bi bi-file-zip"></i> Data Files
+        </a>
+        <a href="/seek/sop/query/" class="shortcut-pill">
+            <i class="bi bi-file-text"></i> Protocols
+        </a>
+        <a href="/seek/projects" class="shortcut-pill">
+            <i class="bi bi-building"></i> Projects
+        </a>
+        <a href="/seek/templates/" class="shortcut-pill">
+            <i class="bi bi-download"></i> Templates
+        </a>
+        <a href="https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/" class="shortcut-pill" target="_blank" rel="noopener">
+            <i class="bi bi-book"></i> Docs
+        </a>
+    </div>
+
+</div>
+
+<script>
+document.getElementById("home-uid-input").addEventListener("keypress", function(e) {
+    if (e.key === "Enter") talkToNessie();
+});
+function talkToNessie() {
+    var v = document.getElementById("home-uid-input").value.trim();
+    var base = "http://localhost:5173";
+    window.location.href = v ? base + "?q=" + encodeURIComponent(v) : base;
+}
+</script>

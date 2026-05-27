@@ -35,7 +35,6 @@ from pytz import timezone
 
 from django.contrib.auth.models import User
 from django import forms
-from django.conf import settings
 
 import simplejson
 import datetime
@@ -81,13 +80,13 @@ from subprocess import call
 import shlex
 from subprocess import Popen, PIPE
 
-from django.conf import settings
 from seek.timeline.services.timeline_service import run_All, get_event_data
 from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
 import neo4j
 from neo4j import GraphDatabase
 import io
 SEEK_DATABASE = settings.SEEK_DATABASE
+NEXTSEEK_DATABASE = settings.NEXTSEEK_DATABASE
 DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "/download/"
 DOWNLOAD_DIRECTORY_LINK = settings.MEDIA_URL + 'download/'  
 UPLOAD_DIRECTORY = settings.MEDIA_ROOT + "/uploads/"
@@ -898,15 +897,15 @@ def samplesValidate(request):
                 db = settings.DATABASES[SEEK_DATABASE]
                 conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
 
-                df = pd.read_sql('''
+                df = pd.read_sql(f'''
                     SELECT
                         sa.id AS attribute_id,
                         sa.title AS attribute_title,
                         sa.sample_type_id, st.title AS sample_type_title
                     FROM
-                        seek_production.sample_attributes sa
+                        {db["NAME"]}.sample_attributes sa
                     JOIN
-                        seek_production.sample_types st ON sa.sample_type_id = st.id
+                        {db["NAME"]}.sample_types st ON sa.sample_type_id = st.id
                 ''', con=conn)
 
                 df['Instructions'] = df.apply(lambda row: f"{row['sample_type_title']}::{row['attribute_title']}", axis=1)
@@ -1136,45 +1135,6 @@ def download_nhp_data(request, nhp_name: str):
     except Exception as e:
         return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-def get_full_sample_trees_and_data(uids):
-    db = settings.DATABASES[SEEK_DATABASE]
-    conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
-    cursor = conn.cursor()
-
-    uids_str = ', '.join(f"'{uid}'" for uid in uids)
-    query_one = f"""
-    SELECT s.id, s.sample_type_id, st.title AS sample_type, s.uuid, s.json_metadata
-    FROM seek_production.samples s
-    JOIN seek_production.sample_types st
-    ON s.sample_type_id = st.id
-    WHERE s.uuid IN ({uids_str})
-    """
-
-    cursor.execute(query_one)
-    columns = [col[0] for col in cursor.description]
-    rows = cursor.fetchall()
-    sample_data = pd.DataFrame(rows, columns=columns)
-
-    query_two = f"""
-    SELECT uuid, full, updated 
-    FROM dmac.seek_sample_tree
-    WHERE uuid IN ({uids_str})
-    """
-
-    cursor.execute(query_two)
-
-    columns = [col[0] for col in cursor.description]
-    rows = cursor.fetchall()
-    results_df = pd.DataFrame(rows, columns=columns)
-
-    cursor.close()
-    conn.close()
-
-    results_df['updated'] = pd.to_datetime(results_df['updated'])
-    results_df = results_df.sort_values(by='updated', ascending=False)
-    sample_full_trees = results_df.groupby('uuid').first().reset_index()
-    return sample_data, sample_full_trees
-
 def extract_ids(data):
     ids = []
     if isinstance(data, dict):
@@ -1189,12 +1149,13 @@ def extract_ids(data):
 
 def get_clade_color(sample_type):
     db = settings.DATABASES[SEEK_DATABASE]
+    nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
     conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
     cursor = conn.cursor()
     query = f"""
-    SELECT c.color FROM dmac.clades c
-    JOIN dmac.sample_types_clades stc ON stc.clade_id = c.id
-    JOIN seek_production.sample_types st ON stc.sample_type_id = st.id
+    SELECT c.color FROM {nextseekdb["NAME"]}.clades c
+    JOIN {nextseekdb["NAME"]}.sample_types_clades stc ON stc.clade_id = c.id
+    JOIN {db["NAME"]}.sample_types st ON stc.sample_type_id = st.id
     WHERE st.title = '{sample_type}'
     """
 
@@ -1209,6 +1170,7 @@ def get_clade_color(sample_type):
     return color
 
 def get_children_uids(sample_uids, user_project_ids, admin):
+    db = settings.DATABASES[SEEK_DATABASE]
     NEO4J_DATABASE = settings.NEO4J_DATABASE
     with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
         r,s,k = driver.execute_query("""
@@ -1232,14 +1194,14 @@ def get_children_uids(sample_uids, user_project_ids, admin):
     if admin:
         query = f"""
         SELECT id,sample_type_id,uuid,json_metadata
-        FROM seek_production.samples
+        FROM {db["NAME"]}.samples
         WHERE uuid IN ({uids_str})
         """
     else:
         query = f"""
         SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
-        FROM seek_production.samples s
-        JOIN seek_production.projects_samples ps
+        FROM {db["NAME"]}.samples s
+        JOIN {db["NAME"]}.projects_samples ps
         ON s.id = ps.sample_id
         WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
         """
@@ -1301,7 +1263,6 @@ def adminRetrieveSamples(request):
         if request.method == "POST":
             logger.debug(f"REQUEST: {request.POST.keys()}")
             uids = request.POST.get('retrieval_uids').strip().split()
-            #sample_data, sample_full_trees = get_full_sample_trees_and_data(uids)
             children_uids = get_children_uids(uids, user_project_ids, admin)
 
             datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -1327,23 +1288,42 @@ def projects(request):
         return HttpResponseRedirect(url_redirect) 
     else:
         projectsdb = DBtable_projects()
-        user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
-        user_project_ids = list(map(lambda x: x['id'], user_projects))
+        current_user = seekdb.getCurrentUser() or {}
+        user_projects = (
+            current_user.get('data', {})
+            .get('relationships', {})
+            .get('projects', {})
+            .get('data', [])
+        )
+        user_project_ids = [project.get('id') for project in user_projects if project.get('id') is not None]
 
         if verifySuperUser(request) == 1:
-            projects = Projects.objects.all().values('id', 'title', 'avatar_id')
+            projects = list(Projects.objects.all().values('id', 'title', 'avatar_id'))
         else:
-            projects = Projects.objects.filter(id__in=user_project_ids).values('id', 'title', 'avatar_id')
+            projects = list(Projects.objects.filter(id__in=user_project_ids).values('id', 'title', 'avatar_id'))
 
         for project in projects:
-            project['stats'] = projectsdb.sample_count(project['id']) | projectsdb.files_count(project['id'])
+            try:
+                stats = projectsdb.sample_count(project['id'])
+                stats.update(projectsdb.files_count(project['id']))
+            except Exception as exc:
+                logger.exception("Failed to build project stats for project_id=%s", project.get('id'))
+                stats = {'sample_count': 0, 'sop_count': 0, 'df_count': 0}
+            project['stats'] = stats
 
-        stcdb = DBtable_stc()
-        clade_data = {k: list(v) for k, v in groupby(stcdb.getAllCounts(), lambda x: x['title'])}
+        try:
+            stcdb = DBtable_stc()
+            clade_rows = stcdb.getAllCounts() or []
+            clade_rows = sorted(clade_rows, key=lambda row: (row.get('title') or '', row.get('st_group') or ''))
+            clade_data = {k: list(v) for k, v in groupby(clade_rows, lambda x: x.get('title') or 'Uncategorized')}
+        except Exception:
+            logger.exception("Failed to build clade data for projects page")
+            clade_data = {}
 
         for k, group in clade_data.items():
+            total = sum((item.get('count') or 0) for item in group)
             for item in group:
-                item['total'] = sum(i['count'] for i in group)
+                item['total'] = total
                
         return render(request, 'projectsList.html', {'projects': projects,
                                                      'clade_data': clade_data,
@@ -1573,17 +1553,10 @@ def manageSample(request, id):
     return HttpResponseRedirect(f"https://{SEEK_HOSTNAME}/samples/{id}/manage")
 
 def smartSearch(request):
-    if verifySuperUser(request) == 1:
-        admin = True
-    else:
-        admin = False
-
-    # Can't view page unless you're an admin
-    if not admin:
+    if not request.user.is_authenticated:
         data = {'msg': 'You do not have access to this page', 'status': 0, 'link': ''}
         return render(request, 'error.html', {'data': data})
-    active_tab = "assistant" if "/assistant/" in request.path else "salt"
-    return render(request, "smartSearch.html", {"smart_search_url": settings.SMART_SEARCH_URL, "active_tab": active_tab})
+    return render(request, "smartSearch.html")
 
 def internalAssays(request):
     seekdb = SeekDB(None, None, None)
@@ -1768,3 +1741,10 @@ def newSearch(request):
         return HttpResponseRedirect(url_redirect)
 
     return render(request, "newSearch.html")
+
+
+def getting_started(request):
+    """Tutorials / Getting Started landing page. Static content."""
+    return render(request, "help/getting_started.html")
+
+

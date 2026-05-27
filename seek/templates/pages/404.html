@@ -1,37 +1,28 @@
 {% extends "base.html" %}
 {% load mezzanine_tags keyword_tags %}
 
-{% block meta_title %}{{ page.meta_title }}{% endblock %}
-
-{% block meta_keywords %}{% metablock %}
-{% keywords_for page as keywords %}
-{% for keyword in keywords %}
-    {% if not forloop.first %}, {% endif %}
-    {{ keyword }}
-{% endfor %}
-{% endmetablock %}{% endblock %}
-
-{% block meta_description %}{% metablock %}
-{{ page.description }}
-{% endmetablock %}{% endblock %}
-
-{% block title %}
-{% editable page.title %}{{ page.title }}{% endeditable %}
-{% endblock %}
+{% block title %}Page Not Found - NExtSEEK{% endblock %}
 
 {% block main %}
-<section class='container-fluid'>
-    <section class='row-fluid'>
-        <section class='span12 content borBox'>
-            <div class='row-fluid'>
-                <div class='span12'>
-                    <div class='page-header'>
-                        <h2>Access Error</h2>
-                    </div>
-                </div>
-            </div>
-            <p>Sorry, it is not found on the server.</p>
-        </section>
-    </section>
-</section>
+<div style="max-width:560px;margin:4rem auto;text-align:center;padding:0 1rem;">
+    <div style="font-family:var(--ns-font-display);font-size:5rem;font-weight:700;color:var(--ns-crimson-border);line-height:1;margin-bottom:1rem;letter-spacing:-0.04em;">
+        404
+    </div>
+    <h1 style="font-family:var(--ns-font-display);font-size:1.5rem;font-weight:700;color:var(--ns-ink);margin-bottom:0.75rem;letter-spacing:-0.02em;">
+        Page Not Found
+    </h1>
+    <p style="font-size:0.925rem;color:var(--ns-muted);margin-bottom:2rem;line-height:1.6;">
+        The page you're looking for doesn't exist or has been moved.
+    </p>
+    <div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap;">
+        <a href="/" style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.55rem 1.25rem;background:var(--ns-crimson);color:#fff;border-radius:7px;text-decoration:none;font-size:0.875rem;font-weight:600;"
+           onmouseover="this.style.background='#8a1a2b'" onmouseout="this.style.background='var(--ns-crimson)'">
+            <i class="bi bi-house-door"></i> Go to Home
+        </a>
+        <a href="/seek/search/" style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.55rem 1.25rem;background:var(--ns-white);color:var(--ns-body);border:1px solid var(--ns-border);border-radius:7px;text-decoration:none;font-size:0.875rem;font-weight:600;"
+           onmouseover="this.style.borderColor='var(--ns-crimson-border)';this.style.color='var(--ns-crimson)'" onmouseout="this.style.borderColor='var(--ns-border)';this.style.color='var(--ns-body)'">
+            <i class="bi bi-search"></i> Search Samples
+        </a>
+    </div>
+</div>
 {% endblock %}

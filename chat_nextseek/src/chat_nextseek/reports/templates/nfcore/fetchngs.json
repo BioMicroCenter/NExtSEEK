@@ -1,0 +1,29 @@
+{
+  "report_type": "NFCORE_FETCHNGS_SAMPLESHEET",
+  "description": "nf-core/fetchngs input is a single-column CSV/TSV of accession IDs (SRR/SRX/SRP/GSE/GSM/PRJ). Used as a fallback when ENA cannot serve direct FASTQ URLs.",
+  "pipeline": {
+    "name": "nf-core/fetchngs",
+    "repository": "https://github.com/nf-core/fetchngs",
+    "documentation_url": "https://nf-co.re/fetchngs/latest/docs/usage/",
+    "input_file_type": "csv-single-column",
+    "core_rule": "One accession per line under the column header `accession`.",
+    "required_columns": [
+      "accession"
+    ],
+    "optional_columns": []
+  },
+  "samplesheet_template": [
+    {
+      "accession": null
+    }
+  ],
+  "validation_rules": [
+    "Each line is one accession; supported prefixes: SRR, SRX, SRP, SRS, ERR, ERX, ERP, ERS, DRR, DRX, DRP, DRS, GSE, GSM, PRJ*.",
+    "fetchngs does NOT carry through arbitrary input columns to its emitted downstream samplesheet \u2014 extra columns will be silently dropped."
+  ],
+  "report_writer_guidance": {
+    "population_priority": [
+      "Emit one row per accession; do not invent extra metadata columns."
+    ]
+  }
+}

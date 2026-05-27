@@ -69,6 +69,8 @@ export function ReportArtifacts({ artifacts, onDownloadArtifact }: Props) {
               <span className="text-sm font-semibold">{table.label}</span>
               <button
                 type="button"
+                data-testid="artifact-download"
+                data-filename={`${table.key}.csv`}
                 aria-label={`Download ${table.label}`}
                 onClick={() => onDownloadArtifact(table.key)}
                 className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -190,6 +192,8 @@ export function ReportArtifacts({ artifacts, onDownloadArtifact }: Props) {
         <button
           key={file.key}
           type="button"
+          data-testid="artifact-download"
+          data-filename={file.key}
           onClick={() => onDownloadArtifact(file.key)}
           className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted"
         >
@@ -201,6 +205,8 @@ export function ReportArtifacts({ artifacts, onDownloadArtifact }: Props) {
       {hasMultipleTables && (
         <button
           type="button"
+          data-testid="artifact-download"
+          data-filename="all_tables.xlsx"
           onClick={() => onDownloadArtifact("all_tables")}
           className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:bg-primary/90"
         >

@@ -1,0 +1,242 @@
+{
+  "report_type": "NFCORE_RNASEQ_SAMPLESHEET",
+  "description": "nf-core/rnaseq samplesheet context JSON template aligned to the current nf-core/rnaseq usage documentation and example samplesheet. Designed for LLM-friendly parsing and direct creation of the final pipeline CSV.",
+  "pipeline": {
+    "name": "nf-core/rnaseq",
+    "repository": "https://github.com/nf-core/rnaseq",
+    "documentation_url": "https://nf-co.re/rnaseq/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "The first 4 columns must be sample, fastq_1, fastq_2, strandedness. Additional columns may follow after these.",
+    "required_columns": [
+      "sample",
+      "fastq_1",
+      "fastq_2",
+      "strandedness"
+    ],
+    "optional_columns": [
+      "seq_platform",
+      "seq_center",
+      "genome_bam",
+      "transcriptome_bam",
+      "percent_mapped"
+    ],
+    "multi_run_behavior": "Rows with the same sample value are treated as multiple runs of the same sample and concatenated before downstream analysis.",
+    "single_vs_paired_behavior": "The pipeline infers whether a library is single-end or paired-end from whether fastq_2 is blank or populated.",
+    "strandedness_allowed_values": [
+      "auto",
+      "forward",
+      "reverse",
+      "unstranded"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null,
+      "strandedness": null
+    }
+  ],
+  "pipeline_optional_columns_passthrough": [
+    "seq_platform",
+    "seq_center",
+    "genome_bam",
+    "transcriptome_bam",
+    "percent_mapped"
+  ],
+  "examples": {
+    "paired_end_example": {
+      "sample": "CONTROL_REP1",
+      "fastq_1": "/data/fastq/CONTROL_REP1_L001_R1.fastq.gz",
+      "fastq_2": "/data/fastq/CONTROL_REP1_L001_R2.fastq.gz",
+      "strandedness": "auto",
+      "seq_platform": "ILLUMINA",
+      "seq_center": "MY_GENOMICS_CORE",
+      "genome_bam": null,
+      "transcriptome_bam": null,
+      "percent_mapped": null
+    },
+    "single_end_example": {
+      "sample": "TREATMENT_REP1",
+      "fastq_1": "/data/fastq/TREATMENT_REP1_L001_R1.fastq.gz",
+      "fastq_2": "",
+      "strandedness": "reverse",
+      "seq_platform": "ILLUMINA",
+      "seq_center": "",
+      "genome_bam": null,
+      "transcriptome_bam": null,
+      "percent_mapped": null
+    },
+    "multiple_runs_same_sample_example": [
+      {
+        "sample": "CONTROL_REP1",
+        "fastq_1": "/data/fastq/CONTROL_REP1_L001_R1.fastq.gz",
+        "fastq_2": "/data/fastq/CONTROL_REP1_L001_R2.fastq.gz",
+        "strandedness": "auto",
+        "seq_platform": "ILLUMINA"
+      },
+      {
+        "sample": "CONTROL_REP1",
+        "fastq_1": "/data/fastq/CONTROL_REP1_L002_R1.fastq.gz",
+        "fastq_2": "/data/fastq/CONTROL_REP1_L002_R2.fastq.gz",
+        "strandedness": "auto",
+        "seq_platform": "ILLUMINA"
+      }
+    ],
+    "bam_reprocessing_example": {
+      "sample": "SAMPLE1",
+      "fastq_1": "/data/fastq/SAMPLE1_R1.fastq.gz",
+      "fastq_2": "/data/fastq/SAMPLE1_R2.fastq.gz",
+      "strandedness": "forward",
+      "seq_platform": "ILLUMINA",
+      "seq_center": "",
+      "genome_bam": "/results/star_salmon/SAMPLE1.markdup.sorted.bam",
+      "transcriptome_bam": "/results/star_salmon/SAMPLE1.Aligned.toTranscriptome.out.bam",
+      "percent_mapped": 85.2
+    }
+  },
+  "validation_rules": [
+    "First 4 columns must be exactly: sample, fastq_1, fastq_2, strandedness.",
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "sample must be repeated across rows for multiple lanes/runs of the same biological sample.",
+    "fastq_1 should be a gzipped FASTQ path ending in .fastq.gz or .fq.gz.",
+    "fastq_2 should be blank for single-end libraries and populated for paired-end libraries.",
+    "strandedness must be one of: auto, forward, reverse, unstranded.",
+    "If seq_platform or seq_center are used, place them after the first 4 columns.",
+    "genome_bam, transcriptome_bam, and percent_mapped are optional reprocessing-oriented columns.",
+    "Extra custom columns may be appended after the required columns for LLM/human context, but downstream custom handling is your responsibility."
+  ],
+  "notes": "This context file is for LLM-assisted samplesheet creation and validation. The final file supplied to nf-core/rnaseq should be a CSV whose first four columns remain exactly: sample, fastq_1, fastq_2, strandedness.",
+  "sources": [
+    {
+      "label": "nf-core/rnaseq usage docs (latest)",
+      "url": "https://nf-co.re/rnaseq/latest/docs/usage/",
+      "notes": "Required columns, first-four-column rule, multi-run behavior, strandedness auto behavior."
+    },
+    {
+      "label": "nf-core/rnaseq usage.md in GitHub",
+      "url": "https://github.com/nf-core/rnaseq/blob/master/docs/usage.md?plain=1",
+      "notes": "Optional columns seq_platform, seq_center, genome_bam, transcriptome_bam, percent_mapped."
+    },
+    {
+      "label": "nf-core/rnaseq example samplesheet",
+      "url": "https://github.com/nf-core/rnaseq/blob/master/assets/samplesheet.csv",
+      "notes": "Canonical example rows and header."
+    },
+    {
+      "label": "Earlier context schema reference",
+      "url": "uploaded conversation file",
+      "notes": "Used as a structural style reference for this context schema."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/rnaseq input samplesheet.",
+        "fields": {
+          "sample": {
+            "required": "required",
+            "position_rule": "Must be column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Custom sample name. Use the same value for multiple sequencing runs/libraries from the same biological sample so nf-core concatenates them before downstream analysis.",
+            "validation_hints": "Keep stable across lanes/reruns; avoid commas; spaces will be converted to underscores by the pipeline; consider encoding group/replicate with underscores for easier PCA grouping.",
+            "example": "CONTROL_REP1"
+          },
+          "fastq_1": {
+            "required": "required",
+            "position_rule": "Must be column 2",
+            "expected_value": "path string",
+            "allowed_values": ".fastq.gz or .fq.gz",
+            "description": "Full path to read 1 FASTQ file for Illumina short reads.",
+            "validation_hints": "Must point to gzipped FASTQ; absolute path recommended; for multi-lane resequencing add another row with same sample and a different FASTQ path.",
+            "example": "/data/fastq/CONTROL_REP1_L001_R1.fastq.gz"
+          },
+          "fastq_2": {
+            "required": "required header, value optional for single-end",
+            "position_rule": "Must be column 3",
+            "expected_value": "path string or blank",
+            "allowed_values": ".fastq.gz or .fq.gz, or blank for single-end",
+            "description": "Full path to read 2 FASTQ file for paired-end libraries. Leave blank for single-end libraries.",
+            "validation_hints": "If paired-end, should contain mate 2 and not be blank; if single-end, keep blank; header must still exist.",
+            "example": "/data/fastq/CONTROL_REP1_L001_R2.fastq.gz"
+          },
+          "strandedness": {
+            "required": "required",
+            "position_rule": "Must be column 4",
+            "expected_value": "string",
+            "allowed_values": "auto | forward | reverse | unstranded",
+            "description": "Library strandedness / strand-specificity used by downstream quantification and QC.",
+            "validation_hints": "Use auto when unsure; auto makes the pipeline infer strandedness from a subsample of reads. Use one value consistently per library row.",
+            "example": "auto"
+          },
+          "seq_platform": {
+            "required": "optional",
+            "position_rule": "May appear after the first 4 columns",
+            "expected_value": "string",
+            "allowed_values": "e.g. ILLUMINA",
+            "description": "Per-sample sequencing platform for BAM read group PL tag.",
+            "validation_hints": "Use only when platforms vary by sample; otherwise prefer global --seq_platform. For standard short-read RNA-seq this is often ILLUMINA.",
+            "example": "ILLUMINA"
+          },
+          "seq_center": {
+            "required": "optional",
+            "position_rule": "May appear after the first 4 columns",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Per-sample sequencing center for BAM read group CN tag.",
+            "validation_hints": "Use only when centers vary by sample; otherwise prefer global --seq_center.",
+            "example": "MY_GENOMICS_CORE"
+          },
+          "genome_bam": {
+            "required": "optional",
+            "position_rule": "May appear after the first 4 columns",
+            "expected_value": "path string",
+            "allowed_values": ".bam",
+            "description": "Genome-aligned BAM from a prior nf-core/rnaseq run, for the BAM reprocessing workflow.",
+            "validation_hints": "Use with --skip_alignment; best supported when produced by this same pipeline.",
+            "example": "/results/star_salmon/SAMPLE1.markdup.sorted.bam"
+          },
+          "transcriptome_bam": {
+            "required": "optional",
+            "position_rule": "May appear after the first 4 columns",
+            "expected_value": "path string",
+            "allowed_values": ".bam",
+            "description": "Transcriptome-aligned BAM from a prior nf-core/rnaseq run, for the BAM reprocessing workflow.",
+            "validation_hints": "Optional in the BAM reprocessing mode; best supported when produced by this same pipeline.",
+            "example": "/results/star_salmon/SAMPLE1.Aligned.toTranscriptome.out.bam"
+          },
+          "percent_mapped": {
+            "required": "optional",
+            "position_rule": "May appear after the first 4 columns",
+            "expected_value": "number",
+            "allowed_values": "0-100",
+            "description": "Percent of reads mapped during alignment, useful in BAM reprocessing / QC contexts.",
+            "validation_hints": "Numeric percentage only; no percent sign if you want strict CSV numeric parsing.",
+            "example": "85.2"
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Use this file as the single context specification for constructing an nf-core/rnaseq samplesheet from already-scraped study metadata.",
+    "workflow_role": "Selected when the upstream agent identifies report_writing mode and chooses NFCORE:RNAseq as the report type.",
+    "output_expectation": "Populate the samplesheet_template structure and emit a pipeline-ready CSV using the required column order.",
+    "population_priority": [
+      "Assign one logical sample identifier per biological sample or per library, depending on how the study metadata distinguishes runs.",
+      "Map read 1 FASTQ files to fastq_1 and read 2 FASTQ files to fastq_2 using file naming or explicit mate metadata.",
+      "For single-end data, keep fastq_2 present as a header but leave its value blank.",
+      "For multiple lanes or resequenced runs from the same sample, repeat the same sample value across rows and change only the FASTQ paths.",
+      "If strandedness is not explicitly known, set strandedness to auto.",
+      "Populate optional columns only when the metadata clearly supports them; otherwise leave them blank."
+    ],
+    "final_checks": [
+      "Column order starts with: sample, fastq_1, fastq_2, strandedness.",
+      "All FASTQ paths are placed in the correct mate column.",
+      "Single-end vs paired-end handling is consistent across the file.",
+      "Strandedness uses only allowed values: auto, forward, reverse, unstranded.",
+      "Optional columns, if included, appear after the first four required columns."
+    ]
+  }
+}

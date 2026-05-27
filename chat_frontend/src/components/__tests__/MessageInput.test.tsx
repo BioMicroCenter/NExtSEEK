@@ -18,7 +18,45 @@ describe("MessageInput", () => {
     fireEvent.change(textarea, { target: { value: "test query" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
 
-    expect(onSend).toHaveBeenCalledWith("test query");
+    expect(onSend).toHaveBeenCalledWith("test query", { pipeline: "standard", useProd: false });
+  });
+
+  it("hides PROD checkbox for non-admin users", () => {
+    render(<MessageInput onSend={vi.fn()} />);
+    expect(screen.queryByLabelText("Use prod database")).not.toBeInTheDocument();
+  });
+
+  it("shows PROD checkbox for admin users", () => {
+    render(<MessageInput onSend={vi.fn()} isAdmin />);
+    expect(screen.getByLabelText("Use prod database")).toBeInTheDocument();
+  });
+
+  it("sends useProd=true when admin checks PROD and submits", () => {
+    const onSend = vi.fn();
+    render(<MessageInput onSend={onSend} isAdmin />);
+
+    const checkbox = screen.getByLabelText("Use prod database") as HTMLInputElement;
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(true);
+
+    const textarea = screen.getByPlaceholderText("Ask NExtSEEK a question...");
+    fireEvent.change(textarea, { target: { value: "prod query" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(onSend).toHaveBeenCalledWith("prod query", { pipeline: "standard", useProd: true });
+  });
+
+  it("switches pipeline to plan when Planner button clicked", () => {
+    const onSend = vi.fn();
+    render(<MessageInput onSend={onSend} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Planner" }));
+
+    const textarea = screen.getByPlaceholderText("Ask NExtSEEK a question...");
+    fireEvent.change(textarea, { target: { value: "planner query" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(onSend).toHaveBeenCalledWith("planner query", { pipeline: "plan", useProd: false });
   });
 
   it("does not send on Shift+Enter", () => {

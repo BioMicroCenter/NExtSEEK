@@ -10,7 +10,6 @@ dependencies = [
   "attrs",
   "beautifulsoup4",
   "bleach",
-  #"bunch",
   "certifi",
   "celery",
   "chardet",
@@ -45,7 +44,6 @@ dependencies = [
   "html5lib",
   "huggingface-hub",
   "idna",
-  #"immpload",
   "importlib_metadata",
   "inflection",
   "isodate",
@@ -103,7 +101,7 @@ dependencies = [
   "threadpoolctl",
   "tinycss2",
   "tokenizers",
-  # "#torch+cpu",
+  "torch",
   "tqdm",
   "typing-inspection",
   "typing_extensions",
@@ -121,8 +119,18 @@ dependencies = [
   "daphne>=4.2.1",
 ]
 
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [tool.uv.sources]
-chat_nextseek = { git = "git+ssh://github.com/cdemurjian/chat_nextseek" }
+chat_nextseek = { path = "chat_nextseek" }
+# When chat_nextseek goes public, switch back to the pinned git install:
+# chat_nextseek = { git = "https://github.com/cdemurjian/chat_nextseek.git", rev = "3948d857783e3d130bfe6a880fe53a9eefeb603a" }
+torch = [
+  { index = "pytorch-cpu" },
+]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "dmac.settings"
@@ -131,3 +139,7 @@ DJANGO_SETTINGS_MODULE = "dmac.settings"
 dev = [
     "coverage",
 ]
+# Note: the startup CLI does NOT use a uv dependency group — it runs in an
+# isolated env via `uv run --no-project --with typer --with rich`. This avoids
+# pulling in the main project's deps (mysqlclient et al.) when the host lacks
+# the C build toolchain. See startup.sh.

@@ -1,34 +1,147 @@
 {% extends "base.html" %}
+{% block title %}Download Templates - NExtSEEK{% endblock %}
+
+{% block extra_head %}
+<style>
+.templates-page { max-width: 760px; }
+
+.ns-page-header { margin-bottom: 2rem; }
+.ns-page-title {
+    font-family: var(--ns-font-display);
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--ns-ink);
+    letter-spacing: -0.02em;
+    margin-bottom: 0.35rem;
+}
+.ns-page-subtitle { font-size: 0.9rem; color: var(--ns-muted); margin: 0; }
+
+.template-folder { margin-bottom: 1.5rem; }
+.template-folder-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--ns-border);
+    margin-bottom: 0.5rem;
+}
+.template-folder-name {
+    font-family: var(--ns-font-display);
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--ns-ink);
+    letter-spacing: -0.01em;
+}
+.template-folder-icon { color: var(--ns-crimson); font-size: 0.95rem; }
+
+.template-subfolder { margin: 0.35rem 0 0.35rem 1.25rem; }
+.template-subfolder-name {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--ns-muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 0.35rem;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.template-files { display: flex; flex-direction: column; gap: 0.25rem; margin-left: 1.1rem; }
+
+.template-file-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--ns-body);
+    text-decoration: none;
+    border-radius: 6px;
+    transition: all 0.15s;
+    border: 1px solid transparent;
+}
+.template-file-link:hover {
+    background: var(--ns-crimson-soft);
+    border-color: var(--ns-crimson-border);
+    color: var(--ns-crimson);
+    text-decoration: none;
+}
+.template-file-link i { font-size: 0.85rem; color: var(--ns-muted); flex-shrink: 0; }
+.template-file-link:hover i { color: var(--ns-crimson); }
+
+.template-root-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--ns-muted);
+    text-decoration: none;
+    border-radius: 6px;
+    border: 1px solid var(--ns-border);
+    background: var(--ns-bg);
+    transition: all 0.15s;
+    margin-left: 1.25rem;
+    margin-bottom: 0.25rem;
+}
+.template-root-link:hover {
+    background: var(--ns-crimson-soft);
+    border-color: var(--ns-crimson-border);
+    color: var(--ns-crimson);
+    text-decoration: none;
+}
+</style>
+{% endblock %}
+
 {% block main %}
+<div class="templates-page">
 
-<div>
-  <ul>
+    <div class="ns-page-header">
+        <h1 class="ns-page-title">Download Templates</h1>
+        <p class="ns-page-subtitle">Sample upload templates organized by type. Download and fill out before uploading assay data.</p>
+    </div>
+
     {% for folder, contents in folders.items %}
-      {% if contents %}
-        <li>
-	  <strong>{{ folder }}</strong>
-	  <ul>
-	    {% for subitem, subcontents in contents.items %}
-	      {% if subcontents %}
-	        <li>
-		  <strong>{{ subitem }}</strong>
-		  <ul>
-		    {% for file in subcontents %}
-		      <li><a href="/templates/{{ file }}">{{ file }}</a></li>
-		    {% endfor %}
-		  </ul>
-		</li>
-	    {% else %}
-	      <li><a href="/templates/{{ folder }}/{{ subitem }}">{{ subitem }}</a></li>
-	    {% endif %}
-	  {% endfor %}
-	</ul>
-      </li>
-    {% else %}
-      <li><a>{{ folder }}</a></li>
-    {% endif %}
-  {% endfor %}
-</ul>
-</div>
+    {% if contents %}
+    <div class="template-folder">
+        <div class="template-folder-header">
+            <i class="bi bi-folder-fill template-folder-icon"></i>
+            <span class="template-folder-name">{{ folder }}</span>
+        </div>
 
+        {% for subitem, subcontents in contents.items %}
+        {% if subcontents %}
+        <div class="template-subfolder">
+            <div class="template-subfolder-name">
+                <i class="bi bi-folder2"></i> {{ subitem }}
+            </div>
+            <div class="template-files">
+                {% for file in subcontents %}
+                <a href="/templates/{{ file }}" class="template-file-link" download>
+                    <i class="bi bi-file-earmark-arrow-down"></i>
+                    {{ file }}
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% else %}
+        <a href="/templates/{{ folder }}/{{ subitem }}" class="template-root-link" download>
+            <i class="bi bi-file-earmark-arrow-down"></i>
+            {{ subitem }}
+        </a>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="template-folder">
+        <div class="template-folder-header">
+            <i class="bi bi-file-earmark template-folder-icon"></i>
+            <span class="template-folder-name">{{ folder }}</span>
+        </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+</div>
 {% endblock %}

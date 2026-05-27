@@ -1,113 +1,240 @@
 {% extends "base.html" %}
-{% block main %}
 {% load index %}
+{% block title %}Projects - NExtSEEK{% endblock %}
 
-<script type="text/javascript">
-  var project_stats = {{ clade_data | safe }}
+{% block extra_head %}
+<style>
+.projects-page { max-width: 900px; }
 
-  for (group of project_stats) {
-    var groupTotal = group.reduce((acc, v) => v['count'] + acc, 0)
-    group.map(x => x['total'] = groupTotal)
-  }
+.ns-page-header { margin-bottom: 2rem; }
+.ns-page-title {
+    font-family: var(--ns-font-display);
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--ns-ink);
+    letter-spacing: -0.02em;
+    margin-bottom: 0.35rem;
+}
+.ns-page-subtitle { font-size: 0.9rem; color: var(--ns-muted); margin: 0; }
 
-  function removeRowByFieldValue(dg, fieldName, valueToRemove) {
-    var rows = dg.datagrid('getRows');
+.projects-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 2.5rem;
+}
 
-    for (var i = rows.length - 1; i >= 0; i--) {
-        if (rows[i][fieldName] === valueToRemove) {
-            var rowIndex = dg.datagrid('getRowIndex', rows[i]);
-            if (rowIndex !== -1) {
-                dg.datagrid('deleteRow', rowIndex);
-            }
-        }
-    }
-  }
+.project-card {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1rem 1.25rem;
+    background: var(--ns-white);
+    border: 1px solid var(--ns-border);
+    border-radius: 10px;
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.18s;
+    box-shadow: var(--ns-shadow-xs);
+}
+.project-card:hover {
+    border-color: var(--ns-crimson-border);
+    box-shadow: var(--ns-shadow);
+    transform: translateY(-1px);
+    text-decoration: none;
+    color: inherit;
+}
 
-  function mergeSameCells(dg, fieldName) {
-    var rows = dg.datagrid('getRows');
-    var startIndex = 0;
-    var span = 1;
+.project-card-avatar {
+    width: 56px;
+    height: 56px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--ns-sidebar-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.project-card-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.project-avatar-fallback { font-size: 1.4rem; color: var(--ns-muted); }
 
-    for (var i = 1; i <= rows.length; i++) {
-        if (i === rows.length || rows[i][fieldName] !== rows[startIndex][fieldName]) {
-            if (span > 1) {
-                dg.datagrid('mergeCells', {
-                    index: startIndex,
-                    field: fieldName,
-                    rowspan: span
-                });
-            }
-            startIndex = i;
-            span = 1;
-        } else {
-            span++;
-        }
-    }
-  }
+.project-card-body { flex: 1; min-width: 0; }
+.project-card-title {
+    font-family: var(--ns-font-display);
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--ns-ink);
+    margin-bottom: 0.4rem;
+    letter-spacing: -0.01em;
+}
+.project-card:hover .project-card-title { color: var(--ns-crimson); }
 
-  $(document).ready(function(){
-    <!-- window.stc_dg = $('#stats_dg').datagrid({ -->
-      <!-- fitColumns: true, -->
-      <!-- rowStyler: function(index,row){ -->
-        <!-- return 'background-color:' + row.color + ';'; -->
-      <!-- } -->
-    <!-- }); -->
-    <!-- window.stc_dg.datagrid('loadData', project_stats.flat()) -->
-    <!-- removeRowByFieldValue(window.stc_dg, 'st_id', 114) -->
-    <!-- mergeSameCells(window.stc_dg, 'title') -->
-    <!-- mergeSameCells(window.stc_dg, 'total') -->
-  });
-</script>
+.project-card-stats { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.stat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.76rem;
+    color: var(--ns-muted);
+    background: var(--ns-bg);
+    border: 1px solid var(--ns-border);
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+}
+.stat-chip i { font-size: 0.72rem; }
 
-<div>
-  <ul style="list-style-type:none;margin: 0;padding:0;">
-  {% for project in projects %}
-    <li style="border:1px solid black; max-width: 60%; height: 5em; margin: 1em 0; padding: 0;">
-      <div style="display:flex;flex-flow:row-wrap;justify-content:space-between;height:100%;">
-        <a href="{{ project.id }}" style="display:flex;gap:0.5em;flex-direction:row;justify-content:space-between;height:100%;">
-          <img style="max-width: 50%; max-height:100%;" alt="{{ project.title }} avatar" src="https://{{ seek_hostname }}/assets/avatar-images/{{ project.avatar_id }}-120x120.png"/>
-          <h2 style="">{{ project.title }}</h2>
+.project-card-action {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.4rem;
+    flex-shrink: 0;
+}
+.fairdata-link {
+    font-size: 0.72rem;
+    color: var(--ns-crimson);
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid var(--ns-crimson-border);
+    border-radius: 4px;
+    transition: all 0.15s;
+    cursor: pointer;
+}
+.project-card:hover .fairdata-link { background: var(--ns-crimson); color: #fff; }
+.project-chevron {
+    font-size: 0.85rem;
+    color: var(--ns-muted);
+    transition: transform 0.15s, color 0.15s;
+}
+.project-card:hover .project-chevron { transform: translateX(2px); color: var(--ns-crimson); }
+
+.ns-empty-state { text-align: center; padding: 3rem; color: var(--ns-muted); }
+.ns-empty-state i { font-size: 2rem; display: block; margin-bottom: 0.5rem; }
+
+.clade-section { margin-top: 1.5rem; }
+.clade-section-title {
+    font-family: var(--ns-font-display);
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--ns-ink);
+    margin-bottom: 1rem;
+    letter-spacing: -0.01em;
+}
+.clade-tables-row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
+.clade-table-wrap {
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid var(--ns-border);
+    border-radius: 8px;
+    scrollbar-width: thin;
+}
+.clade-table { border-collapse: collapse; font-size: 0.82rem; font-family: var(--ns-font-body); min-width: 160px; }
+.clade-table thead tr { background: var(--ns-sidebar-bg); position: sticky; top: 0; z-index: 1; }
+.clade-table thead th {
+    padding: 0.45rem 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ns-muted);
+    border-bottom: 1px solid var(--ns-border);
+    white-space: nowrap;
+}
+.clade-table td {
+    padding: 0.3rem 0.75rem;
+    color: var(--ns-ink);
+    border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+.clade-total-row td {
+    background: var(--ns-sidebar-bg) !important;
+    border-top: 1px solid var(--ns-border);
+}
+
+@media (max-width: 600px) {
+    .project-card { flex-wrap: wrap; }
+    .project-card-action { flex-direction: row; width: 100%; justify-content: flex-start; }
+    .clade-tables-row { flex-direction: column; }
+}
+</style>
+{% endblock %}
+
+{% block main %}
+<div class="projects-page">
+
+    <div class="ns-page-header">
+        <h1 class="ns-page-title">Projects</h1>
+        <p class="ns-page-subtitle">Research projects and their associated samples, protocols, and data files.</p>
+    </div>
+
+    <div class="projects-grid">
+        {% for project in projects %}
+        <a href="/seek/projects/{{ project.id }}/" class="project-card">
+            <div class="project-card-avatar">
+                <img
+                    src="https://{{ seek_hostname }}/assets/avatar-images/{{ project.avatar_id }}-120x120.png"
+                    alt="{{ project.title }}"
+                    onerror="this.style.display='none';this.nextElementSibling.style.display='block';"
+                >
+                <span class="project-avatar-fallback" style="display:none;"><i class="bi bi-building"></i></span>
+            </div>
+            <div class="project-card-body">
+                <div class="project-card-title">{{ project.title }}</div>
+                <div class="project-card-stats">
+                    <span class="stat-chip"><i class="bi bi-collection"></i> {{ project.stats.sample_count }} Samples</span>
+                    <span class="stat-chip"><i class="bi bi-file-text"></i> {{ project.stats.sop_count }} Protocols</span>
+                    <span class="stat-chip"><i class="bi bi-file-zip"></i> {{ project.stats.df_count }} Data Files</span>
+                </div>
+            </div>
+            <div class="project-card-action">
+                <span class="fairdata-link" onclick="event.preventDefault();event.stopPropagation();window.open('https://{{ seek_hostname }}/projects/{{ project.id }}','_blank');">
+                    <i class="bi bi-box-arrow-up-right"></i> FAIRDATA
+                </span>
+                <i class="bi bi-chevron-right project-chevron"></i>
+            </div>
         </a>
-        <div style="display:flex;flex-direction:row;gap:1em;text-align:right;padding: 0.5em 0.5em 0.5em 0;">
-          <div>
-            <p>{{ project.stats.sample_count }} Samples</p>
-            <p>{{ project.stats.sop_count }} Protocols</p>
-          </div>
-          <div>
-            <p>{{ project.stats.df_count }} Data Files</p>
-            <a target="_blank" href="https://{{ seek_hostname }}/projects/{{ project.id }}">Fairdata Link</a>
-          </div>
+        {% empty %}
+        <div class="ns-empty-state">
+            <i class="bi bi-building"></i>
+            <p>No projects found.</p>
         </div>
-      </div>
-    </li>
-  {% endfor %}
-  </ul>
-  <div style="display:flex;flex-direction:row;align-items: flex-start;gap:0.5em;">
-    {% for clade, clade_list in clade_data.items %}
-      <div style="height:24em;overflow-y:scroll;">
-      <table>
-        <thead style="border: 1px solid black;">
-          <th style="padding:0 4px;text-align: center;">{{ clade }}</th>
-          <th style="padding:0 4px;">Count</th>
-        </thead>
-        <tbody>
-            {% for sample_type in clade_list %}
-            <tr style="border: 1px solid black;background-color: {{ sample_type.color }}">
-              <td style="padding:0 4px;">{{ sample_type.st_group }}</td>
-              <td style="padding:0 4px;">{{ sample_type.count }}</td>
-            </tr>
-            {% if forloop.last %}
-            <tr>
-              <td style="padding:0 4px;"><b>Total</b></td>
-              <td style="padding:0 4px;border: 1px solid black;">{{ sample_type.total }}</td>
-            </tr>
-            {% endif %}
-            {% endfor %}
-        </tbody>
-      </table>
-      </div>
-    {% endfor %}
-  </div>
-</div>
+        {% endfor %}
+    </div>
 
+    {% if clade_data %}
+    <div class="clade-section">
+        <h2 class="clade-section-title">Sample Type Summary</h2>
+        <div class="clade-tables-row">
+            {% for clade, clade_list in clade_data.items %}
+            <div class="clade-table-wrap">
+                <table class="clade-table">
+                    <thead>
+                        <tr>
+                            <th>{{ clade }}</th>
+                            <th style="text-align:right;">Count</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sample_type in clade_list %}
+                        <tr style="background-color: {{ sample_type.color }};">
+                            <td>{{ sample_type.st_group }}</td>
+                            <td style="text-align:right;">{{ sample_type.count }}</td>
+                        </tr>
+                        {% if forloop.last %}
+                        <tr class="clade-total-row">
+                            <td><strong>Total</strong></td>
+                            <td style="text-align:right;"><strong>{{ sample_type.total }}</strong></td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+</div>
 {% endblock %}

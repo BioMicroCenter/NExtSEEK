@@ -1,0 +1,1194 @@
+{
+  "report_type": "GEO",
+  "description": "GEO metadata JSON template aligned to seq_template.xlsx (Metadata sheet), updated with a shared SRA-derived controlled vocabulary block so GEO and SRA normalization use the same terms.",
+  "study": {
+    "*title": null,
+    "*summary (abstract)": null,
+    "*experimental design": null,
+    "contributor": [],
+    "supplementary file": []
+  },
+  "samples": [
+    {
+      "*library name": null,
+      "*title": null,
+      "*library strategy": null,
+      "*organism": null,
+      "**tissue": null,
+      "**cell line": null,
+      "**cell type": null,
+      "genotype": null,
+      "treatment": null,
+      "batch": null,
+      "*molecule": null,
+      "*single or paired-end": null,
+      "*instrument model": null,
+      "description": null,
+      "processed data file": null,
+      "processed data file (2)": null,
+      "*raw file": null,
+      "raw file": null,
+      "raw file (2)": null,
+      "raw file (3)": null
+    }
+  ],
+  "protocols": {
+    "growth protocol": null,
+    "treatment protocol": null,
+    "*extract protocol": null,
+    "*library construction protocol": null,
+    "*data processing step": null,
+    "data processing step": [],
+    "*genome build/assembly": null,
+    "*processed data files format and content": null,
+    "processed data files format and content": []
+  },
+  "paired_end_experiments": [
+    {
+      "file name 1": null,
+      "file name 2": null,
+      "file name 3": null,
+      "file name 4": null
+    }
+  ],
+  "notes": "Populate values per seq_template.xlsx. Keep required fields (prefixed with *) and recommended sample attributes (prefixed with **) as appropriate; leave null/empty if unavailable. For overlapping GEO/SRA fields, prefer exact values from controlled_vocabulary so GEO and SRA outputs normalize identically.",
+  "checksums": {
+    "raw_data_files": [
+      {
+        "file name": null,
+        "file checksum": null
+      }
+    ],
+    "processed_data_files": [
+      {
+        "file name": null,
+        "file checksum": null
+      }
+    ],
+    "notes": "Provide MD5 checksums for each uploaded raw/processed file to help GEO verify file integrity."
+  },
+  "schema": {
+    "template_source": {
+      "file": "seq_template.xlsx",
+      "sheet": "Metadata",
+      "geo_last_updated_note": "This file was last updated by GEO on Dec 17, 2024.",
+      "shared_cv_source": "SRA_metadata.xlsx (SRA_data validations + Library and Platform Terms)"
+    },
+    "sections": {
+      "study": {
+        "description": "STUDY section describes the overall GEO Series (GSE) record. Content is displayed publicly and should summarize the experiment at a study level.",
+        "fields": {
+          "*title": {
+            "field": "title",
+            "template_key": "*title",
+            "required": "required",
+            "description": "Overall study title for the GEO Series (GSE). Should be short but descriptive and unique. Avoid overly generic titles.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*summary (abstract)": {
+            "field": "summary (abstract)",
+            "template_key": "*summary (abstract)",
+            "required": "required",
+            "description": "Study-level abstract/summary for the GEO Series. Provide background, experimental context, what was measured, and the main goals. 1\u20133 paragraphs is typical.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*experimental design": {
+            "field": "experimental design",
+            "template_key": "*experimental design",
+            "required": "required",
+            "description": "Describe the experimental design and variables: groups/conditions, timepoints, replicates, controls, randomization, and how samples relate to conditions. Mention any key covariates.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "contributor": {
+            "field": "contributor",
+            "template_key": "contributor",
+            "required": "optional",
+            "description": "People who contributed to generating the dataset (often authors). Use full names. Include multiple rows if needed.",
+            "expected_value": "string or list",
+            "examples": [],
+            "validation_hints": []
+          },
+          "supplementary file": {
+            "field": "supplementary file",
+            "template_key": "supplementary file",
+            "required": "optional",
+            "description": "Optional additional files to accompany the GEO Series record (e.g., README, sample metadata CSV, QC reports). Provide file names as they will appear in the submission.",
+            "expected_value": "string or list",
+            "examples": [],
+            "validation_hints": []
+          }
+        }
+      },
+      "samples": {
+        "description": "SAMPLES section defines one GEO Sample (GSM) per row (one library per row). Titles, library names, and raw files must be unique. Use extra raw/processed columns for technical replicates or multiple outputs.",
+        "fields": {
+          "*library name": {
+            "field": "library name",
+            "template_key": "*library name",
+            "required": "required",
+            "description": "Unique identifier for each library/sample in this submission. Often corresponds to internal sample ID or library prep ID. Must be unique across rows.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*title": {
+            "field": "title",
+            "template_key": "*title",
+            "required": "required",
+            "description": "Short title for the GEO Sample (GSM). Should uniquely identify the biological material and condition (e.g., 'WT lung, day 7, replicate 1').",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*library strategy": {
+            "field": "library strategy",
+            "template_key": "*library strategy",
+            "required": "required",
+            "description": "Sequencing strategy (e.g., RNA-Seq, ChIP-Seq, ATAC-Seq, WGS, scRNA-Seq, etc.). Use controlled terms from GEO/SRA when possible.",
+            "expected_value": "string",
+            "examples": [
+              "WGA",
+              "WGS",
+              "WXS",
+              "RNA-Seq",
+              "miRNA-Seq",
+              "WCS",
+              "CLONE",
+              "POOLCLONE"
+            ],
+            "validation_hints": [
+              "Prefer an exact value from controlled_vocabulary.library_strategy.",
+              "Use the same strategy label that would also be used in the SRA report for this library."
+            ],
+            "allowed_terms_ref": "controlled_vocabulary.library_strategy"
+          },
+          "*organism": {
+            "field": "organism",
+            "template_key": "*organism",
+            "required": "required",
+            "description": "Scientific name of the organism (e.g., Homo sapiens, Mus musculus). Should match NCBI Taxonomy naming.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "**tissue": {
+            "field": "tissue",
+            "template_key": "**tissue",
+            "required": "conditional",
+            "description": "Tissue of origin (conditional). Use standardized anatomical terms when possible (e.g., UBERON). For single-cell, may be broader organ/tissue source.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "**cell line": {
+            "field": "cell line",
+            "template_key": "**cell line",
+            "required": "conditional",
+            "description": "Cell line name if applicable (conditional). Include vendor/catalog and/or accession if available (e.g., ATCC). Leave blank for primary tissue without cell line.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "**cell type": {
+            "field": "cell type",
+            "template_key": "**cell type",
+            "required": "conditional",
+            "description": "Cell type (conditional). For scRNA/immune studies, use standard terms (e.g., Cell Ontology) when possible.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "genotype": {
+            "field": "genotype",
+            "template_key": "genotype",
+            "required": "optional",
+            "description": "Genotype of the sample/organism (e.g., WT, knockout, transgenic allele). Include relevant loci and zygosity if known.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "treatment": {
+            "field": "treatment",
+            "template_key": "treatment",
+            "required": "optional",
+            "description": "Treatments or perturbations applied (drug, infection, stimulation, vaccination), including dose, route, duration, and time since treatment.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "batch": {
+            "field": "batch",
+            "template_key": "batch",
+            "required": "optional",
+            "description": "Batch identifier capturing known technical batches (prep batch, sequencing run, lane, date). Helps downstream users account for batch effects.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*molecule": {
+            "field": "molecule",
+            "template_key": "*molecule",
+            "required": "required",
+            "description": "Molecule extracted for library prep (e.g., total RNA, polyA RNA, genomic DNA, chromatin, nuclei).",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*single or paired-end": {
+            "field": "single or paired-end",
+            "template_key": "*single or paired-end",
+            "required": "required",
+            "description": "Indicate whether reads are single-end or paired-end. Must be consistent with raw files provided.",
+            "expected_value": "string",
+            "examples": [
+              "single",
+              "paired"
+            ],
+            "validation_hints": [
+              "Use the shared controlled vocabulary values exactly: single or paired.",
+              "Choice must agree with the number and pairing pattern of raw files."
+            ],
+            "allowed_terms_ref": "controlled_vocabulary.library_layout"
+          },
+          "*instrument model": {
+            "field": "instrument model",
+            "template_key": "*instrument model",
+            "required": "required",
+            "description": "Sequencing instrument model (e.g., Illumina NovaSeq 6000, NextSeq 2000). Prefer exact model names.",
+            "expected_value": "string",
+            "examples": [
+              "HiSeq X Five",
+              "HiSeq X Ten",
+              "Illumina Genome Analyzer",
+              "Illumina Genome Analyzer II",
+              "Illumina Genome Analyzer IIx",
+              "Illumina HiScanSQ",
+              "Illumina HiSeq 1000",
+              "Illumina HiSeq 1500",
+              "Illumina HiSeq 2000",
+              "Illumina HiSeq 2500"
+            ],
+            "validation_hints": [
+              "Prefer an exact value from controlled_vocabulary.instrument_model_flat.",
+              "If platform is inferable, choose an instrument model that belongs to the matching controlled_vocabulary.instrument_model_by_platform entry."
+            ],
+            "allowed_terms_ref": "controlled_vocabulary.instrument_model_flat"
+          },
+          "description": {
+            "field": "description",
+            "template_key": "description",
+            "required": "optional",
+            "description": "Additional sample/library description. Useful for specifying finer details not captured elsewhere (e.g., isolation method, enrichment, fraction, indexing scheme).",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "processed data file": {
+            "field": "processed data file",
+            "template_key": "processed data file",
+            "required": "optional",
+            "description": "Name of processed data file(s) associated with this sample/library (e.g., count matrix, peak calls, BAM, bedGraph). If multiple, list each in separate 'processed data file' columns.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "processed data file (2)": {
+            "field": "processed data file (2)",
+            "template_key": "processed data file (2)",
+            "required": "optional",
+            "description": "",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*raw file": {
+            "field": "raw file",
+            "template_key": "*raw file",
+            "required": "required",
+            "description": "Name(s) of raw sequencing files for this library (e.g., FASTQ files). For technical replicates, use additional 'raw file' columns. All listed here should also appear in the experiment tables when relevant.",
+            "expected_value": "string",
+            "examples": [
+              "SAMPLE1_R1.fastq.gz",
+              "SAMPLE1_R2.fastq.gz"
+            ],
+            "validation_hints": []
+          },
+          "raw file": {
+            "field": "raw file",
+            "template_key": "raw file",
+            "required": "optional",
+            "description": "Name(s) of raw sequencing files for this library (e.g., FASTQ files). For technical replicates, use additional 'raw file' columns. All listed here should also appear in the experiment tables when relevant.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "raw file (2)": {
+            "field": "raw file (2)",
+            "template_key": "raw file (2)",
+            "required": "optional",
+            "description": "",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "raw file (3)": {
+            "field": "raw file (3)",
+            "template_key": "raw file (3)",
+            "required": "optional",
+            "description": "",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          }
+        }
+      },
+      "protocols": {
+        "description": "PROTOCOLS section captures experimental and computational methods used to generate raw and processed data.",
+        "fields": {
+          "growth protocol": {
+            "field": "growth protocol",
+            "template_key": "growth protocol",
+            "required": "optional",
+            "description": "Describe how organisms/cells were grown or maintained prior to treatment and collection (media, temperature, passage, housing).",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "treatment protocol": {
+            "field": "treatment protocol",
+            "template_key": "treatment protocol",
+            "required": "optional",
+            "description": "Describe any treatment/perturbation protocol (drug, infection, stimulation, vaccination), including dose, route, timepoints, and controls.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*extract protocol": {
+            "field": "extract protocol",
+            "template_key": "*extract protocol",
+            "required": "required",
+            "description": "Protocol for extracting the biomolecule (RNA/DNA/chromatin/nuclei). Include kit names, key steps, and any deviations from standard methods.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*library construction protocol": {
+            "field": "library construction protocol",
+            "template_key": "*library construction protocol",
+            "required": "required",
+            "description": "Library prep protocol: kit, input amount, fragmentation, barcoding/indexing, amplification cycles, size selection, and any single-cell platform details (e.g., 10x).",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*data processing step": {
+            "field": "data processing step",
+            "template_key": "*data processing step",
+            "required": "required",
+            "description": "Describe computational processing steps used to generate processed files (software, versions, parameters, reference genomes, QC thresholds). If multiple steps, list them in order.",
+            "expected_value": "string or list",
+            "examples": [],
+            "validation_hints": [
+              "Include software name + version",
+              "Include key parameters (e.g., aligner settings, filtering thresholds)",
+              "Describe order of steps if multiple"
+            ]
+          },
+          "data processing step": {
+            "field": "data processing step",
+            "template_key": "data processing step",
+            "required": "optional",
+            "description": "Describe computational processing steps used to generate processed files (software, versions, parameters, reference genomes, QC thresholds). If multiple steps, list them in order.",
+            "expected_value": "string or list",
+            "examples": [],
+            "validation_hints": []
+          },
+          "*genome build/assembly": {
+            "field": "genome build/assembly",
+            "template_key": "*genome build/assembly",
+            "required": "required",
+            "description": "Reference genome build/assembly used for alignment/quantification (e.g., GRCh38, mm10). Include release/version if applicable.",
+            "expected_value": "string",
+            "examples": [
+              "GRCh38",
+              "GRCm39",
+              "mm10",
+              "TAIR10"
+            ],
+            "validation_hints": []
+          },
+          "*processed data files format and content": {
+            "field": "processed data files format and content",
+            "template_key": "*processed data files format and content",
+            "required": "required",
+            "description": "Describe each processed data file type, format (e.g., TSV, H5AD, BAM), and what columns/fields contain. Include units and coordinate systems where relevant.",
+            "expected_value": "string or list",
+            "examples": [],
+            "validation_hints": []
+          },
+          "processed data files format and content": {
+            "field": "processed data files format and content",
+            "template_key": "processed data files format and content",
+            "required": "optional",
+            "description": "Describe each processed data file type, format (e.g., TSV, H5AD, BAM), and what columns/fields contain. Include units and coordinate systems where relevant.",
+            "expected_value": "string or list",
+            "examples": [],
+            "validation_hints": []
+          }
+        }
+      },
+      "paired_end_experiments": {
+        "description": "PAIRED-END EXPERIMENTS lists the FASTQ (or equivalent) files for paired-end sequencing. Raw files listed here should also be listed in each sample row under raw file columns.",
+        "fields": {
+          "file name 1": {
+            "field": "file name 1",
+            "template_key": "file name 1",
+            "required": "optional",
+            "description": "Raw read file for mate 1 (R1). FASTQ (or equivalent). Provide the exact file name uploaded.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "file name 2": {
+            "field": "file name 2",
+            "template_key": "file name 2",
+            "required": "optional",
+            "description": "Raw read file for mate 2 (R2). FASTQ (or equivalent). Provide the exact file name uploaded.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "file name 3": {
+            "field": "file name 3",
+            "template_key": "file name 3",
+            "required": "optional",
+            "description": "Optional additional raw file for the same experiment (e.g., index reads I1/I2, or additional lanes), depending on platform/template guidance.",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          },
+          "file name 4": {
+            "field": "file name 4",
+            "template_key": "file name 4",
+            "required": "optional",
+            "description": "Optional additional raw file for the same experiment (e.g., second index read or additional lane).",
+            "expected_value": "string",
+            "examples": [],
+            "validation_hints": []
+          }
+        }
+      },
+      "checksums": {
+        "description": "MD5 checksums for raw and processed files. GEO recommends providing MD5 to verify file integrity after transfer.",
+        "tables": {
+          "raw_data_files": {
+            "columns": [
+              "file name",
+              "file checksum (MD5)"
+            ],
+            "rows": []
+          },
+          "processed_data_files": {
+            "columns": [
+              "file name",
+              "file checksum (MD5)"
+            ],
+            "rows": []
+          }
+        },
+        "calculation_notes": [
+          "Unix: md5sum <file>",
+          "macOS: md5 <file>",
+          "Windows (cmd): certutil -hashfile <file> MD5"
+        ]
+      }
+    },
+    "controlled_vocabulary": {
+      "authority": "Controlled vocabulary mined directly from the uploaded SRA_metadata.xlsx workbook (SRA_data validations + Library and Platform Terms sheet). Use these exact terms when populating overlapping GEO/SRA fields so both report types normalize identically.",
+      "library_strategy": [
+        "WGA",
+        "WGS",
+        "WXS",
+        "RNA-Seq",
+        "miRNA-Seq",
+        "WCS",
+        "CLONE",
+        "POOLCLONE",
+        "AMPLICON",
+        "CLONEEND",
+        "FINISHING",
+        "ChIP-Seq",
+        "MNase-Seq",
+        "DNase-Hypersensitivity",
+        "Bisulfite-Seq",
+        "Tn-Seq",
+        "EST",
+        "FL-cDNA",
+        "CTS",
+        "MRE-Seq",
+        "MeDIP-Seq",
+        "MBD-Seq",
+        "Synthetic-Long-Read",
+        "ATAC-seq",
+        "ChIA-PET",
+        "FAIRE-seq",
+        "Hi-C",
+        "ncRNA-Seq",
+        "RAD-Seq",
+        "RIP-Seq",
+        "SELEX",
+        "ssRNA-seq",
+        "Targeted-Capture",
+        "Tethered Chromatin Conformation Capture",
+        "DIP-Seq",
+        "GBS",
+        "Inverse rRNA",
+        "NOMe-Seq",
+        "Ribo-seq",
+        "VALIDATION",
+        "OTHER"
+      ],
+      "library_source": [
+        "GENOMIC",
+        "TRANSCRIPTOMIC",
+        "METAGENOMIC",
+        "METATRANSCRIPTOMIC",
+        "SYNTHETIC",
+        "VIRAL RNA",
+        "GENOMIC SINGLE CELL",
+        "TRANSCRIPTOMIC SINGLE CELL",
+        "OTHER"
+      ],
+      "library_selection": [
+        "RANDOM",
+        "PCR",
+        "RANDOM PCR",
+        "RT-PCR",
+        "HMPR",
+        "MF",
+        "CF-S",
+        "CF-M",
+        "CF-H",
+        "CF-T",
+        "MDA",
+        "MSLL",
+        "cDNA",
+        "ChIP",
+        "MNase",
+        "DNAse",
+        "Hybrid Selection",
+        "Reduced Representation",
+        "Restriction Digest",
+        "5-methylcytidine antibody",
+        "MBD2 protein methyl-CpG binding domain",
+        "CAGE",
+        "RACE",
+        "size fractionation",
+        "Padlock probes capture method",
+        "other",
+        "unspecified",
+        "cDNA_oligo_dT",
+        "cDNA_randomPriming",
+        "Inverse rRNA",
+        "Oligo-dT",
+        "PolyA",
+        "repeat fractionation"
+      ],
+      "library_layout": [
+        "single",
+        "paired"
+      ],
+      "platform": [
+        "_LS454",
+        "ABI_SOLID",
+        "BGISEQ",
+        "CAPILLARY",
+        "COMPLETE_GENOMICS",
+        "DNBSEQ",
+        "ELEMENT",
+        "GENAPSYS",
+        "GENEMIND",
+        "HELICOS",
+        "ILLUMINA",
+        "ION_TORRENT",
+        "OXFORD_NANOPORE",
+        "PACBIO_SMRT",
+        "TAPESTRI",
+        "ULTIMA",
+        "VELA_DIAGNOSTICS"
+      ],
+      "instrument_model_by_platform": {
+        "ILLUMINA": [
+          "HiSeq X Five",
+          "HiSeq X Ten",
+          "Illumina Genome Analyzer",
+          "Illumina Genome Analyzer II",
+          "Illumina Genome Analyzer IIx",
+          "Illumina HiScanSQ",
+          "Illumina HiSeq 1000",
+          "Illumina HiSeq 1500",
+          "Illumina HiSeq 2000",
+          "Illumina HiSeq 2500",
+          "Illumina HiSeq 3000",
+          "Illumina HiSeq 4000",
+          "Illumina HiSeq X",
+          "Illumina MiSeq",
+          "Illumina MiSeq i100",
+          "Illumina MiniSeq",
+          "Illumina NovaSeq 6000",
+          "Illumina NovaSeq X",
+          "Illumina NovaSeq X Plus",
+          "Illumina iSeq 100",
+          "NextSeq 1000",
+          "NextSeq 2000",
+          "NextSeq 500",
+          "NextSeq 550"
+        ],
+        "PACBIO_SMRT": [
+          "PacBio RS",
+          "PacBio RS II",
+          "Revio",
+          "Sequel",
+          "Sequel II",
+          "Sequel IIe",
+          "Onso"
+        ],
+        "ABI_SOLID": [
+          "AB 5500 Genetic Analyzer",
+          "AB 5500xl Genetic Analyzer",
+          "AB 5500x-Wl Genetic Analyzer",
+          "AB SOLiD 3 Plus System",
+          "AB SOLiD 4 System",
+          "AB SOLiD 4hq System",
+          "AB SOLiD PI System",
+          "AB SOLiD System",
+          "AB SOLiD System 2.0",
+          "AB SOLiD System 3.0"
+        ],
+        "ION_TORRENT": [
+          "Ion Torrent PGM",
+          "Ion Torrent Proton",
+          "Ion Torrent S5 XL",
+          "Ion Torrent S5",
+          "Ion Torrent Genexus",
+          "Ion GeneStudio S5",
+          "Ion GeneStudio S5 Plus",
+          "Ion GeneStudio S5 Prime"
+        ],
+        "CAPILLARY": [
+          "AB 310 Genetic Analyzer",
+          "AB 3130 Genetic Analyzer",
+          "AB 3130xL Genetic Analyzer",
+          "AB 3500 Genetic Analyzer",
+          "AB 3500xL Genetic Analyzer",
+          "AB 3730 Genetic Analyzer",
+          "AB 3730xL Genetic Analyzer"
+        ],
+        "BGISEQ": [
+          "BGISEQ-50",
+          "BGISEQ-500",
+          "MGISEQ-2000RS"
+        ],
+        "DNBSEQ": [
+          "DNBSEQ-G400",
+          "DNBSEQ-G50",
+          "DNBSEQ-T7",
+          "DNBSEQ-G400 FAST"
+        ],
+        "GENEMIND": [
+          "FASTASeq 300",
+          "GenoCare 1600",
+          "GenoLab M"
+        ],
+        "_LS454": [
+          "454 GS",
+          "454 GS 20",
+          "454 GS FLX",
+          "454 GS FLX+",
+          "454 GS FLX Titanium",
+          "454 GS Junior"
+        ],
+        "HELICOS": [
+          "Helicos HeliScope"
+        ],
+        "COMPLETE_GENOMICS": [
+          "Complete Genomics"
+        ],
+        "OXFORD_NANOPORE": [
+          "GridION",
+          "MinION",
+          "PromethION"
+        ],
+        "ELEMENT": [
+          "Element AVITI"
+        ],
+        "GENAPSYS": [
+          "GS111"
+        ],
+        "TAPESTRI": [
+          "Tapestri"
+        ],
+        "ULTIMA": [
+          "UG 100"
+        ],
+        "VELA_DIAGNOSTICS": [
+          "Sentosa SQ301"
+        ]
+      },
+      "filetype": [
+        "bam",
+        "srf",
+        "sff",
+        "fastq",
+        "454_native",
+        "Helicos_native",
+        "SOLiD_native",
+        "PacBio_HDF5",
+        "CompleteGenomics_native",
+        "OxfordNanopore_native"
+      ],
+      "instrument_model_flat": [
+        "HiSeq X Five",
+        "HiSeq X Ten",
+        "Illumina Genome Analyzer",
+        "Illumina Genome Analyzer II",
+        "Illumina Genome Analyzer IIx",
+        "Illumina HiScanSQ",
+        "Illumina HiSeq 1000",
+        "Illumina HiSeq 1500",
+        "Illumina HiSeq 2000",
+        "Illumina HiSeq 2500",
+        "Illumina HiSeq 3000",
+        "Illumina HiSeq 4000",
+        "Illumina HiSeq X",
+        "Illumina MiSeq",
+        "Illumina MiSeq i100",
+        "Illumina MiniSeq",
+        "Illumina NovaSeq 6000",
+        "Illumina NovaSeq X",
+        "Illumina NovaSeq X Plus",
+        "Illumina iSeq 100",
+        "NextSeq 1000",
+        "NextSeq 2000",
+        "NextSeq 500",
+        "NextSeq 550",
+        "PacBio RS",
+        "PacBio RS II",
+        "Revio",
+        "Sequel",
+        "Sequel II",
+        "Sequel IIe",
+        "Onso",
+        "AB 5500 Genetic Analyzer",
+        "AB 5500xl Genetic Analyzer",
+        "AB 5500x-Wl Genetic Analyzer",
+        "AB SOLiD 3 Plus System",
+        "AB SOLiD 4 System",
+        "AB SOLiD 4hq System",
+        "AB SOLiD PI System",
+        "AB SOLiD System",
+        "AB SOLiD System 2.0",
+        "AB SOLiD System 3.0",
+        "Ion Torrent PGM",
+        "Ion Torrent Proton",
+        "Ion Torrent S5 XL",
+        "Ion Torrent S5",
+        "Ion Torrent Genexus",
+        "Ion GeneStudio S5",
+        "Ion GeneStudio S5 Plus",
+        "Ion GeneStudio S5 Prime",
+        "AB 310 Genetic Analyzer",
+        "AB 3130 Genetic Analyzer",
+        "AB 3130xL Genetic Analyzer",
+        "AB 3500 Genetic Analyzer",
+        "AB 3500xL Genetic Analyzer",
+        "AB 3730 Genetic Analyzer",
+        "AB 3730xL Genetic Analyzer",
+        "BGISEQ-50",
+        "BGISEQ-500",
+        "MGISEQ-2000RS",
+        "DNBSEQ-G400",
+        "DNBSEQ-G50",
+        "DNBSEQ-T7",
+        "DNBSEQ-G400 FAST",
+        "FASTASeq 300",
+        "GenoCare 1600",
+        "GenoLab M",
+        "454 GS",
+        "454 GS 20",
+        "454 GS FLX",
+        "454 GS FLX+",
+        "454 GS FLX Titanium",
+        "454 GS Junior",
+        "Helicos HeliScope",
+        "Complete Genomics",
+        "GridION",
+        "MinION",
+        "PromethION",
+        "Element AVITI",
+        "GS111",
+        "Tapestri",
+        "UG 100",
+        "Sentosa SQ301"
+      ]
+    },
+    "cross_submission_alignment": {
+      "description": "Shared normalization layer carried in both GEO and SRA context files. The report writer should use these same exact terms in both report types whenever the fields overlap.",
+      "field_mappings": {
+        "GEO.samples.*library strategy": "controlled_vocabulary.library_strategy",
+        "GEO.samples.*single or paired-end": "controlled_vocabulary.library_layout",
+        "GEO.samples.*instrument model": "controlled_vocabulary.instrument_model_flat"
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "This is a report-writing context file for GEO submission drafting. The agent should fill only the GEO template fields, using the shared controlled vocabulary below whenever a field overlaps with SRA terminology.",
+    "pipeline_behavior": [
+      "You are given already-scraped metadata JSON plus this GEO context file.",
+      "Fill the GEO template sections (study, samples, protocols, paired_end_experiments, checksums).",
+      "Do not invent fields outside the GEO template.",
+      "For overlapping fields, prefer exact values from controlled_vocabulary so GEO and SRA outputs normalize identically.",
+      "Leave values null or empty when the metadata does not support a confident assignment."
+    ],
+    "shared_term_alignment": {
+      "samples.*library strategy": "Use an exact term from controlled_vocabulary.library_strategy whenever possible.",
+      "samples.*single or paired-end": "Normalize to the shared layout vocabulary using exact values 'single' or 'paired'.",
+      "samples.*instrument model": "Use an exact term from controlled_vocabulary.instrument_model_flat whenever possible."
+    }
+  },
+  "controlled_vocabulary": {
+    "authority": "Controlled vocabulary mined directly from the uploaded SRA_metadata.xlsx workbook (SRA_data validations + Library and Platform Terms sheet). Use these exact terms when populating overlapping GEO/SRA fields so both report types normalize identically.",
+    "library_strategy": [
+      "WGA",
+      "WGS",
+      "WXS",
+      "RNA-Seq",
+      "miRNA-Seq",
+      "WCS",
+      "CLONE",
+      "POOLCLONE",
+      "AMPLICON",
+      "CLONEEND",
+      "FINISHING",
+      "ChIP-Seq",
+      "MNase-Seq",
+      "DNase-Hypersensitivity",
+      "Bisulfite-Seq",
+      "Tn-Seq",
+      "EST",
+      "FL-cDNA",
+      "CTS",
+      "MRE-Seq",
+      "MeDIP-Seq",
+      "MBD-Seq",
+      "Synthetic-Long-Read",
+      "ATAC-seq",
+      "ChIA-PET",
+      "FAIRE-seq",
+      "Hi-C",
+      "ncRNA-Seq",
+      "RAD-Seq",
+      "RIP-Seq",
+      "SELEX",
+      "ssRNA-seq",
+      "Targeted-Capture",
+      "Tethered Chromatin Conformation Capture",
+      "DIP-Seq",
+      "GBS",
+      "Inverse rRNA",
+      "NOMe-Seq",
+      "Ribo-seq",
+      "VALIDATION",
+      "OTHER"
+    ],
+    "library_source": [
+      "GENOMIC",
+      "TRANSCRIPTOMIC",
+      "METAGENOMIC",
+      "METATRANSCRIPTOMIC",
+      "SYNTHETIC",
+      "VIRAL RNA",
+      "GENOMIC SINGLE CELL",
+      "TRANSCRIPTOMIC SINGLE CELL",
+      "OTHER"
+    ],
+    "library_selection": [
+      "RANDOM",
+      "PCR",
+      "RANDOM PCR",
+      "RT-PCR",
+      "HMPR",
+      "MF",
+      "CF-S",
+      "CF-M",
+      "CF-H",
+      "CF-T",
+      "MDA",
+      "MSLL",
+      "cDNA",
+      "ChIP",
+      "MNase",
+      "DNAse",
+      "Hybrid Selection",
+      "Reduced Representation",
+      "Restriction Digest",
+      "5-methylcytidine antibody",
+      "MBD2 protein methyl-CpG binding domain",
+      "CAGE",
+      "RACE",
+      "size fractionation",
+      "Padlock probes capture method",
+      "other",
+      "unspecified",
+      "cDNA_oligo_dT",
+      "cDNA_randomPriming",
+      "Inverse rRNA",
+      "Oligo-dT",
+      "PolyA",
+      "repeat fractionation"
+    ],
+    "library_layout": [
+      "single",
+      "paired"
+    ],
+    "platform": [
+      "_LS454",
+      "ABI_SOLID",
+      "BGISEQ",
+      "CAPILLARY",
+      "COMPLETE_GENOMICS",
+      "DNBSEQ",
+      "ELEMENT",
+      "GENAPSYS",
+      "GENEMIND",
+      "HELICOS",
+      "ILLUMINA",
+      "ION_TORRENT",
+      "OXFORD_NANOPORE",
+      "PACBIO_SMRT",
+      "TAPESTRI",
+      "ULTIMA",
+      "VELA_DIAGNOSTICS"
+    ],
+    "instrument_model_by_platform": {
+      "ILLUMINA": [
+        "HiSeq X Five",
+        "HiSeq X Ten",
+        "Illumina Genome Analyzer",
+        "Illumina Genome Analyzer II",
+        "Illumina Genome Analyzer IIx",
+        "Illumina HiScanSQ",
+        "Illumina HiSeq 1000",
+        "Illumina HiSeq 1500",
+        "Illumina HiSeq 2000",
+        "Illumina HiSeq 2500",
+        "Illumina HiSeq 3000",
+        "Illumina HiSeq 4000",
+        "Illumina HiSeq X",
+        "Illumina MiSeq",
+        "Illumina MiSeq i100",
+        "Illumina MiniSeq",
+        "Illumina NovaSeq 6000",
+        "Illumina NovaSeq X",
+        "Illumina NovaSeq X Plus",
+        "Illumina iSeq 100",
+        "NextSeq 1000",
+        "NextSeq 2000",
+        "NextSeq 500",
+        "NextSeq 550"
+      ],
+      "PACBIO_SMRT": [
+        "PacBio RS",
+        "PacBio RS II",
+        "Revio",
+        "Sequel",
+        "Sequel II",
+        "Sequel IIe",
+        "Onso"
+      ],
+      "ABI_SOLID": [
+        "AB 5500 Genetic Analyzer",
+        "AB 5500xl Genetic Analyzer",
+        "AB 5500x-Wl Genetic Analyzer",
+        "AB SOLiD 3 Plus System",
+        "AB SOLiD 4 System",
+        "AB SOLiD 4hq System",
+        "AB SOLiD PI System",
+        "AB SOLiD System",
+        "AB SOLiD System 2.0",
+        "AB SOLiD System 3.0"
+      ],
+      "ION_TORRENT": [
+        "Ion Torrent PGM",
+        "Ion Torrent Proton",
+        "Ion Torrent S5 XL",
+        "Ion Torrent S5",
+        "Ion Torrent Genexus",
+        "Ion GeneStudio S5",
+        "Ion GeneStudio S5 Plus",
+        "Ion GeneStudio S5 Prime"
+      ],
+      "CAPILLARY": [
+        "AB 310 Genetic Analyzer",
+        "AB 3130 Genetic Analyzer",
+        "AB 3130xL Genetic Analyzer",
+        "AB 3500 Genetic Analyzer",
+        "AB 3500xL Genetic Analyzer",
+        "AB 3730 Genetic Analyzer",
+        "AB 3730xL Genetic Analyzer"
+      ],
+      "BGISEQ": [
+        "BGISEQ-50",
+        "BGISEQ-500",
+        "MGISEQ-2000RS"
+      ],
+      "DNBSEQ": [
+        "DNBSEQ-G400",
+        "DNBSEQ-G50",
+        "DNBSEQ-T7",
+        "DNBSEQ-G400 FAST"
+      ],
+      "GENEMIND": [
+        "FASTASeq 300",
+        "GenoCare 1600",
+        "GenoLab M"
+      ],
+      "_LS454": [
+        "454 GS",
+        "454 GS 20",
+        "454 GS FLX",
+        "454 GS FLX+",
+        "454 GS FLX Titanium",
+        "454 GS Junior"
+      ],
+      "HELICOS": [
+        "Helicos HeliScope"
+      ],
+      "COMPLETE_GENOMICS": [
+        "Complete Genomics"
+      ],
+      "OXFORD_NANOPORE": [
+        "GridION",
+        "MinION",
+        "PromethION"
+      ],
+      "ELEMENT": [
+        "Element AVITI"
+      ],
+      "GENAPSYS": [
+        "GS111"
+      ],
+      "TAPESTRI": [
+        "Tapestri"
+      ],
+      "ULTIMA": [
+        "UG 100"
+      ],
+      "VELA_DIAGNOSTICS": [
+        "Sentosa SQ301"
+      ]
+    },
+    "filetype": [
+      "bam",
+      "srf",
+      "sff",
+      "fastq",
+      "454_native",
+      "Helicos_native",
+      "SOLiD_native",
+      "PacBio_HDF5",
+      "CompleteGenomics_native",
+      "OxfordNanopore_native"
+    ],
+    "instrument_model_flat": [
+      "HiSeq X Five",
+      "HiSeq X Ten",
+      "Illumina Genome Analyzer",
+      "Illumina Genome Analyzer II",
+      "Illumina Genome Analyzer IIx",
+      "Illumina HiScanSQ",
+      "Illumina HiSeq 1000",
+      "Illumina HiSeq 1500",
+      "Illumina HiSeq 2000",
+      "Illumina HiSeq 2500",
+      "Illumina HiSeq 3000",
+      "Illumina HiSeq 4000",
+      "Illumina HiSeq X",
+      "Illumina MiSeq",
+      "Illumina MiSeq i100",
+      "Illumina MiniSeq",
+      "Illumina NovaSeq 6000",
+      "Illumina NovaSeq X",
+      "Illumina NovaSeq X Plus",
+      "Illumina iSeq 100",
+      "NextSeq 1000",
+      "NextSeq 2000",
+      "NextSeq 500",
+      "NextSeq 550",
+      "PacBio RS",
+      "PacBio RS II",
+      "Revio",
+      "Sequel",
+      "Sequel II",
+      "Sequel IIe",
+      "Onso",
+      "AB 5500 Genetic Analyzer",
+      "AB 5500xl Genetic Analyzer",
+      "AB 5500x-Wl Genetic Analyzer",
+      "AB SOLiD 3 Plus System",
+      "AB SOLiD 4 System",
+      "AB SOLiD 4hq System",
+      "AB SOLiD PI System",
+      "AB SOLiD System",
+      "AB SOLiD System 2.0",
+      "AB SOLiD System 3.0",
+      "Ion Torrent PGM",
+      "Ion Torrent Proton",
+      "Ion Torrent S5 XL",
+      "Ion Torrent S5",
+      "Ion Torrent Genexus",
+      "Ion GeneStudio S5",
+      "Ion GeneStudio S5 Plus",
+      "Ion GeneStudio S5 Prime",
+      "AB 310 Genetic Analyzer",
+      "AB 3130 Genetic Analyzer",
+      "AB 3130xL Genetic Analyzer",
+      "AB 3500 Genetic Analyzer",
+      "AB 3500xL Genetic Analyzer",
+      "AB 3730 Genetic Analyzer",
+      "AB 3730xL Genetic Analyzer",
+      "BGISEQ-50",
+      "BGISEQ-500",
+      "MGISEQ-2000RS",
+      "DNBSEQ-G400",
+      "DNBSEQ-G50",
+      "DNBSEQ-T7",
+      "DNBSEQ-G400 FAST",
+      "FASTASeq 300",
+      "GenoCare 1600",
+      "GenoLab M",
+      "454 GS",
+      "454 GS 20",
+      "454 GS FLX",
+      "454 GS FLX+",
+      "454 GS FLX Titanium",
+      "454 GS Junior",
+      "Helicos HeliScope",
+      "Complete Genomics",
+      "GridION",
+      "MinION",
+      "PromethION",
+      "Element AVITI",
+      "GS111",
+      "Tapestri",
+      "UG 100",
+      "Sentosa SQ301"
+    ]
+  }
+}

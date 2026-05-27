@@ -1,0 +1,6344 @@
+openapi: 3.1.0
+info:
+  title: NExtSEEK API
+  version: 0.1.0
+paths:
+  /nextseek_api/admin/samples/retrieve/:
+    post:
+      operationId: Admin Sample Retrieval
+      description: 'Export sample metadata to Excel for admin users. Accepts a list
+        of sample UIDs and returns an Excel workbook containing full metadata for
+        those samples and all derived samples. Requires admin privileges. Examples:
+        ''Export all metadata for NHP-220630FLY-1-PUB and its derived samples to Excel'';
+        ''Download a spreadsheet with data for these three monkeys'''
+      tags:
+      - Samples
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminRetrieveRequest'
+            examples:
+              UIDList:
+                value:
+                  retrieval_uids:
+                  - UID1
+                  - UID2
+                summary: UID list
+              Whitespace-separated:
+                value:
+                  retrieval_uids_text: UID1 UID2 UID3
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminRetrieveRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminRetrieveRequest'
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: string
+              examples:
+                UIDList:
+                  value:
+                    retrieval_uids:
+                    - UID1
+                    - UID2
+                  summary: UID list
+                Whitespace-separated:
+                  value:
+                    retrieval_uids_text: UID1 UID2 UID3
+          description: ''
+  /nextseek_api/assays/:
+    get:
+      operationId: List Assays
+      description: 'Retrieve all assays (experimental procedures) you have access
+        to. Returns assay titles, types, technologies used, and IDs for linked studies,
+        samples, and data files. Examples: ''Show me all available assays''; ''What
+        experimental procedures have been run on the primate samples?'''
+      tags:
+      - Assays
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AssayListResponse'
+              examples:
+                ListAssays:
+                  value:
+                  - data:
+                    - id: '351'
+                      type: assays
+                      attributes:
+                        title: A Maximal experimental Assay
+                      links:
+                        self: /assays/351
+                    jsonapi:
+                      version: '1.0'
+                    links:
+                      self: /assays?page[number]=1&page[size]=100
+                    meta:
+                      base_url: https://fairdata-dev.mit.edu
+                      api_version: v1
+                  summary: List Assays
+          description: ''
+    post:
+      operationId: Create an Assay
+      description: 'Define a new assay (experimental procedure) within a study. Specify
+        the assay type, technology, and link to samples and protocols. Returns the
+        created assay with its assigned ID and metadata. Examples: ''Create a new
+        transcriptomics assay for the immune response study''; ''Add a histology assay
+        to analyze the tissue samples'''
+      tags:
+      - Assays
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssayCreateRequest'
+            examples:
+              CreateAssay:
+                value:
+                  data:
+                    type: assays
+                    attributes:
+                      title: A Maximal experimental Assay
+                      assay_class:
+                        key: EXP
+                      assay_type:
+                        uri: http://jermontology.org/ontology/JERMOntology#Transcriptomics
+                      technology_type:
+                        uri: http://jermontology.org/ontology/JERMOntology#RNA-Seq
+                    relationships:
+                      study:
+                        data:
+                          type: studies
+                          id: '434'
+                summary: Create Assay
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AssayCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AssayCreateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssaySingleResponse'
+              examples:
+                CreateAssay:
+                  value:
+                    data:
+                      type: assays
+                      attributes:
+                        title: A Maximal experimental Assay
+                        assay_class:
+                          key: EXP
+                        assay_type:
+                          uri: http://jermontology.org/ontology/JERMOntology#Transcriptomics
+                        technology_type:
+                          uri: http://jermontology.org/ontology/JERMOntology#RNA-Seq
+                      relationships:
+                        study:
+                          data:
+                            type: studies
+                            id: '434'
+                  summary: Create Assay
+          description: ''
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssaySingleResponse'
+              examples:
+                CreateAssay:
+                  value:
+                    data:
+                      type: assays
+                      attributes:
+                        title: A Maximal experimental Assay
+                        assay_class:
+                          key: EXP
+                        assay_type:
+                          uri: http://jermontology.org/ontology/JERMOntology#Transcriptomics
+                        technology_type:
+                          uri: http://jermontology.org/ontology/JERMOntology#RNA-Seq
+                      relationships:
+                        study:
+                          data:
+                            type: studies
+                            id: '434'
+                  summary: Create Assay
+          description: ''
+  /nextseek_api/assays/{uid}/:
+    get:
+      operationId: Fetch an Assay
+      description: 'Fetch details for a specific assay by its ID. Returns full metadata
+        including title, assay type, technology used, linked study, associated samples,
+        protocols, and generated data files. Examples: ''Show me the details of the
+        RNA-seq assay''; ''What samples were processed in this flow cytometry experiment?'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric). Non-numeric UID resolution not configured.
+        required: true
+      tags:
+      - Assays
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssaySingleResponse'
+              examples:
+                GetAssay:
+                  value:
+                    data:
+                      id: '351'
+                      type: assays
+                      attributes:
+                        title: A Maximal experimental Assay
+                      relationships:
+                        study:
+                          data:
+                            type: studies
+                            id: '434'
+                      links:
+                        self: /assays/351
+                      meta: {}
+                    jsonapi:
+                      version: '1.0'
+                  summary: Get Assay
+          description: ''
+    patch:
+      operationId: Update an Assay
+      description: 'Update an existing assay by its ID. Modify title, description,
+        assay type, technology, or linked samples and data files. Returns the updated
+        assay with all current metadata. Examples: ''Update the description for the
+        RNA-seq assay''; ''Add additional samples to the flow cytometry experiment'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric). Non-numeric UID resolution not configured.
+        required: true
+      tags:
+      - Assays
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAssayUpdateRequest'
+            examples:
+              PatchAssay:
+                value:
+                  data:
+                    type: assays
+                    id: '351'
+                    attributes:
+                      description: Revised description
+                summary: Patch Assay
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAssayUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAssayUpdateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssaySingleResponse'
+              examples:
+                PatchAssay:
+                  value:
+                    data:
+                      type: assays
+                      id: '351'
+                      attributes:
+                        description: Revised description
+                  summary: Patch Assay
+          description: ''
+  /nextseek_api/data_files/:
+    get:
+      operationId: List DataFiles
+      description: 'Retrieve all data files you have access to, including spreadsheets,
+        images, sequencing outputs, and other research data. Returns file titles,
+        descriptions, content types, and associated projects or assays. Examples:
+        ''Show me all uploaded data files''; ''What sequencing results are available
+        for download?'''
+      tags:
+      - DataFiles
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DataFileListResponse'
+              examples:
+                ListDataFiles:
+                  value:
+                  - data:
+                    - id: '560'
+                      type: data_files
+                      attributes:
+                        title: DF-20240101-01_Sample-X.csv
+                      links:
+                        self: /data_files/560
+                    jsonapi:
+                      version: '1.0'
+                    links:
+                      self: /data_files?page[number]=1&page[size]=100
+                    meta:
+                      base_url: http://localhost:3000
+                      api_version: v1
+                  summary: List DataFiles
+          description: ''
+    post:
+      operationId: Create a DataFile
+      description: 'Register a new data file by providing a URL or uploading content.
+        Associate with projects, assays, or samples. Returns the created file record
+        with its assigned ID and metadata. Examples: ''Upload the microscopy images
+        from today''s experiment''; ''Register a new sequencing output file for the
+        water study'''
+      tags:
+      - DataFiles
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataFileCreateRequest'
+            examples:
+              CreateDataFile:
+                value:
+                  data:
+                    type: data_files
+                    attributes:
+                      title: DF-20240101-01_Sample-X.csv
+                      content_blobs:
+                      - url: https://example.com/file.csv
+                        content_type: text/csv
+                    relationships:
+                      projects:
+                        data:
+                        - id: '560'
+                          type: projects
+                summary: Create DataFile
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DataFileCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DataFileCreateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataFileSingleResponse'
+              examples:
+                CreateDataFile:
+                  value:
+                    data:
+                      type: data_files
+                      attributes:
+                        title: DF-20240101-01_Sample-X.csv
+                        content_blobs:
+                        - url: https://example.com/file.csv
+                          content_type: text/csv
+                      relationships:
+                        projects:
+                          data:
+                          - id: '560'
+                            type: projects
+                  summary: Create DataFile
+          description: ''
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataFileSingleResponse'
+              examples:
+                CreateDataFile:
+                  value:
+                    data:
+                      type: data_files
+                      attributes:
+                        title: DF-20240101-01_Sample-X.csv
+                        content_blobs:
+                        - url: https://example.com/file.csv
+                          content_type: text/csv
+                      relationships:
+                        projects:
+                          data:
+                          - id: '560'
+                            type: projects
+                  summary: Create DataFile
+          description: ''
+  /nextseek_api/data_files/{uid}/:
+    get:
+      operationId: Fetch a DataFile
+      description: 'Fetch metadata for a specific data file by ID or name. Returns
+        title, description, file type, download URL, version history, and linked samples
+        or assays. Specify version number to retrieve historical file revisions. Examples:
+        ''Get the CT scan images for this monkey''; ''Show me the flow cytometry results
+        file for sample NHP-220630FLY-1-PUB'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or NExtSEEK UID (string)
+        required: true
+      - in: query
+        name: version
+        schema:
+          type: integer
+          default: 1
+        description: Required DataFile version to fetch
+        required: true
+      tags:
+      - DataFiles
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataFileSingleResponse'
+              examples:
+                GetDataFile:
+                  value:
+                    data:
+                      id: '560'
+                      type: data_files
+                      attributes:
+                        title: DF-20240101-01_Sample-X.csv
+                      relationships: {}
+                      links:
+                        self: /data_files/560
+                      meta: {}
+                    jsonapi:
+                      version: '1.0'
+                  summary: Get DataFile
+          description: ''
+    patch:
+      operationId: Update a DataFile
+      description: 'Update an existing data file''s metadata by ID or name. Modify
+        title, description, or project/assay associations. Returns the updated file
+        record with all current metadata. Examples: ''Add a description to the microscopy
+        images''; ''Change the project association for this sequencing file'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or NExtSEEK UID (string)
+        required: true
+      tags:
+      - DataFiles
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDataFileUpdateRequest'
+            examples:
+              PatchDataFile:
+                value:
+                  data:
+                    type: data_files
+                    id: '560'
+                    attributes:
+                      description: Updated description
+                summary: Patch DataFile
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDataFileUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDataFileUpdateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataFileSingleResponse'
+              examples:
+                PatchDataFile:
+                  value:
+                    data:
+                      type: data_files
+                      id: '560'
+                      attributes:
+                        description: Updated description
+                  summary: Patch DataFile
+          description: ''
+  /nextseek_api/investigations/:
+    get:
+      operationId: List Investigations
+      description: 'Retrieve all investigations (research topics or themes) you have
+        access to. Returns investigation titles, descriptions, and IDs for their parent
+        projects and child studies. Examples: ''Show me all ongoing investigations'';
+        ''What research topics are being studied in the primate project?'''
+      tags:
+      - Investigations
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InvestigationListResponse'
+              examples:
+                ListInvestigations:
+                  value:
+                  - data:
+                    - id: '763'
+                      type: investigations
+                      attributes:
+                        title: My Investigation
+                      links:
+                        self: /investigations/763
+                    jsonapi:
+                      version: '1.0'
+                    links:
+                      self: /investigations?page[number]=1&page[size]=100
+                    meta:
+                      base_url: https://fairdata-dev.mit.edu
+                      api_version: v1
+                  summary: List Investigations
+          description: ''
+    post:
+      operationId: Create an Investigation
+      description: 'Create a new investigation (research topic) within a project.
+        Define the title, description, and objectives. Returns the created investigation
+        with its assigned ID and metadata. Examples: ''Create a new investigation
+        for studying vaccine efficacy''; ''Add a research topic about tumor microenvironment
+        to the cancer project'''
+      tags:
+      - Investigations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvestigationCreateRequest'
+            examples:
+              CreateInvestigation:
+                value:
+                  data:
+                    type: investigations
+                    attributes:
+                      title: My Investigation
+                    relationships:
+                      projects:
+                        data:
+                        - type: projects
+                          id: '4475'
+                summary: Create Investigation
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvestigationCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvestigationCreateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestigationSingleResponse'
+              examples:
+                CreateInvestigation:
+                  value:
+                    data:
+                      type: investigations
+                      attributes:
+                        title: My Investigation
+                      relationships:
+                        projects:
+                          data:
+                          - type: projects
+                            id: '4475'
+                  summary: Create Investigation
+          description: ''
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestigationSingleResponse'
+              examples:
+                CreateInvestigation:
+                  value:
+                    data:
+                      type: investigations
+                      attributes:
+                        title: My Investigation
+                      relationships:
+                        projects:
+                          data:
+                          - type: projects
+                            id: '4475'
+                  summary: Create Investigation
+          description: ''
+  /nextseek_api/investigations/{uid}/:
+    get:
+      operationId: Fetch an Investigation
+      description: 'Fetch details for a specific investigation by its ID. Returns
+        full metadata including title, description, objectives, linked project, and
+        all associated studies. Examples: ''Show me the details of the immune response
+        investigation''; ''What studies are part of this research topic?'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric). Non-numeric UID resolution not configured.
+        required: true
+      tags:
+      - Investigations
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestigationSingleResponse'
+              examples:
+                GetInvestigation:
+                  value:
+                    data:
+                      id: '763'
+                      type: investigations
+                      attributes:
+                        title: My Investigation
+                      relationships:
+                        projects:
+                          data: []
+                      links:
+                        self: /investigations/763
+                      meta: {}
+                    jsonapi:
+                      version: '1.0'
+                  summary: Get Investigation
+          description: ''
+    patch:
+      operationId: Update an Investigation
+      description: 'Update an existing investigation by its ID. Modify title, description,
+        objectives, or project association. Returns the updated investigation with
+        all current metadata. Examples: ''Rename the vaccine study investigation'';
+        ''Update the objectives for the immune response research topic'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric). Non-numeric UID resolution not configured.
+        required: true
+      tags:
+      - Investigations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedInvestigationUpdateRequest'
+            examples:
+              PatchInvestigation:
+                value:
+                  data:
+                    id: '763'
+                    type: investigations
+                    attributes:
+                      title: Revised Title
+                summary: Patch Investigation
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedInvestigationUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedInvestigationUpdateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestigationSingleResponse'
+              examples:
+                PatchInvestigation:
+                  value:
+                    data:
+                      id: '763'
+                      type: investigations
+                      attributes:
+                        title: Revised Title
+                  summary: Patch Investigation
+          description: ''
+  /nextseek_api/people/:
+    get:
+      operationId: List People
+      description: 'Retrieve all registered researchers and users in the system. Returns
+        names, email addresses, institutions, and IDs for their associated projects,
+        studies, and contributions. Examples: ''Show me all researchers in the system'';
+        ''Who are the scientists working on primate studies?'''
+      tags:
+      - People
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PersonListResponse'
+              examples:
+                ListPeople:
+                  value:
+                  - data:
+                    - id: '1652'
+                      type: people
+                      attributes:
+                        title: Doe, John
+                      links:
+                        self: /people/1652
+                    jsonapi:
+                      version: '1.0'
+                    links:
+                      self: /people?page[number]=1&page[size]=100
+                    meta:
+                      base_url: http://localhost:3000
+                      api_version: v1
+                  summary: List People
+          description: ''
+    post:
+      operationId: Create a Person
+      description: 'Register a new researcher or user in the system with their name,
+        email, and institution. Returns the created person record with their assigned
+        ID. Examples: ''Add a new researcher named Jane Doe to the system''; ''Register
+        a collaborator from the partner institution'''
+      tags:
+      - People
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonCreateRequest'
+            examples:
+              CreatePerson:
+                value:
+                  data:
+                    type: people
+                    attributes:
+                      first_name: Post
+                      last_name: User
+                      email: x@y
+                summary: Create Person
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PersonCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PersonCreateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonSingleResponse'
+              examples:
+                CreatePerson:
+                  value:
+                    data:
+                      type: people
+                      attributes:
+                        first_name: Post
+                        last_name: User
+                        email: x@y
+                  summary: Create Person
+          description: ''
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonSingleResponse'
+              examples:
+                CreatePerson:
+                  value:
+                    data:
+                      type: people
+                      attributes:
+                        first_name: Post
+                        last_name: User
+                        email: x@y
+                  summary: Create Person
+          description: ''
+  /nextseek_api/people/{uid}/:
+    get:
+      operationId: Fetch a Person
+      description: 'Fetch profile details for a specific researcher by their ID. Returns
+        full metadata including name, email, institution, and all linked projects,
+        studies, assays, data files, and publications they have contributed to. Examples:
+        ''Show me Dr. Smith''s profile and projects''; ''What studies has this researcher
+        contributed to?'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric)
+        required: true
+      tags:
+      - People
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonSingleResponse'
+              examples:
+                GetPerson:
+                  value:
+                    data:
+                      id: '1652'
+                      type: people
+                      attributes:
+                        title: Doe, John
+                      relationships:
+                        projects:
+                          data: []
+                        institutions:
+                          data: []
+                        investigations:
+                          data: []
+                        studies:
+                          data: []
+                        assays:
+                          data: []
+                        data_files:
+                          data: []
+                        documents:
+                          data: []
+                        models:
+                          data: []
+                        sops:
+                          data: []
+                        publications:
+                          data: []
+                        events:
+                          data: []
+                        presentations:
+                          data: []
+                        collections:
+                          data: []
+                        workflows:
+                          data: []
+                      links:
+                        self: /people/1652
+                      meta: {}
+                    jsonapi:
+                      version: '1.0'
+                  summary: Get Person
+          description: ''
+    patch:
+      operationId: Update a Person
+      description: 'Update an existing researcher''s profile by their ID. Modify name,
+        email, institution, or project associations. Returns the updated person record
+        with all current metadata. Examples: ''Update Dr. Smith''s email address'';
+        ''Change the institution for this researcher'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric)
+        required: true
+      tags:
+      - People
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPersonUpdateRequest'
+            examples:
+              PatchPerson:
+                value:
+                  data:
+                    type: people
+                    id: '1652'
+                    attributes:
+                      first_name: Patched
+                summary: Patch Person
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPersonUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPersonUpdateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonSingleResponse'
+              examples:
+                PatchPerson:
+                  value:
+                    data:
+                      type: people
+                      id: '1652'
+                      attributes:
+                        first_name: Patched
+                  summary: Patch Person
+          description: ''
+  /nextseek_api/projects/:
+    get:
+      operationId: List Projects
+      description: 'Retrieve all research projects you have access to. Returns project
+        titles, descriptions, and IDs for related team members, investigations, studies,
+        assays, and data files. Examples: ''Show me all projects I am part of''; ''What
+        research projects are studying water toxicity?'''
+      tags:
+      - Projects
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectListResponse'
+              examples:
+                ListProjects:
+                  value:
+                  - data:
+                    - id: '2558'
+                      type: projects
+                      attributes:
+                        title: A Project
+                      links:
+                        self: /projects/2558
+                    jsonapi:
+                      version: '1.0'
+                    links:
+                      self: /projects?page[number]=1&page[size]=100
+                    meta:
+                      base_url: http://localhost:3000
+                      api_version: v1
+                  summary: List Projects
+          description: ''
+    post:
+      operationId: Create a Project
+      description: 'Create a new research project with title, description, and team
+        associations. Returns the created project with its assigned ID and metadata.
+        Examples: ''Create a new project for the cancer biomarker study''; ''Set up
+        a project for the 2024 primate cohort'''
+      tags:
+      - Projects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+            examples:
+              CreateProject:
+                value:
+                  data:
+                    type: projects
+                    attributes:
+                      title: A Project
+                    relationships:
+                      programmes:
+                        data: []
+                      organisms:
+                        data: []
+                summary: Create Project
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectSingleResponse'
+              examples:
+                CreateProject:
+                  value:
+                    data:
+                      type: projects
+                      attributes:
+                        title: A Project
+                      relationships:
+                        programmes:
+                          data: []
+                        organisms:
+                          data: []
+                  summary: Create Project
+          description: ''
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectSingleResponse'
+              examples:
+                CreateProject:
+                  value:
+                    data:
+                      type: projects
+                      attributes:
+                        title: A Project
+                      relationships:
+                        programmes:
+                          data: []
+                        organisms:
+                          data: []
+                  summary: Create Project
+          description: ''
+  /nextseek_api/projects/{uid}/:
+    get:
+      operationId: Fetch a Project
+      description: 'Fetch details for a specific research project by ID or name. Returns
+        full metadata including title, description, team members, linked investigations,
+        studies, assays, protocols, and data files. Examples: ''Show me the details
+        of the primate immunology study''; ''Who are the team members on the water
+        toxicity project?'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or NExtSEEK UID (string)
+        required: true
+      tags:
+      - Projects
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectSingleResponse'
+              examples:
+                GetProject:
+                  value:
+                    data:
+                      id: '2558'
+                      type: projects
+                      attributes:
+                        title: A Project
+                      relationships:
+                        people:
+                          data: []
+                        projects:
+                          data: []
+                        institutions:
+                          data: []
+                        investigations:
+                          data: []
+                        studies:
+                          data: []
+                        assays:
+                          data: []
+                        data_files:
+                          data: []
+                        documents:
+                          data: []
+                        models:
+                          data: []
+                        sops:
+                          data: []
+                        publications:
+                          data: []
+                        presentations:
+                          data: []
+                        events:
+                          data: []
+                        workflows:
+                          data: []
+                        collections:
+                          data: []
+                      links:
+                        self: /projects/2558
+                      meta: {}
+                    jsonapi:
+                      version: '1.0'
+                  summary: Get Project
+          description: ''
+    patch:
+      operationId: Update a Project
+      description: 'Update an existing research project by ID or name. Modify title,
+        description, or team member associations. Returns the updated project with
+        all current metadata. Examples: ''Rename the water study project to Water
+        Toxicity Phase 2''; ''Add a new team member to the primate research project'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or NExtSEEK UID (string)
+        required: true
+      tags:
+      - Projects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProjectUpdateRequest'
+            examples:
+              PatchProject:
+                value:
+                  data:
+                    type: projects
+                    id: '2558'
+                    attributes:
+                      title: Updated title
+                summary: Patch Project
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProjectUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProjectUpdateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectSingleResponse'
+              examples:
+                PatchProject:
+                  value:
+                    data:
+                      type: projects
+                      id: '2558'
+                      attributes:
+                        title: Updated title
+                  summary: Patch Project
+          description: ''
+  /nextseek_api/sample-tree/{uid}/tree/:
+    get:
+      operationId: Get Sample Tree by id or uid
+      description: 'Retrieve the full sample lineage for a given sample, showing all
+        related samples above and below it in the hierarchy. Returns nodes with ID,
+        UUID, sample type, color, and relationships for visualization. Examples: ''Show
+        me all samples derived from NHP-220630FLY-2-PUB''; ''What tissue and cell
+        samples came from this patient: PAT-241113DFC-3?'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or Sample UID (string)
+        required: true
+      tags:
+      - Samples
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleTreeResponse'
+              examples:
+                SampleTreeResponse:
+                  value:
+                    total_nodes: 2
+                    total_rels: 1
+                    nodes:
+                    - id: '1525'
+                      uuid: PAV-230522GRI-7-PUB
+                      sample_type: PAV
+                      color: '#A3D46F'
+                      parentIds:
+                      - '1506'
+                    - id: '1506'
+                      uuid: PAT-230522GRI-7-PUB
+                      sample_type: PAT
+                      color: '#A3D46F'
+                      parentIds: []
+                    rels:
+                    - child_id: '1525'
+                      parent_id: '1506'
+                      internal_assay_id: '380'
+                      internal_assay_title: Patient Visit
+                      protocol_title: P.GRI-230228-V1_2.1-Study-Approval.docx
+                      protocol_id: '145'
+                  summary: Sample tree response
+          description: ''
+  /nextseek_api/sample_types/:
+    get:
+      operationId: List SampleTypes
+      description: 'Retrieve all sample type definitions available in the system.
+        Returns a list of sample type schemas including their titles, descriptions,
+        and attribute configurations for categories like tissue samples, cell lines,
+        animals, imaging data, and sequencing data. Examples: ''What types of samples
+        can I register?''; ''Show me all available sample categories'''
+      tags:
+      - SampleTypes
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SampleTypeListResponse'
+              examples:
+                ListSampleTypes:
+                  value:
+                  - data:
+                    - id: '12'
+                      type: sample_types
+                      attributes:
+                        title: Experimental type
+                      links:
+                        self: /sample_types/12
+                    jsonapi:
+                      version: '1.0'
+                    links:
+                      self: /sample_types?page[number]=1&page[size]=100
+                    meta:
+                      base_url: https://fairdata-dev.mit.edu
+                      api_version: v1
+                  summary: List SampleTypes
+          description: ''
+    post:
+      operationId: Create a SampleType
+      description: 'Register a new sample type with custom attributes and validation
+        rules. Returns the created sample type with its assigned ID and full schema
+        definition. Examples: ''Create a new sample type for flow cytometry data'';
+        ''Add a custom sample category for behavioral observations'''
+      tags:
+      - SampleTypes
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SampleTypeCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SampleTypeCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SampleTypeCreateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleTypeSingleResponse'
+          description: ''
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleTypeSingleResponse'
+          description: ''
+  /nextseek_api/sample_types/{uid}/:
+    get:
+      operationId: Fetch a SampleType
+      description: 'Fetch details for a specific sample type by ID or name. Returns
+        the full schema definition including title, description, and all attribute
+        specifications that samples of this type must have. Examples: ''What fields
+        are required for tissue samples?''; ''Show me the schema for imaging data
+        samples'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or title (resolved to id)
+        required: true
+      tags:
+      - SampleTypes
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleTypeSingleResponse'
+          description: ''
+    patch:
+      operationId: Update a SampleType
+      description: 'Modify an existing sample type''s attributes, description, or
+        validation rules. Returns the updated sample type with all current settings.
+        Examples: ''Add a new required field to the tissue sample type''; ''Update
+        the description for sequencing data samples'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or title (resolved to id)
+        required: true
+      tags:
+      - SampleTypes
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSampleTypeUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSampleTypeUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSampleTypeUpdateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleTypeSingleResponse'
+          description: ''
+  /nextseek_api/sample_types/get_parents/parents_by_child_types/:
+    post:
+      operationId: Get samples with children of specified sample types
+      description: 'Find parent samples that have derived samples of all specified
+        types. Uses AND logic across types, so only samples with descendants matching
+        every requested type are returned. Optionally filter by parent sample type.
+        Returns a list of matching sample IDs, UIDs, sample types, and descriptions.
+        Examples: ''Which monkeys have both imaging data and sequencing results?'';
+        ''Find all animals that have tissue samples and cell line derivatives'''
+      tags:
+      - SampleTypes
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SamplesByChildTypesRequest'
+            examples:
+              ByChildTypeTitles:
+                value:
+                  child_sample_types:
+                  - D.IMG
+                  - TIS
+                summary: By child type titles
+              WithParentTypeFilter:
+                value:
+                  child_sample_types:
+                  - D.IMG
+                  - D.SEQ
+                  parent_sample_type_filters:
+                  - NHP
+                summary: With parent type filter
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SamplesByChildTypesRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SamplesByChildTypesRequest'
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SamplesByChildTypesResponse'
+              examples:
+                ByChildTypeTitles:
+                  value:
+                    child_sample_types:
+                    - D.IMG
+                    - TIS
+                  summary: By child type titles
+                WithParentTypeFilter:
+                  value:
+                    child_sample_types:
+                    - D.IMG
+                    - D.SEQ
+                    parent_sample_type_filters:
+                    - NHP
+                  summary: With parent type filter
+          description: ''
+  /nextseek_api/samples/:
+    post:
+      operationId: Create a Sample
+      description: 'Create a new Sample in SEEK. Requires sample type relationship
+        and attributes. Returns the created sample with its assigned ID, UUID, and
+        metadata. Examples: ''Register a new tissue sample for the water study'';
+        ''Add a new blood draw sample for a monkey taken during this visit (PAV-220630FLY-3)'''
+      parameters:
+      - in: query
+        name: debug_validation
+        schema:
+          type: boolean
+        description: Include validation error details in 502 response
+      tags:
+      - Samples
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SampleCreateRequest'
+            examples:
+              CreateSample:
+                value:
+                  data:
+                    type: samples
+                    attributes:
+                      title: A Sample
+                    relationships:
+                      sample_type:
+                        data:
+                          type: sample_types
+                          id: '12'
+                summary: Create Sample
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SampleCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SampleCreateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleSingleResponse'
+              examples:
+                CreateSample:
+                  value:
+                    data:
+                      type: samples
+                      attributes:
+                        title: A Sample
+                      relationships:
+                        sample_type:
+                          data:
+                            type: sample_types
+                            id: '12'
+                  summary: Create Sample
+          description: ''
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleSingleResponse'
+              examples:
+                CreateSample:
+                  value:
+                    data:
+                      type: samples
+                      attributes:
+                        title: A Sample
+                      relationships:
+                        sample_type:
+                          data:
+                            type: sample_types
+                            id: '12'
+                  summary: Create Sample
+          description: ''
+  /nextseek_api/samples/{uid}/:
+    get:
+      operationId: Fetch a Sample
+      description: 'Fetch a single Sample by SEEK id or NExtSEEK UID. Returns sample
+        metadata including title, UUID, created/updated timestamps, and IDs for related
+        entities (sample_type, creators, projects, assays, data_files). Examples:
+        ''Show me the details of sample NHP-220630FLY-2-PUB''; ''What assays are linked
+        to TIS-230324BOO-39-PUB?'''
+      parameters:
+      - in: query
+        name: debug_validation
+        schema:
+          type: boolean
+        description: Include validation error details in 502 response
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or Sample UUID (string)
+        required: true
+      tags:
+      - Samples
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleSingleResponse'
+              examples:
+                GetSample:
+                  value:
+                    data:
+                      id: '321'
+                      type: samples
+                      attributes:
+                        title: A Sample
+                      relationships:
+                        sample_type:
+                          data:
+                            type: sample_types
+                            id: '12'
+                        creators:
+                          data: []
+                        projects:
+                          data: []
+                        people:
+                          data: []
+                        assays:
+                          data: []
+                        data_files:
+                          data: []
+                      links:
+                        self: /samples/321
+                      meta: {}
+                    jsonapi:
+                      version: '1.0'
+                  summary: Get Sample
+          description: ''
+    patch:
+      operationId: Update a Sample
+      description: 'Update an existing Sample by SEEK id or NExtSEEK UID. Accepts
+        partial updates via attribute_map. Returns the updated sample with all current
+        metadata. Examples: ''Update NHP-220630FLY-1-PUB scientist to John Doe'';
+        ''Change the study name for sample TIS-230324BOO-39-PUB to John Doe''s study'''
+      parameters:
+      - in: query
+        name: debug_validation
+        schema:
+          type: boolean
+        description: Include validation error details in 502 response
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or Sample UUID (string)
+        required: true
+      tags:
+      - Samples
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSampleUpdateRequest'
+            examples:
+              PatchSample:
+                value:
+                  data:
+                    type: samples
+                    id: '321'
+                    attributes:
+                      attribute_map:
+                        title: Revised title
+                summary: Patch Sample
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSampleUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSampleUpdateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleSingleResponse'
+              examples:
+                PatchSample:
+                  value:
+                    data:
+                      type: samples
+                      id: '321'
+                      attributes:
+                        attribute_map:
+                          title: Revised title
+                  summary: Patch Sample
+          description: ''
+    delete:
+      operationId: Delete a Sample
+      description: 'Delete a Sample by SEEK id or NExtSEEK UID. Permanently removes
+        the sample from SEEK. Returns confirmation on success. Examples: ''Remove
+        sample NHP-220630FLY-1-PUB from the system''; ''Delete all records for sample
+        321'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or Sample UUID (string)
+        required: true
+      tags:
+      - Samples
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          description: No response body
+  /nextseek_api/samples/advanced_search/:
+    post:
+      operationId: Advanced Search Samples
+      description: 'Search samples by type, attribute filters, and text matching.
+        Supports multiple sample types, attribute-based filtering, and partial/exact
+        match modes. Returns paginated list of matching samples with full metadata.
+        Can also retrieve all samples of a given type by leaving filter fields empty.
+        Examples: ''Group all monkeys by sex and necropsy date''; ''Find all mice
+        from water study that were treated with NDMA''; ''Show me all samples associated
+        with T cell depletion''; ''Create a barplot comparing the fraction of tumor
+        values for all DFCI3 patient biopsies''; ''How many monkeys have both CT scan
+        data and sequencing data?'''
+      parameters:
+      - in: query
+        name: debug_validation
+        schema:
+          type: boolean
+        description: Include validation error details in 502 response
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: 1-based page number
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Items per page (default 100, max 1000)
+      tags:
+      - Samples
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SampleAdvancedSearchRequest'
+            examples:
+              NumericSampletype:
+                value:
+                  sampletype: '2'
+                  filter_searchText: lung
+                  attribute: Organ
+                  filter_matchType: PARTIAL
+                summary: Numeric sampletype
+              MultipleSampletypesAndSingleAttribute:
+                value:
+                  sampletype:
+                  - TIS
+                  - CEL
+                  filter_searchText: lung
+                  attribute: Name
+                  filter_matchType: PARTIAL
+                summary: Multiple sampletypes and single attribute
+              AttributeListWithANDLogic:
+                value:
+                  sampletype:
+                  - TIS
+                  filter_searchText: lung
+                  attribute:
+                  - Organ
+                  - Name
+                  attribute_logic: AND
+                  filter_matchType: PARTIAL
+                summary: Attribute list with AND logic
+              SearchTextOnly:
+                value:
+                  filter_searchText: CD8 Depletion
+                  filter_matchType: PARTIAL
+                summary: Search Text Only
+              MultipleSearchTextsAND(noAttributes,NoSampleTypes):
+                value:
+                  filter_searchText:
+                  - lung
+                  - granuloma
+                  searchText_logic: AND
+                  filter_matchType: PARTIAL
+                summary: Multiple search texts AND (no attributes, no sample types)
+              MultipleSearchTextsOR(noAttributes):
+                value:
+                  filter_searchText:
+                  - kidney
+                  - Liver
+                  searchText_logic: OR
+                  filter_matchType: PARTIAL
+                summary: Multiple search texts OR (no attributes)
+              MultipleSearchTextsORWithSingleAttribute:
+                value:
+                  filter_searchText:
+                  - lung
+                  - liver
+                  searchText_logic: OR
+                  attribute: Organ
+                  filter_matchType: PARTIAL
+                summary: Multiple search texts OR with single attribute
+              MultipleSearchTextsANDWithMultipleAttributes(attributeOR):
+                value:
+                  filter_searchText:
+                  - granuloma
+                  - lung
+                  searchText_logic: AND
+                  attribute:
+                  - Organ
+                  - Type
+                  attribute_logic: OR
+                  filter_matchType: PARTIAL
+                summary: Multiple search texts AND with multiple attributes (attribute
+                  OR)
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SampleAdvancedSearchRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SampleAdvancedSearchRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleAdvancedSearchResult'
+              examples:
+                NumericSampletype:
+                  value:
+                    sampletype: '2'
+                    filter_searchText: lung
+                    attribute: Organ
+                    filter_matchType: PARTIAL
+                  summary: Numeric sampletype
+                MultipleSampletypesAndSingleAttribute:
+                  value:
+                    sampletype:
+                    - TIS
+                    - CEL
+                    filter_searchText: lung
+                    attribute: Name
+                    filter_matchType: PARTIAL
+                  summary: Multiple sampletypes and single attribute
+                AttributeListWithANDLogic:
+                  value:
+                    sampletype:
+                    - TIS
+                    filter_searchText: lung
+                    attribute:
+                    - Organ
+                    - Name
+                    attribute_logic: AND
+                    filter_matchType: PARTIAL
+                  summary: Attribute list with AND logic
+                SearchTextOnly:
+                  value:
+                    filter_searchText: CD8 Depletion
+                    filter_matchType: PARTIAL
+                  summary: Search Text Only
+                MultipleSearchTextsAND(noAttributes,NoSampleTypes):
+                  value:
+                    filter_searchText:
+                    - lung
+                    - granuloma
+                    searchText_logic: AND
+                    filter_matchType: PARTIAL
+                  summary: Multiple search texts AND (no attributes, no sample types)
+                MultipleSearchTextsOR(noAttributes):
+                  value:
+                    filter_searchText:
+                    - kidney
+                    - Liver
+                    searchText_logic: OR
+                    filter_matchType: PARTIAL
+                  summary: Multiple search texts OR (no attributes)
+                MultipleSearchTextsORWithSingleAttribute:
+                  value:
+                    filter_searchText:
+                    - lung
+                    - liver
+                    searchText_logic: OR
+                    attribute: Organ
+                    filter_matchType: PARTIAL
+                  summary: Multiple search texts OR with single attribute
+                MultipleSearchTextsANDWithMultipleAttributes(attributeOR):
+                  value:
+                    filter_searchText:
+                    - granuloma
+                    - lung
+                    searchText_logic: AND
+                    attribute:
+                    - Organ
+                    - Type
+                    attribute_logic: OR
+                    filter_matchType: PARTIAL
+                  summary: Multiple search texts AND with multiple attributes (attribute
+                    OR)
+          description: ''
+  /nextseek_api/sampletypes/{uid}/child_types/:
+    get:
+      operationId: Get Child Sample Types
+      description: 'Get the distinct types of all samples derived from a given sample.
+        Traverses the sample hierarchy to find all related samples below it. Returns
+        a list of unique sample types with their IDs, titles, and descriptions. Examples:
+        ''What types of samples were collected from NHP-220630FLY-1-PUB?''; ''Does
+        this monkey have any imaging data?'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or Sample UID (string)
+        required: true
+      tags:
+      - Samples
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChildSampleTypesResponse'
+              examples:
+                SampleResponse:
+                  value:
+                    total: 3
+                    child_types:
+                    - id: '5'
+                      title: D.IMG
+                      description: Imaging data samples
+                    - id: '12'
+                      title: D.SEQ
+                      description: Sequencing data samples
+                    - id: '8'
+                      title: TIS
+                      description: Tissue samples
+                    msg: OK
+                  summary: Sample response
+          description: ''
+  /nextseek_api/schema/:
+    get:
+      operationId: schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      tags:
+      - schema
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /nextseek_api/schema_rag/ingest/:
+    post:
+      operationId: Ingest OpenAPI Schema
+      description: Ingest an OpenAPI schema from a URL for RAG retrieval. Creates
+        a session that can be used for subsequent retrieve calls. The session has
+        a configurable TTL (default 15 minutes).
+      tags:
+      - Schema RAG
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestRequest'
+            examples:
+              IngestSEEKOpenAPISchema:
+                value:
+                  schema_url: https://fairdomhub.org/api/definitions/openapi-v3-resolved.yaml
+                  ttl_minutes: 30
+                summary: Ingest SEEK OpenAPI Schema
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IngestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IngestRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestResponse'
+              examples:
+                IngestSuccessResponse:
+                  value:
+                    session_id: abc123def456
+                    schema_url: https://fairdomhub.org/api/definitions/openapi-v3-resolved.yaml
+                    ttl_minutes: 30
+                    expires_at: '2024-01-15T12:30:00Z'
+                    num_endpoints: 150
+                  summary: Ingest Success Response
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: Schema too large - exceeds maximum endpoint limit
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: Authentication required
+          description: ''
+        '422':
+          content:
+            application/json:
+              schema:
+                description: Invalid request payload
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                description: Failed to fetch or parse schema from URL
+          description: ''
+  /nextseek_api/schema_rag/retrieve/:
+    post:
+      operationId: Retrieve API Endpoints
+      description: Retrieve relevant API endpoints from an ingested schema using semantic
+        search. Uses multi-pass scoring with embedding similarity and optional term
+        boosting. Returns endpoints in minimal or full mode based on request.
+      tags:
+      - Schema RAG
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetrieveRequest'
+            examples:
+              RetrieveBySessionID:
+                value:
+                  session_id: abc123def456
+                  query: How do I create a new sample?
+                  mode: minimal
+                  top_k: 5
+                  include_debug: true
+                summary: Retrieve by Session ID
+              RetrieveBySchemaURL:
+                value:
+                  schema_url: https://fairdomhub.org/api/definitions/openapi-v3-resolved.yaml
+                  query: Get all projects for a user
+                  mode: full
+                  top_k: 3
+                  resolved_terms:
+                    project: research project
+                    user: person
+                summary: Retrieve by Schema URL
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RetrieveRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RetrieveRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetrieveResponse'
+              examples:
+                MinimalModeResponse:
+                  value:
+                    session_id: abc123def456
+                    mode: minimal
+                    endpoints_minimal:
+                    - operationId: createSample
+                      method: POST
+                      path: /samples
+                      tags:
+                      - Samples
+                      description: Create a new sample
+                    debug:
+                      used_fallback_full: false
+                      used_enriched_minimal_examples: false
+                      similarity_threshold_effective: 0.7
+                      num_candidates_initial: 150
+                      num_candidates_final: 1
+                      scores:
+                      - 0.85
+                  summary: Minimal Mode Response
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: Authentication required
+          description: ''
+        '422':
+          content:
+            application/json:
+              schema:
+                description: Invalid request payload
+          description: ''
+  /nextseek_api/sops/:
+    get:
+      operationId: List SOPs
+      description: 'Retrieve all standard operating procedures (protocols) you have
+        access to. Returns protocol titles, descriptions, associated projects, and
+        file attachment metadata. Examples: ''Show me all available protocols''; ''What
+        procedures are documented for sample collection?'''
+      tags:
+      - SOPs
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SopListResponse'
+              examples:
+                ListSops:
+                  value:
+                  - data:
+                    - id: '131'
+                      type: sops
+                      attributes:
+                        title: This Sop
+                      relationships:
+                        projects:
+                          data:
+                          - id: '2558'
+                            type: projects
+                      links:
+                        self: /sops/131
+                      meta: {}
+                    jsonapi:
+                      version: '1.0'
+                    links:
+                      self: /sops?page[number]=1&page[size]=100
+                    meta:
+                      base_url: https://fairdata-dev.mit.edu
+                      api_version: v1
+                  summary: List Sops
+          description: ''
+    post:
+      operationId: Create a SOP
+      description: 'Upload a new standard operating procedure document. Attach protocol
+        files (PDF, Word, etc.) and associate with projects. Returns the created protocol
+        with its assigned ID and metadata. Examples: ''Add a new necropsy protocol
+        for the primate study''; ''Upload the updated sample handling procedure'''
+      tags:
+      - SOPs
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SopCreateRequest'
+            examples:
+              CreateSop:
+                value:
+                  data:
+                    type: sops
+                    attributes:
+                      title: A Maximal SOP
+                      content_blobs:
+                      - original_filename: a_pdf_file.pdf
+                        content_type: application/pdf
+                      policy:
+                        access: download
+                        permissions:
+                        - resource:
+                            id: '2558'
+                            type: projects
+                          access: edit
+                    relationships:
+                      projects:
+                        data:
+                        - id: '2558'
+                          type: projects
+                summary: Create Sop
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SopCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SopCreateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopSingleResponse'
+              examples:
+                CreateSop:
+                  value:
+                    data:
+                      type: sops
+                      attributes:
+                        title: A Maximal SOP
+                        content_blobs:
+                        - original_filename: a_pdf_file.pdf
+                          content_type: application/pdf
+                        policy:
+                          access: download
+                          permissions:
+                          - resource:
+                              id: '2558'
+                              type: projects
+                            access: edit
+                      relationships:
+                        projects:
+                          data:
+                          - id: '2558'
+                            type: projects
+                  summary: Create Sop
+          description: ''
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopSingleResponse'
+              examples:
+                CreateSop:
+                  value:
+                    data:
+                      type: sops
+                      attributes:
+                        title: A Maximal SOP
+                        content_blobs:
+                        - original_filename: a_pdf_file.pdf
+                          content_type: application/pdf
+                        policy:
+                          access: download
+                          permissions:
+                          - resource:
+                              id: '2558'
+                              type: projects
+                            access: edit
+                      relationships:
+                        projects:
+                          data:
+                          - id: '2558'
+                            type: projects
+                  summary: Create Sop
+          description: ''
+  /nextseek_api/sops/{uid}/:
+    get:
+      operationId: Fetch a SOP
+      description: 'Fetch details for a specific protocol document by ID or name.
+        Returns full metadata including title, description, version history, attached
+        files, and linked projects. Optionally specify a version to retrieve historical
+        revisions. Examples: ''Show me the tissue processing protocol''; ''What is
+        the current version of the blood draw procedure?'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or NExtSEEK UID (string)
+        required: true
+      - in: query
+        name: version
+        schema:
+          type: integer
+        description: Optional SOP version to fetch
+      tags:
+      - SOPs
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopSingleResponse'
+              examples:
+                GetSop:
+                  value:
+                    data:
+                      id: '132'
+                      type: sops
+                      attributes:
+                        title: A Maximal SOP
+                      relationships:
+                        projects:
+                          data:
+                          - id: '2558'
+                            type: projects
+                      links:
+                        self: /sops/132
+                      meta: {}
+                    jsonapi:
+                      version: '1.0'
+                  summary: Get Sop
+          description: ''
+    patch:
+      operationId: Update a SOP
+      description: 'Revise an existing protocol document by ID or name. Update title,
+        description, attached files, or project associations. Returns the updated
+        protocol with all current metadata. Examples: ''Update the description for
+        the imaging protocol''; ''Change the project association for the cell culture
+        procedure'''
+      parameters:
+      - in: path
+        name: uid
+        schema:
+          type: string
+        description: SEEK id (numeric) or NExtSEEK UID (string)
+        required: true
+      tags:
+      - SOPs
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSopUpdateRequest'
+            examples:
+              PatchSop:
+                value:
+                  data:
+                    type: sops
+                    id: '132'
+                    attributes:
+                      title: A Maximally Patched SOP
+                    relationships:
+                      projects:
+                        data:
+                        - id: '2653'
+                          type: projects
+                summary: Patch Sop
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSopUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSopUpdateRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SopSingleResponse'
+              examples:
+                PatchSop:
+                  value:
+                    data:
+                      type: sops
+                      id: '132'
+                      attributes:
+                        title: A Maximally Patched SOP
+                      relationships:
+                        projects:
+                          data:
+                          - id: '2653'
+                            type: projects
+                  summary: Patch Sop
+          description: ''
+components:
+  schemas:
+    AdminRetrieveRequest:
+      type: object
+      description: |-
+        Request body for admin sample retrieval.
+        Accepts either a list of UIDs or a whitespace-separated string.
+      properties:
+        retrieval_uids:
+          type: array
+          items:
+            type: string
+        uids:
+          type: array
+          items:
+            type: string
+        retrieval_uids_text:
+          type: string
+    AdvancedSearchMatchType:
+      enum:
+      - EXACT
+      - PARTIAL
+      title: AdvancedSearchMatchType
+      type: string
+    AssayClass:
+      additionalProperties: false
+      properties:
+        key:
+          allOf:
+          - $ref: '#/components/schemas/KeyEnum'
+          title: Key
+      required:
+      - key
+      title: AssayClass
+      type: object
+    AssayCreateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/AssayPostData'
+      required:
+      - data
+      title: AssayCreateRequest
+      type: object
+    AssayIndexAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+      required:
+      - title
+      title: AssayIndexAttributes
+      type: object
+    AssayIndexItem:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: assays
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/AssayIndexAttributes'
+        links:
+          $ref: '#/components/schemas/Links'
+      required:
+      - id
+      - type
+      - attributes
+      - links
+      title: AssayIndexItem
+      type: object
+    AssayListResponse:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/AssayIndexItem'
+          title: Data
+          type: array
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        links:
+          $ref: '#/components/schemas/IndexLinks'
+        meta:
+          $ref: '#/components/schemas/BaseMeta'
+      required:
+      - data
+      - jsonapi
+      - links
+      - meta
+      title: AssayListResponse
+      type: object
+    AssayPatchAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        other_creators:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Other Creators
+        creators:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Creators
+        assay_class:
+          anyOf:
+          - $ref: '#/components/schemas/AssayClass'
+          - type: 'null'
+          default: null
+        assay_type:
+          anyOf:
+          - $ref: '#/components/schemas/OntologyRef'
+          - type: 'null'
+          default: null
+        technology_type:
+          anyOf:
+          - $ref: '#/components/schemas/OntologyRef'
+          - type: 'null'
+          default: null
+        policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Policy
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        extended_attributes:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Extended Attributes
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Tags
+      title: AssayPatchAttributes
+      type: object
+    AssayPatchData:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: assays
+          title: Type
+          type: string
+        attributes:
+          anyOf:
+          - $ref: '#/components/schemas/AssayPatchAttributes'
+          - type: 'null'
+          default: null
+        relationships:
+          anyOf:
+          - $ref: '#/components/schemas/AssayPatchRelationships'
+          - type: 'null'
+          default: null
+      required:
+      - id
+      - type
+      title: AssayPatchData
+      type: object
+    AssayPatchRelationships:
+      additionalProperties: false
+      properties:
+        study:
+          anyOf:
+          - $ref: '#/components/schemas/SingleReference'
+          - type: 'null'
+          default: null
+        creators:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        publications:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        data_files:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        samples:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        documents:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        models:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        sops:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        organisms:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      title: AssayPatchRelationships
+      type: object
+    AssayPostAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        other_creators:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Other Creators
+        creators:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Creators
+        assay_class:
+          $ref: '#/components/schemas/AssayClass'
+        assay_type:
+          $ref: '#/components/schemas/OntologyRef'
+        technology_type:
+          anyOf:
+          - $ref: '#/components/schemas/OntologyRef'
+          - type: 'null'
+          default: null
+        policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Policy
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        extended_attributes:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Extended Attributes
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Tags
+      required:
+      - title
+      - assay_class
+      - assay_type
+      title: AssayPostAttributes
+      type: object
+    AssayPostData:
+      additionalProperties: false
+      properties:
+        type:
+          const: assays
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/AssayPostAttributes'
+        relationships:
+          $ref: '#/components/schemas/AssayPostRelationships'
+      required:
+      - type
+      - attributes
+      - relationships
+      title: AssayPostData
+      type: object
+    AssayPostRelationships:
+      additionalProperties: false
+      properties:
+        study:
+          $ref: '#/components/schemas/SingleReference'
+        creators:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        publications:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        data_files:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        samples:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        documents:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        models:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        sops:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        organisms:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      required:
+      - study
+      title: AssayPostRelationships
+      type: object
+    AssayRelationships:
+      additionalProperties: false
+      properties:
+        creators:
+          $ref: '#/components/schemas/MultipleReferences'
+        submitter:
+          $ref: '#/components/schemas/MultipleReferences'
+        organisms:
+          $ref: '#/components/schemas/MultipleReferences'
+        people:
+          $ref: '#/components/schemas/MultipleReferences'
+        projects:
+          $ref: '#/components/schemas/MultipleReferences'
+        investigation:
+          $ref: '#/components/schemas/SingleReference'
+        study:
+          $ref: '#/components/schemas/SingleReference'
+        data_files:
+          $ref: '#/components/schemas/MultipleReferences'
+        samples:
+          $ref: '#/components/schemas/MultipleReferences'
+        documents:
+          $ref: '#/components/schemas/MultipleReferences'
+        models:
+          $ref: '#/components/schemas/MultipleReferences'
+        sops:
+          $ref: '#/components/schemas/MultipleReferences'
+        publications:
+          $ref: '#/components/schemas/MultipleReferences'
+        placeholders:
+          $ref: '#/components/schemas/MultipleReferences'
+        human_diseases:
+          $ref: '#/components/schemas/MultipleReferences'
+      required:
+      - creators
+      - submitter
+      - organisms
+      - people
+      - projects
+      - investigation
+      - study
+      - data_files
+      - samples
+      - documents
+      - models
+      - sops
+      - publications
+      - placeholders
+      - human_diseases
+      title: AssayRelationships
+      type: object
+    AssayResponseData:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: assays
+          title: Type
+          type: string
+        attributes:
+          additionalProperties: true
+          title: Attributes
+          type: object
+        relationships:
+          $ref: '#/components/schemas/AssayRelationships'
+        links:
+          $ref: '#/components/schemas/Links'
+        meta:
+          $ref: '#/components/schemas/Meta'
+      required:
+      - id
+      - type
+      - attributes
+      - relationships
+      - links
+      - meta
+      title: AssayResponseData
+      type: object
+    AssaySingleResponse:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/AssayResponseData'
+        jsonapi:
+          anyOf:
+          - $ref: '#/components/schemas/JsonApiVersion'
+          - type: 'null'
+          default: null
+      required:
+      - data
+      title: AssaySingleResponse
+      type: object
+    BaseMeta:
+      properties:
+        base_url:
+          title: Base Url
+          type: string
+        api_version:
+          title: Api Version
+          type: string
+      required:
+      - base_url
+      - api_version
+      title: BaseMeta
+      type: object
+    ChildSampleTypeItem:
+      properties:
+        id:
+          description: Sample type SEEK numeric id (stringified)
+          title: Id
+          type: string
+        title:
+          description: Sample type title (e.g., PAV, D.SEQ)
+          title: Title
+          type: string
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Sample type description
+          title: Description
+      required:
+      - id
+      - title
+      title: ChildSampleTypeItem
+      type: object
+    ChildSampleTypesResponse:
+      properties:
+        total:
+          description: Total number of unique child sample types
+          title: Total
+          type: integer
+        child_types:
+          description: List of child sample type details
+          items:
+            $ref: '#/components/schemas/ChildSampleTypeItem'
+          title: Child Types
+          type: array
+        msg:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Status message
+          title: Msg
+      required:
+      - total
+      - child_types
+      title: ChildSampleTypesResponse
+      type: object
+    ContentBlobPlaceholder:
+      additionalProperties: false
+      properties:
+        original_filename:
+          title: Original Filename
+          type: string
+        content_type:
+          title: Content Type
+          type: string
+      required:
+      - original_filename
+      - content_type
+      title: ContentBlobPlaceholder
+      type: object
+    ContentBlobSlot:
+      properties:
+        original_filename:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Original Filename
+        content_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Content Type
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Url
+      title: ContentBlobSlot
+      type: object
+    DataFileCreateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/DataFilePostData'
+      required:
+      - data
+      title: DataFileCreateRequest
+      type: object
+    DataFileIndexAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+      required:
+      - title
+      title: DataFileIndexAttributes
+      type: object
+    DataFileIndexItem:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: data_files
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/DataFileIndexAttributes'
+        links:
+          $ref: '#/components/schemas/Links'
+      required:
+      - id
+      - type
+      - attributes
+      - links
+      title: DataFileIndexItem
+      type: object
+    DataFileListResponse:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/DataFileIndexItem'
+          title: Data
+          type: array
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        links:
+          $ref: '#/components/schemas/IndexLinks'
+        meta:
+          $ref: '#/components/schemas/BaseMeta'
+      required:
+      - data
+      - jsonapi
+      - links
+      - meta
+      title: DataFileListResponse
+      type: object
+    DataFilePatchAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Tags
+        data_type_annotations:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Data Type Annotations
+        data_format_annotations:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Data Format Annotations
+        license:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: License
+        policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Policy
+        other_creators:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Other Creators
+        creators:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Creators
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        extended_attributes:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Extended Attributes
+      title: DataFilePatchAttributes
+      type: object
+    DataFilePatchData:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: data_files
+          title: Type
+          type: string
+        attributes:
+          anyOf:
+          - $ref: '#/components/schemas/DataFilePatchAttributes'
+          - type: 'null'
+          default: null
+        relationships:
+          anyOf:
+          - $ref: '#/components/schemas/DataFilePatchRelationships'
+          - type: 'null'
+          default: null
+      required:
+      - id
+      - type
+      title: DataFilePatchData
+      type: object
+    DataFilePatchRelationships:
+      additionalProperties: false
+      properties:
+        projects:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        creators:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        assays:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        publications:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        events:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        workflows:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      title: DataFilePatchRelationships
+      type: object
+    DataFilePostAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+        content_blobs:
+          items:
+            anyOf:
+            - $ref: '#/components/schemas/RemoteContentBlob'
+            - $ref: '#/components/schemas/ContentBlobPlaceholder'
+          title: Content Blobs
+          type: array
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Tags
+        data_type_annotations:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Data Type Annotations
+        data_format_annotations:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Data Format Annotations
+        license:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: License
+        policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Policy
+        other_creators:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Other Creators
+        creators:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Creators
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        extended_attributes:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Extended Attributes
+      required:
+      - title
+      - content_blobs
+      title: DataFilePostAttributes
+      type: object
+    DataFilePostData:
+      additionalProperties: false
+      properties:
+        type:
+          const: data_files
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/DataFilePostAttributes'
+        relationships:
+          $ref: '#/components/schemas/DataFilePostRelationships'
+      required:
+      - type
+      - attributes
+      - relationships
+      title: DataFilePostData
+      type: object
+    DataFilePostRelationships:
+      additionalProperties: false
+      properties:
+        projects:
+          $ref: '#/components/schemas/MultipleReferences'
+        creators:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        assays:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        publications:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        events:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        workflows:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      required:
+      - projects
+      title: DataFilePostRelationships
+      type: object
+    DataFileResponseData:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: data_files
+          title: Type
+          type: string
+        attributes:
+          additionalProperties: true
+          title: Attributes
+          type: object
+        relationships:
+          additionalProperties: true
+          title: Relationships
+          type: object
+        links:
+          $ref: '#/components/schemas/Links'
+        meta:
+          $ref: '#/components/schemas/Meta'
+      required:
+      - id
+      - type
+      - attributes
+      - relationships
+      - links
+      - meta
+      title: DataFileResponseData
+      type: object
+    DataFileSingleResponse:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/DataFileResponseData'
+        jsonapi:
+          anyOf:
+          - $ref: '#/components/schemas/JsonApiVersion'
+          - type: 'null'
+          default: null
+      required:
+      - data
+      title: DataFileSingleResponse
+      type: object
+    FilterLogic:
+      enum:
+      - AND
+      - OR
+      title: FilterLogic
+      type: string
+    FullAPIEndpoint:
+      additionalProperties: false
+      description: |-
+        Complete representation of an API endpoint.
+
+        Includes all endpoint details needed for full mode retrieval,
+        including request/response schemas and examples.
+      properties:
+        operationId:
+          description: Unique operation identifier
+          title: Operationid
+          type: string
+        method:
+          allOf:
+          - $ref: '#/components/schemas/MethodEnum'
+          description: HTTP method
+          title: Method
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          description: API tags/categories
+          title: Tags
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Endpoint description
+          title: Description
+        path:
+          description: API path template
+          title: Path
+          type: string
+        parameters:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          description: Path/query/header parameters
+          title: Parameters
+        request_schema:
+          additionalProperties: true
+          description: Simplified, structure-preserving request schema
+          title: Request Schema
+          type: object
+        response_schema:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          description: Simplified response schema (stored but NOT used in embeddings
+            or LLM responses)
+          title: Response Schema
+        examples:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          description: Dehydrated example strings (NOT raw dicts)
+          title: Examples
+      required:
+      - operationId
+      - method
+      - path
+      - request_schema
+      title: FullAPIEndpoint
+      type: object
+    IndexLinks:
+      properties:
+        self:
+          title: Self
+          type: string
+        first:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: First
+        prev:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Prev
+        next:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Next
+        last:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Last
+      required:
+      - self
+      title: IndexLinks
+      type: object
+    IngestRequest:
+      additionalProperties: false
+      description: Request to ingest an OpenAPI schema for RAG retrieval.
+      properties:
+        schema_url:
+          description: URL of the OpenAPI schema to ingest
+          title: Schema Url
+          type: string
+        ttl_minutes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          description: Session TTL in minutes (uses default if not provided)
+          title: Ttl Minutes
+      required:
+      - schema_url
+      title: IngestRequest
+      type: object
+    IngestResponse:
+      additionalProperties: false
+      description: Successful response from schema ingestion.
+      properties:
+        session_id:
+          description: Unique session identifier for retrieval
+          title: Session Id
+          type: string
+        schema_url:
+          description: URL of the ingested schema
+          title: Schema Url
+          type: string
+        ttl_minutes:
+          description: Session TTL in minutes
+          title: Ttl Minutes
+          type: integer
+        expires_at:
+          description: When the session will expire
+          format: date-time
+          title: Expires At
+          type: string
+        num_endpoints:
+          description: Number of endpoints indexed
+          title: Num Endpoints
+          type: integer
+      required:
+      - session_id
+      - schema_url
+      - ttl_minutes
+      - expires_at
+      - num_endpoints
+      title: IngestResponse
+      type: object
+    InvestigationCreateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/InvestigationPostData'
+      required:
+      - data
+      title: InvestigationCreateRequest
+      type: object
+    InvestigationIndexAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+      required:
+      - title
+      title: InvestigationIndexAttributes
+      type: object
+    InvestigationIndexItem:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: investigations
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/InvestigationIndexAttributes'
+        links:
+          $ref: '#/components/schemas/Links'
+      required:
+      - id
+      - type
+      - attributes
+      - links
+      title: InvestigationIndexItem
+      type: object
+    InvestigationListResponse:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/InvestigationIndexItem'
+          title: Data
+          type: array
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        links:
+          $ref: '#/components/schemas/IndexLinks'
+        meta:
+          $ref: '#/components/schemas/BaseMeta'
+      required:
+      - data
+      - jsonapi
+      - links
+      - meta
+      title: InvestigationListResponse
+      type: object
+    InvestigationPatchAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        other_creators:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Other Creators
+        creators:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Creators
+        policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Policy
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        extended_attributes:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Extended Attributes
+      title: InvestigationPatchAttributes
+      type: object
+    InvestigationPatchData:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: investigations
+          title: Type
+          type: string
+        attributes:
+          anyOf:
+          - $ref: '#/components/schemas/InvestigationPatchAttributes'
+          - type: 'null'
+          default: null
+        relationships:
+          anyOf:
+          - $ref: '#/components/schemas/InvestigationPatchRelationships'
+          - type: 'null'
+          default: null
+      required:
+      - id
+      - type
+      title: InvestigationPatchData
+      type: object
+    InvestigationPatchRelationships:
+      additionalProperties: false
+      properties:
+        projects:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        creators:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        publications:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      title: InvestigationPatchRelationships
+      type: object
+    InvestigationPostAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        other_creators:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Other Creators
+        creators:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Creators
+        policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Policy
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        extended_attributes:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Extended Attributes
+      required:
+      - title
+      title: InvestigationPostAttributes
+      type: object
+    InvestigationPostData:
+      additionalProperties: false
+      properties:
+        type:
+          const: investigations
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/InvestigationPostAttributes'
+        relationships:
+          $ref: '#/components/schemas/InvestigationPostRelationships'
+      required:
+      - type
+      - attributes
+      - relationships
+      title: InvestigationPostData
+      type: object
+    InvestigationPostRelationships:
+      additionalProperties: false
+      properties:
+        projects:
+          $ref: '#/components/schemas/MultipleReferences'
+        creators:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        publications:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      required:
+      - projects
+      title: InvestigationPostRelationships
+      type: object
+    InvestigationResponseData:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: investigations
+          title: Type
+          type: string
+        attributes:
+          additionalProperties: true
+          title: Attributes
+          type: object
+        relationships:
+          additionalProperties: true
+          title: Relationships
+          type: object
+        links:
+          $ref: '#/components/schemas/Links'
+        meta:
+          $ref: '#/components/schemas/Meta'
+      required:
+      - id
+      - type
+      - attributes
+      - relationships
+      - links
+      - meta
+      title: InvestigationResponseData
+      type: object
+    InvestigationSingleResponse:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/InvestigationResponseData'
+        jsonapi:
+          anyOf:
+          - $ref: '#/components/schemas/JsonApiVersion'
+          - type: 'null'
+          default: null
+      required:
+      - data
+      title: InvestigationSingleResponse
+      type: object
+    ItemReference:
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          title: Type
+          type: string
+      required:
+      - id
+      - type
+      title: ItemReference
+      type: object
+    JsonApiVersion:
+      properties:
+        version:
+          title: Version
+          type: string
+      required:
+      - version
+      title: JsonApiVersion
+      type: object
+    KeyEnum:
+      enum:
+      - EXP
+      - MOD
+      type: string
+    Links:
+      properties:
+        self:
+          title: Self
+          type: string
+      required:
+      - self
+      title: Links
+      type: object
+    Meta:
+      properties:
+        base_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Base Url
+        api_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Api Version
+        created:
+          anyOf:
+          - {}
+          - type: 'null'
+          default: null
+          title: Created
+      title: Meta
+      type: object
+    MethodEnum:
+      enum:
+      - POST
+      - GET
+      - PATCH
+      - DELETE
+      - PUT
+      type: string
+    MinimalAPIEndpoint:
+      additionalProperties: false
+      description: |-
+        Lightweight representation of an API endpoint.
+
+        Used for minimal mode retrieval responses where only essential
+        endpoint identification information is needed.
+      properties:
+        operationId:
+          description: Unique operation identifier
+          title: Operationid
+          type: string
+        method:
+          allOf:
+          - $ref: '#/components/schemas/MethodEnum'
+          description: HTTP method
+          title: Method
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          description: API tags/categories
+          title: Tags
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Endpoint description
+          title: Description
+        path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: API path template
+          title: Path
+      required:
+      - operationId
+      - method
+      title: MinimalAPIEndpoint
+      type: object
+    ModeEnum:
+      enum:
+      - minimal
+      - full
+      type: string
+    MultipleReferences:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/ItemReference'
+          title: Data
+          type: array
+      title: MultipleReferences
+      type: object
+    OntologyRef:
+      additionalProperties: false
+      properties:
+        uri:
+          title: Uri
+          type: string
+      required:
+      - uri
+      title: OntologyRef
+      type: object
+    PatchedAssayUpdateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/AssayPatchData'
+      required:
+      - data
+      title: AssayUpdateRequest
+      type: object
+    PatchedDataFileUpdateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/DataFilePatchData'
+      required:
+      - data
+      title: DataFileUpdateRequest
+      type: object
+    PatchedInvestigationUpdateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/InvestigationPatchData'
+      required:
+      - data
+      title: InvestigationUpdateRequest
+      type: object
+    PatchedPersonUpdateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/PersonPatchData'
+      required:
+      - data
+      title: PersonUpdateRequest
+      type: object
+    PatchedProjectUpdateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/ProjectPatchData'
+      required:
+      - data
+      title: ProjectUpdateRequest
+      type: object
+    PatchedSampleTypeUpdateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/SampleTypePatchData'
+      required:
+      - data
+      title: SampleTypeUpdateRequest
+      type: object
+    PatchedSampleUpdateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/SamplePatchData'
+      required:
+      - data
+      title: SampleUpdateRequest
+      type: object
+    PatchedSopUpdateRequest:
+      additionalProperties: true
+      properties:
+        data:
+          $ref: '#/components/schemas/SopPatchData'
+      required:
+      - data
+      title: SopUpdateRequest
+      type: object
+    PersonCreateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/PersonPostData'
+      required:
+      - data
+      title: PersonCreateRequest
+      type: object
+    PersonIndexAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+      required:
+      - title
+      title: PersonIndexAttributes
+      type: object
+    PersonIndexItem:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: people
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/PersonIndexAttributes'
+        links:
+          $ref: '#/components/schemas/Links'
+      required:
+      - id
+      - type
+      - attributes
+      - links
+      title: PersonIndexItem
+      type: object
+    PersonListResponse:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/PersonIndexItem'
+          title: Data
+          type: array
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        links:
+          $ref: '#/components/schemas/IndexLinks'
+        meta:
+          $ref: '#/components/schemas/BaseMeta'
+      required:
+      - data
+      - jsonapi
+      - links
+      - meta
+      title: PersonListResponse
+      type: object
+    PersonPatchAttributes:
+      additionalProperties: false
+      properties:
+        first_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: First Name
+        last_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Last Name
+        email:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Email
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        web_page:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Web Page
+        orcid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Orcid
+        expertise:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Expertise
+        tools:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Tools
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Phone
+        skype_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Skype Name
+      title: PersonPatchAttributes
+      type: object
+    PersonPatchData:
+      additionalProperties: false
+      properties:
+        id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Id
+        type:
+          const: people
+          title: Type
+          type: string
+        attributes:
+          anyOf:
+          - $ref: '#/components/schemas/PersonPatchAttributes'
+          - type: 'null'
+          default: null
+      required:
+      - type
+      title: PersonPatchData
+      type: object
+    PersonPostAttributes:
+      additionalProperties: false
+      properties:
+        first_name:
+          title: First Name
+          type: string
+        last_name:
+          title: Last Name
+          type: string
+        email:
+          title: Email
+          type: string
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        web_page:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Web Page
+        orcid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Orcid
+        expertise:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Expertise
+        tools:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Tools
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Phone
+        skype_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Skype Name
+      required:
+      - first_name
+      - last_name
+      - email
+      title: PersonPostAttributes
+      type: object
+    PersonPostData:
+      additionalProperties: false
+      properties:
+        type:
+          const: people
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/PersonPostAttributes'
+      required:
+      - type
+      - attributes
+      title: PersonPostData
+      type: object
+    PersonResponseData:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: people
+          title: Type
+          type: string
+        attributes:
+          additionalProperties: true
+          title: Attributes
+          type: object
+        relationships:
+          additionalProperties: true
+          title: Relationships
+          type: object
+        links:
+          $ref: '#/components/schemas/Links'
+        meta:
+          $ref: '#/components/schemas/Meta'
+      required:
+      - id
+      - type
+      - attributes
+      - relationships
+      - links
+      - meta
+      title: PersonResponseData
+      type: object
+    PersonSingleResponse:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/PersonResponseData'
+        jsonapi:
+          anyOf:
+          - $ref: '#/components/schemas/JsonApiVersion'
+          - type: 'null'
+          default: null
+      required:
+      - data
+      title: PersonSingleResponse
+      type: object
+    Policy:
+      properties:
+        access:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Access
+        permissions:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/PolicyPermission'
+            type: array
+          - type: 'null'
+          default: null
+          title: Permissions
+      title: Policy
+      type: object
+    PolicyPermission:
+      properties:
+        resource:
+          $ref: '#/components/schemas/ItemReference'
+        access:
+          title: Access
+          type: string
+      required:
+      - resource
+      - access
+      title: PolicyPermission
+      type: object
+    ProjectCreateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/ProjectPostData'
+      required:
+      - data
+      title: ProjectCreateRequest
+      type: object
+    ProjectIndexAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+      required:
+      - title
+      title: ProjectIndexAttributes
+      type: object
+    ProjectIndexItem:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: projects
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/ProjectIndexAttributes'
+        links:
+          $ref: '#/components/schemas/Links'
+      required:
+      - id
+      - type
+      - attributes
+      - links
+      title: ProjectIndexItem
+      type: object
+    ProjectListResponse:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/ProjectIndexItem'
+          title: Data
+          type: array
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        links:
+          $ref: '#/components/schemas/IndexLinks'
+        meta:
+          $ref: '#/components/schemas/BaseMeta'
+      required:
+      - data
+      - jsonapi
+      - links
+      - meta
+      title: ProjectListResponse
+      type: object
+    ProjectPatchAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        avatar:
+          anyOf:
+          - {}
+          - type: 'null'
+          default: null
+          title: Avatar
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        web_page:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Web Page
+        wiki_page:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Wiki Page
+        default_policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Default Policy
+        default_license:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Default License
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        extended_attributes:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Extended Attributes
+        topic_annotations:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Topic Annotations
+      title: ProjectPatchAttributes
+      type: object
+    ProjectPatchData:
+      additionalProperties: false
+      properties:
+        id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Id
+        type:
+          const: projects
+          title: Type
+          type: string
+        attributes:
+          anyOf:
+          - $ref: '#/components/schemas/ProjectPatchAttributes'
+          - type: 'null'
+          default: null
+        relationships:
+          anyOf:
+          - $ref: '#/components/schemas/ProjectPatchRelationships'
+          - type: 'null'
+          default: null
+      required:
+      - type
+      title: ProjectPatchData
+      type: object
+    ProjectPatchRelationships:
+      additionalProperties: false
+      properties:
+        programmes:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        organisms:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      title: ProjectPatchRelationships
+      type: object
+    ProjectPostAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+        avatar:
+          anyOf:
+          - {}
+          - type: 'null'
+          default: null
+          title: Avatar
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        web_page:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Web Page
+        wiki_page:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Wiki Page
+        default_policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Default Policy
+        default_license:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Default License
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        extended_attributes:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Extended Attributes
+        topic_annotations:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Topic Annotations
+      required:
+      - title
+      title: ProjectPostAttributes
+      type: object
+    ProjectPostData:
+      additionalProperties: false
+      properties:
+        type:
+          const: projects
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/ProjectPostAttributes'
+        relationships:
+          anyOf:
+          - $ref: '#/components/schemas/ProjectPostRelationships'
+          - type: 'null'
+          default: null
+      required:
+      - type
+      - attributes
+      title: ProjectPostData
+      type: object
+    ProjectPostRelationships:
+      additionalProperties: false
+      properties:
+        programmes:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        organisms:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      title: ProjectPostRelationships
+      type: object
+    ProjectResponseData:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: projects
+          title: Type
+          type: string
+        attributes:
+          additionalProperties: true
+          title: Attributes
+          type: object
+        relationships:
+          additionalProperties: true
+          title: Relationships
+          type: object
+        links:
+          $ref: '#/components/schemas/Links'
+        meta:
+          $ref: '#/components/schemas/Meta'
+      required:
+      - id
+      - type
+      - attributes
+      - relationships
+      - links
+      - meta
+      title: ProjectResponseData
+      type: object
+    ProjectSingleResponse:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/ProjectResponseData'
+        jsonapi:
+          anyOf:
+          - $ref: '#/components/schemas/JsonApiVersion'
+          - type: 'null'
+          default: null
+      required:
+      - data
+      title: ProjectSingleResponse
+      type: object
+    RemoteContentBlob:
+      additionalProperties: false
+      properties:
+        url:
+          title: Url
+          type: string
+        original_filename:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Original Filename
+        content_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Content Type
+      required:
+      - url
+      title: RemoteContentBlob
+      type: object
+    RetrieveDebugInfo:
+      additionalProperties: false
+      description: Debug metadata for retrieval operations.
+      properties:
+        used_fallback_full:
+          description: Whether full mode fallback was used
+          title: Used Fallback Full
+          type: boolean
+        used_enriched_minimal_examples:
+          description: Whether enriched minimal examples were used
+          title: Used Enriched Minimal Examples
+          type: boolean
+        similarity_threshold_effective:
+          description: Effective similarity threshold used
+          title: Similarity Threshold Effective
+          type: number
+        num_candidates_initial:
+          description: Number of initial candidates before filtering
+          title: Num Candidates Initial
+          type: integer
+        num_candidates_final:
+          description: Number of final candidates returned
+          title: Num Candidates Final
+          type: integer
+        scores:
+          anyOf:
+          - items:
+              type: number
+            type: array
+          - type: 'null'
+          default: null
+          description: Final similarity scores for returned endpoints
+          title: Scores
+        error_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Error code if partial failure
+          title: Error Code
+        error_details:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          description: Error details if partial failure
+          title: Error Details
+      required:
+      - used_fallback_full
+      - used_enriched_minimal_examples
+      - similarity_threshold_effective
+      - num_candidates_initial
+      - num_candidates_final
+      title: RetrieveDebugInfo
+      type: object
+    RetrieveRequest:
+      additionalProperties: false
+      description: Request to retrieve relevant API endpoints from an ingested schema.
+      properties:
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Session ID from prior ingestion
+          title: Session Id
+        schema_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Schema URL to look up existing session
+          title: Schema Url
+        query:
+          description: Natural language query describing the desired operation
+          title: Query
+          type: string
+        resolved_terms:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          description: Pre-resolved entity terms
+          title: Resolved Terms
+        mode:
+          allOf:
+          - $ref: '#/components/schemas/ModeEnum'
+          default: minimal
+          description: Response detail level
+          title: Mode
+        top_k:
+          default: 5
+          description: Maximum number of endpoints to return
+          title: Top K
+          type: integer
+        min_score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          description: Minimum similarity score threshold
+          title: Min Score
+        include_debug:
+          default: true
+          description: Whether to include debug info in response
+          title: Include Debug
+          type: boolean
+      required:
+      - query
+      title: RetrieveRequest
+      type: object
+    RetrieveResponse:
+      additionalProperties: false
+      description: Response containing retrieved API endpoints.
+      properties:
+        session_id:
+          description: Session ID used for retrieval
+          title: Session Id
+          type: string
+        mode:
+          allOf:
+          - $ref: '#/components/schemas/ModeEnum'
+          description: Response detail level
+          title: Mode
+        endpoints_minimal:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/MinimalAPIEndpoint'
+            type: array
+          - type: 'null'
+          default: null
+          description: Minimal endpoint info (when mode='minimal')
+          title: Endpoints Minimal
+        endpoints_full:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/FullAPIEndpoint'
+            type: array
+          - type: 'null'
+          default: null
+          description: Full endpoint info (when mode='full')
+          title: Endpoints Full
+        message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Optional message (e.g., warnings)
+          title: Message
+        debug:
+          anyOf:
+          - $ref: '#/components/schemas/RetrieveDebugInfo'
+          - type: 'null'
+          default: null
+          description: Debug info (when include_debug=True)
+      required:
+      - session_id
+      - mode
+      title: RetrieveResponse
+      type: object
+    SampleAdvancedSearchRequest:
+      additionalProperties: false
+      properties:
+        sampletype:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: string
+          - type: 'null'
+          default: null
+          title: Sampletype
+        attribute:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: string
+          - type: 'null'
+          default: null
+          title: Attribute
+        filter_searchText:
+          anyOf:
+          - type: string
+          - items:
+              type: string
+            type: array
+          description: Search text or list of search texts
+          title: Filter Searchtext
+        filter_matchType:
+          $ref: '#/components/schemas/AdvancedSearchMatchType'
+          default: PARTIAL
+        attribute_logic:
+          anyOf:
+          - $ref: '#/components/schemas/FilterLogic'
+          - type: 'null'
+          default: null
+        searchText_logic:
+          anyOf:
+          - $ref: '#/components/schemas/FilterLogic'
+          - type: 'null'
+          default: null
+      required:
+      - filter_searchText
+      title: SampleAdvancedSearchRequest
+      type: object
+    SampleAdvancedSearchResult:
+      additionalProperties: false
+      properties:
+        total:
+          title: Total
+          type: integer
+        rows:
+          items:
+            $ref: '#/components/schemas/SampleAdvancedSearchRow'
+          title: Rows
+          type: array
+        footer:
+          anyOf:
+          - items: {}
+            type: array
+          - type: 'null'
+          default: null
+          title: Footer
+        sampleTypes:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Sampletypes
+        noSampleTypes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Nosampletypes
+        msg:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Msg
+        status:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Status
+      required:
+      - total
+      - rows
+      title: SampleAdvancedSearchResult
+      type: object
+    SampleAdvancedSearchRow:
+      additionalProperties: true
+      properties:
+        id:
+          anyOf:
+          - type: string
+          - type: integer
+          description: Numeric SEEK ID of the sample
+          title: Id
+        uuid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: UUID of the sample
+          title: Uuid
+        sample_type_id:
+          anyOf:
+          - type: string
+          - type: integer
+          description: Numeric SEEK ID of the sample type
+          title: Sample Type Id
+        sample_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Title of the sample type
+          title: Sample Type
+        json_metadata:
+          additionalProperties: true
+          description: JSON metadata of the sample
+          title: Json Metadata
+          type: object
+        attributeValue:
+          description: Value of the attribute
+          title: Attributevalue
+          type: string
+      required:
+      - id
+      - sample_type_id
+      - attributeValue
+      title: SampleAdvancedSearchRow
+      type: object
+    SampleAttributeTypeIdRef:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+      required:
+      - id
+      title: SampleAttributeTypeIdRef
+      type: object
+    SampleAttributeTypeTitleRef:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+      required:
+      - title
+      title: SampleAttributeTypeTitleRef
+      type: object
+    SampleCreateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/SamplePostData'
+      required:
+      - data
+      title: SampleCreateRequest
+      type: object
+    SamplePatchAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Tags
+        other_creators:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Other Creators
+        attribute_map:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Attribute Map
+        policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Policy
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        creators:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Creators
+      title: SamplePatchAttributes
+      type: object
+    SamplePatchData:
+      additionalProperties: false
+      properties:
+        id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Id
+        type:
+          const: samples
+          title: Type
+          type: string
+        attributes:
+          anyOf:
+          - $ref: '#/components/schemas/SamplePatchAttributes'
+          - type: 'null'
+          default: null
+        relationships:
+          anyOf:
+          - $ref: '#/components/schemas/SamplePatchRelationships'
+          - type: 'null'
+          default: null
+      required:
+      - type
+      title: SamplePatchData
+      type: object
+    SamplePatchRelationships:
+      additionalProperties: false
+      properties:
+        sample_type:
+          anyOf:
+          - $ref: '#/components/schemas/SingleReference'
+          - type: 'null'
+          default: null
+        creators:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        projects:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        people:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        data_files:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        assays:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      title: SamplePatchRelationships
+      type: object
+    SamplePostAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Tags
+        other_creators:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Other Creators
+        attribute_map:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Attribute Map
+        policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Policy
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        creators:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Creators
+      required:
+      - title
+      title: SamplePostAttributes
+      type: object
+    SamplePostData:
+      additionalProperties: false
+      properties:
+        type:
+          const: samples
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/SamplePostAttributes'
+        relationships:
+          $ref: '#/components/schemas/SamplePostRelationships'
+      required:
+      - type
+      - attributes
+      - relationships
+      title: SamplePostData
+      type: object
+    SamplePostRelationships:
+      additionalProperties: false
+      properties:
+        sample_type:
+          $ref: '#/components/schemas/SingleReference'
+        creators:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        projects:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        people:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        data_files:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        assays:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      required:
+      - sample_type
+      title: SamplePostRelationships
+      type: object
+    SampleRelationships:
+      additionalProperties: true
+      properties:
+        sample_type:
+          $ref: '#/components/schemas/SingleReference'
+        creators:
+          $ref: '#/components/schemas/MultipleReferences'
+        projects:
+          $ref: '#/components/schemas/MultipleReferences'
+        people:
+          $ref: '#/components/schemas/MultipleReferences'
+        assays:
+          $ref: '#/components/schemas/MultipleReferences'
+        data_files:
+          $ref: '#/components/schemas/MultipleReferences'
+      required:
+      - sample_type
+      - creators
+      - projects
+      - people
+      - assays
+      - data_files
+      title: SampleRelationships
+      type: object
+    SampleResponseData:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: samples
+          title: Type
+          type: string
+        attributes:
+          additionalProperties: true
+          title: Attributes
+          type: object
+        relationships:
+          $ref: '#/components/schemas/SampleRelationships'
+        links:
+          $ref: '#/components/schemas/Links'
+        meta:
+          $ref: '#/components/schemas/Meta'
+      required:
+      - id
+      - type
+      - attributes
+      - relationships
+      - links
+      - meta
+      title: SampleResponseData
+      type: object
+    SampleSingleResponse:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/SampleResponseData'
+        jsonapi:
+          anyOf:
+          - $ref: '#/components/schemas/JsonApiVersion'
+          - type: 'null'
+          default: null
+      required:
+      - data
+      title: SampleSingleResponse
+      type: object
+    SampleTreeNode:
+      additionalProperties: false
+      properties:
+        id:
+          description: SEEK numeric id (stringified)
+          title: Id
+          type: string
+        uuid:
+          description: Sample UID
+          title: Uuid
+          type: string
+        sample_type:
+          description: Sample type title (e.g., PAT, TIS, D.IMG)
+          title: Sample Type
+          type: string
+        color:
+          description: Hex color for the sample type
+          title: Color
+          type: string
+        parentIds:
+          description: List of parent SEEK ids (stringified)
+          items:
+            type: string
+          title: Parentids
+          type: array
+      required:
+      - id
+      - uuid
+      - sample_type
+      - color
+      title: SampleTreeNode
+      type: object
+    SampleTreeRel:
+      additionalProperties: true
+      properties:
+        child_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Child sample SEEK id (numeric string)
+          title: Child Id
+        parent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Parent sample SEEK id (numeric string)
+          title: Parent Id
+        internal_assay_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Internal assay id (numeric string, if available)
+          title: Internal Assay Id
+        internal_assay_title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Internal assay title (if available)
+          title: Internal Assay Title
+        protocol_title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Protocol title (if available)
+          title: Protocol Title
+        protocol_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Protocol id (numeric string, if available)
+          title: Protocol Id
+      title: SampleTreeRel
+      type: object
+    SampleTreeResponse:
+      additionalProperties: false
+      properties:
+        total_nodes:
+          description: Total number of unique nodes in the tree
+          title: Total Nodes
+          type: integer
+        total_rels:
+          description: Total number of relationships in the tree
+          title: Total Rels
+          type: integer
+        nodes:
+          description: List of nodes for visualization
+          items:
+            $ref: '#/components/schemas/SampleTreeNode'
+          title: Nodes
+          type: array
+        rels:
+          description: List of relationship property dicts
+          items:
+            $ref: '#/components/schemas/SampleTreeRel'
+          title: Rels
+          type: array
+      required:
+      - total_nodes
+      - total_rels
+      - nodes
+      - rels
+      title: SampleTreeResponse
+      type: object
+    SampleTypeCreateRequest:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/SampleTypePostData'
+      required:
+      - data
+      title: SampleTypeCreateRequest
+      type: object
+    SampleTypeIndexAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+      required:
+      - title
+      title: SampleTypeIndexAttributes
+      type: object
+    SampleTypeIndexItem:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: sample_types
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/SampleTypeIndexAttributes'
+        links:
+          $ref: '#/components/schemas/Links'
+      required:
+      - id
+      - type
+      - attributes
+      - links
+      title: SampleTypeIndexItem
+      type: object
+    SampleTypeListResponse:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/SampleTypeIndexItem'
+          title: Data
+          type: array
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        links:
+          $ref: '#/components/schemas/IndexLinks'
+        meta:
+          $ref: '#/components/schemas/BaseMeta'
+      required:
+      - data
+      - jsonapi
+      - links
+      - meta
+      title: SampleTypeListResponse
+      type: object
+    SampleTypePatchAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Policy
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Tags
+        sample_attributes:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/SampleTypeSampleAttributePatch'
+            type: array
+          - type: 'null'
+          default: null
+          title: Sample Attributes
+      title: SampleTypePatchAttributes
+      type: object
+    SampleTypePatchData:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: sample_types
+          title: Type
+          type: string
+        attributes:
+          anyOf:
+          - $ref: '#/components/schemas/SampleTypePatchAttributes'
+          - type: 'null'
+          default: null
+        relationships:
+          anyOf:
+          - $ref: '#/components/schemas/SampleTypePatchRelationships'
+          - type: 'null'
+          default: null
+      required:
+      - id
+      - type
+      title: SampleTypePatchData
+      type: object
+    SampleTypePatchRelationships:
+      additionalProperties: false
+      properties:
+        projects:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        assays:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      title: SampleTypePatchRelationships
+      type: object
+    SampleTypePostAttributes:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        policy:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Policy
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        sample_attributes:
+          items:
+            $ref: '#/components/schemas/SampleTypeSampleAttributePost'
+          title: Sample Attributes
+          type: array
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Tags
+      required:
+      - title
+      - sample_attributes
+      title: SampleTypePostAttributes
+      type: object
+    SampleTypePostData:
+      additionalProperties: false
+      properties:
+        type:
+          const: sample_types
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/SampleTypePostAttributes'
+        relationships:
+          $ref: '#/components/schemas/SampleTypePostRelationships'
+      required:
+      - type
+      - attributes
+      - relationships
+      title: SampleTypePostData
+      type: object
+    SampleTypePostRelationships:
+      additionalProperties: false
+      properties:
+        projects:
+          $ref: '#/components/schemas/MultipleReferences'
+        assays:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      required:
+      - projects
+      title: SampleTypePostRelationships
+      type: object
+    SampleTypeRelationships:
+      additionalProperties: false
+      properties:
+        submitter:
+          $ref: '#/components/schemas/MultipleReferences'
+        projects:
+          $ref: '#/components/schemas/MultipleReferences'
+        assays:
+          $ref: '#/components/schemas/MultipleReferences'
+        samples:
+          $ref: '#/components/schemas/MultipleReferences'
+      required:
+      - submitter
+      - projects
+      - assays
+      - samples
+      title: SampleTypeRelationships
+      type: object
+    SampleTypeResponseData:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: sample_types
+          title: Type
+          type: string
+        attributes:
+          additionalProperties: true
+          title: Attributes
+          type: object
+        relationships:
+          $ref: '#/components/schemas/SampleTypeRelationships'
+        links:
+          $ref: '#/components/schemas/Links'
+        meta:
+          $ref: '#/components/schemas/Meta'
+      required:
+      - id
+      - type
+      - attributes
+      - relationships
+      - links
+      - meta
+      title: SampleTypeResponseData
+      type: object
+    SampleTypeSampleAttributePatch:
+      additionalProperties: false
+      properties:
+        id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Id
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        sample_attribute_type:
+          anyOf:
+          - $ref: '#/components/schemas/SampleAttributeTypeIdRef'
+          - $ref: '#/components/schemas/SampleAttributeTypeTitleRef'
+          - type: 'null'
+          default: null
+          title: Sample Attribute Type
+        required:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Required
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        pid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Pid
+        pos:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Pos
+        unit:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Unit
+        is_title:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Is Title
+        sample_controlled_vocab_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Sample Controlled Vocab Id
+        linked_sample_type_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Linked Sample Type Id
+        linked_extended_metadata_type_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Linked Extended Metadata Type Id
+      title: SampleTypeSampleAttributePatch
+      type: object
+    SampleTypeSampleAttributePost:
+      additionalProperties: false
+      properties:
+        title:
+          title: Title
+          type: string
+        sample_attribute_type:
+          anyOf:
+          - $ref: '#/components/schemas/SampleAttributeTypeIdRef'
+          - $ref: '#/components/schemas/SampleAttributeTypeTitleRef'
+          title: Sample Attribute Type
+        required:
+          default: false
+          title: Required
+          type: boolean
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        pid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Pid
+        pos:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Pos
+        unit:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Unit
+        is_title:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Is Title
+        sample_controlled_vocab_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Sample Controlled Vocab Id
+        linked_sample_type_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Linked Sample Type Id
+        linked_extended_metadata_type_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Linked Extended Metadata Type Id
+      required:
+      - title
+      - sample_attribute_type
+      title: SampleTypeSampleAttributePost
+      type: object
+    SampleTypeSingleResponse:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/SampleTypeResponseData'
+        jsonapi:
+          anyOf:
+          - $ref: '#/components/schemas/JsonApiVersion'
+          - type: 'null'
+          default: null
+      required:
+      - data
+      title: SampleTypeSingleResponse
+      type: object
+    SampleUIDItem:
+      properties:
+        id:
+          description: SEEK numeric id (stringified)
+          title: Id
+          type: string
+        uuid:
+          description: Sample UID
+          title: Uuid
+          type: string
+        sample_type:
+          anyOf:
+          - type: integer
+          - type: string
+          description: Sample type title or SEEK ID
+          title: Sample Type
+        sample_type_description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Sample type description
+          title: Sample Type Description
+      required:
+      - id
+      - uuid
+      - sample_type
+      title: SampleUIDItem
+      type: object
+    SamplesByChildTypesRequest:
+      properties:
+        child_sample_types:
+          anyOf:
+          - items:
+              type: integer
+            type: array
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          description: Child sample type titles to match (logical AND)
+          title: Child Sample Types
+        parent_sample_type_filters:
+          anyOf:
+          - items:
+              type: integer
+            type: array
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          description: Parent sample type titles or SEEK IDs to filter by (logical
+            OR)
+          title: Parent Sample Type Filters
+      title: SamplesByChildTypesRequest
+      type: object
+    SamplesByChildTypesResponse:
+      properties:
+        total:
+          description: Total number of matching samples
+          title: Total
+          type: integer
+        samples:
+          description: List of parent sample IDs and UIDs
+          items:
+            $ref: '#/components/schemas/SampleUIDItem'
+          title: Samples
+          type: array
+        msg:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Status message
+          title: Msg
+      required:
+      - total
+      - samples
+      title: SamplesByChildTypesResponse
+      type: object
+    SingleReference:
+      properties:
+        data:
+          $ref: '#/components/schemas/ItemReference'
+      required:
+      - data
+      title: SingleReference
+      type: object
+    SopCreateRequest:
+      properties:
+        data:
+          $ref: '#/components/schemas/SopPostData'
+      required:
+      - data
+      title: SopCreateRequest
+      type: object
+    SopIndexAttributes:
+      properties:
+        title:
+          title: Title
+          type: string
+      required:
+      - title
+      title: SopIndexAttributes
+      type: object
+    SopIndexItem:
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: sops
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/SopIndexAttributes'
+        links:
+          $ref: '#/components/schemas/Links'
+      required:
+      - id
+      - type
+      - attributes
+      - links
+      title: SopIndexItem
+      type: object
+    SopListResponse:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/SopIndexItem'
+          title: Data
+          type: array
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        links:
+          $ref: '#/components/schemas/IndexLinks'
+        meta:
+          $ref: '#/components/schemas/BaseMeta'
+      required:
+      - data
+      - jsonapi
+      - links
+      - meta
+      title: SopListResponse
+      type: object
+    SopPatchAttributes:
+      properties:
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Tags
+        license:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: License
+        policy:
+          anyOf:
+          - $ref: '#/components/schemas/Policy'
+          - type: 'null'
+          default: null
+        other_creators:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Other Creators
+        creators:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Creators
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        extended_attributes:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Extended Attributes
+      title: SopPatchAttributes
+      type: object
+    SopPatchData:
+      properties:
+        type:
+          const: sops
+          title: Type
+          type: string
+        id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Id
+        uid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Uid
+        attributes:
+          anyOf:
+          - $ref: '#/components/schemas/SopPatchAttributes'
+          - type: 'null'
+          default: null
+        relationships:
+          anyOf:
+          - $ref: '#/components/schemas/SopPatchRelationships'
+          - type: 'null'
+          default: null
+      required:
+      - type
+      title: SopPatchData
+      type: object
+    SopPatchRelationships:
+      properties:
+        creators:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        projects:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        assays:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        workflows:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      title: SopPatchRelationships
+      type: object
+    SopPostAttributes:
+      properties:
+        title:
+          title: Title
+          type: string
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Tags
+        license:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: License
+        policy:
+          anyOf:
+          - $ref: '#/components/schemas/Policy'
+          - type: 'null'
+          default: null
+        content_blobs:
+          items:
+            $ref: '#/components/schemas/ContentBlobSlot'
+          title: Content Blobs
+          type: array
+        other_creators:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Other Creators
+        creators:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Creators
+        discussion_links:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          default: null
+          title: Discussion Links
+        extended_attributes:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Extended Attributes
+      required:
+      - title
+      - content_blobs
+      title: SopPostAttributes
+      type: object
+    SopPostData:
+      properties:
+        type:
+          const: sops
+          title: Type
+          type: string
+        attributes:
+          $ref: '#/components/schemas/SopPostAttributes'
+        relationships:
+          $ref: '#/components/schemas/SopPostRelationships'
+      required:
+      - type
+      - attributes
+      - relationships
+      title: SopPostData
+      type: object
+    SopPostRelationships:
+      properties:
+        projects:
+          $ref: '#/components/schemas/MultipleReferences'
+        creators:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        assays:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+        workflows:
+          anyOf:
+          - $ref: '#/components/schemas/MultipleReferences'
+          - type: 'null'
+          default: null
+      required:
+      - projects
+      title: SopPostRelationships
+      type: object
+    SopRelationships:
+      properties:
+        creators:
+          $ref: '#/components/schemas/MultipleReferences'
+        submitter:
+          $ref: '#/components/schemas/MultipleReferences'
+        people:
+          $ref: '#/components/schemas/MultipleReferences'
+        projects:
+          $ref: '#/components/schemas/MultipleReferences'
+        investigations:
+          $ref: '#/components/schemas/MultipleReferences'
+        studies:
+          $ref: '#/components/schemas/MultipleReferences'
+        assays:
+          $ref: '#/components/schemas/MultipleReferences'
+        publications:
+          $ref: '#/components/schemas/MultipleReferences'
+        workflows:
+          $ref: '#/components/schemas/MultipleReferences'
+      required:
+      - creators
+      - submitter
+      - people
+      - projects
+      - investigations
+      - studies
+      - assays
+      - publications
+      - workflows
+      title: SopRelationships
+      type: object
+    SopResponseData:
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          const: sops
+          title: Type
+          type: string
+        attributes:
+          additionalProperties: true
+          title: Attributes
+          type: object
+        relationships:
+          $ref: '#/components/schemas/SopRelationships'
+        links:
+          $ref: '#/components/schemas/Links'
+        meta:
+          $ref: '#/components/schemas/Meta'
+      required:
+      - id
+      - type
+      - attributes
+      - relationships
+      - links
+      - meta
+      title: SopResponseData
+      type: object
+    SopSingleResponse:
+      properties:
+        data:
+          $ref: '#/components/schemas/SopResponseData'
+        jsonapi:
+          anyOf:
+          - $ref: '#/components/schemas/JsonApiVersion'
+          - type: 'null'
+          default: null
+      required:
+      - data
+      title: SopSingleResponse
+      type: object
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+    tokenAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Token-based authentication with required prefix "Token"

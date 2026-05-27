@@ -16,6 +16,10 @@ function fetchData() {
     return data;
 }
 
+function buildSeekPath(path) {
+    return new URL(path, window.location.origin).toString();
+}
+
 const d3 = Object.assign({}, d3base, d3dag)
 
 const nodeRadius = 10
@@ -74,9 +78,8 @@ function mouseOutNode(e, d) {
 }
 
 function clickNode(e, d) {
-    const nodeId = d.data.id;
     const sampleId = d.data.id;
-    window.open("https://nextseek-dev.mit.edu/seek/sample/id=" + sampleId)
+    window.open(buildSeekPath("/seek/sample/id=" + sampleId + "/"), "_blank")
 }
 
 const nodes = svg.select("#nodes")
@@ -114,13 +117,13 @@ function getRelationship(child, parent) {
 function relsToHtml(rel) {
   let relStr = ""
   if ('internal_assay_title' in rel) {
-    relStr += `<p><strong>Assay:</strong> <a href="https://fairdata-dev.mit.edu/assays/${rel['assay_id']}">${rel['internal_assay_title']}</a></p>`
+    relStr += `<p><strong>Assay:</strong> ${rel['internal_assay_title']}</p>`
   } else {
-    relStr += `<p><strong>Assay:</strong> <a href="https://fairdata-dev.mit.edu/assays/${rel['assay_id']}">${rel['assay_title']}</a></p>`
+    relStr += `<p><strong>Assay:</strong> ${rel['assay_title']}</p>`
   }
 
   if ('protocol_title' in rel) {
-    relStr += `<p><strong>Protocol:</strong> <a href="https://fairdata-dev.mit.edu/sops/${rel['protocol_id']}">${rel['protocol_title']}</a></p>`
+    relStr += `<p><strong>Protocol:</strong> ${rel['protocol_title']}</p>`
   }
   
   return relStr

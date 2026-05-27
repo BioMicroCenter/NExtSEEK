@@ -82,6 +82,16 @@
 			async function deleteSamplesExecute(samples, kind) {
 				const params = new URLSearchParams();
 				params.append(kind, JSON.stringify(samples));
+
+				function buildDeletionSummary(diclist) {
+					if (!Array.isArray(diclist) || diclist.length === 0) {
+						return "";
+					}
+					return diclist.map((item) => {
+						const label = item.uid || item.id || "sample";
+						return `${label}: ${item.statusi || "updated"}`;
+					}).join("\n");
+				}
 				
 				try {
 					const response = await fetch(`/seek/samples/delete/?${params}`, {
@@ -120,12 +130,13 @@
 														}
 														})
 													}
-												}
 											}
+											}
+											const summary = buildDeletionSummary(diclist);
 											if (status == 1) {
-												window.location.href = link;
+												$.messager.alert('Deleting samples', summary || 'Samples deleted successfully.', 'info');
 												} else {
-													alert(msg);
+													alert((msg && msg.length > 0 ? msg + "\n" : "") + summary);
 												}
 											}
 											} else {

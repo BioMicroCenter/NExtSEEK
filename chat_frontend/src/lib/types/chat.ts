@@ -48,6 +48,16 @@ export interface Step {
   label: string;
   agentName: string;
   status: "pending" | "active" | "complete" | "error";
+  /**
+   * Optional sub-status describing the most recent side-effect the agent
+   * initiated. Set by `search_started` / `search_complete` events emitted
+   * by chat_nextseek when an agent dispatches a Neo4j query, REST call,
+   * or project report. Cleared on the next agent transition.
+   *
+   * Examples: "Querying Neo4j: MATCH (s:Study)…", "Neo4j: 12 rows",
+   *           "Calling /api/sample/search (POST)", "API: 200 OK · 47 rows".
+   */
+  detail?: string;
 }
 
 export interface ProcessingState {

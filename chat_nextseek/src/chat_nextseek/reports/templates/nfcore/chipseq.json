@@ -1,0 +1,41 @@
+{
+  "report_type": "NFCORE_CHIPSEQ_SAMPLESHEET",
+  "description": "nf-core/chipseq samplesheet context. Each ChIP row references a control row; samplesheet must include both.",
+  "pipeline": {
+    "name": "nf-core/chipseq",
+    "repository": "https://github.com/nf-core/chipseq",
+    "documentation_url": "https://nf-co.re/chipseq/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Required columns: sample, fastq_1, fastq_2, antibody, control, control_replicate. Inputs/IgG controls must also appear as rows with empty antibody/control fields.",
+    "required_columns": [
+      "sample",
+      "fastq_1",
+      "fastq_2",
+      "antibody",
+      "control",
+      "control_replicate"
+    ],
+    "optional_columns": []
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null,
+      "antibody": null,
+      "control": null,
+      "control_replicate": null
+    }
+  ],
+  "validation_rules": [
+    "Each ChIP row's control value must match a sample row whose antibody field is empty (the input/IgG control).",
+    "control_replicate is the replicate number of that control sample.",
+    "fastq_1/fastq_2 may be HTTPS URLs (ENA mirror) or local paths."
+  ],
+  "report_writer_guidance": {
+    "population_priority": [
+      "Identify ChIP vs Input rows from NExtSEEK metadata; emit Input rows first when possible.",
+      "Use accession_rows for fastq columns; pull antibody/control linkages from sample lineage when explicit."
+    ]
+  }
+}

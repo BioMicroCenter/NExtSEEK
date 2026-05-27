@@ -1,0 +1,556 @@
+"""Emit nf-core artifacts to disk: samplesheet.csv, params.yml, launch.yml, notes.md."""
+from __future__ import annotations
+
+import csv
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+try:  # pyyaml is already a transitive dependency via streamlit/pydantic stack
+    import yaml as _yaml
+    _HAVE_YAML = True
+except Exception:  # pragma: no cover
+    _yaml = None
+    _HAVE_YAML = False
+
+from .catalog import get_pipeline_entry
+from .ena import ENAResolution
+from .tower_client import TowerAPIError, TowerClient
+from .tower_datasets import upload_samplesheet_as_dataset
+
+
+# Per-pipeline column-name normalization. The LLM (and our deterministic row
+# synthesis) uses standard names: sample, fastq_1, fastq_2. Some nf-core
+# pipelines require different names — map them here so the final samplesheet
+# matches the pipeline's expected schema.
+PIPELINE_COLUMN_ALIASES: dict[str, dict[str, str]] = {
+    "ampliseq": {"sample": "sampleID", "fastq_1": "forwardReads", "fastq_2": "reverseReads"},
+}
+
+
+def _upload_to_tower_dataset(
+    *,
+    samplesheet_path: Path,
+    tower_env: Mapping[str, Any],
+    run_name: str,
+    cohort_label: str | None,
+    kind: str,
+    result: "EmissionResult",
+    fallback_rel_dir: str,
+) -> str:
+    """Upload a samplesheet to Tower as a managed dataset; return its URL.
+
+    Used when chat_nextseek's host can't write a staging file to a path the
+    Tower compute env can read (no shared mount). Same TOWER_ACCESS_TOKEN.
+    On failure logs a warning and returns a relative-path fallback (which
+    will not actually work at launch time but lets emission complete).
+    """
+    token = tower_env.get("access_token") if isinstance(tower_env, Mapping) else None
+    workspace = tower_env.get("workspace") if isinstance(tower_env, Mapping) else None
+    api_endpoint = tower_env.get("api_endpoint") if isinstance(tower_env, Mapping) else None
+    fallback = (
+        f"{fallback_rel_dir}/{samplesheet_path.name}"
+        if fallback_rel_dir != "." else f"./{samplesheet_path.name}"
+    )
+    if not token or not workspace:
+        print(
+            f"[SEQERA][EMITTER] cannot upload Tower dataset (missing token/workspace); "
+            f"using fallback path {fallback!r}"
+        )
+        return fallback
+    try:
+        client = TowerClient(token=str(token), endpoint=str(api_endpoint) if api_endpoint else None)
+        ws = client.resolve_workspace(str(workspace))
+        ws_id = ws["workspaceId"]
+        dataset_name_parts = ["chat-nextseek", run_name]
+        if cohort_label:
+            dataset_name_parts.append(cohort_label)
+        if kind != "samplesheet":
+            dataset_name_parts.append(kind)
+        dataset_name = "_".join(dataset_name_parts)
+        info = upload_samplesheet_as_dataset(
+            client,
+            ws_id,
+            samplesheet_path,
+            name=dataset_name,
+            description=f"chat_nextseek emit: {kind} for run {run_name}",
+        )
+        url = info["url"]
+        result.saved_files[f"tower_dataset_{kind}"] = url
+        print(
+            f"[SEQERA][EMITTER] uploaded {kind} as Tower dataset "
+            f"{info.get('name')!r} v{info.get('version')} → {url}"
+        )
+        return url
+    except TowerAPIError as e:
+        print(
+            f"[SEQERA][EMITTER] Tower dataset upload failed for {samplesheet_path.name}: {e}; "
+            f"using fallback path {fallback!r}"
+        )
+        return fallback
+    except Exception as e:  # pragma: no cover
+        print(
+            f"[SEQERA][EMITTER] Tower dataset upload errored unexpectedly: {e!r}; "
+            f"using fallback path {fallback!r}"
+        )
+        return fallback
+
+
+def _remap_row_for_pipeline(row: Mapping[str, Any], pipeline: str) -> dict[str, Any]:
+    aliases = PIPELINE_COLUMN_ALIASES.get(pipeline)
+    if not aliases:
+        return dict(row)
+    out: dict[str, Any] = {}
+    for k, v in row.items():
+        out[aliases.get(k, k)] = v
+    return out
+
+
+@dataclass
+class EmissionResult:
+    out_dir: str
+    saved_files: dict[str, str] = field(default_factory=dict)
+    samplesheet_row_count: int = 0
+    excluded_accessions: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    launch_entry: dict[str, Any] | None = None
+    fetchngs_launch_entry: dict[str, Any] | None = None
+
+
+def _yaml_dump(data: Any) -> str:
+    if _HAVE_YAML:
+        return _yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
+    # Fallback: hand-roll a minimal YAML for our flat-ish structures.
+    return _fallback_yaml(data)
+
+
+def _fallback_yaml(data: Any, indent: int = 0) -> str:
+    pad = "  " * indent
+    if isinstance(data, dict):
+        if not data:
+            return "{}\n"
+        out = []
+        for k, v in data.items():
+            if isinstance(v, (dict, list)) and v:
+                out.append(f"{pad}{k}:")
+                out.append(_fallback_yaml(v, indent + 1).rstrip("\n"))
+            else:
+                out.append(f"{pad}{k}: {_scalar(v)}")
+        return "\n".join(out) + "\n"
+    if isinstance(data, list):
+        if not data:
+            return "[]\n"
+        out = []
+        for item in data:
+            if isinstance(item, dict):
+                first_key = True
+                for k, v in item.items():
+                    prefix = f"{pad}- " if first_key else f"{pad}  "
+                    if isinstance(v, (dict, list)) and v:
+                        out.append(f"{prefix}{k}:")
+                        out.append(_fallback_yaml(v, indent + 2).rstrip("\n"))
+                    else:
+                        out.append(f"{prefix}{k}: {_scalar(v)}")
+                    first_key = False
+            else:
+                out.append(f"{pad}- {_scalar(item)}")
+        return "\n".join(out) + "\n"
+    return f"{pad}{_scalar(data)}\n"
+
+
+def _scalar(v: Any) -> str:
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    s = str(v)
+    if any(c in s for c in (":", "#", "{", "}", "[", "]", ",", "&", "*", "?", "|", "<", ">", "=", "!", "%", "@", "`")) or s.strip() != s or s == "":
+        return json.dumps(s)
+    return s
+
+
+def _ensure_columns(rows: Sequence[Mapping[str, Any]], required: Sequence[str],
+                    suggested: Sequence[str]) -> list[str]:
+    """Build the CSV column order driven by what the rows actually contain.
+
+    - Required columns are always included (in declared order), even if rows
+      don't have them — pipeline validation needs the headers.
+    - Suggested columns (catalog enrichment list) are used only as ORDERING
+      hints: when a suggested column is present in any row, it's placed right
+      after the required block in catalog order. They are NOT force-included.
+    - Any other keys present on rows follow in insertion order.
+
+    This lets the report_writer LLM decide which enrichment columns are
+    meaningful for this specific study; we just write what it gave us.
+    """
+    seen: set[str] = set()
+    columns: list[str] = []
+    for c in required:
+        if c not in seen:
+            columns.append(c)
+            seen.add(c)
+    row_keys: list[str] = []
+    row_key_set: set[str] = set()
+    for row in rows:
+        for k in row.keys():
+            if k not in row_key_set:
+                row_keys.append(k)
+                row_key_set.add(k)
+    # Suggested cols first (catalog order), but only if the LLM actually used them
+    for c in suggested:
+        if c in row_key_set and c not in seen:
+            columns.append(c)
+            seen.add(c)
+    # Any remaining row keys in insertion order
+    for k in row_keys:
+        if k not in seen:
+            columns.append(k)
+            seen.add(k)
+    return columns
+
+
+def _coerce_csv(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequence[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(columns), extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({c: _coerce_csv(row.get(c)) for c in columns})
+
+
+def _build_notes_md(
+    *,
+    pipeline: str,
+    selector_rationale: str,
+    resolutions: Sequence[ENAResolution],
+    excluded_accessions: Sequence[str],
+    tower_env_complete: bool,
+    submitted: bool,
+    run_urls: Sequence[str],
+    extra_notes: Sequence[str],
+) -> str:
+    lines: list[str] = []
+    lines.append(f"# nf-core/{pipeline} run notes")
+    lines.append("")
+    if selector_rationale:
+        lines.append(f"**Pipeline selection rationale:** {selector_rationale}")
+        lines.append("")
+    lines.append("## Accession resolution (ENA filereport)")
+    lines.append("")
+    if not resolutions:
+        lines.append("- No accessions discovered in NExtSEEK metadata.")
+    else:
+        for r in resolutions:
+            if r.missing:
+                lines.append(f"- ❌ `{r.accession}` — {r.reason}")
+            else:
+                run_summary = ", ".join(
+                    f"{run.run_accession} ({run.layout or '?'})" for run in r.runs
+                )
+                lines.append(f"- ✅ `{r.accession}` → {run_summary}")
+    lines.append("")
+    if excluded_accessions:
+        lines.append("## Excluded from samplesheet (ENA missing)")
+        lines.append("")
+        for acc in excluded_accessions:
+            lines.append(f"- `{acc}` — see fetchngs_samplesheet.csv to backfill via nf-core/fetchngs")
+        lines.append("")
+    lines.append("## Tower / Seqera")
+    lines.append("")
+    if not tower_env_complete:
+        lines.append(
+            "- Tower env not configured — only `samplesheet.csv` was emitted. "
+            "Set `TOWER_ACCESS_TOKEN`, `TOWER_WORKSPACE_ID`, `SEQERA_COMPUTE_ENV`, "
+            "and `SEQERA_WORK_BUCKET` to also emit `params.yml` + `launch.yml`."
+        )
+    elif submitted:
+        lines.append("- Submitted via seqerakit. Run URLs:")
+        for url in run_urls:
+            lines.append(f"  - {url}")
+    else:
+        lines.append("- Run manually: `seqerakit launch.yml`")
+    if extra_notes:
+        lines.append("")
+        lines.append("## Other notes")
+        lines.append("")
+        for n in extra_notes:
+            lines.append(f"- {n}")
+    return "\n".join(lines) + "\n"
+
+
+def write_combined_launch_yml(parent_dir: str | Path, launch_entries: Sequence[Mapping[str, Any]]) -> str | None:
+    """Write a top-level launch.yml at parent_dir containing all cohort entries.
+    Returns the written path, or None if there are no entries."""
+    entries = [dict(e) for e in launch_entries if e]
+    if not entries:
+        return None
+    p = Path(parent_dir) / "launch.yml"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(_yaml_dump({"launch": entries}), encoding="utf-8")
+    return str(p)
+
+
+def emit_nfcore_artifacts(
+    out_dir: str | Path,
+    *,
+    pipeline: str,
+    samplesheet_rows: Sequence[Mapping[str, Any]],
+    resolutions: Sequence[ENAResolution],
+    launch_plan: Mapping[str, Any] | None,
+    tower_env: Mapping[str, Any] | None,
+    selector_rationale: str = "",
+    enrichment_fields: Sequence[str] | None = None,
+    accession_metadata: Mapping[str, Mapping[str, Any]] | None = None,
+    extra_notes: Sequence[str] | None = None,
+    samplesheet_relative_dir: str = ".",
+    write_launch_yml: bool = True,
+) -> EmissionResult:
+    """Write all nf-core artifacts. Always writes samplesheet.csv + notes.md.
+    Writes params.yml + launch.yml + (optionally) fetchngs_samplesheet.csv only
+    when `tower_env` is complete (caller decides; pass None or {} to skip).
+
+    `launch_plan` should be a SeqeraLaunchPlan model_dump() or equivalent dict;
+    only consulted when emitting params.yml + launch.yml.
+    """
+    out_path = Path(out_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    result = EmissionResult(out_dir=str(out_path))
+
+    entry = get_pipeline_entry(pipeline)
+    required = entry.get("required_columns") or []
+    enrichment = list(enrichment_fields or [])
+
+    # Build a deterministic accession → ENA URL map. Run accessions are 1:1.
+    # For experiment/study/biosample/biosample-prefixed accessions that resolve
+    # to multiple runs, we emit one row per run (LLM-side "accession" maps to
+    # the run accession too — see _walk_runs below).
+    acc_to_runs: dict[str, list[ENARun]] = {}
+    for r in resolutions:
+        if r.missing:
+            continue
+        acc_to_runs[r.accession] = list(r.runs)
+        # Also index by the run_accession so a row whose accession is the SRR
+        # itself can map directly even if the resolution was queried by SRX/PRJ.
+        for run in r.runs:
+            if run.run_accession and run.run_accession not in acc_to_runs:
+                acc_to_runs[run.run_accession] = [run]
+
+    excluded: list[str] = [r.accession for r in resolutions if r.missing]
+
+    # --- samplesheet.csv: rewrite fastq_1/fastq_2 from ENA + stamp enrichment values ---
+    accession_metadata = dict(accession_metadata or {})
+    keep_rows: list[dict[str, Any]] = []
+    for row in samplesheet_rows or []:
+        acc = row.get("accession") or row.get("Accession") or row.get("ena_accession")
+        if acc:
+            acc_str = str(acc).strip()
+            runs = acc_to_runs.get(acc_str)
+            if not runs:
+                continue
+            sample_meta = accession_metadata.get(acc_str) or {}
+            for run in runs:
+                rewritten = dict(row)
+                rewritten["accession"] = acc_str
+                rewritten["run_accession"] = run.run_accession
+                rewritten["fastq_1"] = run.fastq_1 or ""
+                rewritten["fastq_2"] = run.fastq_2 or ""
+                if run.layout and "library_layout" not in rewritten:
+                    rewritten["library_layout"] = run.layout
+                # Stamp enrichment columns from the source metadata. The LLM is
+                # not trusted for these — we look them up authoritatively.
+                for field in enrichment:
+                    value = sample_meta.get(field)
+                    rewritten[field] = "" if value is None else value
+                keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
+        else:
+            keep_rows.append(_remap_row_for_pipeline(row, pipeline))
+
+    columns = _ensure_columns(keep_rows, required, enrichment)
+    samplesheet_path = out_path / "samplesheet.csv"
+    _write_csv(samplesheet_path, keep_rows, columns)
+    result.saved_files["samplesheet"] = str(samplesheet_path)
+    result.samplesheet_row_count = len(keep_rows)
+    result.excluded_accessions = excluded
+
+    tower_complete = bool(tower_env and all(
+        tower_env.get(k) for k in ("access_token", "workspace", "compute_env", "work_bucket")
+    ))
+
+    if tower_complete and launch_plan:
+        # --- fetchngs fallback samplesheet
+        if excluded:
+            fetchngs_path = out_path / "fetchngs_samplesheet.csv"
+            _write_csv(
+                fetchngs_path,
+                [{"accession": acc} for acc in excluded],
+                ["accession"],
+            )
+            result.saved_files["fetchngs_samplesheet"] = str(fetchngs_path)
+
+        run_name = (launch_plan.get("run_name") or f"{pipeline}-run").strip() or f"{pipeline}-run"
+        outdir_suffix = launch_plan.get("outdir_suffix") or run_name
+        work_dir_suffix = launch_plan.get("work_dir_suffix") or run_name
+
+        # Resolve where Tower's compute env will read the samplesheet from.
+        # Three modes:
+        #  1. SEQERA_INPUT_DIR set → stage to <input_dir>/<run_name>/, use absolute path.
+        #  2. SEQERA_WORK_BUCKET looks like a local-fs path → stage to <work_bucket>/inputs/<run_name>/.
+        #  3. work_bucket is a remote URI (s3://, gs://, az://) and no input_dir → fall back to
+        #     relative path; caller must arrange staging or use Tower datasets.
+        input_dir_root = (tower_env.get("input_dir") or "").strip()
+        work_bucket_str = str(tower_env.get("work_bucket") or "").rstrip("/")
+        is_remote_bucket = work_bucket_str.startswith(("s3://", "gs://", "az://"))
+        if not input_dir_root and not is_remote_bucket and work_bucket_str:
+            input_dir_root = f"{work_bucket_str}/inputs"
+        rel_dir = (samplesheet_relative_dir or ".").strip()
+
+        # Track staged paths so the fetchngs fallback can reuse them.
+        staged_sheet_path: str | None = None
+        staged_fetchngs_path: str | None = None
+        # Local-FS staging first, fall through to Tower dataset upload.
+        if input_dir_root:
+            staged_dir = Path(input_dir_root) / run_name
+            staged_sheet = staged_dir / "samplesheet.csv"
+            try:
+                staged_dir.mkdir(parents=True, exist_ok=True)
+                staged_sheet.write_text(samplesheet_path.read_text(encoding="utf-8"), encoding="utf-8")
+                staged_sheet_path = str(staged_sheet)
+                sheet_ref = staged_sheet_path
+                result.saved_files["staged_samplesheet"] = staged_sheet_path
+                if excluded:
+                    fetchngs_local = out_path / "fetchngs_samplesheet.csv"
+                    if fetchngs_local.exists():
+                        staged_fetchngs = staged_dir / "fetchngs_samplesheet.csv"
+                        staged_fetchngs.write_text(
+                            fetchngs_local.read_text(encoding="utf-8"), encoding="utf-8"
+                        )
+                        staged_fetchngs_path = str(staged_fetchngs)
+                        result.saved_files["staged_fetchngs_samplesheet"] = staged_fetchngs_path
+                print(f"[SEQERA][EMITTER] staged samplesheet at {staged_sheet_path}")
+            except OSError as e:
+                # Local mount not writable (e.g., chat_nextseek host lacks /orcd).
+                # Fall through to Tower dataset upload.
+                print(
+                    f"[SEQERA][EMITTER] local staging to {staged_dir} failed ({e!r}); "
+                    "falling back to Tower dataset upload."
+                )
+                staged_sheet_path = None
+
+        if not staged_sheet_path:
+            # Tower dataset upload — works regardless of filesystem topology.
+            sheet_ref = _upload_to_tower_dataset(
+                samplesheet_path=samplesheet_path,
+                tower_env=tower_env,
+                run_name=run_name,
+                cohort_label=samplesheet_relative_dir if samplesheet_relative_dir != "." else None,
+                kind="samplesheet",
+                result=result,
+                fallback_rel_dir=rel_dir,
+            )
+            if excluded:
+                fetchngs_local = out_path / "fetchngs_samplesheet.csv"
+                if fetchngs_local.exists():
+                    staged_fetchngs_path = _upload_to_tower_dataset(
+                        samplesheet_path=fetchngs_local,
+                        tower_env=tower_env,
+                        run_name=run_name,
+                        cohort_label=samplesheet_relative_dir if samplesheet_relative_dir != "." else None,
+                        kind="fetchngs",
+                        result=result,
+                        fallback_rel_dir=rel_dir,
+                    )
+
+        params: dict[str, Any] = dict(launch_plan.get("params") or {})
+        params.setdefault("input", sheet_ref)
+        params.setdefault("outdir", f"{work_bucket_str}/results/{outdir_suffix}")
+        if entry.get("default_genome") and "genome" not in params:
+            params["genome"] = entry["default_genome"]
+
+        params_path = out_path / "params.yml"
+        params_path.write_text(_yaml_dump(params), encoding="utf-8")
+        result.saved_files["params"] = str(params_path)
+
+        params_file_ref = f"{rel_dir}/params.yml" if rel_dir != "." else "./params.yml"
+        # Profile precedence: explicit launch_plan > deployment env override > catalog default > "docker"
+        resolved_profile = (
+            launch_plan.get("profile")
+            or tower_env.get("default_profile")
+            or entry.get("default_profile")
+            or "docker"
+        )
+        primary_entry = {
+            "name": run_name,
+            "workspace": tower_env["workspace"],
+            "compute-env": tower_env["compute_env"],
+            "pipeline": entry["repo"],
+            "revision": launch_plan.get("pipeline_revision") or entry.get("default_revision"),
+            "profile": resolved_profile,
+            "work-dir": f"{tower_env['work_bucket'].rstrip('/')}/work/{work_dir_suffix}",
+            "params-file": params_file_ref,
+        }
+        result.launch_entry = primary_entry
+
+        if excluded:
+            fetchngs_entry_meta = get_pipeline_entry("fetchngs")
+            fetchngs_params_path = out_path / "fetchngs_params.yml"
+            fetchngs_sheet_ref = staged_fetchngs_path or (
+                f"{rel_dir}/fetchngs_samplesheet.csv"
+                if rel_dir != "." else "./fetchngs_samplesheet.csv"
+            )
+            fetchngs_params_ref = (
+                f"{rel_dir}/fetchngs_params.yml" if rel_dir != "." else "./fetchngs_params.yml"
+            )
+            fetchngs_params = {
+                "input": fetchngs_sheet_ref,
+                "outdir": f"{work_bucket_str}/results/{outdir_suffix}-fetchngs",
+                "nf_core_pipeline": pipeline,
+            }
+            fetchngs_params_path.write_text(_yaml_dump(fetchngs_params), encoding="utf-8")
+            result.saved_files["fetchngs_params"] = str(fetchngs_params_path)
+            result.fetchngs_launch_entry = {
+                "name": f"{run_name}-fetchngs-fallback",
+                "workspace": tower_env["workspace"],
+                "compute-env": tower_env["compute_env"],
+                "pipeline": fetchngs_entry_meta["repo"],
+                "revision": fetchngs_entry_meta.get("default_revision"),
+                "profile": resolved_profile,
+                "work-dir": f"{tower_env['work_bucket'].rstrip('/')}/work/{work_dir_suffix}-fetchngs",
+                "params-file": fetchngs_params_ref,
+            }
+
+        if write_launch_yml:
+            launch_entries = [primary_entry]
+            if result.fetchngs_launch_entry:
+                launch_entries.append(result.fetchngs_launch_entry)
+            launch_path = out_path / "launch.yml"
+            launch_path.write_text(_yaml_dump({"launch": launch_entries}), encoding="utf-8")
+            result.saved_files["launch"] = str(launch_path)
+
+    notes_md = _build_notes_md(
+        pipeline=pipeline,
+        selector_rationale=selector_rationale,
+        resolutions=resolutions,
+        excluded_accessions=excluded,
+        tower_env_complete=tower_complete,
+        submitted=False,
+        run_urls=[],
+        extra_notes=extra_notes or [],
+    )
+    notes_path = out_path / "notes.md"
+    notes_path.write_text(notes_md, encoding="utf-8")
+    result.saved_files["notes"] = str(notes_path)
+    result.notes.append(
+        "Tower env complete" if tower_complete else "Tower env incomplete (samplesheet-only mode)"
+    )
+    return result

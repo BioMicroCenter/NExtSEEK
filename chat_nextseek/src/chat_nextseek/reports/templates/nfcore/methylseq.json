@@ -1,0 +1,35 @@
+{
+  "report_type": "NFCORE_METHYLSEQ_SAMPLESHEET",
+  "description": "nf-core/methylseq samplesheet context for WGBS / RRBS / EM-seq analyses.",
+  "pipeline": {
+    "name": "nf-core/methylseq",
+    "repository": "https://github.com/nf-core/methylseq",
+    "documentation_url": "https://nf-co.re/methylseq/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Required columns: sample, fastq_1, fastq_2.",
+    "required_columns": [
+      "sample",
+      "fastq_1",
+      "fastq_2"
+    ],
+    "optional_columns": []
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null
+    }
+  ],
+  "validation_rules": [
+    "fastq_1/fastq_2 may be HTTPS URLs (ENA mirror) or local paths.",
+    "Single-end libraries leave fastq_2 blank but retain the column header.",
+    "Methylation kit/protocol (e.g., bismark vs bwameth) is selected via pipeline params, not the samplesheet."
+  ],
+  "report_writer_guidance": {
+    "population_priority": [
+      "One row per library/run; combine lanes by repeating the sample value.",
+      "Carry NExtSEEK metadata into treatment/tissue/donor/condition columns."
+    ]
+  }
+}

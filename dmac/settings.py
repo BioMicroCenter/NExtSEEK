@@ -6,131 +6,53 @@ from django import VERSION as DJANGO_VERSION
 from django.utils.translation import gettext_lazy as _
 
 
-######################
-# MEZZANINE SETTINGS #
-######################
-
-# The following settings are already defined with default values in
-# the ``defaults.py`` module within each of Mezzanine's apps, but are
-# common enough to be put here, commented out, for conveniently
-# overriding. Please consult the settings documentation for a full list
-# of settings Mezzanine implements:
-# http://mezzanine.jupo.org/docs/configuration.html#default-settings
-
-# Controls the ordering and grouping of the admin menu.
-#
-# ADMIN_MENU_ORDER = (
-#     ("Content", ("pages.Page", "blog.BlogPost",
-#        "generic.ThreadedComment", (_("Media Library"), "media-library"),)),
-#     ("Site", ("sites.Site", "redirects.Redirect", "conf.Setting")),
-#     ("Users", ("auth.User", "auth.Group",)),
-# )
-
-# A three item sequence, each containing a sequence of template tags
-# used to render the admin dashboard.
-#
-# DASHBOARD_TAGS = (
-#     ("blog_tags.quick_blog", "mezzanine_tags.app_list"),
-#     ("comment_tags.recent_comments",),
-#     ("mezzanine_tags.recent_actions",),
-# )
-
-# A sequence of templates used by the ``page_menu`` template tag. Each
-# item in the sequence is a three item sequence, containing a unique ID
-# for the template, a label for the template, and the template path.
-# These templates are then available for selection when editing which
-# menus a page should appear in. Note that if a menu template is used
-# that doesn't appear in this setting, all pages will appear in it.
-
-# PAGE_MENU_TEMPLATES = (
-#     (1, _("Top navigation bar"), "pages/menus/dropdown.html"),
-#     (2, _("Left-hand tree"), "pages/menus/tree.html"),
-#     (3, _("Footer"), "pages/menus/footer.html"),
-# )
-
-# A sequence of fields that will be injected into Mezzanine's (or any
-# library's) models. Each item in the sequence is a four item sequence.
-# The first two items are the dotted path to the model and its field
-# name to be added, and the dotted path to the field class to use for
-# the field. The third and fourth items are a sequence of positional
-# args and a dictionary of keyword args, to use when creating the
-# field instance. When specifying the field class, the path
-# ``django.models.db.`` can be omitted for regular Django model fields.
-#
-# EXTRA_MODEL_FIELDS = (
-#     (
-#         # Dotted path to field.
-#         "mezzanine.blog.models.BlogPost.image",
-#         # Dotted path to field class.
-#         "somelib.fields.ImageField",
-#         # Positional args for field class.
-#         (_("Image"),),
-#         # Keyword args for field class.
-#         {"blank": True, "upload_to": "blog"},
-#     ),
-#     # Example of adding a field to *all* of Mezzanine's content types:
-#     (
-#         "mezzanine.pages.models.Page.another_field",
-#         "IntegerField", # 'django.db.models.' is implied if path is omitted.
-#         (_("Another name"),),
-#         {"blank": True, "default": 1},
-#     ),
-# )
-
-# Setting to turn on featured images for blog posts. Defaults to False.
-#
-# BLOG_USE_FEATURED_IMAGE = True
-
-# If True, the django-modeltranslation will be added to the
-# INSTALLED_APPS setting.
-USE_MODELTRANSLATION = False
-
 ########################
 # MAIN DJANGO SETTINGS #
 ########################
 
+DEBUG = os.getenv("DJANGO_DEBUG", False)
 
-# Local time zone for this installation. Choices can be found here:
-# http://en.wikipedia.org/wiki/List_of_tz_zones_by_name
-# although not all choices may be available on all operating systems.
-# On Unix systems, a value of None will cause Django to use the same
-# timezone as the operating system.
-# If running in a Windows environment this must be set to the same as your
-# system time zone.
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
+
+SESSION_COOKIE_DOMAIN = os.getenv('DJANGO_SESSION_COOKIE_DOMAIN', None)
+
+ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '').split(' ')
+
+CSRF_TRUSTED_ORIGINS = os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(' ')
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.mysql",
+        "NAME": os.getenv("NEXTSEEK_MYSQL_DATABASE"),
+        "USER": os.getenv("MYSQL_USER"),
+        "PASSWORD": os.getenv("MYSQL_PASSWORD"),
+        "HOST": os.getenv("MYSQL_HOST"),
+        "PORT": "3306",
+    },
+
+    "seek": {
+        "ENGINE": "django.db.backends.mysql",
+        "NAME": os.getenv("MYSQL_DATABASE"),
+        "USER": os.getenv("MYSQL_USER"),
+        "PASSWORD": os.getenv("MYSQL_PASSWORD"),
+        "HOST": os.getenv("MYSQL_HOST"),
+        "PORT": "3306",
+    }
+}
+
 TIME_ZONE = 'UTC'
-
-# If you set this to True, Django will use timezone-aware datetimes.
 USE_TZ = True
-
-# Language code for this installation. All choices can be found here:
-# http://www.i18nguy.com/unicode/language-identifiers.html
 LANGUAGE_CODE = "en"
-
-# Supported languages
 LANGUAGES = (
     ('en', _('English')),
 )
-
-# A boolean that turns on/off debug mode. When set to ``True``, stack traces
-# are displayed for error pages. Should always be set to ``False`` in
-# production. Best set to ``True`` in local_settings.py
-DEBUG = False
-
-# Whether a user's session cookie expires when the Web browser is closed.
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SITE_ID = 1
-
-# If you set this to False, Django will make some optimizations so as not
-# to load the internationalization machinery.
 USE_I18N = False
-#USE_I18N = True
 
-# https://stackoverflow.com/questions/15965589/django-unicodedecodeerror-at-accounts-profiledetails-utf8-codec-cant-deco
 FILE_CHARSET = "utf-8"
 AUTHENTICATION_BACKENDS = ("mezzanine.core.auth_backends.MezzanineBackend",)
 
-# The numeric mode to set newly-uploaded files to. The value should be
-# a mode you'd pass directly to os.chmod.
 FILE_UPLOAD_PERMISSIONS = 0o644
 
 #########
@@ -147,9 +69,25 @@ PROJECT_ROOT = BASE_DIR = os.path.dirname(PROJECT_APP_PATH)
 # project specific.
 CACHE_MIDDLEWARE_KEY_PREFIX = PROJECT_APP
 
+# Absolute path to the directory static files should be collected to.
+# Don't put anything in this directory yourself; store your static files
+# in apps' "static/" subdirectories and in STATICFILES_DIRS.
+# Example: "/home/media/media.lawrence.com/static/"
+STATIC_ROOT = "/static"
+
 # URL prefix for static files.
 # Example: "http://media.lawrence.com/static/"
 STATIC_URL = "/static/"
+
+
+STATICFILES_DIRS = [
+    "/app/themes/NextSeek/static",
+    "/app/static"
+]
+
+# Absolute filesystem path to the directory that will hold user-uploaded files.
+# Example: "/home/media/media.lawrence.com/media/"
+MEDIA_ROOT = "/media"
 
 # URL that handles the media served from MEDIA_ROOT. Make sure to use a
 # trailing slash.
@@ -163,7 +101,7 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [
-            os.path.join(PROJECT_ROOT, "themes.SmartAdmin.templates"),
+            os.path.join(PROJECT_ROOT, "themes", "NextSeek", "templates"),
         ],
         "OPTIONS": {
             "context_processors": [
@@ -196,7 +134,7 @@ if DJANGO_VERSION < (1, 9):
 
 INSTALLED_APPS = (
     "seek",
-    "themes.SmartAdmin",
+    "themes.NextSeek",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -338,6 +276,12 @@ STORAGES = {
 		"BACKEND": "django.core.files.storage.FileSystemStorage",
 	},
 	"staticfiles": {
+		# Reverted from ManifestStaticFilesStorage on 2026-05-12 because the
+		# vendored jquery-easyui-1.5.2/ tree isn't reachable by collectstatic
+		# in this layout, and the manifest backend raises ValueError on any
+		# {% static %} reference missing from the manifest. See v2 spec
+		# section 2.1 — proper fix is to either ship a curated STATICFILES_DIRS
+		# that includes easyui, or use a manifest_strict=False subclass.
 		"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
 	},
 }
@@ -346,42 +290,8 @@ DATABASE_ROUTERS = ['seek.dbrouters.CustomRouter']
 
 ACCOUNTS_PROFILE_MODEL = "seek.User_profile"
 
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'verbose': {
-            'format': "%(asctime)s %(levelname)s %(message)s",
-            'datefmt': "%a, %d %b %Y %H:%M:%S"
-        },
-    },
-    'handlers': {
-        'logfile': {
-            'level': 'DEBUG',
-            'class': 'logging.FileHandler',
-            'filename': 'django.log',
-            'formatter': 'verbose'
-        },
-        'nextseekfile': {
-            'level': 'DEBUG',
-            'class': 'logging.FileHandler',
-            'filename': 'nextseek.log',
-            'formatter': 'verbose'
-        },
-    },
-    'loggers': {
-        'django': {
-            'handlers':['logfile'],
-            'propagate': True,
-            'level':'DEBUG',
-        },
-        'dmac': {
-            'handlers':['nextseekfile'],
-            'propagate': True,
-            'level':'DEBUG',
-        },
-    }
-}
+LOG_DIR = os.getenv("LOG_DIR", "/app/logs")
+os.makedirs(LOG_DIR, exist_ok=True)
 
 LOGGING = {
     'version': 1,
@@ -396,19 +306,25 @@ LOGGING = {
         'django_crontab': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'django_crontab.log',
+            'filename': os.path.join(LOG_DIR, 'django_crontab.log'),
             'formatter': 'verbose'
         },
         'logfile': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'django.log',
-            'formatter': 'verbose' 
+            'filename': os.path.join(LOG_DIR, 'django.log'),
+            'formatter': 'verbose'
         },
         'seekfile': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'seek.log',
+            'filename': os.path.join(LOG_DIR, 'seek.log'),
+            'formatter': 'verbose'
+        },
+        'nextseekfile': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(LOG_DIR, 'nextseek.log'),
             'formatter': 'verbose'
         },
     },
@@ -423,11 +339,19 @@ LOGGING = {
             'propagate': True,
             'level':'DEBUG',
         },
+        'django.utils.autoreload': {
+          'level': 'INFO'  
+        },
         'seek': {
             'handlers':['seekfile'],
             'propagate': True,
             'level':'DEBUG', 
-        }
+        },
+        'dmac': {
+            'handlers':['nextseekfile'],
+            'propagate': True,
+            'level':'DEBUG',
+        },
     },
 }
 
@@ -442,6 +366,11 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
+
+
+##############################
+# NExtSEEK-specific settings #
+##############################
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "NExtSEEK API",
@@ -499,3 +428,28 @@ os.makedirs(SCHEMA_RAG_EMBEDDING_MODEL_PATH, exist_ok=True)
 # Maximum total size (in bytes) for all files in a single batch upload request.
 # Default: 200 MB. Override via environment variable.
 BATCH_UPLOAD_MAX_TOTAL_BYTES = int(os.getenv("BATCH_UPLOAD_MAX_TOTAL_BYTES", 200 * 1024 * 1024))
+
+NEO4J_DATABASE = {
+    "NAME": "neo4j",
+    "URI": "neo4j://" + os.getenv("NEXTSEEK_NEO4J_HOST"),
+    "AUTH": ("neo4j",os.getenv("NEXTSEEK_NEO4J_PASSWORD"))
+}
+
+NEXTSEEK_DATABASE = "default"
+SEEK_DATABASE = "seek"
+
+SERVER_IPADDRESS = os.getenv("NEXTSEEK_HOSTNAME")
+
+SEEK_HOSTNAME = os.getenv("SEEK_HOSTNAME")
+SEEK_SERVER = os.getenv("SEEK_HOST")
+SEEK_URL = "http://" + SEEK_SERVER + ":3000"
+SEEK_JS_URL = SEEK_SERVER
+
+VIRTUOSO_URL = "http://" + SEEK_SERVER + ":8890/sparql/"
+VIRTUOSO_JS_URL = "http://" + SEEK_SERVER + ":8890/sparql"
+
+SEEK_DATAFILE_SERVER = 'https://' + SERVER_IPADDRESS
+SEEK_DATAFILE_ROOT = MEDIA_ROOT + "/uploads/production/"
+SEEK_DATAFILE_ROOT_WEBLINK = MEDIA_URL + "uploads/production/"
+
+ACCOUNTS_PROFILE_MODEL = "seek.User_profile"

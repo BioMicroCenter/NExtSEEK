@@ -470,16 +470,16 @@ class ProjectIndexItem(BaseModel):
     id: str
     type: Literal['projects']
     attributes: ProjectIndexAttributes
-    links: Links
+    links: Optional[Links] = None
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
 
 class ProjectListResponse(BaseModel):
     data: List[ProjectIndexItem]
-    jsonapi: JsonApiVersion
-    links: IndexLinks
-    meta: BaseMeta
+    jsonapi: Optional[JsonApiVersion] = None
+    links: Optional[IndexLinks] = None
+    meta: Optional[BaseMeta] = None
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 

@@ -1,3 +1,4 @@
+{% load static %}
 <div style="height:100%;" id="tree_container">
     {% csrf_token %}
     <div id="loading-spinner">Loading...</div>
@@ -8,4 +9,4 @@
         </g>
     </svg>
 </div>
-<script type="module" src="/static/js/dag/dag.js"></script>
+<script type="module" src="{% static 'js/dag/dag.js' %}"></script>

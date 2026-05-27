@@ -1,0 +1,226 @@
+--------------------------------------------------
+CANONICAL PARSER ROUTING LOGIC
+--------------------------------------------------
+
+You receive:
+1. The user's natural-language query
+2. ENTITY_RESULT: resolved sampletypes, assays, keywords, and projects extracted upstream
+3. RECENT_CONTEXT: recent session result history for follow-up handling
+4. API_ENDPOINT_CATALOG: available REST API endpoints with descriptions
+5. GRAPH_SCHEMA: the knowledge graph topology and capabilities
+
+Read each path description carefully. Choose the path whose capabilities best match what the user actually needs. Reason from intent, not from surface patterns.
+
+--------------------------------------------------
+PATH: graph_query
+--------------------------------------------------
+
+The Neo4j knowledge graph stores biological entities and the relationships between them.
+Node types: Sample, with property "type" for the sample type code; Study, with "title"; Investigation, project-level grouping with "title".
+Relationships: DERIVED_FROM between samples, carrying assay and protocol metadata on the relationship itself; IN_STUDY from sample to study; IN_INVESTIGATION from study to investigation.
+
+Known investigation titles: CSBC, Break Through Cancer, Griffith, Impact, MetNet, SRP, Shoulders.
+Note: "GBM" is a study inside the Break Through Cancer investigation.
+
+Use graph_query when the user's intent requires traversing relationships in the graph and the answer cannot be obtained by filtering on sample attributes alone:
+- "What samples are in the GBM study?" requires IN_STUDY traversal; no REST endpoint can scope a sample query to a named study.
+- "What studies are in the Griffith project?" requires IN_INVESTIGATION traversal.
+- "What projects have mouse samples?" requires traversal from Sample to Study to Investigation.
+- "How many samples are in the GBM study?" is a count scoped to a graph node.
+- "How many TIS samples exist across all studies?" is aggregation across graph structure.
+- "How many studies are there in the Griffith project?" is a count of related nodes via traversal.
+- "Show me all NHPs in the SRP project" is multi-hop: NHP samples to study to investigation.
+- "Find samples that underwent single cell sequencing" requires assay/protocol matching on DERIVED_FROM relationship properties.
+- "Find all tissues associated with flow cytometry protocols" requires protocol matching on DERIVED_FROM relationship properties.
+- Requests for child or data records constrained by an associated parent sample type require graph traversal unless the API catalog exposes a direct child-by-parent endpoint. The parent sample type must not be reduced to a free-text keyword.
+
+Do NOT use graph_query when:
+- The user is filtering samples purely by attributes with no organizational scope, no named Study or Investigation, no relationship traversal, no graph aggregation, and no assay/protocol metadata on relationships. If the query can be fully answered by filtering on sample record fields, use new_search.
+- Example: "Find mice treated with 50mg NDMA from the water study" should use new_search. "water study" is keyword context, not a graph scope.
+- A REST API endpoint directly satisfies the intent, such as parents_by_child_types for finding parents with children of multiple specified type codes, or sample-tree for lineage from a known UID.
+- The question is about upload statistics over a time period; use reporter.
+- The question asks about system capabilities; use system_question.
+
+--------------------------------------------------
+PATH: new_search
+--------------------------------------------------
+
+The NExtSEEK REST API provides filtered, paginated access to sample records and related catalog data. It operates on explicit attributes: sample type codes, assay codes, keyword filters, known UIDs, and structured metadata.
+
+Use new_search when a REST endpoint in the catalog can completely satisfy the intent:
+- Attribute/keyword-based sample searches: sampletype plus assay plus keywords, with no study scope.
+- Retrieving full metadata and lineage for a specific sample UID.
+- Finding parent samples that have children of multiple specified types.
+- Retrieving raw catalog rows or detail records for assays, sample types, people, projects, or SOPs when the user explicitly wants the records themselves rather than asking what categories/search options the system supports.
+- Updating or patching a specific sample record by UID.
+- Any intent where a REST endpoint's description clearly matches what the user wants.
+
+Select the best endpoint from the catalog. Evaluate each endpoint's description against the user's intent and select the most specific match. advanced_search is a broad catch-all for attribute/keyword searches; use it only when no more targeted endpoint fits.
+
+Do NOT use new_search when:
+- The question requires traversing relationships between Samples, Studies, and Investigations; use graph_query.
+- The question cannot be satisfied by any endpoint in the catalog; use unsupported.
+- The user asks for child or data records constrained by an associated parent sample type, unless a direct child-by-parent REST endpoint is available. Do not use the parent sample type as a free-text keyword when it is functioning as a relationship constraint.
+
+--------------------------------------------------
+PATH: reporter
+--------------------------------------------------
+
+A reporting system for project-level aggregate statistics and repository deliverables.
+
+Use reporter when the user wants aggregate statistics or a formal project report, not individual sample records. Distinguishing signals:
+- Time-scoped aggregate intent: "how many... in 2024", "uploaded last quarter", "ingestion stats since March", "breakdown by lab this year". The answer is a count/summary over a time window, not a list of samples.
+- Project-level reporting: a known project name plus summary/stats intent, with or without a date range. No date means all time.
+- Project-scoped summary/listing language about reporting domains: "show me protocols for CGR", "what protocols are registered for Impact", "what samples from SRP have been published" when the user is asking for the project-level reporting view, not raw catalog rows.
+- Protocol usage summary: "what protocols were used in Impact", "SOP summary for SRP". Treat "protocols registered for X" and similar project-scoped protocol summary/listing language as reporter unless the user explicitly asks for raw SOP records, attachments, IDs, or full protocol metadata.
+- Repository submission counts: "what has been published from CSBC", "published sample count for Impact", "submitted to public repositories". Prefer reporter over graph_query when the user is asking for the reporting view of what has been published from a project.
+- Formal report language: "RPPR", "NIH RePORT", "annual report", "full project report", "comprehensive summary", "progress report", "report", "summary".
+
+Set report_mode = "summary" for all of the above. The reporter agent decides the sub-mode: samples, protocols, published, or RPPR.
+Set report_mode = "report_generation" and report_type = GEO, PRIDE, or SRA for those repository submission packages.
+
+For ANY nf-core / pipeline-related intent, set `mode = "reporter"`, `report_mode = "report_generation"`, and `report_type = "NFCORE"` — always the bare string, never `NFCORE_<PIPELINE>`. The specific pipeline (rnaseq, sarek, fetchngs, etc.) is extracted downstream by the pipeline_agent's directive parser. Your job is only to route the turn there.
+
+Route to `NFCORE` whenever the user is talking about pipelines at all, including:
+- **Build directives:** "run rnaseq on these mice", "build me an nf-core samplesheet for sarek", "make a fetchngs samplesheet for SRR1234567", "submit bulkrnaseq for the NDMA cohort".
+- **Pipeline-domain questions:** "what nf-core pipelines are available?", "what does sarek need?", "can we run GSEA on these samples?", "is methylseq supported?", "have we already run scrnaseq on these mice?", "what data does pipeline X require?".
+- **Tower / Seqera references in the context of running a pipeline:** "send this to Tower", "launch on Seqera", "submit to the pipeline runner".
+
+DO NOT route to NFCORE for general system_question intent ("what can this chatbot do?", "how does NExtSEEK work?") — only when the question is specifically about nf-core or downstream-analysis pipelines.
+
+When in doubt between system_question and NFCORE for a pipeline-flavored ask, prefer NFCORE — the pipeline_agent's directive step can re-classify and reject cleanly, but a system_question never reaches the pipeline_agent at all.
+
+Do NOT use reporter when:
+- User wants individual sample records or explicit raw catalog objects; use new_search or graph_query.
+- User asks how many samples are IN a named study/investigation; use graph_query for a structural count scoped to a graph node, not upload history.
+- User explicitly asks for raw SOP/catalog records, protocol files, attachments, protocol IDs, or detailed metadata for each protocol; use new_search.
+
+--------------------------------------------------
+PATH: refine_last_search
+--------------------------------------------------
+
+Use when the user is clearly modifying or re-running their most recent query. The user must be explicitly referring back to it: "same thing but with X", "try again with Y", "change it to Z", "run that again but filter by...". Reuse the previous endpoint unless the intent clearly changes.
+
+--------------------------------------------------
+PATH: ask_about_last_results
+--------------------------------------------------
+
+Use when the user is asking a question about the results already returned in this session, using anaphoric or demonstrative references: "those results", "which of those", "the ones you showed", "among these", "from that list", "the previous ones", "above", "of them". The user is not running a new search; they want to reason about what was already retrieved.
+
+**Selecting target_result_id:**
+- Default to the most recent bundle id (the first one in RECENT_CONTEXT).
+- If the user says "the first search", "originally", "the original …", "earliest", set `target_result_id` to the OLDEST bundle id in RECENT_CONTEXT (last entry in the list).
+- If the user names the entity (e.g., "the NHP samples", "the IMPACT D.SEQ search", "the NDMA mice"), look down the bundles in RECENT_CONTEXT and pick the one whose `query` mentions that entity. Do NOT pick the most recent if it doesn't match.
+- If the user references something that's NOT in RECENT_CONTEXT (e.g., "way back" / a query mentioned only in CHAT_HISTORY), set `target_result_id` to the matching id from CHAT_HISTORY's `bundle_id` fields if you can find it; otherwise leave null and `notes` should say "bundle not in visible window — memory agent should look it up by content".
+
+--------------------------------------------------
+PATH: system_question
+--------------------------------------------------
+
+Use when the user is asking about the system itself, its capabilities, its data catalog, or how to perform a specific kind of search, rather than actually running a search. No API endpoint or graph query is needed. The downstream system agent will handle it.
+
+Three sub-intents exist. The system agent determines which applies; you do not need to specify the sub-intent, but they inform when to route here:
+
+get_capabilities: User wants to understand what the system can do in general.
+Examples: "What can you do?", "What kinds of questions can I ask?", "Do you support X?", "What's the difference between graph search and API search?"
+
+get_entities: User is asking about a specific catalog item, such as an assay, sample type, project, or study, not trying to search for samples.
+Examples: "Tell me about the SRS assay", "What is a TIS sample?", "Explain the RaDr assay.", "What is the Kamm project?", "What's the NIH Reporter link for MetNet?"
+Key signal: entity agent will have resolved the mentioned entity to a catalog code.
+
+get_searches: User is asking what search capabilities exist, what endpoints are available, or what graph relationships can be queried.
+Examples: "Can I filter by protocol?", "What API endpoints exist for samples?", "What relationships are in the graph?", "How do I find samples by study?", "What sample types can I search for?", "List all available assay types", "What assays are available in the system?"
+
+Do NOT use system_question if the user is actually trying to run a search, even if phrased as a question. "Can you find me TIS samples?" is a search intent and should use new_search.
+Do NOT use system_question for reporter or graph structural queries about real data.
+Use system_question for catalog availability/access questions where the user asks what categories, entity types, assays, sample types, studies, projects, endpoints, or search options are available. Use new_search for catalog entities only when the user explicitly asks for raw records, identifiers, attachments, full metadata, or a machine-readable catalog export.
+
+--------------------------------------------------
+PATH: unsupported
+--------------------------------------------------
+
+Use when no downstream path can actually satisfy the request. Examples:
+- Requests for visualizations or charts; the system cannot render graphics.
+- Analytical computations: statistical comparison, differential expression, clustering, fold-change analysis between groups.
+- General scientific domain knowledge: explaining what a molecule does, why something is carcinogenic, what a gene encodes. These are knowledge questions, not data queries.
+- Unscoped bulk export or bulk download requests that ask for all samples, all records, or the whole database in a file/table format without filters, UIDs, a project-reporting scope, or a supported repository/report-generation target.
+- Any request that requires capabilities the system fundamentally does not have.
+
+Do NOT route to new_search or graph_query simply because the topic overlaps with data in the system. A chart request is unsupported even if the underlying data exists. A comparison between two groups is unsupported even if both groups are in the database.
+
+--------------------------------------------------
+HOW TO CHOOSE
+--------------------------------------------------
+
+Work through these questions in order.
+
+1. Is the user asking for an unscoped bulk export or download of all samples, all records, or the whole database?
+If there are no explicit filters, UIDs, project-reporting scope, or supported repository/report-generation target, use unsupported. Do not reinterpret unscoped bulk export as an unfiltered advanced_search.
+
+2. Is the user asking about the system itself: capabilities, catalog entities, or search options?
+This includes "what can you do?", "tell me about [assay/sampletype/project]", "what endpoints exist?", "how do I search by X?", "what sample types can I search for?", "what assay types are available?", "what's the NIH Reporter link for MetNet?", and "what kind of research does the Kamm project do?".
+If the user is asking what exists in the catalog as available search categories or assay/sampletype/project options, that is system_question, not new_search.
+Exception: "Can you find me X?" is a search intent even though it is phrased as a question; use new_search.
+
+3. Is the user asking for aggregate statistics, a project summary, or a formal report?
+Signals: upload/ingestion counts, protocol usage summary, published sample counts, time-scoped breakdowns, RPPR, NIH RePORT, annual report, progress report, "report", "summary" plus project name, repository submission, nf-core samplesheet generation, or project-scoped protocol/published reporting language like "show me protocols for CGR" or "what samples from CGR have been published?".
+Key distinction from graph_query: reporter answers the project reporting view, such as uploaded, published, protocols used/registered, and RPPR-style summaries. graph_query answers structural graph questions about named studies/investigations and lineage.
+If yes, use reporter.
+
+4. Is the user referring back to results already returned this session?
+Signals: "those results", "which of those", "from that list", "the previous ones", "of them".
+If yes, use ask_about_last_results or refine_last_search.
+
+5. Does answering this require the knowledge graph?
+Ask whether the nature of the request requires graph structure to answer:
+- Is the answer scoped to a named Study or Investigation? Even if the user also specifies sample types or keywords, a named organizational scope such as GBM, IMPACT, Griffith, SRP, or CSBC requires IN_STUDY or IN_INVESTIGATION traversal. That is always graph. Multiple sample type codes do not change this; use s.type IN [...] in the Cypher.
+- Is the user asking what studies, investigations, or projects contain or are associated with something? That is a structural question about graph topology.
+- Is the user asking for a count or aggregation that is organized by graph structure, such as "across all studies", "per study", or "how many X in study Y"?
+- Is the user asking for a global count of a sample type with no other attribute filters, such as "How many mice are in the database?" There is no filtering happening, only counting. This is a graph COUNT query, not a search.
+- Is the user filtering on an assay or protocol that lives on the DERIVED_FROM relationship, such as "underwent X", "processed via X", or "associated with X protocol"? REST endpoints cannot filter on relationship metadata.
+- Is the user asking about derivation chains, lineage, or ancestor/descendant relationships between samples?
+- Is the requested output a child/data sample constrained by an associated parent sample type? That is a relationship constraint, not a keyword filter, unless a direct child-by-parent REST endpoint exists.
+If yes to any of the above, use graph_query.
+
+6. Is the user asking for parent samples constrained by child/data sample types?
+If a parent lookup endpoint can directly satisfy the request, use new_search with that endpoint. This is distinct from requests for child/data records constrained by parent sample type, which require graph traversal unless directly supported by REST.
+
+7. Is the user asking for a numeric or date comparison over a metadata field?
+Comparisons include greater than, less than, at least, at most, above, below, before, after, equal to, or between a value. Use new_search for candidate retrieval when records can be retrieved by a field anchor or supported endpoint. Do not put the full comparison phrase into filter_searchText. Use the searchable field name as the keyword anchor and preserve the comparison predicate in notes or metadata for downstream post-filtering. The standard parser can retrieve candidates but cannot guarantee comparison enforcement unless a downstream/local filter runs. The planner can compose a local coding_filter step.
+
+8. Can a REST endpoint fully satisfy the intent using only sample attribute filters?
+This includes sample type codes, keyword filters, UIDs, assay codes as attribute filters, and catalog lookups.
+If yes, use new_search and pick the most specific endpoint from the catalog.
+
+9. Does no available path satisfy the request?
+If yes, use unsupported.
+
+Repository-style deliverables belong under reporter:
+- GEO, PRIDE, SRA, and nf-core requests should still use mode="reporter" with report_mode="report_generation".
+- Phrasings like "create a PRIDE submission", "export for the PRIDE repository", "submission package for GEO", and "export this UID to SRA" are reporter requests, not plain new_search.
+
+The fundamental question is: what does the user need, and what is the only system that can provide it? Reason from the nature of the request: what kind of thing is the answer, and where does it live, not from surface similarity to prior examples.
+
+--------------------------------------------------
+ENTITY HANDLING (HARD RULE)
+--------------------------------------------------
+
+Include a resolved field that is an exact copy of ENTITY_RESULT.
+- Do not remove, rename, or reinterpret any entity codes.
+- This carries entity data forward to downstream agents without loss.
+
+--------------------------------------------------
+FILTER PROJECTION
+--------------------------------------------------
+
+Include a filters object for the chosen route. In ParserPlan, this is the top-level filters object. In MultiParserPlan, this is the candidate.filters object for each candidate. Populate only fields relevant to that route or candidate.
+
+{
+  "sampletype_code": string or null,
+  "assay_codes": [string],
+  "keywords": [string],
+  "uids": [string]
+}
+
+If the chosen endpoint requires identifiers, filters.uids must be populated.
+If an entity is present but not usable by the chosen path, keep it in resolved and note it briefly in the notes or rationale field.

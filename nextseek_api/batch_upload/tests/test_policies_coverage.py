@@ -20,6 +20,15 @@ from nextseek_api.batch_upload.policies import (
 
 class TestInsertPoliciesForUids:
 
+    class _FakeSqlAlchemyRow:
+        def __init__(self, value):
+            self._mapping = {"id": value}
+
+        def __getitem__(self, key):
+            if isinstance(key, int):
+                raise TypeError("integer indexing not supported")
+            return self._mapping[key]
+
     def test_empty_uids_returns_empty(self):
         result = insert_policies_for_uids([], "default", MagicMock())
         assert result == []
@@ -75,6 +84,18 @@ class TestInsertPoliciesForUids:
 
         result = insert_policies_for_uids(["uid-1"], "default", mock_conn)
         assert result == [("uid-1", 200)]
+
+    def test_fallback_last_insert_id_sqlalchemy_row_mapping(self):
+        """Fallback path: SQLAlchemy Row exposes the alias through _mapping."""
+        mock_conn = MagicMock()
+        row = self._FakeSqlAlchemyRow(300)
+        mock_conn.execute.side_effect = [
+            MagicMock(),
+            MagicMock(fetchone=MagicMock(return_value=row)),
+        ]
+
+        result = insert_policies_for_uids(["uid-1"], "default", mock_conn)
+        assert result == [("uid-1", 300)]
 
     def test_synthetic_ids_when_last_insert_id_fails(self):
         """When LAST_INSERT_ID returns None (in test env), synthetic IDs are generated."""
