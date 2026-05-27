@@ -9,11 +9,15 @@ from typing import Dict, List, Optional, Tuple, Union
 
 from sqlalchemy.engine import Connection
 
-from .errors import JsonNormalizationError
+from .errors import AttributeNameError, JsonNormalizationError
 from .helpers import UID_RE
 from .identity import canonicalize_file_primary_data, extract_identity
 from .models import InputRowModel, InsertableSample, SampleMetadata
-from .prefetch import resolve_sample_type_id, validate_assay_ids
+from .prefetch import (
+    prefetch_sample_type_attributes,
+    resolve_sample_type_id,
+    validate_assay_ids,
+)
 
 try:
     import orjson
@@ -64,19 +68,35 @@ def build_insertable(
     if not isinstance(parsed_meta, dict):
         parsed_meta = {}
     canonical_meta = canonicalize_file_primary_data(parsed_meta)
+
+    # 3. Resolve sample type (needed for attribute-name check)
+    sample_type_id = resolve_sample_type_id(row.SampleType, effective_pid, conn)
+
+    # 4. Verify json_metadata keys are defined attributes for this SampleType.
+    #    No skip-list — every key (including SEEK-conventional UID/Parent/Protocol)
+    #    must exist in sample_attributes for the row's SampleType.
+    if canonical_meta:
+        allowed_attrs = prefetch_sample_type_attributes(
+            [sample_type_id], conn
+        ).get(sample_type_id, set())
+        bad_keys = sorted(k for k in canonical_meta.keys() if k not in allowed_attrs)
+        if bad_keys:
+            raise AttributeNameError(
+                sample_type=row.SampleType,
+                sample_type_id=sample_type_id,
+                bad_keys=bad_keys,
+            )
+
     minified = unicodedata.normalize("NFC", _json_dumps_min(canonical_meta))
 
-    # 3. Title from metadata
+    # 5. Title from metadata
     try:
         meta = SampleMetadata.model_validate(canonical_meta)
     except Exception:
         meta = SampleMetadata()
     title = title_from_metadata(meta, row.UID)
 
-    # 4. Resolve sample type
-    sample_type_id = resolve_sample_type_id(row.SampleType, effective_pid, conn)
-
-    # 5. Validate assay IDs
+    # 6. Validate assay IDs
     valid_assays, missing_assays = validate_assay_ids(row.assay_ids, conn)
     if missing_assays:
         warnings.setdefault("missing_assays", []).append(

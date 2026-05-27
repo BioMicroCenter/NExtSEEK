@@ -19,6 +19,17 @@ from nextseek_api.batch_upload.orchestrator import run_batch_upload
 from nextseek_api.batch_upload.config import BatchUploadConfig
 from nextseek_api.batch_upload.insert import process_batches as _real_process_batches
 from nextseek_api.batch_upload.models import ConvertedBatch, InputRowModel
+from nextseek_api.batch_upload.prefetch import clear_caches as _clear_prefetch_caches
+
+
+@pytest.fixture(autouse=True)
+def _isolate_prefetch_caches():
+    """Module-level prefetch caches survive between tests and across files;
+    contamination from other tests can make this file's tests flaky. Clear
+    before and after each test in this module."""
+    _clear_prefetch_caches()
+    yield
+    _clear_prefetch_caches()
 
 
 # ── FakeDB ──────────────────────────────────────────────────────────────
@@ -60,10 +71,14 @@ class FakeDB:
         sample_types: Dict[str, int] | None = None,
         existing_samples: Dict[str, int] | None = None,
         fail_uuids: Set[str] | None = None,
+        sample_attributes: Dict[int, Set[str]] | None = None,
     ):
         self.sample_types = sample_types or {"NHP_blood": 1}
         self.existing_samples = dict(existing_samples or {})
         self.fail_uuids = fail_uuids or set()
+        # Per-sample_type allowed attribute titles (PR #2 attribute-name check).
+        # Default covers keys produced by _make_row (Parent only).
+        self.sample_attributes = sample_attributes or {1: {"Parent"}}
 
         # Auto-increment counters
         self._next_sample_id = max(self.existing_samples.values(), default=0) + 1
@@ -97,6 +112,15 @@ class FakeDB:
                     if t in params.values()
                 ]
                 return FakeResultProxy(rows=rows)
+
+        # ── sample_attributes (PR #2 attribute-name check) ──
+        if "FROM sample_attributes" in sql and "SELECT" in sql:
+            id_params = [v for k, v in params.items() if k.startswith("id_")]
+            rows = []
+            for st_id in id_params:
+                for title in self.sample_attributes.get(st_id, set()):
+                    rows.append((st_id, title))
+            return FakeResultProxy(rows=rows)
 
         # ── assays ──
         if "FROM assays" in sql and "SELECT" in sql:
@@ -482,3 +506,38 @@ class TestNeo4jOnlyMode:
         error_messages = [e["message"] for e in result["errors"]]
         missing_msgs = [m for m in error_messages if "uid_not_found_in_db" in m]
         assert len(missing_msgs) >= 1
+
+
+class TestTransformAttributeNameCheck:
+    """End-to-end check that TRANSFORM-stage AttributeNameError flows into
+    one error_collector entry per bad key (not a single joined message)."""
+
+    UID_A = "NHP-260101TST-1"
+
+    def test_attribute_name_check_emits_one_error_per_bad_key(self):
+        """A row whose json_metadata has N keys outside the SampleType's
+        sample_attributes set produces N error_collector entries of type
+        VALIDATION_ATTRIBUTE_NAME, not a single joined error."""
+        # FakeDB default allows only "Parent" for sample_type_id 1 — so
+        # "Subjet ID" and "Heigth" will both be flagged.
+        row = InputRowModel(
+            UID=self.UID_A,
+            SampleType="NHP_blood",
+            json_metadata='{"Subjet ID": "S1", "Heigth": "180"}',
+            assay_ids=[],
+        )
+        db = FakeDB()
+
+        result = _run_orchestrator([row], db)
+
+        attr_name_errors = [
+            e for e in result["errors"] if e["type"] == "VALIDATION_ATTRIBUTE_NAME"
+        ]
+        assert len(attr_name_errors) == 2
+        messages = [e["message"] for e in attr_name_errors]
+        assert any("Subjet ID" in m for m in messages)
+        assert any("Heigth" in m for m in messages)
+        # All messages should reference the SampleType
+        assert all("NHP_blood" in m for m in messages)
+        # Row should not have been inserted
+        assert self.UID_A not in db.inserted_samples

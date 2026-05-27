@@ -734,3 +734,133 @@ class ConvertedBatch(BaseModel):
     ontology_result: Optional[OntologyValidationResult] = None
     warnings: List[str] = Field(default_factory=list)
     model_config = ConfigDict(extra="forbid")
+
+
+# ── 24. BatchUploadError / BatchUploadTotals / BatchUploadResult ──────────
+
+
+class BatchUploadError(BaseModel):
+    """One entry in the orchestrator's terminal ``errors[]`` list.
+
+    Produced by ErrorCollector during pipeline execution and projected to this
+    public shape before being returned as part of BatchUploadResult /
+    ValidationResult. ``row`` and ``uid`` locate the offending row when the
+    error is attributable to one; both are None for whole-file or stage-level
+    errors. The internal RowError additionally carries ``severity``, which is
+    not surfaced here.
+    """
+    type: str = Field(..., description="ErrorType enum value, e.g. 'VALIDATION_ATTRIBUTE_NAME'.")
+    message: str = Field(..., description="Human-readable error message.")
+    row: Optional[int] = Field(
+        None,
+        description=(
+            "0-based row index of the offending row within the SAMPLES data, "
+            "when the error is attributable to a specific row. None for "
+            "whole-file / stage-level errors."
+        ),
+    )
+    uid: Optional[str] = Field(
+        None,
+        description=(
+            "UID of the offending row, when it has one (update rows, or rows "
+            "with a pre-assigned UID). New samples have no UID at validation "
+            "time, so this is None for them — use `row` to locate them."
+        ),
+    )
+
+
+class BatchUploadErrorGroup(BaseModel):
+    """A set of /validate/ errors collapsed by identical ``(type, message)``.
+
+    Issue C of the 2026-05-22 /validate/ UI handoff: a sheet where many rows
+    fail the same check produced one flat ``BatchUploadError`` per row —
+    visually identical lines differing only in ``row``. Grouping by
+    ``(type, message)`` gives the UI one block per distinct failure while
+    ``count`` / ``rows`` / ``uids`` preserve which rows were affected.
+
+    This is a presentation aid layered on top of the flat ``errors`` list; it
+    is NOT a cap — ``errors`` still carries every error (see Issue B).
+    """
+    type: str = Field(..., description="ErrorType enum value shared by every error in the group.")
+    message: str = Field(..., description="Human-readable message shared by every error in the group.")
+    count: int = Field(..., description="Number of errors in the group.")
+    rows: List[int] = Field(
+        default_factory=list,
+        description="Sorted, de-duplicated 0-based row indices of the affected rows. Row-less (whole-file) errors contribute to `count` but not here.",
+    )
+    uids: List[str] = Field(
+        default_factory=list,
+        description="Sorted, de-duplicated UIDs of affected rows that had a pre-assigned one.",
+    )
+
+
+class BatchUploadTotals(BaseModel):
+    """The ``totals`` sub-dict in the orchestrator's terminal result.
+
+    Tracks per-stage row counts plus pipeline outcome flags. Populated by
+    the Stage 7 REPORT step in orchestrator.py:run_batch_upload_multi.
+    Distinct from the in-flight Metrics dataclass used during INSERT.
+    """
+    processed: int
+    success: int
+    skipped: int
+    failed: int
+    elapsed_s: float = 0.0
+    throughput_rps: float = 0.0
+    permissions_inserted: int = 0
+    uids_generated: int = 0
+    updated: int = 0
+    error: Optional[str] = Field(None, description="One-line error summary when the pipeline aborted before completion.")
+    cancelled: bool = Field(False, description="True if the job was cancelled via the user-stop callback.")
+
+
+class BatchUploadResult(BaseModel):
+    """Typed wrapper for the orchestrator's terminal result dict.
+
+    This is the SOURCE OF TRUTH for the shape returned by
+    ``run_batch_upload_multi``, ``_error_result``, and ``_cancelled_result``.
+    Both endpoints expose it: ``/start/``'s status endpoint nests it under
+    ``result``, and ``/validate/`` extends it via ValidationResult.
+
+    NOTE — DO NOT CONFUSE WITH ``BatchResult`` (this module, above). That
+    dataclass is INSERT-stage internal state (counts of inserts, linked
+    projects, outcomes by UID). BatchUploadResult is the END-OF-PIPELINE
+    public shape.
+
+    The orchestrator currently returns this as a plain dict for Celery
+    serialization compatibility. Conversion happens at endpoint boundaries
+    via ``BatchUploadResult.model_validate(orch_dict)``. A contract test in
+    ``test_orchestrator_result_contract.py`` asserts the dict-to-model
+    round-trip stays valid as the pipeline evolves.
+    """
+    job_id: Optional[str] = Field(None, description="Celery task UUID. None for sync /validate/ responses.")
+    summary_path: Optional[str] = Field(None, description="On-disk path to the summary CSV. None for /validate/ (no CSV written).")
+    totals: BatchUploadTotals
+    errors: List[BatchUploadError] = Field(default_factory=list)
+    warnings: dict = Field(default_factory=dict, description="Free-form warnings keyed by category (e.g. 'convert_warnings').")
+
+
+class ValidationResult(BatchUploadResult):
+    """Response shape for POST /api/batch-upload/validate/.
+
+    Extends BatchUploadResult with four validation-specific fields:
+    valid, summary, checks_run, checks_skipped. Inherits all pipeline-result
+    fields (totals, errors, warnings) so consumers see one flat object — no
+    nested ``result`` wrapper.
+
+    Production by ``run_validation_multi``: orchestrator dict is converted via
+    ``BatchUploadResult.model_validate``, the four extra fields are computed
+    from the validation flow, and the combined model is returned to the
+    /validate/ view.
+
+    See ALSO the existing dataclass ``BatchResult`` (this module) — different
+    concept; it is INSERT-stage internal state, not a pipeline result.
+    """
+    valid: bool = Field(..., description="True iff `errors` is empty AND `totals.error` is None.")
+    summary: str = Field(..., description="One-line human summary, e.g. '2 distinct errors (5 total)' or 'No issues'.")
+    checks_run: List[str] = Field(..., description="Validation stages that executed for this request.")
+    checks_skipped: List[str] = Field(default_factory=list, description="Stages NOT requested via the `checks` parameter.")
+    error_groups: List[BatchUploadErrorGroup] = Field(
+        default_factory=list,
+        description="`errors` collapsed by identical (type, message); each group lists every affected row/uid. A presentation aid — `errors` remains the complete, uncapped list. Empty when there are no errors.",
+    )

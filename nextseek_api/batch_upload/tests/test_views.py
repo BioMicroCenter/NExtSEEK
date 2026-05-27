@@ -174,6 +174,58 @@ class TestBatchUploadViewSetStatus:
         assert response.status_code == 200
         assert response.data["state"] == "PENDING"
 
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=True)
+    @patch("nextseek_api.batch_upload.views.AsyncResult")
+    def test_status_surfaces_job_level_failure_when_celery_success(
+        self, mock_ar, mock_owns, factory, admin_user,
+    ):
+        """When Celery state is SUCCESS but result.totals.error is set, the
+        response must clearly signal failure at the top level rather than
+        burying the error inside result['totals']['error']."""
+        mock_ar.return_value.state = "SUCCESS"
+        mock_ar.return_value.result = {
+            "job_id": "j1",
+            "summary_path": "/tmp/x.csv",
+            "totals": {"processed": 0, "success": 0, "skipped": 0, "failed": 0,
+                       "error": "CONVERT failed: 7 validation errors"},
+            "errors": [
+                {"type": "VALIDATION_JSON", "message": "INSTRUCTIONS row 0: database_field must be in 'SampleType::AttributeName' format"},
+                {"type": "VALIDATION_JSON", "message": "INSTRUCTIONS row 1: database_field must be in 'SampleType::AttributeName' format"},
+            ],
+        }
+        view = BatchUploadViewSet.as_view({"get": "job_status"})
+        request = factory.get("/api/batch-upload/status/j1/")
+        force_authenticate(request, user=admin_user)
+        response = view(request, job_id="j1")
+        assert response.status_code == 200
+        assert response.data["job_status"] == "failed", (
+            f"expected top-level job_status='failed', got {response.data!r}"
+        )
+        assert response.data.get("errors"), "expected top-level errors list"
+        assert len(response.data["errors"]) == 2
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=True)
+    @patch("nextseek_api.batch_upload.views.AsyncResult")
+    def test_status_succeeded_job_marked_succeeded(
+        self, mock_ar, mock_owns, factory, admin_user,
+    ):
+        """Healthy SUCCESS job must get job_status='succeeded' (regression guard)."""
+        mock_ar.return_value.state = "SUCCESS"
+        mock_ar.return_value.result = {
+            "job_id": "j2",
+            "summary_path": "/tmp/x.csv",
+            "totals": {"processed": 5, "success": 5, "skipped": 0, "failed": 0},
+            "errors": [],
+        }
+        view = BatchUploadViewSet.as_view({"get": "job_status"})
+        request = factory.get("/api/batch-upload/status/j2/")
+        force_authenticate(request, user=admin_user)
+        response = view(request, job_id="j2")
+        assert response.status_code == 200
+        assert response.data["job_status"] == "succeeded"
+
 
 class TestBatchUploadFileUpload:
     """Test client-side Excel file upload."""
@@ -1203,3 +1255,303 @@ class TestResolveUserContextSeekDBInit:
         # Non-admin: lababbv override ignored, uses resolved value
         call_kwargs = mock_task.delay.call_args[1]
         assert call_kwargs["lababbv"] == "MIT"
+
+
+# ── POST /api/batch-upload/validate/ ─────────────────────────────────────
+
+
+def _validation_ok_result():
+    """A passing ValidationResult for mocking run_validation_multi."""
+    from nextseek_api.batch_upload.models import BatchUploadTotals, ValidationResult
+    return ValidationResult(
+        job_id=None,
+        summary_path=None,
+        totals=BatchUploadTotals(processed=3, success=3, skipped=0, failed=0),
+        errors=[],
+        warnings={},
+        valid=True,
+        summary="No issues",
+        checks_run=["structure"],
+        checks_skipped=["dag", "name_check"],
+    )
+
+
+def _validation_failed_result():
+    """A failing ValidationResult (one attribute-name error) for mocking."""
+    from nextseek_api.batch_upload.models import (
+        BatchUploadError,
+        BatchUploadTotals,
+        ValidationResult,
+    )
+    return ValidationResult(
+        job_id=None,
+        summary_path=None,
+        totals=BatchUploadTotals(processed=3, success=2, skipped=0, failed=1),
+        errors=[BatchUploadError(
+            type="VALIDATION_ATTRIBUTE_NAME",
+            message="'Subjet ID' is not a defined attribute for SampleType 'NHP'",
+        )],
+        warnings={},
+        valid=False,
+        summary="1 issue(s) found",
+        checks_run=["structure"],
+        checks_skipped=["dag", "name_check"],
+    )
+
+
+class TestBatchUploadValidateEndpoint:
+    """POST /api/batch-upload/validate/ — routing, auth, input handling."""
+
+    @pytest.mark.django_db
+    def test_unauthenticated_forbidden(self, factory):
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={"project_id": 1},
+            content_type="application/json",
+        )
+        response = view(request)
+        assert response.status_code in (401, 403)
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.run_validation_multi")
+    def test_file_upload_returns_200(self, mock_run, factory, admin_user, tmp_path):
+        """POST a .xlsx file -> 200 with a ValidationResult body, no job_id."""
+        mock_run.return_value = _validation_ok_result()
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        xlsx = SimpleUploadedFile(
+            "samples.xlsx", b"fake",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={"file": xlsx, "project_id": 1},
+            format="multipart",
+        )
+        force_authenticate(request, user=admin_user)
+        with override_settings(MEDIA_ROOT=str(tmp_path)):
+            response = view(request)
+        assert response.status_code == 200
+        assert response.data["valid"] is True
+        assert response.data["job_id"] is None
+        assert response.data["summary_path"] is None
+        mock_run.assert_called_once()
+
+    @pytest.mark.django_db
+    def test_no_file_or_rows_returns_400(self, factory, admin_user):
+        """project_id but neither file nor rows -> 400."""
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={"project_id": 1},
+            content_type="application/json",
+        )
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 400
+
+    @pytest.mark.django_db
+    def test_file_too_large_returns_413(self, factory, admin_user, tmp_path):
+        """A file exceeding BATCH_UPLOAD_MAX_TOTAL_BYTES -> 413."""
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        xlsx = SimpleUploadedFile(
+            "big.xlsx", b"x" * 500,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={"file": xlsx, "project_id": 1},
+            format="multipart",
+        )
+        force_authenticate(request, user=admin_user)
+        with override_settings(MEDIA_ROOT=str(tmp_path), BATCH_UPLOAD_MAX_TOTAL_BYTES=10):
+            response = view(request)
+        assert response.status_code == 413
+
+    @pytest.mark.django_db
+    def test_non_xlsx_file_returns_400(self, factory, admin_user):
+        """A non-.xlsx upload -> 400."""
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        csv = SimpleUploadedFile("data.csv", b"a,b,c", content_type="text/csv")
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={"file": csv, "project_id": 1},
+            format="multipart",
+        )
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 400
+        assert ".xlsx" in response.data["detail"]
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.run_validation_multi")
+    def test_invalid_file_returns_200_with_valid_false(self, mock_run, factory, admin_user, tmp_path):
+        """A file with an attribute-name typo -> 200 with valid=False and per-row errors."""
+        mock_run.return_value = _validation_failed_result()
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        xlsx = SimpleUploadedFile(
+            "samples.xlsx", b"fake",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={"file": xlsx, "project_id": 1},
+            format="multipart",
+        )
+        force_authenticate(request, user=admin_user)
+        with override_settings(MEDIA_ROOT=str(tmp_path)):
+            response = view(request)
+        assert response.status_code == 200
+        assert response.data["valid"] is False
+        assert response.data["errors"][0]["type"] == "VALIDATION_ATTRIBUTE_NAME"
+
+    @pytest.mark.django_db
+    def test_invalid_checks_value_returns_400(self, factory, admin_user):
+        """An unrecognized `checks` value -> 400."""
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        request = factory.post(
+            "/api/batch-upload/validate/?checks=structure,bogus",
+            data={"project_id": 1},
+            content_type="application/json",
+        )
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 400
+        assert "checks" in response.data["detail"]
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.run_validation_multi")
+    def test_checks_param_passed_through(self, mock_run, factory, admin_user, tmp_path):
+        """The parsed `checks` set is forwarded to run_validation_multi."""
+        mock_run.return_value = _validation_ok_result()
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        xlsx = SimpleUploadedFile(
+            "samples.xlsx", b"fake",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        request = factory.post(
+            "/api/batch-upload/validate/?checks=structure,name_check",
+            data={"file": xlsx, "project_id": 1},
+            format="multipart",
+        )
+        force_authenticate(request, user=admin_user)
+        with override_settings(MEDIA_ROOT=str(tmp_path)):
+            view(request)
+        assert mock_run.call_args[1]["checks"] == {"structure", "name_check"}
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.run_validation_multi")
+    def test_rows_mode_returns_200(self, mock_run, factory, admin_user):
+        """rows JSON body -> 200; run_validation_multi called with rows."""
+        mock_run.return_value = _validation_ok_result()
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={
+                "project_id": 1,
+                "rows": [{"SampleType": "NHP_blood", "json_metadata": {"Name": "s1"}}],
+            },
+            format="json",
+        )
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 200
+        assert mock_run.call_args[1]["rows"] is not None
+
+    @pytest.mark.django_db
+    def test_missing_project_id_returns_400(self, factory, admin_user):
+        """No project_id -> 400 before any file is touched."""
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={},
+            content_type="application/json",
+        )
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 400
+        assert "project_id" in response.data["detail"]
+
+    @pytest.mark.django_db
+    def test_non_integer_project_id_returns_400(self, factory, admin_user):
+        """A non-integer project_id -> 400."""
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={"project_id": "not-a-number"},
+            content_type="application/json",
+        )
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 400
+        assert "integer" in response.data["detail"]
+
+    @pytest.mark.django_db
+    def test_invalid_rows_body_returns_422(self, factory, admin_user):
+        """A rows body that fails pydantic validation -> 422."""
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={"project_id": 1, "rows": [{"json_metadata": {}}]},  # missing SampleType
+            format="json",
+        )
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 422
+
+    @pytest.mark.django_db
+    def test_empty_rows_list_returns_400(self, factory, admin_user):
+        """An empty rows list -> 400."""
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={"project_id": 1, "rows": []},
+            format="json",
+        )
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 400
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.os.remove", side_effect=OSError("boom"))
+    @patch("nextseek_api.batch_upload.views.run_validation_multi")
+    def test_temp_file_cleanup_error_is_swallowed(
+        self, mock_run, mock_remove, factory, admin_user, tmp_path
+    ):
+        """A failure removing the temp upload file does not break the 200 response."""
+        mock_run.return_value = _validation_ok_result()
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        xlsx = SimpleUploadedFile(
+            "samples.xlsx", b"fake",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={"file": xlsx, "project_id": 1},
+            format="multipart",
+        )
+        force_authenticate(request, user=admin_user)
+        with override_settings(MEDIA_ROOT=str(tmp_path)):
+            response = view(request)
+        assert response.status_code == 200
+        mock_remove.assert_called()
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.run_validation_multi")
+    def test_non_string_checks_falls_back_to_structure(self, mock_run, factory, admin_user):
+        """A non-string `checks` value in a JSON body falls back to the structure check."""
+        mock_run.return_value = _validation_ok_result()
+        view = BatchUploadViewSet.as_view({"post": "validate"})
+        request = factory.post(
+            "/api/batch-upload/validate/",
+            data={
+                "project_id": 1,
+                "checks": 123,  # non-string -> defensive fallback to "structure"
+                "rows": [{"SampleType": "NHP_blood", "json_metadata": {"Name": "s1"}}],
+            },
+            format="json",
+        )
+        force_authenticate(request, user=admin_user)
+        response = view(request)
+        assert response.status_code == 200
+        assert mock_run.call_args[1]["checks"] == {"structure"}

@@ -8,6 +8,7 @@ Covers:
 import threading
 
 from nextseek_api.batch_upload.errors import (
+    AttributeNameError,
     ErrorCollector,
     ErrorType,
     Severity,
@@ -117,3 +118,38 @@ class TestClassifySeverity:
         for et in ErrorType:
             sev = classify_severity(et)
             assert isinstance(sev, Severity)
+
+
+class TestValidationAttributeNameErrorType:
+
+    def test_enum_value_present(self):
+        assert ErrorType.VALIDATION_ATTRIBUTE_NAME.value == "VALIDATION_ATTRIBUTE_NAME"
+
+    def test_severity_is_error(self):
+        assert classify_severity(ErrorType.VALIDATION_ATTRIBUTE_NAME) == Severity.ERROR
+
+
+class TestAttributeNameError:
+
+    def test_carries_bad_keys_and_sample_type(self):
+        exc = AttributeNameError(
+            sample_type="NHP_blood",
+            sample_type_id=42,
+            bad_keys=["Subjet ID", "Heigth"],
+        )
+        assert exc.sample_type == "NHP_blood"
+        assert exc.sample_type_id == 42
+        assert exc.bad_keys == ["Subjet ID", "Heigth"]
+
+    def test_message_mentions_sample_type_and_count(self):
+        exc = AttributeNameError(
+            sample_type="NHP_blood",
+            sample_type_id=42,
+            bad_keys=["Subjet ID"],
+        )
+        msg = str(exc)
+        assert "NHP_blood" in msg
+        assert "Subjet ID" in msg
+
+    def test_is_subclass_of_exception(self):
+        assert issubclass(AttributeNameError, Exception)

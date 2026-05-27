@@ -18,6 +18,7 @@ _CACHE_LOCK = threading.Lock()
 _ASSAY_EXISTS_CACHE: Dict[int, bool] = {}
 _SAMPLE_TYPE_TITLE_TO_ID: Dict[str, int] = {}
 _PROJECT_SAMPLE_TYPE_LINKED: Dict[int, Set[int]] = {}
+_SAMPLE_TYPE_ATTRIBUTES_CACHE: Dict[int, Set[str]] = {}
 
 _config = BatchUploadConfig()
 
@@ -80,9 +81,19 @@ def prefetch_assay_ids(assay_ids: List[int], conn: Connection) -> Set[int]:
 
 
 def prefetch_project_sample_type_links(
-    project_id: int, sample_type_ids: List[int], conn: Connection
+    project_id: int,
+    sample_type_ids: List[int],
+    conn: Connection,
+    mutate_project_links: bool = True,
 ) -> None:
-    """Ensure project <-> sample_type links exist, creating missing ones."""
+    """Ensure project <-> sample_type links exist, creating missing ones.
+
+    When ``mutate_project_links`` is False, missing links are detected but NOT
+    created — no INSERT is issued. This is the validate-mode path
+    (``run_validation_multi``), where the pipeline must have zero side effects.
+    In that case only already-existing links are recorded in the cache, so a
+    later real upload still creates the missing ones.
+    """
     if not project_id or not sample_type_ids:
         return
 
@@ -106,7 +117,7 @@ def prefetch_project_sample_type_links(
 
     # Create missing links
     to_create = [st for st in unchecked if st not in existing]
-    if to_create:
+    if to_create and mutate_project_links:
         values_parts = []
         insert_params = {}
         for i, st in enumerate(to_create):
@@ -124,9 +135,10 @@ def prefetch_project_sample_type_links(
             project_id,
         )
 
-    # Update cache
+    # Update cache. In validate mode (no mutation) only existing links are
+    # cached — never-created links must stay uncached so a real upload sees them.
     with _CACHE_LOCK:
-        all_linked = existing | set(to_create)
+        all_linked = existing | (set(to_create) if mutate_project_links else set())
         _PROJECT_SAMPLE_TYPE_LINKED.setdefault(project_id, set()).update(all_linked)
 
 
@@ -196,12 +208,59 @@ def validate_assay_ids(
     return known_valid, known_invalid
 
 
+def prefetch_sample_type_attributes(
+    sample_type_ids: List[int], conn: Connection
+) -> Dict[int, Set[str]]:
+    """Bulk-fetch sample type id -> attribute titles set, using cache.
+
+    Returns mapping of sample_type_id -> {attribute_title, ...} for IDs that
+    have at least one row in sample_attributes. IDs with no rows are omitted
+    from the result, but are remembered in the cache as an empty set so
+    repeated calls do not re-query.
+    """
+    if not sample_type_ids:
+        return {}
+
+    with _CACHE_LOCK:
+        uncached = [
+            sid for sid in sample_type_ids if sid not in _SAMPLE_TYPE_ATTRIBUTES_CACHE
+        ]
+
+    if uncached:
+        for chunk_start in range(0, len(uncached), 1000):
+            chunk = uncached[chunk_start : chunk_start + 1000]
+            params = {f"id_{i}": sid for i, sid in enumerate(chunk)}
+            placeholders = ", ".join(f":id_{i}" for i in range(len(chunk)))
+            sql = text(
+                f"SELECT sample_type_id, title FROM sample_attributes "
+                f"WHERE sample_type_id IN ({placeholders})"
+            )
+            rows = conn.execute(sql, params).fetchall()
+
+            chunk_result: Dict[int, Set[str]] = {sid: set() for sid in chunk}
+            for st_id, title in rows:
+                chunk_result.setdefault(st_id, set()).add(title)
+
+            with _CACHE_LOCK:
+                for sid, attr_set in chunk_result.items():
+                    _SAMPLE_TYPE_ATTRIBUTES_CACHE[sid] = attr_set
+                _trim_cache(_SAMPLE_TYPE_ATTRIBUTES_CACHE, _config.attribute_cache_max)
+
+    with _CACHE_LOCK:
+        return {
+            sid: _SAMPLE_TYPE_ATTRIBUTES_CACHE[sid]
+            for sid in sample_type_ids
+            if _SAMPLE_TYPE_ATTRIBUTES_CACHE.get(sid)
+        }
+
+
 def clear_caches() -> None:
     """Clear all in-process caches."""
     with _CACHE_LOCK:
         _ASSAY_EXISTS_CACHE.clear()
         _SAMPLE_TYPE_TITLE_TO_ID.clear()
         _PROJECT_SAMPLE_TYPE_LINKED.clear()
+        _SAMPLE_TYPE_ATTRIBUTES_CACHE.clear()
     log.debug("Prefetch caches cleared")
 
 
@@ -214,4 +273,5 @@ def cache_stats() -> Dict[str, int]:
             "project_sample_type_linked": sum(
                 len(v) for v in _PROJECT_SAMPLE_TYPE_LINKED.values()
             ),
+            "sample_type_attributes": len(_SAMPLE_TYPE_ATTRIBUTES_CACHE),
         }
