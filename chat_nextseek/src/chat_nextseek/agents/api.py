@@ -11,6 +11,23 @@ from ..schemas import (
 )
 
 
+def _apply_lab_codes_to_search(request_body: dict, filters: dict) -> dict:
+    """Merge lab UID codes (e.g. ['KAM']) into filter_searchText so the REST
+    search matches them inside the sample UID. Deduplicates against tokens
+    already present; a no-op when there are no lab codes."""
+    codes = [c for c in (filters or {}).get("lab_codes", []) if isinstance(c, str) and c.strip()]
+    if not codes:
+        return request_body
+    rb = dict(request_body)
+    existing = rb.get("filter_searchText") or ""
+    tokens = existing.split()
+    for code in codes:
+        if code not in tokens:
+            tokens.append(code)
+    rb["filter_searchText"] = " ".join(tokens).strip()
+    return rb
+
+
 def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIRequestPlan:
     """
     Use the API agent to convert a parser plan into a concrete APIRequestPlan with method, endpoint, and payloads.
@@ -167,6 +184,7 @@ def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIR
         rb.pop("attribute", None)
         if rb.get("filter_searchText") is None:
             rb["filter_searchText"] = ""
+        rb = _apply_lab_codes_to_search(rb, filters)
         api_plan = api_plan.model_copy(update={"requestBody": rb})
 
     # If the agent selected a method not in the allowed list, fall back to default

@@ -34,7 +34,17 @@ Use graph_query when the user's intent requires traversing relationships in the 
 - "Find all tissues associated with flow cytometry protocols" requires protocol matching on DERIVED_FROM relationship properties.
 - Requests for child or data records constrained by an associated parent sample type require graph traversal unless the API catalog exposes a direct child-by-parent endpoint. The parent sample type must not be reduced to a free-text keyword.
 
+Decisive test: route to graph_query ONLY when answering requires a relationship hop
+(IN_STUDY / IN_INVESTIGATION / DERIVED_FROM) that cannot be expressed as a sample
+attribute or UID filter. A named investigation, project, or lab appearing in the query
+does NOT by itself force graph_query — if the scope is expressible as a UID code or
+sample field, use new_search.
+
 Do NOT use graph_query when:
+- The scope is a research lab or PI. A lab/PI is NOT a graph node — it is encoded in the
+  sample UID as a 3-letter code (ENTITY_RESULT.lab_codes, e.g. Kamm -> KAM). A lab-scoped
+  query is a UID/attribute filter: use new_search and copy ENTITY_RESULT.lab_codes into
+  filters.lab_codes. This holds even for "how many ... in the X lab" counts.
 - The user is filtering samples purely by attributes with no organizational scope, no named Study or Investigation, no relationship traversal, no graph aggregation, and no assay/protocol metadata on relationships. If the query can be fully answered by filtering on sample record fields, use new_search.
 - Example: "Find mice treated with 50mg NDMA from the water study" should use new_search. "water study" is keyword context, not a graph scope.
 - A REST API endpoint directly satisfies the intent, such as parents_by_child_types for finding parents with children of multiple specified type codes, or sample-tree for lineage from a known UID.
@@ -49,6 +59,8 @@ The NExtSEEK REST API provides filtered, paginated access to sample records and 
 
 Use new_search when a REST endpoint in the catalog can completely satisfy the intent:
 - Attribute/keyword-based sample searches: sampletype plus assay plus keywords, with no study scope.
+- Lab/PI-scoped searches: filter by ENTITY_RESULT.lab_codes (the lab's UID code) plus any
+  sample type, via advanced_search.
 - Retrieving full metadata and lineage for a specific sample UID.
 - Finding parent samples that have children of multiple specified types.
 - Retrieving raw catalog rows or detail records for assays, sample types, people, projects, or SOPs when the user explicitly wants the records themselves rather than asking what categories/search options the system supports.
@@ -219,8 +231,10 @@ Include a filters object for the chosen route. In ParserPlan, this is the top-le
   "sampletype_code": string or null,
   "assay_codes": [string],
   "keywords": [string],
-  "uids": [string]
+  "uids": [string],
+  "lab_codes": ["<3-letter UID code, e.g. KAM>"]
 }
 
+For a lab/PI-scoped query, copy ENTITY_RESULT.lab_codes into filters.lab_codes — these match the lab's 3-letter code inside the sample UID (e.g. Kamm -> KAM) and the api_agent injects them into the UID search.
 If the chosen endpoint requires identifiers, filters.uids must be populated.
 If an entity is present but not usable by the chosen path, keep it in resolved and note it briefly in the notes or rationale field.

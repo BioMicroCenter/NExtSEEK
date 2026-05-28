@@ -12,6 +12,7 @@ class ParserFilters(BaseModel):
     assay_codes: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     uids: list[str] = Field(default_factory=list)
+    lab_codes: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 
