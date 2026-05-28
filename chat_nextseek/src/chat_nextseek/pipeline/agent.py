@@ -258,6 +258,19 @@ def _uids_from_last_search(session: "SessionState | SessionStateProxy") -> list[
                     out.append(_re.sub(r"<[^>]+>", "", str(uid)).strip())
             elif isinstance(row, str):
                 out.append(_re.sub(r"<[^>]+>", "", row).strip())
+        if not out:
+            # Reporter/GEO turns don't populate api_result_full rows; their UIDs
+            # live on the persisted plans. Fall back to them so a build can follow
+            # a report (e.g. "create a GEO submission for X, Y" → "run rnaseq on these").
+            rp = bundle.get("reporter_plan")
+            plan_uids = rp.get("uids") if isinstance(rp, dict) else None
+            if not (isinstance(plan_uids, list) and plan_uids):
+                pp = bundle.get("parser_plan")
+                filt = pp.get("filters") if isinstance(pp, dict) else None
+                plan_uids = filt.get("uids") if isinstance(filt, dict) else None
+            for uid in plan_uids or []:
+                if isinstance(uid, str) and uid.strip():
+                    out.append(_re.sub(r"<[^>]+>", "", uid).strip())
         if out:
             return out
     return []
@@ -287,9 +300,6 @@ def _resolve_samples(
     """
     catalog = NFCORE_PIPELINE_CATALOG.get(pipeline_key, {})
     accepted_types = catalog.get("accepted_leaf_sample_types") or []
-    accepted_patterns = [
-        _re.compile(p, _re.IGNORECASE) for p in (catalog.get("accepted_assay_patterns") or [])
-    ]
     input_kind = catalog.get("samplesheet_input_kind", "fastq")
 
     if samples_ref.kind == "accessions":
@@ -326,18 +336,12 @@ def _resolve_samples(
     annotated = annotate_metadata_with_sampletypes(config, raw)
     leaves_all = enumerate_lineage_leaves(annotated, accepted_types=accepted_types)
 
-    leaves_filtered: list[dict] = []
+    # Candidate pool = every accepted-type leaf. We deliberately do NOT hard-drop
+    # by an assay regex here: whether a leaf is the right data type for the
+    # pipeline is decided downstream by the sanity LLM, reading the full metadata,
+    # with `assay` as just one advisory signal. (See feedback-llm-determines-data-type.)
+    leaves_filtered: list[dict] = list(leaves_all)
     dropped_by_assay: list[dict] = []
-    if accepted_patterns:
-        for leaf in leaves_all:
-            assay = leaf.get("assay") or ""
-            if assay and any(pat.search(assay) for pat in accepted_patterns):
-                leaves_filtered.append(leaf)
-            else:
-                dropped_by_assay.append(leaf)
-    else:
-        # No patterns means "accept everything that matched type" (e.g. methylseq edge cases)
-        leaves_filtered = list(leaves_all)
 
     leaves_seen_sources = {leaf["source_uid"] for leaf in leaves_filtered}
     orphans = [uid for uid in source_uids if uid not in leaves_seen_sources]
