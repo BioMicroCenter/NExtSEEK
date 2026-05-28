@@ -105,3 +105,8 @@ def test_rejects_helper_shadowing_builtin():
     code = "def sorted():\n    return 1\nresult = {'v': sorted()}\n"
     with pytest.raises(ReportCodeSafetyError):
         execute_report_code(code, SAMPLE_DATA)
+
+
+def test_blocks_builtins_name_reference():
+    with pytest.raises(ReportCodeSafetyError):
+        execute_report_code("__builtins__.pop('len', None)\nresult = {}", SAMPLE_DATA)

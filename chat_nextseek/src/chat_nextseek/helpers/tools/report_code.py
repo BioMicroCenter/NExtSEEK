@@ -37,7 +37,7 @@ _REPORT_ALLOWED_METHODS = _MEMORY_ALLOWED_METHODS | {
 }
 
 _REPORT_ALLOWED_RUNTIME_HELPERS = {"strip_html"}
-_REPORT_BLOCKED_NAMES = {"eval", "exec", "compile", "open", "__import__", "globals", "locals", "vars", "dir", "help", "input"}
+_REPORT_BLOCKED_NAMES = {"eval", "exec", "compile", "open", "__import__", "globals", "locals", "vars", "dir", "help", "input", "__builtins__"}
 
 # Note: ast.FunctionDef is intentionally NOT blocked (helper functions allowed).
 _REPORT_BLOCKED_NODES = (
@@ -139,7 +139,7 @@ def execute_report_code(code: str, data: Any, *, timeout_seconds: int = 15) -> d
         return re.sub(r"<[^>]+>", "", str(value)).strip()
 
     exec_scope: dict[str, Any] = {
-        "__builtins__": _REPORT_ALLOWED_BUILTINS,
+        "__builtins__": dict(_REPORT_ALLOWED_BUILTINS),
         "data": data,
         "re": re,
         "json": json,
