@@ -28,10 +28,6 @@ class ReportCodeTimeoutError(TimeoutError):
 
 _REPORT_ALLOWED_BUILTINS = {
     **_MEMORY_ALLOWED_BUILTINS,
-    "map": map,
-    "zip": zip,
-    "reversed": reversed,
-    "next": next,
     "abs": abs,
     "round": round,
 }
@@ -60,21 +56,44 @@ _REPORT_BLOCKED_NODES = (
     ast.Await,
     ast.Yield,
     ast.YieldFrom,
+    ast.GeneratorExp,
 )
 
 
 def _validate_report_code(tree: ast.AST) -> None:
     # Collect user-defined function names so calls to them are permitted.
-    local_funcs = {
-        node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
-    }
+    # Reject any helper that shadows a builtin or blocked name (keeps the
+    # allow-list reasoning sound and prevents shadowing tricks).
+    local_funcs: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            if node.name in _REPORT_BLOCKED_NAMES or node.name in _REPORT_ALLOWED_BUILTINS:
+                raise ReportCodeSafetyError(
+                    f"Helper function may not shadow a builtin/blocked name: {node.name}"
+                )
+            local_funcs.add(node.name)
+
     for node in ast.walk(tree):
         if isinstance(node, _REPORT_BLOCKED_NODES):
             raise ReportCodeSafetyError(f"Disallowed syntax: {type(node).__name__}")
         if isinstance(node, ast.Name) and node.id in _REPORT_BLOCKED_NAMES:
             raise ReportCodeSafetyError(f"Disallowed name: {node.id}")
-        if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
-            raise ReportCodeSafetyError("Dunder attribute access is not allowed")
+        if isinstance(node, ast.Attribute):
+            # Every attribute access (read or call) must be on the allow-list.
+            # This blocks frame/internal attributes (gi_frame, f_back, f_globals,
+            # f_builtins, ...) that enable sandbox escape via frame walking.
+            attr = node.attr
+            if attr.startswith("__"):
+                raise ReportCodeSafetyError("Dunder attribute access is not allowed")
+            value = node.value
+            if isinstance(value, ast.Name) and value.id == "re":
+                if attr not in _MEMORY_ALLOWED_RE_METHODS:
+                    raise ReportCodeSafetyError(f"Disallowed re method: {attr}")
+            elif isinstance(value, ast.Name) and value.id == "json":
+                if attr not in _MEMORY_ALLOWED_JSON_METHODS:
+                    raise ReportCodeSafetyError(f"Disallowed json method: {attr}")
+            elif attr not in _REPORT_ALLOWED_METHODS:
+                raise ReportCodeSafetyError(f"Disallowed attribute access: {attr}")
         if isinstance(node, ast.Call):
             func = node.func
             if isinstance(func, ast.Name):
@@ -85,16 +104,9 @@ def _validate_report_code(tree: ast.AST) -> None:
                 if func.id not in _REPORT_ALLOWED_BUILTINS:
                     raise ReportCodeSafetyError(f"Disallowed function call: {func.id}")
             elif isinstance(func, ast.Attribute):
-                if func.attr.startswith("__"):
-                    raise ReportCodeSafetyError("Dunder method calls are not allowed")
-                if isinstance(func.value, ast.Name) and func.value.id == "re":
-                    if func.attr not in _MEMORY_ALLOWED_RE_METHODS:
-                        raise ReportCodeSafetyError(f"Disallowed re method: {func.attr}")
-                elif isinstance(func.value, ast.Name) and func.value.id == "json":
-                    if func.attr not in _MEMORY_ALLOWED_JSON_METHODS:
-                        raise ReportCodeSafetyError(f"Disallowed json method: {func.attr}")
-                elif func.attr not in _REPORT_ALLOWED_METHODS:
-                    raise ReportCodeSafetyError(f"Disallowed method call: {func.attr}")
+                # The attribute itself was already validated by the ast.Attribute
+                # branch above (name must be on the method allow-list).
+                continue
             else:
                 raise ReportCodeSafetyError("Dynamic calls are not allowed")
 

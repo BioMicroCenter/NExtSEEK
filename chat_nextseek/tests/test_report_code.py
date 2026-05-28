@@ -65,3 +65,43 @@ def test_blocks_while():
 def test_requires_result_assignment():
     with pytest.raises(ReportCodeSafetyError):
         execute_report_code("x = 1", SAMPLE_DATA)
+
+
+def test_blocks_frame_walking_via_generator_expression():
+    code = (
+        "holder = []\n"
+        "g = (holder[0].gi_frame.f_back for _ in range(1))\n"
+        "holder.append(g)\n"
+        "result = {'v': 1}\n"
+    )
+    with pytest.raises(ReportCodeSafetyError):
+        execute_report_code(code, SAMPLE_DATA)
+
+
+def test_blocks_frame_internal_attribute_reads():
+    with pytest.raises(ReportCodeSafetyError):
+        execute_report_code("x = [].append\nresult = {'v': x.__self__}", SAMPLE_DATA)
+    with pytest.raises(ReportCodeSafetyError):
+        execute_report_code("def f():\n    return f\nresult = {'v': f().f_globals}", SAMPLE_DATA)
+
+
+def test_blocks_attribute_read_as_argument():
+    # os.system-style: attribute read passed as an argument must be rejected
+    code = (
+        "def grab(x):\n"
+        "    return x\n"
+        "result = {'v': grab(data.fromkeys)}\n"
+    )
+    with pytest.raises(ReportCodeSafetyError):
+        execute_report_code(code, SAMPLE_DATA)
+
+
+def test_blocks_generator_expression():
+    with pytest.raises(ReportCodeSafetyError):
+        execute_report_code("x = list(z for z in range(3))\nresult = {}", SAMPLE_DATA)
+
+
+def test_rejects_helper_shadowing_builtin():
+    code = "def sorted():\n    return 1\nresult = {'v': sorted()}\n"
+    with pytest.raises(ReportCodeSafetyError):
+        execute_report_code(code, SAMPLE_DATA)
