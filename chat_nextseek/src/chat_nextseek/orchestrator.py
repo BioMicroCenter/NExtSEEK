@@ -165,7 +165,6 @@ def _execute_graph_turn(
     user_text: str,
     entity_result,
     plan,
-    mode: str,
     log_dir,
     artifact_store,
     send_event,
@@ -173,7 +172,7 @@ def _execute_graph_turn(
     t_total_start: float,
     refine_context: str | None = None,
 ):
-    send_event("agent_started", {"agent": "graph", "mode": mode})
+    send_event("agent_started", {"agent": "graph", "mode": "graph_query"})
     _t0 = time.perf_counter()
     print("\n[GRAPH] Running graph agent...")
     graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=refine_context)
@@ -238,7 +237,7 @@ def _execute_graph_turn(
     )
     print(f"[TIMING][GRAPH] {time.perf_counter() - _t0:.2f}s")
 
-    result_files: list[Any] = []
+    result_files: list[dict[str, Any]] = []
     entry = artifact_store.register_path(
         key="graph_debug", label="Graph query debug JSON", path=graph_debug_path,
         kind="graph", bundle_id=bundle_id,
@@ -1000,20 +999,24 @@ def run_query(
             return _emit_query_complete(send_event, reply, debug_payload, None)
 
         if mode == "graph_query":
+            current_agent = "graph"
             return _execute_graph_turn(
                 config=config, session=session, user_text=user_text,
-                entity_result=entity_result, plan=plan, mode=mode, log_dir=log_dir,
+                entity_result=entity_result, plan=plan, log_dir=log_dir,
                 artifact_store=artifact_store, send_event=send_event,
                 debug_payload=debug_payload, t_total_start=_t_total_start,
             )
 
         if mode in ("new_search", "refine_last_search"):
+            # Graph-origin refines re-run the graph path (with prior Cypher as context);
+            # everything below this is REST refine prep.
             if mode == "refine_last_search":
                 _history = session.get("results_history", []) or []
                 if _history and (_history[-1] or {}).get("mode") == "graph_query":
+                    current_agent = "graph"
                     return _execute_graph_turn(
                         config=config, session=session, user_text=user_text,
-                        entity_result=entity_result, plan=plan, mode="graph_query",
+                        entity_result=entity_result, plan=plan,
                         log_dir=log_dir, artifact_store=artifact_store, send_event=send_event,
                         debug_payload=debug_payload, t_total_start=_t_total_start,
                         refine_context=_build_graph_refine_context(_history[-1]),
