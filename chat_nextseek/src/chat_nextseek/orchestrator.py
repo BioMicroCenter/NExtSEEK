@@ -145,6 +145,144 @@ def _write_graph_debug(log_dir: str, ts: str, payload: dict) -> str | None:
         return None
 
 
+def _build_graph_refine_context(last_bundle: dict) -> str:
+    """Prior graph-query context for a refine, mirroring the REST refine block
+    in api_agent_build_request (prior user query + prior plan)."""
+    graph_plan = last_bundle.get("graph_plan") or {}
+    prior_cypher = graph_plan.get("cypher") or ""
+    prior_query = last_bundle.get("user_query") or ""
+    return (
+        "Previous graph query context (you are refining it):\n"
+        f"Prior user query: {prior_query or '[none]'}\n"
+        f"Prior Cypher:\n{prior_cypher or '[none]'}"
+    )
+
+
+def _execute_graph_turn(
+    *,
+    config: ChatConfig,
+    session,
+    user_text: str,
+    entity_result,
+    plan,
+    mode: str,
+    log_dir,
+    artifact_store,
+    send_event,
+    debug_payload: dict,
+    t_total_start: float,
+    refine_context: str | None = None,
+):
+    send_event("agent_started", {"agent": "graph", "mode": mode})
+    _t0 = time.perf_counter()
+    print("\n[GRAPH] Running graph agent...")
+    graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=refine_context)
+    print(f"[DEBUG][GRAPH] Explanation: {graph_plan.explanation}")
+    print(f"[DEBUG][GRAPH] Cypher:\n{graph_plan.cypher}")
+
+    if not graph_plan.cypher:
+        reply = f"Graph agent could not generate a query.\n\nReason: {graph_plan.explanation}"
+        session["last_debug"] = debug_payload
+        send_event("agent_complete", {"agent": "graph", "summary": None})
+        print(f"[TIMING][GRAPH] {time.perf_counter() - _t0:.2f}s")
+        print(f"[TIMING][TOTAL] {time.perf_counter() - t_total_start:.2f}s")
+        return _emit_query_complete(send_event, reply, debug_payload, None)
+
+    send_event(
+        "agent_complete",
+        {"agent": "graph", "summary": {"cypher": graph_plan.cypher, "explanation": graph_plan.explanation}},
+    )
+
+    send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
+    graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
+    if not graph_result.get("ok"):
+        neo4j_error = graph_result.get("error", "Unknown error")
+        print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
+        retry_ctx = (
+            f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
+            "Revisit the schema carefully - check property types, relationship directions, "
+            "and graph_topology - then generate a corrected query."
+        )
+        graph_plan_retry = graph_agent(
+            config, user_text, entity_result, plan,
+            retry_context=retry_ctx, refine_context=refine_context,
+        )
+        if graph_plan_retry.cypher:
+            graph_plan = graph_plan_retry
+            graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
+    send_event(
+        "search_complete",
+        {"source": "neo4j", "ok": graph_result.get("ok"), "count": graph_result.get("count")},
+    )
+
+    history = session.get("results_history", [])
+    bundle_id = len(history) + 1
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    graph_debug_path = _write_graph_debug(
+        log_dir, ts,
+        {
+            "timestamp": ts,
+            "user_query": user_text,
+            "model": config.MODEL_MODE,
+            "entity_output": entity_result.model_dump(),
+            "parser_output": plan.model_dump(),
+            "graph_output": graph_plan.model_dump(),
+            "neo4j_output": {
+                "ok": graph_result.get("ok"),
+                "count": graph_result.get("count"),
+                "error": graph_result.get("error"),
+                "counters": graph_result.get("counters"),
+                "data_preview": (graph_result.get("data") or [])[:20],
+            },
+        },
+    )
+    print(f"[TIMING][GRAPH] {time.perf_counter() - _t0:.2f}s")
+
+    result_files: list[Any] = []
+    entry = artifact_store.register_path(
+        key="graph_debug", label="Graph query debug JSON", path=graph_debug_path,
+        kind="graph", bundle_id=bundle_id,
+    )
+    if entry:
+        result_files.append(entry)
+    bundle = build_metadata_bundle(
+        bundle_id=bundle_id, mode="graph_query", user_query=user_text,
+        parser_plan=plan.model_dump(), graph_plan=graph_plan.model_dump(),
+        graph_result=graph_result, terminal_reply=None,
+        search_context={"endpoint": "neo4j"}, files=result_files,
+        paths={"graph_debug_path": graph_debug_path},
+    )
+    history.append(bundle)
+    session["results_history"] = history
+
+    debug_payload["graph_plan"] = graph_plan.model_dump()
+    debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
+
+    send_event("agent_started", {"agent": "chatter", "mode": "graph_query"})
+    _t1 = time.perf_counter()
+    reply = chatter_agent_answer(
+        config, user_text, entity_result.model_dump(), plan.model_dump(),
+        graph_plan=graph_plan.model_dump(), graph_result=graph_result,
+        log_dir=log_dir, session=session,
+    )
+    print(f"[TIMING][CHATTER] {time.perf_counter() - _t1:.2f}s")
+    send_event("agent_complete", {"agent": "chatter", "summary": None})
+    bundle["terminal_reply"] = reply
+    bundle["reply"] = reply
+    bundle.setdefault("model_outputs", {})["terminal_reply"] = reply
+    session["last_debug"] = debug_payload
+
+    session["last_files"] = result_files
+    append_turn(
+        session, user_query=user_text, mode="graph_query",
+        intent_summary=plan.intent_summary, entity_result=entity_result,
+        tool_summary=build_tool_summary_for_mode("graph_query", graph_plan=graph_plan.model_dump()),
+        result_payload=graph_result, assistant_reply=reply, bundle_id=bundle_id,
+    )
+    print(f"[TIMING][TOTAL] {time.perf_counter() - t_total_start:.2f}s")
+    return _emit_query_complete(send_event, reply, debug_payload, bundle_id, files=result_files or None)
+
+
 # DEPRECATED: superseded by pipeline_agent. Left in place for now;
 # safe to delete once a release cycle has passed with no rollback.
 def _execute_nfcore_wizard(
@@ -862,141 +1000,24 @@ def run_query(
             return _emit_query_complete(send_event, reply, debug_payload, None)
 
         if mode == "graph_query":
-            current_agent = "graph"
-            send_event("agent_started", {"agent": "graph", "mode": mode})
-            _t0 = time.perf_counter()
-            print("\n[GRAPH] Running graph agent...")
-            graph_plan = graph_agent(config, user_text, entity_result, plan)
-            print(f"[DEBUG][GRAPH] Explanation: {graph_plan.explanation}")
-            print(f"[DEBUG][GRAPH] Cypher:\n{graph_plan.cypher}")
-
-            if not graph_plan.cypher:
-                reply = f"Graph agent could not generate a query.\n\nReason: {graph_plan.explanation}"
-                session["last_debug"] = debug_payload
-                send_event("agent_complete", {"agent": "graph", "summary": None})
-                print(f"[TIMING][GRAPH] {time.perf_counter() - _t0:.2f}s")
-                print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
-                return _emit_query_complete(send_event, reply, debug_payload, None)
-
-            send_event(
-                "agent_complete",
-                {
-                    "agent": "graph",
-                    "summary": {"cypher": graph_plan.cypher, "explanation": graph_plan.explanation},
-                },
+            return _execute_graph_turn(
+                config=config, session=session, user_text=user_text,
+                entity_result=entity_result, plan=plan, mode=mode, log_dir=log_dir,
+                artifact_store=artifact_store, send_event=send_event,
+                debug_payload=debug_payload, t_total_start=_t_total_start,
             )
-
-            send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
-            graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
-            if not graph_result.get("ok"):
-                neo4j_error = graph_result.get("error", "Unknown error")
-                print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
-                retry_ctx = (
-                    f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
-                    "Revisit the schema carefully - check property types, relationship directions, "
-                    "and graph_topology - then generate a corrected query."
-                )
-                graph_plan_retry = graph_agent(config, user_text, entity_result, plan, retry_context=retry_ctx)
-                if graph_plan_retry.cypher:
-                    graph_plan = graph_plan_retry
-                    graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
-            send_event(
-                "search_complete",
-                {
-                    "source": "neo4j",
-                    "ok": graph_result.get("ok"),
-                    "count": graph_result.get("count"),
-                },
-            )
-
-            history = session.get("results_history", [])
-            bundle_id = len(history) + 1
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            graph_debug_path = _write_graph_debug(
-                log_dir,
-                ts,
-                {
-                    "timestamp": ts,
-                    "user_query": user_text,
-                    "model": config.MODEL_MODE,
-                    "entity_output": entity_result.model_dump(),
-                    "parser_output": plan.model_dump(),
-                    "graph_output": graph_plan.model_dump(),
-                    "neo4j_output": {
-                        "ok": graph_result.get("ok"),
-                        "count": graph_result.get("count"),
-                        "error": graph_result.get("error"),
-                        "counters": graph_result.get("counters"),
-                        "data_preview": (graph_result.get("data") or [])[:20],
-                    },
-                },
-            )
-            print(f"[TIMING][GRAPH] {time.perf_counter() - _t0:.2f}s")
-
-            result_files: list[dict[str, Any]] = []
-            entry = artifact_store.register_path(
-                key="graph_debug",
-                label="Graph query debug JSON",
-                path=graph_debug_path,
-                kind="graph",
-                bundle_id=bundle_id,
-            )
-            if entry:
-                result_files.append(entry)
-            bundle = build_metadata_bundle(
-                bundle_id=bundle_id,
-                mode="graph_query",
-                user_query=user_text,
-                parser_plan=plan.model_dump(),
-                graph_plan=graph_plan.model_dump(),
-                graph_result=graph_result,
-                terminal_reply=None,
-                search_context={"endpoint": "neo4j"},
-                files=result_files,
-                paths={"graph_debug_path": graph_debug_path},
-            )
-            history.append(bundle)
-            session["results_history"] = history
-
-            debug_payload["graph_plan"] = graph_plan.model_dump()
-            debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
-
-            current_agent = "chatter"
-            send_event("agent_started", {"agent": "chatter", "mode": "graph_query"})
-            _t1 = time.perf_counter()
-            reply = chatter_agent_answer(
-                config,
-                user_text,
-                entity_result.model_dump(),
-                plan.model_dump(),
-                graph_plan=graph_plan.model_dump(),
-                graph_result=graph_result,
-                log_dir=log_dir,
-                session=session,
-            )
-            print(f"[TIMING][CHATTER] {time.perf_counter() - _t1:.2f}s")
-            send_event("agent_complete", {"agent": "chatter", "summary": None})
-            bundle["terminal_reply"] = reply
-            bundle["reply"] = reply
-            bundle.setdefault("model_outputs", {})["terminal_reply"] = reply
-            session["last_debug"] = debug_payload
-
-            session["last_files"] = result_files
-            append_turn(
-                session,
-                user_query=user_text,
-                mode=mode,
-                intent_summary=plan.intent_summary,
-                entity_result=entity_result,
-                tool_summary=build_tool_summary_for_mode("graph_query", graph_plan=graph_plan.model_dump()),
-                result_payload=graph_result,
-                assistant_reply=reply,
-                bundle_id=bundle_id,
-            )
-            print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
-            return _emit_query_complete(send_event, reply, debug_payload, bundle_id, files=result_files or None)
 
         if mode in ("new_search", "refine_last_search"):
+            if mode == "refine_last_search":
+                _history = session.get("results_history", []) or []
+                if _history and (_history[-1] or {}).get("mode") == "graph_query":
+                    return _execute_graph_turn(
+                        config=config, session=session, user_text=user_text,
+                        entity_result=entity_result, plan=plan, mode="graph_query",
+                        log_dir=log_dir, artifact_store=artifact_store, send_event=send_event,
+                        debug_payload=debug_payload, t_total_start=_t_total_start,
+                        refine_context=_build_graph_refine_context(_history[-1]),
+                    )
             if mode == "refine_last_search":
                 plan_data = plan.model_dump()
                 history = session.get("results_history", [])

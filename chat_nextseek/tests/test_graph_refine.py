@@ -30,3 +30,22 @@ def test_graph_agent_threads_refine_context_into_messages():
     blob = "\n".join(m["content"] for m in captured["messages"])
     assert "Previous graph query context" in blob
     assert "MATCH (s:Sample) RETURN s LIMIT 5" in blob
+
+
+from chat_nextseek import orchestrator as orch
+
+
+def test_build_graph_refine_context_uses_prior_cypher_and_query():
+    last_bundle = {
+        "user_query": "samples in the GBM study",
+        "mode": "graph_query",
+        "graph_plan": {"cypher": "MATCH (s:Sample)-[:IN_STUDY]->(:Study {title:'GBM'}) RETURN s"},
+    }
+    ctx = orch._build_graph_refine_context(last_bundle)
+    assert "samples in the GBM study" in ctx
+    assert "MATCH (s:Sample)-[:IN_STUDY]->(:Study {title:'GBM'}) RETURN s" in ctx
+
+
+def test_build_graph_refine_context_handles_missing_fields():
+    ctx = orch._build_graph_refine_context({})
+    assert "[none]" in ctx
