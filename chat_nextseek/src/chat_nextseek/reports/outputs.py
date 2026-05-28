@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from ..artifacts import ArtifactStore
 from ..config import ChatConfig
-from ..schemas import ReportWriterPlan
+from ..schemas import ReportWriterPlan, ReportWriterOutput, ReportWriterOutputGEO
 from .metadata import (
     annotate_metadata_with_sampletypes,
     build_metadata_summary,
@@ -44,6 +44,10 @@ from .templates_meta import (
 _TARGET_TYPE_FOR_REPORT = {"GEO": "D.SEQ", "SRA": "D.SEQ", "PRIDE": "D.MSP"}
 _REPORT_CODE_PATH_THRESHOLD = 20
 
+# The per-sample row list key in each report body (one entry per target-type sample).
+# Used for the row-parity guard so the code path works for SRA/PRIDE, not just GEO.
+_ROW_KEY_FOR_REPORT = {"GEO": "samples", "SRA": "libraries", "PRIDE": "sample_metadata"}
+
 
 def _count_target_samples(metadata: dict | None, target_type: str) -> int:
     try:
@@ -61,9 +65,7 @@ def _wrap_report_result(report_type_value, result: dict, coder_output):
     narrative = coder_output.result_description or None
     notes = coder_output.notes or ""
     if canonical == "GEO":
-        from ..schemas import ReportWriterOutputGEO
         return ReportWriterOutputGEO(report_type=canonical, report=result or {}, narrative=narrative, notes=notes)
-    from ..schemas import ReportWriterOutput
     return ReportWriterOutput(report_type=canonical, report=result or {}, narrative=narrative, notes=notes)
 
 
@@ -96,12 +98,13 @@ def _produce_report_output(
                 template=template_for_llm, metadata=metadata, log_dir=log_dir,
             )
             result = execute_report_code(coder_output.extraction_code, metadata)
-            samples = (result or {}).get("samples")
-            if isinstance(samples, list) and len(samples) == count:
-                print(f"[DEBUG][REPORT_CODER] Emitted {len(samples)} rows (parity OK).")
+            row_key = _ROW_KEY_FOR_REPORT.get(canonical, "samples")
+            rows = (result or {}).get(row_key)
+            if isinstance(rows, list) and len(rows) == count:
+                print(f"[DEBUG][REPORT_CODER] Emitted {len(rows)} '{row_key}' rows (parity OK).")
                 return _wrap_report_result(report_type_value, result, coder_output)
-            got = len(samples) if isinstance(samples, list) else "n/a"
-            print(f"[DEBUG][REPORT_CODER] Row parity failed (got {got}, want {count}); "
+            got = len(rows) if isinstance(rows, list) else "n/a"
+            print(f"[DEBUG][REPORT_CODER] Row parity failed for '{row_key}' (got {got}, want {count}); "
                   "falling back to report_writer.")
         except Exception as e:
             print(f"[DEBUG][REPORT_CODER] Code path failed; falling back to report_writer: {e!r}")

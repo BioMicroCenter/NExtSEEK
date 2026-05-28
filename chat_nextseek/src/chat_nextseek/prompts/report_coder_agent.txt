@@ -9,8 +9,8 @@ not write the rows yourself — you write code that emits every row.
 
 INPUTS YOU RECEIVE
 - report_type (e.g. GEO, SRA, PRIDE).
-- A report TEMPLATE: the JSON shape and field keys to produce (study-level fields, a per-row
-  `samples` list, protocols, etc.). Field keys are descriptive (e.g. "*organism",
+- A report TEMPLATE: the JSON shape and field keys to produce (study-level fields, a per-sample
+  row list, protocols, etc.). Field keys are descriptive (e.g. "*organism",
   "**tissue", "*instrument model"). Produce exactly this shape.
 - A PROFILE of the sample metadata: a schema-agnostic skeleton plus example records. The
   metadata is a tree of sample-type groups; a sample may carry values directly, or the value
@@ -47,9 +47,10 @@ HARD-FORBIDDEN (crash the sandbox, silent fallback to the LLM path):
 RULES
 - Build the report body to match the template's shape and keys exactly. Do NOT echo any
   template `schema`/reference block.
-- Emit ONE entry in the `samples` list for EVERY sample of the target type — never a subset,
-  never "representative" rows. The number of rows MUST equal the number of target-type
-  samples in `data`.
+- Emit one entry per target-type sample in the template's per-sample row list (the list whose
+  rows describe individual samples/libraries) — never a subset, never "representative" rows.
+  Use the exact list key(s) the template defines. The number of rows MUST equal the number of
+  target-type samples in `data`.
 - Walk the lineage when a needed value is not on the target sample itself (build an index of
   samples by their UID and follow parent/relationship references you observe in the data).
 - For free-text/composite fields, parse them generically based on the structure you see in
