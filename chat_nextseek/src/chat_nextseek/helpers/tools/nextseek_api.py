@@ -203,6 +203,7 @@ def build_recent_results_summary(session: SessionState, max_results: int = 8) ->
                 )
         lines.append(
             f"- id={bundle.get('id')}, "
+            f"mode={bundle.get('mode')}, "
             f"query={bundle.get('user_query')!r}, "
             f"endpoint={bundle.get('endpoint')}, "
             f"total={total}"
