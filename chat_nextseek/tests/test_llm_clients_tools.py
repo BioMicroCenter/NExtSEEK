@@ -273,3 +273,45 @@ def test_chat_with_tools_passes_through_already_bedrock_shaped_blocks():
     assert sent[1]["content"] == [
         {"toolUse": {"toolUseId": "t3", "name": "tool_b", "input": {}}},
     ]
+
+
+def test_chat_bumps_maxtokens_for_adaptive_thinking():
+    """Opus-4.7 adaptive thinking shares maxTokens with the text output. Without
+    headroom the model spends the whole budget thinking and returns empty text
+    (stop_reason=max_tokens). chat() must bump maxTokens above the thinking budget."""
+    converse_resp = _stub_converse_response("end_turn", [{"text": "ok"}])
+    client = _bedrock_client_with_mock_converse(converse_resp)  # max_output_tokens=4096
+
+    client.chat(
+        model="us.anthropic.claude-opus-4-7",
+        messages=[{"role": "user", "content": "go"}],
+        thinking_budget=16000,
+    )
+
+    kw = client.client.converse.call_args.kwargs
+    assert kw["inferenceConfig"]["maxTokens"] >= 16000 + 4096
+    amrf = kw["additionalModelRequestFields"]
+    assert amrf["thinking"]["type"] == "adaptive"
+    assert amrf["output_config"]["effort"] == "high"
+
+
+def test_chat_never_sends_blank_text_block():
+    """Empty/whitespace message content must not become a blank Converse text block
+    (Bedrock rejects messages.*.content.*.text == ''). This guards the repair loop,
+    which can append an empty assistant turn when a prior response was empty."""
+    converse_resp = _stub_converse_response("end_turn", [{"text": "ok"}])
+    client = _bedrock_client_with_mock_converse(converse_resp)
+
+    client.chat(
+        model="us.anthropic.claude-opus-4-7",
+        messages=[
+            {"role": "user", "content": "real content"},
+            {"role": "assistant", "content": ""},
+            {"role": "user", "content": "fix it"},
+        ],
+    )
+
+    sent = client.client.converse.call_args.kwargs["messages"]
+    for m in sent:
+        for block in m["content"]:
+            assert block["text"].strip() != "", f"blank text block sent: {m}"
