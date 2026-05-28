@@ -7,6 +7,13 @@ def _bundle(*sample_type_blocks):
     return {"data": list(sample_type_blocks)}
 
 
+def _api_bundle(*sample_type_blocks):
+    """The shape fetch_reporter_metadata + annotate_metadata_with_sampletypes
+    actually return: the sample-type blocks live at bundle['data']['data']
+    (the API body is nested one level under 'data'), NOT at bundle['data']."""
+    return {"ok": True, "data": {"total_samples": 0, "data": list(sample_type_blocks)}}
+
+
 def _block(sample_type, *samples):
     return {"sample_type": sample_type, "samples": list(samples)}
 
@@ -97,6 +104,35 @@ def test_returns_empty_when_accepted_types_empty():
     bundle = _bundle(_block("D.SEQ", _sample("D.SEQ-1")))
     out = enumerate_lineage_leaves(bundle, accepted_types=[])
     assert out == []
+
+
+def test_unwraps_two_level_api_bundle():
+    """Regression: fetch_reporter_metadata + annotate_metadata_with_sampletypes
+    return the sample-type blocks at bundle['data']['data'] (two levels). The
+    walk must find leaves in that real shape — not only the one-level
+    {'data': [blocks]} the unit tests had been using. Before the fix this
+    returned [] (it iterated the body dict's keys), which is why _resolve_samples
+    saw 0 leaves for every cohort."""
+    bundle = _api_bundle(_block("D.SEQ",
+        _sample("D.SEQ-1", metadata={"UID": "D.SEQ-1", "assay_name": "RNA-seq"}),
+        _sample("D.SEQ-2", metadata={"UID": "D.SEQ-2", "assay_name": "RNA-seq"}),
+    ))
+    out = enumerate_lineage_leaves(bundle, accepted_types=["D.SEQ"])
+    assert {leaf["uid"] for leaf in out} == {"D.SEQ-1", "D.SEQ-2"}
+
+
+def test_leaf_carries_source_metadata():
+    """Each leaf record carries its source metadata dict so downstream signature
+    grouping can read discriminating fields (SequencingType, LibraryStrategy, …)
+    that the flat {uid, sample_type, assay} record would otherwise drop."""
+    bundle = _bundle(_block("D.SEQ",
+        _sample("D.SEQ-1", metadata={
+            "UID": "D.SEQ-1", "SequencingType": "RNA-seq", "LibraryStrategy": "RNA-Seq",
+        }),
+    ))
+    out = enumerate_lineage_leaves(bundle, accepted_types=["D.SEQ"])
+    assert out[0]["metadata"]["SequencingType"] == "RNA-seq"
+    assert out[0]["metadata"]["LibraryStrategy"] == "RNA-Seq"
 
 
 def test_does_not_infer_sample_type_from_uid_prefix():
