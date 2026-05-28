@@ -4,6 +4,7 @@ from .tools import APIRequestPlan
 from .chat import (
     GEOReportBody,
     PipelineCohort,
+    ReportCoderOutput,
     ReporterPlan,
     ReporterSummary,
     ReportWriterOutput,
@@ -61,6 +62,7 @@ __all__ = [
     "StepInputRef",
     "StepOutcome",
     "StepOutputMapping",
+    "ReportCoderOutput",
     "ReporterPlan",
     "ReporterSummary",
     "ReportWriterPlan",
