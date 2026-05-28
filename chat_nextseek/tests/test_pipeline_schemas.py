@@ -136,3 +136,16 @@ def test_samples_ref_named_cohort_accepted():
     s = SamplesRef(kind="named_cohort", cohort_name="cohort_A")
     assert s.kind == "named_cohort"
     assert s.cohort_name == "cohort_A"
+
+
+def test_sanity_output_accepts_signature_groups():
+    """LLM returns accepted signature-group ids; code expands them to leaf UIDs."""
+    from chat_nextseek.schemas.pipeline import SanityCheckOutput
+    out = SanityCheckOutput(verdict="proceed", accepted_signature_groups=["g1", "g2"])
+    assert out.accepted_signature_groups == ["g1", "g2"]
+
+
+def test_sanity_output_signature_groups_default_empty():
+    from chat_nextseek.schemas.pipeline import SanityCheckOutput
+    out = SanityCheckOutput(verdict="proceed")
+    assert out.accepted_signature_groups == []

@@ -189,3 +189,31 @@ def test_build_flow_mismatch_with_no_alternative_clears_and_cancels():
     assert out["action"] == "cancel"
     assert "no alternative" not in out["reply"].lower()  # should NOT echo the placeholder
     assert session.get("pipeline_agent") in (None, {})
+
+
+def _mixed_resolution():
+    """3 RNA-seq + 2 WGS D.SEQ leaves carrying metadata (post-2a shape)."""
+    def _leaf(uid, seqtype):
+        return {"uid": uid, "sample_type": "D.SEQ", "assay": "", "source_uid": "MUS-1",
+                "metadata": {"UID": uid, "SequencingType": seqtype, "File": uid + ".fq"}}
+    leaves = ([_leaf(f"D.SEQ-R{i}", "RNA-seq") for i in range(1, 4)] +
+              [_leaf(f"D.SEQ-W{i}", "WGS") for i in range(1, 3)])
+    return {
+        "source_uids": ["MUS-1"], "leaves_all": leaves, "leaves_filtered": leaves,
+        "dropped_by_assay_mismatch": [], "source_uids_with_no_leaves": [],
+        "metadata_bundle": {"data": []},
+    }
+
+
+def test_sanity_expands_accepted_groups_to_leaves():
+    """LLM returns accepted signature-group ids (not 200+ UIDs); the step expands
+    them to the concrete leaf UIDs. Largest group is g1 (the 3 RNA-seq leaves)."""
+    from chat_nextseek.pipeline.steps.sanity import _pipeline_sanity_check
+    config = MagicMock()
+    config.get_agent_model.return_value = (MagicMock(), "model", None)
+    config._load_prompt.return_value = "{signature_groups}"
+    fake = SanityCheckOutput(verdict="proceed_with_subset", accepted_signature_groups=["g1"])
+    with patch("chat_nextseek.pipeline.steps.sanity.call_llm_structured", return_value=fake):
+        out = _pipeline_sanity_check(config=config, pipeline_key="rnaseq",
+                                     resolution=_mixed_resolution())
+    assert set(out.leaves_to_use) == {"D.SEQ-R1", "D.SEQ-R2", "D.SEQ-R3"}

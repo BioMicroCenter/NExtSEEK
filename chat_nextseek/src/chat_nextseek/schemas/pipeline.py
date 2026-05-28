@@ -50,6 +50,11 @@ class SanityCheckOutput(BaseModel):
     """Second LLM step: confirm chosen pipeline matches available data."""
 
     verdict: Literal["proceed", "proceed_with_subset", "mismatch", "ambiguous"]
+    # The LLM picks which signature groups are the right data type for the
+    # pipeline; code expands these ids to concrete leaf UIDs (`leaves_to_use`).
+    # Returning a few group ids instead of hundreds of UIDs keeps the LLM output
+    # small and avoids self-truncation on large cohorts.
+    accepted_signature_groups: list[str] = Field(default_factory=list)
     leaves_to_use: list[str] = Field(default_factory=list)
     dropped_leaves_summary: str = ""
     suggested_alternative_pipeline: str | None = None
