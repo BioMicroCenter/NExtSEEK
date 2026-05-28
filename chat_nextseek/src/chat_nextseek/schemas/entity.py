@@ -15,6 +15,8 @@ class EntityAgentOutput(BaseModel):
     assays: list[EntityItem] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     projects: list[str] = Field(default_factory=list)
+    labs: list[str] = Field(default_factory=list)
+    lab_codes: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 
