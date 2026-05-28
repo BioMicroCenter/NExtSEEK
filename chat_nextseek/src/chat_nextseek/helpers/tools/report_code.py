@@ -52,7 +52,10 @@ _REPORT_BLOCKED_NODES = (
     ast.Global,
     ast.Nonlocal,
     ast.Raise,
-    ast.While,
+    # NOTE: `while` is intentionally allowed — report code legitimately needs it to
+    # walk lineage parent-chains. It is control flow, not an RCE vector (escape is
+    # blocked by the attribute allow-list + import/exec/dunder blocks). Runaway loops
+    # are bounded by the execution timeout in execute_report_code.
     ast.Await,
     ast.Yield,
     ast.YieldFrom,

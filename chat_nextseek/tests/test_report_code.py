@@ -3,6 +3,7 @@ import pytest
 from chat_nextseek.helpers.tools.report_code import (
     execute_report_code,
     ReportCodeSafetyError,
+    ReportCodeTimeoutError,
 )
 
 SAMPLE_DATA = {
@@ -57,9 +58,30 @@ def test_blocks_dunder_access():
         execute_report_code("result = {}.__class__", SAMPLE_DATA)
 
 
-def test_blocks_while():
-    with pytest.raises(ReportCodeSafetyError):
-        execute_report_code("while True:\n    pass\nresult = {}", SAMPLE_DATA)
+def test_allows_terminating_while_for_lineage_walk():
+    # report code needs `while` to walk a lineage parent-chain; a terminating
+    # loop must run and produce output.
+    code = (
+        "by_uid = {}\n"
+        "for g in data['data']['data']:\n"
+        "    for s in g.get('samples', []):\n"
+        "        md = s.get('metadata') or {}\n"
+        "        by_uid[md.get('UID')] = md\n"
+        "uids = []\n"
+        "cur = 'D.SEQ-1'\n"
+        "while cur and cur in by_uid:\n"
+        "    uids.append(cur)\n"
+        "    cur = (by_uid.get(cur) or {}).get('Parent')\n"
+        "result = {'samples': uids}\n"
+    )
+    out = execute_report_code(code, SAMPLE_DATA)
+    assert out["samples"] == ["D.SEQ-1"]
+
+
+def test_while_loop_is_time_bounded():
+    # An accidental infinite loop must be cut by the execution timeout, not hang.
+    with pytest.raises(ReportCodeTimeoutError):
+        execute_report_code("while True:\n    pass\nresult = {}", SAMPLE_DATA, timeout_seconds=1)
 
 
 def test_requires_result_assignment():

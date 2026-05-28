@@ -29,7 +29,8 @@ EXECUTION ENVIRONMENT — these names are PRE-BOUND. Use them directly; never im
 
 ALLOWED SYNTAX
 - `def` helper functions (encouraged for parsing and lineage joins), `if`/`elif`/`else`,
-  `for ... in ...`, `try`/`except`, return.
+  `for ... in ...`, `while ...` (allowed for walking a lineage parent-chain — it MUST
+  terminate; the sandbox enforces a time limit), `try`/`except`, return.
 - LIST / DICT / SET comprehensions like `[x for x in items]`. Do NOT use generator
   expressions `(x for x in items)` — they are rejected by the sandbox.
 - Builtins: len, str, int, float, bool, list, dict, set, tuple, sorted, sum, min, max, any,
@@ -40,7 +41,7 @@ ALLOWED SYNTAX
   isdigit, title, count, setdefault, pop.
 
 HARD-FORBIDDEN (crash the sandbox, silent fallback to the LLM path):
-  import/from-import, class, lambda, with, while, raise, del, global, nonlocal, generator
+  import/from-import, class, lambda, with, raise, del, global, nonlocal, generator
   expressions, eval/exec/compile/open/__import__/__builtins__, any __dunder__ access.
   Do not print. Do not access object internals (no .__class__, .gi_frame, .f_globals, etc.).
 
