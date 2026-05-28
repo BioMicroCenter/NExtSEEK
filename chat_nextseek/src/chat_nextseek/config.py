@@ -160,6 +160,7 @@ class ChatConfig:
         self.PARSER_SYSTEM_PROMPT = self._load_composed_parser_prompt("parser_agent.txt")
         self.REPORTER_SYSTEM_PROMPT = self._load_prompt("reporter_agent.txt")
         self.REPORT_WRITER_SYSTEM_PROMPT = self._load_prompt("report_writer_agent.txt")
+        self.REPORT_CODER_SYSTEM_PROMPT = self._load_prompt("report_coder_agent.txt")
         self.API_AGENT_SYSTEM_PROMPT = self._load_prompt("api_agent.txt")
         self.CHATTER_SYSTEM_PROMPT = self._load_prompt("chatter_agent.txt")
         self.MEMORY_SYSTEM_PROMPT = self._load_prompt("memory_agent.txt")

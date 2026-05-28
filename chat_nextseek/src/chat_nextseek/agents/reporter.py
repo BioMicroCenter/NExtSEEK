@@ -8,11 +8,14 @@ from typing import Any
 
 from ..config import ChatConfig
 from ..helpers import (
+    build_memory_data_profile,
+    log_prompt,
     normalize_report_type,
 )
 from ..schemas.schema_helper import call_llm_structured
 from ..schemas import (
     ParserPlan,
+    ReportCoderOutput,
     ReporterPlan,
     ReportWriterOutput,
     ReportWriterPlan,
@@ -338,3 +341,72 @@ def report_writer_agent(
 
     print("[DEBUG][REPORT_WRITER] Parsed report writer output:", json.dumps(result.model_dump(), indent=2))
     return result
+
+
+def _strip_python_code_fences(code: str) -> str:
+    text = (code or "").strip()
+    match = re.match(r"^```(?:python)?\s*(.*?)\s*```$", text, re.DOTALL | re.IGNORECASE)
+    return match.group(1).strip() if match else text
+
+
+def report_coder_agent(
+    config: ChatConfig,
+    *,
+    user_query: str,
+    report_type: str | None,
+    template: dict | None,
+    metadata: dict | None,
+    log_dir: str | None = None,
+) -> ReportCoderOutput:
+    """Write Python that builds the full report body from the metadata tree.
+    General across report types: receives the template shape + a metadata profile and
+    discovers where each field's value lives. Mirrors memory_coder_agent."""
+    canonical_report_type = normalize_report_type(report_type)
+    profile = build_memory_data_profile(metadata or {}, sample_limit=5)
+    profile_text = json.dumps(profile, indent=2, default=str)
+    if len(profile_text) > 60000:
+        profile_text = profile_text[:60000] + "\n...[profile truncated]"
+    template_text = json.dumps(template or {}, indent=2, default=str)
+
+    messages = [
+        {"role": "system", "content": config.REPORT_CODER_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": (
+                f"Report type: {canonical_report_type or 'unknown'}\n\n"
+                "Report TEMPLATE (produce this shape/keys exactly):\n"
+                f"{template_text}\n\n"
+                "Sample metadata PROFILE (skeleton + examples of the full `data` object):\n"
+                f"{profile_text}\n\n"
+                f"Original user request: {user_query}\n\n"
+                "Write Python that reads `data` and assigns the full report body to `result`, "
+                "emitting one entry in the samples list for every sample of the target type."
+            ),
+        },
+    ]
+
+    coder_client, coder_model, coder_budget = config.get_agent_model("report_coder")
+    coder_output = call_llm_structured(
+        config=config,
+        prompt=user_query,
+        model=ReportCoderOutput,
+        system=config.REPORT_CODER_SYSTEM_PROMPT,
+        messages=messages,
+        model_name=coder_model,
+        temperature=0,
+        log_label="report_coder",
+        log_payload_extra={"user_query": user_query, "report_type": canonical_report_type},
+        usage_label="REPORT_CODER",
+        thinking_budget=coder_budget,
+        client=coder_client,
+    )
+    coder_output = coder_output.model_copy(
+        update={"extraction_code": _strip_python_code_fences(coder_output.extraction_code)}
+    )
+    log_prompt(
+        log_dir or config.LOG_DIR,
+        "report_coder",
+        {"user_query": user_query, "report_type": canonical_report_type,
+         "messages": messages, "response": coder_output.model_dump()},
+    )
+    return coder_output
