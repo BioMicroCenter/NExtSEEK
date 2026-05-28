@@ -18,6 +18,7 @@ def graph_agent(
     entity_result: EntityAgentOutput | dict,
     parser_plan: ParserPlan | dict | None = None,
     retry_context: str | None = None,
+    refine_context: str | None = None,
 ) -> GraphAgentPlan:
     """
     Generate a Cypher query for the given user query using the live graph schema.
@@ -71,6 +72,8 @@ def graph_agent(
         messages.append({"role": "system", "content": assay_conn_context})
     if retry_context:
         messages.append({"role": "system", "content": retry_context})
+    if refine_context:
+        messages.append({"role": "system", "content": refine_context})
     messages.append({"role": "user", "content": user_query})
 
     graph_client, graph_model, graph_budget = config.get_agent_model("graph")
