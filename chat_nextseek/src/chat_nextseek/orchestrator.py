@@ -34,6 +34,7 @@ from .agents import (
     _materialize_intersection_result,
     _step_signature,
 )
+from .agents.reporter import report_coder_agent
 from .config import ChatConfig
 from .llm_clients import LLMFatalError
 from .helpers import (
@@ -805,6 +806,7 @@ def run_query(
                     uids=uids,
                     log_dir=log_dir,
                     report_writer_fn=report_writer_agent,
+                    report_coder_fn=report_coder_agent,
                     per_sample_reports=per_sample_reports,
                 )
                 send_event("agent_complete", {"agent": "report_writer", "summary": None})
