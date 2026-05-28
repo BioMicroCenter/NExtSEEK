@@ -6,12 +6,12 @@
       "gemini-3.5-flash": {
         "provider": "gcp",
         "thinking_level": null,
-        "agents": ["entity", "api", "reporter", "chatter", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent", "pipeline_directive", "pipeline_sanity", "pipeline_groupby", "pipeline_edit", "pipeline_question"]
+        "agents": ["entity", "api", "reporter", "chatter", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent", "wizard_agent", "pipeline_directive", "pipeline_sanity", "pipeline_edit", "pipeline_question"]
       },
       "us.anthropic.claude-sonnet-4-6": {
         "provider": "anth",
         "thinking_level": null,
-        "agents": ["memory"]
+        "agents": ["memory", "pipeline_groupby"]
       },
       "us.anthropic.claude-opus-4-7": [
         {
