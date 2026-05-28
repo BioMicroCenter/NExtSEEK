@@ -7,7 +7,7 @@ consumers. See CLAUDE.md "Portability Contract" section.
 """
 from __future__ import annotations
 
-from .prompts import load_prompt, log_usage, log_prompt, log_llm_call  # noqa: F401
+from .prompts import load_prompt, log_usage, log_prompt  # noqa: F401
 from .json_io import _extract_required_paths, estimate_tokens_from_text, safe_parse_json  # noqa: F401
 from .text import strip_html, strip_html_recursive, load_file_for_memory, load_json_for_memory  # noqa: F401
 from .tools.memory_code import (  # noqa: F401
