@@ -67,6 +67,7 @@ class LLMResponse:
     usage: dict | None
     model: str
     provider: str
+    metadata: dict | None = None
 
 class BaseLLMClient:
     provider: str = "unknown"
@@ -536,12 +537,26 @@ class BedrockClient(BaseLLMClient):
         except Exception:
             pass
 
+        metadata = None
+        try:
+            rmeta = resp.get("ResponseMetadata") or {}
+            metadata = {
+                "request_id": rmeta.get("RequestId"),
+                "http_status": rmeta.get("HTTPStatusCode"),
+                "retry_attempts": rmeta.get("RetryAttempts"),
+                "bedrock_latency_ms": (resp.get("metrics") or {}).get("latencyMs"),
+                "stop_reason": resp.get("stopReason"),
+            }
+        except Exception:
+            pass
+
         return LLMResponse(
             content=text or "",
             raw=resp,
             usage=usage,
             model=model,
             provider=self.provider,
+            metadata=metadata,
         )
 
     @staticmethod

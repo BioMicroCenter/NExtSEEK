@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -71,3 +72,35 @@ def log_prompt(log_path: str, stage: str, payload: dict):
             f.write(json.dumps(entry) + "\n")
     except Exception:
         pass
+
+
+def log_llm_call(log_dir: str | None, entry: dict):
+    """
+    Append one JSON line per LLM call to a durable ledger so timeouts/latency/throttling
+    survive the docker log ring buffer.
+
+    Writes to ``<log_dir>/llm_calls.jsonl`` (per-run, mirrors log_prompt's LOG_DIR
+    convention) and, when the ``NEXTSEEK_LLM_LOG`` env var is set, also appends to that
+    rolling global path (e.g. /app/logs/llm_calls.jsonl in the bind-mounted logs dir).
+    Never raises — instrumentation must not break the request path.
+    """
+    line = None
+    try:
+        record = {"ts": datetime.now().isoformat(), **entry}
+        line = json.dumps(record, default=str) + "\n"
+    except Exception:
+        return
+
+    targets: list[str] = []
+    if log_dir:
+        targets.append(os.path.join(log_dir, "llm_calls.jsonl"))
+    global_path = os.getenv("NEXTSEEK_LLM_LOG")
+    if global_path:
+        targets.append(global_path)
+
+    for path in targets:
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line)
+        except Exception:
+            pass
