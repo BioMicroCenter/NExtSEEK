@@ -514,7 +514,7 @@ def _handle_submit(session, config, *, log_dir):
             "params": None,
         }
 
-    tower_env = getattr(config, "tower_env", {}) or {}
+    tower_env = getattr(config, "TOWER_ENV", {}) or {}
     if not tower_env.get("access_token") or not tower_env.get("workspace"):
         return {
             "action": "ask",
