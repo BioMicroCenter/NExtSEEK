@@ -14,6 +14,17 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from ..config import ChatConfig
 
+from ..helpers import (
+    annotate_metadata_with_sampletypes,
+    build_metadata_summary,
+    enumerate_lineage_leaves,
+    fetch_reporter_metadata,
+    filter_summary_to_sequencing_lineage,
+    uids_from_last_search,
+)
+from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
+from ..seqera.ena import extract_accessions_from_metadata
+
 PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "resolve_samples",
@@ -101,3 +112,76 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
     },
 ]
+
+
+def _accepted_types_for(pipeline_key: str) -> list[str]:
+    return list(NFCORE_PIPELINE_CATALOG.get(pipeline_key, {}).get("accepted_leaf_sample_types") or [])
+
+
+def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input: dict, pipeline_key: str) -> str:
+    """Resolve a sample ref into a compact leaf table; cache ground-truth refs in state['resolved']."""
+    kind = tool_input.get("kind")
+
+    if kind == "accessions":
+        accs = [a.strip() for a in (tool_input.get("accessions") or []) if a and a.strip()]
+        if not accs:
+            return json.dumps({"ok": False, "error": "kind='accessions' requires a non-empty accessions list."})
+        state.setdefault("resolved", {"uids": [], "accessions": []})
+        state["resolved"]["accessions"] = sorted(set(state["resolved"].get("accessions", [])) | set(accs))
+        return json.dumps({"ok": True, "kind": "accessions", "accessions": accs, "leaf_count": 0, "leaves": []})
+
+    if kind == "last_search":
+        source_uids = uids_from_last_search(session)
+        if not source_uids:
+            return json.dumps({"ok": False, "error": "No pinned search to use. Run a search first or pass explicit UIDs."})
+    elif kind == "explicit_uids":
+        source_uids = [u for u in (tool_input.get("uids") or []) if u]
+        if not source_uids:
+            return json.dumps({"ok": False, "error": "kind='explicit_uids' requires a non-empty uids list."})
+    else:
+        return json.dumps({"ok": False, "error": f"Unknown ref kind {kind!r}."})
+
+    raw = fetch_reporter_metadata(config, source_uids)
+    if not raw.get("ok"):
+        return json.dumps({"ok": False, "error": f"Metadata fetch failed: {raw.get('error') or 'unknown error'}"})
+
+    annotated = annotate_metadata_with_sampletypes(config, raw)
+    leaves = enumerate_lineage_leaves(annotated, accepted_types=_accepted_types_for(pipeline_key))
+
+    table: list[dict] = []
+    all_uids: set[str] = set()
+    all_accs: set[str] = set()
+    for leaf in leaves:
+        accs = extract_accessions_from_metadata(leaf.get("metadata") or {})
+        all_uids.add(leaf["uid"])
+        all_accs.update(accs)
+        table.append({
+            "uid": leaf["uid"],
+            "sample_type": leaf.get("sample_type", ""),
+            "assay": leaf.get("assay", ""),
+            "source_uid": leaf.get("source_uid", ""),
+            "accessions": accs,
+        })
+
+    try:
+        summary = filter_summary_to_sequencing_lineage(build_metadata_summary({"__sample__": annotated}))
+        grouping_fields = {
+            st: {f: fd.get("examples", []) for f, fd in (data.get("fields") or {}).items()}
+            for st, data in (summary.get("by_sample_type") or {}).items()
+        }
+    except Exception as exc:
+        print(f"[DEBUG][PIPELINE_AGENT] summary build failed: {exc!r}")
+        grouping_fields = {}
+
+    seen_sources = {leaf.get("source_uid") for leaf in leaves}
+    orphans = [u for u in source_uids if u not in seen_sources]
+
+    state["resolved"] = {"uids": sorted(all_uids), "accessions": sorted(all_accs)}
+    return json.dumps({
+        "ok": True,
+        "kind": kind,
+        "leaf_count": len(table),
+        "leaves": table,
+        "grouping_fields": grouping_fields,
+        "source_uids_with_no_leaves": orphans,
+    })
