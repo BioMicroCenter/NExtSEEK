@@ -49,3 +49,30 @@ def test_resolve_explicit_uids_builds_table_and_caches_refs(monkeypatch):
 def test_resolve_explicit_uids_empty_is_error():
     out = _json.loads(tool_resolve_samples(_Cfg(), {}, {}, {"kind": "explicit_uids", "uids": []}, "rnaseq"))
     assert out["ok"] is False
+
+
+def test_resolve_accessions_branch_caches_and_returns_zero_leaves():
+    state: dict = {}
+    out = _json.loads(tool_resolve_samples(_Cfg(), {}, state, {"kind": "accessions", "accessions": ["SRR222", " "]}, "fetchngs"))
+    assert out["ok"] is True
+    assert out["leaf_count"] == 0
+    assert state["resolved"]["accessions"] == ["SRR222"]  # blank stripped/dropped
+
+
+def test_resolved_refs_accumulate_across_calls(monkeypatch):
+    raw = {"ok": True, "data": {"data": [
+        {"sample_type": "MUS", "samples": [
+            {"metadata": {"UID": "MUS-1-PUB"}, "children": [
+                {"metadata": {"UID": "D.SEQ-1-PUB", "sample_type": "D.SEQ", "sra_run": "SRR111"}, "children": []}
+            ]}
+        ]}
+    ]}}
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.fetch_reporter_metadata", lambda c, u: raw)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.annotate_metadata_with_sampletypes", lambda c, m: m)
+    state: dict = {}
+    # first an accessions call, then a uid call — the uid call must NOT drop the earlier accession
+    tool_resolve_samples(_Cfg(), {}, state, {"kind": "accessions", "accessions": ["SRR999"]}, "rnaseq")
+    tool_resolve_samples(_Cfg(), {}, state, {"kind": "explicit_uids", "uids": ["MUS-1-PUB"]}, "rnaseq")
+    assert "SRR999" in state["resolved"]["accessions"]   # retained across calls
+    assert "SRR111" in state["resolved"]["accessions"]   # added by the uid call
+    assert "D.SEQ-1-PUB" in state["resolved"]["uids"]

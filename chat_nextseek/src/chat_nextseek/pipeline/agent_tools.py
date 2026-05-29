@@ -176,7 +176,11 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     seen_sources = {leaf.get("source_uid") for leaf in leaves}
     orphans = [u for u in source_uids if u not in seen_sources]
 
-    state["resolved"] = {"uids": sorted(all_uids), "accessions": sorted(all_accs)}
+    prev = state.get("resolved") or {"uids": [], "accessions": []}
+    state["resolved"] = {
+        "uids": sorted(set(prev.get("uids") or []) | all_uids),
+        "accessions": sorted(set(prev.get("accessions") or []) | all_accs),
+    }
     return json.dumps({
         "ok": True,
         "kind": kind,
