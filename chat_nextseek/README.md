@@ -127,7 +127,7 @@ End-to-end variants exercising every active agent via `chat_nextseek.orchestrato
 | `refine_and_recall` | 47 | Multi-turn refine + ask-about-last-results (uses `chat_log` + `results_history`) |
 | `graph_query` | 59 | Neo4j Cypher via graph_agent — counts, multi-hop, project/study scope |
 | `reporting` | 64 | Reporter SQL summaries + GEO / SRA / PRIDE artifact emission |
-| `pipeline_nfcore` | 21 | nf-core directive parse → sanity → groupby → samplesheet emit (+ Tower submit) |
+| `pipeline_nfcore` | 21 | full-agentic nf-core flow: resolve_samples → write_samplesheet (→ submit_to_tower) |
 | `system_question` | 27 | Catalog / capability / definition lookups |
 | `unsupported` | 7 | Out-of-scope (weather, charts, statistical analysis) |
 | `writes_unsupported` | 19 | Destructive admin (create investigation, register sample, update field) — must route to unsupported |
@@ -201,7 +201,7 @@ User Query
     |-> [Graph Agent]    -- generate Cypher -> Neo4j graph DB
     |-> [Memory Agent]   -- answer follow-ups from cached results
     |       +-> [Memory Coder] -- structured code generation for deterministic computation
-    |-> [Pipeline Agent] -- nf-core / Seqera Tower submission flow (directive → sanity → groupby → emit)
+    |-> [Pipeline Agent] -- full-agentic nf-core / Seqera Tower flow (one tool-loop: resolve → samplesheet → submit)
     +-> [System Agent]   -- answer capabilities / catalog entity questions
     |
 [Chatter Agent]  -- summarize results for the user
@@ -214,9 +214,9 @@ Each agent can be independently routed to a different LLM provider via the catal
 ### Package layout (`src/chat_nextseek/`)
 
 ```
-agents/              entity, parser, api, reporter, chatter, memory, system, graph, seqera, wizard, planner/
-helpers/             generic utilities + tools/ (nextseek_api, neo4j, catalog_match, memory_code)
-pipeline/            pipeline_agent + steps/ (directive, sanity, groupby, edit, question), wizard, builder_tools
+agents/              entity, parser, api, reporter, chatter, memory, system, graph, seqera, planner/
+helpers/             generic utilities (dates, lineage, lab_code, results, text, json_io) + tools/ (nextseek_api, neo4j, catalog_match, memory_code)
+pipeline/            full-agentic nf-core agent: agent.py (tool loop) + agent_tools.py (resolve_samples, write_samplesheet, submit_to_tower, conclude)
 reports/             runners, metadata, protocols, nfcore, outputs, templates_meta + exporters/ + templates/
 schemas/             Pydantic models
 prompts/             *.txt prompt files
@@ -233,13 +233,12 @@ session.py           SQLite + MySQL session state
 
 ## nf-core / Seqera integration
 
-When a query asks for an nf-core samplesheet (e.g. *"make me an nf-core samplesheet for NHP-220630FLY-1-PUB"*), the reporter pipeline:
+When a query asks for an nf-core samplesheet (e.g. *"make me an nf-core samplesheet for NHP-220630FLY-1-PUB"*), the **pipeline agent** runs a single full-agentic tool loop (`pipeline/agent.py`, one Bedrock conversation per session). The LLM picks the pipeline, judges data-type fit, and groups samples into cohorts; four tools do the deterministic I/O:
 
-1. **Picks a pipeline** — `pipeline_selector_agent` examines the metadata's library strategy + protocols and partitions samples into one or more cohorts (one nf-core pipeline per cohort). A study with mixed RNA-seq + amplicon data yields two cohorts.
-2. **Resolves accessions** — extracts SRR/SRX/ERR/PRJ accessions from NExtSEEK metadata and resolves each to ENA HTTPS FASTQ URLs (no FASTQ download — Nextflow stages HTTPS URLs directly).
-3. **Emits artifacts** — `samplesheet.csv` (per cohort, with biology enrichment columns pulled from lineage parents), `params.yml`, and a top-level `launch.yml` aggregating all cohort runs.
-4. **Optional auto-launch** — when `SEQERA_AUTO_LAUNCH=true` and the Tower env is configured, submits each cohort to Tower's REST API directly. No external `tw` binary required.
-5. **Cross-cluster compatible** — when chat_nextseek runs on a host without a shared filesystem mount to the Tower compute env, the samplesheet is uploaded to a Tower-managed Dataset (Tower Datasets v2 API) and referenced by URL in `params.yml`. The same `TOWER_ACCESS_TOKEN` covers both dataset upload and workflow launch.
+1. **`resolve_samples`** — resolves UIDs to their leaf accessions (SRR/SRX/ERR/PRJ) and on to ENA HTTPS FASTQ URLs (no FASTQ download — Nextflow stages HTTPS URLs directly), and surfaces per-leaf grouping fields the LLM uses to form cohorts.
+2. **`write_samplesheet`** — emits **one** `samplesheet.csv` with a `cohort` column (not per-cohort files), plus biology enrichment columns pulled from lineage parents, `params.yml`, and a `launch.yml`. It rejects any accession the agent didn't first resolve (a guardrail against hallucinated refs).
+3. **`submit_to_tower`** — when the Tower env is configured, submits to Tower's REST API directly (no external `tw` binary). On a host without a shared filesystem mount to the compute env, the samplesheet is uploaded to a Tower-managed Dataset (Tower Datasets v2 API) and referenced by URL. The same `TOWER_ACCESS_TOKEN` covers both dataset upload and workflow launch.
+4. **`conclude`** — ends the loop with the final reply.
 
 Supported pipelines: `rnaseq, scrnaseq, atacseq, chipseq, sarek, methylseq, ampliseq, fetchngs`.
 

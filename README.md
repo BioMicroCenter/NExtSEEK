@@ -32,8 +32,8 @@ Open http://localhost:8000 and log in with `demo / demopassword` (admin) or
 `./startup.sh install` orchestrates the full local Docker stack: prereqs
 check, config generation, volume creation, MySQL and Neo4j seed import,
 container build, test-user verification, and health checks. For detail and
-all available subcommands (`reset`, `rebuild`, `doctor`, `dump-db`), see
-[`startup/README.md`](startup/README.md).
+all available subcommands (`reset`, `rebuild`, `doctor`, `seed-filestore`,
+`dump-db`), see [`startup/README.md`](startup/README.md).
 
 ## Architecture
 
@@ -55,7 +55,7 @@ Common changes you'll make and how to apply them to a running stack:
 |---|---|
 | Python views / models / settings (no static asset change) | `docker compose up -d --build nextseek` |
 | Files under `static/` (CSS/JS/images, hand-edited) | `docker compose up -d --build nextseek && docker compose exec nextseek uv run manage.py collectstatic --noinput` |
-| `chat_frontend/` React source | Rebuild per `chat_frontend/README.md`, then `collectstatic` as above |
+| `chat_frontend/` React source | `npm run build` in `chat_frontend/` (Vite), then `collectstatic` as above |
 | `chat_nextseek/` source pulled in from canonical repo | `startup/scripts/sync_chat_nextseek.sh <source>`, commit, then `./startup.sh rebuild` |
 | New Django model field / migration | `docker compose up -d --build nextseek` (entrypoint runs `migrate` on startup) |
 | Full reset (wipe data, re-seed) | `./startup.sh reset` |
