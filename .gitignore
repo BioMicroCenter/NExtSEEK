@@ -175,8 +175,7 @@ duckdb/
 embedding_models/
 *.swp
 setup-celery-worker.sh
-outputs 
-CLAUDE.md
+outputs
 .python-version
 .serena/
 .venv_uv/data/
@@ -192,3 +191,10 @@ startup/.instance.json
 
 # Local design specs + plans (working docs, not part of the public repo)
 docs/superpowers/
+
+# SEEK filestore. The raw working copy (~500MB) AND the compressed snapshot
+# (~215MB, over GitHub's 100MB/file limit) are both too large for git — the
+# snapshot is distributed out-of-band and dropped into startup/seed/ by hand.
+# See startup/seed/README.md.
+/filestore/
+startup/seed/filestore.tar.gz
