@@ -134,5 +134,8 @@ def test_run_kwargs_attaches_default_network():
     assert kw["image"] == "img"
     assert kw["environment"] == {"A": "b"}
     assert kw["detach"] is True
-    assert kw["working_dir"].endswith("/r1")
+    # Must run in the image WORKDIR (/home/user) so the baked CLAUDE.md + nextseek
+    # plugin guidance are discovered; NOT the scratch dir (no CLAUDE.md there).
+    assert kw["working_dir"] == "/home/user"
     assert kw["labels"]["nextseek.cc.user"] == "demo"
+    assert kw["labels"]["nextseek.cc.run"] == "r1"

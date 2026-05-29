@@ -63,6 +63,12 @@ _BASE_CMD = [
 _CONTAINER_SCRATCH = "/data/scratch"
 _CONTAINER_OUTPUT = "/data/output"
 _CONTAINER_PROJECTS = "/data/projects"
+# Image WORKDIR: the baked CLAUDE.md (-> /app/CLAUDE.md) and the nextseek plugin
+# (~/.claude/plugins/local/nextseek) are discovered by claude-code only when cwd
+# is here. Running in /data/scratch leaves the agent with no plugin guidance, so
+# it never invokes nextseek-query. The agent writes artifacts to /data/scratch
+# per the container CLAUDE.md.
+_CONTAINER_WORKDIR = "/home/user"
 
 
 def cc_runner_available() -> tuple[bool, str]:
@@ -186,18 +192,20 @@ def _run_kwargs(
     run_id: str,
     user_id: str,
     network: str = DEFAULT_NETWORK,
+    workdir: str = _CONTAINER_WORKDIR,
 ) -> dict[str, Any]:
     """Build the docker-py ``containers.run`` kwargs for one CC turn.
 
     The container joins ``network`` (the nextseek compose network) so the
-    forwarded service-name hosts resolve.
+    forwarded service-name hosts resolve, and runs in ``workdir`` (the image
+    WORKDIR) so the baked CLAUDE.md + nextseek plugin guidance are discovered.
     """
     return {
         "image": image,
         "command": command,
         "environment": environment,
         "volumes": volumes or None,
-        "working_dir": f"{_CONTAINER_SCRATCH}/{run_id}",
+        "working_dir": workdir,
         "network": network,
         "labels": {
             "nextseek.cc": "1",
