@@ -179,7 +179,9 @@ def summarize_pinned_bundle(session) -> str:
     if not isinstance(last, dict):
         return ""
     user_q = last.get("user_query") or ""
-    rows = ((last.get("api_result_full") or {}).get("data") or {}).get("rows") or []
+    data = (last.get("api_result_full") or {}).get("data") or {}
+    # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'; others 'rows'.
+    rows = data.get("rows") or data.get("samples") or data.get("nodes") or []
     return f"last search: query={user_q!r}, ~{len(rows) if isinstance(rows, list) else 0} rows"
 
 
@@ -200,7 +202,8 @@ def uids_from_last_search(session) -> list[str]:
         data = api_full.get("data") if isinstance(api_full, dict) else None
         rows = []
         if isinstance(data, dict):
-            for key in ("rows", "nodes", "data"):
+            # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'.
+            for key in ("rows", "nodes", "data", "samples"):
                 val = data.get(key)
                 if isinstance(val, list):
                     rows = val
