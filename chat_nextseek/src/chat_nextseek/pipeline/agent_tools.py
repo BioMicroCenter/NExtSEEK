@@ -22,8 +22,11 @@ from ..helpers import (
     filter_summary_to_sequencing_lineage,
     uids_from_last_search,
 )
+from pathlib import Path
+
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
-from ..seqera.ena import extract_accessions_from_metadata
+from ..seqera.emitter import emit_nfcore_artifacts, write_combined_launch_yml
+from ..seqera.ena import extract_accessions_from_metadata, resolve_accessions
 
 PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
@@ -188,4 +191,100 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
         "leaves": table,
         "grouping_fields": grouping_fields,
         "source_uids_with_no_leaves": orphans,
+    })
+
+
+_REF_KEYS = ("sample", "Sample")
+_ACC_KEYS = ("accession", "Accession", "ena_accession")
+
+
+def _validate_rows_against_resolved(cohorts: list, resolved: dict) -> list[str]:
+    """Reject any row whose sample/accession the agent did not get from resolve_samples.
+
+    A row is acceptable if its sample id is a resolved uid OR it carries a resolved
+    accession. Separately, any accession present must itself be resolved. When the
+    resolved set for a dimension is empty (e.g. a pure-accession fetchngs flow with no
+    uids), that dimension is not enforced.
+    """
+    ok_uids = set(resolved.get("uids") or [])
+    ok_accs = set(resolved.get("accessions") or [])
+    errors: list[str] = []
+    for cohort in cohorts:
+        label = cohort.get("label", "?")
+        for i, row in enumerate(cohort.get("rows") or []):
+            sample = next((row[k] for k in _REF_KEYS if row.get(k)), None)
+            acc = next((row[k] for k in _ACC_KEYS if row.get(k)), None)
+            sample_ok = (not sample) or (not ok_uids) or (sample in ok_uids) or (acc in ok_accs)
+            acc_ok = (not acc) or (not ok_accs) or (acc in ok_accs)
+            if not sample_ok:
+                errors.append(f"cohort {label!r} row {i}: sample {sample!r} not in resolved samples.")
+            if not acc_ok:
+                errors.append(f"cohort {label!r} row {i}: accession {acc!r} not in resolved metadata.")
+    return errors
+
+
+def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, log_dir: str) -> str:
+    """Validate agent-built cohorts against resolved refs, then emit samplesheet(s) + launch.yml."""
+    pipeline_key = tool_input.get("pipeline_key") or ""
+    cohorts = tool_input.get("cohorts") or []
+    if pipeline_key not in NFCORE_PIPELINE_CATALOG:
+        return json.dumps({"ok": False, "errors": [f"Unknown pipeline {pipeline_key!r}."]})
+    if not cohorts:
+        return json.dumps({"ok": False, "errors": ["No cohorts provided."]})
+
+    resolved = state.get("resolved") or {"uids": [], "accessions": []}
+    errors = _validate_rows_against_resolved(cohorts, resolved)
+    if errors:
+        return json.dumps({"ok": False, "errors": errors})
+
+    tower_env = dict(getattr(config, "TOWER_ENV", {}) or {})
+    base = Path(log_dir or getattr(config, "LOG_DIR", ".")) / (
+        "nfcore_multi" if len(cohorts) > 1 else f"nfcore_{cohorts[0].get('label', pipeline_key)}")
+    base.mkdir(parents=True, exist_ok=True)
+    multi = len(cohorts) > 1
+
+    cohort_summaries: list[dict] = []
+    launch_entries: list[dict] = []
+    state.setdefault("artifacts", {})
+    state["artifacts"]["cohorts"] = []
+
+    for cohort in cohorts:
+        label = cohort.get("label") or pipeline_key
+        rows = cohort.get("rows") or []
+        accs = [r[k] for r in rows for k in _ACC_KEYS if r.get(k)]
+        resolutions = resolve_accessions(accs) if accs else []
+        cohort_dir = (base / label) if multi else base
+        cohort_dir.mkdir(parents=True, exist_ok=True)
+        result = emit_nfcore_artifacts(
+            cohort_dir,
+            pipeline=pipeline_key,
+            samplesheet_rows=rows,
+            resolutions=resolutions,
+            launch_plan={"run_name": label} if tower_env.get("access_token") else None,
+            tower_env=tower_env,
+            selector_rationale="full-agentic pipeline_agent build",
+            samplesheet_relative_dir=(label if multi else "."),
+            write_launch_yml=not multi,
+        )
+        cohort_summaries.append({"label": label, "row_count": result.samplesheet_row_count})
+        state["artifacts"]["cohorts"].append(result.saved_files)
+        if result.launch_entry:
+            launch_entries.append(result.launch_entry)
+        if result.fetchngs_launch_entry:
+            launch_entries.append(result.fetchngs_launch_entry)
+
+    launch_path = None
+    if multi and launch_entries:
+        launch_path = write_combined_launch_yml(base, launch_entries)
+    elif not multi:
+        launch_path = (state["artifacts"]["cohorts"][0] or {}).get("launch")
+    state["artifacts"]["launch"] = launch_path
+    state["artifacts"]["base_dir"] = str(base)
+
+    return json.dumps({
+        "ok": True,
+        "pipeline_key": pipeline_key,
+        "cohort_count": len(cohorts),
+        "cohorts": cohort_summaries,
+        "launch_yml": launch_path,
     })

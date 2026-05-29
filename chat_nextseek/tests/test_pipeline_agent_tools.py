@@ -76,3 +76,41 @@ def test_resolved_refs_accumulate_across_calls(monkeypatch):
     assert "SRR999" in state["resolved"]["accessions"]   # retained across calls
     assert "SRR111" in state["resolved"]["accessions"]   # added by the uid call
     assert "D.SEQ-1-PUB" in state["resolved"]["uids"]
+
+
+from chat_nextseek.pipeline.agent_tools import tool_write_samplesheet
+
+
+def test_write_rejects_hallucinated_sample():
+    state = {"resolved": {"uids": ["D.SEQ-1-PUB"], "accessions": ["SRR111"]}}
+    out = _json.loads(tool_write_samplesheet(
+        _Cfg(), state,
+        {"pipeline_key": "rnaseq", "cohorts": [
+            {"label": "rnaseq-all", "rows": [{"sample": "GHOST-9", "accession": "SRR999"}]}]},
+        "/tmp/does-not-matter"))
+    assert out["ok"] is False
+    assert any("GHOST-9" in e or "SRR999" in e for e in out["errors"])
+
+
+def test_write_emits_when_refs_valid(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_emit(out_dir, **kw):
+        captured["out_dir"] = str(out_dir)
+        captured["rows"] = list(kw["samplesheet_rows"])
+        from types import SimpleNamespace
+        return SimpleNamespace(saved_files={"samplesheet": str(out_dir) + "/samplesheet.csv"},
+                               samplesheet_row_count=len(kw["samplesheet_rows"]),
+                               launch_entry=None, fetchngs_launch_entry=None)
+
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_nfcore_artifacts", fake_emit)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.resolve_accessions", lambda accs: [])
+    state = {"resolved": {"uids": ["D.SEQ-1-PUB"], "accessions": ["SRR111"]}, "log_dir": str(tmp_path)}
+    out = _json.loads(tool_write_samplesheet(
+        _Cfg(), state,
+        {"pipeline_key": "rnaseq", "cohorts": [
+            {"label": "rnaseq-all", "rows": [{"sample": "D.SEQ-1-PUB", "accession": "SRR111", "strandedness": "auto"}]}]},
+        str(tmp_path)))
+    assert out["ok"] is True
+    assert out["cohorts"][0]["row_count"] == 1
+    assert "samplesheet" in state["artifacts"]["cohorts"][0]
