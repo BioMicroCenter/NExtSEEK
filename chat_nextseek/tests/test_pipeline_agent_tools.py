@@ -217,3 +217,26 @@ def test_dispatch_rejects_conclude():
     with pytest.raises(ValueError):
         dispatch_pipeline_tool_call(config=_Cfg(), session={}, state={}, name="conclude",
                                     tool_input={}, log_dir="/tmp")
+
+
+def test_resolve_accessions_misclassified_uids_corrected():
+    out = _json.loads(tool_resolve_samples(_Cfg(), {}, {}, {"kind": "accessions", "accessions": ["D.SEQ-221031SHA-67-PUB"]}, "scrnaseq"))
+    assert out["ok"] is False
+    assert "explicit_uids" in out["error"]
+
+
+def test_resolve_per_leaf_fields_include_inherited_parent_value(monkeypatch):
+    raw = {"ok": True, "data": {"data": [
+        {"sample_type": "MUS", "samples": [
+            {"metadata": {"UID": "MUS-1-PUB", "Treatment1": "NDMA"}, "children": [
+                {"metadata": {"UID": "D.SEQ-1-PUB", "sample_type": "D.SEQ", "Parent": "MUS-1-PUB"}, "children": []}
+            ]}
+        ]}
+    ]}}
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.fetch_reporter_metadata", lambda c, u: raw)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.annotate_metadata_with_sampletypes", lambda c, m: m)
+    out = _json.loads(tool_resolve_samples(_Cfg(), {}, {}, {"kind": "explicit_uids", "uids": ["MUS-1-PUB"]}, "rnaseq"))
+    assert out["ok"] is True and out["leaf_count"] == 1
+    leaf = out["leaves"][0]
+    assert leaf["uid"] == "D.SEQ-1-PUB"
+    assert leaf["fields"].get("Treatment1") == "NDMA"  # inherited from the MUS parent via lineage flatten

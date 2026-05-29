@@ -123,6 +123,25 @@ def _accepted_types_for(pipeline_key: str) -> list[str]:
     return list(NFCORE_PIPELINE_CATALOG.get(pipeline_key, {}).get("accepted_leaf_sample_types") or [])
 
 
+_ARCHIVE_ACCESSION_RE = re.compile(
+    r"^(?:SRR|SRX|SRP|SRS|ERR|ERX|ERP|ERS|DRR|DRX|DRP|DRS|GSE|GSM|PRJ[A-Z]+)\d+$", re.I)
+
+
+def _flatten_lineage(uid: str, uid_index: dict) -> dict:
+    """Merge metadata from root down to the leaf (leaf wins) via the parent chain."""
+    chain, seen, cur = [], set(), uid
+    while cur and cur in uid_index and cur not in seen:
+        seen.add(cur)
+        chain.append(uid_index[cur].get("metadata") or {})
+        cur = uid_index[cur].get("parent_uid")
+    merged: dict = {}
+    for md in reversed(chain):  # root first, leaf last so the leaf overrides ancestors
+        for k, v in md.items():
+            if isinstance(v, (str, int, float, bool)) and v not in (None, ""):
+                merged[k] = v
+    return merged
+
+
 def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input: dict, pipeline_key: str) -> str:
     """Resolve a sample ref into a compact leaf table; cache ground-truth refs in state['resolved']."""
     kind = tool_input.get("kind")
@@ -131,6 +150,11 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
         accs = [a.strip() for a in (tool_input.get("accessions") or []) if a and a.strip()]
         if not accs:
             return json.dumps({"ok": False, "error": "kind='accessions' requires a non-empty accessions list."})
+        if not any(_ARCHIVE_ACCESSION_RE.match(a) for a in accs):
+            return json.dumps({"ok": False, "error": (
+                "Those look like NExtSEEK sample UIDs, not raw archive accessions. "
+                "Call resolve_samples again with kind='explicit_uids' and put them in 'uids'. "
+                "(kind='accessions' is only for raw SRA/ENA/GEO IDs like SRR.../ERR.../GSE... used with fetchngs.)")})
         state.setdefault("resolved", {"uids": [], "accessions": []})
         state["resolved"]["accessions"] = sorted(set(state["resolved"].get("accessions", [])) | set(accs))
         return json.dumps({"ok": True, "kind": "accessions", "accessions": accs, "leaf_count": 0, "leaves": []})
@@ -153,6 +177,22 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     annotated = annotate_metadata_with_sampletypes(config, raw)
     leaves = enumerate_lineage_leaves(annotated, accepted_types=_accepted_types_for(pipeline_key))
 
+    # Grouping-candidate fields + per-leaf lineage-flattened values, so the agent can both
+    # pick a grouping field AND assign each leaf to a cohort by that field's value.
+    uid_index: dict = {}
+    grouping_fields: dict = {}
+    try:
+        summary = filter_summary_to_sequencing_lineage(build_metadata_summary({"__sample__": annotated}))
+        uid_index = summary.get("_uid_index") or {}
+        grouping_fields = {
+            st: {f: fd.get("examples", []) for f, fd in (data.get("fields") or {}).items()}
+            for st, data in (summary.get("by_sample_type") or {}).items()
+        }
+    except Exception as exc:  # advisory; never block resolution
+        print(f"[DEBUG][PIPELINE_AGENT] summary build failed: {exc!r}")
+
+    candidate_fields = {f for fields in grouping_fields.values() for f in fields}
+
     table: list[dict] = []
     all_uids: set[str] = set()
     all_accs: set[str] = set()
@@ -160,23 +200,16 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
         accs = extract_accessions_from_metadata(leaf.get("metadata") or {})
         all_uids.add(leaf["uid"])
         all_accs.update(accs)
+        flat = _flatten_lineage(leaf["uid"], uid_index) if uid_index else (leaf.get("metadata") or {})
+        leaf_fields = {f: flat[f] for f in candidate_fields if f in flat}
         table.append({
             "uid": leaf["uid"],
             "sample_type": leaf.get("sample_type", ""),
             "assay": leaf.get("assay", ""),
             "source_uid": leaf.get("source_uid", ""),
             "accessions": accs,
+            "fields": leaf_fields,
         })
-
-    try:
-        summary = filter_summary_to_sequencing_lineage(build_metadata_summary({"__sample__": annotated}))
-        grouping_fields = {
-            st: {f: fd.get("examples", []) for f, fd in (data.get("fields") or {}).items()}
-            for st, data in (summary.get("by_sample_type") or {}).items()
-        }
-    except Exception as exc:
-        print(f"[DEBUG][PIPELINE_AGENT] summary build failed: {exc!r}")
-        grouping_fields = {}
 
     seen_sources = {leaf.get("source_uid") for leaf in leaves}
     orphans = [u for u in source_uids if u not in seen_sources]
