@@ -28,6 +28,7 @@ from pathlib import Path
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
 from ..seqera.emitter import emit_nfcore_artifacts, write_combined_launch_yml
 from ..seqera.ena import extract_accessions_from_metadata, resolve_accessions
+from ..seqera.submitter import submit_launch
 
 PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
@@ -303,3 +304,36 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
         "cohorts": cohort_summaries,
         "launch_yml": launch_path,
     })
+
+
+def tool_submit_to_tower(config: "ChatConfig", state: dict) -> str:
+    artifacts = state.get("artifacts") or {}
+    launch = artifacts.get("launch")
+    if not launch:
+        return json.dumps({"ok": False, "message": "No launch artifact to submit — build a samplesheet first."})
+    tower_env = dict(getattr(config, "TOWER_ENV", {}) or {})
+    if not (tower_env.get("access_token") and tower_env.get("workspace")):
+        return json.dumps({"ok": False, "message": f"Tower not configured. Samplesheet/launch is at {launch}. "
+                                                   "Configure TOWER_* env vars or run seqerakit manually."})
+    try:
+        run_urls = submit_launch(launch, tower_env=tower_env)
+    except Exception as exc:
+        return json.dumps({"ok": False, "message": f"Submit failed: {exc!r}"})
+    if not run_urls:
+        return json.dumps({"ok": False, "message": "Tower returned no run URLs — check seqera logs."})
+    return json.dumps({"ok": True, "run_urls": run_urls})
+
+
+def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool_input: dict, log_dir: str) -> str:
+    """Route a non-control tool to its implementation. 'conclude' is intercepted by the loop."""
+    if name == "resolve_samples":
+        pipeline_key = state.get("pipeline_key") or tool_input.get("pipeline_key") or ""
+        return tool_resolve_samples(config, session, state, tool_input, pipeline_key)
+    if name == "write_samplesheet":
+        state["pipeline_key"] = tool_input.get("pipeline_key") or state.get("pipeline_key")
+        return tool_write_samplesheet(config, state, tool_input, log_dir)
+    if name == "submit_to_tower":
+        return tool_submit_to_tower(config, state)
+    if name == "conclude":
+        raise ValueError("dispatch_pipeline_tool_call must not be called for 'conclude'; the loop intercepts it.")
+    raise ValueError(f"Unknown pipeline tool: {name!r}")

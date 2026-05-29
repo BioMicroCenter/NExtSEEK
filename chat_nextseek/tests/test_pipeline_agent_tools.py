@@ -182,3 +182,38 @@ def test_write_multi_cohort_distinct_dirs_and_combined_launch(monkeypatch, tmp_p
     assert len(calls) == 2 and calls[0] != calls[1]
     assert len(combined["entries"]) == 2
     assert out["launch_yml"].endswith("launch.yml")
+
+
+from chat_nextseek.pipeline.agent_tools import tool_submit_to_tower, dispatch_pipeline_tool_call
+
+
+class _CfgTower:
+    TOWER_ENV = {"access_token": "x", "workspace": "w", "compute_env": "c", "work_bucket": "b"}
+
+
+def test_submit_not_configured_returns_path():
+    state = {"artifacts": {"launch": "/tmp/launch.yml"}}
+    out = _json.loads(tool_submit_to_tower(_Cfg(), state))  # _Cfg has no TOWER_ENV
+    assert out["ok"] is False
+    assert "/tmp/launch.yml" in out["message"]
+
+
+def test_submit_calls_submit_launch(monkeypatch):
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.submit_launch", lambda p, *, tower_env: ["https://tower/run/1"])
+    state = {"artifacts": {"launch": "/tmp/launch.yml"}}
+    out = _json.loads(tool_submit_to_tower(_CfgTower(), state))
+    assert out["ok"] is True
+    assert out["run_urls"] == ["https://tower/run/1"]
+
+
+def test_dispatch_routes_known_tools():
+    out = dispatch_pipeline_tool_call(config=_Cfg(), session={}, state={"resolved": {}},
+                                      name="submit_to_tower", tool_input={}, log_dir="/tmp")
+    assert _json.loads(out)["ok"] is False  # no artifacts -> graceful error
+
+
+def test_dispatch_rejects_conclude():
+    import pytest
+    with pytest.raises(ValueError):
+        dispatch_pipeline_tool_call(config=_Cfg(), session={}, state={}, name="conclude",
+                                    tool_input={}, log_dir="/tmp")
