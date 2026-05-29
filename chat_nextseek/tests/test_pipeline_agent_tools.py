@@ -149,25 +149,21 @@ def test_write_sanitizes_label_path_traversal(monkeypatch, tmp_path):
     assert str(tmp_path) in seen["out_dir"] and ".." not in seen["out_dir"]
 
 
-def test_write_multi_cohort_distinct_dirs_and_combined_launch(monkeypatch, tmp_path):
+def test_write_multi_cohort_single_samplesheet_with_cohort_column(monkeypatch, tmp_path):
+    """A grouped build emits ONE samplesheet whose rows carry a 'cohort' column —
+    not one samplesheet per cohort."""
     from types import SimpleNamespace
     calls = []
-    combined = {}
 
     def fake_emit(out_dir, **kw):
-        calls.append(str(out_dir))
-        return SimpleNamespace(saved_files={"samplesheet": str(out_dir) + "/s.csv"},
+        calls.append((str(out_dir), list(kw["samplesheet_rows"])))
+        return SimpleNamespace(saved_files={"samplesheet": str(out_dir) + "/samplesheet.csv",
+                                            "launch": str(out_dir) + "/launch.yml"},
                                samplesheet_row_count=len(kw["samplesheet_rows"]),
                                excluded_accessions=[],
-                               launch_entry={"name": kw.get("samplesheet_relative_dir")},
-                               fetchngs_launch_entry=None)
-
-    def fake_combined(parent, entries):
-        combined["entries"] = list(entries)
-        return str(parent) + "/launch.yml"
+                               launch_entry=None, fetchngs_launch_entry=None)
 
     monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_nfcore_artifacts", fake_emit)
-    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.write_combined_launch_yml", fake_combined)
     monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.resolve_accessions", lambda accs: [])
     state = {"resolved": {"uids": ["D.SEQ-1-PUB", "D.SEQ-2-PUB"], "accessions": []}}
     out = _json.loads(tool_write_samplesheet(
@@ -177,10 +173,16 @@ def test_write_multi_cohort_distinct_dirs_and_combined_launch(monkeypatch, tmp_p
             {"label": "saline", "rows": [{"sample": "D.SEQ-2-PUB"}]}]},
         str(tmp_path)))
     assert out["ok"] is True
-    assert out["cohort_count"] == 2
-    assert len(state["artifacts"]["cohorts"]) == 2
-    assert len(calls) == 2 and calls[0] != calls[1]
-    assert len(combined["entries"]) == 2
+    assert out["grouped_by_cohort"] is True
+    assert out["total_rows"] == 2
+    # exactly ONE emit (single samplesheet), not one per cohort
+    assert len(calls) == 1
+    out_dir, rows = calls[0]
+    assert len(rows) == 2
+    # the cohort label rides along as a 'cohort' column per row
+    assert {r["sample"]: r.get("cohort") for r in rows} == {"D.SEQ-1-PUB": "ndma", "D.SEQ-2-PUB": "saline"}
+    # one set of artifacts, one launch
+    assert len(state["artifacts"]["cohorts"]) == 1
     assert out["launch_yml"].endswith("launch.yml")
 
 

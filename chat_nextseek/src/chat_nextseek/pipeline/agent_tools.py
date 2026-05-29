@@ -26,7 +26,7 @@ from ..helpers import (
 from pathlib import Path
 
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
-from ..seqera.emitter import emit_nfcore_artifacts, write_combined_launch_yml
+from ..seqera.emitter import emit_nfcore_artifacts
 from ..seqera.ena import extract_accessions_from_metadata, resolve_accessions
 from ..seqera.submitter import submit_launch
 
@@ -282,60 +282,58 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
         return json.dumps({"ok": False, "errors": errors})
 
     tower_env = dict(getattr(config, "TOWER_ENV", {}) or {})
-    multi = len(cohorts) > 1
-    first_slug = _slugify_label(cohorts[0].get("label", ""), pipeline_key)
-    base = Path(log_dir or getattr(config, "LOG_DIR", ".")) / (
-        "nfcore_multi" if multi else f"nfcore_{first_slug}")
+    grouped = len(cohorts) > 1
+
+    # ONE samplesheet for the whole build. When the agent split the samples into
+    # >1 cohort, the cohort label rides along as a 'cohort' metadata COLUMN rather
+    # than as separate per-cohort files/runs. nf-core ignores the extra column;
+    # downstream differential/contrast steps use it to define the groups.
+    merged_rows: list[dict] = []
+    cohort_summaries: list[dict] = []
+    for idx, cohort in enumerate(cohorts):
+        label = cohort.get("label") or f"{pipeline_key}-{idx}"
+        rows = cohort.get("rows") or []
+        for row in rows:
+            r = dict(row)
+            if grouped:
+                r["cohort"] = label
+            merged_rows.append(r)
+        cohort_summaries.append({"label": label, "row_count": len(rows)})
+
+    accs = [r[k] for r in merged_rows for k in _ACC_KEYS if r.get(k)]
+    resolutions = resolve_accessions(accs) if accs else []
+
+    slug = _slugify_label(cohorts[0].get("label", "") if not grouped else pipeline_key, pipeline_key)
+    base = Path(log_dir or getattr(config, "LOG_DIR", ".")) / f"nfcore_{slug}"
     base.mkdir(parents=True, exist_ok=True)
 
-    cohort_summaries: list[dict] = []
-    launch_entries: list[dict] = []
+    result = emit_nfcore_artifacts(
+        base,
+        pipeline=pipeline_key,
+        samplesheet_rows=merged_rows,
+        resolutions=resolutions,
+        launch_plan={"run_name": slug} if tower_env.get("access_token") else None,
+        tower_env=tower_env,
+        selector_rationale="full-agentic pipeline_agent build",
+        samplesheet_relative_dir=".",
+        write_launch_yml=True,
+    )
+
     state.setdefault("artifacts", {})
-    state["artifacts"]["cohorts"] = []
-
-    for idx, cohort in enumerate(cohorts):
-        label = _slugify_label(cohort.get("label") or "", f"{pipeline_key}-{idx}")
-        rows = cohort.get("rows") or []
-        accs = [r[k] for r in rows for k in _ACC_KEYS if r.get(k)]
-        resolutions = resolve_accessions(accs) if accs else []
-        cohort_dir = (base / label) if multi else base
-        cohort_dir.mkdir(parents=True, exist_ok=True)
-        result = emit_nfcore_artifacts(
-            cohort_dir,
-            pipeline=pipeline_key,
-            samplesheet_rows=rows,
-            resolutions=resolutions,
-            launch_plan={"run_name": label} if tower_env.get("access_token") else None,
-            tower_env=tower_env,
-            selector_rationale="full-agentic pipeline_agent build",
-            samplesheet_relative_dir=(label if multi else "."),
-            write_launch_yml=not multi,
-        )
-        cohort_summaries.append({
-            "label": label,
-            "row_count": result.samplesheet_row_count,
-            "excluded_accessions": list(getattr(result, "excluded_accessions", []) or []),
-        })
-        state["artifacts"]["cohorts"].append(result.saved_files)
-        if result.launch_entry:
-            launch_entries.append(result.launch_entry)
-        if result.fetchngs_launch_entry:
-            launch_entries.append(result.fetchngs_launch_entry)
-
-    launch_path = None
-    if multi and launch_entries:
-        launch_path = write_combined_launch_yml(base, launch_entries)
-    elif not multi:
-        launch_path = (state["artifacts"]["cohorts"][0] or {}).get("launch")
-    state["artifacts"]["launch"] = launch_path
+    state["artifacts"]["cohorts"] = [result.saved_files]
+    state["artifacts"]["samplesheet"] = result.saved_files.get("samplesheet")
+    state["artifacts"]["launch"] = result.saved_files.get("launch")
     state["artifacts"]["base_dir"] = str(base)
 
     return json.dumps({
         "ok": True,
         "pipeline_key": pipeline_key,
-        "cohort_count": len(cohorts),
+        "samplesheet": result.saved_files.get("samplesheet"),
+        "total_rows": result.samplesheet_row_count,
+        "grouped_by_cohort": grouped,
         "cohorts": cohort_summaries,
-        "launch_yml": launch_path,
+        "excluded_accessions": list(getattr(result, "excluded_accessions", []) or []),
+        "launch_yml": result.saved_files.get("launch"),
     })
 
 
