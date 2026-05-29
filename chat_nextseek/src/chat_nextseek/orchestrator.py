@@ -328,7 +328,7 @@ def _handle_pipeline_agent_turn(
         user_query=user_text,
         mode="pipeline_agent",
         intent_summary="pipeline_agent turn",
-        tool_summary={"phase": snapshot.get("phase")},
+        tool_summary={"pipeline_key": snapshot.get("pipeline_key"), "cohorts": snapshot.get("cohort_count")},
         assistant_reply=reply,
         wizard_state=snapshot,
     )
@@ -580,7 +580,7 @@ def run_query(
                         mode="pipeline_agent",
                         intent_summary="pipeline_agent launched",
                         entity_result=entity_result,
-                        tool_summary={"phase": snapshot.get("phase")},
+                        tool_summary={"pipeline_key": snapshot.get("pipeline_key"), "cohorts": snapshot.get("cohort_count")},
                         assistant_reply=reply,
                         wizard_state=snapshot,
                     )

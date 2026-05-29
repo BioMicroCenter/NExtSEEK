@@ -26,12 +26,10 @@ from .planner import (
     StepOutcome,
     StepOutputMapping,
 )
-from .pipeline import EditDiffOutput
 
 __all__ = [
     "APIRequestPlan",
     "ContextEngineerOutput",
-    "EditDiffOutput",
     "EndpointCandidate",
     "EntityAgentOutput",
     "EntityItem",
