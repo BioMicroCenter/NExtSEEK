@@ -27,26 +27,16 @@ from .planner import (
     StepOutcome,
     StepOutputMapping,
 )
-from .pipeline import (
-    DirectiveParseOutput,
-    EditDiffOutput,
-    FieldRef,
-    GroupByResolution,
-    SamplesRef,
-    SanityCheckOutput,
-)
+from .pipeline import EditDiffOutput
 
 __all__ = [
     "APIRequestPlan",
     "ContextEngineerOutput",
-    "DirectiveParseOutput",
     "EditDiffOutput",
     "EndpointCandidate",
     "EntityAgentOutput",
     "EntityItem",
-    "FieldRef",
     "GraphAgentPlan",
-    "GroupByResolution",
     "MultiParserPlan",
     "MemoryCoderOutput",
     "PlannerDecisionOutput",
@@ -56,8 +46,6 @@ __all__ = [
     "ParserPlan",
     "PlannerOutput",
     "PlanStep",
-    "SamplesRef",
-    "SanityCheckOutput",
     "StepExecutionPayload",
     "StepInputRef",
     "StepOutcome",
