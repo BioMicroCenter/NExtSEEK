@@ -94,10 +94,3 @@ from .parser import (  # noqa: F401
     _find_mixed_scope_intersection_plan,
     _append_coding_filter_step_if_needed,
 )
-
-# Pipeline step shims — moved to pipeline/steps/* in Phase 1
-from ..pipeline.steps.directive import _pipeline_directive_parse  # noqa: F401
-from ..pipeline.steps.sanity import _pipeline_sanity_check  # noqa: F401
-from ..pipeline.steps.groupby import _pipeline_groupby_resolution  # noqa: F401
-from ..pipeline.steps.edit import _pipeline_edit_step  # noqa: F401
-from ..pipeline.steps.question import _pipeline_question_step  # noqa: F401
