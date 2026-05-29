@@ -9,6 +9,7 @@ Four anthropic-style tools driven by BedrockClient.chat_with_tools:
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -198,6 +199,12 @@ _REF_KEYS = ("sample", "Sample")
 _ACC_KEYS = ("accession", "Accession", "ena_accession")
 
 
+def _slugify_label(label: str, fallback: str) -> str:
+    """Make an agent-supplied cohort label safe to use as a path component."""
+    slug = re.sub(r"[^a-z0-9]+", "-", (label or "").strip().lower()).strip("-")
+    return slug or fallback
+
+
 def _validate_rows_against_resolved(cohorts: list, resolved: dict) -> list[str]:
     """Reject any row whose sample/accession the agent did not get from resolve_samples.
 
@@ -214,6 +221,9 @@ def _validate_rows_against_resolved(cohorts: list, resolved: dict) -> list[str]:
         for i, row in enumerate(cohort.get("rows") or []):
             sample = next((row[k] for k in _REF_KEYS if row.get(k)), None)
             acc = next((row[k] for k in _ACC_KEYS if row.get(k)), None)
+            if not sample and not acc:
+                errors.append(f"cohort {label!r} row {i}: row has no sample or accession.")
+                continue
             sample_ok = (not sample) or (not ok_uids) or (sample in ok_uids) or (acc in ok_accs)
             acc_ok = (not acc) or (not ok_accs) or (acc in ok_accs)
             if not sample_ok:
@@ -238,18 +248,19 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
         return json.dumps({"ok": False, "errors": errors})
 
     tower_env = dict(getattr(config, "TOWER_ENV", {}) or {})
-    base = Path(log_dir or getattr(config, "LOG_DIR", ".")) / (
-        "nfcore_multi" if len(cohorts) > 1 else f"nfcore_{cohorts[0].get('label', pipeline_key)}")
-    base.mkdir(parents=True, exist_ok=True)
     multi = len(cohorts) > 1
+    first_slug = _slugify_label(cohorts[0].get("label", ""), pipeline_key)
+    base = Path(log_dir or getattr(config, "LOG_DIR", ".")) / (
+        "nfcore_multi" if multi else f"nfcore_{first_slug}")
+    base.mkdir(parents=True, exist_ok=True)
 
     cohort_summaries: list[dict] = []
     launch_entries: list[dict] = []
     state.setdefault("artifacts", {})
     state["artifacts"]["cohorts"] = []
 
-    for cohort in cohorts:
-        label = cohort.get("label") or pipeline_key
+    for idx, cohort in enumerate(cohorts):
+        label = _slugify_label(cohort.get("label") or "", f"{pipeline_key}-{idx}")
         rows = cohort.get("rows") or []
         accs = [r[k] for r in rows for k in _ACC_KEYS if r.get(k)]
         resolutions = resolve_accessions(accs) if accs else []
@@ -266,7 +277,11 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
             samplesheet_relative_dir=(label if multi else "."),
             write_launch_yml=not multi,
         )
-        cohort_summaries.append({"label": label, "row_count": result.samplesheet_row_count})
+        cohort_summaries.append({
+            "label": label,
+            "row_count": result.samplesheet_row_count,
+            "excluded_accessions": list(getattr(result, "excluded_accessions", []) or []),
+        })
         state["artifacts"]["cohorts"].append(result.saved_files)
         if result.launch_entry:
             launch_entries.append(result.launch_entry)

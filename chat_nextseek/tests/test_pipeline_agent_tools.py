@@ -114,3 +114,71 @@ def test_write_emits_when_refs_valid(monkeypatch, tmp_path):
     assert out["ok"] is True
     assert out["cohorts"][0]["row_count"] == 1
     assert "samplesheet" in state["artifacts"]["cohorts"][0]
+
+
+def test_write_rejects_empty_row():
+    state = {"resolved": {"uids": ["D.SEQ-1-PUB"], "accessions": []}}
+    out = _json.loads(tool_write_samplesheet(
+        _Cfg(), state,
+        {"pipeline_key": "rnaseq", "cohorts": [{"label": "c", "rows": [{"strandedness": "auto"}]}]},
+        "/tmp/x"))
+    assert out["ok"] is False
+    assert any("no sample or accession" in e for e in out["errors"])
+
+
+def test_write_sanitizes_label_path_traversal(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    seen = {}
+
+    def fake_emit(out_dir, **kw):
+        seen["out_dir"] = str(out_dir)
+        return SimpleNamespace(saved_files={"samplesheet": str(out_dir) + "/s.csv"},
+                               samplesheet_row_count=1, excluded_accessions=[],
+                               launch_entry=None, fetchngs_launch_entry=None)
+
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_nfcore_artifacts", fake_emit)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.resolve_accessions", lambda accs: [])
+    state = {"resolved": {"uids": ["D.SEQ-1-PUB"], "accessions": []}}
+    out = _json.loads(tool_write_samplesheet(
+        _Cfg(), state,
+        {"pipeline_key": "rnaseq", "cohorts": [{"label": "../../etc/evil", "rows": [{"sample": "D.SEQ-1-PUB"}]}]},
+        str(tmp_path)))
+    assert out["ok"] is True
+    assert str(tmp_path) in state["artifacts"]["base_dir"]
+    assert ".." not in state["artifacts"]["base_dir"]
+    assert str(tmp_path) in seen["out_dir"] and ".." not in seen["out_dir"]
+
+
+def test_write_multi_cohort_distinct_dirs_and_combined_launch(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    calls = []
+    combined = {}
+
+    def fake_emit(out_dir, **kw):
+        calls.append(str(out_dir))
+        return SimpleNamespace(saved_files={"samplesheet": str(out_dir) + "/s.csv"},
+                               samplesheet_row_count=len(kw["samplesheet_rows"]),
+                               excluded_accessions=[],
+                               launch_entry={"name": kw.get("samplesheet_relative_dir")},
+                               fetchngs_launch_entry=None)
+
+    def fake_combined(parent, entries):
+        combined["entries"] = list(entries)
+        return str(parent) + "/launch.yml"
+
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_nfcore_artifacts", fake_emit)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.write_combined_launch_yml", fake_combined)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.resolve_accessions", lambda accs: [])
+    state = {"resolved": {"uids": ["D.SEQ-1-PUB", "D.SEQ-2-PUB"], "accessions": []}}
+    out = _json.loads(tool_write_samplesheet(
+        _Cfg(), state,
+        {"pipeline_key": "rnaseq", "cohorts": [
+            {"label": "ndma", "rows": [{"sample": "D.SEQ-1-PUB"}]},
+            {"label": "saline", "rows": [{"sample": "D.SEQ-2-PUB"}]}]},
+        str(tmp_path)))
+    assert out["ok"] is True
+    assert out["cohort_count"] == 2
+    assert len(state["artifacts"]["cohorts"]) == 2
+    assert len(calls) == 2 and calls[0] != calls[1]
+    assert len(combined["entries"]) == 2
+    assert out["launch_yml"].endswith("launch.yml")
