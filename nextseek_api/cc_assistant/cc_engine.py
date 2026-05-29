@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
@@ -35,7 +36,14 @@ logger = logging.getLogger(__name__)
 
 SendEvent = Callable[[str, dict[str, Any]], None]
 
-DEFAULT_IMAGE = os.environ.get("NEXTSEEK_CC_IMAGE", "nextseek-cc:lean")
+DEFAULT_IMAGE = os.environ.get("NEXTSEEK_CC_IMAGE", "dmac-assistant:poc")
+
+# The CC sibling container joins this existing compose network so the forwarded
+# NExtSEEK topology resolves by service name (NEO4J_URI=neo4j://neo4j,
+# MYSQL_HOST=db, the nextseek REST service at nextseek:8000). MySQL is NOT
+# host-published, so host.docker.internal cannot reach it — network attach is
+# the correct (and simpler) approach. Override via NEXTSEEK_CC_NETWORK.
+DEFAULT_NETWORK = os.environ.get("NEXTSEEK_CC_NETWORK", "nextseek_default")
 
 _BEDROCK_KEYS = (
     "CLAUDE_CODE_USE_BEDROCK",
@@ -68,7 +76,10 @@ def cc_runner_available() -> tuple[bool, str]:
     try:
         client.images.get(DEFAULT_IMAGE)
     except Exception:
-        return False, f"CC image '{DEFAULT_IMAGE}' not found (build docker/cc-runner)"
+        return False, (
+            f"CC image '{DEFAULT_IMAGE}' not found "
+            "(build it via dmac's `make image-build`, or set NEXTSEEK_CC_IMAGE)"
+        )
     return True, "ok"
 
 
@@ -79,6 +90,109 @@ def _bedrock_environment() -> dict[str, str]:
     ):
         env["AWS_REGION"] = "us-east-1"
     return env
+
+
+# chat_nextseek / nextseek-plugin credential + topology contract (the env vars
+# ChatConfig reads at construction). Forwarded verbatim from the Django
+# container into the sibling CC container; service-name hosts (neo4j, db)
+# resolve over the shared compose network (see DEFAULT_NETWORK).
+_NEXTSEEK_PASSTHROUGH_KEYS = (
+    "API_USER",
+    "API_PASS",
+    "NEO4J_URI",
+    "NEO4J_USER",
+    "NEO4J_PASSWORD",
+    "NEO4J_DATABASE",
+    "MYSQL_HOST",
+    "MYSQL_HOST_DEV",
+    "MYSQL_PORT",
+    "MYSQL_USER",
+    "MYSQL_PASSWORD",
+    "MYSQL_DEV_PASSWORD",
+    "GCP_API_KEY",
+)
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "0.0.0.0"})
+_NEXTSEEK_SERVICE_HOST = "nextseek"
+
+
+def _rewrite_loopback_url(url: str, service: str = _NEXTSEEK_SERVICE_HOST) -> str:
+    """Rewrite a loopback host in ``url`` to a compose service name.
+
+    The Django container reaches the NExtSEEK REST API at http://127.0.0.1:8000;
+    a sibling CC container on the shared network must reach http://nextseek:8000
+    instead. Non-loopback hosts (already service names like ``neo4j``) are
+    returned unchanged, preserving scheme, port, and path.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    if parts.hostname in _LOOPBACK_HOSTS:
+        netloc = f"{service}:{parts.port}" if parts.port else service
+        parts = parts._replace(netloc=netloc)
+        return urlunsplit(parts)
+    return url
+
+
+def _nextseek_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Build the NExtSEEK / chat_nextseek env for the CC container.
+
+    Forwards the credential + topology vars the in-container nextseek plugin and
+    chat_nextseek read, from the Django container's env into the sibling CC
+    container. NEO4J/MySQL hosts are compose service names that resolve verbatim
+    on the shared network; only the NExtSEEK REST base URL (loopback in the
+    Django env) is rewritten to the ``nextseek`` service.
+    """
+    src = os.environ if source is None else source
+    env: dict[str, str] = {k: src[k] for k in _NEXTSEEK_PASSTHROUGH_KEYS if src.get(k)}
+
+    base = src.get("NEXTSEEK_BASE_URL") or src.get("NEXTSEEK_URL")
+    if base:
+        rewritten = _rewrite_loopback_url(base)
+        # entrypoint falls back NEXTSEEK_BASE_URL <- NEXTSEEK_URL; set both.
+        env["NEXTSEEK_BASE_URL"] = rewritten
+        env["NEXTSEEK_URL"] = rewritten
+
+    # chat_nextseek internal LLM profile (gcp -> Gemini). Set explicitly so it is
+    # deterministic regardless of the image's entrypoint default.
+    env["NEXTSEEK_MODE"] = src.get("NEXTSEEK_MODE", "gcp")
+    return env
+
+
+def _run_kwargs(
+    *,
+    image: str,
+    command: list[str],
+    environment: dict[str, str],
+    volumes: dict[str, dict[str, str]] | None,
+    run_id: str,
+    user_id: str,
+    network: str = DEFAULT_NETWORK,
+) -> dict[str, Any]:
+    """Build the docker-py ``containers.run`` kwargs for one CC turn.
+
+    The container joins ``network`` (the nextseek compose network) so the
+    forwarded service-name hosts resolve.
+    """
+    return {
+        "image": image,
+        "command": command,
+        "environment": environment,
+        "volumes": volumes or None,
+        "working_dir": f"{_CONTAINER_SCRATCH}/{run_id}",
+        "network": network,
+        "labels": {
+            "nextseek.cc": "1",
+            "nextseek.cc.user": user_id,
+            "nextseek.cc.run": run_id,
+        },
+        "platform": "linux/amd64",
+        "detach": True,
+        "stdin_open": True,
+        "tty": False,
+        "stdout": True,
+        "stderr": True,
+    }
 
 
 def _dropbox_display(host_path: Path, paths: CCPaths) -> str:
@@ -137,7 +251,7 @@ def run_cc_turn(
         "scratch": {"container_root": _CONTAINER_SCRATCH,
                     "host_root": f"{paths.host_scratch_root}/{user_id}"},
     }
-    environment = _bedrock_environment()
+    environment = {**_bedrock_environment(), **_nextseek_environment()}
     environment["DMAC_PATH_MAPPINGS"] = json.dumps(path_mappings, separators=(",", ":"))
 
     command = list(_BASE_CMD)
@@ -154,12 +268,10 @@ def run_cc_turn(
     container = None
     try:
         container = client.containers.run(
-            image=image, command=command, environment=environment,
-            volumes=volumes or None,
-            working_dir=f"{_CONTAINER_SCRATCH}/{run_id}",
-            labels={"nextseek.cc": "1", "nextseek.cc.user": user_id, "nextseek.cc.run": run_id},
-            platform="linux/amd64",
-            detach=True, stdin_open=True, tty=False, stdout=True, stderr=True,
+            **_run_kwargs(
+                image=image, command=command, environment=environment,
+                volumes=volumes, run_id=run_id, user_id=user_id,
+            )
         )
         raw = container.attach_socket(params={"stdin": 1, "stdout": 1, "stderr": 1, "stream": 1})
         stdout_stream = container.logs(stream=True, follow=True, stdout=True, stderr=False)
