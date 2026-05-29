@@ -10,10 +10,17 @@ This directory ships sanitized snapshots of dev databases for fresh installs.
 - `filestore.tar.gz` — SEEK filestore snapshot (the content blobs the
   `seek_production` metadata points at: data files, SOPs, avatars, RDF, ...).
   Streamed into the `seek` container's `/seek/filestore` volume during install
-  phase 7, after the seek container has initialized the volume. **Not committed**
-  (~215MB, over GitHub's 100MB/file limit) — it's **gitignored and distributed
-  out-of-band**: drop it in this directory by hand before running install.
-  Optional: if absent, install skips it with a warning.
+  phase 7, after the seek container has initialized the volume. **Not in git**
+  (~215MB, over GitHub's 100MB/file limit; forks can't host LFS) — it's hosted
+  on S3 and **downloaded on demand** by install / `startup seed-filestore`
+  (sha256-verified). If the download fails, install warn-skips it and SEEK
+  metadata loads but blob downloads 404 until you seed it.
+
+  S3 URL: `https://nextseek.s3.us-east-2.amazonaws.com/filestore.tar.gz`
+  To fetch by hand:
+  ```
+  curl -o startup/seed/filestore.tar.gz https://nextseek.s3.us-east-2.amazonaws.com/filestore.tar.gz
+  ```
 
 ## Regenerating the filestore snapshot
 

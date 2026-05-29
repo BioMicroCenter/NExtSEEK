@@ -195,17 +195,24 @@ def install(
     # metadata points at. Runs here (not in the [6/9] DB block) because it needs
     # the seek container up with its filestore dirs initialized — which happens
     # in start_seek_side() above. Gated like the DB seeds: skipped with
-    # --no-seed, skipped if assets already exist, warn-and-skip if the (large,
-    # optional) archive isn't present in this checkout.
+    # --no-seed, skipped if assets already exist. The ~215MB archive isn't in
+    # git; if it's absent locally we download it from S3, and only warn-and-skip
+    # if that download fails (so install still completes offline).
     if not no_seed:
-        if not seed_filestore.archive_present(REPO_ROOT):
-            ui.warn(f"{seed_filestore.FILESTORE_ARCHIVE} not present; skipping filestore seed")
-        elif seed_filestore.filestore_is_populated(REPO_ROOT, compose_env):
+        if seed_filestore.filestore_is_populated(REPO_ROOT, compose_env):
             ui.ok("SEEK filestore already populated; skipping")
         else:
-            with ui.spinner("loading filestore.tar.gz into the seek volume"):
-                seed_filestore.load_filestore(REPO_ROOT, compose_env)
-            ui.ok("SEEK filestore loaded")
+            if not seed_filestore.archive_present(REPO_ROOT):
+                try:
+                    with ui.spinner("downloading filestore.tar.gz (~215MB) from S3"):
+                        seed_filestore.download_archive(REPO_ROOT)
+                    ui.ok("filestore.tar.gz downloaded")
+                except Exception as exc:  # network/checksum — non-fatal, keep installing
+                    ui.warn(f"could not download filestore archive ({exc}); skipping filestore seed")
+            if seed_filestore.archive_present(REPO_ROOT):
+                with ui.spinner("loading filestore.tar.gz into the seek volume"):
+                    seed_filestore.load_filestore(REPO_ROOT, compose_env)
+                ui.ok("SEEK filestore loaded")
 
     # Data cleanup: the dev seed brings along the dev user's chat history
     # which mostly shows up as untitled "New chat" placeholders. Clear those
@@ -338,6 +345,7 @@ def seed_filestore_cmd(
 
     Standalone counterpart to the filestore seeding that `install` does in phase
     7 — use it to (re)seed an already-running stack without a full reinstall.
+    Downloads the archive from S3 if it isn't already present locally.
     """
     state = load_instance(REPO_ROOT)
     if state is None:
@@ -347,9 +355,14 @@ def seed_filestore_cmd(
 
     ui.banner("Seeding SEEK filestore")
     if not seed_filestore.archive_present(REPO_ROOT):
-        ui.fail(f"{seed_filestore.FILESTORE_ARCHIVE} not found")
-        ui.remediation("Build it with:  tar -C filestore -czf startup/seed/filestore.tar.gz .")
-        raise typer.Exit(code=1)
+        try:
+            with ui.spinner("downloading filestore.tar.gz (~215MB) from S3"):
+                seed_filestore.download_archive(REPO_ROOT)
+            ui.ok("filestore.tar.gz downloaded")
+        except Exception as exc:
+            ui.fail(f"could not download {seed_filestore.FILESTORE_ARCHIVE}: {exc}")
+            ui.remediation(f"Fetch it manually:  curl -o {seed_filestore.FILESTORE_ARCHIVE} {seed_filestore.FILESTORE_URL}")
+            raise typer.Exit(code=1)
     if not force and seed_filestore.filestore_is_populated(REPO_ROOT, compose_env):
         ui.ok("filestore already populated; nothing to do (pass --force to re-seed)")
         return

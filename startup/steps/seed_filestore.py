@@ -11,17 +11,27 @@ Mirrors seed.py's pattern: stream bytes over stdin into a `docker compose exec`
 NOT unzip, so the archive is a gzipped tar that `tar -xzf -` reads from stdin.
 SEEK runs as www-data (uid/gid 33); the host archive carries the builder's uid,
 so we chown back to www-data after extracting.
+
+The archive isn't in git (too large for GitHub; forks can't host LFS), so it's
+hosted on S3 and downloaded on demand (see download_archive / FILESTORE_URL).
 """
 from __future__ import annotations
 
+import hashlib
+import urllib.request
 from pathlib import Path
 
 from startup.lib.docker_ops import compose_exec, DockerOpsError
 
-# NOT committed (gitignored): at ~215MB it exceeds GitHub's 100MB/file push
-# limit, so unlike the small *.sql.gz / *.cypher.gz DB seeds it's distributed
-# out-of-band and dropped in here by hand. Callers warn-and-skip if absent.
+# NOT committed: at ~215MB it exceeds GitHub's 100MB/file push limit (and forks
+# can't host LFS objects), so unlike the small *.sql.gz / *.cypher.gz DB seeds
+# it's gitignored and hosted out-of-band on S3. `download_archive` fetches it on
+# demand; callers warn-and-skip if it's absent and can't be downloaded.
 FILESTORE_ARCHIVE = "startup/seed/filestore.tar.gz"
+FILESTORE_URL = "https://nextseek.s3.us-east-2.amazonaws.com/filestore.tar.gz"
+# sha256 of the published archive — verified after download so a truncated or
+# tampered fetch fails loudly instead of seeding a corrupt filestore.
+FILESTORE_SHA256 = "7eb3bf166b1e6cbbd6551d5feeca8d2b5d9c89a3b0f7c863434650e0d167cd15"
 FILESTORE_PATH = "/seek/filestore"
 SEEK_OWNER = "www-data:www-data"
 
@@ -29,6 +39,29 @@ SEEK_OWNER = "www-data:www-data"
 def archive_present(repo_root: Path) -> bool:
     """True if the filestore snapshot is available to load."""
     return (repo_root / FILESTORE_ARCHIVE).exists()
+
+
+def download_archive(repo_root: Path) -> None:
+    """Fetch the filestore snapshot from S3 into FILESTORE_ARCHIVE, verifying sha256.
+
+    Streams to a .part file (so an interrupted download never looks complete),
+    checks the digest, then atomically renames into place. Raises on any
+    network error or checksum mismatch; the partial file is left for inspection.
+    """
+    dest = repo_root / FILESTORE_ARCHIVE
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    digest = hashlib.sha256()
+    with urllib.request.urlopen(FILESTORE_URL) as resp, tmp.open("wb") as fh:
+        while chunk := resp.read(1024 * 1024):
+            fh.write(chunk)
+            digest.update(chunk)
+    got = digest.hexdigest()
+    if got != FILESTORE_SHA256:
+        raise DockerOpsError(
+            f"filestore.tar.gz checksum mismatch: got {got}, expected {FILESTORE_SHA256}"
+        )
+    tmp.replace(dest)
 
 
 def filestore_is_populated(repo_root: Path, env: dict[str, str]) -> bool:

@@ -192,9 +192,8 @@ startup/.instance.json
 # Local design specs + plans (working docs, not part of the public repo)
 docs/superpowers/
 
-# SEEK filestore. The raw working copy (~500MB) AND the compressed snapshot
-# (~215MB, over GitHub's 100MB/file limit) are both too large for git — the
-# snapshot is distributed out-of-band and dropped into startup/seed/ by hand.
-# See startup/seed/README.md.
+# SEEK filestore — too large for git (raw dir ~500MB; snapshot ~215MB, over
+# GitHub's 100MB/file limit, and forks can't host LFS). The snapshot is hosted
+# on S3 and downloaded on demand by the startup CLI. See startup/seed/README.md.
 /filestore/
 startup/seed/filestore.tar.gz

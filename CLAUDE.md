@@ -41,8 +41,10 @@ under `startup/` that runs as its own isolated `uv` project):
 See `startup/README.md` for full subcommand docs and known failure modes.
 
 Seeds live in `startup/seed/`: `dmac.sql.gz`, `seek_production.sql.gz`,
-`neo4j.cypher.gz` (DB dumps), and `filestore.tar.gz` (SEEK content blobs,
-streamed into the `seek` container — see `startup/seed/README.md`).
+`neo4j.cypher.gz` (DB dumps, committed). The SEEK content blobs
+(`filestore.tar.gz`, ~215MB) are NOT in git — hosted on S3 and downloaded on
+demand by the startup CLI, then streamed into the `seek` container. See
+`startup/seed/README.md`.
 
 ## Layout
 
@@ -105,9 +107,9 @@ anything under `static/`, run it after the rebuild or your change isn't served.
 - **uv, not pip.** `uv add <pkg>` / `uv run …`; don't hand-edit dependency pins.
 - **Conventional commits** with module scopes: `feat(startup): …`,
   `fix(pipeline): …`, `refactor(schemas): …`.
-- **Don't commit** the raw `filestore/` working dir (gitignored — the committed
-  artifact is the compressed `startup/seed/filestore.tar.gz`), `logs/`,
-  `outputs/`, or `.env` files.
+- **Don't commit** the raw `filestore/` working dir or `startup/seed/filestore.tar.gz`
+  (both gitignored — the snapshot is hosted on S3 and downloaded on demand),
+  `logs/`, `outputs/`, or `.env` files.
 
 ## Debugging a failing stack
 
