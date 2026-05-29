@@ -242,3 +242,18 @@ def test_resolve_per_leaf_fields_include_inherited_parent_value(monkeypatch):
     leaf = out["leaves"][0]
     assert leaf["uid"] == "D.SEQ-1-PUB"
     assert leaf["fields"].get("Treatment1") == "NDMA"  # inherited from the MUS parent via lineage flatten
+
+
+def test_resolve_caps_oversized_leaf_sets(monkeypatch):
+    # > MAX_RESOLVE_LEAVES leaves would overflow the model context: stop with guidance, don't dump.
+    from chat_nextseek.pipeline.agent_tools import MAX_RESOLVE_LEAVES
+    big = [{"uid": f"D.SEQ-{i}-PUB", "sample_type": "D.SEQ", "assay": "", "source_uid": f"S-{i}", "metadata": {}}
+           for i in range(MAX_RESOLVE_LEAVES + 50)]
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.fetch_reporter_metadata", lambda c, u: {"ok": True, "data": {"data": []}})
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.annotate_metadata_with_sampletypes", lambda c, m: m)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.enumerate_lineage_leaves", lambda ann, accepted_types: big)
+    out = _json.loads(tool_resolve_samples(_Cfg(), {}, {}, {"kind": "explicit_uids", "uids": ["X-1-PUB"]}, "rnaseq"))
+    assert out["ok"] is False
+    assert out["leaf_count"] == len(big)
+    assert "narrow" in out["error"].lower()
+    assert "leaves" not in out  # did not build the per-leaf table

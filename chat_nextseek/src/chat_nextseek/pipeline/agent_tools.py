@@ -126,6 +126,11 @@ def _accepted_types_for(pipeline_key: str) -> list[str]:
 _ARCHIVE_ACCESSION_RE = re.compile(
     r"^(?:SRR|SRX|SRP|SRS|ERR|ERX|ERP|ERS|DRR|DRX|DRP|DRS|GSE|GSM|PRJ[A-Z]+)\d+$", re.I)
 
+# Cap on how many sequencing leaves an interactive build will ingest. Beyond this,
+# the per-leaf metadata table would blow the model's context window, so we ask the
+# user to narrow the set instead (matches the "be specific / start from D.SEQ" flow).
+MAX_RESOLVE_LEAVES = 75
+
 
 def _flatten_lineage(uid: str, uid_index: dict) -> dict:
     """Merge metadata from root down to the leaf (leaf wins) via the parent chain."""
@@ -176,6 +181,20 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
 
     annotated = annotate_metadata_with_sampletypes(config, raw)
     leaves = enumerate_lineage_leaves(annotated, accepted_types=_accepted_types_for(pipeline_key))
+
+    if len(leaves) > MAX_RESOLVE_LEAVES:
+        # Building the per-leaf table for this many leaves would overflow the model's
+        # context. Stop here and ask the user to narrow rather than crash mid-build.
+        return json.dumps({
+            "ok": False,
+            "leaf_count": len(leaves),
+            "error": (
+                f"Resolved {len(leaves)} sequencing samples — more than the "
+                f"{MAX_RESOLVE_LEAVES}-sample limit for an interactive build. Ask the user to "
+                "narrow the set: specific D.SEQ UIDs, a tighter search, or a filter (e.g. one "
+                "study, lab, or treatment). Large cohorts can't be assembled in a single pass yet."
+            ),
+        })
 
     # Grouping-candidate fields + per-leaf lineage-flattened values, so the agent can both
     # pick a grouping field AND assign each leaf to a cohort by that field's value.
