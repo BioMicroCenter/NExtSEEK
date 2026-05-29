@@ -1,0 +1,76 @@
+{
+  "routes": [
+    {
+      "route_name": "nextseek_query",
+      "description": "Deterministic NExtSEEK pipeline via chat_nextseek (no Claude reasoning loop).",
+      "tools": [
+        "entity_agent", "parser_agent", "api_agent", "graph_agent",
+        "reporter_agent", "memory_agent", "system_agent"
+      ],
+      "best_for": "Structured biomedical sample / project / study queries that map onto chat_nextseek's pipeline.",
+      "not_for": "File I/O, code execution, free-form reasoning, multi-tool work outside chat_nextseek.",
+      "task_families": [
+        {
+          "name": "sample_search",
+          "description": "Filtered sample / metadata search.",
+          "example_queries": [
+            "Find me mice treated with NDMA.",
+            "What monkeys exist in the database?",
+            "Find me all PBMCs associated with BTC Patients."
+          ]
+        },
+        {
+          "name": "lineage_or_graph",
+          "description": "Graph traversal: lineage, study membership, assay-on-sample.",
+          "example_queries": [
+            "How many samples are in the GBM study?",
+            "What assays were run on study X?"
+          ]
+        },
+        {
+          "name": "report_generation",
+          "description": "Canned biomedical report templates (GEO / SRA / NFCORE / PRIDE).",
+          "example_queries": [
+            "Generate a GEO submission for these samples.",
+            "Build an SRA biosample template for study Y."
+          ]
+        },
+        {
+          "name": "memory_lookup",
+          "description": "Follow-up Q&A against the last result set.",
+          "example_queries": ["What sample types were in those results?"]
+        },
+        {
+          "name": "reporter_summary",
+          "description": "Project / RPPR-style summaries.",
+          "example_queries": ["Give me an RPPR summary for SRP."]
+        }
+      ]
+    },
+    {
+      "route_name": "container_cc",
+      "description": "Container Claude Code: full agentic environment with file I/O, code execution, and arbitrary plugins / skills.",
+      "tools": ["nextseek-api", "bash", "filesystem", "skill-runner"],
+      "best_for": "Open-ended reasoning, file I/O, code, multi-tool workflows.",
+      "not_for": "Pure NExtSEEK lookups that chat_nextseek answers deterministically.",
+      "task_families": [
+        {
+          "name": "file_io_and_summarization",
+          "description": "Read project files mounted at /data/projects, summarize, transform.",
+          "example_queries": [
+            "Read /data/projects/Foo/notes.md and summarize.",
+            "Walk me through the sample tree extraction pipeline."
+          ]
+        },
+        {
+          "name": "code_and_scripts",
+          "description": "Write or refactor Python / shell / SQL.",
+          "example_queries": [
+            "Write a Python script that plots age distribution by sex.",
+            "Refactor this function to use pathlib."
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -17,6 +17,10 @@ services:
       - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
       - ./outputs:/app/outputs:z
       - ./logs:/app/logs:z
+      # Additive (Container-CC route): lets the assistant worker spawn sibling
+      # `claude` containers on the host Docker daemon. Used only by the new
+      # cc-assistant endpoints; the existing assistant never touches it.
+      - /var/run/docker.sock:/var/run/docker.sock
 
   nextseek_nginx:
     image: nginx:latest

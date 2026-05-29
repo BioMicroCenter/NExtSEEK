@@ -1,0 +1,55 @@
+"""Tests for the router heuristic fallback (BAML-independent).
+
+These exercise the keyword fallback used when dmac's BAML router is
+unavailable. Run standalone (no Django/dmac installed -> decide() falls through
+to the heuristic):
+    uv run --no-project --with pytest python -m pytest \
+        nextseek_api/cc_assistant/tests/test_router_heuristic.py
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import router as cc_router  # noqa: E402
+
+
+def test_ndma_query_routes_to_ns():
+    d = cc_router._heuristic("Find me all mice treated with NDMA.")
+    assert d.route == cc_router.ROUTE_NS
+
+
+def test_sample_search_routes_to_ns():
+    for q in [
+        "What monkeys exist in the database?",
+        "Find me all PBMCs associated with BTC Patients.",
+        "How many samples are in the GBM study?",
+        "List assays run on study X",
+    ]:
+        assert cc_router._heuristic(q).route == cc_router.ROUTE_NS, q
+
+
+def test_code_and_file_queries_route_to_cc():
+    for q in [
+        "Write a Python script that plots age distribution by sex.",
+        "Refactor this function to use pathlib.",
+        "Read /data/projects/Foo/notes.md and summarize.",
+    ]:
+        assert cc_router._heuristic(q).route == cc_router.ROUTE_CC, q
+
+
+def test_decide_falls_back_to_heuristic_when_baml_unavailable():
+    # dmac_assistant is not installed in this standalone test env, so the BAML
+    # path raises ImportError and decide() must fall through to the heuristic.
+    d = cc_router.decide("Find me all mice treated with NDMA.")
+    assert d.route == cc_router.ROUTE_NS
+    assert d.source == "heuristic"
+
+
+def test_cc_decision_has_route_and_reasoning_fields():
+    d = cc_router._heuristic("Write a shell script to tar a folder.")
+    assert d.route == cc_router.ROUTE_CC
+    assert d.reasoning
+    assert d.source == "heuristic"

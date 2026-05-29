@@ -52,6 +52,8 @@ from .services.samples import _resolve_uid_to_seek_id
 from .services.samples import SampleAdvancedSearchViewSet as SampleAdvancedSearchViewSet
 from .services.schema_rag import SchemaRAGViewSet
 from .services.assistant import AssistantViewSet
+# Additive dmac_assistant integration (router + Container-Claude-Code).
+from .services.cc_assistant import CCAssistantViewSet
 from .services.evaluator import EvaluatorViewSet
 from .services.entity_tree import EntityTreeViewSet
 from .helpers import resolve_seek_auth

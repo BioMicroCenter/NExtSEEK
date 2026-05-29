@@ -117,6 +117,7 @@ dependencies = [
   "pytest-django",
   "channels>=4.3.2",
   "daphne>=4.2.1",
+  "dmac-assistant",
 ]
 
 [[tool.uv.index]]
@@ -126,6 +127,9 @@ explicit = true
 
 [tool.uv.sources]
 chat_nextseek = { path = "chat_nextseek" }
+# Additive dmac_assistant integration (router + Container-CC). Vendored in-tree
+# as a path dependency, same pattern as chat_nextseek above.
+dmac-assistant = { path = "dmac_assistant" }
 # When chat_nextseek goes public, switch back to the pinned git install:
 # chat_nextseek = { git = "https://github.com/cdemurjian/chat_nextseek.git", rev = "3948d857783e3d130bfe6a880fe53a9eefeb603a" }
 torch = [
