@@ -134,17 +134,35 @@ def _rewrite_loopback_url(url: str, service: str = _NEXTSEEK_SERVICE_HOST) -> st
     return url
 
 
-def _nextseek_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
+def _nextseek_environment(
+    source: Mapping[str, str] | None = None,
+    *,
+    api_user: str | None = None,
+    api_pass: str | None = None,
+) -> dict[str, str]:
     """Build the NExtSEEK / chat_nextseek env for the CC container.
 
-    Forwards the credential + topology vars the in-container nextseek plugin and
-    chat_nextseek read, from the Django container's env into the sibling CC
-    container. NEO4J/MySQL hosts are compose service names that resolve verbatim
-    on the shared network; only the NExtSEEK REST base URL (loopback in the
-    Django env) is rewritten to the ``nextseek`` service.
+    Forwards the topology vars the in-container nextseek plugin and chat_nextseek
+    read, from the Django container's env into the sibling CC container. NEO4J/
+    MySQL hosts are compose service names that resolve verbatim on the shared
+    network; only the NExtSEEK REST base URL (loopback in the Django env) is
+    rewritten to the ``nextseek`` service.
+
+    The NExtSEEK login (``api_user``/``api_pass``) is resolved per-request from
+    the authenticated user, NOT from env (API_USER/API_PASS are unset in the
+    Django container), so it is injected explicitly — under both API_USER/API_PASS
+    (what ChatConfig reads) and NEXTSEEK_USERNAME/PASSWORD (what the poc image
+    entrypoint maps to API_USER/API_PASS).
     """
     src = os.environ if source is None else source
     env: dict[str, str] = {k: src[k] for k in _NEXTSEEK_PASSTHROUGH_KEYS if src.get(k)}
+
+    if api_user:
+        env["API_USER"] = api_user
+        env["NEXTSEEK_USERNAME"] = api_user
+    if api_pass:
+        env["API_PASS"] = api_pass
+        env["NEXTSEEK_PASSWORD"] = api_pass
 
     base = src.get("NEXTSEEK_BASE_URL") or src.get("NEXTSEEK_URL")
     if base:
@@ -215,6 +233,8 @@ def run_cc_turn(
     paths: CCPaths,
     session_id: str | None = None,
     image: str | None = None,
+    api_user: str | None = None,
+    api_pass: str | None = None,
 ) -> None:
     """Execute one Container-CC turn with scoped Dropbox mounts + artifact publish.
 
@@ -251,7 +271,10 @@ def run_cc_turn(
         "scratch": {"container_root": _CONTAINER_SCRATCH,
                     "host_root": f"{paths.host_scratch_root}/{user_id}"},
     }
-    environment = {**_bedrock_environment(), **_nextseek_environment()}
+    environment = {
+        **_bedrock_environment(),
+        **_nextseek_environment(api_user=api_user, api_pass=api_pass),
+    }
     environment["DMAC_PATH_MAPPINGS"] = json.dumps(path_mappings, separators=(",", ":"))
 
     command = list(_BASE_CMD)

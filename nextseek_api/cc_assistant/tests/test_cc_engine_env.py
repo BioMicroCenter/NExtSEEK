@@ -85,6 +85,34 @@ def test_rewrite_helper_leaves_remote_host():
     assert cc_engine._rewrite_loopback_url("http://example.org:9000") == "http://example.org:9000"
 
 
+# --- per-request credential injection -----------------------------------------
+
+def test_request_credentials_injected_under_both_name_schemes():
+    # The NExtSEEK login is resolved per-request (Basic auth), NOT from env —
+    # API_USER/API_PASS are unset in the container. Injected creds must land as
+    # both API_USER/API_PASS (what ChatConfig reads) and NEXTSEEK_USERNAME/
+    # PASSWORD (what the poc entrypoint maps to API_USER/API_PASS).
+    env = cc_engine._nextseek_environment({}, api_user="demo", api_pass="demopassword")
+    assert env["API_USER"] == "demo"
+    assert env["API_PASS"] == "demopassword"
+    assert env["NEXTSEEK_USERNAME"] == "demo"
+    assert env["NEXTSEEK_PASSWORD"] == "demopassword"
+
+
+def test_request_credentials_supplied_when_absent_from_env():
+    # Real container case: env has topology but no API_USER/API_PASS.
+    env = cc_engine._nextseek_environment({"NEO4J_URI": "neo4j://neo4j"},
+                                          api_user="demo", api_pass="pw")
+    assert env["API_USER"] == "demo"
+    assert env["NEO4J_URI"] == "neo4j://neo4j"
+
+
+def test_no_credentials_leaves_login_unset():
+    env = cc_engine._nextseek_environment({})
+    assert "API_USER" not in env
+    assert "NEXTSEEK_USERNAME" not in env
+
+
 # --- chat_nextseek LLM profile ------------------------------------------------
 
 def test_mode_defaults_to_gcp():

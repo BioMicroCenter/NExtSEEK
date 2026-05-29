@@ -162,6 +162,9 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         run_id=cc_run_id,
                         paths=cc_config.CCPaths.from_env(),
                         session_id=None,
+                        # NExtSEEK login is per-request (Basic auth), not env;
+                        # inject so the in-container chat_nextseek can authenticate.
+                        api_user=api_user, api_pass=api_pass,
                     )
             except Exception:
                 logger.exception("cc-assistant pipeline error")
