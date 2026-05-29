@@ -32,15 +32,15 @@ def _agent_route(profile, agent):
     return None, None
 
 
-def test_pipeline_groupby_routed_to_tool_capable_provider_in_default():
-    """pipeline_groupby runs a chat_with_tools function-calling loop, which only
-    the Bedrock client (provider 'anth') implements. In the shipping 'default'
-    (mixed) profile it must NOT be routed to gcp/GeminiClient, which has no
-    chat_with_tools and crashes the group-by step."""
+def test_pipeline_agent_routed_to_tool_capable_provider_in_default():
+    """The full-agentic pipeline_agent runs a chat_with_tools function-calling
+    loop, which only the Bedrock client (provider 'anth') implements. In the
+    shipping 'default' (mixed) profile it must NOT be routed to gcp/GeminiClient,
+    which has no chat_with_tools and would break the agent loop."""
     catalog_path = Path(__file__).resolve().parents[1] / "agent_model_catalog.json"
     catalog = json.loads(catalog_path.read_text())
-    provider, model = _agent_route(catalog["default"], "pipeline_groupby")
+    provider, model = _agent_route(catalog["default"], "pipeline_agent")
     assert provider == "anth", (
-        f"pipeline_groupby routed to provider={provider!r} (model={model!r}); "
+        f"pipeline_agent routed to provider={provider!r} (model={model!r}); "
         "must be 'anth' (Bedrock) — only BedrockClient implements chat_with_tools."
     )
