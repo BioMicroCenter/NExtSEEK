@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 from .agent_tools import PIPELINE_TOOL_SCHEMAS, dispatch_pipeline_tool_call
 from ..helpers import summarize_pinned_bundle
+from ..seqera.catalog import catalog_for_prompt
 
 PIPELINE_AGENT_KEY = "pipeline_agent"
 MAX_ITER = 12
@@ -106,7 +107,7 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None) -> dict[str
                 "reply": "The pipeline agent needs a tool-capable (Bedrock) model. "
                          "It isn't configured in this profile — set AWS_BEARER_TOKEN_BEDROCK or use an anth/aws profile."}
 
-    system_prompt = config._load_prompt("pipeline_agent.txt")
+    system_prompt = config._load_prompt("pipeline_agent.txt").replace("{catalog}", catalog_for_prompt())
     messages = state["messages"]
     log_resolved_dir = log_dir or getattr(config, "LOG_DIR", ".")
 
