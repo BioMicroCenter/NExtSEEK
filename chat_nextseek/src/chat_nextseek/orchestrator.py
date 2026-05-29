@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 
 from .artifacts import ArtifactStore, build_metadata_bundle, build_saved_report_file_manifest
 from .chat_memory import append_turn, build_tool_summary_for_mode, resolve_bundle_for_recall
-from .pipeline import wizard as nfcore_wizard
 from .pipeline import agent as pipeline_agent
 from .agents import (
     chatter_agent_answer,
@@ -283,138 +282,6 @@ def _execute_graph_turn(
     return _emit_query_complete(send_event, reply, debug_payload, bundle_id, files=result_files or None)
 
 
-# DEPRECATED: superseded by pipeline_agent. Left in place for now;
-# safe to delete once a release cycle has passed with no rollback.
-def _execute_nfcore_wizard(
-    session: SessionState | SessionStateProxy,
-    config: ChatConfig,
-    user_text: str,
-    wizard_params: dict[str, Any],
-    log_dir: str,
-    send_event: SendEvent,
-    artifact_store: ArtifactStore,
-    confirmation_reply: str,
-) -> dict[str, Any]:
-    """Run generate_report_outputs with the wizard's collected pre_supplied_cohorts.
-
-    Synthesizes a minimal ParserPlan + ReporterPlan so we can reuse the existing
-    report-generation execution path without going through the parser/reporter
-    LLM agents (we already have explicit user answers).
-    """
-    from .agents import report_writer_agent
-    from .schemas import ParserFilters, ParserPlan
-    from .schemas.chat import ReporterPlan
-
-    # Empty-uids guard: nothing to build. Bounce the user back to the builder
-    # step so they can pick samples, rather than crashing generate_report_outputs.
-    uids: list[str] = list(wizard_params.get("uids") or [])
-    if not uids:
-        state = session.get(nfcore_wizard.WIZARD_KEY) or {}
-        state["step"] = nfcore_wizard.STEP_BUILDER
-        nfcore_wizard._save_state(session, state)
-        reply = (
-            "I don't have any samples selected yet — pick samples first "
-            "(start with your last search, paste UIDs, or run a new search), "
-            "then we can build."
-        )
-        debug_payload = {"nfcore_wizard": {"empty_uids_bounce": True}}
-        session["last_debug"] = debug_payload
-        return _emit_query_complete(send_event, reply, debug_payload, None)
-    report_type: str = wizard_params.get("report_type") or "NFCORE_RNASEQ"
-    cohorts: list[dict[str, Any]] = wizard_params.get("pre_supplied_cohorts") or []
-    selector_rationale: str = wizard_params.get("selector_rationale") or ""
-
-    synthetic_parser_plan = ParserPlan(
-        mode="reporter",
-        report_mode="report_generation",
-        report_type=report_type,
-        intent_summary=f"Wizard-driven nf-core export ({report_type}).",
-        filters=ParserFilters(uids=uids),
-    )
-    synthetic_reporter_plan = ReporterPlan(
-        reporter_mode="report_generation",
-        report_type=report_type,
-        uids=uids,
-        reporter_context={"per_sample_reports": False},
-        notes=selector_rationale,
-    )
-
-    send_event("agent_started", {"agent": "report_writer", "mode": "report_generation"})
-    reporter_result, report_writer_output, saved_files, reply_body = generate_report_outputs(
-        config=config,
-        user_query=user_text,
-        parser_plan=synthetic_parser_plan,
-        reporter_plan=synthetic_reporter_plan,
-        uids=uids,
-        log_dir=log_dir,
-        report_writer_fn=report_writer_agent,
-        per_sample_reports=False,
-        pre_supplied_cohorts=cohorts,
-    )
-    send_event("agent_complete", {"agent": "report_writer", "summary": None})
-
-    reply = confirmation_reply + "\n\n" + (reply_body or "")
-    debug_payload: dict[str, Any] = {
-        "wizard_params": wizard_params,
-        "reporter_plan": synthetic_reporter_plan.model_dump(),
-        "reporter_result": reporter_result,
-        "report_writer_output": (
-            report_writer_output.model_dump()
-            if hasattr(report_writer_output, "model_dump")
-            else report_writer_output
-        ),
-    }
-    if saved_files:
-        debug_payload["report_saved_files"] = saved_files
-
-    history = session.get("results_history", [])
-    bundle_id = len(history) + 1
-    result_files = build_saved_report_file_manifest(saved_files)
-    bundle = build_metadata_bundle(
-        bundle_id=bundle_id,
-        mode="reporter",
-        user_query=user_text,
-        parser_plan=synthetic_parser_plan.model_dump(),
-        reporter_plan=synthetic_reporter_plan.model_dump(),
-        reporter_result=reporter_result,
-        report_writer_output=(
-            report_writer_output.model_dump()
-            if hasattr(report_writer_output, "model_dump")
-            else report_writer_output
-        ),
-        report_saved_files=saved_files,
-        terminal_reply=reply,
-        files=result_files,
-    )
-    history.append(bundle)
-    session["results_history"] = history
-    session["last_debug"] = debug_payload
-    session["last_files"] = result_files
-
-    append_turn(
-        session,
-        user_query=user_text,
-        mode="reporter",
-        intent_summary=synthetic_parser_plan.intent_summary,
-        tool_summary=build_tool_summary_for_mode(
-            "reporter",
-            reporter_plan=synthetic_reporter_plan.model_dump(),
-        ),
-        assistant_reply=reply,
-        bundle_id=bundle_id,
-        wizard_state={"step": "executed", "pipeline": (cohorts[0].get("pipeline") if cohorts else None)},
-    )
-    # Wizard state cleared after we persist the run.
-    nfcore_wizard.clear(session)
-    return _emit_query_complete(
-        send_event,
-        reply,
-        debug_payload,
-        bundle_id,
-        files=result_files or None,
-    )
-
-
 def _handle_pipeline_agent_turn(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -427,8 +294,8 @@ def _handle_pipeline_agent_turn(
     orchestrator payload, or None if the agent requested passthrough
     (caller should run normal parser).
 
-    This gate runs BEFORE the legacy wizard interceptor so pipeline_agent
-    always wins for in-progress NFCORE flows.
+    This gate runs before the normal parser path so pipeline_agent always
+    wins for in-progress NFCORE flows.
     """
     if not pipeline_agent.is_active(session):
         return None
@@ -468,66 +335,6 @@ def _handle_pipeline_agent_turn(
     return _emit_query_complete(send_event, reply, debug_payload, None)
 
 
-def _handle_wizard_turn(
-    session: SessionState | SessionStateProxy,
-    config: ChatConfig,
-    user_text: str,
-    log_dir: str,
-    send_event: SendEvent,
-    artifact_store: ArtifactStore,
-) -> dict[str, Any] | None:
-    """If a wizard is active, advance it. Returns the orchestrator payload, or
-    None if the wizard requested passthrough (caller should run normal parser).
-    """
-    if not nfcore_wizard.is_active(session):
-        return None
-    result = nfcore_wizard.handle_turn(session, config, user_text, log_dir=log_dir)
-    action = result.get("action")
-    if action == "passthrough":
-        nfcore_wizard.clear(session)
-        return None
-    if action == "ask":
-        reply = result.get("reply") or ""
-        debug_payload = {"nfcore_wizard": nfcore_wizard.snapshot_for_chat_log(session)}
-        session["last_debug"] = debug_payload
-        append_turn(
-            session,
-            user_query=user_text,
-            mode="nfcore_wizard",
-            intent_summary="nf-core wizard Q&A",
-            tool_summary={"step": (session.get(nfcore_wizard.WIZARD_KEY) or {}).get("step")},
-            assistant_reply=reply,
-            wizard_state=nfcore_wizard.snapshot_for_chat_log(session),
-        )
-        return _emit_query_complete(send_event, reply, debug_payload, None)
-    if action == "cancel":
-        reply = result.get("reply") or ""
-        debug_payload = {"nfcore_wizard": {"cancelled": True}}
-        session["last_debug"] = debug_payload
-        append_turn(
-            session,
-            user_query=user_text,
-            mode="nfcore_wizard",
-            intent_summary="nf-core wizard cancelled",
-            assistant_reply=reply,
-        )
-        return _emit_query_complete(send_event, reply, debug_payload, None)
-    if action == "execute":
-        params = result.get("params") or {}
-        return _execute_nfcore_wizard(
-            session,
-            config,
-            user_text,
-            params,
-            log_dir,
-            send_event,
-            artifact_store,
-            confirmation_reply=result.get("reply") or "Building artifacts now…",
-        )
-    nfcore_wizard.clear(session)
-    return None
-
-
 def run_query(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -564,20 +371,14 @@ def run_query(
             _raw_send_event(event_name, payload)
 
     try:
-        # pipeline_agent gates BEFORE the legacy wizard so an in-progress
-        # samplesheet build always advances even if a stale wizard state
-        # also looks active.
+        # An in-progress samplesheet build always advances through the
+        # pipeline_agent before the normal parser path.
         pipeline_payload = _handle_pipeline_agent_turn(
             session, config, user_text, log_dir, send_event, artifact_store,
         )
         if pipeline_payload is not None:
             print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
             return pipeline_payload
-
-        wizard_payload = _handle_wizard_turn(session, config, user_text, log_dir, send_event, artifact_store)
-        if wizard_payload is not None:
-            print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
-            return wizard_payload
 
         send_event("agent_started", {"agent": "catalog", "mode": ""})
         sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(
@@ -1337,11 +1138,6 @@ def run_query_plan(
             _raw_send_event(event_name, payload)
 
     try:
-        wizard_payload = _handle_wizard_turn(session, config, user_text, log_dir, send_event, artifact_store)
-        if wizard_payload is not None:
-            print(f"[TIMING][TOTAL][PLAN] {time.perf_counter() - _t_total_start:.2f}s")
-            return wizard_payload
-
         send_event("agent_started", {"agent": "catalog", "mode": "plan"})
         sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(
             user_text,

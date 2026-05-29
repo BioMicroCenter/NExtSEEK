@@ -15,7 +15,6 @@ from .chat import (
 from .graph import GraphAgentPlan
 from .memory import MemoryCoderOutput
 from .system import SystemAgentOutput
-from .wizard import WizardAgentOutput
 from .planner import (
     ContextEngineerOutput,
     PlannerDecisionOutput,
@@ -61,5 +60,4 @@ __all__ = [
     "RouterDecision",
     "SeqeraLaunchPlan",
     "SystemAgentOutput",
-    "WizardAgentOutput",
 ]

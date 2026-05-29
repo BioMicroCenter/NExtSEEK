@@ -172,7 +172,6 @@ class ChatConfig:
         self.CONTEXT_ENGINEER_SYSTEM_PROMPT = self._load_prompt("context_engineer.txt")
         self.EVALUATOR_V1_SYSTEM_PROMPT = self._load_prompt("evaluator-v1-agent.txt")
         self.SEQERA_AGENT_SYSTEM_PROMPT = self._load_prompt("seqera_agent.txt")
-        self.WIZARD_AGENT_SYSTEM_PROMPT = self._load_prompt("wizard_agent.txt")
         self.CAPABILITIES_DOC = self._load_capabilities_doc()
 
         # Seqera / Tower environment for the NFCORE flow.

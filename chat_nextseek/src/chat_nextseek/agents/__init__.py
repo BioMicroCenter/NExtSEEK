@@ -27,13 +27,6 @@ from .memory import (  # noqa: F401
 from .system import system_agent  # noqa: F401
 from .graph import graph_agent  # noqa: F401
 from .seqera import seqera_agent  # noqa: F401
-from .wizard import (  # noqa: F401
-    WizardToolLoopError,
-    _wizard_agent_builder,
-    _build_wizard_builder_system_prompt,
-    wizard_agent,
-    MAX_TOOL_ITERATIONS,
-)
 from .planner.agent import (  # noqa: F401
     _normalize_planner_output,
     _planner_runtime_state,
