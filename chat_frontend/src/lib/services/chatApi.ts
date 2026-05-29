@@ -66,7 +66,12 @@ export class NextseekApiService {
     let taskId: string;
     try {
       const response = await fetch(
-        `${baseUrl}/nextseek_api/assistant/query/async/`,
+        // Routed through the additive cc-assistant endpoint: the dmac_assistant
+        // BAML router decides per query between the NExtSEEK pipeline (NS) and
+        // the sandboxed Container-Claude-Code path. It creates the SAME
+        // QueryTask, so the WS (ws/assistant/progress/) + poll + sessions calls
+        // below stay on the existing assistant routes and work unchanged.
+        `${baseUrl}/nextseek_api/cc-assistant/query/async/`,
         {
           method: "POST",
           headers: {
