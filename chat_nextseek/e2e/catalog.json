@@ -7456,11 +7456,6 @@
                   "op": "true"
                 },
                 {
-                  "field": "pipeline_agent.phase",
-                  "op": "eq",
-                  "value": "awaiting_validation"
-                },
-                {
                   "field": "ui_text.assistant_reply",
                   "op": "nonempty"
                 }
@@ -7666,7 +7661,7 @@
                   "op": "true"
                 },
                 {
-                  "field": "pipeline_agent.directive.pipeline_key",
+                  "field": "pipeline_agent.pipeline_key",
                   "op": "eq",
                   "value": "sarek"
                 },
