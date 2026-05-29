@@ -14,6 +14,7 @@ Public surface (unchanged contract with the orchestrator):
 """
 from __future__ import annotations
 
+import json
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -113,16 +114,16 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None) -> dict[str
         resp = client.chat_with_tools(messages=messages, tools=PIPELINE_TOOL_SCHEMAS,
                                       system=system_prompt, model=model_name)
         content = resp.get("content", []) or []
-        stop_reason = resp.get("stop_reason")
+        tool_use_blocks = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
 
-        if stop_reason != "tool_use":
+        if not tool_use_blocks:
+            # The agent produced text for the user (clarify / propose / report). Pause, stay active.
             reply = _text_of(content) or "(no response)"
             messages.append({"role": "assistant", "content": content})
             _save(session, state)
             return {"action": "ask", "reply": reply, "params": None}
 
         messages.append({"role": "assistant", "content": content})
-        tool_use_blocks = [b for b in content if b.get("type") == "tool_use"]
         tool_results: list[dict] = []
         for block in tool_use_blocks:
             name, tool_input, tuid = block.get("name"), block.get("input", {}), block.get("id")
@@ -132,7 +133,7 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None) -> dict[str
                 result = dispatch_pipeline_tool_call(config=config, session=session, state=state,
                                                      name=name, tool_input=tool_input, log_dir=log_resolved_dir)
             except Exception as exc:
-                result = f'{{"ok": false, "error": "{type(exc).__name__}: {exc}"}}'
+                result = json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
             tool_results.append({"type": "tool_result", "tool_use_id": tuid, "content": result})
         messages.append({"role": "user", "content": tool_results})
         _save(session, state)

@@ -45,3 +45,59 @@ def test_cancel_keyword_shortcuts():
     result = pa.handle_turn(session, _Cfg(_StubClient([])), "cancel")
     assert result["action"] == "cancel"
     assert pa.is_active(session) is False
+
+
+def test_round_trip_tool_then_conclude_submitted(monkeypatch):
+    monkeypatch.setattr("chat_nextseek.pipeline.agent.dispatch_pipeline_tool_call",
+                        lambda **kw: '{"ok": true, "run_urls": ["https://tower/run/1"]}')
+    client = _StubClient([
+        {"stop_reason": "tool_use", "content": [
+            {"type": "tool_use", "id": "t1", "name": "submit_to_tower", "input": {}}]},
+        {"stop_reason": "tool_use", "content": [
+            {"type": "tool_use", "id": "t2", "name": "conclude",
+             "input": {"outcome": "submitted", "message": "Submitted: https://tower/run/1"}}]},
+    ])
+    session = {}
+    result = pa.start(session, _Cfg(client), user_query="submit", parser_plan={}, reporter_plan={})
+    assert result["action"] == "execute"
+    assert "tower/run/1" in result["reply"]
+    assert pa.is_active(session) is False
+    # transcript is balanced: the t1 tool_use got a matching t1 tool_result before iter 2
+    msgs = session["pipeline_agent"]["messages"]
+    assert any(
+        isinstance(m.get("content"), list)
+        and any(isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") == "t1"
+                for b in m["content"])
+        for m in msgs
+    )
+
+
+def test_messages_persist_across_handle_turn():
+    client = _StubClient([
+        {"stop_reason": "end_turn", "content": [{"type": "text", "text": "Which pipeline?"}]},
+        {"stop_reason": "end_turn", "content": [{"type": "text", "text": "OK, rnaseq."}]},
+    ])
+    session = {}
+    cfg = _Cfg(client)
+    pa.start(session, cfg, user_query="build", parser_plan={}, reporter_plan={})
+    n_after_start = len(session["pipeline_agent"]["messages"])
+    pa.handle_turn(session, cfg, "use rnaseq")
+    assert len(session["pipeline_agent"]["messages"]) > n_after_start  # transcript accumulates
+
+
+def test_guard_when_client_lacks_chat_with_tools():
+    class _Dumb:
+        pass
+
+    class _CfgDumb:
+        LOG_DIR = "/tmp"
+        def get_agent_model(self, label):
+            return _Dumb(), "model", None
+        def _load_prompt(self, name):
+            return "x"
+
+    session = {}
+    result = pa.start(session, _CfgDumb(), user_query="build", parser_plan={}, reporter_plan={})
+    assert result["action"] == "ask"
+    assert "Bedrock" in result["reply"]
+    assert pa.is_active(session) is False
