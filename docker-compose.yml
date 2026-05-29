@@ -21,6 +21,13 @@ services:
       # `claude` containers on the host Docker daemon. Used only by the new
       # cc-assistant endpoints; the existing assistant never touches it.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Container-CC artifact flow (per dmac SDS §5.5): the host-side copier runs
+      # in THIS container, so the user's scratch + Dropbox output dir are mounted
+      # here for it to read scratch and publish artifacts. Sources are host paths
+      # (defaults target the dev instance; override via DMAC_HOST_* env). Must
+      # match cc_config (scratch_mount=/dmac/scratch, output_mount=/dmac/output).
+      - ${DMAC_HOST_SCRATCH_ROOT:-/Users/taishajoseph/dmac-dev/scratch}:/dmac/scratch
+      - ${DMAC_HOST_OUTPUT_ROOT:-/Users/taishajoseph/Library/CloudStorage/Dropbox/DMAC_Data/example-project}:/dmac/output
 
   nextseek_nginx:
     image: nginx:latest

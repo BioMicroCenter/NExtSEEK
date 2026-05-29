@@ -53,6 +53,7 @@ from chat_nextseek.orchestrator import run_query, run_query_plan
 
 from nextseek_api.cc_assistant import router as cc_router
 from nextseek_api.cc_assistant import cc_engine
+from nextseek_api.cc_assistant import cc_config
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,9 @@ class CCAssistantViewSet(viewsets.ViewSet):
                 api_user, api_pass = chat_config.API_USER, chat_config.API_PASS
 
         mode = getattr(req, "mode", "standard")
+        # Capture identity for the CC route (scoped Dropbox mounts + output).
+        cc_user_id = request.user.username
+        cc_run_id = str(query_task.task_id)
 
         def _run() -> None:
             ran_ns = False
@@ -152,7 +156,12 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         return
                     cc_engine.run_cc_turn(
                         query=req.query, model_id=decision.model_id,
-                        send_event=send_event, session_id=None,
+                        send_event=send_event,
+                        user_id=cc_user_id,
+                        projects=cc_config.projects_for(cc_user_id),
+                        run_id=cc_run_id,
+                        paths=cc_config.CCPaths.from_env(),
+                        session_id=None,
                     )
             except Exception:
                 logger.exception("cc-assistant pipeline error")
