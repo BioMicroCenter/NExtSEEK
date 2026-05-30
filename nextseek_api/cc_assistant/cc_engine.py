@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
@@ -44,6 +45,18 @@ DEFAULT_IMAGE = os.environ.get("NEXTSEEK_CC_IMAGE", "dmac-assistant:poc")
 # host-published, so host.docker.internal cannot reach it — network attach is
 # the correct (and simpler) approach. Override via NEXTSEEK_CC_NETWORK.
 DEFAULT_NETWORK = os.environ.get("NEXTSEEK_CC_NETWORK", "nextseek_default")
+
+# Per-turn cost + time bounds — match the headless E2E batch harness
+# (tools/e2e/run_headless.py): a hard USD spend cap via ``claude
+# --max-budget-usd`` (default $0.50/turn; Claude Code stops the turn when cost
+# hits it; 0 disables) and a wall-clock timeout (hard-capped 180s) that
+# stops + force-removes the container if the turn overruns.
+_DEFAULT_MAX_BUDGET_USD = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "0.50"))
+_TIMEOUT_HARD_MAX = 180  # seconds; project rule (run_headless._TIMEOUT_HARD_MAX)
+_DEFAULT_TURN_TIMEOUT = min(
+    int(os.environ.get("NEXTSEEK_CC_TIMEOUT_SECONDS", str(_TIMEOUT_HARD_MAX))),
+    _TIMEOUT_HARD_MAX,
+)
 
 _BEDROCK_KEYS = (
     "CLAUDE_CODE_USE_BEDROCK",
@@ -119,23 +132,28 @@ _NEXTSEEK_PASSTHROUGH_KEYS = (
 )
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "0.0.0.0"})
-_NEXTSEEK_SERVICE_HOST = "nextseek"
+# Route the CC container's NExtSEEK REST calls through nginx, not daphne-direct.
+# daphne-direct (nextseek:8000) sends Host: nextseek, which Django's restrictive
+# ALLOWED_HOSTS rejects with HTTP 400; nginx (nextseek_nginx:80) forces a
+# Django-safe upstream Host (proxy_set_header Host localhost) so it returns 200.
+_NEXTSEEK_SERVICE_HOST = "nextseek_nginx"
 
 
 def _rewrite_loopback_url(url: str, service: str = _NEXTSEEK_SERVICE_HOST) -> str:
-    """Rewrite a loopback host in ``url`` to a compose service name.
+    """Rewrite a loopback host in ``url`` to the in-network nginx entrypoint.
 
-    The Django container reaches the NExtSEEK REST API at http://127.0.0.1:8000;
-    a sibling CC container on the shared network must reach http://nextseek:8000
-    instead. Non-loopback hosts (already service names like ``neo4j``) are
-    returned unchanged, preserving scheme, port, and path.
+    The Django container reaches the NExtSEEK REST API at http://127.0.0.1:8000
+    (itself, daphne). A sibling CC container on the shared network must instead
+    go through nginx (``nextseek_nginx`` on :80), which normalizes the upstream
+    Host so Django's ALLOWED_HOSTS accepts it. Non-loopback hosts are returned
+    unchanged, preserving scheme, port, and path.
     """
     from urllib.parse import urlsplit, urlunsplit
 
     parts = urlsplit(url)
     if parts.hostname in _LOOPBACK_HOSTS:
-        netloc = f"{service}:{parts.port}" if parts.port else service
-        parts = parts._replace(netloc=netloc)
+        # nginx listens on :80; drop the daphne :8000 from the loopback URL.
+        parts = parts._replace(netloc=service)
         return urlunsplit(parts)
     return url
 
@@ -181,6 +199,27 @@ def _nextseek_environment(
     # deterministic regardless of the image's entrypoint default.
     env["NEXTSEEK_MODE"] = src.get("NEXTSEEK_MODE", "gcp")
     return env
+
+
+def _build_command(
+    *,
+    model_id: str | None,
+    session_id: str | None = None,
+    max_budget_usd: float = _DEFAULT_MAX_BUDGET_USD,
+) -> list[str]:
+    """Build the in-container ``claude`` command with the per-turn budget cap.
+
+    Mirrors the headless E2E batch (tools/e2e/run_headless.py): ``--max-budget-usd``
+    makes Claude Code stop the turn when accrued cost hits the cap (0 disables).
+    """
+    cmd = list(_BASE_CMD)
+    if model_id:
+        cmd += ["--model", model_id]
+    if max_budget_usd and max_budget_usd > 0:
+        cmd += ["--max-budget-usd", str(max_budget_usd)]
+    if session_id:
+        cmd += ["--resume", session_id]
+    return cmd
 
 
 def _run_kwargs(
@@ -243,6 +282,8 @@ def run_cc_turn(
     image: str | None = None,
     api_user: str | None = None,
     api_pass: str | None = None,
+    max_budget_usd: float = _DEFAULT_MAX_BUDGET_USD,
+    turn_timeout: int = _DEFAULT_TURN_TIMEOUT,
 ) -> None:
     """Execute one Container-CC turn with scoped Dropbox mounts + artifact publish.
 
@@ -285,11 +326,9 @@ def run_cc_turn(
     }
     environment["DMAC_PATH_MAPPINGS"] = json.dumps(path_mappings, separators=(",", ":"))
 
-    command = list(_BASE_CMD)
-    if model_id:
-        command += ["--model", model_id]
-    if session_id:
-        command += ["--resume", session_id]
+    command = _build_command(
+        model_id=model_id, session_id=session_id, max_budget_usd=max_budget_usd,
+    )
 
     before = snapshot_before(scratch_mount, user_id)
 
@@ -304,6 +343,25 @@ def run_cc_turn(
                 volumes=volumes, run_id=run_id, user_id=user_id,
             )
         )
+
+        # Hard wall-clock bound on the turn (belt-and-suspenders to --max-budget-usd):
+        # if it overruns, stop + force-remove the container, which ends the stdout
+        # stream so the read loop below exits.
+        _done = threading.Event()
+        _timed_out = threading.Event()
+
+        def _watchdog() -> None:
+            if not _done.wait(turn_timeout):
+                _timed_out.set()
+                for _op in (lambda: container.stop(timeout=2),
+                            lambda: container.remove(force=True)):
+                    try:
+                        _op()
+                    except Exception:
+                        pass
+
+        threading.Thread(target=_watchdog, daemon=True).start()
+
         raw = container.attach_socket(params={"stdin": 1, "stdout": 1, "stderr": 1, "stream": 1})
         stdout_stream = container.logs(stream=True, follow=True, stdout=True, stderr=False)
         sock = BridgeAttachSocket(raw, stdout_stream=stdout_stream)
@@ -334,6 +392,15 @@ def run_cc_turn(
                     send_event(event, data)
             if translator._terminated:
                 break
+
+        _done.set()
+        if _timed_out.is_set():
+            send_event("query_error", {
+                "error": f"Container-CC turn exceeded the {turn_timeout}s limit and was stopped.",
+                "reason": "exec_timeout", "agent": "container_cc",
+                "session_id": translator.session_id,
+            })
+            return
         if terminal is None:
             for event, data in translator.finalize():
                 terminal = (event, data)

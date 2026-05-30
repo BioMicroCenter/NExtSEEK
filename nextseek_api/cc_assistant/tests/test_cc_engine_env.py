@@ -58,31 +58,66 @@ def test_service_name_hosts_are_preserved_verbatim():
     assert env["MYSQL_HOST_DEV"] == "db"
 
 
-# --- loopback base-URL rewrite ------------------------------------------------
+# --- loopback base-URL rewrite (route via nginx, which normalizes Host) -------
+# daphne-direct (nextseek:8000) sends Host: nextseek -> Django ALLOWED_HOSTS 400.
+# nginx (nextseek_nginx:80) forces a Django-safe upstream Host -> 200.
 
-def test_loopback_base_url_rewritten_to_service():
+def test_loopback_base_url_rewritten_to_nginx_service():
     env = cc_engine._nextseek_environment({"NEXTSEEK_BASE_URL": "http://127.0.0.1:8000"})
-    assert env["NEXTSEEK_BASE_URL"] == "http://nextseek:8000"
+    # loopback:8000 (daphne self-ref) -> nginx entrypoint on :80 (drop the port)
+    assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx"
     # entrypoint falls back NEXTSEEK_BASE_URL <- NEXTSEEK_URL, so set both.
-    assert env["NEXTSEEK_URL"] == "http://nextseek:8000"
+    assert env["NEXTSEEK_URL"] == "http://nextseek_nginx"
 
 
 def test_localhost_base_url_rewritten_and_path_preserved():
     env = cc_engine._nextseek_environment({"NEXTSEEK_URL": "http://localhost:8000/api"})
-    assert env["NEXTSEEK_BASE_URL"] == "http://nextseek:8000/api"
+    assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx/api"
 
 
 def test_nonloopback_base_url_preserved():
-    env = cc_engine._nextseek_environment({"NEXTSEEK_BASE_URL": "http://nextseek:8000"})
-    assert env["NEXTSEEK_BASE_URL"] == "http://nextseek:8000"
+    env = cc_engine._nextseek_environment({"NEXTSEEK_BASE_URL": "http://nextseek_nginx"})
+    assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx"
 
 
 def test_rewrite_helper_without_port():
-    assert cc_engine._rewrite_loopback_url("http://127.0.0.1") == "http://nextseek"
+    assert cc_engine._rewrite_loopback_url("http://127.0.0.1") == "http://nextseek_nginx"
 
 
 def test_rewrite_helper_leaves_remote_host():
     assert cc_engine._rewrite_loopback_url("http://example.org:9000") == "http://example.org:9000"
+
+
+# --- per-turn cost + time bounds (match headless E2E batch) -------------------
+
+def test_command_includes_max_budget_usd_by_default():
+    cmd = cc_engine._build_command(model_id="m")
+    assert "--max-budget-usd" in cmd
+    i = cmd.index("--max-budget-usd")
+    assert cmd[i + 1] == str(cc_engine._DEFAULT_MAX_BUDGET_USD)
+    assert "--model" in cmd and cmd[cmd.index("--model") + 1] == "m"
+
+
+def test_command_budget_can_be_overridden():
+    cmd = cc_engine._build_command(model_id=None, max_budget_usd=0.10)
+    # value is str(float) — matches the headless harness (run_headless.py:271)
+    assert cmd[cmd.index("--max-budget-usd") + 1] == str(0.10)
+
+
+def test_command_budget_disabled_when_zero():
+    cmd = cc_engine._build_command(model_id=None, max_budget_usd=0)
+    assert "--max-budget-usd" not in cmd
+
+
+def test_command_resume_appended_after_budget():
+    cmd = cc_engine._build_command(model_id=None, session_id="s1")
+    assert cmd[-2:] == ["--resume", "s1"]
+
+
+def test_default_budget_and_timeout_match_batch_harness():
+    assert cc_engine._DEFAULT_MAX_BUDGET_USD == 0.50
+    assert cc_engine._TIMEOUT_HARD_MAX == 180
+    assert cc_engine._DEFAULT_TURN_TIMEOUT <= cc_engine._TIMEOUT_HARD_MAX
 
 
 # --- per-request credential injection -----------------------------------------
