@@ -58,6 +58,13 @@ _DEFAULT_TURN_TIMEOUT = min(
     _TIMEOUT_HARD_MAX,
 )
 
+# chat_nextseek's agent-model catalog. The Django container's CATALOG_FILE is a
+# Django-only path; the poc image bakes the catalog here (override via
+# NEXTSEEK_CC_CATALOG_FILE).
+_DEFAULT_CATALOG_FILE = os.environ.get(
+    "NEXTSEEK_CC_CATALOG_FILE", "/tmp/chat_nextseek/agent_model_catalog.json"
+)
+
 _BEDROCK_KEYS = (
     "CLAUDE_CODE_USE_BEDROCK",
     "AWS_BEARER_TOKEN_BEDROCK",
@@ -198,6 +205,13 @@ def _nextseek_environment(
     # chat_nextseek internal LLM profile (gcp -> Gemini). Set explicitly so it is
     # deterministic regardless of the image's entrypoint default.
     env["NEXTSEEK_MODE"] = src.get("NEXTSEEK_MODE", "gcp")
+
+    # Operational vars the Django container provides differently: the agent-model
+    # catalog (Django path -> the catalog baked in the poc image), and the dev DB
+    # profile (only dev creds are forwarded; without this chat_nextseek defaults
+    # to env='prod' and fails on DB host — see tools/e2e/run_headless.py).
+    env["CATALOG_FILE"] = _DEFAULT_CATALOG_FILE
+    env["CHAT_NEXTSEEK_DB_ENV"] = src.get("CHAT_NEXTSEEK_DB_ENV", "dev")
     return env
 
 

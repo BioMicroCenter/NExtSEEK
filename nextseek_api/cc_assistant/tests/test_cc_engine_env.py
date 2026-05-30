@@ -120,6 +120,23 @@ def test_default_budget_and_timeout_match_batch_harness():
     assert cc_engine._DEFAULT_TURN_TIMEOUT <= cc_engine._TIMEOUT_HARD_MAX
 
 
+# --- chat_nextseek operational env (catalog + dev DB profile) -----------------
+
+def test_catalog_file_points_at_baked_catalog():
+    env = cc_engine._nextseek_environment({})
+    assert env["CATALOG_FILE"] == cc_engine._DEFAULT_CATALOG_FILE
+    assert cc_engine._DEFAULT_CATALOG_FILE.endswith("agent_model_catalog.json")
+
+
+def test_db_env_defaults_to_dev():
+    assert cc_engine._nextseek_environment({})["CHAT_NEXTSEEK_DB_ENV"] == "dev"
+
+
+def test_db_env_respects_override():
+    env = cc_engine._nextseek_environment({"CHAT_NEXTSEEK_DB_ENV": "prod"})
+    assert env["CHAT_NEXTSEEK_DB_ENV"] == "prod"
+
+
 # --- per-request credential injection -----------------------------------------
 
 def test_request_credentials_injected_under_both_name_schemes():
