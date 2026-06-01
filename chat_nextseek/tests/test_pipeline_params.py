@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 NFCORE_DIR = Path(__file__).resolve().parent.parent / "src" / "chat_nextseek" / "reports" / "templates" / "nfcore"
 
 
@@ -27,3 +29,13 @@ def test_scrnaseq_has_curated_params_and_reference_resources():
     assert params["protocol"]["default"] == "auto"
     assert "expected_cells" not in params
     assert doc["reference_resources"] == ["fasta", "gtf", "salmon_index", "star_index", "txp2gene"]
+
+
+ALL_PIPELINES = ["rnaseq", "scrnaseq", "atacseq", "chipseq", "sarek", "methylseq", "ampliseq", "fetchngs"]
+
+
+@pytest.mark.parametrize("key", ALL_PIPELINES)
+def test_every_pipeline_json_has_params_and_reference_resources_keys(key):
+    doc = _load(key)
+    assert isinstance(doc.get("params"), dict)
+    assert isinstance(doc.get("reference_resources"), list)

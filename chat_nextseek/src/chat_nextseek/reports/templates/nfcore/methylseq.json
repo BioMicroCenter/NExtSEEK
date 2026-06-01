@@ -1,6 +1,11 @@
 {
   "report_type": "NFCORE_METHYLSEQ_SAMPLESHEET",
   "description": "nf-core/methylseq samplesheet context for WGBS / RRBS / EM-seq analyses.",
+  "params": {
+    "save_reference": {"type": "bool", "default": true, "steerable": true},
+    "multiqc_title":  {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": ["fasta"],
   "pipeline": {
     "name": "nf-core/methylseq",
     "repository": "https://github.com/nf-core/methylseq",
