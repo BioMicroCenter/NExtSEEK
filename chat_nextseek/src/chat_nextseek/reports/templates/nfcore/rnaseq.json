@@ -1,6 +1,25 @@
 {
   "report_type": "NFCORE_RNASEQ_SAMPLESHEET",
   "description": "nf-core/rnaseq samplesheet context JSON template aligned to the current nf-core/rnaseq usage documentation and example samplesheet. Designed for LLM-friendly parsing and direct creation of the final pipeline CSV.",
+  "params": {
+    "aligner":           {"type": "enum", "allowed": ["star_salmon", "star_rsem", "hisat2"], "default": "star_salmon", "steerable": true, "help": "genome aligner + quantifier"},
+    "pseudo_aligner":    {"type": "enum", "allowed": ["salmon", "kallisto", null], "default": "salmon", "steerable": true, "help": "transcriptome pseudo-aligner. Default salmon is an intentional curated default (matches the lab's standard rnaseq run); the upstream nf-core/rnaseq default is none (null)."},
+    "gencode":           {"type": "bool", "default": false, "steerable": true, "help": "set true when the GTF is GENCODE-formatted"},
+    "save_reference":    {"type": "bool", "default": true, "steerable": true, "help": "save built genome indices for reuse"},
+    "trimmer":           {"type": "enum", "allowed": ["trimgalore", "fastp"], "default": "trimgalore", "steerable": true},
+    "skip_trimming":     {"type": "bool", "default": false, "steerable": true},
+    "remove_ribo_rna":   {"type": "bool", "default": false, "steerable": true, "help": "sortmerna rRNA removal"},
+    "with_umi":          {"type": "bool", "default": false, "steerable": true},
+    "skip_markduplicates": {"type": "bool", "default": false, "steerable": true},
+    "skip_bigwig":       {"type": "bool", "default": false, "steerable": true},
+    "skip_stringtie":    {"type": "bool", "default": false, "steerable": true},
+    "skip_qualimap":     {"type": "bool", "default": false, "steerable": true},
+    "skip_rseqc":        {"type": "bool", "default": false, "steerable": true},
+    "skip_dupradar":     {"type": "bool", "default": false, "steerable": true},
+    "skip_deseq2_qc":    {"type": "bool", "default": false, "steerable": true},
+    "multiqc_title":     {"type": "string", "default": null, "steerable": true, "help": "MultiQC report title"}
+  },
+  "reference_resources": ["fasta", "gtf", "star_index", "rsem_index", "salmon_index", "bed12"],
   "pipeline": {
     "name": "nf-core/rnaseq",
     "repository": "https://github.com/nf-core/rnaseq",

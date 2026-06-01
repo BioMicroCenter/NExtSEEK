@@ -1,6 +1,11 @@
 {
   "report_type": "NFCORE_ATACSEQ_SAMPLESHEET",
   "description": "nf-core/atacseq samplesheet context. Designed for direct creation of the pipeline CSV from study metadata + ENA-resolved FASTQ URLs.",
+  "params": {
+    "save_reference": {"type": "bool", "default": true, "steerable": true},
+    "multiqc_title":  {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": ["fasta", "gtf", "bwa_index"],
   "pipeline": {
     "name": "nf-core/atacseq",
     "repository": "https://github.com/nf-core/atacseq",

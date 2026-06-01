@@ -1,6 +1,11 @@
 {
   "report_type": "NFCORE_CHIPSEQ_SAMPLESHEET",
   "description": "nf-core/chipseq samplesheet context. Each ChIP row references a control row; samplesheet must include both.",
+  "params": {
+    "save_reference": {"type": "bool", "default": true, "steerable": true},
+    "multiqc_title":  {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": ["fasta", "gtf", "bwa_index"],
   "pipeline": {
     "name": "nf-core/chipseq",
     "repository": "https://github.com/nf-core/chipseq",

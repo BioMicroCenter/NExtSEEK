@@ -101,3 +101,24 @@ def test_guard_when_client_lacks_chat_with_tools():
     assert result["action"] == "ask"
     assert "Bedrock" in result["reply"]
     assert pa.is_active(session) is False
+
+
+def test_resolve_write_configure_submit_happy_path(monkeypatch):
+    # dispatch is stubbed to return canned tool results in call order
+    results = iter([
+        '{"ok": true, "leaf_count": 1, "leaves": [{"uid": "D.SEQ-1-PUB", "accessions": ["SRR1"]}], "detected_species": "Mus musculus", "bundle_key": "GRCm39", "param_menu": {"aligner": {}}, "reference_resources": ["fasta"]}',
+        '{"ok": true, "samplesheet": "/tmp/s.csv", "total_rows": 1}',
+        '{"ok": true, "resolved_params": {"aligner": "star_salmon", "genome": "GRCm39"}, "reference_status": "igenomes_fallback"}',
+    ])
+    monkeypatch.setattr("chat_nextseek.pipeline.agent.dispatch_pipeline_tool_call", lambda **kw: next(results))
+    client = _StubClient([
+        {"stop_reason": "tool_use", "content": [{"type": "tool_use", "id": "t1", "name": "resolve_samples", "input": {"kind": "explicit_uids", "uids": ["MUS-1-PUB"], "pipeline_key": "rnaseq"}}]},
+        {"stop_reason": "tool_use", "content": [{"type": "tool_use", "id": "t2", "name": "write_samplesheet", "input": {"pipeline_key": "rnaseq", "cohorts": []}}]},
+        {"stop_reason": "tool_use", "content": [{"type": "tool_use", "id": "t3", "name": "configure_run", "input": {"pipeline_key": "rnaseq", "params": {}}}]},
+        {"stop_reason": "end_turn", "content": [{"type": "text", "text": "rnaseq, genome GRCm39 (iGenomes fallback), aligner star_salmon. Submit?"}]},
+    ])
+    session = {}
+    result = pa.start(session, _Cfg(client), user_query="run rnaseq on these mice", parser_plan={}, reporter_plan={})
+    assert result["action"] == "ask"
+    assert "GRCm39" in result["reply"]
+    assert pa.is_active(session) is True   # paused for user confirmation, not concluded

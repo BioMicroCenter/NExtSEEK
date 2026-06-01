@@ -1,9 +1,9 @@
 from chat_nextseek.pipeline.agent_tools import PIPELINE_TOOL_SCHEMAS
 
 
-def test_four_tools_with_anthropic_shape():
+def test_five_tools_with_anthropic_shape():
     names = {t["name"] for t in PIPELINE_TOOL_SCHEMAS}
-    assert names == {"resolve_samples", "write_samplesheet", "submit_to_tower", "conclude"}
+    assert names == {"resolve_samples", "write_samplesheet", "configure_run", "submit_to_tower", "conclude"}
     for t in PIPELINE_TOOL_SCHEMAS:
         assert set(t) == {"name", "description", "input_schema"}
         assert t["input_schema"]["type"] == "object"
@@ -183,7 +183,6 @@ def test_write_multi_cohort_single_samplesheet_with_cohort_column(monkeypatch, t
     assert {r["sample"]: r.get("cohort") for r in rows} == {"D.SEQ-1-PUB": "ndma", "D.SEQ-2-PUB": "saline"}
     # one set of artifacts, one launch
     assert len(state["artifacts"]["cohorts"]) == 1
-    assert out["launch_yml"].endswith("launch.yml")
 
 
 from chat_nextseek.pipeline.agent_tools import tool_submit_to_tower, dispatch_pipeline_tool_call
@@ -257,3 +256,159 @@ def test_resolve_caps_oversized_leaf_sets(monkeypatch):
     assert out["leaf_count"] == len(big)
     assert "narrow" in out["error"].lower()
     assert "leaves" not in out  # did not build the per-leaf table
+
+
+def test_resolve_detects_species_and_returns_param_menu(monkeypatch):
+    raw = {"ok": True, "data": {"data": [
+        {"sample_type": "MUS", "samples": [
+            {"metadata": {"UID": "MUS-1-PUB", "Organism": "Mus musculus"}, "children": [
+                {"metadata": {"UID": "D.SEQ-1-PUB", "sample_type": "D.SEQ", "Parent": "MUS-1-PUB", "sra_run": "SRR1"}, "children": []}
+            ]}
+        ]}
+    ]}}
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.fetch_reporter_metadata", lambda c, u: raw)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.annotate_metadata_with_sampletypes", lambda c, m: m)
+    state: dict = {}
+    out = _json.loads(tool_resolve_samples(_Cfg(), {}, state, {"kind": "explicit_uids", "uids": ["MUS-1-PUB"]}, "rnaseq"))
+    assert out["ok"] is True
+    assert out["detected_species"].lower() == "mus musculus"
+    assert out["bundle_key"] == "GRCm39"
+    assert "aligner" in out["param_menu"]                 # curated menu surfaced to the agent
+    assert out["reference_resources"][0] == "fasta"
+    assert state["detected_species"].lower() == "mus musculus"
+    assert state["bundle_key"] == "GRCm39"
+
+
+from chat_nextseek.pipeline.agent_tools import tool_configure_run
+
+
+def test_configure_run_requires_samplesheet_first():
+    state = {"artifacts": {}, "bundle_key": "GRCm39"}
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "rnaseq", "params": {}}, "/tmp"))
+    assert out["ok"] is False
+    assert "samplesheet" in out["error"].lower()
+
+
+def test_configure_run_rejects_bad_param():
+    state = {"artifacts": {"samplesheet": "/tmp/s.csv", "base_dir": "/tmp"}, "bundle_key": "GRCm39"}
+    out = _json.loads(tool_configure_run(
+        _Cfg(), state, {"pipeline_key": "rnaseq", "params": {"aligner": "bowtie"}}, "/tmp"))
+    assert out["ok"] is False
+    assert any("aligner" in e for e in out["errors"])
+
+
+def test_configure_run_emits_yamls_and_caches(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    captured = {}
+
+    def fake_emit_launch(out_dir, **kw):
+        captured["launch_plan"] = kw["launch_plan"]
+        return SimpleNamespace(
+            saved_files={"params": str(out_dir) + "/params.yml", "launch": str(out_dir) + "/launch.yml"},
+            launch_entry={"name": "r1"}, fetchngs_launch_entry=None, excluded_accessions=[])
+
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_launch_artifacts", fake_emit_launch)
+    state = {"artifacts": {"samplesheet": str(tmp_path / "s.csv"), "base_dir": str(tmp_path)},
+             "bundle_key": "GRCm39"}
+    out = _json.loads(tool_configure_run(
+        _CfgTower(), state, {"pipeline_key": "rnaseq", "params": {"aligner": "hisat2"}}, str(tmp_path)))
+    assert out["ok"] is True
+    assert out["resolved_params"]["aligner"] == "hisat2"
+    assert out["resolved_params"]["genome"] == "GRCm39"     # igenomes fallback
+    assert out["reference_status"] == "igenomes_fallback"
+    assert captured["launch_plan"]["params"]["aligner"] == "hisat2"
+    assert state["artifacts"]["params"].endswith("params.yml")
+    assert state["artifacts"]["launch"].endswith("launch.yml")
+
+
+def test_configure_run_genome_override_reselects_bundle(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    captured = {}
+
+    def fake_emit_launch(out_dir, **kw):
+        captured["launch_plan"] = kw["launch_plan"]
+        return SimpleNamespace(saved_files={"params": str(out_dir) + "/params.yml",
+                                            "launch": str(out_dir) + "/launch.yml"},
+                               launch_entry={"name": "r1"}, fetchngs_launch_entry=None,
+                               excluded_accessions=[])
+
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_launch_artifacts", fake_emit_launch)
+    # detected bundle is mouse, but the user steers to human via a species name
+    state = {"artifacts": {"samplesheet": str(tmp_path / "s.csv"), "base_dir": str(tmp_path)},
+             "bundle_key": "GRCm39"}
+    out = _json.loads(tool_configure_run(
+        _CfgTower(), state, {"pipeline_key": "rnaseq", "params": {"genome": "human"}}, str(tmp_path)))
+    assert out["ok"] is True
+    assert out["bundle_key"] == "GRCh38"               # 'human' species name re-selected the bundle
+    assert out["resolved_params"]["genome"] == "GRCh38"  # igenomes fallback for the new bundle
+    assert "genome" not in captured["launch_plan"]["params"] or captured["launch_plan"]["params"]["genome"] == "GRCh38"
+
+
+def test_write_samplesheet_no_longer_emits_launch(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    seen = {}
+
+    def fake_emit(out_dir, **kw):
+        seen["launch_plan"] = kw.get("launch_plan")
+        return SimpleNamespace(saved_files={"samplesheet": str(out_dir) + "/samplesheet.csv"},
+                               samplesheet_row_count=1, excluded_accessions=[],
+                               launch_entry=None, fetchngs_launch_entry=None)
+
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_nfcore_artifacts", fake_emit)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.resolve_accessions", lambda accs: [])
+    state = {"resolved": {"uids": ["D.SEQ-1-PUB"], "accessions": []}}
+    tool_write_samplesheet(
+        _CfgTower(), state,
+        {"pipeline_key": "rnaseq", "cohorts": [{"label": "c", "rows": [{"sample": "D.SEQ-1-PUB"}]}]},
+        str(tmp_path))
+    assert seen["launch_plan"] is None
+
+
+def test_configure_run_override_persists_bundle_across_calls(monkeypatch, tmp_path):
+    # A steered bundle must survive a follow-up configure_run that doesn't re-supply genome,
+    # rather than reverting to the auto-detected one.
+    from types import SimpleNamespace
+
+    def fake_emit_launch(out_dir, **kw):
+        return SimpleNamespace(saved_files={"params": str(out_dir) + "/params.yml",
+                                            "launch": str(out_dir) + "/launch.yml"},
+                               launch_entry={"name": "r1"}, fetchngs_launch_entry=None,
+                               excluded_accessions=[])
+
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_launch_artifacts", fake_emit_launch)
+    state = {"artifacts": {"samplesheet": str(tmp_path / "s.csv"), "base_dir": str(tmp_path)},
+             "bundle_key": "GRCm39"}
+    out1 = _json.loads(tool_configure_run(
+        _CfgTower(), state, {"pipeline_key": "rnaseq", "params": {"genome": "human"}}, str(tmp_path)))
+    assert out1["bundle_key"] == "GRCh38"
+    assert state["bundle_key"] == "GRCh38"   # persisted on the override
+    # follow-up steer with NO genome must keep human, not revert to mouse
+    out2 = _json.loads(tool_configure_run(
+        _CfgTower(), state, {"pipeline_key": "rnaseq", "params": {"aligner": "hisat2"}}, str(tmp_path)))
+    assert out2["bundle_key"] == "GRCh38"
+    assert out2["resolved_params"]["genome"] == "GRCh38"   # did not revert to GRCm39
+    assert out2["resolved_params"]["aligner"] == "hisat2"
+
+
+def test_write_samplesheet_invalidates_stale_configure_run_output(monkeypatch, tmp_path):
+    # A (re)built samplesheet must clear any prior configure_run output so a later submit
+    # can't pick up a stale params/launch.
+    from types import SimpleNamespace
+
+    def fake_emit(out_dir, **kw):
+        return SimpleNamespace(saved_files={"samplesheet": str(out_dir) + "/samplesheet.csv"},
+                               samplesheet_row_count=1, excluded_accessions=[],
+                               launch_entry=None, fetchngs_launch_entry=None)
+
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_nfcore_artifacts", fake_emit)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.resolve_accessions", lambda accs: [])
+    state = {"resolved": {"uids": ["D.SEQ-1-PUB"], "accessions": []},
+             "artifacts": {"params": "/old/params.yml", "launch": "/old/launch.yml"},
+             "launch_plan": {"run_name": "old"}}
+    tool_write_samplesheet(
+        _CfgTower(), state,
+        {"pipeline_key": "rnaseq", "cohorts": [{"label": "c", "rows": [{"sample": "D.SEQ-1-PUB"}]}]},
+        str(tmp_path))
+    assert "params" not in state["artifacts"]
+    assert "launch" not in state["artifacts"]
+    assert "launch_plan" not in state

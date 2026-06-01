@@ -1,0 +1,61 @@
+{
+  "store_root": null,
+  "species_to_bundle": {
+    "homo sapiens": "GRCh38", "human": "GRCh38",
+    "mus musculus": "GRCm39", "mouse": "GRCm39",
+    "macaca mulatta": "Mmul_10", "rhesus macaque": "Mmul_10", "rhesus": "Mmul_10", "nhp": "Mmul_10",
+    "human+mouse": "hg38_mm39"
+  },
+  "bundles": {
+    "GRCh38": {
+      "igenomes_key": "GRCh38",
+      "gencode": true,
+      "resources": {
+        "fasta": "{store_root}/GRCh38/genome.fa",
+        "gtf": "{store_root}/GRCh38/genes.gtf",
+        "star_index": "{store_root}/GRCh38/index/star/",
+        "rsem_index": "{store_root}/GRCh38/rsem/",
+        "salmon_index": "{store_root}/GRCh38/index/salmon/",
+        "bed12": "{store_root}/GRCh38/genome.bed",
+        "txp2gene": "{store_root}/GRCh38/txp2gene.tsv"
+      }
+    },
+    "GRCm39": {
+      "igenomes_key": "GRCm39",
+      "gencode": true,
+      "resources": {
+        "fasta": "{store_root}/GRCm39/genome.fa",
+        "gtf": "{store_root}/GRCm39/genes.gtf",
+        "star_index": "{store_root}/GRCm39/index/star/",
+        "rsem_index": "{store_root}/GRCm39/rsem/",
+        "salmon_index": "{store_root}/GRCm39/index/salmon/",
+        "bed12": "{store_root}/GRCm39/genome.bed",
+        "txp2gene": "{store_root}/GRCm39/txp2gene.tsv"
+      }
+    },
+    "Mmul_10": {
+      "igenomes_key": "Mmul_10",
+      "gencode": false,
+      "resources": {
+        "fasta": "{store_root}/Mmul_10/genome.fa",
+        "gtf": "{store_root}/Mmul_10/genes.gtf",
+        "star_index": "{store_root}/Mmul_10/index/star/",
+        "rsem_index": "{store_root}/Mmul_10/rsem/",
+        "salmon_index": "{store_root}/Mmul_10/index/salmon/",
+        "bed12": "{store_root}/Mmul_10/genome.bed"
+      }
+    },
+    "hg38_mm39": {
+      "igenomes_key": null,
+      "gencode": true,
+      "resources": {
+        "fasta": "{store_root}/hg38_mm39/hg38_mm39.fa",
+        "gtf": "{store_root}/hg38_mm39/hg38_mm39.gtf",
+        "star_index": "{store_root}/hg38_mm39/index/star/",
+        "rsem_index": "{store_root}/hg38_mm39/rsem/",
+        "salmon_index": "{store_root}/hg38_mm39/index/salmon/",
+        "bed12": "{store_root}/hg38_mm39/hg38_mm39.filtered.bed"
+      }
+    }
+  }
+}

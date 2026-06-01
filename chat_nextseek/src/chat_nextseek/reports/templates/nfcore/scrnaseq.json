@@ -1,6 +1,15 @@
 {
   "report_type": "NFCORE_SCRNASEQ_SAMPLESHEET",
   "description": "nf-core/scrnaseq samplesheet context JSON template aligned to the current nf-core/scrnaseq usage documentation. Designed for LLM-friendly parsing and conversion into the main pipeline CSV and any required companion CSVs.",
+  "params": {
+    "aligner":        {"type": "enum", "allowed": ["alevin", "kallisto", "star", "cellranger", "cellrangermulti"], "default": "alevin", "steerable": true},
+    "protocol":       {"type": "enum", "allowed": ["auto", "10XV2", "10XV3"], "default": "auto", "steerable": true, "help": "10x chemistry; auto-detect by default"},
+    "save_reference": {"type": "bool", "default": true, "steerable": true},
+    "skip_emptydrops":{"type": "bool", "default": false, "steerable": true},
+    "skip_fastqc":    {"type": "bool", "default": false, "steerable": true},
+    "multiqc_title":  {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": ["fasta", "gtf", "salmon_index", "star_index", "txp2gene"],
   "pipeline": {
     "name": "nf-core/scrnaseq",
     "repository": "https://github.com/nf-core/scrnaseq",
