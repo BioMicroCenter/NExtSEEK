@@ -39,3 +39,15 @@ def test_every_pipeline_json_has_params_and_reference_resources_keys(key):
     doc = _load(key)
     assert isinstance(doc.get("params"), dict)
     assert isinstance(doc.get("reference_resources"), list)
+
+
+def test_reference_bundles_structure():
+    doc = json.loads((NFCORE_DIR / "reference_bundles.json").read_text())
+    assert doc["store_root"] is None  # v1: unconfigured
+    s2b = doc["species_to_bundle"]
+    assert s2b["mouse"] == "GRCm39"
+    assert s2b["human"] == "GRCh38"
+    assert s2b["human+mouse"] == "hg38_mm39"
+    assert doc["bundles"]["GRCh38"]["igenomes_key"] == "GRCh38"
+    assert doc["bundles"]["hg38_mm39"]["igenomes_key"] is None  # PDX combo: no iGenomes fallback
+    assert "{store_root}" in doc["bundles"]["GRCh38"]["resources"]["fasta"]
