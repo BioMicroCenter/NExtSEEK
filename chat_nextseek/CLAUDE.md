@@ -36,7 +36,9 @@ src/chat_nextseek/
                                      system, graph, seqera) + planner/ subpackage
   pipeline/                          Full-agentic nf-core agent: agent.py (one Bedrock
                                      tool loop) + agent_tools.py (resolve_samples,
-                                     write_samplesheet, submit_to_tower, conclude)
+                                     write_samplesheet, configure_run, submit_to_tower,
+                                     conclude) — configure_run builds params.yml +
+                                     launch.yml (curated params + species references)
   helpers/                           Shared utilities (dates, lineage, lab_code, results,
                                      text, json_io) + tools/ (nextseek_api, neo4j,
                                      catalog_match, memory_code)
@@ -68,13 +70,13 @@ tests/evaluator/                     Evaluator subsystem tests
 
 ## Commit & PR Workflow
 - **Conventional commits** with module scopes: `feat(pipeline_agent): …`, `fix(orchestrator): …`, `test(smart): …`, `docs(pipeline_agent): …`.
-- **Branches**: `feat/<topic>` (current: `feat/full-agentic-pipeline-agent`).
+- **Branches**: `feat/<topic>` (latest: `feat/pipeline-params-resources`, merged to `dev`).
 - Run `uv run pytest tests/ --ignore=tests/evaluator` before opening a PR. For changes touching routing or agent behaviour, also run `uv run e2e.py` (or `cli.py -st`).
 
 ## When Modifying Common Areas
 - **Routing change** → `prompts/parser_core_routing.txt` + parser logic in `agents/parser.py` + `schemas/router.py` + add a variant in `e2e/catalog.json`.
 - **New agent** → implement as `agents/<name>.py`, add prompt in `prompts/`, register in `agent_model_catalog.json` (every profile), wire dispatch in `orchestrator.py`.
-- **Pipeline / Tower change** → `pipeline/agent.py`, `pipeline/agent_tools.py`, `seqera/*.py`, `prompts/pipeline_agent.txt`.
+- **Pipeline / Tower change** → `pipeline/agent.py`, `pipeline/agent_tools.py`, `seqera/*.py` (incl. `seqera/pipeline_params.py`), `prompts/pipeline_agent.txt`. Curated run params + species→reference bundles live in `reports/templates/nfcore/<key>.json` + `reports/templates/nfcore/reference_bundles.json`.
 - **Touching `helpers/` or `agents/`** → these are packages with one module per concern; keep edits scoped to the relevant module.
 
 ## Logs (debugging failures)
