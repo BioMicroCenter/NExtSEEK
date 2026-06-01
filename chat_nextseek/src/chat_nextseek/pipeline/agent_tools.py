@@ -1,8 +1,9 @@
 """Tools + dispatch for the full-agentic nf-core pipeline agent.
 
-Four anthropic-style tools driven by BedrockClient.chat_with_tools:
+Five anthropic-style tools driven by BedrockClient.chat_with_tools:
   - resolve_samples:   UIDs/last-search -> compact leaf table (+ caches refs)
-  - write_samplesheet: agent-built cohorts -> validated samplesheet + launch.yml
+  - write_samplesheet: agent-built cohorts -> validated samplesheet CSV (CSV only)
+  - configure_run:     curated params + species references -> params.yml + launch.yml
   - submit_to_tower:   submit the built launch artifacts
   - conclude:          terminate the conversation (control tool, intercepted by the loop)
 """
@@ -26,10 +27,16 @@ from ..helpers import (
 )
 from pathlib import Path
 
+from ..schemas import SeqeraLaunchPlan
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
-from ..seqera.emitter import emit_nfcore_artifacts
+from ..seqera.emitter import emit_launch_artifacts, emit_nfcore_artifacts
 from ..seqera.ena import extract_accessions_from_metadata, resolve_accessions
-from ..seqera.pipeline_params import load_pipeline_context, resolve_bundle_for_species
+from ..seqera.pipeline_params import (
+    build_run_params,
+    load_pipeline_context,
+    load_reference_bundles,
+    resolve_bundle_for_species,
+)
 from ..seqera.submitter import submit_launch
 
 PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -89,6 +96,28 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
             },
             "required": ["pipeline_key", "cohorts"],
+        },
+    },
+    {
+        "name": "configure_run",
+        "description": (
+            "Build the Tower submission YAMLs (params.yml + launch.yml) for the run. Call AFTER "
+            "write_samplesheet. Set pipeline params from the param_menu returned by resolve_samples; "
+            "genome/reference defaults come from the samples' detected species. Returns the resolved "
+            "params + reference_status so you can show the user and let them steer; re-call to change "
+            "params. Does NOT submit. If a param is rejected, fix it and call again."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pipeline_key": {"type": "string", "description": "Catalog key, e.g. 'rnaseq', 'scrnaseq'."},
+                "params": {"type": "object",
+                           "description": "param -> value (subset of the curated menu). May include 'genome' "
+                                          "or explicit reference paths to steer references."},
+                "revision": {"type": "string", "description": "pipeline revision override (-> launch.yml)."},
+                "profile": {"type": "string", "description": "docker|singularity|conda (-> launch.yml)."},
+            },
+            "required": ["pipeline_key"],
         },
     },
     {
@@ -351,7 +380,7 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
         pipeline=pipeline_key,
         samplesheet_rows=merged_rows,
         resolutions=resolutions,
-        launch_plan={"run_name": slug} if tower_env.get("access_token") else None,
+        launch_plan=None,  # configure_run now owns params.yml + launch.yml
         tower_env=tower_env,
         selector_rationale="full-agentic pipeline_agent build",
         samplesheet_relative_dir=".",
@@ -361,8 +390,13 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     state.setdefault("artifacts", {})
     state["artifacts"]["cohorts"] = [result.saved_files]
     state["artifacts"]["samplesheet"] = result.saved_files.get("samplesheet")
-    state["artifacts"]["launch"] = result.saved_files.get("launch")
     state["artifacts"]["base_dir"] = str(base)
+    state["artifacts"]["excluded_accessions"] = list(getattr(result, "excluded_accessions", []) or [])
+    # A (re)built samplesheet invalidates any prior configure_run output, so the agent
+    # must call configure_run again before submit — never submit a stale params/launch.
+    state["artifacts"].pop("params", None)
+    state["artifacts"].pop("launch", None)
+    state.pop("launch_plan", None)
 
     return json.dumps({
         "ok": True,
@@ -372,7 +406,68 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
         "grouped_by_cohort": grouped,
         "cohorts": cohort_summaries,
         "excluded_accessions": list(getattr(result, "excluded_accessions", []) or []),
+    })
+
+
+def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_dir: str) -> str:
+    """Assemble params.yml + launch.yml from curated params + species references + user steering."""
+    pipeline_key = tool_input.get("pipeline_key") or state.get("pipeline_key") or ""
+    if pipeline_key not in NFCORE_PIPELINE_CATALOG:
+        return json.dumps({"ok": False, "error": f"Unknown pipeline {pipeline_key!r}."})
+    artifacts = state.get("artifacts") or {}
+    samplesheet = artifacts.get("samplesheet")
+    if not samplesheet:
+        return json.dumps({"ok": False, "error": "Build the samplesheet first with write_samplesheet."})
+
+    # A genome override in params can re-select the bundle; else use the detected-species bundle.
+    agent_params = dict(tool_input.get("params") or {})
+    override = agent_params.get("genome")
+    bundle_key = state.get("bundle_key")
+    if override:
+        known_bundles = load_reference_bundles().get("bundles") or {}
+        if override in known_bundles:
+            bundle_key = override
+            agent_params.pop("genome", None)
+        elif resolve_bundle_for_species(override):
+            bundle_key = resolve_bundle_for_species(override)
+            agent_params.pop("genome", None)
+        # else: a raw iGenomes key (e.g. "GRCh38") the agent wants verbatim -> leave in agent_params
+
+    merged, errors, reference_status = build_run_params(pipeline_key, agent_params, bundle_key)
+    if errors:
+        return json.dumps({"ok": False, "errors": errors})
+
+    base = artifacts.get("base_dir") or str(Path(log_dir or getattr(config, "LOG_DIR", ".")))
+    plan = SeqeraLaunchPlan(
+        run_name=(Path(base).name or pipeline_key),
+        params=merged,
+        pipeline_revision=tool_input.get("revision"),
+        profile=tool_input.get("profile"),
+    )
+    tower_env = dict(getattr(config, "TOWER_ENV", {}) or {})
+    excluded = list(artifacts.get("excluded_accessions") or [])
+    result = emit_launch_artifacts(
+        base, pipeline=pipeline_key, samplesheet_path=samplesheet,
+        launch_plan=plan.model_dump(), tower_env=tower_env, excluded=excluded,
+        samplesheet_relative_dir=".", write_launch_yml=True)
+
+    state.setdefault("artifacts", {})
+    state["artifacts"]["params"] = result.saved_files.get("params")
+    state["artifacts"]["launch"] = result.saved_files.get("launch")
+    state["launch_plan"] = plan.model_dump()
+    state["pipeline_key"] = pipeline_key
+
+    tower_complete = bool(tower_env and all(
+        tower_env.get(k) for k in ("access_token", "workspace", "compute_env", "work_bucket")))
+    return json.dumps({
+        "ok": True,
+        "pipeline_key": pipeline_key,
+        "resolved_params": merged,
+        "reference_status": reference_status,
+        "bundle_key": bundle_key,
+        "params_yml": result.saved_files.get("params"),
         "launch_yml": result.saved_files.get("launch"),
+        "tower_configured": tower_complete,
     })
 
 
@@ -402,6 +497,9 @@ def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool
     if name == "write_samplesheet":
         state["pipeline_key"] = tool_input.get("pipeline_key") or state.get("pipeline_key")
         return tool_write_samplesheet(config, state, tool_input, log_dir)
+    if name == "configure_run":
+        state["pipeline_key"] = tool_input.get("pipeline_key") or state.get("pipeline_key")
+        return tool_configure_run(config, state, tool_input, log_dir)
     if name == "submit_to_tower":
         return tool_submit_to_tower(config, state)
     if name == "conclude":
