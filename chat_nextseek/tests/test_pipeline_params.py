@@ -113,3 +113,42 @@ def test_build_reference_params_configured_skips_gencode_for_pipeline_without_it
     assert "gencode" not in params
     assert params["fasta"] == "/refs/GRCh38/genome.fa"
     assert params["bwa_index"] == "/refs/GRCh38/bwa/"
+
+
+def test_build_run_params_merges_defaults_bundle_and_overrides():
+    merged, errors, status = pp.build_run_params(
+        "rnaseq", agent_params={"aligner": "hisat2"}, bundle_key="GRCm39")
+    assert errors == []
+    assert merged["aligner"] == "hisat2"          # override beats curated default
+    assert merged["pseudo_aligner"] == "salmon"   # curated default present
+    assert merged["genome"] == "GRCm39"            # igenomes fallback reference
+    assert status == "igenomes_fallback"
+
+
+def test_build_run_params_rejects_unknown_key():
+    merged, errors, status = pp.build_run_params(
+        "rnaseq", agent_params={"not_a_real_param": 1}, bundle_key="GRCm39")
+    assert any("not_a_real_param" in e for e in errors)
+    # guardrail invariant: on any error, no params leak through and status is 'invalid'
+    assert merged == {} and status == "invalid"
+
+
+def test_build_run_params_rejects_bad_enum_value():
+    merged, errors, status = pp.build_run_params(
+        "rnaseq", agent_params={"aligner": "bowtie"}, bundle_key="GRCm39")
+    assert any("aligner" in e and "bowtie" in e for e in errors)
+
+
+def test_build_run_params_allows_genome_and_reference_keys():
+    merged, errors, status = pp.build_run_params(
+        "rnaseq", agent_params={"genome": "GRCh38", "fasta": "/x/g.fa"}, bundle_key=None)
+    assert errors == []
+    assert merged["genome"] == "GRCh38"
+    assert merged["fasta"] == "/x/g.fa"
+
+
+def test_build_run_params_strips_input_and_outdir():
+    merged, errors, status = pp.build_run_params(
+        "rnaseq", agent_params={"input": "/x.csv", "outdir": "/out"}, bundle_key="GRCm39")
+    assert "input" not in merged and "outdir" not in merged
+    assert errors == []

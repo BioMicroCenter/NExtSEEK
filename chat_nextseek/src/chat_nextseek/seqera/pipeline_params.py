@@ -73,3 +73,52 @@ def build_reference_params(pipeline_key: str, bundle_key: str | None) -> tuple[d
     if bundle.get("igenomes_key"):
         return {"genome": bundle["igenomes_key"]}, "igenomes_fallback"
     return {}, "unconfigured_no_fallback"
+
+
+_STRIP_KEYS = ("input", "outdir")
+
+
+def build_run_params(
+    pipeline_key: str,
+    agent_params: dict[str, Any] | None,
+    bundle_key: str | None,
+) -> tuple[dict[str, Any], list[str], str]:
+    """Assemble final params.yml values + validation errors + reference_status.
+
+    Merge order: curated defaults <- bundle/reference params <- agent overrides.
+    Validation: an agent key is allowed if it is in the curated params menu OR the
+    pipeline's reference_resources OR is 'genome'. Only enum *values* are validated
+    (against 'allowed'); bool/string values pass through to the emitter / Nextflow
+    schema. 'input'/'outdir' are stripped (the emitter owns them). On any error the
+    return is ({}, errors, "invalid") so the caller surfaces errors and never an
+    incomplete params set.
+    """
+    ctx = load_pipeline_context(pipeline_key)
+    menu = ctx.get("params") or {}
+    ref_names = set(ctx.get("reference_resources") or [])
+    allowed_keys = set(menu) | ref_names | {"genome"}
+
+    agent_params = dict(agent_params or {})
+    for k in _STRIP_KEYS:
+        agent_params.pop(k, None)
+
+    errors: list[str] = []
+    for key, value in agent_params.items():
+        if key not in allowed_keys:
+            errors.append(f"unknown param {key!r} — not in the curated menu for {pipeline_key}.")
+            continue
+        spec = menu.get(key)
+        if spec and spec.get("type") == "enum" and value not in (spec.get("allowed") or []):
+            errors.append(f"param {key!r} value {value!r} not allowed (choose from {spec.get('allowed')}).")
+    if errors:
+        return {}, errors, "invalid"
+
+    # curated defaults
+    merged: dict[str, Any] = {k: spec.get("default") for k, spec in menu.items()
+                              if spec.get("default") is not None}
+    # bundle/reference params
+    ref_params, status = build_reference_params(pipeline_key, bundle_key)
+    merged.update(ref_params)
+    # agent overrides win
+    merged.update(agent_params)
+    return merged, [], status
