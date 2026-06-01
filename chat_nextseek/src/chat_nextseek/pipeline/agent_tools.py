@@ -432,6 +432,10 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
             bundle_key = resolve_bundle_for_species(override)
             agent_params.pop("genome", None)
         # else: a raw iGenomes key (e.g. "GRCh38") the agent wants verbatim -> leave in agent_params
+    # Persist the (possibly steered) bundle so a follow-up configure_run that doesn't
+    # re-supply genome keeps the user's chosen reference instead of reverting to the
+    # auto-detected one.
+    state["bundle_key"] = bundle_key
 
     merged, errors, reference_status = build_run_params(pipeline_key, agent_params, bundle_key)
     if errors:

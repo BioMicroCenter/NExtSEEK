@@ -1,9 +1,9 @@
 """Curated catalog of nf-core pipelines supported by the NFCORE report flow.
 
-Each entry describes the pipeline well enough for the seqera_agent to draft
-sensible default params, and the emitter to assemble launch.yml + params.yml.
-Pipeline keys here must match `reports/nfcore/<key>.json` filenames so the
-nf-core wizard's dynamic pipeline list and these defaults stay in sync.
+Each entry describes the pipeline well enough for the emitter to assemble
+launch.yml + params.yml. Pipeline keys here must match the
+`reports/templates/nfcore/<key>.json` context files (curated params +
+reference_resources), which `seqera/pipeline_params.py` loads by key.
 """
 from __future__ import annotations
 
