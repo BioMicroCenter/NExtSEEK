@@ -257,3 +257,24 @@ def test_resolve_caps_oversized_leaf_sets(monkeypatch):
     assert out["leaf_count"] == len(big)
     assert "narrow" in out["error"].lower()
     assert "leaves" not in out  # did not build the per-leaf table
+
+
+def test_resolve_detects_species_and_returns_param_menu(monkeypatch):
+    raw = {"ok": True, "data": {"data": [
+        {"sample_type": "MUS", "samples": [
+            {"metadata": {"UID": "MUS-1-PUB", "Organism": "Mus musculus"}, "children": [
+                {"metadata": {"UID": "D.SEQ-1-PUB", "sample_type": "D.SEQ", "Parent": "MUS-1-PUB", "sra_run": "SRR1"}, "children": []}
+            ]}
+        ]}
+    ]}}
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.fetch_reporter_metadata", lambda c, u: raw)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.annotate_metadata_with_sampletypes", lambda c, m: m)
+    state: dict = {}
+    out = _json.loads(tool_resolve_samples(_Cfg(), {}, state, {"kind": "explicit_uids", "uids": ["MUS-1-PUB"]}, "rnaseq"))
+    assert out["ok"] is True
+    assert out["detected_species"].lower() == "mus musculus"
+    assert out["bundle_key"] == "GRCm39"
+    assert "aligner" in out["param_menu"]                 # curated menu surfaced to the agent
+    assert out["reference_resources"][0] == "fasta"
+    assert state["detected_species"].lower() == "mus musculus"
+    assert state["bundle_key"] == "GRCm39"

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -28,6 +29,7 @@ from pathlib import Path
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
 from ..seqera.emitter import emit_nfcore_artifacts
 from ..seqera.ena import extract_accessions_from_metadata, resolve_accessions
+from ..seqera.pipeline_params import load_pipeline_context, resolve_bundle_for_species
 from ..seqera.submitter import submit_launch
 
 PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -215,11 +217,17 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     table: list[dict] = []
     all_uids: set[str] = set()
     all_accs: set[str] = set()
+    species_votes: Counter = Counter()
     for leaf in leaves:
         accs = extract_accessions_from_metadata(leaf.get("metadata") or {})
         all_uids.add(leaf["uid"])
         all_accs.update(accs)
         flat = _flatten_lineage(leaf["uid"], uid_index) if uid_index else (leaf.get("metadata") or {})
+        # Generically detect species: any flattened value that maps to a reference
+        # bundle is a species vote (no hardcoded field name).
+        for val in flat.values():
+            if isinstance(val, str) and resolve_bundle_for_species(val):
+                species_votes[val.strip()] += 1
         leaf_fields = {f: flat[f] for f in candidate_fields if f in flat}
         table.append({
             "uid": leaf["uid"],
@@ -238,6 +246,14 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
         "uids": sorted(set(prev.get("uids") or []) | all_uids),
         "accessions": sorted(set(prev.get("accessions") or []) | all_accs),
     }
+    detected_species = species_votes.most_common(1)[0][0] if species_votes else None
+    bundle_key = resolve_bundle_for_species(detected_species)
+    # Write unconditionally so this resolution's detection (incl. None) replaces any
+    # stale value cached by an earlier resolve_samples call in the same session —
+    # configure_run reads state["bundle_key"] and must see the latest, not a leftover.
+    state["detected_species"] = detected_species
+    state["bundle_key"] = bundle_key
+    ctx = load_pipeline_context(pipeline_key)
     return json.dumps({
         "ok": True,
         "kind": kind,
@@ -245,6 +261,10 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
         "leaves": table,
         "grouping_fields": grouping_fields,
         "source_uids_with_no_leaves": orphans,
+        "detected_species": detected_species,
+        "bundle_key": bundle_key,
+        "param_menu": ctx.get("params", {}),
+        "reference_resources": ctx.get("reference_resources", []),
     })
 
 
