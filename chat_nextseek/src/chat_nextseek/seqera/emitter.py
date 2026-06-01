@@ -301,6 +301,186 @@ def write_combined_launch_yml(parent_dir: str | Path, launch_entries: Sequence[M
     return str(p)
 
 
+def emit_launch_artifacts(
+    out_dir: str | Path,
+    *,
+    pipeline: str,
+    samplesheet_path: str | Path,
+    launch_plan: Mapping[str, Any],
+    tower_env: Mapping[str, Any] | None,
+    excluded: Sequence[str] = (),
+    samplesheet_relative_dir: str = ".",
+    write_launch_yml: bool = True,
+) -> EmissionResult:
+    """Stage the samplesheet and write params.yml + launch.yml (+ fetchngs fallback).
+
+    Only acts when tower_env is complete; otherwise returns a result noting that.
+    Extracted from emit_nfcore_artifacts so configure_run can call it directly.
+    """
+    out_path = Path(out_dir)
+    samplesheet_path = Path(samplesheet_path)
+    result = EmissionResult(out_dir=str(out_path))
+    result.excluded_accessions = list(excluded)
+    entry = get_pipeline_entry(pipeline)
+    tower_complete = bool(tower_env and all(
+        tower_env.get(k) for k in ("access_token", "workspace", "compute_env", "work_bucket")
+    ))
+    if not (tower_complete and launch_plan):
+        result.notes.append("Tower env incomplete (samplesheet-only mode)")
+        return result
+
+    # --- fetchngs fallback samplesheet
+    if excluded:
+        fetchngs_path = out_path / "fetchngs_samplesheet.csv"
+        _write_csv(
+            fetchngs_path,
+            [{"accession": acc} for acc in excluded],
+            ["accession"],
+        )
+        result.saved_files["fetchngs_samplesheet"] = str(fetchngs_path)
+
+    run_name = (launch_plan.get("run_name") or f"{pipeline}-run").strip() or f"{pipeline}-run"
+    outdir_suffix = launch_plan.get("outdir_suffix") or run_name
+    work_dir_suffix = launch_plan.get("work_dir_suffix") or run_name
+
+    # Resolve where Tower's compute env will read the samplesheet from.
+    # Three modes:
+    #  1. SEQERA_INPUT_DIR set → stage to <input_dir>/<run_name>/, use absolute path.
+    #  2. SEQERA_WORK_BUCKET looks like a local-fs path → stage to <work_bucket>/inputs/<run_name>/.
+    #  3. work_bucket is a remote URI (s3://, gs://, az://) and no input_dir → fall back to
+    #     relative path; caller must arrange staging or use Tower datasets.
+    input_dir_root = (tower_env.get("input_dir") or "").strip()
+    work_bucket_str = str(tower_env.get("work_bucket") or "").rstrip("/")
+    is_remote_bucket = work_bucket_str.startswith(("s3://", "gs://", "az://"))
+    if not input_dir_root and not is_remote_bucket and work_bucket_str:
+        input_dir_root = f"{work_bucket_str}/inputs"
+    rel_dir = (samplesheet_relative_dir or ".").strip()
+
+    # Track staged paths so the fetchngs fallback can reuse them.
+    staged_sheet_path: str | None = None
+    staged_fetchngs_path: str | None = None
+    # Local-FS staging first, fall through to Tower dataset upload.
+    if input_dir_root:
+        staged_dir = Path(input_dir_root) / run_name
+        staged_sheet = staged_dir / "samplesheet.csv"
+        try:
+            staged_dir.mkdir(parents=True, exist_ok=True)
+            staged_sheet.write_text(samplesheet_path.read_text(encoding="utf-8"), encoding="utf-8")
+            staged_sheet_path = str(staged_sheet)
+            sheet_ref = staged_sheet_path
+            result.saved_files["staged_samplesheet"] = staged_sheet_path
+            if excluded:
+                fetchngs_local = out_path / "fetchngs_samplesheet.csv"
+                if fetchngs_local.exists():
+                    staged_fetchngs = staged_dir / "fetchngs_samplesheet.csv"
+                    staged_fetchngs.write_text(
+                        fetchngs_local.read_text(encoding="utf-8"), encoding="utf-8"
+                    )
+                    staged_fetchngs_path = str(staged_fetchngs)
+                    result.saved_files["staged_fetchngs_samplesheet"] = staged_fetchngs_path
+            print(f"[SEQERA][EMITTER] staged samplesheet at {staged_sheet_path}")
+        except OSError as e:
+            # Local mount not writable (e.g., chat_nextseek host lacks /orcd).
+            # Fall through to Tower dataset upload.
+            print(
+                f"[SEQERA][EMITTER] local staging to {staged_dir} failed ({e!r}); "
+                "falling back to Tower dataset upload."
+            )
+            staged_sheet_path = None
+
+    if not staged_sheet_path:
+        # Tower dataset upload — works regardless of filesystem topology.
+        sheet_ref = _upload_to_tower_dataset(
+            samplesheet_path=samplesheet_path,
+            tower_env=tower_env,
+            run_name=run_name,
+            cohort_label=samplesheet_relative_dir if samplesheet_relative_dir != "." else None,
+            kind="samplesheet",
+            result=result,
+            fallback_rel_dir=rel_dir,
+        )
+        if excluded:
+            fetchngs_local = out_path / "fetchngs_samplesheet.csv"
+            if fetchngs_local.exists():
+                staged_fetchngs_path = _upload_to_tower_dataset(
+                    samplesheet_path=fetchngs_local,
+                    tower_env=tower_env,
+                    run_name=run_name,
+                    cohort_label=samplesheet_relative_dir if samplesheet_relative_dir != "." else None,
+                    kind="fetchngs",
+                    result=result,
+                    fallback_rel_dir=rel_dir,
+                )
+
+    params: dict[str, Any] = dict(launch_plan.get("params") or {})
+    params.setdefault("input", sheet_ref)
+    params.setdefault("outdir", f"{work_bucket_str}/results/{outdir_suffix}")
+    if entry.get("default_genome") and "genome" not in params:
+        params["genome"] = entry["default_genome"]
+
+    params_path = out_path / "params.yml"
+    params_path.write_text(_yaml_dump(params), encoding="utf-8")
+    result.saved_files["params"] = str(params_path)
+
+    params_file_ref = f"{rel_dir}/params.yml" if rel_dir != "." else "./params.yml"
+    # Profile precedence: explicit launch_plan > deployment env override > catalog default > "docker"
+    resolved_profile = (
+        launch_plan.get("profile")
+        or tower_env.get("default_profile")
+        or entry.get("default_profile")
+        or "docker"
+    )
+    primary_entry = {
+        "name": run_name,
+        "workspace": tower_env["workspace"],
+        "compute-env": tower_env["compute_env"],
+        "pipeline": entry["repo"],
+        "revision": launch_plan.get("pipeline_revision") or entry.get("default_revision"),
+        "profile": resolved_profile,
+        "work-dir": f"{tower_env['work_bucket'].rstrip('/')}/work/{work_dir_suffix}",
+        "params-file": params_file_ref,
+    }
+    result.launch_entry = primary_entry
+
+    if excluded:
+        fetchngs_entry_meta = get_pipeline_entry("fetchngs")
+        fetchngs_params_path = out_path / "fetchngs_params.yml"
+        fetchngs_sheet_ref = staged_fetchngs_path or (
+            f"{rel_dir}/fetchngs_samplesheet.csv"
+            if rel_dir != "." else "./fetchngs_samplesheet.csv"
+        )
+        fetchngs_params_ref = (
+            f"{rel_dir}/fetchngs_params.yml" if rel_dir != "." else "./fetchngs_params.yml"
+        )
+        fetchngs_params = {
+            "input": fetchngs_sheet_ref,
+            "outdir": f"{work_bucket_str}/results/{outdir_suffix}-fetchngs",
+            "nf_core_pipeline": pipeline,
+        }
+        fetchngs_params_path.write_text(_yaml_dump(fetchngs_params), encoding="utf-8")
+        result.saved_files["fetchngs_params"] = str(fetchngs_params_path)
+        result.fetchngs_launch_entry = {
+            "name": f"{run_name}-fetchngs-fallback",
+            "workspace": tower_env["workspace"],
+            "compute-env": tower_env["compute_env"],
+            "pipeline": fetchngs_entry_meta["repo"],
+            "revision": fetchngs_entry_meta.get("default_revision"),
+            "profile": resolved_profile,
+            "work-dir": f"{tower_env['work_bucket'].rstrip('/')}/work/{work_dir_suffix}-fetchngs",
+            "params-file": fetchngs_params_ref,
+        }
+
+    if write_launch_yml:
+        launch_entries = [primary_entry]
+        if result.fetchngs_launch_entry:
+            launch_entries.append(result.fetchngs_launch_entry)
+        launch_path = out_path / "launch.yml"
+        launch_path.write_text(_yaml_dump({"launch": launch_entries}), encoding="utf-8")
+        result.saved_files["launch"] = str(launch_path)
+
+    return result
+
+
 def emit_nfcore_artifacts(
     out_dir: str | Path,
     *,
@@ -388,154 +568,19 @@ def emit_nfcore_artifacts(
     ))
 
     if tower_complete and launch_plan:
-        # --- fetchngs fallback samplesheet
-        if excluded:
-            fetchngs_path = out_path / "fetchngs_samplesheet.csv"
-            _write_csv(
-                fetchngs_path,
-                [{"accession": acc} for acc in excluded],
-                ["accession"],
-            )
-            result.saved_files["fetchngs_samplesheet"] = str(fetchngs_path)
-
-        run_name = (launch_plan.get("run_name") or f"{pipeline}-run").strip() or f"{pipeline}-run"
-        outdir_suffix = launch_plan.get("outdir_suffix") or run_name
-        work_dir_suffix = launch_plan.get("work_dir_suffix") or run_name
-
-        # Resolve where Tower's compute env will read the samplesheet from.
-        # Three modes:
-        #  1. SEQERA_INPUT_DIR set → stage to <input_dir>/<run_name>/, use absolute path.
-        #  2. SEQERA_WORK_BUCKET looks like a local-fs path → stage to <work_bucket>/inputs/<run_name>/.
-        #  3. work_bucket is a remote URI (s3://, gs://, az://) and no input_dir → fall back to
-        #     relative path; caller must arrange staging or use Tower datasets.
-        input_dir_root = (tower_env.get("input_dir") or "").strip()
-        work_bucket_str = str(tower_env.get("work_bucket") or "").rstrip("/")
-        is_remote_bucket = work_bucket_str.startswith(("s3://", "gs://", "az://"))
-        if not input_dir_root and not is_remote_bucket and work_bucket_str:
-            input_dir_root = f"{work_bucket_str}/inputs"
-        rel_dir = (samplesheet_relative_dir or ".").strip()
-
-        # Track staged paths so the fetchngs fallback can reuse them.
-        staged_sheet_path: str | None = None
-        staged_fetchngs_path: str | None = None
-        # Local-FS staging first, fall through to Tower dataset upload.
-        if input_dir_root:
-            staged_dir = Path(input_dir_root) / run_name
-            staged_sheet = staged_dir / "samplesheet.csv"
-            try:
-                staged_dir.mkdir(parents=True, exist_ok=True)
-                staged_sheet.write_text(samplesheet_path.read_text(encoding="utf-8"), encoding="utf-8")
-                staged_sheet_path = str(staged_sheet)
-                sheet_ref = staged_sheet_path
-                result.saved_files["staged_samplesheet"] = staged_sheet_path
-                if excluded:
-                    fetchngs_local = out_path / "fetchngs_samplesheet.csv"
-                    if fetchngs_local.exists():
-                        staged_fetchngs = staged_dir / "fetchngs_samplesheet.csv"
-                        staged_fetchngs.write_text(
-                            fetchngs_local.read_text(encoding="utf-8"), encoding="utf-8"
-                        )
-                        staged_fetchngs_path = str(staged_fetchngs)
-                        result.saved_files["staged_fetchngs_samplesheet"] = staged_fetchngs_path
-                print(f"[SEQERA][EMITTER] staged samplesheet at {staged_sheet_path}")
-            except OSError as e:
-                # Local mount not writable (e.g., chat_nextseek host lacks /orcd).
-                # Fall through to Tower dataset upload.
-                print(
-                    f"[SEQERA][EMITTER] local staging to {staged_dir} failed ({e!r}); "
-                    "falling back to Tower dataset upload."
-                )
-                staged_sheet_path = None
-
-        if not staged_sheet_path:
-            # Tower dataset upload — works regardless of filesystem topology.
-            sheet_ref = _upload_to_tower_dataset(
-                samplesheet_path=samplesheet_path,
-                tower_env=tower_env,
-                run_name=run_name,
-                cohort_label=samplesheet_relative_dir if samplesheet_relative_dir != "." else None,
-                kind="samplesheet",
-                result=result,
-                fallback_rel_dir=rel_dir,
-            )
-            if excluded:
-                fetchngs_local = out_path / "fetchngs_samplesheet.csv"
-                if fetchngs_local.exists():
-                    staged_fetchngs_path = _upload_to_tower_dataset(
-                        samplesheet_path=fetchngs_local,
-                        tower_env=tower_env,
-                        run_name=run_name,
-                        cohort_label=samplesheet_relative_dir if samplesheet_relative_dir != "." else None,
-                        kind="fetchngs",
-                        result=result,
-                        fallback_rel_dir=rel_dir,
-                    )
-
-        params: dict[str, Any] = dict(launch_plan.get("params") or {})
-        params.setdefault("input", sheet_ref)
-        params.setdefault("outdir", f"{work_bucket_str}/results/{outdir_suffix}")
-        if entry.get("default_genome") and "genome" not in params:
-            params["genome"] = entry["default_genome"]
-
-        params_path = out_path / "params.yml"
-        params_path.write_text(_yaml_dump(params), encoding="utf-8")
-        result.saved_files["params"] = str(params_path)
-
-        params_file_ref = f"{rel_dir}/params.yml" if rel_dir != "." else "./params.yml"
-        # Profile precedence: explicit launch_plan > deployment env override > catalog default > "docker"
-        resolved_profile = (
-            launch_plan.get("profile")
-            or tower_env.get("default_profile")
-            or entry.get("default_profile")
-            or "docker"
+        launch_res = emit_launch_artifacts(
+            out_path,
+            pipeline=pipeline,
+            samplesheet_path=samplesheet_path,
+            launch_plan=launch_plan,
+            tower_env=tower_env,
+            excluded=excluded,
+            samplesheet_relative_dir=samplesheet_relative_dir,
+            write_launch_yml=write_launch_yml,
         )
-        primary_entry = {
-            "name": run_name,
-            "workspace": tower_env["workspace"],
-            "compute-env": tower_env["compute_env"],
-            "pipeline": entry["repo"],
-            "revision": launch_plan.get("pipeline_revision") or entry.get("default_revision"),
-            "profile": resolved_profile,
-            "work-dir": f"{tower_env['work_bucket'].rstrip('/')}/work/{work_dir_suffix}",
-            "params-file": params_file_ref,
-        }
-        result.launch_entry = primary_entry
-
-        if excluded:
-            fetchngs_entry_meta = get_pipeline_entry("fetchngs")
-            fetchngs_params_path = out_path / "fetchngs_params.yml"
-            fetchngs_sheet_ref = staged_fetchngs_path or (
-                f"{rel_dir}/fetchngs_samplesheet.csv"
-                if rel_dir != "." else "./fetchngs_samplesheet.csv"
-            )
-            fetchngs_params_ref = (
-                f"{rel_dir}/fetchngs_params.yml" if rel_dir != "." else "./fetchngs_params.yml"
-            )
-            fetchngs_params = {
-                "input": fetchngs_sheet_ref,
-                "outdir": f"{work_bucket_str}/results/{outdir_suffix}-fetchngs",
-                "nf_core_pipeline": pipeline,
-            }
-            fetchngs_params_path.write_text(_yaml_dump(fetchngs_params), encoding="utf-8")
-            result.saved_files["fetchngs_params"] = str(fetchngs_params_path)
-            result.fetchngs_launch_entry = {
-                "name": f"{run_name}-fetchngs-fallback",
-                "workspace": tower_env["workspace"],
-                "compute-env": tower_env["compute_env"],
-                "pipeline": fetchngs_entry_meta["repo"],
-                "revision": fetchngs_entry_meta.get("default_revision"),
-                "profile": resolved_profile,
-                "work-dir": f"{tower_env['work_bucket'].rstrip('/')}/work/{work_dir_suffix}-fetchngs",
-                "params-file": fetchngs_params_ref,
-            }
-
-        if write_launch_yml:
-            launch_entries = [primary_entry]
-            if result.fetchngs_launch_entry:
-                launch_entries.append(result.fetchngs_launch_entry)
-            launch_path = out_path / "launch.yml"
-            launch_path.write_text(_yaml_dump({"launch": launch_entries}), encoding="utf-8")
-            result.saved_files["launch"] = str(launch_path)
+        result.saved_files.update(launch_res.saved_files)
+        result.launch_entry = launch_res.launch_entry
+        result.fetchngs_launch_entry = launch_res.fetchngs_launch_entry
 
     notes_md = _build_notes_md(
         pipeline=pipeline,
