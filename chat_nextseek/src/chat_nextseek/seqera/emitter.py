@@ -415,8 +415,10 @@ def emit_launch_artifacts(
     params: dict[str, Any] = dict(launch_plan.get("params") or {})
     params.setdefault("input", sheet_ref)
     params.setdefault("outdir", f"{work_bucket_str}/results/{outdir_suffix}")
-    if entry.get("default_genome") and "genome" not in params:
-        params["genome"] = entry["default_genome"]
+    # NOTE: genome/reference params are owned entirely by the caller (configure_run's
+    # species->bundle resolution). We deliberately do NOT fall back to the catalog's
+    # default_genome here — doing so silently stamped a wrong-species genome (human
+    # GRCh38) on non-human runs when no bundle was resolved.
 
     params_path = out_path / "params.yml"
     params_path.write_text(_yaml_dump(params), encoding="utf-8")

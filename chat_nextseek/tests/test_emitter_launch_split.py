@@ -38,3 +38,17 @@ def test_emit_launch_artifacts_alone_writes_yamls(tmp_path):
     assert res.launch_entry["pipeline"] == "https://github.com/nf-core/rnaseq"
     params_text = (tmp_path / "params.yml").read_text()
     assert "star_salmon" in params_text and "GRCm39" in params_text
+
+
+def test_emit_launch_does_not_inject_default_genome(tmp_path):
+    # configure_run owns the genome decision via the bundle registry. The emitter must
+    # NOT silently stamp the catalog's default_genome (human GRCh38 for rnaseq) when params
+    # lack one — that produced a wrong-species genome on mouse data (verification finding).
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("sample,accession\nS1,SRR1\n", encoding="utf-8")
+    emit_launch_artifacts(
+        tmp_path, pipeline="rnaseq", samplesheet_path=sheet,
+        launch_plan={"run_name": "r1", "params": {"aligner": "star_salmon"}},  # no genome
+        tower_env=TOWER, excluded=[])
+    params_text = (tmp_path / "params.yml").read_text()
+    assert "genome" not in params_text  # no default genome injected; configure_run is the only source
