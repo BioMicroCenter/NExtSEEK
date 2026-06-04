@@ -839,6 +839,27 @@ class AssistantViewSet(viewsets.ViewSet):
                 filename=filepath.name,
             )
 
+        # --- Serve PRIDE submission files (submission.px / SDRF tsv) from disk ---
+        if artifact_key in ("pride_submission_px", "pride_sdrf"):
+            saved = bundle.get("report_saved_files") or {}
+            files = saved.get(artifact_key) or []
+            if not files:
+                return _error_response("Not found", f"No PRIDE {artifact_key} found.", status.HTTP_404_NOT_FOUND)
+            filepath = Path(files[0]).resolve()
+            from django.conf import settings
+            allowed_dirs = [Path(settings.BASE_DIR).resolve(), Path.home().resolve()]
+            if not any(str(filepath).startswith(str(d)) for d in allowed_dirs):
+                return _error_response("Forbidden", "File path not within allowed directory.", status.HTTP_403_FORBIDDEN)
+            if not filepath.is_file():
+                return _error_response("Not found", "PRIDE submission file not found on disk.", status.HTTP_404_NOT_FOUND)
+            content_type = "text/tab-separated-values" if artifact_key == "pride_sdrf" else "text/plain"
+            return FileResponse(
+                filepath.open("rb"),
+                content_type=content_type,
+                as_attachment=True,
+                filename=filepath.name,
+            )
+
         # --- Generate search results xlsx ---
         if artifact_key == "search_results":
             mode = bundle.get("mode", "")

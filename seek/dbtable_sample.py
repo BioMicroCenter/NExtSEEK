@@ -884,6 +884,15 @@ class DBtable_sample(DBtable):
             database_=NEO4J_DATABASE['NAME'])
             uids = r[0]['uuids']
 
+        # No Sample nodes matched the requested UIDs (e.g. data-file UIDs absent
+        # from the graph, or UIDs not present in this database). Return an empty
+        # frame rather than building invalid ``WHERE uuid IN ()`` SQL — which
+        # __runQuery swallows into None, crashing the caller with
+        # "cannot unpack non-iterable NoneType object" (a 500). The view treats
+        # an empty frame as a clean 404 "No samples found".
+        if not uids:
+            return pd.DataFrame(columns=["id", "sample_type_id", "uuid", "json_metadata"])
+
         uids_str = ', '.join(f"'{uid}'" for uid in uids)
         project_ids_str = ', '.join(f"'{pid}'" for pid in user_project_ids)
 
@@ -902,7 +911,12 @@ class DBtable_sample(DBtable):
             WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
             """
 
-        rows, columns = self.__runQuery(query, withColumns=True)
+        result = self.__runQuery(query, withColumns=True)
+        if not result:
+            # Query failed (e.g. transient DB error). Degrade to an empty frame
+            # so the endpoint returns a clean 404 instead of a 500 unpack crash.
+            return pd.DataFrame(columns=["id", "sample_type_id", "uuid", "json_metadata"])
+        rows, columns = result
         samples_retrieved_df = pd.DataFrame(rows, columns=columns)
 
         return samples_retrieved_df

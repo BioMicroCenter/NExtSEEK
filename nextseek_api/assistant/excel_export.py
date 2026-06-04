@@ -17,6 +17,34 @@ from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger(__name__)
 
+
+def _flatten_cell(value: Any) -> Any:
+    """Render a table cell value as an Excel/JSON-safe scalar.
+
+    Report tables (e.g. PRIDE file_mapping / sample_metadata) carry nested
+    values: CV-param dicts ``{cv_label, accession, name, value}`` and lists of
+    them. openpyxl rejects non-scalars (``Cannot convert [] to Excel``) and the
+    React table renders them as ``[object Object]``. Flatten them to readable
+    strings; pass scalars (and None) through unchanged.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        name = value.get("name")
+        if name not in (None, ""):
+            acc = value.get("accession")
+            val = value.get("value")
+            if val not in (None, ""):
+                return f"{name} ({val})"
+            return f"{name} [{acc}]" if acc not in (None, "") else str(name)
+        parts = [f"{k}={v}" for k, v in value.items() if v not in (None, "")]
+        return "; ".join(parts)
+    if isinstance(value, (list, tuple)):
+        rendered = [str(_flatten_cell(v)) for v in value if v not in (None, "")]
+        return "; ".join(r for r in rendered if r)
+    return str(value)
+
+
 # Maximum number of rows to include inline in SSE event payloads.
 # Full data is always available via the artifact download endpoint.
 MAX_INLINE_ROWS = 200
@@ -324,6 +352,23 @@ def extract_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
                 "file_format": "xlsx",
             })
 
+    # PRIDE submission files (submission.px manifest + optional SDRF tsv). Both
+    # are served from disk by the download endpoint; PRIDE has no fillable
+    # spreadsheet, so these are the canonical uploadable artifacts.
+    pride_file_artifacts = [
+        ("pride_submission_px", "PRIDE submission.px", "px"),
+        ("pride_sdrf", "PRIDE SDRF (experimental design)", "tsv"),
+    ]
+    for key, label, fmt in pride_file_artifacts:
+        files = saved.get(key)
+        if isinstance(files, list) and len(files) > 0:
+            artifacts.append({
+                "artifact_type": "file",
+                "key": key,
+                "label": label,
+                "file_format": fmt,
+            })
+
     return artifacts
 
 
@@ -361,7 +406,7 @@ def generate_table_xlsx(tables: list[dict[str, Any]]) -> bytes:
         # Data rows
         for row_idx, row in enumerate(data, 2):
             for col_idx, col_name in enumerate(columns, 1):
-                ws.cell(row=row_idx, column=col_idx, value=row.get(col_name))
+                ws.cell(row=row_idx, column=col_idx, value=_flatten_cell(row.get(col_name)))
 
         # Auto-width columns
         for col_idx, col_name in enumerate(columns, 1):

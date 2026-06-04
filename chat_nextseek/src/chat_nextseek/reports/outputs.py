@@ -459,6 +459,26 @@ def generate_report_outputs(
                 print("[DEBUG][REPORTER_SRA] Exported SRA BioSample workbooks:", biosample_workbooks)
         except Exception as e:
             print("[DEBUG][REPORTER_SRA] Failed to export SRA BioSample workbook:", repr(e))
+    elif report_type_label == "PRIDE" and merged_path:
+        # PRIDE has no fillable spreadsheet template (unlike GEO/SRA); emit the
+        # canonical ProteomeXchange submission.px manifest plus an optional
+        # SDRF-Proteomics TSV, both served as files for download.
+        try:
+            from .exporters.pride_px import export_pride_report_to_px
+            px_files = export_pride_report_to_px(merged_path, str(Path(merged_path).parent))
+            if px_files:
+                saved_files["pride_submission_px"] = px_files
+                print("[DEBUG][REPORTER_PRIDE] Exported submission.px:", px_files)
+        except Exception as e:
+            print("[DEBUG][REPORTER_PRIDE] Failed to export submission.px:", repr(e))
+        try:
+            from .exporters.pride_sdrf import export_pride_report_to_sdrf
+            sdrf_files = export_pride_report_to_sdrf(merged_path, str(Path(merged_path).parent))
+            if sdrf_files:
+                saved_files["pride_sdrf"] = sdrf_files
+                print("[DEBUG][REPORTER_PRIDE] Exported SDRF:", sdrf_files)
+        except Exception as e:
+            print("[DEBUG][REPORTER_PRIDE] Failed to export SDRF:", repr(e))
 
     meta_path = persist_report_file("report_metadata", meta_map, log_dir, kind="report")
     if meta_path:
