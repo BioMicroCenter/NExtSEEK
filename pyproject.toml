@@ -16,7 +16,10 @@ dependencies = [
   "charset-normalizer",
   "deepmerge",
   "dj-rest-auth",
-  "Django",
+  # Pinned to the 5.2 LTS line: Django 6.0 dropped MariaDB 10.5 support
+  # (requires 10.6+), but this native server runs MariaDB 10.5.x. 5.2 supports
+  # 10.5. Revisit if/when the server's MariaDB is upgraded to >=10.6.
+  "Django>=5.2,<6",
   "django-contrib-comments",
   "django-cors-headers",
   "django-cprofile-middleware",
