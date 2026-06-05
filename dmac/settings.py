@@ -429,27 +429,36 @@ os.makedirs(SCHEMA_RAG_EMBEDDING_MODEL_PATH, exist_ok=True)
 # Default: 200 MB. Override via environment variable.
 BATCH_UPLOAD_MAX_TOTAL_BYTES = int(os.getenv("BATCH_UPLOAD_MAX_TOTAL_BYTES", 200 * 1024 * 1024))
 
-NEO4J_DATABASE = {
-    "NAME": "neo4j",
-    "URI": "neo4j://" + os.getenv("NEXTSEEK_NEO4J_HOST"),
-    "AUTH": ("neo4j",os.getenv("NEXTSEEK_NEO4J_PASSWORD"))
-}
-
+# NExtSEEK service endpoints + Neo4j.
+#
+# Container/Docker deployments inject these via env (docker/nextseek.env).
+# Native deployments instead define NEO4J_DATABASE / SERVER_IPADDRESS / SEEK_*
+# in local_settings.py (exec'd above). The env-driven assignments below are
+# guarded so this Docker-oriented block does NOT clobber the authoritative
+# local_settings values on a native host, where these env vars are unset.
+# No behavior change under Docker (all the env vars are set there).
 NEXTSEEK_DATABASE = "default"
 SEEK_DATABASE = "seek"
-
-SERVER_IPADDRESS = os.getenv("NEXTSEEK_HOSTNAME")
-
-SEEK_HOSTNAME = os.getenv("SEEK_HOSTNAME")
-SEEK_SERVER = os.getenv("SEEK_HOST")
-SEEK_URL = "http://" + SEEK_SERVER + ":3000"
-SEEK_JS_URL = SEEK_SERVER
-
-VIRTUOSO_URL = "http://" + SEEK_SERVER + ":8890/sparql/"
-VIRTUOSO_JS_URL = "http://" + SEEK_SERVER + ":8890/sparql"
-
-SEEK_DATAFILE_SERVER = 'https://' + SERVER_IPADDRESS
-SEEK_DATAFILE_ROOT = MEDIA_ROOT + "/uploads/production/"
-SEEK_DATAFILE_ROOT_WEBLINK = MEDIA_URL + "uploads/production/"
-
 ACCOUNTS_PROFILE_MODEL = "seek.User_profile"
+
+if os.getenv("NEXTSEEK_NEO4J_HOST"):
+    NEO4J_DATABASE = {
+        "NAME": "neo4j",
+        "URI": "neo4j://" + os.getenv("NEXTSEEK_NEO4J_HOST"),
+        "AUTH": ("neo4j", os.getenv("NEXTSEEK_NEO4J_PASSWORD")),
+    }
+
+if os.getenv("SEEK_HOST"):
+    SERVER_IPADDRESS = os.getenv("NEXTSEEK_HOSTNAME")
+
+    SEEK_HOSTNAME = os.getenv("SEEK_HOSTNAME")
+    SEEK_SERVER = os.getenv("SEEK_HOST")
+    SEEK_URL = "http://" + SEEK_SERVER + ":3000"
+    SEEK_JS_URL = SEEK_SERVER
+
+    VIRTUOSO_URL = "http://" + SEEK_SERVER + ":8890/sparql/"
+    VIRTUOSO_JS_URL = "http://" + SEEK_SERVER + ":8890/sparql"
+
+    SEEK_DATAFILE_SERVER = 'https://' + SERVER_IPADDRESS
+    SEEK_DATAFILE_ROOT = MEDIA_ROOT + "/uploads/production/"
+    SEEK_DATAFILE_ROOT_WEBLINK = MEDIA_URL + "uploads/production/"
