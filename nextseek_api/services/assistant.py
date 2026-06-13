@@ -14,10 +14,14 @@ Provides 8 actions:
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
+import os
 import queue
 import threading
+import uuid
+from pathlib import Path
 from typing import Any
 
 from django.http import StreamingHttpResponse
@@ -61,6 +65,25 @@ from nextseek_api.assistant.models_api import (
     TestCaseListResponse,
     Turn,
 )
+from nextseek_api.assistant.models_api import (
+    ApiReadRequest,
+    ApiReadResponse,
+    ApiWriteRequest,
+    ApiWriteResponse,
+    EntityOpRequest,
+    EntityOpResponse,
+    GraphOpRequest,
+    GraphOpResponse,
+    OpErrorResponse,
+    ParseOpRequest,
+    ParseOpResponse,
+    ReportOpRequest,
+    ReportOpResponse,
+    SubmissionRequest,
+    SubmissionResponse,
+)
+from nextseek_api.assistant.granular import OpValidationError, run_op
+from nextseek_api.assistant.write_gate import WriteBlockedError, build_gate, load_allowlist
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.excel_export import extract_table_artifacts
 from rest_framework.authentication import (
@@ -163,6 +186,154 @@ def _select_chat_config(request, req) -> ChatConfig:
     if prod_config is None:
         return settings.NEXTSEEK_CHAT_CONFIG
     return prod_config
+
+
+# ----------------------------------------------------------------------
+# Granular ops (native) — shared helpers
+# ----------------------------------------------------------------------
+
+_GRANULAR_REQUEST_MODELS = {
+    "entity": EntityOpRequest,
+    "parse": ParseOpRequest,
+    "graph": GraphOpRequest,
+    "api-read": ApiReadRequest,
+    "api-write": ApiWriteRequest,
+    "report": ReportOpRequest,
+    "generate-submission": SubmissionRequest,
+}
+
+
+def _op_error_response(code: str, detail: str, http_status: int) -> Response:
+    """Granular-op error envelope: the NExtSEEK ``errors`` list plus the canonical
+    dmac error ``code`` so the dmac thin client can map it to its CLI exit."""
+    return Response(
+        {"code": code, "errors": [{"title": code, "detail": detail}]},
+        status=http_status,
+    )
+
+
+def _granular_chat_config(request, req) -> ChatConfig:
+    """Per-request ChatConfig copy carrying the caller's resolved credentials.
+
+    Mirrors the credential handling in ``query``/``query_async`` and
+    ``run_query``'s ``copy.copy(config)`` so outbound NExtSEEK calls run as the
+    requesting user and the shared singleton is never mutated.
+    """
+    chat_config = _select_chat_config(request, req)
+    basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+    if basic_tuple and basic_tuple[0] and basic_tuple[1]:
+        api_user, api_pass = basic_tuple
+    else:
+        api_user = request.session.get("username")
+        api_pass = request.session.get("password")
+    prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
+    if prod_config is not None and chat_config is prod_config:
+        if chat_config.API_USER and chat_config.API_PASS:
+            api_user = chat_config.API_USER
+            api_pass = chat_config.API_PASS
+    cfg = copy.copy(chat_config)
+    if api_user:
+        cfg.API_USER = api_user
+    if api_pass:
+        cfg.API_PASS = api_pass
+    return cfg
+
+
+def _granular_args(op: str, req) -> dict:
+    """Project a validated request model into the op's chat_nextseek arg dict."""
+    if op in ("entity", "parse", "graph"):
+        return {"query": req.query}
+    if op == "api-read":
+        return {"parser_plan": req.parser_plan}
+    if op == "api-write":
+        return {"parser_plan": req.parser_plan, "confirmed_write": req.confirmed_write,
+                "query": req.query}
+    if op == "report":
+        return {"mode": req.mode, "project": req.project}
+    if op == "generate-submission":
+        return {"type": req.type, "uids": req.uids, "query": req.query}
+    return {}
+
+
+def _granular_outputs_dir() -> str:
+    """A fresh writable run-root for a report op's saved_files."""
+    base = getattr(settings, "BASE_DIR", None)
+    root = os.path.join(str(base), "outputs", "granular") if base else "outputs/granular"
+    out = os.path.join(root, uuid.uuid4().hex)
+    os.makedirs(out, exist_ok=True)
+    return out
+
+
+# Content-type by file extension for report artifacts served from disk.
+_ARTIFACT_CONTENT_TYPES = {
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".json": "application/json",
+    ".tsv": "text/tab-separated-values",
+    ".sdrf": "text/tab-separated-values",
+    ".csv": "text/csv",
+    ".txt": "text/plain",
+    ".px": "text/plain",
+    ".html": "text/html",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".xml": "application/xml",
+}
+
+
+def _artifact_content_type(path) -> str:
+    ext = os.path.splitext(str(path))[1].lower()
+    return _ARTIFACT_CONTENT_TYPES.get(ext, "application/octet-stream")
+
+
+def _resolve_saved_path(value):
+    """A saved_files value is either a string path or a list of paths (multi-file
+    keys like geo_seq_workbooks / sra_*). Serve the first concrete path."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple)) and value:
+        first = value[0]
+        return first if isinstance(first, str) else None
+    return None
+
+
+def _artifact_roots() -> list[Path]:
+    """The narrowly-scoped directories report artifacts are written under. Both the
+    granular report op (``_granular_outputs_dir``) and the query pipeline
+    (``_ensure_query_log_dir``) write beneath ``<BASE_DIR>/outputs`` /
+    ``NEXTSEEK_OUTPUTS_DIR``. The whole BASE_DIR (contains source) and home (holds
+    secrets) are deliberately excluded."""
+    roots: list[Path] = []
+    base = getattr(settings, "BASE_DIR", None)
+    if base:
+        roots.append(Path(base, "outputs").resolve())
+    nod = os.environ.get("NEXTSEEK_OUTPUTS_DIR")
+    if nod:
+        try:
+            roots.append(Path(nod).resolve())
+        except (OSError, ValueError, RuntimeError):
+            pass
+    return roots
+
+
+def _safe_artifact_path(src) -> Path | None:
+    """Resolve ``src`` and require it to be *really contained* within an allowed
+    artifact root. Uses ``Path.relative_to`` (no string-prefix bypass like
+    ``/app-evil`` matching ``/app``) and ``Path.resolve`` (canonicalizes symlinks,
+    so a symlink that escapes the root is rejected). Returns the resolved Path when
+    safe, else None."""
+    if not isinstance(src, str) or not src:
+        return None
+    try:
+        filepath = Path(src).resolve()
+    except (OSError, ValueError, RuntimeError):
+        return None
+    for root in _artifact_roots():
+        try:
+            filepath.relative_to(root)
+            return filepath
+        except ValueError:
+            continue
+    return None
 
 
 class AssistantViewSet(viewsets.ViewSet):
@@ -824,12 +995,9 @@ class AssistantViewSet(viewsets.ViewSet):
             workbooks = saved.get("geo_seq_workbooks") or []
             if not workbooks:
                 return _error_response("Not found", "No GEO workbooks found.", status.HTTP_404_NOT_FOUND)
-            filepath = Path(workbooks[0]).resolve()
-            # Path traversal protection: only serve files under project dir or home dir
-            from django.conf import settings
-            allowed_dirs = [Path(settings.BASE_DIR).resolve(), Path.home().resolve()]
-            if not any(str(filepath).startswith(str(d)) for d in allowed_dirs):
-                return _error_response("Forbidden", "File path not within allowed directory.", status.HTTP_403_FORBIDDEN)
+            filepath = _safe_artifact_path(workbooks[0])
+            if filepath is None:
+                return _error_response("Forbidden", "File path not within allowed artifact directory.", status.HTTP_403_FORBIDDEN)
             if not filepath.is_file():
                 return _error_response("Not found", "GEO workbook file not found on disk.", status.HTTP_404_NOT_FOUND)
             return FileResponse(
@@ -845,17 +1013,48 @@ class AssistantViewSet(viewsets.ViewSet):
             files = saved.get(artifact_key) or []
             if not files:
                 return _error_response("Not found", f"No PRIDE {artifact_key} found.", status.HTTP_404_NOT_FOUND)
-            filepath = Path(files[0]).resolve()
-            from django.conf import settings
-            allowed_dirs = [Path(settings.BASE_DIR).resolve(), Path.home().resolve()]
-            if not any(str(filepath).startswith(str(d)) for d in allowed_dirs):
-                return _error_response("Forbidden", "File path not within allowed directory.", status.HTTP_403_FORBIDDEN)
+            filepath = _safe_artifact_path(files[0])
+            if filepath is None:
+                return _error_response("Forbidden", "File path not within allowed artifact directory.", status.HTTP_403_FORBIDDEN)
             if not filepath.is_file():
                 return _error_response("Not found", "PRIDE submission file not found on disk.", status.HTTP_404_NOT_FOUND)
             content_type = "text/tab-separated-values" if artifact_key == "pride_sdrf" else "text/plain"
             return FileResponse(
                 filepath.open("rb"),
                 content_type=content_type,
+                as_attachment=True,
+                filename=filepath.name,
+            )
+
+        # --- Generic: serve ANY report_saved_files key as its real on-disk file ---
+        # Covers every output type beyond the geo/pride special cases above:
+        # merged_report, sra_submission_workbooks, sra_biosample_workbooks,
+        # nfcore_* samplesheets, reporter_result, metadata, protocols, etc. The
+        # content-type is inferred from the file extension. (geo_seq_workbooks and
+        # the pride_* keys are handled by the dedicated branches above and return
+        # before reaching here.)
+        saved = bundle.get("report_saved_files") or {}
+        if artifact_key in saved:
+            src = _resolve_saved_path(saved.get(artifact_key))
+            if not src:
+                return _error_response(
+                    "Not found", f"No file for artifact '{artifact_key}'.",
+                    status.HTTP_404_NOT_FOUND,
+                )
+            filepath = _safe_artifact_path(src)
+            if filepath is None:
+                return _error_response(
+                    "Forbidden", "File path not within allowed artifact directory.",
+                    status.HTTP_403_FORBIDDEN,
+                )
+            if not filepath.is_file():
+                return _error_response(
+                    "Not found", f"Artifact '{artifact_key}' file not found on disk.",
+                    status.HTTP_404_NOT_FOUND,
+                )
+            return FileResponse(
+                filepath.open("rb"),
+                content_type=_artifact_content_type(filepath),
                 as_attachment=True,
                 filename=filepath.name,
             )
@@ -934,3 +1133,141 @@ class AssistantViewSet(viewsets.ViewSet):
             TestCaseListResponse(total=len(items), test_cases=items).model_dump(),
             status=status.HTTP_200_OK,
         )
+
+    # ==================================================================
+    # Granular ops (native) — entity / parse / graph / api-read /
+    # api-write / report / generate-submission.
+    #
+    # Each op calls the same chat_nextseek portable function the dmac sidecar
+    # calls (see nextseek_api/assistant/granular.py), reusing this viewset's
+    # auth, _select_chat_config, and the per-request credential copy. Responses
+    # use a typed {op, result} envelope; errors carry the canonical dmac code.
+    # ==================================================================
+
+    def _granular_session(self, request, req):
+        """A read-only session for the parser agent. Reuses an owned ChatSession
+        when ``session_id`` is supplied, else a transient (unsaved) one."""
+        session_id = getattr(req, "session_id", None)
+        chat_session = None
+        if session_id:
+            try:
+                chat_session = ChatSession.objects.get(session_id=session_id, user=request.user)
+            except ChatSession.DoesNotExist:
+                chat_session = None
+        if chat_session is None:
+            chat_session = ChatSession(user=request.user)  # transient; not persisted
+        return DictSessionAdapter(chat_session)
+
+    def _run_granular_op(self, request, op: str) -> Response:
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        model = _GRANULAR_REQUEST_MODELS[op]
+        try:
+            req = model.model_validate(request.data)
+        except ValidationError as e:
+            return _op_error_response("VALIDATION", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        chat_config = _granular_chat_config(request, req)
+        session = self._granular_session(request, req) if op == "parse" else None
+        gate = build_gate(load_allowlist())
+        args = _granular_args(op, req)
+        outputs_dir = _granular_outputs_dir() if op == "report" else None
+
+        try:
+            result = run_op(
+                op, args, config=chat_config, session=session,
+                write_gate=gate, outputs_dir=outputs_dir,
+            )
+        except OpValidationError as e:
+            return _op_error_response("VALIDATION", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
+        except WriteBlockedError as e:
+            return _op_error_response("WRITE_BLOCKED", str(e), status.HTTP_403_FORBIDDEN)
+        except Exception as e:  # noqa: BLE001 — any agent failure maps to AGENT_FAILED
+            logger.exception("granular op %s failed", op)
+            return _op_error_response("AGENT_FAILED", str(e), status.HTTP_502_BAD_GATEWAY)
+
+        return Response({"op": op, "result": result}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        operation_id="Assistant: Entity Extract",
+        description="Resolve sampletypes/assays/keywords from a query (entity_agent).",
+        tags=["Assistant"],
+        request=EntityOpRequest,
+        responses={200: EntityOpResponse, 401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="entity")
+    def entity(self, request):
+        return self._run_granular_op(request, "entity")
+
+    @extend_schema(
+        operation_id="Assistant: Parse",
+        description="Build a parser plan for a query (entity_agent -> parser_agent).",
+        tags=["Assistant"],
+        request=ParseOpRequest,
+        responses={200: ParseOpResponse, 401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="parse")
+    def parse(self, request):
+        return self._run_granular_op(request, "parse")
+
+    @extend_schema(
+        operation_id="Assistant: Graph",
+        description="Build a Cypher plan (graph_agent) and execute it against Neo4j.",
+        tags=["Assistant"],
+        request=GraphOpRequest,
+        responses={200: GraphOpResponse, 401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="graph")
+    def graph(self, request):
+        return self._run_granular_op(request, "graph")
+
+    @extend_schema(
+        operation_id="Assistant: API Read",
+        description="Build an API request from a parser plan and execute a read-safe call.",
+        tags=["Assistant"],
+        request=ApiReadRequest,
+        responses={200: ApiReadResponse, 401: OpErrorResponse, 403: OpErrorResponse,
+                   422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="api-read")
+    def api_read(self, request):
+        return self._run_granular_op(request, "api-read")
+
+    @extend_schema(
+        operation_id="Assistant: API Write",
+        description=(
+            "Execute a write API call from a parser plan. Gated: runs only when "
+            "confirmed_write is the boolean true; otherwise returns WRITE_BLOCKED."
+        ),
+        tags=["Assistant"],
+        request=ApiWriteRequest,
+        responses={200: ApiWriteResponse, 401: OpErrorResponse, 403: OpErrorResponse,
+                   422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="api-write")
+    def api_write(self, request):
+        return self._run_granular_op(request, "api-write")
+
+    @extend_schema(
+        operation_id="Assistant: Report",
+        description="Run a summary report (samples/protocols/published/rppr) via run_reporter_summary.",
+        tags=["Assistant"],
+        request=ReportOpRequest,
+        responses={200: ReportOpResponse, 401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="report")
+    def report(self, request):
+        return self._run_granular_op(request, "report")
+
+    @extend_schema(
+        operation_id="Assistant: Generate Submission",
+        description="Generate a repository submission report (GEO/SRA/NFCORE/PRIDE) via report_writer_agent.",
+        tags=["Assistant"],
+        request=SubmissionRequest,
+        responses={200: SubmissionResponse, 401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="generate-submission")
+    def generate_submission(self, request):
+        return self._run_granular_op(request, "generate-submission")

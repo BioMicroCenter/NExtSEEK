@@ -1,0 +1,38 @@
+[
+  {
+    "endpoint": "/nextseek_api/samples/advanced_search/",
+    "methods": ["POST"],
+    "source": "min_api_endpoints_enriched.json",
+    "rationale": "Search endpoint; returns data and does not mutate NExtSEEK state."
+  },
+  {
+    "endpoint": "/nextseek_api/samples/",
+    "methods": ["GET"],
+    "source": "min_api_endpoints_enriched.json",
+    "rationale": "List samples; read-only GET."
+  },
+  {
+    "endpoint": "/nextseek_api/experiments/",
+    "methods": ["GET"],
+    "source": "min_api_endpoints_enriched.json",
+    "rationale": "List experiments; read-only GET."
+  },
+  {
+    "endpoint": "/nextseek_api/projects/",
+    "methods": ["GET"],
+    "source": "min_api_endpoints_enriched.json",
+    "rationale": "List projects; read-only GET."
+  },
+  {
+    "endpoint": "/nextseek_api/sample_types/",
+    "methods": ["GET"],
+    "source": "min_api_endpoints_enriched.json",
+    "rationale": "List sample types; read-only GET."
+  },
+  {
+    "endpoint": "/nextseek_api/assays/",
+    "methods": ["GET"],
+    "source": "min_api_endpoints_enriched.json",
+    "rationale": "List assays; read-only GET."
+  }
+]
