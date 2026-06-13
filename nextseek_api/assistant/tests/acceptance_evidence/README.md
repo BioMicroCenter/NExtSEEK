@@ -56,13 +56,17 @@ usage (the test wraps each LLM client's `chat()` and records the actual
 | `gemini-3.5-flash` | 2783 | 115 | $0.005210 |
 | `gemini-3.5-flash` | 2781 | 106 | $0.005125 |
 | `gemini-3.5-flash` | 52021 | 62 | $0.078590 |
-| `us.anthropic.claude-opus-4-7` | 13344 | 313 | $0.082000 |
-| `us.anthropic.claude-opus-4-7` | 2006 | 346 | $0.020548 |
-| **TOTAL (this committed run)** | | | **$0.3611** |
+| `us.anthropic.claude-opus-4-7` | 13344 | 331 | $0.082494 |
+| `us.anthropic.claude-opus-4-7` | 2006 | 332 | $0.020163 |
+| **TOTAL (this committed run)** | | | **$0.3612** |
 
 To re-verify the arithmetic: `in×1.5e-6 + out×9.0e-6` (Gemini), `in×5.5e-6 +
 out×27.5e-6` (Opus), summed over `realstack_ledger.jsonl`.
 
-**Session spend across all paid runs in the build session:** ~$1.10
-(two earlier runs $0.3410 + $0.0343, this committed re-run $0.3611), under the
-$5 authorization cap.
+This run also exercises the HTTP **download path** added on 2026-06-13
+(`test_06` fetches the report's bundle URL and asserts the bytes match;
+`test_08` asserts a downloadable bundle was registered for the submission).
+
+**Session spend across all paid runs in the build session:** ~$1.46
+($0.3410 + $0.0343 + $0.3627 original acceptance; $0.3611 first committed
+re-run; $0.3612 this download-path refresh), under the $5 authorization cap.
