@@ -1,0 +1,25 @@
+Found 8 test(s).
+Using existing test database for alias 'default' ('test_dmac')...
+System check identified no issues (0 silenced).
+--- assertions run (test methods) ---
+  test_01_entity_resolves_
+  test_02_graph_executes_with_real_nodes
+  test_03_api_read_returns_real_rows
+  test_04_api_write_blocked_leaves_db_unchanged
+  test_05_api_write_confirmed_executes_read_safe
+  test_06_report_published_has_db_values
+  test_07_parse_targets_advanced_search
+  test_08_generate_submission_geo
+--- result ---
+Ran 8 tests in 49.258s
+OK
+--- strict token ledger (machine-captured) ---
+[REALSTACK] LLM calls=8  cumulative_cost=$0.3611
+[REALSTACK]   gemini-3.5-flash: in=52021 out=89
+[REALSTACK]   gemini-3.5-flash: in=52020 out=62
+[REALSTACK]   gemini-3.5-flash: in=7154 out=163
+[REALSTACK]   gemini-3.5-flash: in=2783 out=115
+[REALSTACK]   gemini-3.5-flash: in=2781 out=106
+[REALSTACK]   gemini-3.5-flash: in=52021 out=62
+[REALSTACK]   us.anthropic.claude-opus-4-7: in=13344 out=313
+[REALSTACK]   us.anthropic.claude-opus-4-7: in=2006 out=346
