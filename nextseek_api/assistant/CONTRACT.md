@@ -53,6 +53,35 @@ All endpoints are **additive** to the existing `AssistantViewSet`
 
 dmac can ignore the `use_prod`/`session_id` additions; they default safely.
 
+## Downloading report / generate-submission outputs (the HTTP delivery path)
+
+`report` and `generate-submission` produce artifacts that live on NExtSEEK's
+filesystem — useless to a remote dmac caller by path alone. So those two ops
+**register a lightweight bundle** in the caller's chat session and return a
+`download` block alongside `result`:
+
+```json
+{
+  "op": "report",
+  "result": { "summary": {...}, "saved_files": {"published_report": "/app/outputs/granular/<id>/..."}, "rows": {...} },
+  "download": {
+    "session_id": "<uuid>",
+    "bundle_id": 1,
+    "artifacts": [ { "key": "published_report", "url": "/nextseek_api/assistant/sessions/<uuid>/bundles/1/artifacts/published_report/" } ]
+  }
+}
+```
+
+dmac fetches each artifact with an authenticated `GET` on `download.artifacts[].url`
+(the ownership-checked `download_artifact` endpoint) and writes the bytes to
+Dropbox. For `generate-submission` (no on-disk file — the structured output is in
+`result`), the bundle carries `report_writer_output` and the `download.artifacts`
+includes an `all_tables` URL that serves the submission as a combined `.xlsx`.
+Pass an optional `session_id` in the request to attach the bundle to an existing
+session; otherwise a new one is created. Response models: `DownloadRef` /
+`ArtifactRef` in `models_api.py`; the `download` field is `Optional` on
+`ReportOpResponse` / `SubmissionResponse` only.
+
 ## Write safety (preserved exactly)
 
 `api-write` is **confirmation-only**: `confirmed_write` must be the boolean

@@ -239,6 +239,16 @@ class RealStackAcceptance(TestCase):
         self.assertGreater(len(blob), 50, "report file is an empty stub")
         doc = json.loads(blob)
         self.assertIn("samples", doc)
+        # HTTP delivery path: the registered bundle URL actually serves the bytes
+        # (this is what lets dmac fetch the artifact for Dropbox).
+        dl = body["download"]
+        self.assertTrue(dl["session_id"])
+        url = {a["key"]: a["url"] for a in dl["artifacts"]}.get("published_report")
+        self.assertTrue(url, "no published_report download URL")
+        dlresp = self.client.get(url)
+        self.assertEqual(dlresp.status_code, 200)
+        got = b"".join(dlresp.streaming_content) if dlresp.streaming else dlresp.content
+        self.assertEqual(got, blob, "downloaded bytes != on-disk report")
 
     # ----- Opus-with-thinking ops last (guarded) -----
 
@@ -272,3 +282,5 @@ class RealStackAcceptance(TestCase):
         self.assertIsNotNone(body["result"], "report_writer output is null")
         self.assertEqual((body["result"].get("report_type") or "GEO"), "GEO")
         self.assertIsInstance(body["result"].get("report"), dict)
+        # a downloadable bundle was registered for the submission output
+        self.assertTrue(body["download"]["session_id"], "no bundle registered for submission")

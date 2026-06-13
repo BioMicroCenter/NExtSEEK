@@ -277,6 +277,8 @@ class ReportOpRequest(BaseModel):
     mode: str = Field(..., description="One of: samples | protocols | published | rppr")
     project: str
     use_prod: bool = False
+    session_id: Optional[UUID] = Field(
+        None, description="Optional chat session to attach the result bundle to; a new one is created if omitted.")
     model_config = ConfigDict(extra="forbid")
 
     @field_validator("mode")
@@ -293,6 +295,8 @@ class SubmissionRequest(BaseModel):
     uids: str = Field(..., description="Comma-separated UID list.")
     query: Optional[str] = None
     use_prod: bool = False
+    session_id: Optional[UUID] = Field(
+        None, description="Optional chat session to attach the result bundle to; a new one is created if omitted.")
     model_config = ConfigDict(extra="forbid")
 
     @field_validator("type")
@@ -397,6 +401,22 @@ class ApiWriteResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ArtifactRef(BaseModel):
+    """A downloadable artifact produced by a report/generate-submission op."""
+    key: str
+    url: str = Field(..., description="Relative GET URL for the bundle artifact endpoint.")
+    model_config = ConfigDict(extra="forbid")
+
+
+class DownloadRef(BaseModel):
+    """Where a report/generate-submission op's outputs were registered so they can
+    be fetched over HTTP via GET /assistant/sessions/{session_id}/bundles/{bundle_id}/artifacts/{key}/."""
+    session_id: UUID
+    bundle_id: int
+    artifacts: List[ArtifactRef] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+
 class ReportResult(BaseModel):
     summary: Dict[str, Any] = Field(default_factory=dict)
     saved_files: Dict[str, Any] = Field(default_factory=dict)
@@ -407,6 +427,8 @@ class ReportResult(BaseModel):
 class ReportOpResponse(BaseModel):
     op: Literal["report"] = "report"
     result: ReportResult
+    download: Optional[DownloadRef] = Field(
+        None, description="Bundle + URLs for fetching the report's saved files over HTTP.")
     model_config = ConfigDict(extra="forbid")
 
 
@@ -421,6 +443,8 @@ class SubmissionResult(BaseModel):
 class SubmissionResponse(BaseModel):
     op: Literal["generate-submission"] = "generate-submission"
     result: SubmissionResult
+    download: Optional[DownloadRef] = Field(
+        None, description="Bundle + URLs for fetching the submission output over HTTP.")
     model_config = ConfigDict(extra="forbid")
 
 

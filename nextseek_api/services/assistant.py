@@ -1188,7 +1188,48 @@ class AssistantViewSet(viewsets.ViewSet):
             logger.exception("granular op %s failed", op)
             return _op_error_response("AGENT_FAILED", str(e), status.HTTP_502_BAD_GATEWAY)
 
-        return Response({"op": op, "result": result}, status=status.HTTP_200_OK)
+        resp_body = {"op": op, "result": result}
+        # report/generate-submission produce artifacts; register a bundle so they
+        # are fetchable over HTTP via download_artifact, and hand back the URLs.
+        if op in ("report", "generate-submission"):
+            resp_body["download"] = self._register_artifact_bundle(request, req, op, result)
+        return Response(resp_body, status=status.HTTP_200_OK)
+
+    def _register_artifact_bundle(self, request, req, op: str, result) -> dict:
+        """Persist a lightweight bundle in the caller's chat session so the op's
+        outputs are downloadable via the (ownership-checked) download_artifact
+        endpoint. Returns ``{session_id, bundle_id, artifacts:[{key,url}]}``."""
+        session_id = getattr(req, "session_id", None)
+        chat_session = None
+        if session_id:
+            try:
+                chat_session = ChatSession.objects.get(session_id=session_id, user=request.user)
+            except ChatSession.DoesNotExist:
+                chat_session = None
+        if chat_session is None:
+            chat_session = ChatSession.objects.create(user=request.user)
+
+        history = chat_session.results_history or []
+        bundle_id = max((b.get("id", 0) for b in history if isinstance(b, dict)), default=0) + 1
+        saved_files = result.get("saved_files") if isinstance(result, dict) else None
+        if op == "report":
+            bundle = {"id": bundle_id, "mode": "reporter",
+                      "report_saved_files": saved_files or {}, "report_writer_output": {}}
+        else:  # generate-submission — the structured output drives on-the-fly table xlsx
+            bundle = {"id": bundle_id, "mode": "generate-submission",
+                      "report_saved_files": {}, "report_writer_output": result}
+        history.append(bundle)
+        chat_session.results_history = history
+        chat_session.save(update_fields=["results_history", "updated_at"])
+
+        base = (f"/nextseek_api/assistant/sessions/{chat_session.session_id}"
+                f"/bundles/{bundle_id}/artifacts")
+        artifacts = [{"key": k, "url": f"{base}/{k}/"} for k in (saved_files or {})]
+        if op == "generate-submission":
+            # The submission output has no on-disk file; expose it as a combined xlsx.
+            artifacts.append({"key": "all_tables", "url": f"{base}/all_tables/"})
+        return {"session_id": str(chat_session.session_id), "bundle_id": bundle_id,
+                "artifacts": artifacts}
 
     @extend_schema(
         operation_id="Assistant: Entity Extract",

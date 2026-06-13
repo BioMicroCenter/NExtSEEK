@@ -5,11 +5,16 @@ They cover the HTTP envelope, request validation (422), the write-blocked path
 (403 + WRITE_BLOCKED, agent never called), and auth (401/403). The real-stack
 provenance + write-DB-unchanged proofs live in the paid acceptance tier.
 """
+import uuid
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase
 from rest_framework.test import APIClient
+
+from nextseek_api.assistant.models_db import ChatSession
 
 
 def _dumpable(payload):
@@ -149,6 +154,66 @@ class SubmissionEndpointTests(GranularEndpointBase):
         resp = self.client.post(f"{self.BASE}/generate-submission/",
                                 {"type": "BOGUS", "uids": "X-1"}, format="json")
         self.assertEqual(resp.status_code, 422)
+
+
+class ArtifactBundleRegistrationTests(GranularEndpointBase):
+    """report / generate-submission must register a downloadable bundle so dmac can
+    fetch the produced artifacts over HTTP (closes the no-HTTP-download-path gap)."""
+
+    def test_report_registers_bundle_and_url_serves_the_file(self):
+        out = Path(settings.BASE_DIR) / "outputs" / "granular_bundle_test"
+        out.mkdir(parents=True, exist_ok=True)
+        f = out / f"{uuid.uuid4().hex}.json"
+        f.write_text('{"samples": {"rows_returned": 3}}')
+        try:
+            with patch("chat_nextseek.helpers.run_reporter_summary",
+                       return_value=({"ok": True}, {"published_report": str(f)},
+                                     {"summary_mode": "published"})):
+                resp = self.client.post(f"{self.BASE}/report/",
+                                        {"mode": "published", "project": "Published Data"},
+                                        format="json")
+            self.assertEqual(resp.status_code, 200, resp.content)
+            dl = resp.json()["download"]
+            self.assertTrue(dl["session_id"])
+            self.assertEqual(dl["bundle_id"], 1)
+            keys = {a["key"]: a["url"] for a in dl["artifacts"]}
+            self.assertIn("published_report", keys)
+            # a bundle is really persisted
+            cs = ChatSession.objects.get(session_id=dl["session_id"])
+            self.assertEqual(cs.results_history[0]["report_saved_files"]["published_report"], str(f))
+            # the returned URL actually serves the file bytes
+            resp2 = self.client.get(keys["published_report"])
+            self.assertEqual(resp2.status_code, 200)
+            body = b"".join(resp2.streaming_content) if resp2.streaming else resp2.content
+            self.assertIn(b"rows_returned", body)
+        finally:
+            f.unlink(missing_ok=True)
+
+    def test_generate_submission_registers_bundle_with_output(self):
+        with patch("chat_nextseek.portable.report_writer_agent",
+                   return_value=_dumpable({"report_type": "GEO",
+                                           "report": {"samples": [{"uid": "X-1"}]},
+                                           "narrative": "", "notes": ""})):
+            resp = self.client.post(f"{self.BASE}/generate-submission/",
+                                    {"type": "GEO", "uids": "X-1"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        dl = resp.json()["download"]
+        self.assertTrue(dl["session_id"])
+        self.assertEqual(dl["bundle_id"], 1)
+        cs = ChatSession.objects.get(session_id=dl["session_id"])
+        self.assertEqual(cs.results_history[0]["report_writer_output"]["report_type"], "GEO")
+        # the submission output is downloadable as a combined xlsx
+        keys = {a["key"]: a["url"] for a in dl["artifacts"]}
+        self.assertIn("all_tables", keys)
+        resp2 = self.client.get(keys["all_tables"])
+        self.assertEqual(resp2.status_code, 200)
+        self.assertIn("spreadsheetml", resp2["Content-Type"])
+
+    def test_entity_has_no_download_field(self):
+        with patch("chat_nextseek.portable.entity_agent",
+                   return_value=_dumpable({"sampletypes": [], "assays": [], "keywords": [], "projects": []})):
+            resp = self.client.post(f"{self.BASE}/entity/", {"query": "x"}, format="json")
+        self.assertNotIn("download", resp.json())
 
 
 class AuthTests(GranularEndpointBase):
