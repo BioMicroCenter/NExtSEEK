@@ -102,6 +102,35 @@ def compose_exec(
     return result.stdout if isinstance(result.stdout, str) else result.stdout.decode()
 
 
+def compose_port(
+    service: str,
+    container_port: int,
+    project_dir: str | Path,
+    env: dict[str, str],
+) -> int:
+    """Return the host port that <service>'s <container_port> is published on.
+
+    Wraps `docker compose port <service> <container_port>`, whose output looks
+    like ``0.0.0.0:7687`` (possibly one line per address family). Used to find
+    the dynamically-allocated bolt port (see startup.lib.ports.allocate_ports)
+    so a host-side client can connect.
+    """
+    result = subprocess.run(
+        ["docker", "compose", "port", service, str(container_port)],
+        cwd=str(project_dir),
+        env=_build_env(env),
+        capture_output=True,
+        text=True,
+    )
+    _check(result, f"docker compose port {service} {container_port}")
+    lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
+    if not lines:
+        raise DockerOpsError(
+            f"docker compose port {service} {container_port}: no published mapping found"
+        )
+    return int(lines[-1].rsplit(":", 1)[-1])
+
+
 def volume_exists(name: str) -> bool:
     """True if `docker volume inspect <name>` succeeds."""
     result = subprocess.run(

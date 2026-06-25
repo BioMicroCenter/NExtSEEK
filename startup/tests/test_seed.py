@@ -11,6 +11,8 @@ from startup.steps.seed import (
     seed_files_present,
     mysql_db_is_populated,
     neo4j_is_populated,
+    parse_neo4j_cypher_dump,
+    _cypher_map_to_dict,
 )
 
 
@@ -62,3 +64,67 @@ def test_neo4j_is_populated_true_when_nodes_exist(mock_exec: MagicMock) -> None:
 def test_neo4j_is_populated_false_when_zero(mock_exec: MagicMock) -> None:
     mock_exec.return_value = "count\n0\n"
     assert neo4j_is_populated(neo4j_password="x", repo_root=Path("/repo"), env={}) is False
+
+
+# --- Neo4j cypher-dump parser ---------------------------------------------------
+
+def test_parse_nodes_grouped_by_labelset_with_props() -> None:
+    dump = (
+        'CREATE (n0:Sample:_ImportRef {`id`: 5, `uuid`: "AB-1", `_exportId`: 0});\n'
+        'CREATE (n1:Sample:_ImportRef {`id`: 6, `uuid`: "AB-2", `_exportId`: 1});\n'
+        'CREATE (n2:Study:_ImportRef {`title`: "S1", `_exportId`: 2});\n'
+    )
+    nodes, rels = parse_neo4j_cypher_dump(dump)
+    assert rels == {}
+    assert set(nodes) == {":Sample:_ImportRef", ":Study:_ImportRef"}
+    assert len(nodes[":Sample:_ImportRef"]) == 2
+    assert nodes[":Sample:_ImportRef"][0] == {"id": 5, "uuid": "AB-1", "_exportId": 0}
+    assert nodes[":Study:_ImportRef"][0] == {"title": "S1", "_exportId": 2}
+
+
+def test_parse_relationships_with_and_without_props_grouped_by_type() -> None:
+    dump = (
+        "MATCH (a:_ImportRef {`_exportId`: 1}) MATCH (b:_ImportRef {`_exportId`: 2}) "
+        "CREATE (a)-[:IN_STUDY]->(b);\n"
+        "MATCH (a:_ImportRef {`_exportId`: 3}) MATCH (b:_ImportRef {`_exportId`: 4}) "
+        'CREATE (a)-[:DERIVED_FROM {`protocol_id`: 7, `note`: "x"}]->(b);\n'
+    )
+    nodes, rels = parse_neo4j_cypher_dump(dump)
+    assert nodes == {}
+    assert rels["IN_STUDY"] == [{"a": 1, "b": 2, "props": {}}]
+    assert rels["DERIVED_FROM"] == [{"a": 3, "b": 4, "props": {"protocol_id": 7, "note": "x"}}]
+
+
+def test_parse_skips_index_and_cleanup_scaffolding() -> None:
+    dump = (
+        'CREATE (n0:Sample:_ImportRef {`_exportId`: 0});\n'
+        "CREATE INDEX _import_ref_eid_idx IF NOT EXISTS FOR (n:_ImportRef) ON (n._exportId);\n"
+        "MATCH (n:_ImportRef) REMOVE n:_ImportRef, n._exportId;\n"
+        "DROP INDEX _import_ref_eid_idx IF EXISTS;\n"
+    )
+    nodes, rels = parse_neo4j_cypher_dump(dump)
+    assert list(nodes) == [":Sample:_ImportRef"]
+    assert rels == {}
+
+
+def test_parse_raises_on_unrecognized_statement() -> None:
+    with pytest.raises(ValueError):
+        parse_neo4j_cypher_dump("DELETE everything;\n")
+
+
+def test_cypher_map_tolerates_literal_control_char_in_value() -> None:
+    # dump_neo4j.py's _escape does not escape tabs; strict JSON would reject them.
+    parsed = _cypher_map_to_dict('{`desc`: "a\tb"}')
+    assert parsed == {"desc": "a\tb"}
+
+
+def test_cypher_map_does_not_treat_backtick_inside_string_as_key() -> None:
+    parsed = _cypher_map_to_dict('{`name`: "has `backtick` inside"}')
+    assert parsed == {"name": "has `backtick` inside"}
+
+
+def test_cypher_map_value_types() -> None:
+    parsed = _cypher_map_to_dict(
+        '{`i`: 3, `f`: 1.5, `s`: "txt", `b`: true, `n`: null, `lst`: [1, 2]}'
+    )
+    assert parsed == {"i": 3, "f": 1.5, "s": "txt", "b": True, "n": None, "lst": [1, 2]}
