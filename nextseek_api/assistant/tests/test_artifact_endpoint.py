@@ -5,6 +5,7 @@ import tempfile
 from unittest.mock import patch
 
 import openpyxl
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase
 from rest_framework.test import APIClient
@@ -35,10 +36,10 @@ class DownloadArtifactEndpointTests(TestCase):
         from pathlib import Path
         wb = openpyxl.Workbook()
         wb.active.cell(1, 1, value="test")
-        # Create temp file under home dir (path traversal check requires this)
-        home_tmp = Path.home() / ".cache" / "test_artifacts"
-        home_tmp.mkdir(parents=True, exist_ok=True)
-        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False, dir=str(home_tmp))
+        # Create temp file under the allowed artifact root (<BASE_DIR>/outputs).
+        out_tmp = Path(settings.BASE_DIR) / "outputs" / "test_artifacts"
+        out_tmp.mkdir(parents=True, exist_ok=True)
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False, dir=str(out_tmp))
         wb.save(tmp.name)
         tmp.close()
         try:
@@ -112,7 +113,8 @@ class DownloadArtifactEndpointTests(TestCase):
 
     def test_missing_file_returns_404(self):
         from pathlib import Path
-        missing = str(Path.home() / ".cache" / "nonexistent_workbook.xlsx")
+        # Contained within the allowed root but absent -> 404 (not 403).
+        missing = str(Path(settings.BASE_DIR) / "outputs" / "nonexistent_workbook.xlsx")
         self._set_bundle({
             "id": 1,
             "mode": "reporter",
