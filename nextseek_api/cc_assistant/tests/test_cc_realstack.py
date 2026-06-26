@@ -113,9 +113,12 @@ class CCRealStackAcceptance(TestCase):
     def test_01_real_baml_router_decides_container_cc(self):
         """The REAL router (not the heuristic fallback) classifies an agentic
         task as container_cc and pins Opus."""
-        query = ("Write a small Python script that prints the first 10 prime "
-                 "numbers, save it to primes.py in the working directory, run it, "
-                 "and show me the output.")
+        # Lab-related AND agentic (code execution + file I/O on NExtSEEK data), so
+        # it routes to container_cc rather than the deterministic nextseek_query
+        # pipeline — and is on-topic, so the router's Unrelated guard won't reject it.
+        query = ("Write and run a Python script that pulls the published samples "
+                 "from NExtSEEK and saves to a file the UIDs of any that are missing "
+                 "an 'organism' value, then tell me the output file path.")
         decision = cc_router.decide(query)
         (self.evid / "routed_route_decided.json").write_text(json.dumps({
             "route": decision.route, "source": decision.source,
