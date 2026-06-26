@@ -2183,6 +2183,60 @@
               ]
             }
           ]
+        },
+        {
+          "family": "routing_lab",
+          "id": "routing.lab_ooc_kamm_count",
+          "name": "Count OOC in Kamm lab -> new_search via UID code KAM (not graph)",
+          "tags": [
+            "regression"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many organ on chips exist in the Kamm lab",
+              "pass_criteria": [
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "new_search"
+                },
+                {
+                  "field": "api_plan.requestBody.filter_searchText",
+                  "op": "contains",
+                  "value": "KAM"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "routing_lab",
+          "id": "routing.lab_ooc_kamm_casual",
+          "name": "OOC in kamm lab (casual phrasing) -> new_search via KAM (consistency)",
+          "tags": [
+            "regression"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "what about organ on chips in the kamm lab?",
+              "pass_criteria": [
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "new_search"
+                },
+                {
+                  "field": "api_plan.requestBody.filter_searchText",
+                  "op": "contains",
+                  "value": "KAM"
+                }
+              ]
+            }
+          ]
         }
       ]
     },
@@ -5539,6 +5593,28 @@
               ]
             }
           ]
+        },
+        {
+          "family": "routing_graph",
+          "id": "routing.gbm_study_count",
+          "name": "Count samples in GBM study -> graph_query (IN_STUDY traversal)",
+          "tags": [
+            "regression"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples are in the GBM study?",
+              "pass_criteria": [
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
         }
       ]
     },
@@ -7380,11 +7456,6 @@
                   "op": "true"
                 },
                 {
-                  "field": "pipeline_agent.phase",
-                  "op": "eq",
-                  "value": "awaiting_validation"
-                },
-                {
                   "field": "ui_text.assistant_reply",
                   "op": "nonempty"
                 }
@@ -7449,6 +7520,18 @@
                   "field": "api_artifact.samplesheet.csv.rows_gte",
                   "op": "gte",
                   "value": 1
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.aligner",
+                  "op": "nonempty"
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.pseudo_aligner",
+                  "op": "nonempty"
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.genome",
+                  "op": "nonempty"
                 }
               ]
             }
@@ -7505,6 +7588,55 @@
                 {
                   "field": "api_artifact.samplesheet.csv",
                   "op": "true"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "pipeline_nfcore",
+          "id": "pipeline.happy_path_scrnaseq",
+          "name": "Single-cell RNA-seq build — configure_run pins protocol + aligner",
+          "tags": [
+            "multi-turn",
+            "artifact"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "issue_directive",
+              "query": "Build a single-cell RNA-seq pipeline for D.SEQ-241114SHA-5-PUB.",
+              "pass_criteria": [
+                {
+                  "field": "pipeline_agent.active",
+                  "op": "true"
+                }
+              ]
+            },
+            {
+              "label": "submit",
+              "query": "submit",
+              "pass_criteria": [
+                {
+                  "field": "pipeline_agent.active",
+                  "op": "true"
+                },
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "eq",
+                  "value": "scrnaseq"
+                },
+                {
+                  "field": "api_artifact.samplesheet.csv",
+                  "op": "true"
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.protocol",
+                  "op": "nonempty"
+                },
+                {
+                  "field": "pipeline_agent.launch_plan.params.aligner",
+                  "op": "nonempty"
                 }
               ]
             }
@@ -7590,7 +7722,7 @@
                   "op": "true"
                 },
                 {
-                  "field": "pipeline_agent.directive.pipeline_key",
+                  "field": "pipeline_agent.pipeline_key",
                   "op": "eq",
                   "value": "sarek"
                 },

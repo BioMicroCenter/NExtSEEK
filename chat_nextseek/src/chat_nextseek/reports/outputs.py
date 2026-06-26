@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from ..artifacts import ArtifactStore
 from ..config import ChatConfig
-from ..schemas import ReportWriterPlan
+from ..schemas import ReportWriterPlan, ReportWriterOutput, ReportWriterOutputGEO
 from .metadata import (
     annotate_metadata_with_sampletypes,
     build_metadata_summary,
@@ -36,6 +36,85 @@ from .templates_meta import (
     nfcore_pipeline_from_report_type,
     normalize_report_type,
 )
+
+
+# Report types that emit one row per sample of a target type, and the type whose
+# count drives the deterministic code path. Above this many samples, the report_writer
+# LLM tends to truncate the list, so the report_coder generates rows deterministically.
+_TARGET_TYPE_FOR_REPORT = {"GEO": "D.SEQ", "SRA": "D.SEQ", "PRIDE": "D.MSP"}
+_REPORT_CODE_PATH_THRESHOLD = 20
+
+# The per-sample row list key in each report body (one entry per target-type sample).
+# Used for the row-parity guard so the code path works for SRA/PRIDE, not just GEO.
+_ROW_KEY_FOR_REPORT = {"GEO": "samples", "SRA": "libraries", "PRIDE": "sample_metadata"}
+
+
+def _count_target_samples(metadata: dict | None, target_type: str) -> int:
+    try:
+        groups = ((metadata or {}).get("data") or {}).get("data") or []
+        for group in groups:
+            if group.get("sample_type") == target_type:
+                return len(group.get("samples") or [])
+    except Exception:
+        pass
+    return 0
+
+
+def _wrap_report_result(report_type_value, result: dict, coder_output):
+    canonical = normalize_report_type(report_type_value)
+    narrative = coder_output.result_description or None
+    notes = coder_output.notes or ""
+    if canonical == "GEO":
+        return ReportWriterOutputGEO(report_type=canonical, report=result or {}, narrative=narrative, notes=notes)
+    return ReportWriterOutput(report_type=canonical, report=result or {}, narrative=narrative, notes=notes)
+
+
+def _produce_report_output(
+    *,
+    config,
+    user_query,
+    report_type_value,
+    reporter_context,
+    template_for_llm,
+    metadata,
+    report_writer_fn,
+    report_coder_fn=None,
+    notes="",
+    log_dir=None,
+):
+    """Gate between the deterministic code path (large submissions) and the LLM
+    report_writer (small submissions / fallback). Returns a report-writer output model."""
+    canonical = normalize_report_type(report_type_value)
+    target_type = _TARGET_TYPE_FOR_REPORT.get(canonical)
+    count = _count_target_samples(metadata, target_type) if target_type else 0
+
+    if report_coder_fn is not None and target_type and count > _REPORT_CODE_PATH_THRESHOLD:
+        print(f"[DEBUG][REPORT_CODER] {canonical}: {count} {target_type} samples > "
+              f"{_REPORT_CODE_PATH_THRESHOLD}; using code path.")
+        try:
+            from ..helpers.tools.report_code import execute_report_code
+            coder_output = report_coder_fn(
+                config, user_query=user_query, report_type=report_type_value,
+                template=template_for_llm, metadata=metadata, log_dir=log_dir,
+            )
+            result = execute_report_code(coder_output.extraction_code, metadata)
+            row_key = _ROW_KEY_FOR_REPORT.get(canonical, "samples")
+            rows = (result or {}).get(row_key)
+            if isinstance(rows, list) and len(rows) == count:
+                print(f"[DEBUG][REPORT_CODER] Emitted {len(rows)} '{row_key}' rows (parity OK).")
+                return _wrap_report_result(report_type_value, result, coder_output)
+            got = len(rows) if isinstance(rows, list) else "n/a"
+            print(f"[DEBUG][REPORT_CODER] Row parity failed for '{row_key}' (got {got}, want {count}); "
+                  "falling back to report_writer.")
+        except Exception as e:
+            print(f"[DEBUG][REPORT_CODER] Code path failed; falling back to report_writer: {e!r}")
+
+    report_writer_plan = ReportWriterPlan(
+        report_type=report_type_value,
+        reporter_context=reporter_context,
+        notes=notes,
+    )
+    return report_writer_fn(config, user_query, report_writer_plan, template_for_llm)
 
 
 def persist_report_file(
@@ -91,6 +170,7 @@ def generate_report_outputs(
     uids: list[str],
     log_dir: str | Path,
     report_writer_fn: Callable[[ChatConfig, str, ReportWriterPlan, dict | None], Any],
+    report_coder_fn=None,
     per_sample_reports: bool = True,
     pre_supplied_cohorts: list[dict] | None = None,
 ) -> tuple[dict, dict | Any, dict[str, str], str]:
@@ -306,15 +386,21 @@ def generate_report_outputs(
                 reporter_context["accession_rows"] = nfcore_state["accession_rows"]
                 reporter_context["nfcore_selector_rationale"] = nfcore_state["selector_rationale"]
                 reporter_context["nfcore_metadata_summary"] = nfcore_state.get("deg_summary") or nfcore_state.get("metadata_summary") or {}
-            report_writer_plan = ReportWriterPlan(
-                report_type=report_type_value,
-                reporter_context=reporter_context,
-                notes=getattr(reporter_plan, "notes", ""),
-            )
-            template = load_report_template(config, report_writer_plan.report_type)
+            template = load_report_template(config, report_type_value)
             template_for_llm = {k: v for k, v in (template or {}).items() if k != "schema"}
             print("[DEBUG][REPORT_WRITER] Using template keys (schema stripped):", list(template_for_llm.keys()), "uid:", uid)
-            report_writer_output = report_writer_fn(config, user_query, report_writer_plan, template_for_llm)
+            report_writer_output = _produce_report_output(
+                config=config,
+                user_query=user_query,
+                report_type_value=report_type_value,
+                reporter_context=reporter_context,
+                template_for_llm=template_for_llm,
+                metadata=meta,
+                report_writer_fn=report_writer_fn,
+                report_coder_fn=report_coder_fn,
+                notes=getattr(reporter_plan, "notes", ""),
+                log_dir=log_dir,
+            )
             per_uid_reports.append(
                 {
                     "uid": uid,
@@ -340,15 +426,21 @@ def generate_report_outputs(
             "parser_plan": plan_dump,
             "reporter_plan": reporter_plan.model_dump() if hasattr(reporter_plan, "model_dump") else {},
         }
-        report_writer_plan = ReportWriterPlan(
-            report_type=report_type_value,
-            reporter_context=reporter_context,
-            notes=getattr(reporter_plan, "notes", ""),
-        )
-        template = load_report_template(config, report_writer_plan.report_type)
+        template = load_report_template(config, report_type_value)
         template_for_llm = {k: v for k, v in (template or {}).items() if k != "schema"}
         print("[DEBUG][REPORT_WRITER] Using template keys (schema stripped):", list(template_for_llm.keys()), "uid: ALL")
-        combined_output = report_writer_fn(config, user_query, report_writer_plan, template_for_llm)
+        combined_output = _produce_report_output(
+            config=config,
+            user_query=user_query,
+            report_type_value=report_type_value,
+            reporter_context=reporter_context,
+            template_for_llm=template_for_llm,
+            metadata=meta,
+            report_writer_fn=report_writer_fn,
+            report_coder_fn=report_coder_fn,
+            notes=getattr(reporter_plan, "notes", ""),
+            log_dir=log_dir,
+        )
         per_uid_reports.append(
             {
                 "uid": None,

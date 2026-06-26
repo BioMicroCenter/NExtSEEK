@@ -57,6 +57,7 @@ def enumerate_lineage_leaves(
                 "sample_type": st,
                 "assay": str(assay),
                 "source_uid": source_uid,
+                "metadata": md if isinstance(md, dict) else {},
             })
         for child in sample.get("children") or []:
             # Children's sample_type comes from the inner-block annotation OR
@@ -66,7 +67,15 @@ def enumerate_lineage_leaves(
             child_st = (child.get("metadata") or {}).get("sample_type") or st
             _walk(child, source_uid, child_st)
 
-    for block in (metadata_bundle or {}).get("data") or []:
+    # The blocks may sit at bundle["data"] (one-level, as in unit fixtures) OR at
+    # bundle["data"]["data"] (the real API body: fetch_reporter_metadata returns
+    # {"ok":..., "data": {"total_samples":..., "data": [blocks]}}, which
+    # annotate_metadata_with_sampletypes preserves). Unwrap the body dict so we
+    # iterate the sample-type blocks, not the body's string keys.
+    data = (metadata_bundle or {}).get("data")
+    if isinstance(data, dict):
+        data = data.get("data")
+    for block in data if isinstance(data, list) else []:
         if not isinstance(block, dict):
             continue
         block_type = block.get("sample_type")

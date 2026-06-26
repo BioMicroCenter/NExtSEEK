@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from .text import strip_html
@@ -164,3 +165,69 @@ def normalize_api_result_for_memory(api_result: dict, min_rows_for_norm: int = 1
         "rows": normalized_rows,
         "note": "Normalized for memory agent; metadata flattened from json_metadata; HTML removed.",
     }
+
+
+def summarize_pinned_bundle(session) -> str:
+    """One-line summary of the user's most recent results bundle. '' when none.
+
+    Moved from pipeline/agent.py — generic results-history knowledge.
+    """
+    history = session.get("results_history") or []
+    if not isinstance(history, list) or not history:
+        return ""
+    last = history[-1]
+    if not isinstance(last, dict):
+        return ""
+    user_q = last.get("user_query") or ""
+    data = (last.get("api_result_full") or {}).get("data") or {}
+    # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'; others 'rows'.
+    rows = data.get("rows") or data.get("samples") or data.get("nodes") or []
+    return f"last search: query={user_q!r}, ~{len(rows) if isinstance(rows, list) else 0} rows"
+
+
+def uids_from_last_search(session) -> list[str]:
+    """Extract sample UIDs from the most recent results bundle that has any.
+
+    Walks results_history in reverse; reads api_result_full.data rows
+    (keys rows/nodes/data), strips HTML, falls back to reporter_plan.uids
+    then parser_plan.filters.uids. Moved from pipeline/agent.py.
+    """
+    history = session.get("results_history") or []
+    if not isinstance(history, list):
+        return []
+    for bundle in reversed(history):
+        if not isinstance(bundle, dict):
+            continue
+        api_full = bundle.get("api_result_full") or {}
+        data = api_full.get("data") if isinstance(api_full, dict) else None
+        rows = []
+        if isinstance(data, dict):
+            # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'.
+            for key in ("rows", "nodes", "data", "samples"):
+                val = data.get(key)
+                if isinstance(val, list):
+                    rows = val
+                    break
+        elif isinstance(data, list):
+            rows = data
+        out: list[str] = []
+        for row in rows or []:
+            if isinstance(row, dict):
+                uid = row.get("uid") or row.get("UID") or row.get("uuid") or row.get("sample_uid")
+                if uid:
+                    out.append(re.sub(r"<[^>]+>", "", str(uid)).strip())
+            elif isinstance(row, str):
+                out.append(re.sub(r"<[^>]+>", "", row).strip())
+        if not out:
+            rp = bundle.get("reporter_plan")
+            plan_uids = rp.get("uids") if isinstance(rp, dict) else None
+            if not (isinstance(plan_uids, list) and plan_uids):
+                pp = bundle.get("parser_plan")
+                filt = pp.get("filters") if isinstance(pp, dict) else None
+                plan_uids = filt.get("uids") if isinstance(filt, dict) else None
+            for uid in plan_uids or []:
+                if isinstance(uid, str) and uid.strip():
+                    out.append(re.sub(r"<[^>]+>", "", uid).strip())
+        if out:
+            return out
+    return []

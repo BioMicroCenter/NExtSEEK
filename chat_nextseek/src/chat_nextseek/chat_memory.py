@@ -226,7 +226,9 @@ def format_for_prompt(turns: list[dict[str, Any]]) -> str:
         header = f"- turn {turn.get('turn_id', '?')} ({turn.get('mode') or 'unknown'})"
         if turn.get("wizard_state"):
             ws = turn["wizard_state"]
-            header += f" [wizard step={ws.get('step')}]"
+            step = ws.get("step")
+            if step is not None:
+                header += f" [wizard step={step}]"
         lines.append(header)
         if turn.get("user_query"):
             lines.append(f"  user: {turn['user_query']}")

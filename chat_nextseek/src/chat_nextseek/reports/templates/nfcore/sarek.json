@@ -1,6 +1,12 @@
 {
   "report_type": "NFCORE_SAREK_SAMPLESHEET",
   "description": "nf-core/sarek samplesheet context for germline + somatic variant calling.",
+  "params": {
+    "tools":          {"type": "string", "default": null, "steerable": true, "help": "comma list, e.g. strelka,mutect2"},
+    "wes":            {"type": "bool", "default": false, "steerable": true},
+    "save_reference": {"type": "bool", "default": true, "steerable": true}
+  },
+  "reference_resources": ["fasta", "fasta_fai", "dict", "bwa", "dbsnp", "known_indels"],
   "pipeline": {
     "name": "nf-core/sarek",
     "repository": "https://github.com/nf-core/sarek",
