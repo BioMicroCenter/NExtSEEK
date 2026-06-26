@@ -394,7 +394,16 @@ def run_cc_turn(
     # Per-run working dir lives under the user's scratch. Create it via the
     # nextseek-container mount so it exists on the host before the CC container
     # (which mounts the same host dir) starts.
-    (scratch_mount / user_id / run_id).mkdir(parents=True, exist_ok=True)
+    user_scratch = scratch_mount / user_id
+    (user_scratch / run_id).mkdir(parents=True, exist_ok=True)
+    # The Django container runs as root; the agent runs as the unprivileged image
+    # user (uid 1001). Make the per-user scratch writable by the agent so it can
+    # create artifacts under /data/scratch (best-effort; dev-instance scratch).
+    for _p in (user_scratch, user_scratch / run_id):
+        try:
+            os.chmod(_p, 0o777)
+        except OSError:
+            pass
 
     # Bind mounts for the CC sibling container (sources are HOST paths).
     volumes: dict[str, dict[str, str]] = {}
