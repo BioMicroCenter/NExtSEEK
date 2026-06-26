@@ -141,6 +141,16 @@ class CCAssistantViewSet(viewsets.ViewSet):
                     "source": decision.source,
                 })
 
+                if decision.route == cc_router.ROUTE_UNRELATED:
+                    # OI-4: out-of-scope query — never runs NS or CC; emit the
+                    # canned out-of-scope reply and finish (mirrors dmac ws.py).
+                    send_event("query_complete", {
+                        "reply": cc_router.UNRELATED_CANNED_TEXT,
+                        "bundle_id": None,
+                        "session_id": resolved_session_id,
+                    })
+                    return
+
                 if decision.route == cc_router.ROUTE_NS:
                     ran_ns = True
                     creds = {"api_user": api_user, "api_pass": api_pass}

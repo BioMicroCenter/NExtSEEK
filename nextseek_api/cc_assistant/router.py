@@ -28,7 +28,18 @@ logger = logging.getLogger(__name__)
 
 ROUTE_NS = "nextseek_query"
 ROUTE_CC = "container_cc"
+ROUTE_UNRELATED = "unrelated"
 _FALLBACK_SENTINEL = "<router_unavailable>"
+
+# OI-4 (ports dmac_assistant/ws.py): a query the BAML router classifies as
+# `unrelated` never reaches NS or CC — the caller emits this fixed reply instead.
+UNRELATED_CANNED_TEXT = (
+    "I'm the NExtSEEK research assistant for the MIT BioMicro Center. I can "
+    "help with the lab's samples, projects, studies, sequencing and other "
+    "research data, lineage, and related analysis tasks — but that question "
+    "is outside that scope, so I can't help with it here. Try asking about "
+    "your lab's samples, projects, or data."
+)
 
 # Keyword heuristic used only when BAML routing is unavailable.
 _CC_PATTERNS = re.compile(
@@ -142,11 +153,12 @@ def _baml_decision(query: str) -> RouteDecision | None:
         # dmac's own fallback fired; prefer our heuristic over its CC default.
         return None
 
-    # 3-route world (post-OI-3): NextseekQuery -> NS; ContainerCC -> CC.
-    # Unrelated -> NS (cost-safe: deterministic pipeline, no paid agent spawn for
-    # off-topic queries). The router's classification is still honored/recorded.
+    # 3-route world: NextseekQuery -> NS; ContainerCC -> CC; Unrelated -> a canned
+    # out-of-scope reply (OI-4 — never reaches NS or CC; the caller emits the text).
     if decision.route == Route.ContainerCC:
         route = ROUTE_CC
+    elif decision.route == Route.Unrelated:
+        route = ROUTE_UNRELATED
     else:
         route = ROUTE_NS
     return RouteDecision(
