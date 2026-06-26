@@ -4,12 +4,17 @@ uv run manage.py collectstatic --noinput
 
 uv run manage.py migrate --noinput
 
-# ASGI server (daphne) instead of gunicorn/WSGI so the assistant websocket
-# (ws/assistant/progress/{task_id}/) is actually served — dmac/asgi.py already
-# wires http + websocket via Channels. This is what makes "maintain websockets"
-# true; gunicorn dmac.wsgi could not serve the WS path (frontend fell back to
-# polling). daphne is already a project dependency.
-uv run daphne -b 0.0.0.0 -p 8000 dmac.asgi:application &
+# Web server, selectable via NEXTSEEK_SERVER (default: daphne).
+#   daphne   — ASGI (dmac.asgi); serves the assistant WebSocket
+#              (ws/assistant/progress/{task_id}/) live. The integration default.
+#   gunicorn — WSGI (dmac.wsgi); multi-worker, no WebSocket. The chat frontend
+#              auto-falls back to HTTP polling (chatApi.ts), so the assistant
+#              still works; lower-risk drop-in for a shared/multi-user instance.
+if [ "${NEXTSEEK_SERVER:-daphne}" = "gunicorn" ]; then
+  uv run gunicorn dmac.wsgi &
+else
+  uv run daphne -b 0.0.0.0 -p 8000 dmac.asgi:application &
+fi
 
 uv run celery -A nextseek_api.batch_upload.celery_app worker \
               --loglevel=info \
