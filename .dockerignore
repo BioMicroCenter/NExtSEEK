@@ -26,3 +26,11 @@ logs/
 # Git internals (build-context root)
 .git/
 .gitignore
+
+# Local runtime config / secrets — provided at runtime, never needed in the image:
+#   dmac/local_settings.py  is bind-mounted over /app/dmac/local_settings.py
+#   docker/db.env, docker/nextseek.env  are injected via compose env_file
+# Excluding them keeps plaintext config/secrets out of the `COPY . /app/` layer.
+dmac/local_settings.py
+docker/db.env
+docker/nextseek.env
