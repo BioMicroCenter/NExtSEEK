@@ -27,6 +27,7 @@ _FALLBACK_REASONING = "<router_unavailable>"
 _ROUTE_ALIAS: dict[Route, str] = {
     Route.NextseekQuery: "nextseek_query",
     Route.ContainerCC: "container_cc",
+    Route.Unrelated: "unrelated",
 }
 
 

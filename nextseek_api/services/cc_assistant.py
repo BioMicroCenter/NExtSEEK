@@ -126,9 +126,11 @@ class CCAssistantViewSet(viewsets.ViewSet):
             ran_ns = False
             try:
                 if force_cc:
+                    # CC always runs Opus (the only proxy-allowlisted model);
+                    # hardcoding sonnet here would 403 at the Bedrock proxy.
                     decision = cc_router.RouteDecision(
-                        route=cc_router.ROUTE_CC, model_class="sonnet",
-                        model_id=cc_router._resolve_model_id("sonnet"),
+                        route=cc_router.ROUTE_CC, model_class="opus",
+                        model_id=cc_router._resolve_cc_model_id(),
                         reasoning="forced", source="forced",
                     )
                 else:

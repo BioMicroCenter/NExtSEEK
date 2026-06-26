@@ -708,7 +708,7 @@ class RouteAst:
     def __init__(self, tb: type_builder.TypeBuilder):
         _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.enum("Route")
-        self._values: typing.Set[str] = set([  "NextseekQuery",  "ContainerCC",  ])
+        self._values: typing.Set[str] = set([  "NextseekQuery",  "ContainerCC",  "Unrelated",  ])
         self._vals = RouteValues(self._bldr, self._values)
 
     def type(self) -> baml_py.FieldType:
@@ -742,6 +742,10 @@ class RouteValues:
     @property
     def ContainerCC(self) -> type_builder.EnumValueViewer:
         return type_builder.EnumValueViewer(self.__bldr.value("ContainerCC"))
+    
+    @property
+    def Unrelated(self) -> type_builder.EnumValueViewer:
+        return type_builder.EnumValueViewer(self.__bldr.value("Unrelated"))
     
     
 

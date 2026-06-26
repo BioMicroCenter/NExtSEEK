@@ -122,6 +122,7 @@ class ReviewPriority(str, Enum):
 class Route(str, Enum):
     NextseekQuery = "NextseekQuery"
     ContainerCC = "ContainerCC"
+    Unrelated = "Unrelated"
 
 class RouterJudgeVerdict(str, Enum):
     Pass = "Pass"

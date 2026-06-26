@@ -78,6 +78,19 @@ def _resolve_model_id(model_class_key: str | None) -> str | None:
         return None
 
 
+def _resolve_cc_model_id() -> str | None:
+    """OI-5 / audit B1: the CC route ALWAYS runs the single auto-mode Opus tier —
+    the ONLY model the Bedrock auth-proxy allowlists. Pin it via resolve_cc_model()
+    so a router model_class of sonnet/haiku (or the heuristic's old sonnet default)
+    can never reach the proxy and get a 403."""
+    try:
+        from dmac_assistant.router.models import resolve_cc_model
+        return resolve_cc_model()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CC router: opus model-id resolution failed (%s)", type(exc).__name__)
+        return None
+
+
 def _heuristic(query: str) -> RouteDecision:
     """Keyword fallback when BAML routing is unavailable.
 
@@ -95,11 +108,12 @@ def _heuristic(query: str) -> RouteDecision:
         route = ROUTE_CC if _CC_PATTERNS.search(query.split()[0] if query.split() else "") else ROUTE_NS
     else:
         route = ROUTE_NS
-    model_id = _resolve_model_id("sonnet") if route == ROUTE_CC else None
     return RouteDecision(
         route=route,
-        model_class="sonnet" if route == ROUTE_CC else None,
-        model_id=model_id,
+        # CC is pinned to Opus (proxy-allowlisted); the heuristic no longer
+        # defaults to sonnet (which would 403 at the proxy).
+        model_class="opus" if route == ROUTE_CC else None,
+        model_id=_resolve_cc_model_id() if route == ROUTE_CC else None,
         reasoning="heuristic (BAML router unavailable)",
         source="heuristic",
     )
@@ -128,12 +142,19 @@ def _baml_decision(query: str) -> RouteDecision | None:
         # dmac's own fallback fired; prefer our heuristic over its CC default.
         return None
 
-    route = ROUTE_NS if decision.route == Route.NextseekQuery else ROUTE_CC
-    mc = decision.model_class.name.lower() if decision.model_class else None
+    # 3-route world (post-OI-3): NextseekQuery -> NS; ContainerCC -> CC.
+    # Unrelated -> NS (cost-safe: deterministic pipeline, no paid agent spawn for
+    # off-topic queries). The router's classification is still honored/recorded.
+    if decision.route == Route.ContainerCC:
+        route = ROUTE_CC
+    else:
+        route = ROUTE_NS
     return RouteDecision(
         route=route,
-        model_class=mc,
-        model_id=_resolve_model_id(mc) if route == ROUTE_CC else None,
+        # CC always Opus (proxy-allowlisted); the BAML model_class is not used to
+        # pick the CC model id (OI-5).
+        model_class="opus" if route == ROUTE_CC else None,
+        model_id=_resolve_cc_model_id() if route == ROUTE_CC else None,
         reasoning="baml",
         source="baml",
     )
