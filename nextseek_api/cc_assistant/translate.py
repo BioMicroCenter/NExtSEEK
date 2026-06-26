@@ -143,7 +143,10 @@ class CCStreamTranslator:
         return [(
             "query_complete",
             {"reply": reply or "(no response)", "bundle_id": None,
-             "session_id": self.session_id},
+             "session_id": self.session_id,
+             # Surface Claude Code's own accrued spend so the caller can ledger it
+             # (the per-turn cost lives only on the terminal `result` frame).
+             "total_cost_usd": payload.get("total_cost_usd")},
         )]
 
     # ------------------------------------------------------------------ helpers

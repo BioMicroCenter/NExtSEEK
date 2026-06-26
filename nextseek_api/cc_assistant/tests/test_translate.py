@@ -56,7 +56,14 @@ def test_result_success_emits_query_complete_with_result_text():
     frames = t.handle({"type": "result", "subtype": "success",
                        "result": "Final answer.", "session_id": "s1", "is_error": False})
     assert frames == [("query_complete", {"reply": "Final answer.", "bundle_id": None,
-                                          "session_id": "s1"})]
+                                          "session_id": "s1", "total_cost_usd": None})]
+
+
+def test_result_surfaces_total_cost_usd():
+    t = CCStreamTranslator()
+    frames = t.handle({"type": "result", "subtype": "success", "result": "ok",
+                       "is_error": False, "total_cost_usd": 0.1234})
+    assert frames[0][1]["total_cost_usd"] == 0.1234
 
 
 def test_result_success_without_result_field_falls_back_to_accumulated():
