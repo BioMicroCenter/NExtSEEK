@@ -503,7 +503,7 @@ def run_cc_turn(
             send_event("query_error", {
                 "error": f"Container-CC turn exceeded the {turn_timeout}s limit and was stopped.",
                 "reason": "exec_timeout", "agent": "container_cc",
-                "session_id": translator.session_id,
+                "cc_session_id": translator.session_id,
             })
             return
         if terminal is None:
@@ -515,7 +515,7 @@ def run_cc_turn(
 
         if terminal is None:
             terminal = ("query_complete", {"reply": "(no response)", "bundle_id": None,
-                                           "session_id": translator.session_id})
+                                           "cc_session_id": translator.session_id})
         event, data = terminal
         if event == "query_complete" and published:
             listing = "\n".join(f"- `{p}`" for p in published)
@@ -530,11 +530,11 @@ def run_cc_turn(
     except (APIError, NotFound) as exc:
         logger.exception("CC docker error")
         send_event("query_error", {"error": f"Container error: {type(exc).__name__}",
-                                   "agent": "container_cc", "session_id": translator.session_id})
+                                   "agent": "container_cc", "cc_session_id": translator.session_id})
     except Exception as exc:  # noqa: BLE001
         logger.exception("CC turn failed")
         send_event("query_error", {"error": f"Container-CC turn failed: {type(exc).__name__}",
-                                   "agent": "container_cc", "session_id": translator.session_id})
+                                   "agent": "container_cc", "cc_session_id": translator.session_id})
     finally:
         if container is not None:
             try:

@@ -56,7 +56,43 @@ def test_result_success_emits_query_complete_with_result_text():
     frames = t.handle({"type": "result", "subtype": "success",
                        "result": "Final answer.", "session_id": "s1", "is_error": False})
     assert frames == [("query_complete", {"reply": "Final answer.", "bundle_id": None,
-                                          "session_id": "s1", "total_cost_usd": None})]
+                                          "cc_session_id": "s1", "total_cost_usd": None})]
+
+
+def test_terminal_frames_omit_session_id_so_callback_fills_nextseek_id():
+    """The claude in-container session UUID must NOT occupy ``session_id``.
+
+    ``make_db_event_callback`` fills ``session_id`` with the NExtSEEK ChatSession
+    id via ``setdefault`` — which is a no-op if the key is already present. So the
+    translator must leave ``session_id`` absent on terminal frames and surface the
+    claude session under ``cc_session_id`` (kept for later ``--resume`` use). This
+    is the fix for the multi-turn 404 (the frontend promoted the new chat's active
+    session from the leaked container UUID).
+    """
+    # success path
+    t = CCStreamTranslator()
+    t.handle({"type": "system", "subtype": "init", "session_id": "cc-uuid"})
+    (event, data), = t.handle({"type": "result", "subtype": "success",
+                               "result": "ok", "is_error": False})
+    assert event == "query_complete"
+    assert "session_id" not in data            # setdefault must win downstream
+    assert data["cc_session_id"] == "cc-uuid"  # preserved for resume
+
+    # error path
+    t2 = CCStreamTranslator()
+    t2.handle({"type": "system", "subtype": "init", "session_id": "cc-uuid"})
+    (e_event, e_data), = t2.handle({"type": "result", "subtype": "error_during_execution",
+                                    "is_error": True, "result": "boom"})
+    assert e_event == "query_error"
+    assert "session_id" not in e_data
+    assert e_data["cc_session_id"] == "cc-uuid"
+
+    # finalize safety-net path
+    t3 = CCStreamTranslator()
+    t3.handle({"type": "system", "subtype": "init", "session_id": "cc-uuid"})
+    (_f_event, f_data), = t3.finalize()
+    assert "session_id" not in f_data
+    assert f_data["cc_session_id"] == "cc-uuid"
 
 
 def test_result_surfaces_total_cost_usd():
