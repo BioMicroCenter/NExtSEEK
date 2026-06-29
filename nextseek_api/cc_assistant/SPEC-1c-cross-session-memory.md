@@ -187,11 +187,12 @@ The rendered file is the **user-tier** memory (`~/.claude/CLAUDE.md`); the baked
 `/home/user/CLAUDE.md` (1b §3.3) is the **project/cwd-tier** memory. Claude Code's native
 hierarchy loads **both**. **The baked file is never edited.**
 
-> **Impl task 1 (gating, do first):** empirically confirm a user-tier `~/.claude/CLAUDE.md`
-> **merges with** (does not overwrite) the baked project file in *this* image — ideally via
-> a `claude --debug` memory-discovery check (zero Bedrock spend) before building on the
-> injection point. If it does not merge, fall back to an alternate injection (e.g. an
-> `@import` from, or an additive nested section beside, the project file) — re-decide then.
+> **Impl task 1 (gating) — VERIFIED 2026-06-29 (live-confirmed):** probe at
+> [`evidence/1c-claude-md-merge-probe.md`](evidence/1c-claude-md-merge-probe.md).
+> Zero-spend mount topology + production entrypoint checks; **live forced-CC turn
+> confirmed both `Write-safety on NExtSEEK` (project tier) and
+> `USER_MEMORY_MARKER=1C_PROBE_ALPHA` (user tier) in loaded instructions (~$0.14 Opus).
+> Verdict: **MERGE — keep the planned nested RO bind injection point.**
 
 ## 7. Storage
 
