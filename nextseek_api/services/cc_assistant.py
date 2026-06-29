@@ -54,6 +54,7 @@ from chat_nextseek.orchestrator import run_query, run_query_plan
 from nextseek_api.cc_assistant import router as cc_router
 from nextseek_api.cc_assistant import cc_engine
 from nextseek_api.cc_assistant import cc_config
+from nextseek_api.cc_assistant import cc_session
 
 logger = logging.getLogger(__name__)
 
@@ -166,14 +167,27 @@ class CCAssistantViewSet(viewsets.ViewSet):
                             "agent": "container_cc", "session_id": resolved_session_id,
                         })
                         return
+                    cc_state_key = str(chat_session.session_id)
+                    prior_id = cc_session.resume_id_from_state(chat_session.extra_state)
+
+                    def _persist_cc_session(cc_sid: str) -> None:
+                        # Single-key read-modify-write; never clobber other
+                        # extra_state keys. Re-captured every turn (robust if the
+                        # claude id rotates under -p --resume).
+                        chat_session.extra_state["cc_session_id"] = cc_sid
+                        chat_session.save(update_fields=["extra_state", "updated_at"])
+
+                    cc_send = cc_session.make_session_sniffer(send_event, _persist_cc_session)
+
                     cc_engine.run_cc_turn(
                         query=req.query, model_id=decision.model_id,
-                        send_event=send_event,
+                        send_event=cc_send,
                         user_id=cc_user_id,
                         projects=cc_config.projects_for(cc_user_id),
                         run_id=cc_run_id,
                         paths=cc_config.CCPaths.from_env(),
-                        session_id=None,
+                        session_id=prior_id,
+                        cc_state_key=cc_state_key,
                         # NExtSEEK login is per-request (Basic auth), not env;
                         # inject so the in-container chat_nextseek can authenticate.
                         api_user=api_user, api_pass=api_pass,
