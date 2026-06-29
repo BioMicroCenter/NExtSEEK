@@ -480,7 +480,7 @@ def datafileUpload(request):
 
     report['lab_options'] = json.dumps(lab_options, default=str)
     report['all_lab_users'] = json.dumps(all_lab_users, default=str)
-    report['seek_url'] = settings.SEEK_URL
+    report['seek_url'] = settings.SEEK_PUBLIC_URL
 
     return render(request,"dataFileUpload.html", {'report':report})
 
@@ -1718,7 +1718,7 @@ def sopQuery(request):
         url_redirect = '/login/'
         return HttpResponseRedirect(url_redirect)
     
-    report["seek_url"] = settings.SEEK_URL
+    report["seek_url"] = settings.SEEK_PUBLIC_URL
 
     return render(request, "sopsPage.html", {"report" : report})
 
@@ -1729,7 +1729,7 @@ def datafileQuery(request):
         url_redirect = '/login/'
         return HttpResponseRedirect(url_redirect)
     
-    report["seek_url"] = settings.SEEK_URL
+    report["seek_url"] = settings.SEEK_PUBLIC_URL
 
     return render(request, "dataFilesPage.html", {"report" : report})
 

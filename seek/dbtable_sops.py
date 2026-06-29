@@ -192,7 +192,7 @@ class DBtable_sops(DBtable):
         return dfrecord
         
     def __getSeeklink(self, originalfilename, sop_id):
-        seek_url = settings.SEEK_URL + "/sops/" + str(sop_id)
+        seek_url = settings.SEEK_PUBLIC_URL + "/sops/" + str(sop_id)
         seeklink = '<a href="' + seek_url + '" target="_blank">' + originalfilename + '</a>'
         return seeklink
 

@@ -265,7 +265,7 @@ def index(request):
         )    
     
 def signup_seek(request):
-    url = settings.SEEK_URL + "/signup"
+    url = settings.SEEK_PUBLIC_URL + "/signup"
     HttpResponseRedirect(url)
 
 

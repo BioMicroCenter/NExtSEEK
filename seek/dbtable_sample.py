@@ -1680,7 +1680,7 @@ class DBtable_sample(DBtable):
         return record           
         
     def __getSeeklink(self, seek_type, id):
-        seek_url = settings.SEEK_URL + "/" + seek_type + "/" + str(id) + "/"
+        seek_url = settings.SEEK_PUBLIC_URL + "/" + seek_type + "/" + str(id) + "/"
         seeklink = '<a href="' + seek_url + '" target="_blank">' + str(id) + '</a>'
         return seeklink
         
