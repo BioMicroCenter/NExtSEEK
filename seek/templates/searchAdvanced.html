@@ -122,19 +122,6 @@ $(function(){
     <div title="Sample Retrieval" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
 	<div class="easyui-layout" style="width:auto;height:1700px;">
 	    <div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;">
-			{% include "pages/searchAdvanced_retrieval.embed.html" %}
-	    </div>
-        <div id="center_div2" data-options="region:'center',border:true,split:true" style="height: 800px;">
-			{% include "pages/searchAdvanced_tree.embed.html" %}
-	    </div>
-        <div id="south_div2" data-options="region:'south',border:true,split:true" style="height: 500px;">
-			{% include "pages/searchAdvanced_rtable.embed.html" %}
-		</div>
-	</div>
-    </div>
-    <div title="New Sample Retrieval" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
-	<div class="easyui-layout" style="width:auto;height:1700px;">
-	    <div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;">
             <form action="/seek/admin/retrieve/" method="POST">
                 {% csrf_token %}
                 <label for="retrieval_uids">UIDs to retrieve:</label>
