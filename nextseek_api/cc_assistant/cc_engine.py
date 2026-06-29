@@ -33,6 +33,7 @@ from typing import Any, Callable
 from .attach import BridgeAttachSocket
 from .translate import CCStreamTranslator
 from .cc_config import CCPaths
+from nextseek_api.cc_assistant import cc_session
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,10 @@ _CONTAINER_PROJECTS = "/data/projects"
 # it never invokes nextseek-query. The agent writes artifacts to /data/scratch
 # per the container CLAUDE.md.
 _CONTAINER_WORKDIR = "/home/user"
+# The agent's HOME .claude (session transcripts + config). Mounted per chat
+# session so --resume finds the transcript across the ephemeral per-turn
+# containers (Step 1b). HOME is the image default /home/user (no override).
+_CONTAINER_CLAUDE_HOME = _CONTAINER_WORKDIR + "/.claude"
 
 
 def cc_runner_available() -> tuple[bool, str]:
@@ -357,6 +362,33 @@ def _dropbox_display(host_path: Path, paths: CCPaths) -> str:
     return s
 
 
+def _build_volumes(
+    *,
+    paths: CCPaths,
+    projects: list[str],
+    user_id: str,
+    cc_state_key: str | None,
+) -> dict[str, dict[str, str]]:
+    """Bind mounts for the CC sibling container (sources are HOST paths):
+    per-project data RO, per-user scratch RW, and — when ``cc_state_key`` is
+    given — a per-(user, session) ``.claude`` store RW so Claude's transcript
+    persists across the ephemeral per-turn containers for ``--resume``.
+    """
+    volumes: dict[str, dict[str, str]] = {}
+    for project in projects:
+        volumes[f"{paths.host_dropbox_root}/{project}"] = {
+            "bind": f"{_CONTAINER_PROJECTS}/{project}", "mode": "ro",
+        }
+    volumes[f"{paths.host_scratch_root}/{user_id}"] = {
+        "bind": _CONTAINER_SCRATCH, "mode": "rw",
+    }
+    if cc_state_key:
+        volumes[f"{paths.host_cc_state_root}/{user_id}/{cc_state_key}"] = {
+            "bind": _CONTAINER_CLAUDE_HOME, "mode": "rw",
+        }
+    return volumes
+
+
 def run_cc_turn(
     *,
     query: str,
@@ -367,6 +399,7 @@ def run_cc_turn(
     run_id: str,
     paths: CCPaths,
     session_id: str | None = None,
+    cc_state_key: str | None = None,
     image: str | None = None,
     api_user: str | None = None,
     api_pass: str | None = None,
@@ -405,15 +438,28 @@ def run_cc_turn(
         except OSError:
             pass
 
-    # Bind mounts for the CC sibling container (sources are HOST paths).
-    volumes: dict[str, dict[str, str]] = {}
-    for project in projects:
-        volumes[f"{paths.host_dropbox_root}/{project}"] = {
-            "bind": f"{_CONTAINER_PROJECTS}/{project}", "mode": "ro",
-        }
-    volumes[f"{paths.host_scratch_root}/{user_id}"] = {
-        "bind": _CONTAINER_SCRATCH, "mode": "rw",
-    }
+    # Per-session claude-state store: persists transcripts across the ephemeral
+    # per-turn containers so --resume works. Created via the nextseek-container
+    # mount (cc_state_mount) so the host dir exists before the CC sibling mounts
+    # it. Resume only when a prior transcript actually exists (turn-1 / wiped
+    # store -> start fresh, never resume a missing session).
+    effective_session_id = session_id
+    if cc_state_key:
+        _validate_user_id(cc_state_key)  # single-segment path guard (UUID chat id)
+        cc_state_dir = Path(paths.cc_state_mount) / user_id / cc_state_key
+        if session_id and not cc_session.store_has_transcripts(cc_state_dir):
+            logger.info("cc: resume id present but store empty; starting fresh")
+            effective_session_id = None
+        cc_state_dir.mkdir(parents=True, exist_ok=True)
+        for _p in (cc_state_dir.parent, cc_state_dir):
+            try:
+                os.chmod(_p, 0o777)
+            except OSError:
+                pass
+
+    volumes = _build_volumes(
+        paths=paths, projects=projects, user_id=user_id, cc_state_key=cc_state_key,
+    )
 
     # D19: tell the in-container agent how to translate container paths to host
     # paths when it reports artifact locations to the user.
@@ -431,7 +477,7 @@ def run_cc_turn(
     )
 
     command = _build_command(
-        model_id=model_id, session_id=session_id, max_budget_usd=max_budget_usd,
+        model_id=model_id, session_id=effective_session_id, max_budget_usd=max_budget_usd,
         source=os.environ,
     )
 
