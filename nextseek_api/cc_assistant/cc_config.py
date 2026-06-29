@@ -33,6 +33,8 @@ _DEFAULT_HOST_SCRATCH_ROOT = "/Users/taishajoseph/dmac-dev/scratch"
 _DEFAULT_HOST_OUTPUT_ROOT = "/Users/taishajoseph/Library/CloudStorage/Dropbox/DMAC_Data/example-project"
 _DEFAULT_SCRATCH_MOUNT = "/dmac/scratch"
 _DEFAULT_OUTPUT_MOUNT = "/dmac/output"
+_DEFAULT_HOST_CC_STATE_ROOT = "/Users/taishajoseph/dmac-dev/cc-state"
+_DEFAULT_CC_STATE_MOUNT = "/dmac/cc-state"
 
 # Single-user dev mapping (multi-user is a follow-up project). Mirrors
 # dmac_assistant's DMAC_USERS demo -> ["example-project"].
@@ -48,6 +50,8 @@ class CCPaths:
     host_output_root: str    # host: published-artifact root (e.g. Dropbox example-project)
     scratch_mount: str       # nextseek-container path where host_scratch_root is mounted
     output_mount: str        # nextseek-container path where host_output_root is mounted
+    host_cc_state_root: str  # host: per-user/session claude .claude store (CC bind source)
+    cc_state_mount: str      # nextseek-container path where host_cc_state_root is mounted
 
     @classmethod
     def from_env(cls) -> "CCPaths":
@@ -57,6 +61,8 @@ class CCPaths:
             host_output_root=os.environ.get("DMAC_HOST_OUTPUT_ROOT", _DEFAULT_HOST_OUTPUT_ROOT),
             scratch_mount=os.environ.get("DMAC_SCRATCH_MOUNT", _DEFAULT_SCRATCH_MOUNT),
             output_mount=os.environ.get("DMAC_OUTPUT_MOUNT", _DEFAULT_OUTPUT_MOUNT),
+            host_cc_state_root=os.environ.get("DMAC_HOST_CC_STATE_ROOT", _DEFAULT_HOST_CC_STATE_ROOT),
+            cc_state_mount=os.environ.get("DMAC_CC_STATE_MOUNT", _DEFAULT_CC_STATE_MOUNT),
         )
 
 
