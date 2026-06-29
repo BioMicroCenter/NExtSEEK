@@ -128,7 +128,7 @@ def install(
 
     # [4/9] Config templates
     ui.step(4, total, "Writing config templates")
-    values = config.default_values(nextseek_port=ports["nextseek"])
+    values = config.default_values(nextseek_port=ports["nextseek"], seek_port=ports["seek"])
     config.render_db_env(REPO_ROOT, values)
     config.render_nextseek_env(REPO_ROOT, values)
     config.render_local_settings(REPO_ROOT, values)
@@ -168,10 +168,10 @@ def install(
         if seed.neo4j_is_populated(values.neo4j_password, REPO_ROOT, compose_env):
             ui.ok("neo4j already populated; skipping")
         else:
-            ui.info("neo4j.cypher.gz is ~674k CREATE statements — this takes 30-60 min on first install")
+            ui.info("neo4j.cypher.gz — bulk-loaded via UNWIND batches (~1-2 min)")
             ui.info(f"watch progress in the Neo4j browser at http://localhost:{ports['neo4j_http']}/")
             ui.info(f"  log in as neo4j / {values.neo4j_password}, then run:  MATCH (n) RETURN count(n);")
-            with ui.spinner("loading neo4j.cypher.gz (long-running; safe to leave unattended)"):
+            with ui.spinner("loading neo4j.cypher.gz via UNWIND batches"):
                 seed.load_neo4j_dump(REPO_ROOT / "startup" / "seed" / "neo4j.cypher.gz", values.neo4j_password, REPO_ROOT, compose_env)
             ui.ok("neo4j loaded")
 

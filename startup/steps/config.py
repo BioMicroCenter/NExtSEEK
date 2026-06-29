@@ -16,6 +16,7 @@ class ConfigValues:
     django_secret_key: str
     django_csrf_trusted_origins: str
     nextseek_port: int
+    seek_port: int
 
 
 def _generate_secret_key(length: int = 64) -> str:
@@ -30,7 +31,7 @@ def csrf_origins_for_port(port: int) -> str:
     return f"http://127.0.0.1:{port} http://localhost:{port}"
 
 
-def default_values(nextseek_port: int) -> ConfigValues:
+def default_values(nextseek_port: int, seek_port: int) -> ConfigValues:
     return ConfigValues(
         mysql_root_password="seek_root",
         mysql_password="seek_db_password",
@@ -38,6 +39,7 @@ def default_values(nextseek_port: int) -> ConfigValues:
         django_secret_key=_generate_secret_key(),
         django_csrf_trusted_origins=csrf_origins_for_port(nextseek_port),
         nextseek_port=nextseek_port,
+        seek_port=seek_port,
     )
 
 
@@ -50,6 +52,7 @@ def _render(template_path: Path, values: ConfigValues) -> str:
         "DJANGO_SECRET_KEY": values.django_secret_key,
         "DJANGO_CSRF_TRUSTED_ORIGINS": values.django_csrf_trusted_origins,
         "NEXTSEEK_PORT": str(values.nextseek_port),
+        "SEEK_PORT": str(values.seek_port),
     }
     return Template(text).safe_substitute(substitutions)
 
