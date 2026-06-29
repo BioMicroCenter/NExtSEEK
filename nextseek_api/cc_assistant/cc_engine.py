@@ -109,6 +109,13 @@ _CONTAINER_WORKDIR = "/home/user"
 # session so --resume finds the transcript across the ephemeral per-turn
 # containers (Step 1b). HOME is the image default /home/user (no override).
 _CONTAINER_CLAUDE_HOME = _CONTAINER_WORKDIR + "/.claude"
+# Step 1c: user-tier rolling memory rendered host-side, RO-bound as a NESTED file
+# over 1b's per-session .claude RW mount (live-verified MERGE with the baked
+# project /home/user/CLAUDE.md — see evidence/1c-claude-md-merge-probe.md).
+_CONTAINER_USER_MEMORY = _CONTAINER_CLAUDE_HOME + "/CLAUDE.md"
+# Step 1c: the 10 most-recent OTHER sessions' raw transcripts, RO, for on-demand
+# depth. Outside .claude so it never collides with the session store / resume.
+_CONTAINER_MEMORY_TRANSCRIPTS = _CONTAINER_WORKDIR + "/.cc-memory/transcripts"
 
 
 def cc_runner_available() -> tuple[bool, str]:
@@ -368,11 +375,15 @@ def _build_volumes(
     projects: list[str],
     user_id: str,
     cc_state_key: str | None,
+    user_memory_file: str | None = None,
+    transcripts_dir: str | None = None,
 ) -> dict[str, dict[str, str]]:
     """Bind mounts for the CC sibling container (sources are HOST paths):
     per-project data RO, per-user scratch RW, and — when ``cc_state_key`` is
     given — a per-(user, session) ``.claude`` store RW so Claude's transcript
     persists across the ephemeral per-turn containers for ``--resume``.
+
+    Step 1c adds optional RO user-memory file + raw-transcript dir mounts.
 
     Precondition: callers MUST pass ``user_id`` and ``cc_state_key`` already
     validated via ``_validate_user_id`` (single-segment path guard) — this
@@ -391,6 +402,10 @@ def _build_volumes(
         volumes[f"{paths.host_cc_state_root}/{user_id}/{cc_state_key}"] = {
             "bind": _CONTAINER_CLAUDE_HOME, "mode": "rw",
         }
+    if user_memory_file:
+        volumes[user_memory_file] = {"bind": _CONTAINER_USER_MEMORY, "mode": "ro"}
+    if transcripts_dir:
+        volumes[transcripts_dir] = {"bind": _CONTAINER_MEMORY_TRANSCRIPTS, "mode": "ro"}
     return volumes
 
 
@@ -405,6 +420,8 @@ def run_cc_turn(
     paths: CCPaths,
     session_id: str | None = None,
     cc_state_key: str | None = None,
+    user_memory_file: str | None = None,
+    transcripts_dir: str | None = None,
     image: str | None = None,
     api_user: str | None = None,
     api_pass: str | None = None,
@@ -464,6 +481,7 @@ def run_cc_turn(
 
     volumes = _build_volumes(
         paths=paths, projects=projects, user_id=user_id, cc_state_key=cc_state_key,
+        user_memory_file=user_memory_file, transcripts_dir=transcripts_dir,
     )
 
     # D19: tell the in-container agent how to translate container paths to host

@@ -69,6 +69,7 @@ dependencies = [
   "oauthlib",
   "olefile",
   "openpyxl",
+  "orjson",
   "packaging",
   "pandas",
   "parse",

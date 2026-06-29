@@ -55,8 +55,56 @@ from nextseek_api.cc_assistant import router as cc_router
 from nextseek_api.cc_assistant import cc_engine
 from nextseek_api.cc_assistant import cc_config
 from nextseek_api.cc_assistant import cc_session
+from nextseek_api.cc_assistant import cc_summary
+from nextseek_api.cc_assistant import cc_memory
+from nextseek_api.cc_assistant import cc_memory_io
 
 logger = logging.getLogger(__name__)
+
+
+def _persist_summary_standalone(user, session_id, summary_dict, fp):
+    """Single-key read-modify-write on extra_state; never clobber sibling keys."""
+    try:
+        sess = ChatSession.objects.get(session_id=session_id, user=user)
+        es = dict(sess.extra_state or {})
+        es["summary"] = summary_dict
+        es["summary_fingerprint"] = fp
+        sess.extra_state = es
+        sess.save(update_fields=["extra_state", "updated_at"])
+    except Exception:
+        logger.exception("cc-1c: failed to persist summary for %s", session_id)
+
+
+def _session_metas(user, current_id, paths, mem_cfg):
+    """Build cc_memory.SessionMeta for the user's sessions (own sessions only)."""
+    from pathlib import Path
+
+    metas = []
+    qs = ChatSession.objects.filter(user=user).order_by("-updated_at")
+    for s in qs:
+        sid = str(s.session_id)
+        store = Path(paths.cc_state_mount) / user.username / sid / "projects"
+        jsonls = sorted(store.rglob("*.jsonl"), key=lambda p: p.stat().st_mtime,
+                        reverse=True) if store.is_dir() else []
+        transcript_mount_path = str(jsonls[0]) if jsonls else None
+        host_path = None
+        if transcript_mount_path:
+            host_path = transcript_mount_path.replace(
+                paths.cc_state_mount.rstrip("/"), paths.host_cc_state_root.rstrip("/"), 1)
+        es = s.extra_state or {}
+        prev_fp = es.get("summary_fingerprint")
+        changed = False
+        if transcript_mount_path:
+            try:
+                raw = Path(transcript_mount_path).read_bytes()
+                changed = cc_summary.is_changed(prev_fp, cc_summary.fingerprint(raw))
+            except OSError:
+                changed = False
+        metas.append(cc_memory.SessionMeta(
+            session_id=sid, updated_at=s.updated_at.timestamp(),
+            fingerprint=prev_fp, summary=es.get("summary"),
+            transcript_path=host_path, changed=changed))
+    return metas
 
 
 class CCAssistantViewSet(viewsets.ViewSet):
@@ -185,17 +233,67 @@ class CCAssistantViewSet(viewsets.ViewSet):
 
                     cc_send = cc_session.make_session_sniffer(send_event, _persist_cc_session)
 
+                    paths = cc_config.CCPaths.from_env()
+                    mem_cfg = cc_config.CCMemoryConfig.from_env()
+                    fresh = bool(getattr(req, "fresh_session", False))
+                    user_memory_file = None
+                    transcripts_dir = None
+                    if not fresh:
+                        from pathlib import Path
+                        from django.utils import timezone
+
+                        metas = _session_metas(request.user, cc_state_key, paths, mem_cfg)
+                        tgt = cc_memory.select_sync_target(metas, current_id=cc_state_key)
+                        if tgt is not None and tgt.transcript_path:
+                            try:
+                                mount_path = tgt.transcript_path.replace(
+                                    paths.host_cc_state_root.rstrip("/"),
+                                    paths.cc_state_mount.rstrip("/"), 1)
+                                raw = Path(mount_path).read_bytes()
+                                prov = cc_summary.SummaryProvenance(
+                                    chat_session_id=tgt.session_id,
+                                    claude_session_id=(tgt.summary or {}).get("claude_session_id"),
+                                    transcript_path=tgt.transcript_path,
+                                    chat_model=cc_router._resolve_cc_model_id() or "",
+                                    generated_at=timezone.now().isoformat())
+                                summary = cc_summary.summarize_transcript(raw, prov, mem_cfg)
+                                _persist_summary_standalone(
+                                    request.user, tgt.session_id,
+                                    summary.model_dump(),
+                                    cc_summary.fingerprint(raw))
+                                metas = _session_metas(request.user, cc_state_key, paths, mem_cfg)
+                            except Exception:
+                                logger.exception("cc-1c: sync summarize failed; continuing")
+
+                        window = cc_memory.select_window(
+                            metas, current_id=cc_state_key, window_size=mem_cfg.window_size)
+                        mem_root = (Path(paths.cc_state_mount) / request.user.username
+                                    / "_memory" / cc_state_key)
+                        md = cc_memory.render_memory(
+                            window, fresh_session=False,
+                            transcripts_mount=cc_engine._CONTAINER_MEMORY_TRANSCRIPTS)
+                        written = cc_memory_io.write_memory_file(mem_root / "CLAUDE.md", md)
+                        staged = cc_memory_io.stage_transcripts(window, mem_root / "transcripts")
+                        if written:
+                            user_memory_file = str(written).replace(
+                                paths.cc_state_mount.rstrip("/"),
+                                paths.host_cc_state_root.rstrip("/"), 1)
+                        if staged:
+                            transcripts_dir = str(staged).replace(
+                                paths.cc_state_mount.rstrip("/"),
+                                paths.host_cc_state_root.rstrip("/"), 1)
+
                     cc_engine.run_cc_turn(
                         query=req.query, model_id=decision.model_id,
                         send_event=cc_send,
                         user_id=cc_user_id,
                         projects=cc_config.projects_for(cc_user_id),
                         run_id=cc_run_id,
-                        paths=cc_config.CCPaths.from_env(),
+                        paths=paths,
                         session_id=prior_id,
                         cc_state_key=cc_state_key,
-                        # NExtSEEK login is per-request (Basic auth), not env;
-                        # inject so the in-container chat_nextseek can authenticate.
+                        user_memory_file=user_memory_file,
+                        transcripts_dir=transcripts_dir,
                         api_user=api_user, api_pass=api_pass,
                     )
             except Exception:

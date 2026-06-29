@@ -16,6 +16,7 @@ class QueryRequest(BaseModel):
     mode: str = Field(..., description="What mode to execute the query as. E.g. standard, plan, etc.")
     force_new: bool = Field(False, description="If true and session_id is omitted, always create a new ChatSession instead of reusing the most recent one.")
     use_prod: bool = Field(False, description="If true and a NEXTSEEK_CHAT_CONFIG_PROD is configured, route this query through the prod ChatConfig (real production tables) instead of the default dev/docker one. Admin-only on the UI; ignored if a prod config wasn't built.")
+    fresh_session: bool = Field(False, description="If true, run this turn as a clean room: skip the Step-1c cross-session memory layer (no rendered ~/.claude/CLAUDE.md, no raw-transcript mount). 1b resume within this chat still applies.")
 
     model_config = ConfigDict(extra="forbid")
 
