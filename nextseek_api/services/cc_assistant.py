@@ -174,8 +174,14 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         # Single-key read-modify-write; never clobber other
                         # extra_state keys. Re-captured every turn (robust if the
                         # claude id rotates under -p --resume).
-                        chat_session.extra_state["cc_session_id"] = cc_sid
-                        chat_session.save(update_fields=["extra_state", "updated_at"])
+                        try:
+                            chat_session.extra_state["cc_session_id"] = cc_sid
+                            chat_session.save(update_fields=["extra_state", "updated_at"])
+                        except Exception:
+                            logger.exception(
+                                "cc: failed to persist cc_session_id=%r; resume unavailable this turn",
+                                cc_sid,
+                            )
 
                     cc_send = cc_session.make_session_sniffer(send_event, _persist_cc_session)
 

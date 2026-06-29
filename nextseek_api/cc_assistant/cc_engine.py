@@ -373,6 +373,11 @@ def _build_volumes(
     per-project data RO, per-user scratch RW, and — when ``cc_state_key`` is
     given — a per-(user, session) ``.claude`` store RW so Claude's transcript
     persists across the ephemeral per-turn containers for ``--resume``.
+
+    Precondition: callers MUST pass ``user_id`` and ``cc_state_key`` already
+    validated via ``_validate_user_id`` (single-segment path guard) — this
+    function interpolates both directly into bind-mount source paths without
+    re-validating, so an unvalidated value is a host path-traversal risk.
     """
     volumes: dict[str, dict[str, str]] = {}
     for project in projects:
