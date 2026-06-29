@@ -28,6 +28,14 @@ services:
       # match cc_config (scratch_mount=/dmac/scratch, output_mount=/dmac/output).
       - ${DMAC_HOST_SCRATCH_ROOT:-/srv/dmac/scratch}:/dmac/scratch
       - ${DMAC_HOST_OUTPUT_ROOT:-/srv/dmac/output}:/dmac/output
+      # Container-CC --resume (Step 1b): per-(user,session) .claude transcript
+      # store. Mirrors the scratch bind. The nextseek worker mkdir's the
+      # per-session dir here (DMAC_CC_STATE_MOUNT=/dmac/cc-state) and the sibling
+      # agent mounts <DMAC_HOST_CC_STATE_ROOT>/<user>/<session> -> /home/user/.claude
+      # so transcripts survive the ephemeral per-turn containers. Both env vars
+      # are set in docker/nextseek.env; host_cc_state_root must equal this bind
+      # source or --resume silently never engages.
+      - ${DMAC_HOST_CC_STATE_ROOT:-/srv/dmac/cc-state}:/dmac/cc-state
 
   nextseek_nginx:
     image: nginx:latest
