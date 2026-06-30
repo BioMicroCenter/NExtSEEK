@@ -99,6 +99,24 @@ def test_missing_project_title_fails_closed():
         )
 
 
+@pytest.mark.parametrize("project_id", ["../42", "a/b", ".", "..", ""])
+def test_malicious_project_id_fails_closed(project_id):
+    with pytest.raises(ProjectResolutionError):
+        resolve_user_project(
+            "hank",
+            "pw",
+            seekdb_factory=_factory(
+                membership=[{"id": project_id}],
+                titles={str(project_id): "Bad Project"},
+            ),
+        )
+
+
+def test_malicious_personal_namespace_fails_closed():
+    with pytest.raises(ValueError):
+        resolve_user_project("bad/user", "pw", seekdb_factory=_factory(membership=[])).dirname
+
+
 def test_custom_personal_prefix():
     project = resolve_user_project(
         "dave",

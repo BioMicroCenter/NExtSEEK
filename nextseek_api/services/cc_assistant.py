@@ -258,10 +258,23 @@ class CCAssistantViewSet(viewsets.ViewSet):
                             "session_id": resolved_session_id,
                         })
                         return
-                    project_dirname = (
-                        (chat_session.extra_state or {}).get("cc_project_dirname")
-                        or project.dirname
-                    )
+                    stored_project_dirname = (chat_session.extra_state or {}).get("cc_project_dirname")
+                    if stored_project_dirname and stored_project_dirname != project.dirname:
+                        logger.warning(
+                            "cc-step2: stored project dirname %r no longer matches resolved %r",
+                            stored_project_dirname,
+                            project.dirname,
+                        )
+                        send_event("query_error", {
+                            "error": (
+                                "Your SEEK project membership changed for this chat. "
+                                "Please start a new chat."
+                            ),
+                            "agent": "container_cc",
+                            "session_id": resolved_session_id,
+                        })
+                        return
+                    project_dirname = stored_project_dirname or project.dirname
                     try:
                         if not (chat_session.extra_state or {}).get("cc_project_dirname"):
                             chat_session.extra_state["cc_project_dirname"] = project_dirname

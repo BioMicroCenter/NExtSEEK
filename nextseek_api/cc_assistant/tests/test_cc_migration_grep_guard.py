@@ -8,6 +8,7 @@ RUNTIME_FILES = [
     ROOT / "cc_config.py",
     ROOT / "cc_engine.py",
     ROOT / "cc_sweep.py",
+    ROOT / "evidence" / "run_1c_claude_md_live_probe.py",
     SERVICE,
 ]
 

@@ -44,3 +44,19 @@ def test_missing_user_roots_fail_closed():
         assert "host_user_root" in str(exc)
     else:
         raise AssertionError("missing Step-2 roots must fail closed")
+
+
+def test_builder_rejects_malicious_segments():
+    paths = _paths()
+
+    for kwargs in (
+        {"project_dirname": "../p", "user_id": "alice", "session_id": "S1"},
+        {"project_dirname": "42-p", "user_id": "a/b", "session_id": "S1"},
+        {"project_dirname": "42-p", "user_id": "alice", "session_id": "../S1"},
+    ):
+        try:
+            build_user_dirs(paths, **kwargs)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"malicious segment accepted: {kwargs!r}")

@@ -15,6 +15,7 @@ def test_project_resolution_uses_user_creds_not_prod_swapped_agent_creds():
 def test_session_project_dirname_is_initialized_not_overwritten():
     src = SERVICE.read_text()
 
-    assert 'or project.dirname' in src
+    assert "stored_project_dirname != project.dirname" in src
+    assert "Please start a new chat." in src
     assert 'if not (chat_session.extra_state or {}).get("cc_project_dirname")' in src
     assert 'session_project = es.get("cc_project_dirname") or project_dirname' in src
