@@ -33,3 +33,54 @@ class ProjectIdentity:
     @property
     def dirname(self) -> str:
         return f"{self.id}-{self.slug}"
+
+
+class ProjectResolutionError(Exception):
+    """SEEK project resolution failed; callers must fail closed."""
+
+
+def _default_seekdb_factory():
+    from seek.seekdb import SeekDB
+
+    return lambda server, username, password: SeekDB(server, username, password)
+
+
+def resolve_user_project(
+    api_user: str,
+    api_pass: str,
+    *,
+    seekdb_factory=None,
+    personal_prefix: str = "personal-",
+) -> ProjectIdentity:
+    """Resolve the logged-in user's SEEK project using their own credentials.
+
+    Confirmed empty membership maps to an isolated personal namespace. Any
+    unresolved/unknown state raises ProjectResolutionError so the CC turn is
+    rejected instead of guessed into the wrong project.
+    """
+    factory = seekdb_factory or _default_seekdb_factory()
+    try:
+        seekdb = factory(None, api_user, api_pass)
+        current = seekdb.getCurrentUser()
+        projects = current["data"]["relationships"]["projects"]["data"]
+    except Exception as exc:  # noqa: BLE001
+        raise ProjectResolutionError(str(exc)) from exc
+
+    if not projects:
+        user = str(api_user or "")
+        return ProjectIdentity(
+            id=f"{personal_prefix}{user}",
+            title=user,
+            slug=slugify_project(user),
+        )
+
+    try:
+        project_id = str(projects[0]["id"])
+        title = str(seekdb.getProjectName(project_id))
+    except Exception as exc:  # noqa: BLE001
+        raise ProjectResolutionError(str(exc)) from exc
+    return ProjectIdentity(
+        id=project_id,
+        title=title,
+        slug=slugify_project(title),
+    )
