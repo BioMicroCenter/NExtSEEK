@@ -10,6 +10,14 @@ def test_project_resolution_uses_user_creds_not_prod_swapped_agent_creds():
 
     assert "user_api_user, user_api_pass = api_user, api_pass" in src
     assert "resolve_user_project(user_api_user, user_api_pass)" in src
+    assert "api_user=user_api_user, api_pass=user_api_pass" in src
+
+
+def test_cc_view_does_not_use_static_participating_project_permission():
+    src = SERVICE.read_text()
+
+    assert "permission_classes = [IsAuthenticated]" in src
+    assert "UserInParticipatingProject" not in src
 
 
 def test_session_project_dirname_is_initialized_not_overwritten():

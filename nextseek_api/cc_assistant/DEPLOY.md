@@ -67,9 +67,9 @@ MINE=<this integration checkout>
 mkdir -p /srv/dmac/users
 chmod -R 777 /srv/dmac
 
-# ensure docker-compose.yml mounts:
+# ensure docker-compose.yml mounts the same host root set in docker/nextseek.env:
 #   - /var/run/docker.sock:/var/run/docker.sock
-#   - ${DMAC_USER_ROOT}:/dmac/users
+#   - /srv/dmac/users:/dmac/users
 ```
 
 Append to `docker/nextseek.env` (the CC route config):
@@ -83,7 +83,7 @@ NEXTSEEK_CC_MAX_BUDGET_USD=2.00
 DMAC_ROUTER_ENABLED=1
 DMAC_ROUTE_CAPABILITIES_FILE=/app/dmac_assistant/build_context/route_capabilities.json
 DMAC_ROUTER_MODEL_CLASS_MAP_FILE=/app/dmac_assistant/build_context/router_model_class_map.json
-# consolidated Step-2 host root (CC sibling bind sources + worker mount)
+# consolidated Step-2 host root. This MUST match the compose bind source.
 DMAC_USER_ROOT=/srv/dmac/users
 DMAC_USER_ROOT_MOUNT=/dmac/users
 ```

@@ -43,7 +43,6 @@ from nextseek_api.helpers import resolve_seek_auth
 # Reuse the existing assistant's helpers (do NOT redefine its behavior).
 from nextseek_api.services.assistant import (
     CsrfExemptSessionAuthentication,
-    UserInParticipatingProject,
     _auto_title_if_unset,
     _error_response,
     _select_chat_config,
@@ -116,7 +115,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
     """Router + Container-Claude-Code assistant (additive to AssistantViewSet)."""
 
     authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
-    permission_classes = [IsAuthenticated, UserInParticipatingProject]
+    permission_classes = [IsAuthenticated]
 
     # ------------------------------------------------------------------ auth
     def _check_auth(self, request):
@@ -346,7 +345,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         cc_state_key=cc_state_key,
                         user_memory_file=user_memory_file,
                         transcripts_dir=transcripts_dir,
-                        api_user=api_user, api_pass=api_pass,
+                        api_user=user_api_user, api_pass=user_api_pass,
                     )
             except Exception:
                 logger.exception("cc-assistant pipeline error")

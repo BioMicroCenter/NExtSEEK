@@ -25,7 +25,7 @@ services:
       # cc-state, memory, and output dirs here; sibling CC containers bind host
       # subpaths from DMAC_USER_ROOT into /data/input, /data/shared,
       # /data/scratch, /data/output, and /home/user/.claude.
-      - ${DMAC_USER_ROOT:-/srv/dmac/users}:/dmac/users
+      - /srv/dmac/users:/dmac/users
 
   nextseek_nginx:
     image: nginx:latest
