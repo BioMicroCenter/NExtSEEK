@@ -154,7 +154,8 @@ class CCRealStackAcceptance(TestCase):
             try:
                 cc_engine.run_cc_turn(
                     query=query, model_id=OPUS, send_event=send_event,
-                    user_id=self.user_id, projects=projects, run_id=self.run_id,
+                    user_id=self.user_id, project_dirname=(projects[0] if projects else "personal-ccacc-ccacc"),
+                    run_id=self.run_id,
                     paths=paths, api_user=self.api_user, api_pass=self.api_pass,
                 )
             except Exception as exc:  # noqa: BLE001

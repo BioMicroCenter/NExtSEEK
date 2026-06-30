@@ -412,7 +412,7 @@ def run_cc_turn(
     model_id: str | None,
     send_event: SendEvent,
     user_id: str,
-    projects: list[str],
+    project_dirname: str,
     run_id: str,
     paths: CCPaths,
     session_id: str | None = None,
@@ -440,13 +440,17 @@ def run_cc_turn(
     # I-4 (audit B2): validate BEFORE any path interpolation / mkdir / mount.
     _validate_user_id(user_id)
     _validate_user_id(run_id)
-    for _project in projects:
-        _validate_project(_project)
+    _validate_project(project_dirname)
+
+    from .cc_provision import build_user_dirs
+
+    effective_session_id = session_id
+    dirs = build_user_dirs(paths, project_dirname, user_id, session_id=cc_state_key)
 
     # Per-run working dir lives under the user's scratch. Create it via the
     # nextseek-container mount so it exists on the host before the CC container
     # (which mounts the same host dir) starts.
-    user_scratch = scratch_mount / user_id
+    user_scratch = Path(dirs.scratch_mnt)
     (user_scratch / run_id).mkdir(parents=True, exist_ok=True)
     # The Django container runs as root; the agent runs as the unprivileged image
     # user (uid 1001). Make the per-user scratch writable by the agent so it can
@@ -462,10 +466,9 @@ def run_cc_turn(
     # mount (cc_state_mount) so the host dir exists before the CC sibling mounts
     # it. Resume only when a prior transcript actually exists (turn-1 / wiped
     # store -> start fresh, never resume a missing session).
-    effective_session_id = session_id
     if cc_state_key:
         _validate_user_id(cc_state_key)  # single-segment path guard (UUID chat id)
-        cc_state_dir = Path(paths.cc_state_mount) / user_id / cc_state_key
+        cc_state_dir = Path(dirs.cc_state_mnt)
         if session_id and not cc_session.store_has_transcripts(cc_state_dir):
             logger.info("cc: resume id present but store empty; starting fresh")
             effective_session_id = None
@@ -477,7 +480,7 @@ def run_cc_turn(
                 pass
 
     volumes = _build_volumes(
-        paths=paths, projects=projects, user_id=user_id, cc_state_key=cc_state_key,
+        paths=paths, project_dirname=project_dirname, user_id=user_id, cc_state_key=cc_state_key,
         user_memory_file=user_memory_file, transcripts_dir=transcripts_dir,
     )
 
@@ -485,9 +488,9 @@ def run_cc_turn(
     # paths when it reports artifact locations to the user.
     path_mappings = {
         "output": {"container_root": _CONTAINER_OUTPUT,
-                   "host_root": f"{paths.host_output_root}/{user_id}"},
+                   "host_root": dirs.output_src},
         "scratch": {"container_root": _CONTAINER_SCRATCH,
-                    "host_root": f"{paths.host_scratch_root}/{user_id}"},
+                    "host_root": dirs.scratch_src},
     }
     # OI-3: the COMPLETE agent env from the single builder — zero AWS/backend
     # creds; Bedrock only via the auth-proxy, NExtSEEK only via the user's login.
