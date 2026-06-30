@@ -65,6 +65,8 @@ def build_user_dirs(
     """Build the single source of truth for the nested Step-2 layout."""
     host_root = paths.host_user_root.rstrip("/")
     mount_root = paths.user_root_mount.rstrip("/")
+    if not host_root or not mount_root:
+        raise ValueError("host_user_root and user_root_mount are required")
     project_host = f"{host_root}/{project_dirname}"
     project_mount = f"{mount_root}/{project_dirname}"
     user_host = f"{project_host}/{user_id}"
@@ -113,6 +115,9 @@ def resolve_user_project(
     except Exception as exc:  # noqa: BLE001
         raise ProjectResolutionError(str(exc)) from exc
 
+    if not isinstance(projects, list):
+        raise ProjectResolutionError("malformed SEEK project membership")
+
     if not projects:
         user = str(api_user or "")
         return ProjectIdentity(
@@ -123,7 +128,11 @@ def resolve_user_project(
 
     try:
         project_id = str(projects[0]["id"])
+        if not project_id:
+            raise ValueError("missing SEEK project id")
         title = str(seekdb.getProjectName(project_id))
+        if not title:
+            raise ValueError("missing SEEK project title")
     except Exception as exc:  # noqa: BLE001
         raise ProjectResolutionError(str(exc)) from exc
     return ProjectIdentity(

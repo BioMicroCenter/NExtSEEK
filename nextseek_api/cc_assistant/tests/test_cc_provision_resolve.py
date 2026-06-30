@@ -20,15 +20,19 @@ class _StubSeekDB:
         membership=None,
         titles=None,
         boom=False,
+        current_user=None,
     ):
         _StubSeekDB.last_args = (server, username, password)
         self._membership = [] if membership is None else membership
         self._titles = titles or {}
         self._boom = boom
+        self._current_user = current_user
 
     def getCurrentUser(self):
         if self._boom:
             raise RuntimeError("SEEK unreachable")
+        if self._current_user is not None:
+            return self._current_user
         return {"data": {"relationships": {"projects": {"data": self._membership}}}}
 
     def getProjectName(self, projectid):
@@ -70,6 +74,29 @@ def test_seek_outage_fails_closed():
 def test_malformed_membership_fails_closed():
     with pytest.raises(ProjectResolutionError):
         resolve_user_project("dee", "pw", seekdb_factory=_factory(membership=[{}]))
+
+
+@pytest.mark.parametrize("membership", [None, {}, ""])
+def test_malformed_falsy_membership_fails_closed(membership):
+    payload = {"data": {"relationships": {"projects": {"data": membership}}}}
+
+    with pytest.raises(ProjectResolutionError):
+        resolve_user_project("erin", "pw", seekdb_factory=_factory(current_user=payload))
+
+
+@pytest.mark.parametrize("membership", [[{"id": ""}], [{"id": None}]])
+def test_missing_project_id_fails_closed(membership):
+    with pytest.raises(ProjectResolutionError):
+        resolve_user_project("fran", "pw", seekdb_factory=_factory(membership=membership))
+
+
+def test_missing_project_title_fails_closed():
+    with pytest.raises(ProjectResolutionError):
+        resolve_user_project(
+            "gail",
+            "pw",
+            seekdb_factory=_factory(membership=[{"id": "42"}], titles={"42": ""}),
+        )
 
 
 def test_custom_personal_prefix():
