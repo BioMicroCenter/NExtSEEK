@@ -98,6 +98,8 @@ _BASE_CMD = [
 
 _CONTAINER_SCRATCH = "/data/scratch"
 _CONTAINER_OUTPUT = "/data/output"
+_CONTAINER_INPUT = "/data/input"
+_CONTAINER_SHARED = "/data/shared"
 _CONTAINER_PROJECTS = "/data/projects"
 # Image WORKDIR: the baked CLAUDE.md (-> /app/CLAUDE.md) and the nextseek plugin
 # (~/.claude/plugins/local/nextseek) are discovered by claude-code only when cwd
@@ -372,34 +374,29 @@ def _dropbox_display(host_path: Path, paths: CCPaths) -> str:
 def _build_volumes(
     *,
     paths: CCPaths,
-    projects: list[str],
+    project_dirname: str,
     user_id: str,
     cc_state_key: str | None,
     user_memory_file: str | None = None,
     transcripts_dir: str | None = None,
 ) -> dict[str, dict[str, str]]:
-    """Bind mounts for the CC sibling container (sources are HOST paths):
-    per-project data RO, per-user scratch RW, and — when ``cc_state_key`` is
-    given — a per-(user, session) ``.claude`` store RW so Claude's transcript
-    persists across the ephemeral per-turn containers for ``--resume``.
+    """Bind mounts for the CC sibling container using Step-2 nested sources.
 
-    Step 1c adds optional RO user-memory file + raw-transcript dir mounts.
-
-    Precondition: callers MUST pass ``user_id`` and ``cc_state_key`` already
-    validated via ``_validate_user_id`` (single-segment path guard) — this
-    function interpolates both directly into bind-mount source paths without
-    re-validating, so an unvalidated value is a host path-traversal risk.
+    Precondition: callers MUST validate ``project_dirname``, ``user_id``, and
+    ``cc_state_key`` before interpolation into bind sources.
     """
-    volumes: dict[str, dict[str, str]] = {}
-    for project in projects:
-        volumes[f"{paths.host_dropbox_root}/{project}"] = {
-            "bind": f"{_CONTAINER_PROJECTS}/{project}", "mode": "ro",
-        }
-    volumes[f"{paths.host_scratch_root}/{user_id}"] = {
+    from .cc_provision import build_user_dirs
+
+    dirs = build_user_dirs(paths, project_dirname, user_id, session_id=cc_state_key)
+    volumes: dict[str, dict[str, str]] = {
+        dirs.input_src: {"bind": _CONTAINER_INPUT, "mode": "ro"},
+        dirs.shared_src: {"bind": _CONTAINER_SHARED, "mode": "ro"},
+        dirs.scratch_src: {
         "bind": _CONTAINER_SCRATCH, "mode": "rw",
+        },
     }
-    if cc_state_key:
-        volumes[f"{paths.host_cc_state_root}/{user_id}/{cc_state_key}"] = {
+    if cc_state_key and dirs.cc_state_src:
+        volumes[dirs.cc_state_src] = {
             "bind": _CONTAINER_CLAUDE_HOME, "mode": "rw",
         }
     if user_memory_file:
