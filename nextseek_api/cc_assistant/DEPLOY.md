@@ -62,22 +62,14 @@ docker logs dmac-bedrock-proxy 2>&1 | grep -c -E "ABSK|Authorization"   # 0  (to
 SA=<running compose project dir>
 MINE=<this integration checkout>
 
-# host roots: CC sibling bind sources + the Django copier mounts. Django copier
+# host root: CC sibling bind sources + nextseek worker mount. The Django worker
 # runs as root; the agent writes scratch as uid 1001 -> world-writable on dev.
-mkdir -p /srv/dmac/{scratch,output,dropbox}
+mkdir -p /srv/dmac/users
 chmod -R 777 /srv/dmac
 
-# sync the integration code into the running project (changed paths only)
-rsync -a --delete "$MINE/nextseek_api/cc_assistant/"      "$SA/nextseek_api/cc_assistant/"
-rsync -a          "$MINE/nextseek_api/services/cc_assistant.py" "$SA/nextseek_api/services/cc_assistant.py"
-rsync -a          "$MINE/nextseek_api/cc_assistant/translate.py" "$SA/nextseek_api/cc_assistant/translate.py"
-rsync -a --delete "$MINE/dmac_assistant/"                 "$SA/dmac_assistant/"
-
-# ensure docker-compose.yml mounts (additive; the integration branch already has them):
+# ensure docker-compose.yml mounts:
 #   - /var/run/docker.sock:/var/run/docker.sock
-#   - ${DMAC_HOST_SCRATCH_ROOT}:/dmac/scratch
-#   - ${DMAC_HOST_OUTPUT_ROOT}:/dmac/output
-# and repoint the Mac-path fallbacks to /srv/dmac/* (or set the env below).
+#   - ${DMAC_USER_ROOT}:/dmac/users
 ```
 
 Append to `docker/nextseek.env` (the CC route config):
@@ -91,18 +83,32 @@ NEXTSEEK_CC_MAX_BUDGET_USD=2.00
 DMAC_ROUTER_ENABLED=1
 DMAC_ROUTE_CAPABILITIES_FILE=/app/dmac_assistant/build_context/route_capabilities.json
 DMAC_ROUTER_MODEL_CLASS_MAP_FILE=/app/dmac_assistant/build_context/router_model_class_map.json
-# host roots (CC sibling bind sources + copier mounts)
-DMAC_HOST_DROPBOX_ROOT=/srv/dmac/dropbox
-DMAC_HOST_SCRATCH_ROOT=/srv/dmac/scratch
-DMAC_HOST_OUTPUT_ROOT=/srv/dmac/output
-DMAC_SCRATCH_MOUNT=/dmac/scratch
-DMAC_OUTPUT_MOUNT=/dmac/output
+# consolidated Step-2 host root (CC sibling bind sources + worker mount)
+DMAC_USER_ROOT=/srv/dmac/users
+DMAC_USER_ROOT_MOUNT=/dmac/users
 ```
 
-Rebuild + recreate Django, then the route is live:
+Deploy hygiene for code/image changes:
+
+1. Commit in the working clone; do not hot-patch the running container.
+2. Snapshot the running service first, e.g. `docker commit nextseek nextseek-nextseek:pre-step2`.
+3. Fast-forward the service-account build-context clone from the working clone using
+   the established helper (`--user 1000:994`, `HOME=/tmp`, `safe.directory='*'`,
+   `protocol.file.allow=always`, `merge --ff-only`).
+4. Apply gitignored `docker/nextseek.env` changes directly in the service-account clone.
+   Never commit or force-add `docker/nextseek.env`, `docker/db.env`, or `dmac/local_settings.py`.
+5. Rebuild + recreate only the `nextseek` service through the service-account
+   `docker:cli` helper with `--no-deps`.
+
+Then the route is live:
 
 ```bash
-cd "$SA" && docker compose build nextseek && docker compose up -d nextseek
+docker run --rm --user 1000:994 -e HOME=/tmp \
+  -v /var/run/docker.sock:/var/run/docker.sock -v "$SA":"$SA" -w "$SA" docker:cli \
+  docker compose -p nextseek build nextseek
+docker run --rm --user 1000:994 -e HOME=/tmp \
+  -v /var/run/docker.sock:/var/run/docker.sock -v "$SA":"$SA" -w "$SA" docker:cli \
+  docker compose -p nextseek up -d --no-deps nextseek
 docker exec nextseek python -c "from nextseek_api.cc_assistant import cc_engine; print(cc_engine.cc_runner_available())"
 # -> (True, 'ok')
 ```

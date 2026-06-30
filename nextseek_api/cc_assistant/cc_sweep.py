@@ -35,8 +35,8 @@ def _run_sweep():
                 continue
             try:
                 mount_path = tgt.transcript_path.replace(
-                    paths.host_cc_state_root.rstrip("/"),
-                    paths.cc_state_mount.rstrip("/"), 1)
+                    paths.host_user_root.rstrip("/"),
+                    paths.user_root_mount.rstrip("/"), 1)
                 raw = Path(mount_path).read_bytes()
                 prov = cc_summary.SummaryProvenance(
                     chat_session_id=tgt.session_id,

@@ -3,7 +3,7 @@
 
 Run inside the nextseek container (uses host docker.sock + Bedrock proxy = real spend):
 
-  docker exec -e PROBE_MEMORY_HOST=/srv/dmac/1c-probe/memory/CLAUDE.md nextseek \\
+  docker exec -e PROBE_PROJECT_DIRNAME=personal-demo-demo nextseek \\
     sh -lc 'cd /app && uv run python nextseek_api/cc_assistant/evidence/run_1c_claude_md_live_probe.py'
 
 Budget cap: $0.50 via --max-budget-usd passed through run_cc_turn.
@@ -17,9 +17,10 @@ import uuid
 from pathlib import Path
 
 from nextseek_api.cc_assistant import cc_config, cc_engine, router as cc_router
+from nextseek_api.cc_assistant.cc_provision import build_user_dirs
 
-PROBE_MEMORY_REL = os.environ.get("PROBE_MEMORY_REL", "1c-probe/memory/CLAUDE.md")
 USER_ID = os.environ.get("PROBE_USER_ID", "demo")
+PROJECT_DIRNAME = os.environ.get("PROBE_PROJECT_DIRNAME", f"personal-{USER_ID}-{USER_ID}")
 CC_STATE_KEY = os.environ.get("PROBE_CC_STATE_KEY", "1c-claude-md-probe")
 MAX_BUDGET = float(os.environ.get("PROBE_MAX_BUDGET_USD", "0.50"))
 
@@ -36,10 +37,12 @@ You MAY use the Read tool to inspect /home/user/CLAUDE.md and /home/user/.claude
 
 def main() -> int:
     paths = cc_config.CCPaths.from_env()
+    dirs = build_user_dirs(paths, PROJECT_DIRNAME, USER_ID, session_id=CC_STATE_KEY)
     probe_host = os.environ.get("PROBE_MEMORY_HOST")
     if not probe_host:
-        probe_host = str(Path(paths.host_cc_state_root) / PROBE_MEMORY_REL)
-    probe_container = str(Path(paths.cc_state_mount) / PROBE_MEMORY_REL)
+        probe_host = str(Path(dirs.memory_mnt) / "CLAUDE.md").replace(
+            paths.user_root_mount.rstrip("/"), paths.host_user_root.rstrip("/"), 1)
+    probe_container = str(Path(dirs.memory_mnt) / "CLAUDE.md")
     if Path(probe_container).is_file():
         pass
     elif Path(probe_host).is_file():
@@ -60,7 +63,6 @@ def main() -> int:
 
     cc_engine._build_volumes = _build_with_probe_memory  # type: ignore[method-assign]
 
-    projects = cc_config.projects_for(USER_ID)
     run_id = f"probe-{uuid.uuid4().hex[:8]}"
     events: list[tuple[str, dict]] = []
 
@@ -76,7 +78,10 @@ def main() -> int:
     api_user = os.environ.get("PROBE_API_USER", "demo")
     api_pass = os.environ.get("PROBE_API_PASS", "demopassword")
 
-    print(f"Starting live probe run_id={run_id} cc_state_key={CC_STATE_KEY}")
+    print(
+        f"Starting live probe run_id={run_id} project_dirname={PROJECT_DIRNAME} "
+        f"cc_state_key={CC_STATE_KEY}"
+    )
     print(f"Memory bind: {probe_host} -> /home/user/.claude/CLAUDE.md:ro")
 
     model_id = cc_router._resolve_cc_model_id()
@@ -87,7 +92,7 @@ def main() -> int:
         model_id=model_id,
         send_event=send_event,
         user_id=USER_ID,
-        projects=projects,
+        project_dirname=PROJECT_DIRNAME,
         run_id=run_id,
         paths=paths,
         session_id=None,
