@@ -85,7 +85,7 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     for s in qs:
         sid = str(s.session_id)
         es = s.extra_state or {}
-        session_project = project_dirname or es.get("cc_project_dirname")
+        session_project = es.get("cc_project_dirname") or project_dirname
         if not session_project:
             continue
         dirs = build_user_dirs(paths, session_project, user.username, session_id=sid)
@@ -162,6 +162,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
         send_event = make_db_event_callback(str(query_task.task_id), resolved_session_id)
         adapter = DictSessionAdapter(chat_session)
         api_user, api_pass = self._resolve_credentials(request)
+        user_api_user, user_api_pass = api_user, api_pass
         chat_config = _select_chat_config(request, req)
 
         # Prod-config credential swap (mirror AssistantViewSet).
@@ -245,7 +246,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         resolve_user_project,
                     )
                     try:
-                        project = resolve_user_project(api_user, api_pass)
+                        project = resolve_user_project(user_api_user, user_api_pass)
                     except ProjectResolutionError as exc:
                         logger.warning("cc-step2: project resolution failed: %s", exc)
                         send_event("query_error", {
@@ -257,10 +258,14 @@ class CCAssistantViewSet(viewsets.ViewSet):
                             "session_id": resolved_session_id,
                         })
                         return
-                    project_dirname = project.dirname
+                    project_dirname = (
+                        (chat_session.extra_state or {}).get("cc_project_dirname")
+                        or project.dirname
+                    )
                     try:
-                        chat_session.extra_state["cc_project_dirname"] = project_dirname
-                        chat_session.save(update_fields=["extra_state", "updated_at"])
+                        if not (chat_session.extra_state or {}).get("cc_project_dirname"):
+                            chat_session.extra_state["cc_project_dirname"] = project_dirname
+                            chat_session.save(update_fields=["extra_state", "updated_at"])
                     except Exception:
                         logger.exception("cc-step2: failed to persist project dirname")
 
