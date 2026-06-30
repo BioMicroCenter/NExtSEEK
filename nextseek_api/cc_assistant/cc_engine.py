@@ -1,23 +1,21 @@
-"""Container Claude Code (CC) engine — sandboxed agentic route, per dmac SDS.
+"""Container Claude Code (CC) engine — sandboxed agentic route.
 
-Runs ONE headless ``claude`` container per query with the dmac_assistant data
-model (ADR-003 / SDS §5.3-5.5):
+Runs ONE headless ``claude`` container per CC query:
 
-* project data mounted READ-ONLY at ``/data/projects/<project>`` (scoped per user),
-* a per-user RW scratch at ``/data/scratch`` (working dir is the per-run subdir),
+* private user input mounted READ-ONLY at ``/data/input``,
+* project shared input mounted READ-ONLY at ``/data/shared``,
+* per-user RW scratch mounted at ``/data/scratch``,
 * after the turn, a host-side copier publishes new scratch files to the user's
-  output dir (``output_root/<user_id>/<run_id>/...`` — the Dropbox
-  ``example-project/demo/`` folder for the dev demo user).
+  nested output dir.
 
-CC never writes the output dir directly; the curated post-turn copier
-(``dmac_assistant.copier`` + ``run_tracker``, imported, not reimplemented) does.
+CC never writes the output dir directly; the bridge diffs scratch and publishes
+regular non-symlink files after the container exits.
 The terminal ``query_complete`` is deferred until after the copier so the reply
 can report the host-side artifact paths (D19).
 
 Topology note: this runs in the nextseek Django container; the CC container is a
 sibling spawned via the host docker socket, so bind *sources* are host paths
-(``CCPaths.host_*``) while the copier reads/writes the same dirs at their
-nextseek-container mount points (``CCPaths.scratch_mount`` / ``output_mount``).
+while the bridge reads/writes the same dirs at ``CCPaths.user_root_mount``.
 """
 from __future__ import annotations
 
@@ -25,6 +23,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import threading
 from collections.abc import Mapping
 from pathlib import Path
@@ -100,7 +99,6 @@ _CONTAINER_SCRATCH = "/data/scratch"
 _CONTAINER_OUTPUT = "/data/output"
 _CONTAINER_INPUT = "/data/input"
 _CONTAINER_SHARED = "/data/shared"
-_CONTAINER_PROJECTS = "/data/projects"
 # Image WORKDIR: the baked CLAUDE.md (-> /app/CLAUDE.md) and the nextseek plugin
 # (~/.claude/plugins/local/nextseek) are discovered by claude-code only when cwd
 # is here. Running in /data/scratch leaves the agent with no plugin guidance, so
@@ -166,11 +164,11 @@ def _validate_user_id(user_id: str) -> None:
 
 
 def _validate_project(name: str) -> None:
-    """Reject project names that could traverse out of the dropbox root.
+    """Reject project dirname values that could traverse out of the user root.
 
-    Project names come from the admin-controlled ``DMAC_CC_USER_PROJECTS`` map
-    (may contain spaces, e.g. ``"Published Data"``), so this is a traversal guard
-    rather than the strict user_id charset.
+    Project dirname values are built from SEEK project ids + slugs (or a
+    personal namespace), so this is a traversal guard rather than a strict slug
+    validator.
     """
     if (
         not isinstance(name, str)
@@ -362,15 +360,6 @@ def _run_kwargs(
     }
 
 
-def _dropbox_display(host_path: Path, paths: CCPaths) -> str:
-    """Render a host artifact path as a friendly Dropbox-relative location."""
-    s = str(host_path)
-    root = paths.host_dropbox_root.rstrip("/")
-    if s.startswith(root + "/"):
-        return s[len(root) + 1:]  # e.g. example-project/demo/<run_id>/file.py
-    return s
-
-
 def _build_volumes(
     *,
     paths: CCPaths,
@@ -434,18 +423,20 @@ def run_cc_turn(
     from docker.errors import APIError, NotFound
 
     image = image or DEFAULT_IMAGE
-    scratch_mount = Path(paths.scratch_mount)
-    output_mount = Path(paths.output_mount)
 
     # I-4 (audit B2): validate BEFORE any path interpolation / mkdir / mount.
     _validate_user_id(user_id)
     _validate_user_id(run_id)
     _validate_project(project_dirname)
+    if cc_state_key:
+        _validate_user_id(cc_state_key)  # single-segment path guard (UUID chat id)
 
     from .cc_provision import build_user_dirs
 
     effective_session_id = session_id
     dirs = build_user_dirs(paths, project_dirname, user_id, session_id=cc_state_key)
+    scratch_mount = Path(dirs.scratch_mnt)
+    output_mount = Path(dirs.output_mnt)
 
     # Per-run working dir lives under the user's scratch. Create it via the
     # nextseek-container mount so it exists on the host before the CC container
@@ -463,11 +454,10 @@ def run_cc_turn(
 
     # Per-session claude-state store: persists transcripts across the ephemeral
     # per-turn containers so --resume works. Created via the nextseek-container
-    # mount (cc_state_mount) so the host dir exists before the CC sibling mounts
+    # mount (user_root_mount) so the host dir exists before the CC sibling mounts
     # it. Resume only when a prior transcript actually exists (turn-1 / wiped
     # store -> start fresh, never resume a missing session).
     if cc_state_key:
-        _validate_user_id(cc_state_key)  # single-segment path guard (UUID chat id)
         cc_state_dir = Path(dirs.cc_state_mnt)
         if session_id and not cc_session.store_has_transcripts(cc_state_dir):
             logger.info("cc: resume id present but store empty; starting fresh")
@@ -580,7 +570,8 @@ def run_cc_turn(
                 terminal = (event, data)
 
         # Post-turn publish: diff scratch, copy new files to the user's output dir.
-        published = _publish_artifacts(scratch_mount, output_mount, user_id, before, paths)
+        published = _publish_artifacts(
+            scratch_mount, output_mount, output_host_root=dirs.output_src, before=before)
 
         if terminal is None:
             terminal = ("query_complete", {"reply": "(no response)", "bundle_id": None,
@@ -616,33 +607,66 @@ def run_cc_turn(
                 pass
 
 
+def _snapshot_tree(root: Path) -> dict[str, tuple[int, int]]:
+    """Return regular, non-symlink file versions under root, keyed by relpath."""
+    out: dict[str, tuple[int, int]] = {}
+    if not root.is_dir():
+        return out
+    for dirpath, _dirnames, filenames in os.walk(root, followlinks=False):
+        for filename in filenames:
+            full = Path(dirpath) / filename
+            if full.is_symlink():
+                continue
+            try:
+                st = full.stat()
+            except OSError:
+                continue
+            out[str(full.relative_to(root))] = (st.st_size, st.st_mtime_ns)
+    return out
+
+
 def snapshot_before(scratch_mount: Path, user_id: str) -> dict[str, tuple[int, int]]:
-    from dmac_assistant.run_tracker import snapshot_scratch_files
-    return snapshot_scratch_files(scratch_mount, user_id)
+    return _snapshot_tree(scratch_mount)
+
+
+def _safe_relpath(rel: str) -> bool:
+    if not rel:
+        return False
+    path = Path(rel)
+    return not path.is_absolute() and ".." not in path.parts
 
 
 def _publish_artifacts(
-    scratch_mount: Path, output_mount: Path, user_id: str,
-    before: dict[str, tuple[int, int]], paths: CCPaths,
+    scratch_mount: Path,
+    output_mount: Path,
+    *,
+    output_host_root: str,
+    before: dict[str, tuple[int, int]],
 ) -> list[str]:
-    """Diff scratch, copy new/changed files to output, return Dropbox-relative paths."""
-    try:
-        from dmac_assistant.run_tracker import snapshot_scratch_files, diff_files
-        from dmac_assistant.copier import copy_files
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("CC: copier/run_tracker import failed (%s); no publish", type(exc).__name__)
-        return []
-    after = snapshot_scratch_files(scratch_mount, user_id)
+    """Diff nested scratch, copy new/changed files to nested output, return host paths."""
+    from dmac_assistant.run_tracker import diff_files
+
+    after = _snapshot_tree(scratch_mount)
     changed = diff_files(before, after)
     if not changed:
         return []
-    written = copy_files(scratch_mount, output_mount, user_id, changed)
+    written: list[Path] = []
+    for rel in sorted(changed):
+        if not _safe_relpath(rel):
+            logger.warning("CC: refusing unsafe artifact relpath %r", rel)
+            continue
+        src = scratch_mount / rel
+        if src.is_symlink() or not src.is_file():
+            continue
+        dst = output_mount / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        written.append(dst)
     display: list[str] = []
     for dst in written:
         try:
-            rel = dst.relative_to(output_mount)         # <user_id>/<run_id>/<file>
+            rel = dst.relative_to(output_mount)
         except ValueError:
-            rel = Path(user_id) / dst.name
-        host_path = Path(paths.host_output_root) / rel
-        display.append(_dropbox_display(host_path, paths))
+            rel = Path(dst.name)
+        display.append(str(Path(output_host_root) / rel))
     return sorted(display)

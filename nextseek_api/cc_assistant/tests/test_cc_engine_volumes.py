@@ -6,17 +6,7 @@ from nextseek_api.cc_assistant.cc_config import CCPaths
 
 
 def _paths() -> CCPaths:
-    return CCPaths(
-        host_dropbox_root="/legacy/dropbox",
-        host_scratch_root="/legacy/scratch",
-        host_output_root="/legacy/output",
-        scratch_mount="/legacy/m/scratch",
-        output_mount="/legacy/m/output",
-        host_cc_state_root="/legacy/ccstate",
-        cc_state_mount="/legacy/m/ccstate",
-        host_user_root="/host/users",
-        user_root_mount="/dmac/users",
-    )
+    return CCPaths(host_user_root="/host/users", user_root_mount="/dmac/users")
 
 
 def test_input_and_shared_mounted_ro():

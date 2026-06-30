@@ -134,7 +134,6 @@ class CCRealStackAcceptance(TestCase):
 
     def test_02_cc_turn_runs_real_opus_via_proxy_and_publishes(self):
         paths = cc_config.CCPaths.from_env()
-        projects = cc_config.projects_for(self.user_id)
         events: list = []
         errbox: dict = {}
 
@@ -154,7 +153,7 @@ class CCRealStackAcceptance(TestCase):
             try:
                 cc_engine.run_cc_turn(
                     query=query, model_id=OPUS, send_event=send_event,
-                    user_id=self.user_id, project_dirname=(projects[0] if projects else "personal-ccacc-ccacc"),
+                    user_id=self.user_id, project_dirname="personal-ccacc-ccacc",
                     run_id=self.run_id,
                     paths=paths, api_user=self.api_user, api_pass=self.api_pass,
                 )
