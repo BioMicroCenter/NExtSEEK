@@ -16,7 +16,7 @@
 - **Builds on Step 2** (`done`, live): project-stratified `<DMAC_USER_ROOT>/<projectID-slug>/<user>/{input,scratch,cc-state,output}` + `<project>/shared/`. Reuse the Step-2 primitives `resolve_user_project`, `build_user_dirs`, `UserDirs`, `ProjectIdentity`, and the validators `_validate_user_id`/`_validate_project`/`_safe_relpath` — do not reinvent them.
 - **TDD-first**, bite-sized steps, frequent commits. Implementation code only after a failing test.
 - **Hermetic test command (the box cannot run the Django test-DB runner — `seek_db_user` lacks `CREATE`):**
-  `uv run --no-project --with pytest --with orjson --with pydantic --with zstandard python -m pytest -q --noconftest <files>`
+  `uv run --no-project --with pytest --with pytest-cov --with orjson --with pydantic --with zstandard python -m pytest -q --noconftest <files>`
   Run from `/home/taishajo/work/NExtSEEK`. No Docker, no DB, no network, no spend. (`--with zstandard` matters only for Task 1; `--with orjson --with pydantic` for the trace tests; harmless elsewhere.)
 - **DB / migration / endpoint logic is NOT hermetically testable here** (no test DB, no live HTTP in-suite). For those tasks the hermetic test covers the pure seam (validator, partition, zip-builder, compress round-trip, schema extraction); the endpoint/persistence path is proven in the Task 13 live gate (forced-CC, ≤ $2 cap, Playwright, per-change sign-off).
 - **No regression** to 1b `--resume`, 1c memory, the NS route, Step 2 isolation, or **OI-3** (zero-creds agent). Upload/download/recover all run host-side in Django as the logged-in user using their own SEEK login; **no new credential reaches the agent**. The agent still sees only `input/` + `shared/` RO and writes only `scratch/` RW.
@@ -26,6 +26,10 @@
 - **pydantic is unpinned** in this repo (v2 syntax throughout: `model_validate`/`model_dump`). Use an **ordered `Union` with a catch-all last** for the jsonl record union (do not rely on a discriminated union requiring a specific pin).
 - **Per-change sign-off** before touching the running instance. The E8 Dropbox-default change and any dead-config removal ship as their own reviewed diffs.
 - **Deadline:** NExtSEEK prod before 2026-07-14.
+- **Turn-scoped artifacts (user decision 2026-06-30):** deliverables land in `output/artifacts/<turn_id>/`; `ArtifactFile.key` is `"<turn_id>/<relpath>"`. Task 13 Step 5b proves two-turn same-basename download correctness.
+- **Coverage targets (Phase 2 hardened):** Each task below is gated at **≥95%** line coverage, wired **into that task's actual verify command** as `--with pytest-cov … --cov=<module> --cov-fail-under=95` (Task 6 Step 5b is the template; commit blocked if below floor). The gated `<module>` per task is: Task 1 → `nextseek_api.cc_assistant.cc_transcript_store`; Task 3 → `nextseek_api.cc_assistant.cc_provision` (the command must run **all four** existing provision test files so the shared Step-2 module reaches the floor — measured **96%**); Task 4 → `nextseek_api.cc_assistant.cc_trace`; Task 6 → `nextseek_api.cc_assistant.cc_artifacts`; Task 7 → `nextseek_api.assistant.models_api` (declarative pydantic — **≥96% on import**, exercised by `test_turn_cc_traces.py`); Task 9 → `nextseek_api.cc_assistant.cc_upload_validate` (the **celery-free** validator module split out this task); Task 9b → `nextseek_api.cc_assistant.cc_upload_list`. **Task 5 (translate) is NOT whole-module gated:** `translate.py` is a pre-existing shared *procedural* module that Task 5 extends by two `query_complete` keys — it adds **no new module**, and its uncovered lines (verified `58, 68, 97, 104, 123`) all live in `handle`/`finalize`/`_handle_system`/`_handle_assistant`/`_handle_user` branches **outside** the touched `_handle_result`, so a whole-module ≥95% gate is unreachable within this task's surgical scope (mixing the existing `from translate import …` and the dotted-import seam test also collapses coverage to "no data"). Task 5 instead runs `--cov=nextseek_api.cc_assistant.translate --cov-report=term-missing` (no `--cov-fail-under`) to surface the seam; the `_handle_result` change is proven by the two new assertions in Step 1 and the Task 13 live gate.
+- **Task execution order (load-bearing):** **Task 11a MUST complete (commit) before Task 11 Step 2.** Do not implement Task 11 persist wiring until `_append_cc_turn_complete` exists.
+- **`zstandard` dependency:** add to root `pyproject.toml` / image deps in **Task 1** (not deferred to Task 13) so production imports succeed after Task 11.
 
 ---
 
@@ -35,7 +39,11 @@
 - `nextseek_api/cc_assistant/cc_transcript_store.py` — `compress(jsonl: bytes) -> bytes` / `decompress(blob: bytes, *, max_bytes) -> bytes` (zstd; decompression-bomb bound).
 - `nextseek_api/cc_assistant/cc_trace.py` — one flat pydantic `Step` (real `kind`) + `CCTrace` (enriched §6.2, with the `SessionSummary`-style envelope) + the ordered jsonl record union (`_Assistant`/`_User`/`_Other`, `_Other` last, §6.3) + `extract_trace(parsed, *, cc_session_id, ts, files_created, files_modified, result_meta) -> CCTrace`. Reuses the shared `cc_summary.classify_tool_use` + `ParsedTranscript` counts.
 - `nextseek_api/cc_assistant/cc_artifacts.py` — `partition_changed(changed: set[str]) -> tuple[set[str], set[str]]` (artifacts vs raw) + `build_artifact_zip(files: list[Path], dest_zip: Path) -> Path` (mirrors `content_blobs.download_batch`).
-- Tests under `nextseek_api/cc_assistant/tests/`: `test_cc_transcript_store.py`, `test_cc_summary_classify.py`, `test_cc_trace.py`, `test_translate_result_meta.py`, `test_cc_artifacts_split.py`, `test_cc_provision_input_mnt.py`, `test_turn_cc_traces.py`, `test_cc_upload_validate.py`, `test_cc_dropbox_grep_guard.py`, plus the fixture `tests/fixtures/cc_transcript_sample.jsonl`.
+- `nextseek_api/cc_assistant/cc_turn_complete.py` — `TurnCompletePayload` + `serialize_cc_chat_log_entry` + `append_capped` (the pure FIFO-cap helper; neutral module; Task 11/11a).
+- `nextseek_api/cc_assistant/cc_endpoint_guards.py` — owner-scoped artifact path resolution (Task 10).
+- `nextseek_api/cc_assistant/cc_upload_validate.py` — `validate_upload_filename` (celery-free pure module so the hermetic validator test imports with zero celery dependency; Task 9).
+- `nextseek_api/cc_assistant/cc_upload_list.py` — `list_input_files` helper (Task 9b).
+- Tests under `nextseek_api/cc_assistant/tests/`: `test_cc_transcript_store.py`, `test_cc_summary_classify.py`, `test_cc_trace.py`, `test_translate_result_meta.py`, `test_cc_artifacts_split.py`, `test_cc_provision_input_mnt.py`, `test_turn_cc_traces.py`, `test_cc_upload_validate.py`, `test_cc_dropbox_grep_guard.py`, `test_cc_newest_jsonl.py`, `test_cc_chat_log_writer.py`, `test_cc_endpoint_guards.py`, `test_cc_upload_list.py`, `test_validate_cc_acceptance.py`, plus the fixture `tests/fixtures/cc_transcript_sample.jsonl`.
 - `nextseek_api/migrations/0007_ccsessiontranscript.py` — additive migration.
 - Frontend: `chat_frontend/src/components/ChatPanel/CCActivityPanel.tsx` (+ `CCActivityPanel.test.tsx`), `chat_frontend/src/components/ChatPanel/UploadControl.tsx` (+ `UploadControl.test.tsx`).
 
@@ -43,7 +51,7 @@
 - `nextseek_api/cc_assistant/cc_summary.py` — factor a structured `classify_tool_use(block) -> (kind, tool, detail)` out of the existing `_tool_use_line` (`:87`) and have both the string formatter and `cc_trace` consume it (shared classifier; no behavior change to 1c memory).
 - `nextseek_api/cc_assistant/cc_provision.py` — add `input_mnt` to `UserDirs` + `build_user_dirs` (uploads write host-side via the mount).
 - `nextseek_api/cc_assistant/translate.py` — `_handle_result` surfaces `num_turns`/`duration_ms` (`:130-156`).
-- `nextseek_api/cc_assistant/cc_engine.py` — rework `_publish_artifacts` (`:639`) to the hybrid split; replace the "Saved to your Dropbox" augmentation (`:580-587`) with an `artifacts` channel + trace metadata on `query_complete`.
+- `nextseek_api/cc_assistant/cc_engine.py` — rework `_publish_artifacts` (`:639`) to the hybrid split; replace the "Saved to your Dropbox" augmentation (`:580-587`) with an `artifacts` channel + trace metadata on `query_complete`; extend `run_cc_turn` kwargs (`chat_session`, `user_query`, `on_turn_complete`).
 - `nextseek_api/cc_assistant/cc_config.py` — neutral default `/srv/dmac/users` (`:15`, E8).
 - `nextseek_api/services/cc_assistant.py` — four new `@action`s (upload, upload-status, artifact-download, transcript-recover) on `CCAssistantViewSet` (`:114`); persist `CCTrace` + transcript blob in the CC branch.
 - `nextseek_api/assistant/models_db.py` — `CCSessionTranscript` model (`app_label='nextseek_api'`).
@@ -51,7 +59,7 @@
 - `nextseek_api/services/assistant.py` — surface `cc_traces` in the Turn projection (`:521-529`).
 - `nextseek_api/batch_upload/tasks.py` *(pattern source only — read, do not edit)*; new CC upload task lives in `nextseek_api/cc_assistant/cc_upload_tasks.py`.
 - `seek/views.py` — remove dead `DROPBOX_DIRECTORY` (`:94`, audited).
-- Frontend: `MessageInput.tsx`, `MessageBubble.tsx`, `EmbeddedApp.tsx`, `AppLayout.tsx`, `lib/api/chatApi.ts`, `lib/types/chat.ts`, `lib/types/api.ts`, `hooks/useMessages.ts`, `ReportArtifacts.tsx`.
+- Frontend: `MessageInput.tsx`, `MessageBubble.tsx`, `EmbeddedApp.tsx`, `AppLayout.tsx`, `lib/services/chatApi.ts`, `lib/types/chat.ts`, `lib/types/api.ts`, `hooks/useMessages.ts`, `hooks/useChatApi.ts`, `components/ChatPanel/ReportArtifacts.tsx`.
 - `nextseek_api/cc_assistant/DEPLOY.md`, image deps (`zstandard`).
 
 ---
@@ -153,14 +161,18 @@ def decompress(blob: bytes, *, max_bytes: int = 256 * 1024 * 1024) -> bytes:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `uv run --no-project --with pytest --with zstandard python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_transcript_store.py`
-Expected: PASS (4 tests)
+Run: `uv run --no-project --with pytest --with pytest-cov --with zstandard python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_transcript_store.py --cov=nextseek_api.cc_assistant.cc_transcript_store --cov-fail-under=95`
+Expected: PASS (4 tests), `cc_transcript_store` ≥95% line coverage (commit blocked below floor).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Add `zstandard` to root Python deps (E7 — early, not Task 13-only)**
+
+In `pyproject.toml` (and `requirements.txt` if the image installs from it), add `zstandard>=0.25`. The dmac venv / image must get it before Task 11 imports `cc_transcript_store` in production.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add nextseek_api/cc_assistant/cc_transcript_store.py nextseek_api/cc_assistant/tests/test_cc_transcript_store.py
-git commit -m "feat(cc-step3): zstd transcript store with decompression-bomb bound (§7, E7)"
+git add nextseek_api/cc_assistant/cc_transcript_store.py nextseek_api/cc_assistant/tests/test_cc_transcript_store.py pyproject.toml requirements.txt
+git commit -m "feat(cc-step3): zstd transcript store + zstandard dep (§7, E7)"
 ```
 
 ---
@@ -308,8 +320,8 @@ In `build_user_dirs`, add to the returned `UserDirs(...)` (after `input_src=...`
 
 - [ ] **Step 4: Run the focused test + the full suite**
 
-Run: `uv run --no-project --with pytest python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_provision_input_mnt.py nextseek_api/cc_assistant/tests/test_cc_provision_paths.py`
-Expected: PASS. Then the whole suite to confirm the additive field broke nothing:
+Run (all provision test files so the shared `cc_provision` module reaches the floor — measured 96%): `uv run --no-project --with pytest --with pytest-cov python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_provision_input_mnt.py nextseek_api/cc_assistant/tests/test_cc_provision_paths.py nextseek_api/cc_assistant/tests/test_cc_provision_isolation.py nextseek_api/cc_assistant/tests/test_cc_provision_resolve.py nextseek_api/cc_assistant/tests/test_cc_provision_slug.py --cov=nextseek_api.cc_assistant.cc_provision --cov-fail-under=95`
+Expected: PASS, `cc_provision` ≥95% (commit blocked below floor). Then the whole suite to confirm the additive field broke nothing:
 `uv run --no-project --with pytest --with orjson --with pydantic python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/`
 Expected: all prior tests still PASS.
 
@@ -406,8 +418,9 @@ Expected: PASS (classifier + every existing 1c test — `_tool_use_line`'s outpu
 
 - [ ] **Step 5: Write the fixture jsonl (with paired tool_results for `status`)**
 
+Create `nextseek_api/cc_assistant/tests/fixtures/cc_transcript_sample.jsonl` containing **EXACTLY these 6 jsonl records and NOTHING ELSE** — **no `#` path/header comment line** (unlike the `.py` pastes in this plan, the leading `# <path>` convention is a *label here, not file content*: `parse_transcript` keeps every non-empty line and maps an unparseable one to `{"_type":"unparsed"}` while still counting it, so a pasted `#` line makes `line_count == 7` and breaks the `transcript_line_count == p.line_count == 6` assertion):
+
 ```
-# nextseek_api/cc_assistant/tests/fixtures/cc_transcript_sample.jsonl
 {"type":"user","message":{"role":"user","content":[{"type":"text","text":"list the input files"}]}}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll inspect the inputs."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls /data/input"}}]}}
 {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"a.csv"}]}}
@@ -416,7 +429,7 @@ Expected: PASS (classifier + every existing 1c test — `_tool_use_line`'s outpu
 {"type":"summary","leafUuid":"abc"}
 ```
 
-(Line 6 is an unknown record `type` — it MUST fall through to `_Other`. The two `tool_result`s drive `status`.)
+(The **6th** record — the `summary` line — is an unknown record `type` that MUST fall through to `_Other`. The two `tool_result`s drive `status`.)
 
 - [ ] **Step 6: Write the failing extractor tests**
 
@@ -465,6 +478,11 @@ def test_action_from_diff_and_status_from_tool_result():
     assert write.action == "created"             # report.md is in files_created (basename match)
     assert bash.status == "ok"                    # paired tool_result is_error=false
     assert write.status == "error"                # paired tool_result is_error=true
+    # modified-action branch (covers `elif base in modified_base`, else dips <95%):
+    t2 = extract_trace(_parsed(), cc_session_id="s", ts="t",
+                       files_created=[], files_modified=["report.md"])
+    w2 = next(s for s in t2.steps if s.kind == "write")
+    assert w2.action == "modified"               # same basename via files_modified
 
 
 def test_unknown_record_type_does_not_crash():
@@ -616,8 +634,12 @@ def extract_trace(parsed, *, cc_session_id, ts, files_created, files_modified,
 
 - [ ] **Step 9: Run tests to verify they pass**
 
-Run: `uv run --no-project --with pytest --with orjson --with pydantic python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_trace.py`
-Expected: PASS (5 tests)
+Run: `uv run --no-project --with pytest --with pytest-cov --with orjson --with pydantic python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_trace.py --cov=nextseek_api.cc_assistant.cc_trace --cov-fail-under=95`
+Expected: PASS (6 tests), `cc_trace` ≥95% line coverage (commit blocked below floor).
+
+- [ ] **Step 9b: Add second fixture (Gameability Audit — anti-overfit)**
+
+Create `tests/fixtures/cc_transcript_multitool.jsonl` with `WebFetch` + `Read` tools (different from sample) — again **jsonl records only, no `#` header/comment line** (same `line_count` trap as Step 5). Add `test_multitool_trace_kinds()` asserting distinct `kind` values. Prevents extractor overfit to the primary fixture.
 
 - [ ] **Step 10: Commit**
 
@@ -625,7 +647,8 @@ Expected: PASS (5 tests)
 git add nextseek_api/cc_assistant/cc_summary.py nextseek_api/cc_assistant/cc_trace.py \
         nextseek_api/cc_assistant/tests/test_cc_summary_classify.py \
         nextseek_api/cc_assistant/tests/test_cc_trace.py \
-        nextseek_api/cc_assistant/tests/fixtures/cc_transcript_sample.jsonl
+        nextseek_api/cc_assistant/tests/fixtures/cc_transcript_sample.jsonl \
+        nextseek_api/cc_assistant/tests/fixtures/cc_transcript_multitool.jsonl
 git commit -m "feat(cc-step3): enriched CCTrace + shared cc_summary.classify_tool_use (§6, E4/E10)"
 ```
 
@@ -647,12 +670,12 @@ Spec refs: §6.4 (required for `num_turns`/`duration_ms`), §6.1 (these come fro
 ```python
 # nextseek_api/cc_assistant/tests/test_translate_result_meta.py
 """_handle_result surfaces num_turns/duration_ms on query_complete. Hermetic."""
-from nextseek_api.cc_assistant.translate import StreamTranslator  # adjust if class name differs
+from nextseek_api.cc_assistant.translate import CCStreamTranslator
 
 
 def _translator():
     # construct minimally; _handle_result only reads the payload + self.session_id
-    t = StreamTranslator.__new__(StreamTranslator)
+    t = CCStreamTranslator.__new__(CCStreamTranslator)
     t.session_id = "sess-1"
     t._terminated = False
     return t
@@ -680,7 +703,7 @@ def test_missing_meta_is_none_not_crash():
     assert data["num_turns"] is None and data["duration_ms"] is None
 ```
 
-> **Before writing the test as-is**, open `translate.py` and confirm the class name that owns `_handle_result` and how `session_id`/`_terminated` are initialized; adjust `_translator()` to construct it the lightest way that lets `_handle_result` run (the method only reads `payload` + sets `self.session_id`/`self._terminated`). Keep the assertions.
+> **Confirmed (Phase 2 vetting):** `_handle_result` is on `CCStreamTranslator` (`translate.py:26`). `_translator()` above is correct.
 
 - [ ] **Step 2: Run them to verify they fail**
 
@@ -704,8 +727,8 @@ In `translate.py`, in the success branch (the `return [("query_complete", {...})
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `uv run --no-project --with pytest python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_translate_result_meta.py`
-Expected: PASS (2 tests)
+Run: `uv run --no-project --with pytest --with pytest-cov python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_translate_result_meta.py --cov=nextseek_api.cc_assistant.translate --cov-report=term-missing`
+Expected: PASS (2 tests). **No `--cov-fail-under` here:** `translate.py` is a pre-existing shared procedural module and this task adds no new module (see Global Constraints "Task 5 (translate) is NOT whole-module gated"); the `_handle_result` change is proven by the two assertions above and the Task 13 live gate. `--cov-report=term-missing` is informational only.
 
 - [ ] **Step 5: Commit**
 
@@ -721,13 +744,14 @@ git commit -m "feat(cc-step3): surface num_turns/duration_ms on query_complete (
 **Files:**
 - Create: `nextseek_api/cc_assistant/cc_artifacts.py`
 - Modify: `nextseek_api/cc_assistant/cc_engine.py` (`_publish_artifacts` `:639`)
+- Modify: `nextseek_api/cc_assistant/tests/test_cc_engine_publish.py` (assert dict return shape)
 - Test: `nextseek_api/cc_assistant/tests/test_cc_artifacts_split.py`
 
 **Interfaces:**
 - Produces:
   - `RAW_PREFIX = "raw/"` ; `partition_changed(changed: set[str]) -> tuple[set[str], set[str]]` returns `(artifact_rels, raw_rels)` where a rel under `raw/` is raw, else artifact.
   - `build_artifact_zip(srcs: list[Path], dest_zip: Path) -> Path` — tempfile-free deterministic zip (mirrors `content_blobs.download_batch`'s `zipfile.ZipFile` + `writestr` approach).
-  - Reworked `_publish_artifacts(scratch_mount, output_mount, *, output_host_root, before) -> dict` returning `{"artifacts": [ArtifactFile-like dict...], "raw": [host paths], "raw_zip": Path | None}` (replaces the old `list[str]`).
+  - Reworked `_publish_artifacts(scratch_mount, output_mount, *, turn_id: str, output_host_root, before) -> dict` returning `{"artifacts": [ArtifactFile-like dict...], "raw": [host paths], "raw_zip": Path | None}` (replaces the old `list[str]`). **Turn-scoped:** copy deliverables to `output_mount/"artifacts"/<turn_id>/` so multi-turn same-basename files do not overwrite; `ArtifactFile.key` is `f"{turn_id}/{relpath}"`.
 
 Spec refs: §5 (hybrid split, zip-if-multiple), §3 (`output/artifacts/` + `output/raw/`), E3/E9.
 
@@ -763,7 +787,7 @@ def test_build_zip_contains_all_sources(tmp_path):
     assert out == dest and dest.is_file()
     with zipfile.ZipFile(dest) as zf:
         names = set(zf.namelist())
-    assert "a.txt" in names and "b.txt" in names   # basenames, de-duped
+    assert "a.txt" in names and "sub/b.txt" in names   # relpaths preserved (iter-10)
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -796,21 +820,14 @@ def partition_changed(changed: set[str]) -> tuple[set[str], set[str]]:
     return artifacts, raw
 
 
-def build_artifact_zip(srcs: list[Path], dest_zip: Path) -> Path:
-    """Zip ``srcs`` into ``dest_zip`` by basename (de-duped), deterministic order.
-    Mirrors content_blobs.download_batch's ZipFile + writestr approach."""
+def build_artifact_zip(srcs: list[Path], dest_zip: Path, *, arc_prefix: Path | None = None) -> Path:
+    """Zip ``srcs`` preserving relpaths under ``arc_prefix`` (default: common parent)."""
     dest_zip.parent.mkdir(parents=True, exist_ok=True)
-    seen: dict[str, int] = {}
+    base = arc_prefix or (srcs[0].parent if srcs else Path("."))
     with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-        for src in sorted(srcs, key=lambda p: p.name):
-            name = src.name
-            if name in seen:
-                seen[name] += 1
-                stem, dot, ext = name.partition(".")
-                name = f"{stem}_{seen[name]}{dot}{ext}"
-            else:
-                seen[name] = 0
-            zf.writestr(name, src.read_bytes())
+        for src in sorted(srcs, key=lambda p: str(p)):
+            arcname = str(src.relative_to(base))
+            zf.writestr(arcname, src.read_bytes())
     return dest_zip
 ```
 
@@ -828,25 +845,29 @@ def _publish_artifacts(
     scratch_mount: Path,
     output_mount: Path,
     *,
+    turn_id: str,
     output_host_root: str,
     before: dict[str, tuple[int, int]],
 ) -> dict:
     """Diff scratch; split deliverables (artifacts) from scratch/raw/ (raw).
-    Artifacts -> output/artifacts/ (zipped if >1, downloadable); raw -> output/raw/
-    (on disk, not bundled). Returns {"artifacts": [...], "raw": [...], "raw_zip": None}."""
+    Artifacts -> output/artifacts/<turn_id>/ (zipped if >1 per turn, downloadable);
+    raw -> output/raw/ (on disk, not bundled). Keys are turn-scoped: "<turn_id>/<relpath>"."""
     from dmac_assistant.run_tracker import diff_files
     from . import cc_artifacts
 
     after = _snapshot_tree(scratch_mount)
-    changed = diff_files(before, after)
+    changed = set(diff_files(before, after))
     if not changed:
-        return {"artifacts": [], "raw": [], "raw_zip": None}
+        return {"artifacts": [], "raw": [], "raw_zip": None, "files_created": [], "files_modified": []}
+
+    created = {r for r in changed if r not in before}
+    modified = changed - created
 
     art_rels, raw_rels = cc_artifacts.partition_changed(set(changed))
-    art_dir = output_mount / "artifacts"
+    art_dir = output_mount / "artifacts" / turn_id
     raw_dir = output_mount / "raw"
 
-    def _copy(rels: set[str], dest_root: Path) -> list[Path]:
+    def _copy(rels: set[str], dest_root: Path, *, strip_raw_prefix: bool = False) -> list[Path]:
         written: list[Path] = []
         for rel in sorted(rels):
             if not _safe_relpath(rel):
@@ -855,47 +876,239 @@ def _publish_artifacts(
             src = scratch_mount / rel
             if src.is_symlink() or not src.is_file():
                 continue
-            dst = dest_root / rel
+            out_rel = rel.removeprefix("raw/") if strip_raw_prefix else rel
+            dst = dest_root / out_rel
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
             written.append(dst)
         return written
 
     art_files = _copy(art_rels, art_dir)
-    raw_files = _copy(raw_rels, raw_dir)
+    raw_files = _copy(raw_rels, raw_dir, strip_raw_prefix=True)
 
     artifacts: list[dict] = []
-    for dst in art_files:
+    if len(art_files) > 1:
+        from nextseek_api.cc_assistant.cc_artifacts import build_artifact_zip
+        zip_path = art_dir / "artifacts.zip"
+        build_artifact_zip(art_files, zip_path, arc_prefix=art_dir)
+        artifacts.append({
+            "artifact_type": "file", "key": f"{turn_id}/artifacts.zip",
+            "label": "artifacts.zip", "file_format": "zip",
+        })
+    elif len(art_files) == 1:
+        dst = art_files[0]
         rel = dst.relative_to(art_dir)
         artifacts.append({
-            "artifact_type": "file", "key": str(rel),
+            "artifact_type": "file", "key": f"{turn_id}/{rel}",
             "label": dst.name, "file_format": dst.suffix.lstrip(".") or "file",
         })
     return {
         "artifacts": artifacts,
         "raw": [str(Path(output_host_root) / "raw" / p.relative_to(raw_dir)) for p in raw_files],
         "raw_zip": None,
+        "files_created": sorted(created),
+        "files_modified": sorted(modified),
     }
 ```
 
-> Zipping the artifacts for a single download bundle is done lazily at **download time** in Task 10 (so the on-disk `output/artifacts/` stays browsable and the zip is built per-request, matching `download_batch`). The `key` is the artifact's relpath under `output/artifacts/`; the download endpoint maps `(session, key)` → that file.
-
-- [ ] **Step 6: Update the caller of `_publish_artifacts`**
-
-In `cc_engine.py` (`:573`), the call site assigns `published = _publish_artifacts(...)`. Update it to consume the dict (the "Saved to your Dropbox" block at `:580-587` is replaced in Task 8 — for now, keep the turn working by setting the artifacts channel):
+- [ ] **Step 5b: Update `test_cc_engine_publish.py`** — the rework makes `turn_id` a **required keyword-only** arg (no default) and changes the return from `list[str]` to a **dict** with the on-disk path `output/artifacts/<turn_id>/<rel>`, so BOTH existing functions (`test_publish_artifacts_copies_nested_scratch_changes`, `test_publish_artifacts_skips_symlinks`) `TypeError`/assert-fail unless updated. **Replace the two existing functions and add the >1-deliverable zip case with EXACTLY this** (paste-ready — keep the other test, `test_safe_relpath_rejects_escape_paths`, unchanged):
 
 ```python
-        result = _publish_artifacts(
-            scratch_mount, output_mount,
-            output_host_root=dirs.output_src, before=before,
-        )
-        if event == "query_complete":
-            data = dict(data)
-            data["artifacts"] = result["artifacts"] or None
-            data["cc_raw_files"] = result["raw"]
+def test_publish_artifacts_copies_nested_scratch_changes(tmp_path):
+    scratch = tmp_path / "project" / "alice" / "scratch"
+    output = tmp_path / "project" / "alice" / "output"
+    scratch.mkdir(parents=True)
+    before = cc_engine.snapshot_before(scratch, "alice")
+    (scratch / "run1").mkdir()
+    (scratch / "run1" / "result.txt").write_text("ok")
+
+    result = cc_engine._publish_artifacts(
+        scratch,
+        output,
+        turn_id="run1",
+        output_host_root="/host/users/42-px/alice/output",
+        before=before,
+    )
+
+    # single deliverable -> turn-scoped artifact dict (no zip), copied under
+    # output/artifacts/<turn_id>/ (the scratch "run1/" subdir nests under it).
+    assert (output / "artifacts" / "run1" / "run1" / "result.txt").read_text() == "ok"
+    assert isinstance(result, dict)
+    assert result["artifacts"] == [{
+        "artifact_type": "file", "key": "run1/run1/result.txt",
+        "label": "result.txt", "file_format": "txt",
+    }]
+    assert result["raw"] == [] and result["raw_zip"] is None
+    assert result["files_created"] == ["run1/result.txt"]
+    assert result["files_modified"] == []
+
+
+def test_publish_artifacts_skips_symlinks(tmp_path):
+    scratch = tmp_path / "scratch"
+    output = tmp_path / "output"
+    scratch.mkdir()
+    before = cc_engine.snapshot_before(scratch, "alice")
+    target = tmp_path / "secret.txt"
+    target.write_text("secret")
+    (scratch / "leak.txt").symlink_to(target)
+
+    result = cc_engine._publish_artifacts(
+        scratch,
+        output,
+        turn_id="run1",
+        output_host_root="/host/output",
+        before=before,
+    )
+
+    # _snapshot_tree skips symlinks -> nothing changed -> empty-result dict; no leak.
+    assert result == {"artifacts": [], "raw": [], "raw_zip": None,
+                      "files_created": [], "files_modified": []}
+    assert not (output / "leak.txt").exists()
+    assert not (output / "artifacts").exists()
+
+
+def test_publish_artifacts_zips_multiple_and_splits_raw(tmp_path):
+    scratch = tmp_path / "scratch"
+    output = tmp_path / "output"
+    scratch.mkdir()
+    before = cc_engine.snapshot_before(scratch, "alice")
+    (scratch / "a.txt").write_text("AAA")
+    (scratch / "b.txt").write_text("BBB")
+    (scratch / "raw").mkdir()
+    (scratch / "raw" / "debug.log").write_text("noise")
+
+    result = cc_engine._publish_artifacts(
+        scratch,
+        output,
+        turn_id="run9",
+        output_host_root="/host/users/42-px/alice/output",
+        before=before,
+    )
+
+    # >1 deliverable -> ONE turn-scoped zip artifact (key = "<turn_id>/artifacts.zip").
+    assert result["artifacts"] == [{
+        "artifact_type": "file", "key": "run9/artifacts.zip",
+        "label": "artifacts.zip", "file_format": "zip",
+    }]
+    assert (output / "artifacts" / "run9" / "artifacts.zip").is_file()
+    # scratch/raw/ is split off (prefix stripped), copied to output/raw/, not bundled.
+    assert (output / "raw" / "debug.log").read_text() == "noise"
+    assert result["raw"] == ["/host/users/42-px/alice/output/raw/debug.log"]
+    assert result["raw_zip"] is None
+    assert result["files_created"] == ["a.txt", "b.txt", "raw/debug.log"]
+    assert result["files_modified"] == []
 ```
 
-(Leave the old `published`/Dropbox lines in place until Task 8 removes them, OR if they reference the old `list[str]` shape and now break, comment them out with a `# replaced in Task 8` note and rely on the grep-guard in Task 8 to force their removal. Run the suite after this step; fix any reference to the old return shape.)
+Run:
+
+```bash
+uv run --no-project --with pytest python -m pytest -q --noconftest \
+  nextseek_api/cc_assistant/tests/test_cc_engine_publish.py
+```
+
+Expected: FAIL before Step 5, PASS after. **Coverage (mandatory):** the `cc_artifacts` ≥95% floor must run **both** exercisers of that module together (mirrors Task 3's multi-file command) — `test_cc_artifacts_split.py` is the dedicated exerciser of `partition_changed`/`build_artifact_zip`/`RAW_PREFIX`, while `test_cc_engine_publish.py` drives the `_publish_artifacts` rework; gating on the engine-publish test alone hits `cc_artifacts` only transitively and can fail the floor spuriously:
+
+```bash
+uv run --no-project --with pytest --with pytest-cov python -m pytest -q --noconftest \
+  nextseek_api/cc_assistant/tests/test_cc_artifacts_split.py \
+  nextseek_api/cc_assistant/tests/test_cc_engine_publish.py \
+  --cov=nextseek_api.cc_assistant.cc_artifacts --cov-fail-under=95
+```
+
+Commit blocked if below floor.
+
+- [ ] **Step 5c: Update `test_cc_realstack.py` + `validate_cc_acceptance.py`** — replace check 16 `copier_published_scoped` / `published_files.json` `{user_id}/`-only heuristic with turn-scoped validation:
+
+```python
+# validate_cc_acceptance.py — replace copier_published_scoped body:
+def artifacts_turn_scoped(evidence_dir, user_id, project_dirname):
+    forced = _load_json(evidence_dir / "forced_result.json")
+    arts = forced.get("artifacts") or []
+    assert arts, "query_complete missing artifacts"
+    for a in arts:
+        key = a.get("key", "")
+        assert "/" in key, f"artifact key not turn-scoped: {key!r}"
+    # optional: stat on-disk output/artifacts/<turn_id>/...
+```
+
+**Also update `test_cc_realstack.py`** — replace lines ~181–212:
+
+```python
+        (self.evid / "forced_result.json").write_text(json.dumps({
+            "event": ev, "is_error": ev == "query_error",
+            "reply": data.get("reply", ""), "error": data.get("error"),
+            "total_cost_usd": data.get("total_cost_usd"),
+            "artifacts": data.get("artifacts") or [],
+        }))
+
+        (self.evid / "agent_env_scan.txt").write_text(agent_env)
+        net_containers = self._net_containers(NET)
+        (self.evid / "network.json").write_text(json.dumps({"containers": net_containers}))
+        artifacts = data.get("artifacts") or []
+        cost = data.get("total_cost_usd")
+        (self.evid / "ledger.json").write_text(json.dumps({"total_cost_usd": cost or 0.0}))
+        (self.evid / "meta.json").write_text(json.dumps({
+            "run_id": self.run_id, "user_id": self.user_id, "sentinel": self.sentinel,
+            "model_id": OPUS, "budget_cap_usd": BUDGET_CAP,
+        }))
+
+        # --- direct assertions (the validator re-checks the committed bundle) ---
+        self.assertEqual(ev, "query_complete", f"CC turn errored: {data.get('error')}")
+        self.assertIn(self.sentinel, data.get("reply", ""),
+                      "reply did not echo the per-run sentinel (no real turn?)")
+        self.assertTrue(agent_env.strip(), "failed to capture the live agent env")
+        for key in ("AWS_BEARER_TOKEN_BEDROCK", "NEO4J_PASSWORD", "MYSQL_PASSWORD", "GCP_API_KEY"):
+            self.assertNotRegex(agent_env, rf"(^|\W){key}=", f"{key} leaked into the agent")
+        self.assertNotIn("ABSK", agent_env, "AWS bearer token prefix in the agent env")
+        self.assertRegex(proxy_window, re.escape(OPUS), "no opus-4-8 invoke in the proxy log")
+        self.assertNotIn("ABSK", proxy_window, "proxy logged the bearer token")
+        backend = [c for c in net_containers
+                   if re.search(r"(^|[-_])(neo4j|seek|mysql)([-_]|$)", c)]
+        self.assertEqual(backend, [], f"backend service on the agent network: {backend}")
+        self.assertTrue(artifacts, "query_complete missing artifacts")
+        for a in artifacts:
+            key = a.get("key", "")
+            self.assertIn("/", key, f"artifact key not turn-scoped: {key!r}")
+```
+
+Drop `published_files.json` capture (or repurpose only if validator still needs it). Add hermetic fixture test in `test_validate_cc_acceptance.py` with turn-scoped `artifacts` keys.
+
+- [ ] **Step 6: Update the caller of `_publish_artifacts` (same commit as Task 8 Dropbox removal)**
+
+In `cc_engine.py`, consume the dict and **remove the Dropbox block in the same edit** (do not leave intermediate `published`-as-list breakage).
+
+> **ORDERING INVARIANT (Phase 2 hardened — read before pasting).** In the live source the region is, in order: `if terminal is None: … finalize()` (`:568-570`) → the `_publish_artifacts` call (`:573`, produces only `published`/`result`) → the `if terminal is None: terminal = (…)` default (`:576-578`) → **`event, data = terminal`** (`:579`, the **unpack** — `event`/`data` do not exist before this line) → the old `if event == "query_complete" and published:` Dropbox block (`:580-587`) → `send_event(event, data)` (`:588`). The publish call MUST stay **before** the unpack (it does not reference `event`/`data`); the consume block that reads `event` MUST stay **after** the unpack. A literal paste of `if event == "query_complete":` directly under the publish call (i.e. before `:579`) **`NameError`s** on `event`.
+
+**Final assembled order — replace the live `:573-588` region with EXACTLY this** (this is the region BEFORE Task 11 inserts its persist block; Task 11 Step 2 inserts that block at the marked point, still after the unpack and before `send_event`):
+
+```python
+        # Post-turn publish: diff scratch, split deliverables from scratch/raw/.
+        result = _publish_artifacts(
+            scratch_mount, output_mount,
+            turn_id=str(run_id),
+            output_host_root=dirs.output_src, before=before,
+        )
+
+        if terminal is None:
+            terminal = ("query_complete", {"reply": "(no response)", "bundle_id": None,
+                                           "cc_session_id": translator.session_id})
+        event, data = terminal                       # <-- unpack stays here (live :579)
+        if event == "query_complete":
+            data = dict(data)
+            data["mode"] = "cc"
+            data["artifacts"] = result["artifacts"] or None
+            data["cc_raw_files"] = result["raw"]
+            # Dropbox reply augmentation + artifacts_published REMOVED here (§8, E8);
+            # the old `if event == "query_complete" and published:` block (live :580-587)
+            # is fully replaced by this consume block.
+        # >>> Task 11 persist block is inserted HERE (after the unpack/consume,
+        # >>> before send_event) — see Task 11 "Minimal persist block".
+        send_event(event, data)
+```
+
+> **Phase 2 coupling rule:** Tasks 6 and 8 both touch this handler — land the hybrid split **and** Dropbox removal atomically so the suite never references the old `list[str]` return shape. The `_publish_artifacts` **call site** keeps its original position relative to `event, data = terminal`; only the post-unpack block changes.
+
+> **Docstring hygiene (same edit):** update the now-stale `run_cc_turn` docstring (`cc_engine.py:417-420`, currently `"Execute one Container-CC turn with scoped Dropbox mounts + artifact publish."` / `"reply augmented with published host paths"`) to describe UI-based I/O (scoped `input/`+`shared/` mounts, artifacts/raw split) — Dropbox is removed by Task 8.
 
 - [ ] **Step 7: Run the full hermetic suite**
 
@@ -905,7 +1118,11 @@ Expected: PASS (all). Any `_build_volumes`/engine tests unaffected.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add nextseek_api/cc_assistant/cc_artifacts.py nextseek_api/cc_assistant/cc_engine.py nextseek_api/cc_assistant/tests/test_cc_artifacts_split.py
+git add nextseek_api/cc_assistant/cc_artifacts.py nextseek_api/cc_assistant/cc_engine.py \
+  nextseek_api/cc_assistant/tests/test_cc_artifacts_split.py \
+  nextseek_api/cc_assistant/tests/test_cc_engine_publish.py \
+  nextseek_api/cc_assistant/tests/test_cc_realstack.py \
+  nextseek_api/cc_assistant/tests/validate_cc_acceptance.py
 git commit -m "feat(cc-step3): hybrid output split (artifacts vs scratch/raw) + artifact dicts (§5, E3)"
 ```
 
@@ -942,6 +1159,20 @@ def test_turn_accepts_and_dumps_cc_traces():
 def test_turn_cc_traces_defaults_none():
     t = Turn(bundle_id=0, user_query="hi", reply="ok", mode="cc")
     assert t.model_dump(mode="json")["cc_traces"] is None
+
+
+def test_projection_passes_cc_traces_through():
+    """Hermetic guard for the Step 4 reload wiring in services/assistant.py.
+    The Turn projection (assistant.py:521-529) MUST pass the chat_log entry's
+    persisted trace onto the Turn (`cc_traces=entry.get("cc_traces")`); without it,
+    reload silently returns NO traces and only the paid Task 13 live gate catches it.
+    The projection lives inside the DRF `get_session` @action and is not callable
+    without a DB, so this is a source-text guard (same pattern as the Task 11a
+    `assistant_reply` grep guard). MUTATION-SENSITIVE: deleting the passthrough line
+    removes the substring and FAILS this assertion."""
+    from pathlib import Path
+    src = (Path(__file__).parents[2] / "services" / "assistant.py").read_text()
+    assert 'cc_traces=entry.get("cc_traces")' in src   # Step 4 passthrough is wired
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -977,9 +1208,15 @@ In `services/assistant.py` (`:521-529`), add `cc_traces` to the `Turn(...)` cons
     )
 ```
 
+> The `cc_traces=entry.get("cc_traces")` passthrough is hermetically guarded by
+> `test_projection_passes_cc_traces_through` (Step 1) — a silent drop of this line
+> fails that source guard, not just the paid Task 13 reload assertion. Keep the
+> substring byte-identical so the guard stays meaningful.
+
 - [ ] **Step 5: Run tests + full suite**
 
-Run: `uv run --no-project --with pytest --with orjson --with pydantic python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_turn_cc_traces.py nextseek_api/cc_assistant/tests/`
+Run (coverage gate on the module this task edits — `models_api` is declarative pydantic, ≥96% on import via `test_turn_cc_traces.py`): `uv run --no-project --with pytest --with pytest-cov --with orjson --with pydantic python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_turn_cc_traces.py --cov=nextseek_api.assistant.models_api --cov-fail-under=95`
+Expected: PASS, `models_api` ≥95% (commit blocked below floor). Then the full suite to confirm no regression: `uv run --no-project --with pytest --with orjson --with pydantic python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/`
 Expected: PASS (all).
 
 - [ ] **Step 6: Commit**
@@ -991,12 +1228,12 @@ git commit -m "feat(cc-step3): Turn.cc_traces field + projection passthrough (§
 
 ---
 
-### Task 8: remove Dropbox — reply text, neutral default, dead-config audit, grep-guard
+### Task 8: remove Dropbox — neutral default, dead-config audit, grep-guard
+
+**Note:** Dropbox reply copy in `cc_engine.py` is removed in **Task 6 Step 6** (atomic with hybrid split). This task handles config default (E8), dead `DROPBOX_DIRECTORY`, and grep guards.
 
 **Files:**
-- Modify: `nextseek_api/cc_assistant/cc_engine.py` (`:580-587`)
 - Modify: `nextseek_api/cc_assistant/cc_config.py` (`:15`)
-- Modify: `seek/views.py` (`:94`, audited)
 - Test: `nextseek_api/cc_assistant/tests/test_cc_dropbox_grep_guard.py`
 
 **Interfaces:** no new symbols; removes the "Saved to your Dropbox" augmentation + the laptop default; the artifacts channel (Task 6) now carries deliverables.
@@ -1014,9 +1251,10 @@ CC = Path(__file__).resolve().parents[1]   # nextseek_api/cc_assistant
 
 
 def test_no_dropbox_reply_copy():
-    blob = (CC / "cc_engine.py").read_text()
-    assert "Saved to your Dropbox" not in blob
-    assert "artifacts_published" not in blob   # old field removed
+    assert "Saved to your Dropbox" not in (CC / "cc_engine.py").read_text()
+    assert "artifacts_published" not in (CC / "cc_engine.py").read_text()
+    svc = (CC.parent / "services" / "cc_assistant.py").read_text()
+    assert "Saved to your Dropbox" not in svc
 
 
 def test_no_laptop_default_path():
@@ -1030,9 +1268,7 @@ def test_no_laptop_default_path():
 Run: `uv run --no-project --with pytest python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_dropbox_grep_guard.py`
 Expected: FAIL.
 
-- [ ] **Step 3: Remove the Dropbox reply augmentation**
-
-In `cc_engine.py`, delete the block at `:580-587` (the `if event == "query_complete" and published:` … `data["artifacts_published"] = published`). The Task-6 artifacts channel (`data["artifacts"]`) replaces it. No replacement user-facing copy (the UI shows downloads).
+- [ ] **Step 3: (Dropbox reply already removed in Task 6 — verify grep-guard passes)**
 
 - [ ] **Step 4: Neutral default (E8) — per-change sign-off (behavior change)**
 
@@ -1060,8 +1296,8 @@ Expected: PASS (all, incl. the grep-guard).
 - [ ] **Step 7: Commit (two diffs: behavior change isolated)**
 
 ```bash
-git add nextseek_api/cc_assistant/cc_engine.py seek/views.py nextseek_api/cc_assistant/tests/test_cc_dropbox_grep_guard.py
-git commit -m "feat(cc-step3): remove Dropbox reply copy + dead DROPBOX_DIRECTORY (§8)"
+git add nextseek_api/cc_assistant/cc_config.py seek/views.py nextseek_api/cc_assistant/tests/test_cc_dropbox_grep_guard.py
+git commit -m "feat(cc-step3): dead DROPBOX_DIRECTORY + grep guards (§8)"
 git add nextseek_api/cc_assistant/cc_config.py
 git commit -m "chore(cc-step3): neutral /srv/dmac/users default, drop laptop path (E8) [signed-off]"
 ```
@@ -1072,12 +1308,13 @@ git commit -m "chore(cc-step3): neutral /srv/dmac/users default, drop laptop pat
 
 **Files:**
 - Modify: `nextseek_api/services/cc_assistant.py` (`CCAssistantViewSet`, `:114`)
-- Create: `nextseek_api/cc_assistant/cc_upload_tasks.py`
+- Create: `nextseek_api/cc_assistant/cc_upload_validate.py` (celery-free pure validator module)
+- Create: `nextseek_api/cc_assistant/cc_upload_tasks.py` (celery task; imports the validator from `cc_upload_validate`)
 - Test: `nextseek_api/cc_assistant/tests/test_cc_upload_validate.py`
 
 **Interfaces:**
 - Produces:
-  - Pure helper `validate_upload_filename(name: str) -> str` (in `cc_upload_tasks.py`) — returns a safe basename or raises `ValueError` (reject `/`, `..`, NUL, absolute, empty).
+  - Pure helper `validate_upload_filename(name: str) -> str` (in the **celery-free** module `cc_upload_validate.py`, imported by both the test and `cc_upload_tasks.py`) — returns a safe basename or raises `ValueError` (reject `/`, `..`, NUL, absolute, empty). Keeping it out of `cc_upload_tasks.py` means the hermetic validator test imports with **zero celery dependency** (the `cc_upload_tasks` top-level celery import block would otherwise raise an uncaught `ModuleNotFoundError` under the no-celery harness).
   - DRF `@action(detail=False, methods=["post"], url_path="upload")` `upload(self, request)` — `request.FILES.getlist("file")`; size cap via `settings.BATCH_UPLOAD_MAX_TOTAL_BYTES`; resolves the user's project (`resolve_user_project(api_user, api_pass)`), builds `dirs.input_mnt`, enqueues `run_cc_upload_task.delay(...)`; returns `{"job_id", "status": "queued"}` 202.
   - `@action(detail=False, methods=["get"], url_path=r"upload/status/(?P<job_id>[^/.]+)")` `upload_status(self, request, job_id=None)` — `AsyncResult`, returns `{job_id, state, meta, result}` (mirror `batch_upload.job_status`).
   - Celery task `run_cc_upload_task` (queue `batch_upload`, `bind=True`) — validated save of each file into `input_mnt`, `update_state` progress.
@@ -1088,10 +1325,13 @@ Spec refs: §4 (upload, async, E1/E2), §10 (host-side, no agent cred, filename 
 
 ```python
 # nextseek_api/cc_assistant/tests/test_cc_upload_validate.py
-"""Hermetic filename validation for CC uploads. No Django, no Celery."""
+"""Hermetic filename validation for CC uploads. No Django, no Celery.
+
+Imports from the celery-free `cc_upload_validate` module so collection never
+touches the celery import block in `cc_upload_tasks.py`."""
 import pytest
 
-from nextseek_api.cc_assistant.cc_upload_tasks import validate_upload_filename
+from nextseek_api.cc_assistant.cc_upload_validate import validate_upload_filename
 
 
 @pytest.mark.parametrize("good", ["data.csv", "report 1.xlsx", "a_b-c.txt"])
@@ -1108,21 +1348,23 @@ def test_rejects_traversal_and_separators(bad):
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `uv run --no-project --with pytest python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_upload_validate.py`
-Expected: FAIL — `ModuleNotFoundError: No module named 'nextseek_api.cc_assistant.cc_upload_tasks'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'nextseek_api.cc_assistant.cc_upload_validate'`
 
 - [ ] **Step 3: Implement the validator + Celery task**
 
-```python
-# nextseek_api/cc_assistant/cc_upload_tasks.py
-"""Step 3 — CC upload Celery task + filename validation (SPEC-3 §4).
+First, the **celery-free** validator module (imported by both the test and the task):
 
-Saves uploaded files into the user's persistent input/ dir (E2). Runs host-side;
-no credential reaches the agent (OI-3). Mirrors batch_upload's async + update_state.
+```python
+# nextseek_api/cc_assistant/cc_upload_validate.py
+"""Step 3 — CC upload filename validation (SPEC-3 §4, §10).
+
+PURE module — no Django, no Celery import — so the hermetic validator test
+(`test_cc_upload_validate.py`) imports it with zero celery dependency. Both the
+celery task (`cc_upload_tasks.run_cc_upload_task`) and the upload action reuse it.
 """
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 
 def validate_upload_filename(name: str) -> str:
@@ -1133,14 +1375,36 @@ def validate_upload_filename(name: str) -> str:
     if "/" in name or "\\" in name or "\x00" in name or os.path.isabs(name):
         raise ValueError(f"invalid filename: {name!r}")
     base = os.path.basename(name)
-    if base != name or not base:
+    if base != name or not base:  # pragma: no cover - defensive; separators/absolute already rejected above
         raise ValueError(f"invalid filename: {name!r}")
     return base
+```
+
+> The `base != name or not base` branch is a defensive belt-and-suspenders that is provably unreachable once `/`, `\`, NUL and absolute paths are rejected above (verified: without the pragma the module sits at 91% — one dead line — and the `--cov-fail-under=95` floor fails). `# pragma: no cover` is the justified-exception mechanism so the floor measures only reachable lines; the module then covers 100%.
+
+Then the celery task module (imports the validator — defines it **nowhere** itself):
+
+```python
+# nextseek_api/cc_assistant/cc_upload_tasks.py
+"""Step 3 — CC upload Celery task (SPEC-3 §4).
+
+Saves uploaded files into the user's persistent input/ dir (E2). Runs host-side;
+no credential reaches the agent (OI-3). Mirrors batch_upload's async + update_state.
+Filename validation lives in the celery-free `cc_upload_validate` module so the
+hermetic validator test never imports the celery block below.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+from pathlib import Path
+
+from nextseek_api.cc_assistant.cc_upload_validate import validate_upload_filename
 
 
 try:
-    from nextseek_api.batch_upload.celery_app import app  # reuse the existing app
-except Exception:  # pragma: no cover - import path confirmed at plan time
+    from nextseek_api.batch_upload.celery_app import app
+except Exception:  # pragma: no cover
     from celery import shared_task as _shared
 
     def app_task(*a, **k):
@@ -1157,26 +1421,55 @@ def run_cc_upload_task(self, *, input_mnt: str, files: list[dict]):
     dest_root.mkdir(parents=True, exist_ok=True)
     saved = []
     total = len(files) or 1
-    for i, f in enumerate(files):
-        safe = validate_upload_filename(f["name"])
-        dst = dest_root / safe
-        os.replace(f["tmp_path"], dst)
-        saved.append(safe)
-        self.update_state(state="PROGRESS",
-                          meta={"progress_pct": int((i + 1) / total * 100), "saved": saved})
-    return {"saved": saved, "count": len(saved)}
+    try:
+        for i, f in enumerate(files):
+            safe = validate_upload_filename(f["name"])
+            dst = dest_root / safe
+            # MUST be shutil.move, not os.replace/os.rename: the staging dir is
+            # MEDIA_ROOT="/media" (container overlayfs, no volume mount) while
+            # input_mnt is under the host bind mount /srv/dmac/users:/dmac/users —
+            # a different device. os.replace is rename(2) and raises
+            # OSError(EXDEV, "Invalid cross-device link") across devices; shutil.move
+            # falls back to copy2 + unlink when rename fails cross-device.
+            shutil.move(f["tmp_path"], dst)
+            saved.append(safe)
+            self.update_state(state="PROGRESS",
+                              meta={"progress_pct": int((i + 1) / total * 100), "saved": saved})
+        return {"saved": saved, "count": len(saved)}
+    finally:
+        for f in files:
+            try:
+                os.unlink(f["tmp_path"])
+            except FileNotFoundError:
+                pass
 ```
 
-> **[CONFIRM@PLAN]** the exact import path of the existing Celery `app` (Task-1 agent found tasks registered as `@app.task(... name="batch_upload.run")` in `batch_upload/tasks.py` — open it and copy the real `app` import; replace the `try/except` shim above with the confirmed import).
+**Staging hygiene (Task 9 Step 5):** Celery `finally` unlinks each `tmp_path` after move (above). Because `shutil.move` already removes the source (rename, or copy2+unlink on the cross-device fallback), the `finally: os.unlink(tmp_path)` is a **no-op** for a successfully moved file (the `FileNotFoundError` is already swallowed); it only matters when the move never ran (e.g. a `validate_upload_filename` raise mid-batch leaves later `tmp_path`s un-moved). View may reuse a single staging subdir per `job_id` prefix; Task 13 Step 4 evidence includes `ls` of `MEDIA_ROOT/cc_upload_staging/` before/after upload to prove no orphan growth.
+
+**Cross-device move (Phase 2 hardened):** This is the **only** filesystem move in the plan that crosses the `/media` overlayfs → `/dmac/users` bind-mount boundary; it MUST use `shutil.move` (not `os.replace`/`os.rename`). The only other rename-family call (`os.unlink` in the `finally`) stays within `/media`. The move is celery-gated (no hermetic seam), so Task 13 Step 4 adds an explicit on-host assertion that the file actually lands in `input/` (the live gate that catches an `EXDEV` regression).
+
+> **Confirmed (Phase 2 vetting):** Celery app import is `from nextseek_api.batch_upload.celery_app import app` (mirror `batch_upload/views.py:23`). **Worker registration:** add to Task 9 Step 3b — in `batch_upload/celery_app.py` after the `cc_sweep` import:
+> `import nextseek_api.cc_assistant.cc_upload_tasks  # noqa: F401, E402`
+> Without this explicit import, `run_cc_upload_task` is **NotRegistered** in the worker despite the `cc_assistant.*` route.
+
+- [ ] **Step 3b: Register upload task in Celery worker**
+
+In `nextseek_api/batch_upload/celery_app.py`, add:
+```python
+import nextseek_api.cc_assistant.cc_upload_tasks  # noqa: F401, E402
+```
+Verify in Task 13: `celery -A nextseek_api.batch_upload.celery_app inspect registered | grep cc_assistant.upload` exits 0.
 
 - [ ] **Step 4: Run the validator tests to verify they pass**
 
-Run: `uv run --no-project --with pytest python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_upload_validate.py`
-Expected: PASS (validator cases). The Celery task body is exercised live in Task 13.
+Run: `uv run --no-project --with pytest --with pytest-cov python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_upload_validate.py --cov=nextseek_api.cc_assistant.cc_upload_validate --cov-fail-under=95`
+Expected: PASS (validator cases), `cc_upload_validate` ≥95% (commit blocked below floor). No `--with celery`: the validator lives in the celery-free `cc_upload_validate` module, so collection imports cleanly and the coverage floor measures **only** the pure validator (not the celery task body / import guard). The Celery task body is exercised live in Task 13.
 
 - [ ] **Step 5: Add the `upload` + `upload_status` actions**
 
-In `services/cc_assistant.py`, add to `CCAssistantViewSet` (mirror `batch_upload.start`/`job_status`; use the existing `self._resolve_credentials(request)` at `:142`):
+In `services/cc_assistant.py`, add to `CCAssistantViewSet` (mirror `batch_upload.start`/`job_status`; use the existing `self._resolve_credentials(request)` at `:142`). **Add `import os` and `import time` at module top** before the pasted upload action.
+
+> **SPEC §4 note:** locked design says `input_src` (host bind source); Django runs in-container — implementation writes to **`dirs.input_mnt`** (same `*_mnt` convention as `output_mnt` publish in Step 2).
 
 ```python
     @action(detail=False, methods=["post"], url_path="upload")
@@ -1187,8 +1480,8 @@ In `services/cc_assistant.py`, add to `CCAssistantViewSet` (mirror `batch_upload
         from nextseek_api.cc_assistant.cc_config import CCPaths
         from nextseek_api.cc_assistant.cc_provision import (
             resolve_user_project, ProjectResolutionError, build_user_dirs)
-        from nextseek_api.cc_assistant.cc_upload_tasks import (
-            run_cc_upload_task, validate_upload_filename)
+        from nextseek_api.cc_assistant.cc_upload_tasks import run_cc_upload_task
+        from nextseek_api.cc_assistant.cc_upload_validate import validate_upload_filename
 
         uploaded = request.FILES.getlist("file")
         if not uploaded:
@@ -1205,17 +1498,24 @@ In `services/cc_assistant.py`, add to `CCAssistantViewSet` (mirror `batch_upload
         dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)
 
         staged = []
+        seen_names: set[str] = set()
         stage_root = os.path.join(getattr(settings, "MEDIA_ROOT", "/tmp"), "cc_upload_staging")
         os.makedirs(stage_root, exist_ok=True)
         for f in uploaded:
             safe = validate_upload_filename(getattr(f, "name", ""))
-            tmp = os.path.join(stage_root, f"{int_time_unique()}_{safe}")
+            if safe in seen_names:
+                return Response({"error": f"duplicate filename in batch: {safe}"}, status=400)
+            seen_names.add(safe)
+            tmp = os.path.join(stage_root, f"{int(time.time() * 1000)}_{safe}")
             with open(tmp, "wb") as out:
                 for chunk in f.chunks():
                     out.write(chunk)
             staged.append({"name": safe, "tmp_path": tmp})
 
+        from nextseek_api.batch_upload.job_index import register_job
+
         task = run_cc_upload_task.delay(input_mnt=dirs.input_mnt, files=staged)
+        register_job(user_id=request.user.pk, job_id=task.id, project_id=int(project.id) if str(project.id).isdigit() else 0)
         return Response({"job_id": task.id, "status": "queued"},
                         status=drf_status.HTTP_202_ACCEPTED)
 
@@ -1223,7 +1523,11 @@ In `services/cc_assistant.py`, add to `CCAssistantViewSet` (mirror `batch_upload
     def upload_status(self, request, job_id=None):
         from rest_framework.response import Response
         from celery.result import AsyncResult
-        from nextseek_api.batch_upload.tasks import app as celery_app  # confirm import
+        from nextseek_api.batch_upload.celery_app import app as celery_app
+        from nextseek_api.batch_upload.job_index import user_owns_job
+
+        if not user_owns_job(request.user.pk, job_id):
+            return Response({"error": "not found"}, status=404)
         r = AsyncResult(job_id, app=celery_app)
         resp = {"job_id": job_id, "state": r.state, "meta": {}, "result": None}
         if r.state == "PROGRESS":
@@ -1235,8 +1539,6 @@ In `services/cc_assistant.py`, add to `CCAssistantViewSet` (mirror `batch_upload
         return Response(resp)
 ```
 
-> Add `import os` + a small `int_time_unique()` (or reuse `batch_upload`'s `_save_uploaded_file` timestamp idiom — Task-1 agent quoted it: `f"{int(time.time())}_{safe_name}"`). Confirm the `celery_app`/`app` import path matches `batch_upload`.
-
 - [ ] **Step 6: Run the full hermetic suite (no endpoint exec)**
 
 Run: `uv run --no-project --with pytest --with orjson --with pydantic python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/`
@@ -1245,9 +1547,90 @@ Expected: PASS (all). The actions are import-checked; live exec is Task 13.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add nextseek_api/cc_assistant/cc_upload_tasks.py nextseek_api/services/cc_assistant.py nextseek_api/cc_assistant/tests/test_cc_upload_validate.py
+git add nextseek_api/cc_assistant/cc_upload_validate.py nextseek_api/cc_assistant/cc_upload_tasks.py nextseek_api/batch_upload/celery_app.py nextseek_api/services/cc_assistant.py nextseek_api/cc_assistant/tests/test_cc_upload_validate.py
 git commit -m "feat(cc-step3): per-user upload endpoint + Celery task + status poll (§4, E1/E2)"
 ```
+
+---
+
+### Task 9b: upload list endpoint (SPEC §4 "upload + list")
+
+**Files:**
+- Modify: `nextseek_api/services/cc_assistant.py`
+- Create: `nextseek_api/cc_assistant/tests/test_cc_upload_list.py`
+
+**Interfaces:**
+- Pure helper: `def list_input_files(input_mnt: str) -> list[str]` — sorted basenames of regular files directly under `input_mnt` (no recursion; skip dotfiles).
+- `@action(detail=False, methods=["get"], url_path="upload/list")` `upload_list(self, request)` — owner-scoped via `resolve_user_project` + `build_user_dirs`; returns `{"files": list_input_files(dirs.input_mnt)}`.
+
+Spec refs: §4 lifecycle ("Step 3 ships upload + list"), E2.
+
+- [ ] **Step 1: Write failing hermetic test**
+
+```python
+# nextseek_api/cc_assistant/tests/test_cc_upload_list.py
+from pathlib import Path
+
+from nextseek_api.cc_assistant.cc_upload_list import list_input_files
+
+
+def test_list_input_files_sorted_basenames(tmp_path: Path):
+    (tmp_path / "b.txt").write_text("x")
+    (tmp_path / "a.csv").write_text("y")
+    (tmp_path / ".hidden").write_text("z")
+    (tmp_path / "subdir").mkdir()
+    assert list_input_files(str(tmp_path)) == ["a.csv", "b.txt"]
+
+
+def test_list_input_files_missing_dir_returns_empty(tmp_path: Path):
+    # the user's input/ may not exist before the first upload -> empty, not an error
+    assert list_input_files(str(tmp_path / "nope")) == []
+```
+
+> `list_input_files` must guard the not-yet-created `input/` dir (return `[]` on missing dir); the second test exercises that branch so the ≥95% floor (Step 3) is reachable.
+
+- [ ] **Step 2: Implement pure helper + DRF action**
+
+Add `cc_upload_list.py` with `list_input_files`. In `CCAssistantViewSet`, mirror Task 9 upload's credential/project resolution:
+
+```python
+    @action(detail=False, methods=["get"], url_path="upload/list")
+    def upload_list(self, request):
+        from nextseek_api.cc_assistant.cc_config import CCPaths
+        from nextseek_api.cc_assistant.cc_provision import (
+            resolve_user_project, ProjectResolutionError, build_user_dirs)
+        from nextseek_api.cc_assistant.cc_upload_list import list_input_files
+
+        api_user, api_pass = self._resolve_credentials(request)
+        try:
+            project = resolve_user_project(api_user, api_pass)
+        except ProjectResolutionError:
+            return Response({"error": "could not resolve SEEK project"}, status=503)
+        dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)
+        return Response({"files": list_input_files(dirs.input_mnt)})
+```
+
+> **Self-contained (do NOT depend on a later task's module-top import):** the local import above includes `ProjectResolutionError` — mirroring Task 9's `upload` action — because the `except ProjectResolutionError:` clause references it and `services/cc_assistant.py` imports that name only *locally inside `_run`* (the module-top import is added by **Task 10**, which runs *after* this task). Without it this paste `NameError`s at call time, invisibly to the hermetic suite.
+
+- [ ] **Step 3: Verify + grep guard**
+
+```bash
+uv run --no-project --with pytest --with pytest-cov python -m pytest -q --noconftest \
+  nextseek_api/cc_assistant/tests/test_cc_upload_list.py \
+  --cov=nextseek_api.cc_assistant.cc_upload_list --cov-fail-under=95
+```
+
+Also grep/source guard: `url_path="upload/list"` on `CCAssistantViewSet`.
+
+Expected: PASS, `cc_upload_list` ≥95% (commit blocked below floor). Live HTTP exercised in Task 13 Step 4.
+
+- [ ] **Step 4:** Wire optional "already uploaded" list in Task 12 `UploadControl` (calls `GET …/upload/list`).
+
+- [ ] **Step 5:** Task 13 Step 4 live gate must list uploaded basenames via this endpoint (saved in `live_gate_transcript.txt`).
+
+- [ ] **Step 6: Commit**
+
+`git commit -m "feat(cc-step3): upload list endpoint (§4)"`
 
 ---
 
@@ -1255,16 +1638,88 @@ git commit -m "feat(cc-step3): per-user upload endpoint + Celery task + status p
 
 **Files:**
 - Modify: `nextseek_api/services/cc_assistant.py`
-- Test: covered by Task 6 zip + Task 1 decompress (pure seams); endpoints live in Task 13.
+- Test: `nextseek_api/cc_assistant/tests/test_cc_endpoint_guards.py` (pure owner/key guard helpers); endpoints live in Task 13.
 
 **Interfaces:**
 - Produces:
-  - `@action(detail=False, methods=["get"], url_path=r"artifacts/(?P<session>[0-9a-f-]+)/download")` `download_artifact(self, request, session=None)` — `?key=<rel>`; owner-scoped (`ChatSession.objects.filter(user=request.user, session_id=session)`); resolves the user's `output/artifacts/<key>` (or zips `output/artifacts/` if `key == "all"`); streams via `StreamingHttpResponse` + `Content-Disposition` (mirror `content_blobs.download_batch`).
-  - `@action(detail=False, methods=["get"], url_path=r"transcript/(?P<session>[0-9a-f-]+)/(?P<turn>[^/.]+)")` `recover_transcript(self, request, session=None, turn=None)` — owner-scoped; loads `CCSessionTranscript`, `cc_transcript_store.decompress`, streams the jsonl.
+  - `@action(detail=False, methods=["get"], url_path=r"artifacts/(?P<session>[0-9a-f-]+)/download")` `download_artifact(self, request, session=None)` — `?key=<turn-scoped relpath>` (e.g. `{turn_id}/report.md` from Task 6); owner-scoped; resolves `output/artifacts/<key>` with `_safe_relpath` on full key; `key == "all"` zips that turn's subtree only when `?turn_id=` provided.
+  - `@action(detail=False, methods=["get"], url_path=r"transcript/(?P<session>[0-9a-f-]+)/(?P<turn>[^/.]+)")` `recover_transcript(self, request, session=None, turn=None)` — owner-scoped; **`cc_session_id` query param required** when multiple rows match `(chat_session, turn_id)`; loads `CCSessionTranscript`, decompress, stream jsonl.
 
 Spec refs: §5 (download), §7 (recover), §10 (owner-scoping, traversal guard, bomb bound).
 
-- [ ] **Step 1: Add the download action (owner-scoped, traversal-guarded)**
+- [ ] **Step 0: Pure guard helpers + failing tests**
+
+Create `test_cc_endpoint_guards.py`:
+
+```python
+def test_resolve_artifact_path_rejects_traversal(tmp_path):
+    from nextseek_api.cc_assistant.cc_endpoint_guards import resolve_artifact_path
+    art = tmp_path / "artifacts" / "turn1"
+    art.mkdir(parents=True)
+    with pytest.raises(ValueError):
+        resolve_artifact_path(str(art.parent), "../etc/passwd")
+```
+
+Create `cc_endpoint_guards.py`:
+
+```python
+from pathlib import Path
+from nextseek_api.cc_assistant.cc_engine import _safe_relpath
+
+def resolve_artifact_path(artifacts_root: str, key: str) -> Path:
+    if not key or not _safe_relpath(key):
+        raise ValueError("bad key")
+    root = Path(artifacts_root).resolve()
+    target = (root / key).resolve()
+    if not target.is_relative_to(root):
+        raise ValueError("traversal")
+    return target
+
+
+def session_owned_by_user(user_id: int, session_id: str) -> bool:
+    from nextseek_api.assistant.models_db import ChatSession
+    return ChatSession.objects.filter(user_id=user_id, session_id=session_id).exists()
+```
+
+Add to `test_cc_endpoint_guards.py`:
+
+```python
+def test_session_owned_by_user_false_for_wrong_user(monkeypatch):
+    from nextseek_api.cc_assistant import cc_endpoint_guards as g
+    class Q:
+        def filter(self, **kw): return self
+        def exists(self): return False
+    monkeypatch.setattr(
+        "nextseek_api.assistant.models_db.ChatSession",
+        type("M", (), {"objects": Q()}),
+    )
+    assert g.session_owned_by_user(1, "sess") is False
+```
+
+- [ ] **Step 1: Module-level stream helpers + download action**
+
+Add at module top of `cc_assistant.py` edits: `from pathlib import Path`, `import os`, `from django.http import StreamingHttpResponse, Http404`, `from rest_framework.response import Response`, `from nextseek_api.cc_assistant.cc_provision import ProjectResolutionError`.
+
+```python
+def _iter_and_cleanup(path: Path):
+    """Mirror content_blobs._iter_and_cleanup — unlink temp zip after stream."""
+    try:
+        with path.open("rb") as fh:
+            while chunk := fh.read(65536):
+                yield chunk
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+def _iter_file(path: Path):
+    with path.open("rb") as fh:
+        while chunk := fh.read(65536):
+            yield chunk
+```
+
+Add `download_artifact` on `CCAssistantViewSet` (class body — **not** nested under helpers):
 
 ```python
     @action(detail=False, methods=["get"], url_path=r"artifacts/(?P<session>[0-9a-f-]+)/download")
@@ -1283,21 +1738,30 @@ Spec refs: §5 (download), §7 (recover), §10 (owner-scoping, traversal guard, 
             raise Http404("bad key")
 
         api_user, api_pass = self._resolve_credentials(request)
-        project = resolve_user_project(api_user, api_pass)
+        try:
+            project = resolve_user_project(api_user, api_pass)
+        except ProjectResolutionError:
+            return Response({"error": "could not resolve SEEK project"}, status=503)
         dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)
+        from nextseek_api.cc_assistant.cc_endpoint_guards import resolve_artifact_path
         art_dir = Path(dirs.output_mnt) / "artifacts"
-
         if key == "all":
+            turn_id = request.query_params.get("turn_id", "")
+            if not turn_id or not _safe_relpath(turn_id):
+                raise Http404("bad turn_id")
+            art_dir = art_dir / turn_id
             import tempfile
             from nextseek_api.cc_assistant.cc_artifacts import build_artifact_zip
-            files = [p for p in art_dir.rglob("*") if p.is_file()]
+            # Exclude the per-turn artifacts.zip written by Task 6 into this same
+            # art_dir, else key="all" nests the prior zip inside the new one.
+            files = [p for p in art_dir.rglob("*") if p.is_file() and p.name != "artifacts.zip"]
             tmp = Path(tempfile.mkstemp(suffix=".zip")[1])
-            build_artifact_zip(files, tmp)
-            resp = StreamingHttpResponse(_iter_file(tmp), content_type="application/zip")
+            build_artifact_zip(files, tmp, arc_prefix=art_dir)
+            resp = StreamingHttpResponse(_iter_and_cleanup(tmp), content_type="application/zip")
             resp["Content-Disposition"] = 'attachment; filename="artifacts.zip"'
             return resp
 
-        target = art_dir / key
+        target = resolve_artifact_path(str(art_dir), key)
         if not target.is_file():
             raise Http404("not found")
         resp = StreamingHttpResponse(_iter_file(target), content_type="application/octet-stream")
@@ -1305,13 +1769,14 @@ Spec refs: §5 (download), §7 (recover), §10 (owner-scoping, traversal guard, 
         return resp
 ```
 
-(Add a module-level `_iter_file(path, chunk=1024*1024)` generator that yields bytes then unlinks temp zips, mirroring `content_blobs._iter_and_cleanup`.)
+(Use `_iter_and_cleanup` **only** for temp zip paths; permanent artifact files use `_iter_file` without unlink.)
 
 - [ ] **Step 2: Add the transcript-recover action**
 
 ```python
     @action(detail=False, methods=["get"], url_path=r"transcript/(?P<session>[0-9a-f-]+)/(?P<turn>[^/.]+)")
     def recover_transcript(self, request, session=None, turn=None):
+        from django.conf import settings
         from django.http import HttpResponse, Http404
         from nextseek_api.assistant.models_db import ChatSession, CCSessionTranscript
         from nextseek_api.cc_assistant.cc_transcript_store import decompress
@@ -1319,11 +1784,16 @@ Spec refs: §5 (download), §7 (recover), §10 (owner-scoping, traversal guard, 
         cs = ChatSession.objects.filter(user=request.user, session_id=session).first()
         if cs is None:
             raise Http404("no such session")
-        row = (CCSessionTranscript.objects
-               .filter(chat_session=cs, turn_id=turn).order_by("-created_at").first())
+        cc_sid = request.query_params.get("cc_session_id")
+        qs = CCSessionTranscript.objects.filter(chat_session=cs, turn_id=turn)
+        if cc_sid:
+            qs = qs.filter(cc_session_id=cc_sid)
+        elif qs.count() > 1:
+            return Response({"error": "cc_session_id required"}, status=400)
+        row = qs.order_by("-created_at").first()
         if row is None:
             raise Http404("no transcript")
-        jsonl = decompress(bytes(row.blob))
+        jsonl = decompress(bytes(row.blob), max_bytes=getattr(settings, "CC_TRANSCRIPT_MAX_BYTES", 256 * 1024 * 1024))
         resp = HttpResponse(jsonl, content_type="application/x-ndjson")
         resp["Content-Disposition"] = f'attachment; filename="transcript-{turn}.jsonl"'
         return resp
@@ -1337,71 +1807,362 @@ Expected: PASS (all). Endpoint behavior verified live (Task 13).
 - [ ] **Step 4: Commit**
 
 ```bash
-git add nextseek_api/services/cc_assistant.py
+git add nextseek_api/services/cc_assistant.py \
+  nextseek_api/cc_assistant/cc_endpoint_guards.py \
+  nextseek_api/cc_assistant/tests/test_cc_endpoint_guards.py
 git commit -m "feat(cc-step3): owner-scoped artifact-download + transcript-recover endpoints (§5,§7,§10)"
 ```
 
 ---
 
-### Task 11: persist `CCTrace` + transcript blob (caller wiring + emit)
+### Task 11: persist trace + transcript + live emit (inside `cc_engine.run_cc_turn`)
+
+> **Execution order:** Task **11a** (section below) must commit **before** Task 11 Step 2 — despite doc numbering 11 before 11a.
+
+> **BLOCKED until Task 11a commits.** Global Constraints require Task 11a before Task 11 Step 2.
+
+**Why not `services/cc_assistant._run`:** Verified Phase 2 onboard — `_run` delegates to `cc_engine.run_cc_turn` and does **not** hold `mount_path`, scratch diff lists, or `result_meta`. All post-turn symbols live in `cc_engine.py` after `_publish_artifacts` (`:573–588` today).
 
 **Files:**
-- Modify: `nextseek_api/services/cc_assistant.py` (CC branch)
-- Modify: `nextseek_api/cc_assistant/cc_engine.py` (emit trace metadata on `query_complete`)
-- Test: live (Task 13); the pure pieces (extract, compress, Turn field) are already covered by Tasks 1/4/7.
+- Modify: `nextseek_api/cc_assistant/cc_engine.py` (post-publish block in `run_cc_turn`)
+- Modify: `nextseek_api/services/cc_assistant.py` — pass `chat_session`, `user_query`, and an `on_turn_complete` callback **into** `run_cc_turn` (new optional kwargs) so DB writes stay owner-scoped without circular imports
+- Test: live (Task 13); pure pieces covered by Tasks 1/4/7
 
-**Interfaces:**
-- After a CC turn completes: read the session jsonl (the existing `read_bytes()` at `cc_assistant.py:103/300`), call `cc_trace.extract_trace(...)` with the scratch-diff file lists + the `result_meta` (num_turns/duration_ms/cost_usd from the `query_complete` frame, Task 5), append the `CCTrace.model_dump()` to `extra_state["cc_traces"]` AND to the turn `entry` so it rides the projection (Task 7), and upsert `CCSessionTranscript(blob=compress(jsonl), uncompressed_size=len(jsonl))`.
+**Interfaces (in `run_cc_turn`, after `_publish_artifacts`, before `send_event`):**
+1. Resolve current-turn jsonl: newest `*.jsonl` under `Path(dirs.cc_state_mnt) / "projects"` by mtime (same algorithm as `_session_metas` / `cc_session.store_has_transcripts`).
+2. `result_meta = {"num_turns": data.get("num_turns"), "duration_ms": data.get("duration_ms"), "cost_usd": data.get("total_cost_usd")}` from terminal `query_complete` frame (Task 5).
+3. `extract_trace(parsed, cc_session_id=translator.session_id, ts=timezone.now().isoformat(), files_created=result["files_created"], files_modified=result["files_modified"], result_meta=result_meta)`.
+4. **Live emit (SPEC §6.5):** `data["cc_traces"] = [trace.model_dump()]` on `query_complete` (alongside `artifacts` from Task 6).
+5. **Persist (E5 + reload):** invoke `on_turn_complete(TurnCompletePayload(...))` which **must** (single RMW save via `_append_cc_turn_complete` in Task 11a — **sole owner** of `chat_log`, the locked-E5 `es["cc_traces"]` mirror, and the `CCSessionTranscript` upsert; the per-turn trace is written to **BOTH** stores in the **same** single RMW save):
+   - Append **`chat_log` entry** with `{user_query, assistant_reply, mode: "cc", ts, artifacts, cc_traces, turn_id: str(run_id)}` — reload source of truth (`assistant.py` reads `assistant_reply`, not `reply`).
+   - **Mirror append** the per-turn trace to `es["cc_traces"]` per locked **E5** (mandatory, not optional; same RMW save as the `chat_log` append; kept small per §6.5 since it loads on every session read).
 
-Spec refs: §6.5 (persist + live + reload), §7 (write path), §6.1 (assemble from both sources + scratch diff).
+   Recover URL contract: `GET …/transcript/{chat_session_id}/{turn_id}/` where `turn_id == str(query_task.task_id) == run_id` passed into `run_cc_turn`. Task 13 Step 5 must use the same `turn_id`.
 
-- [ ] **Step 1: Capture `result_meta` from the terminal frame**
+6. **Failure policy (Phase 2 hardened — best-effort on success):** persistence (jsonl discovery, trace extract, `on_turn_complete` DB write) is **best-effort on the success path**. A turn that already produced a paid, successful reply is **never** converted to `query_error` solely because persistence failed — the reply (and the live `cc_traces` already attached to `data`) is always delivered via `send_event(event, data)`; the failure is logged at error level. A **hard re-raise** is kept **only** behind the dev/test `CC_PERSIST_STRICT` setting (default `False`) so the Task 13 live gate can opt into failing hard during verification. SPEC-3 §6.5/§7 lock the persist *write path* (E5/E6/E7) but do **not** lock a re-raise-and-discard behavior, so this is a plan-level policy, not a design override.
 
-In `cc_engine.py` where `query_complete` is handled (Task 6 Step 6 edit), thread `num_turns`/`duration_ms`/`total_cost_usd` from `data` into the publish/return path so the caller can build `result_meta = {"num_turns": ..., "duration_ms": ..., "cost_usd": data.get("total_cost_usd")}`. Attach the raw scratch-diff lists too (the `result["artifacts"]`/`result["raw"]` already identify changed files; for the trace, pass `files_created`/`files_modified` derived from the diff — created = new in `after` not in `before`, modified = changed).
-
-- [ ] **Step 2: Persist in the CC branch**
-
-In `services/cc_assistant.py`, in the CC branch after the turn's terminal event, add (using the canonical `extra_state` pattern + the new helpers):
+**Typed callback (paste into `nextseek_api/cc_assistant/cc_turn_complete.py` — neutral module; do NOT define in `services/cc_assistant.py` or import across `cc_engine` ↔ `services` boundary):**
 
 ```python
-                    # --- Step 3: persist activity trace + full transcript ---
-                    try:
-                        from nextseek_api.cc_assistant import cc_trace, cc_summary, cc_transcript_store
-                        from nextseek_api.assistant.models_db import CCSessionTranscript
-                        raw = Path(mount_path).read_bytes()          # the session jsonl
-                        parsed = cc_summary.parse_transcript(raw)
-                        trace = cc_trace.extract_trace(
-                            parsed, cc_session_id=cc_session_id,
-                            ts=_now_iso(),
-                            files_created=files_created, files_modified=files_modified,
-                            result_meta=result_meta,
-                        )
-                        es = dict(chat_session.extra_state or {})
-                        es.setdefault("cc_traces", []).append(trace.model_dump())
-                        chat_session.extra_state = es
-                        chat_session.save(update_fields=["extra_state", "updated_at"])
-                        CCSessionTranscript.objects.update_or_create(
-                            chat_session=chat_session, cc_session_id=cc_session_id, turn_id=run_id,
-                            defaults={"blob": cc_transcript_store.compress(raw),
-                                      "uncompressed_size": len(raw)},
-                        )
-                    except Exception:
-                        logger.exception("cc-step3: trace/transcript persist failed; continuing")
+# nextseek_api/cc_assistant/cc_turn_complete.py
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+@dataclass
+class TurnCompletePayload:
+    chat_session: ChatSession  # import from assistant.models_db at use sites
+    user_query: str
+    assistant_reply: str
+    ts: str
+    artifacts: list[dict] | None
+    cc_traces: list[dict]
+    turn_id: str
+    cc_session_id: str | None
+    raw_jsonl: bytes
+
+def serialize_cc_chat_log_entry(payload: TurnCompletePayload) -> dict:
+    return {
+        "user_query": payload.user_query,
+        "assistant_reply": payload.assistant_reply,
+        "mode": "cc",
+        "ts": payload.ts,
+        "artifacts": payload.artifacts,
+        "cc_traces": payload.cc_traces,
+        "turn_id": payload.turn_id,
+    }
+
+
+def append_capped(chat_log: list, entry: dict, *, cap: int = 50) -> list:
+    """Append ``entry`` to ``chat_log`` and keep only the **newest** ``cap`` turns
+    (FIFO eviction of the oldest). Returns a NEW list (does not mutate the input).
+
+    Pure + Django-free so it is hermetically unit-tested (the live gate never
+    reaches the 50-turn boundary). Newest-kept is load-bearing: a ``chat_log[:cap]``
+    mutation (keep oldest) must FAIL `test_append_capped_keeps_newest_in_order`."""
+    out = list(chat_log)
+    out.append(entry)
+    if len(out) > cap:
+        out = out[-cap:]
+    return out
+
+
+def apply_turn_to_extra_state(extra_state: dict | None, payload: "TurnCompletePayload",
+                              *, cap: int = 50) -> dict:
+    """Pure RMW transform: return a NEW extra_state dict with the turn appended to
+    BOTH stores in one shot — ``chat_log`` (reload source of truth) AND the locked
+    SPEC-3 **E5/§6.5** ``cc_traces`` mirror. Django-free so the E5 mirror is
+    hermetically guarded: removing the ``es["cc_traces"]`` append must FAIL
+    ``test_apply_turn_writes_chat_log_and_cc_traces_mirror``. The mirror is FIFO-capped
+    (same ``cap``) to stay small per §6.5 (loaded on every session read)."""
+    es = dict(extra_state or {})
+    es["chat_log"] = append_capped(
+        list(es.get("chat_log") or []), serialize_cc_chat_log_entry(payload), cap=cap)
+    cc_traces = list(es.get("cc_traces") or [])
+    for tr in payload.cc_traces:                 # locked E5 mirror (per-turn trace[s])
+        cc_traces = append_capped(cc_traces, tr, cap=cap)
+    es["cc_traces"] = cc_traces
+    return es
 ```
 
-> The `cc_traces` must also reach the **turn entry** that the projection reads (Task 7 reads `entry.get("cc_traces")`). Confirm where the per-turn `entry` is appended to `results_history`/`chat_log` (the same place `artifacts` is recorded) and attach this turn's `trace.model_dump()` there, so reload hydrates it. `_now_iso()`, `mount_path`, `cc_session_id`, `run_id`, `files_created/modified`, and `result_meta` must be in scope — wire them from the surrounding `_run` closure (they are produced by the engine/translate path this task threads through). This is the one task with no hermetic seam; it is the core of the Task 13 live gate.
+**Minimal persist block inside `run_cc_turn` (after `_publish_artifacts`, before `send_event`):**
 
-- [ ] **Step 3: Run the full hermetic suite (import/regression check)**
+At **turn start** (before container spawn): `translator._turn_start_ts = time.time()`.
 
-Run: `uv run --no-project --with pytest --with orjson --with pydantic --with zstandard python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/`
-Expected: PASS (all). No new hermetic test (DB-bound); regression-only here.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add nextseek_api/services/cc_assistant.py nextseek_api/cc_assistant/cc_engine.py
-git commit -m "feat(cc-step3): persist CCTrace to extra_state + zstd transcript to DB (§6.5,§7)"
+```python
+if event == "query_complete" and on_turn_complete and chat_session is not None:
+    # LOCAL imports (not module-top): keeps a hermetic `import cc_engine` (used by
+    # test_cc_newest_jsonl) Django-settings-free — `timezone.now()` reads
+    # settings.USE_TZ and would raise ImproperlyConfigured if imported+exercised at
+    # module scope without Django settings. cc_engine's module top (verified :22-35)
+    # imports none of these. Copy these names verbatim:
+    import time
+    from django.utils import timezone
+    from . import cc_summary, cc_trace
+    from .cc_turn_complete import TurnCompletePayload
+    turn_start = translator._turn_start_ts  # set at turn open — do not use time.time() here
+    jsonl_path = None
+    for _ in range(3):
+        jsonl_path = _newest_jsonl_under(
+            Path(dirs.cc_state_mnt) / "projects", min_mtime=turn_start - 1)
+        if jsonl_path:
+            break
+        time.sleep(0.2)
+    raw = jsonl_path.read_bytes() if jsonl_path else b""
+    if raw:
+        import shutil
+        raw_copy = Path(dirs.output_mnt) / "raw" / f"transcript-{run_id}.jsonl"
+        raw_copy.parent.mkdir(parents=True, exist_ok=True)
+        if not _safe_relpath(raw_copy.name):
+            raise ValueError("bad transcript basename")
+        shutil.copy2(jsonl_path, raw_copy)
+    parsed = cc_summary.parse_transcript(raw) if raw else None
+    trace = cc_trace.extract_trace(
+        parsed, cc_session_id=translator.session_id or "",
+        ts=timezone.now().isoformat(),
+        files_created=result["files_created"],
+        files_modified=result["files_modified"],
+        result_meta={"num_turns": data.get("num_turns"),
+                     "duration_ms": data.get("duration_ms"),
+                     "cost_usd": data.get("total_cost_usd")},
+    ) if parsed else None
+    from django.conf import settings
+    strict = getattr(settings, "CC_PERSIST_STRICT", False)  # dev/test-only hard gate
+    if trace is not None:
+        data = dict(data)
+        data["mode"] = "cc"
+        data["cc_traces"] = [trace.model_dump()]   # live panel shows even if DB persist fails
+        try:
+            on_turn_complete(TurnCompletePayload(
+                chat_session=chat_session, user_query=user_query or "",
+                assistant_reply=data.get("reply") or "",
+                ts=timezone.now().isoformat(),
+                artifacts=data.get("artifacts"),
+                cc_traces=[trace.model_dump()],
+                turn_id=str(run_id),
+                cc_session_id=translator.session_id,
+                raw_jsonl=raw,
+            ))
+        except Exception:
+            # BEST-EFFORT on the SUCCESS path: a paid, successful reply is NEVER
+            # turned into query_error just because persistence failed. Log loudly;
+            # the live trace already rode out on `data`, and `send_event(event, data)`
+            # below still delivers the reply. Re-raise ONLY under the dev/test strict
+            # gate so the Task 13 live gate can still fail hard during verification.
+            logger.exception("CC persist failed after a successful turn "
+                             "(run_id=%s); delivering reply, trace not persisted", run_id)
+            if strict:
+                raise
+    else:
+        # No jsonl discovered despite a successful turn: deliver the reply WITHOUT a
+        # persisted trace rather than discarding paid output. Error-level log so
+        # Task 13's reload assertion (empty cc_traces) still fails the gate loudly.
+        logger.error("cc persist: missing transcript jsonl after successful turn "
+                     "(run_id=%s); delivering reply without persisted trace", run_id)
+        if strict:
+            raise RuntimeError("cc persist: missing transcript jsonl after successful turn")
 ```
+
+**Also (SPEC §3/E3):** after reading `raw`, `copy2` to `Path(dirs.output_mnt) / "raw" / f"transcript-{run_id}.jsonl"` (basename validated).
+
+**Empty/missing jsonl policy (Phase 2 hardened — best-effort):** If `query_complete` fires but no jsonl is found under cc-state, **do not discard the paid reply** — log at **error** level and still deliver the reply (without a persisted trace). The hard `RuntimeError("cc persist: missing transcript jsonl after successful turn")` is raised **only** when `CC_PERSIST_STRICT` is set (dev/test gate). In normal operation the Task 13 reload assertion (Step 6: non-empty `turns[*].cc_traces` after reload) is what catches a persistent jsonl/path mismatch — it fails the gate loudly **without** destroying paid output. Enable `CC_PERSIST_STRICT=True` for the duration of the Task 13 live gate run if a hard, immediate failure signal is preferred over the reload assertion.
+
+- [ ] **Step 1:** Helpers only — paste-ready `_newest_jsonl_under` + tests:
+
+```python
+def _newest_jsonl_under(root: Path, *, min_mtime: float | None = None) -> Path | None:
+    """Pick newest *.jsonl under root; if min_mtime set, only files with mtime >= min_mtime."""
+    candidates = [p for p in root.rglob("*.jsonl") if p.is_file()]
+    if min_mtime is not None:
+        candidates = [p for p in candidates if p.stat().st_mtime >= min_mtime]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+```
+
+Hermetic test in `nextseek_api/cc_assistant/tests/test_cc_newest_jsonl.py`:
+
+```python
+# nextseek_api/cc_assistant/tests/test_cc_newest_jsonl.py
+"""Newest-jsonl selection on REAL stat data. Py3.12-safe: no monkeypatching of
+pathlib.Path.stat (PosixPath uses __slots__ — `monkeypatch.setattr(<Path>, "stat", …)`
+raises `AttributeError: 'PosixPath' object attribute 'stat' is read-only`). Instead
+create real files and set distinct mtimes with os.utime."""
+import os
+
+
+def test_newest_jsonl_respects_min_mtime(tmp_path):
+    from nextseek_api.cc_assistant.cc_engine import _newest_jsonl_under
+    old = tmp_path / "old.jsonl"; old.write_text("x"); os.utime(old, (1.0, 1.0))
+    new = tmp_path / "new.jsonl"; new.write_text("y"); os.utime(new, (10.0, 10.0))
+    assert _newest_jsonl_under(tmp_path, min_mtime=5.0) == new   # only `new` clears the floor
+    assert _newest_jsonl_under(tmp_path, min_mtime=20.0) is None  # both below floor
+```
+
+Add `TurnCompletePayload` dataclass in `cc_turn_complete.py` (see Task 11). Extend `run_cc_turn` kwargs — **do not call `on_turn_complete` yet**. On missing jsonl after **3× 200ms retry**, follow the locked best-effort policy (Step 6 / "Empty/missing jsonl policy" / the persist-block paste): **deliver the reply without a persisted trace and log at error level; raise `RuntimeError` only under `CC_PERSIST_STRICT`** — a paid, successful reply is never converted to `query_error` by a persist miss.
+
+**Sub-step (turn open, before container spawn):** immediately after `translator = CCStreamTranslator()` in `run_cc_turn`, set `translator._turn_start_ts = time.time()` (import `time` at module top). Grep guard or hermetic source test: `_turn_start_ts` assigned before `containers.run`.
+
+- [ ] **Step 2:** Implement persist block (**BLOCKED until Task 11a commit**).
+- [ ] **Step 3:** Wire from `cc_assistant.py` `_run` closure:
+
+```python
+# cc_engine.run_cc_turn signature extension:
+# ..., chat_session: ChatSession | None = None, user_query: str = "",
+#     on_turn_complete: Callable[[TurnCompletePayload], None] | None = None
+
+cc_engine.run_cc_turn(
+    ...,
+    chat_session=chat_session,
+    user_query=req.query or "",
+    on_turn_complete=_append_cc_turn_complete,
+)
+```
+- [ ] **Step 4: Wiring guards (2D — close the "stubbed/unwired callback" gap) + run.** A stubbed `on_turn_complete` (kwarg accepted but never invoked) or a missing `_append_cc_turn_complete` wiring passes **every** other hermetic test — the pure helpers (`append_capped`/`apply_turn_to_extra_state`/`serialize_cc_chat_log_entry`/`_newest_jsonl_under`) are tested in isolation, and the existing source guards only check the helper bodies and the projection read, not that the engine actually CALLS the callback or that `services` actually WIRES it. Only the paid live gate would otherwise catch a "marked DONE, wiring stubbed" regression. Add two cheap source-text grep guards (run **after** Step 2 lands the persist-block call and Step 3 lands the `services` wiring, so each goes RED if its line is removed) by appending to `nextseek_api/cc_assistant/tests/test_cc_newest_jsonl.py`:
+
+```python
+from pathlib import Path
+
+_NSAPI = Path(__file__).resolve().parents[2]   # .../nextseek_api
+
+
+def test_cc_engine_actually_invokes_on_turn_complete():
+    """RED if run_cc_turn's persist block never CALLS the callback (Task 11 Step 2).
+    Reads by path (no import) so it stays Django-free/hermetic."""
+    src = (_NSAPI / "cc_assistant" / "cc_engine.py").read_text()
+    assert "on_turn_complete(TurnCompletePayload(" in src
+
+
+def test_services_wires_append_cc_turn_complete_into_run_cc_turn():
+    """RED if services/cc_assistant.py stops passing the real writer (Task 11 Step 3)."""
+    src = (_NSAPI / "services" / "cc_assistant.py").read_text()
+    assert "on_turn_complete=_append_cc_turn_complete" in src
+```
+
+Then run `test_newest_jsonl_under_*` + the two guards + regression suite:
+`uv run --no-project --with pytest --with orjson --with pydantic python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_newest_jsonl.py nextseek_api/cc_assistant/tests/`
+- [ ] **Step 5:** Commit bundled with Task 11a.
+
+---
+
+### Task 11a: CC `chat_log` turn writer (reload hydration) — **execute before Task 11 Step 2**
+
+**Why:** `get_session` builds turns from `extra_state["chat_log"]` only — without this task, Task 7 `Turn.cc_traces` and Task 12 reload hydration **cannot work**.
+
+**Reload vs E5:** **`chat_log[].cc_traces` is the reload source of truth** for the UI. Also mirror append to `extra_state["cc_traces"]` per locked E5 (both stores updated in one RMW save).
+
+**Files:**
+- Modify: `nextseek_api/services/cc_assistant.py` (`on_turn_complete` helper)
+- Modify: `nextseek_api/services/assistant.py` — projection reads `entry.get("artifacts")` when `bundle_id` absent (CC turns)
+- Test: `nextseek_api/cc_assistant/tests/test_cc_chat_log_writer.py` (grep/source guard for `assistant_reply` key)
+
+**Interfaces:**
+- `def _append_cc_turn_complete(payload: TurnCompletePayload) -> None` — single RMW: append `chat_log` entry `{user_query, assistant_reply, mode: "cc", ts, artifacts, cc_traces, turn_id}` (**FIFO cap 50 turns** applied via the pure `cc_turn_complete.append_capped` helper, `cap=MAX_CC_CHAT_LOG_TURNS`, matching `chat_nextseek/chat_memory.py:MAX_TURNS`); **also mirror** the per-turn trace into `es["cc_traces"]` per locked **E5** (mandatory — both stores written in the **SAME** single RMW save; kept small per §6.5 since it loads on every session read), while `chat_log[].cc_traces` remains the reload source of truth that reload/projection read from; upsert `CCSessionTranscript` using payload keys.
+- Both the append+cap and the dual-store (chat_log + `es["cc_traces"]` mirror) RMW transform are **NOT** inline in this Django-importing helper — they live in the neutral, hermetically-importable `cc_turn_complete` module (`append_capped` + `apply_turn_to_extra_state`, Task 11) so the 50-turn boundary **and** the E5 mirror are unit-tested (the live gate covers neither cheaply; an inline `chat_log[:50]` mutation or a dropped `es["cc_traces"]` write would otherwise pass every hermetic check).
+- Hermetic grep guard: CC `chat_log` entries must use key `assistant_reply` (not `reply`).
+
+- [ ] **Step 1:** Write failing tests (pure helpers extracted from the writer; all Django-free):
+  1. `serialize_cc_chat_log_entry(payload)` returns a dict with **`mode: "cc"`**, `assistant_reply`, `artifacts`, `cc_traces`, `turn_id`, `user_query`, `ts` keys.
+  2. **FIFO cap (mutation-sensitive)** — feed >50 entries one at a time through `append_capped` and assert the **newest 50** are kept **in order**, so a `chat_log[:50]` (keep-oldest) mutation FAILS.
+  3. **E5 mirror (mutation-sensitive)** — `apply_turn_to_extra_state` writes the per-turn trace to **both** `chat_log[].cc_traces` **and** `es["cc_traces"]` in one transform, so a dropped mirror append FAILS (`test_apply_turn_writes_chat_log_and_cc_traces_mirror`):
+
+```python
+# nextseek_api/cc_assistant/tests/test_cc_chat_log_writer.py
+"""Hermetic: pure chat_log serialize + FIFO-cap helpers. No Django, no DB."""
+from nextseek_api.cc_assistant.cc_turn_complete import append_capped
+
+
+def test_append_capped_keeps_newest_in_order():
+    log: list = []
+    for i in range(60):                      # 60 turns through the cap
+        log = append_capped(log, {"i": i}, cap=50)
+    assert len(log) == 50
+    # newest-50 kept, oldest-first: turns 10..59 (NOT 0..49 — a [:50] mutation
+    # would keep the OLDEST and this assertion would fail).
+    assert [e["i"] for e in log] == list(range(10, 60))
+
+
+def test_append_capped_under_cap_keeps_all_in_order():
+    log: list = []
+    for i in range(5):
+        log = append_capped(log, {"i": i}, cap=50)
+    assert [e["i"] for e in log] == [0, 1, 2, 3, 4]
+
+
+def test_apply_turn_writes_chat_log_and_cc_traces_mirror():
+    """Locked SPEC-3 E5 / §6.5: the per-turn trace is written to BOTH chat_log[]
+    (reload source of truth) AND the es["cc_traces"] mirror in ONE RMW transform.
+    Hermetic + Django-free (TurnCompletePayload is a plain dataclass; chat_session
+    is unused by the pure transform). MUTATION-SENSITIVE: deleting the
+    `es["cc_traces"]` mirror append in apply_turn_to_extra_state must FAIL the
+    second assertion (KeyError), and dropping the chat_log carry must fail the first."""
+    from nextseek_api.cc_assistant.cc_turn_complete import (
+        TurnCompletePayload, apply_turn_to_extra_state)
+    trace = {"cc_session_id": "s", "ts": "t", "steps": []}
+    payload = TurnCompletePayload(
+        chat_session=None, user_query="q", assistant_reply="a", ts="t",
+        artifacts=None, cc_traces=[trace], turn_id="T1",
+        cc_session_id="s", raw_jsonl=b"")
+    es = apply_turn_to_extra_state({}, payload, cap=50)
+    assert es["chat_log"][-1]["cc_traces"] == [trace]   # reload source of truth (unchanged)
+    assert es["cc_traces"] == [trace]                    # locked-E5 mirror (restored + guarded)
+```
+
+Paste-ready helpers in `services/cc_assistant.py` (import `TurnCompletePayload`, `serialize_cc_chat_log_entry` from `cc_turn_complete.py`):
+
+```python
+from nextseek_api.cc_assistant.cc_turn_complete import (
+    TurnCompletePayload, serialize_cc_chat_log_entry, append_capped,
+    apply_turn_to_extra_state)
+from nextseek_api.cc_assistant import cc_transcript_store
+from nextseek_api.assistant.models_db import CCSessionTranscript
+
+MAX_CC_CHAT_LOG_TURNS = 50  # match chat_nextseek/chat_memory.py MAX_TURNS
+
+
+def _append_cc_turn_complete(payload: TurnCompletePayload) -> None:
+    session = payload.chat_session
+    # Single RMW: the pure helper appends the turn to BOTH chat_log (reload source of
+    # truth) AND the locked-E5 es["cc_traces"] mirror; one save persists both
+    # (cc_assistant.py:65-72 RMW pattern — never mutate session.extra_state in place).
+    session.extra_state = apply_turn_to_extra_state(
+        session.extra_state, payload, cap=MAX_CC_CHAT_LOG_TURNS)
+    session.save(update_fields=["extra_state", "updated_at"])
+    CCSessionTranscript.objects.update_or_create(
+        chat_session=session,
+        cc_session_id=payload.cc_session_id or "",
+        turn_id=payload.turn_id,
+        defaults={
+            "blob": cc_transcript_store.compress(payload.raw_jsonl),
+            "uncompressed_size": len(payload.raw_jsonl),
+        },
+    )
+```
+
+- [ ] **Step 2:** Land the paste above + wire as `on_turn_complete` (**must land before Task 11 Step 2**).
+- [ ] **Step 3:** Extend Turn projection: `artifacts = entry.get("artifacts") or (extract_table_artifacts(bundle) if bundle else None)`.
+- [ ] **Step 4:** Verify: `uv run --no-project --with pytest python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_chat_log_writer.py`
+- [ ] **Step 5:** Commit bundled with Task 11 or immediately after.
 
 ---
 
@@ -1410,39 +2171,85 @@ git commit -m "feat(cc-step3): persist CCTrace to extra_state + zstd transcript 
 **Files:**
 - Create: `chat_frontend/src/components/ChatPanel/UploadControl.tsx` (+ `.test.tsx`)
 - Create: `chat_frontend/src/components/ChatPanel/CCActivityPanel.tsx` (+ `.test.tsx`)
-- Modify: `MessageInput.tsx`, `MessageBubble.tsx`, `EmbeddedApp.tsx`, `AppLayout.tsx`, `lib/api/chatApi.ts`, `lib/types/chat.ts`, `lib/types/api.ts`, `hooks/useMessages.ts`, `ReportArtifacts.tsx`
+- Modify: `MessageInput.tsx`, `MessageBubble.tsx`, `EmbeddedApp.tsx`, `AppLayout.tsx`, `lib/services/chatApi.ts`, `lib/types/chat.ts`, `lib/types/api.ts`, `hooks/useMessages.ts`, `hooks/useChatApi.ts`, `components/ChatPanel/ReportArtifacts.tsx`
 
 **Interfaces:**
-- `lib/types/chat.ts`: add `Step` + `CCTrace` TS types mirroring the enriched §6.2 — `Step { line, kind: "bash"|"write"|"edit"|"read"|"skill"|"tool"|"text", tool?, detail?, text?, action?, status? }` and `CCTrace { schema_version, cc_session_id, ts, transcript_line_count, turn_count, num_turns?, duration_ms?, cost_usd?, steps: Step[], tools_used, files_created, files_modified }` + `ccTraces?: CCTrace[]` on `Message`.
-- `lib/types/api.ts`: add `cc_traces?: CCTrace[]` to `Turn`.
-- `chatApi.ts`: `uploadFiles(files: File[]): Promise<{job_id}>`, `pollUpload(jobId)`, and `downloadCcArtifact(sessionId, key)` → `GET /nextseek_api/cc-assistant/artifacts/{session}/download?key={key}`.
+- `lib/types/chat.ts`: add **`CCTraceStep`** (do **not** reuse existing `Step` used by `ProcessingStepper`) + `CCTrace` TS types mirroring enriched §6.2 — `CCTraceStep { line, kind: "bash"|"write"|"edit"|"read"|"skill"|"tool"|"text", tool?, detail?, text?, action?, status? }` and `CCTrace { schema_version, cc_session_id, ts, transcript_line_count, turn_count, num_turns?, duration_ms?, cost_usd?, steps: CCTraceStep[], tools_used, files_created, files_modified }` + `ccTraces?: CCTrace[]` and **`mode?: string`** on `Message`.
+- `lib/types/api.ts`: add `cc_traces?: CCTrace[]` to `Turn`; extend `QueryCompleteData` with `cc_traces?: CCTrace[]` and **`mode?: "cc" | "ns"`** (CC path emits `"mode": "cc"` from `cc_engine.py` on every `query_complete`).
+- `chatApi.ts` → **`lib/services/chatApi.ts`**: paste-ready methods:
+
+```typescript
+async uploadFiles(files: File[]): Promise<{ job_id: string }> {
+  const fd = new FormData();
+  files.forEach((f) => fd.append("file", f));
+  const r = await fetch("/nextseek_api/cc-assistant/upload/", { method: "POST", body: fd, credentials: "include" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+async pollUpload(jobId: string): Promise<{ state: string; result?: unknown }> {
+  const r = await fetch(`/nextseek_api/cc-assistant/upload/status/${jobId}/`, { credentials: "include" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+async downloadCcArtifact(sessionId: string, key: string): Promise<void> {
+  const r = await fetch(`/nextseek_api/cc-assistant/artifacts/${sessionId}/download/?key=${encodeURIComponent(key)}`, { credentials: "include" });
+  if (!r.ok) throw new Error(await r.text());
+  const blob = await r.blob();
+  const disposition = r.headers.get("Content-Disposition");
+  const filenameMatch = disposition?.match(/filename="?(.+?)"?$/);
+  const filename = filenameMatch?.[1] ?? key.split("/").pop() ?? "artifact";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+```
+
+Vitest: assert fetch URLs match Task 9/10 routes (no stub-only `Promise.resolve()`).
 
 Spec refs: §4 (upload UI), §6 (panel survives reload), §5 (download), §9 (3e).
 
-- [ ] **Step 1 (3e first — smallest, lowest-risk): promote the authoritative session id**
+- [ ] **Step 0: Extend `useChatApi` — expose synchronous session id + shared service**
 
-Vitest can't easily drive these handlers; this is a 2-line change guarded by the existing TODO. In `EmbeddedApp.tsx:133` and `AppLayout.tsx:124`, replace the promotion source:
+`AppLayout` must use **one** `NextseekApiService` ref — delete `const [service] = useState(() => new NextseekApiService(...))`; pass `apiService` from `useChatApi` into `useSessions({ service: apiService, ... })`. Grep guard: `AppLayout.tsx` contains exactly one `new NextseekApiService(`.
+
+`useChatApi.ts` sets `serviceRef.current._sessionId` on HTTP 202 (`chatApi.ts:96`) but React `sessionId` state updates only in `.finally()` after WS completes — too late for `query_complete`. Add to hook return:
 
 ```ts
-        // 3e: promote from the AUTHORITATIVE HTTP-202 body id, not the WS event.
-        const authSid = serviceRef.current.sessionId ?? d.session_id;   // AppLayout: service.sessionId
+getAuthoritativeSessionId: () => serviceRef.current.sessionId,
+apiService: serviceRef.current,  // or return serviceRef for ref stability
+```
+
+Both layouts must use **`getAuthoritativeSessionId()`** (or the shared `apiService.sessionId`) at `query_complete`, not hook `sessionId` state.
+
+- [ ] **Step 1 (3e first): promote the authoritative session id**
+
+In `EmbeddedApp.tsx` and `AppLayout.tsx` `query_complete` handlers:
+
+```ts
+        const authSid = getAuthoritativeSessionId() ?? d.session_id;
         if (authSid) {
           if (sessions.pendingNewChat) sessions.promoteCreatedSession(authSid);
           else sessions.refresh();
         }
 ```
 
-Remove the now-resolved TODO comment block at both sites. (AppLayout uses `service.sessionId`; EmbeddedApp uses `serviceRef.current.sessionId` — per the Task-4 agent map.)
+(EmbeddedApp may keep `serviceRef.current.sessionId` if it already holds the submitting ref.)
 
 - [ ] **Step 2: `CCTrace` type + `ccTraces` on Message + hydrate**
 
-In `lib/types/chat.ts` add the `CCTrace` interface (§6.2 fields) and `ccTraces?: CCTrace[]` on `Message`. In `lib/types/api.ts` add `cc_traces?: CCTrace[]` to `Turn`. In `hooks/useMessages.ts:88` (`hydrateFromTurns`), map it instead of dropping it:
+In `lib/types/chat.ts` add the `CCTrace` / **`CCTraceStep`** interfaces (§6.2 fields — **not** the existing `ProcessingStepper` `Step` type) and `ccTraces?: CCTrace[]` + **`mode?: string`** on `Message`. In `lib/types/api.ts` add `cc_traces?: CCTrace[]` to `Turn`. In `hooks/useMessages.ts` (`hydrateFromTurns` map), map:
 
 ```ts
         ccTraces: turn.cc_traces ?? undefined,
+        mode: turn.mode ?? undefined,
 ```
 
-And in the live `query_complete` handler (EmbeddedApp), attach `ccTraces` from `d` (the frame now carries trace metadata via the artifacts/trace channel) alongside `debugEntries`.
+And in the live `query_complete` handler in **both** `EmbeddedApp.tsx` and `AppLayout.tsx`, attach `artifacts`, `ccTraces`, and **`mode: d.mode ?? "cc"`** from the WS payload (backend sets `"mode": "cc"` on CC turns in Task 6/11 — do **not** hardcode `"cc"` unconditionally or native NS turns mis-route downloads). Mirror EmbeddedApp's `updateLastAssistantMessage({ … artifacts, ccTraces, mode })` pattern; AppLayout must not only `addAssistantMessage(d.reply)`.
 
 - [ ] **Step 3: `CCActivityPanel` component + Vitest test**
 
@@ -1467,22 +2274,28 @@ test("renders steps and file changes from a trace", () => {
 
 Render the panel from `MessageBubble.tsx` inside the existing collapsible "Search Details" chrome (`:111-159`) when `message.ccTraces?.length` — reuse the toggle; do not overload `debugEntries`.
 
+**Also update `hasSearchDetails`** (`MessageBubble.tsx:77-79`): add `hasCcTrace = !message.isUser && (message.ccTraces?.length ?? 0) > 0` and set `hasSearchDetails = hasDebug || hasExtracted || hasCcTrace` so the collapsible chrome renders for trace-only CC turns.
+
 - [ ] **Step 4: `UploadControl` component + Vitest test + wire into `MessageInput`**
 
 `UploadControl.tsx`: a file-attach button + selected-file list + progress (calls `chatApi.uploadFiles` then polls `pollUpload`). Colocated test asserts files render and the upload callback fires on submit. Insert it into `MessageInput.tsx` near the composer button row (`:70-117`, the `flex items-end gap-2` row).
 
 - [ ] **Step 5: artifact download — branch the null-bundle CC case**
 
-In `MessageBubble.tsx:106`, the existing wrapper calls `onArtifactDownload?.(message.bundleId!, key)`. For CC turns `bundleId` is null. Branch: if `message.bundleId == null`, call the new CC path:
+In `MessageBubble.tsx:106`, branch on **`message.mode === "cc"`** (reload CC turns use `bundle_id: 0` from projection — do not use `bundleId != null`):
 
 ```ts
   const handleDl = (key: string) =>
-    message.bundleId != null
-      ? onArtifactDownload?.(message.bundleId, key)
-      : onCcArtifactDownload?.(message /* session */, key);
+    message.mode === "cc"
+      ? onCcArtifactDownload?.(key)
+      : onArtifactDownload?.(message.bundleId!, key);
 ```
 
-Wire `onCcArtifactDownload` from `EmbeddedApp`/`AppLayout` to `serviceRef.current.downloadCcArtifact(sessionId, key)` (chatApi). The session id is the message's session (authoritative, from Step 1).
+Vitest: hydrate CC turn with `bundle_id: 0, mode: "cc", artifacts: [...]` → CC handler fires.
+
+Wire `onCcArtifactDownload` from `EmbeddedApp`/`AppLayout` using the **same submitting `NextseekApiService`** from Step 0: `() => apiService.downloadCcArtifact(apiService.sessionId!, key)` (void — mirrors native `downloadArtifact`; do not await/use return Blob). Do not use AppLayout's separate `useSessions` `service` state.
+
+**AppLayout checklist (required):** extend `MessageBubble`, `MessageList`, and `ChatPanel` props with `onCcArtifactDownload?: (key: string) => void` (keep existing `onArtifactDownload?: (bundleId: number, key: string) => void` for native). Pass both through `ChatPanel` → `MessageBubble`. AppLayout must wire **both** handlers (native + CC) — currently passes no artifact handler to `ChatPanel` at `:190-196`.
 
 - [ ] **Step 6: Run the frontend unit tests**
 
@@ -1506,9 +2319,27 @@ git commit -m "feat(cc-step3): upload control, CC activity panel, artifact downl
 
 Spec refs: §12 (live verification), §13 (deployment), E7 (zstd dep), E6 (migration).
 
+- [ ] **Step 0: Celery/broker preflight (before deploy)**
+
+```bash
+docker exec nextseek celery -A nextseek_api.batch_upload.celery_app inspect ping
+docker exec nextseek celery -A nextseek_api.batch_upload.celery_app inspect registered | grep cc_assistant.upload
+```
+
+Both must exit 0. Record broker reachability note in evidence if non-default `CELERY_BROKER_URL`.
+
 - [ ] **Step 1: Add `zstandard` to the image**
 
-Add `zstandard` to the image's Python deps (`pyproject`/requirements that the Dockerfile installs) so `cc_transcript_store` imports at runtime. Confirm the dmac venv inside the image gets it on rebuild.
+Add `zstandard` to the image's Python deps (`pyproject`/requirements that the Dockerfile installs) so `cc_transcript_store` imports at runtime. Confirm the dmac venv inside the image gets it on rebuild. Record in evidence: `docker exec nextseek python -c "import zstandard; print(zstandard.__version__)"`.
+
+- [ ] **Step 3b: Append Step-3 deploy notes to `DEPLOY.md`**
+
+Before **Task 13 Step 3** (snapshot + deploy), append (do not replace PLAN-7 Phase A/B — merge order per PLAN-7 gate):
+- `python manage.py migrate nextseek_api 0007_ccsessiontranscript`
+- Celery worker must register `cc_assistant.upload` (`celery inspect registered | grep cc_assistant.upload`)
+- `cd chat_frontend && npm run build:embedded` before image rebuild
+- `:pre-step3` snapshot tag procedure reference
+- zstandard import check inside container
 
 - [ ] **Step 2: Build the embedded frontend bundles**
 
@@ -1525,15 +2356,19 @@ Confirm: container up gunicorn+celery, site 200, `cc_engine.cc_runner_available(
 
 - [ ] **Step 4: Live upload → input → CC reads it**
 
-Drive the chat UI with Playwright (see `nextseek-playwright.md`), forced-CC, ≤ $2 cap: upload a file via the new control → confirm it lands in `<root>/<project>/demo/input/` on the host → a CC turn reads it (RO at `/data/input`).
+Drive the chat UI with Playwright (see `nextseek-playwright.md`), forced-CC, ≤ $2 cap: upload a file via the new control → **assert the uploaded file actually lands** in `<root>/<project>/demo/input/` on the host (`docker exec`/host `ls -l` of that `input/` dir showing the file present and non-empty) → a CC turn reads it (RO at `/data/input`). **This `ls` assertion is the live gate for the cross-device `shutil.move` (2A HIGH): an `os.replace` regression would `EXDEV`-fail the Celery job and leave `input/` empty here.** Also capture the upload job's final `state` (must be `SUCCESS`, not `FAILURE`) in `live_gate_transcript.txt`.
 
 - [ ] **Step 5: Output split + download + raw + transcript**
 
-A CC turn writes a deliverable to `scratch/` and something to `scratch/raw/`: confirm the deliverable appears in `output/artifacts/`, downloads via the UI button (zip if >1), the raw file lands in `output/raw/`, and `GET …/transcript/<session>/<turn>/` returns the full jsonl (zstd round-trip).
+A CC turn writes a deliverable to `scratch/` and something to `scratch/raw/`: confirm the deliverable appears in `output/artifacts/<turn_id>/`, downloads via the UI button (zip if >1), the raw file lands in `output/raw/`, **transcript copy** at `output/raw/transcript-<turn_id>.jsonl`, and `GET …/transcript/<session>/<turn>/?cc_session_id=…` returns the full jsonl (zstd round-trip).
+
+- [ ] **Step 5b: Two-turn same-basename download check**
+
+Two forced-CC turns each write `report.md`; reload shows both keys; download each turn's button returns **different** bytes (proves turn-scoped artifact namespace).
 
 - [ ] **Step 6: Activity panel survives reload**
 
-Confirm the panel shows commands/files/num_turns live, then **reload the session** and confirm the panel is still populated (proves `cc_traces` persisted + hydrated, unlike native ephemeral `debugEntries`).
+Confirm the panel shows commands/files/num_turns live, then **reload the session** and confirm the panel is still populated (proves `cc_traces` persisted + hydrated, unlike native ephemeral `debugEntries`). Save a **JSON excerpt** in `live_gate_transcript.txt` from `GET /assistant/sessions/{id}?include=turns` showing non-empty `turns[*].cc_traces` **and** `chat_log`-backed `assistant_reply` on the CC turn (scripted `jq` — not UI prose alone). **This non-empty-`cc_traces`-after-reload assertion is the acceptance gate for persistence** (Task 11 is now best-effort on the success path — a persist failure no longer surfaces as `query_error`, so the reload assertion is what must catch it). Run this gate with `CC_PERSIST_STRICT=True` if a hard, immediate failure on persist miss is preferred.
 
 - [ ] **Step 7: 3e + no regressions**
 
@@ -1541,13 +2376,28 @@ New chat, second turn does not 404 (3e). Re-run the **1b resume** A/B and the **
 
 - [ ] **Step 8: Record evidence + flip the tracker**
 
-Write live evidence under `nextseek_api/cc_assistant/evidence/3-ui-based-io-live.md` (secret-scan before commit). With the user's OK, set `integration-plan.json` step **3** (and substeps 3a–3e) `status` → `done` (status field ONLY; never add keys). Capture the session with `/handoff`.
+Write live evidence under `nextseek_api/cc_assistant/evidence/3-ui-based-io-live/` including:
+- `live_gate_transcript.txt` — saved stdout/stderr + exit codes for every Task 13 command. **Ensure it contains the PLAN-7 §8 content-marker allowlist** that PLAN-7 Task 2's validator (PLAN-7:132) greps — these are the saved **stdout** strings (not the command lines; PLAN-7 explicitly does **not** grep the command substrings `migrate nextseek_api 0007` or `inspect registered`). **Byte-identical allowlist, shared verbatim with PLAN-7 Task 2 — both sides MUST name the same strings:**
+  1. **Migration marker — `Applying nextseek_api.0007` OR `[X] 0007_ccsessiontranscript`** (at least one). Step 3's `migrate nextseek_api 0007_ccsessiontranscript` emits `Applying nextseek_api.0007_ccsessiontranscript… OK` **only when 0007 is unapplied**; on an already-applied DB it prints `No migrations to apply.` and that form is absent. **Therefore also run `python manage.py showmigrations nextseek_api` (`docker exec nextseek …`) and save its stdout into `live_gate_transcript.txt`** — it prints `[X] 0007_ccsessiontranscript` on **any** already-applied DB, so the migration marker is present whether or not 0007 was freshly applied (idempotency-robust; an already-deployed instance's committed transcript can never permanently fail PLAN-7's start-gate).
+  2. **`cc_assistant.upload`** — from Step 0 `celery … inspect registered | grep cc_assistant.upload` stdout (registered-task name).
+  3. **`cc_traces`** — the JSON key in the Step 6 saved `GET …?include=turns` excerpt.
 
-- [ ] **Step 9: Commit deploy artifacts + DEPLOY.md**
+  These markers are produced by the steps above plus the one added `showmigrations nextseek_api` capture; this makes the cross-target handshake explicit so the file is not committed missing a marker that PLAN-7's hard start-gate greps.
+- `playwright/` — optional screenshots (secret-scanned)
+- `evidence/3-ui-based-io-live.md` — index only (links to generated artifacts; not proof by itself)
+
+Success is met only if reload shows non-empty `cc_traces` on the CC turn (Task 13 Step 6) and upload Celery job completes (Task 13 Step 4). With the user's OK, set `integration-plan.json` step **3** (and substeps 3a–3e) `status` → `done` (status field ONLY; never add keys). Capture the session with `/handoff`.
+
+- [ ] **Step 9: Commit deploy artifacts + evidence + DEPLOY.md**
+
+Secret-scan `live_gate_transcript.txt` and any Playwright artifacts before commit. **Hard gate for Step 7:** this file **must** be committed on the integration branch (SPEC-7 §8 / PLAN-7 Task 1 — user decision 2026-06-30).
 
 ```bash
-git add nextseek_api/cc_assistant/DEPLOY.md <image dep file> static/js/chat_assistant
-git commit -m "chore(cc-step3): zstandard dep, migration 0007, embedded frontend build + deploy notes (§12,§13)"
+git add nextseek_api/cc_assistant/DEPLOY.md \
+  nextseek_api/cc_assistant/evidence/3-ui-based-io-live/live_gate_transcript.txt \
+  nextseek_api/cc_assistant/evidence/3-ui-based-io-live.md \
+  <image dep file> static/js/chat_assistant
+git commit -m "chore(cc-step3): zstandard dep, migration 0007, embedded frontend build + live gate evidence (§12,§13)"
 ```
 
 ---
@@ -1555,9 +2405,9 @@ git commit -m "chore(cc-step3): zstandard dep, migration 0007, embedded frontend
 ## Self-Review
 
 **1. Spec coverage:**
-- §4 upload (E1/E2) → Task 3 (`input_mnt`), Task 9 (endpoint+task+status). ✔
+- §4 upload (E1/E2) → Task 3 (`input_mnt`), Task 9 (endpoint+task+status), **Task 9b (list)**. ✔
 - §5 output split + download (E3/E9) → Task 6 (split+zip), Task 10 (download endpoint), Task 12 Step 5 (UI branch). ✔
-- §6 activity panel (E4/E5/E10) → Task 4 (schema+extractor), Task 5 (result meta), Task 7 (Turn field), Task 11 (persist), Task 12 Step 3 (panel). ✔
+- §6 activity panel (E4/E5/E10) → Task 4 (schema+extractor), Task 5 (result meta), Task 7 (Turn field), **Tasks 11+11a (persist + chat_log + live emit)**, Task 12 Step 3 (panel). ✔
 - §6.4 translate extension → Task 5. ✔
 - §7 transcript recoverability (E6/E7) → Task 1 (zstd), Task 2 (model+migration), Task 10 (recover endpoint), Task 11 (write path). ✔
 - §8 remove Dropbox (E8) → Task 8. ✔
@@ -1566,8 +2416,127 @@ git commit -m "chore(cc-step3): zstandard dep, migration 0007, embedded frontend
 - §12 testing → every task's hermetic seam + Task 13 live. ✔  §13 deployment → Task 13. ✔
 - §14 out-of-scope (multi-project, shared population, upload delete/quota, ingestion, re-summarization) — intentionally excluded. ✔
 
-**2. Placeholder scan:** Every code step carries real code. Three explicit verify-against-runtime flags remain, each a confirmation not a gap: (a) the `StreamTranslator` class/init in Task 5 Step 1 (the method body edit is exact); (b) the Celery `app` import path in Task 9 (Task-1 agent quoted `@app.task(name="batch_upload.run")` — copy the real import); (c) the exact `_run`-closure variable names (`mount_path`, `cc_session_id`, `run_id`, `files_created/modified`, `result_meta`, `_now_iso`) in Task 11, which exist in the surrounding code and must be wired, not invented. These are the only `[CONFIRM@PLAN]`s and all are import/name confirmations against live code, resolved at execution by reading the cited file.
+**2. Placeholder scan:** `[CONFIRM@PLAN]` items resolved in Phase 2 vetting: (a) `CCStreamTranslator` confirmed; (b) Celery `app` from `batch_upload.celery_app` + explicit worker import; (c) persist relocated to `cc_engine.run_cc_turn` + Task 11a `chat_log` writer. Task 4 `_Other.type: str | None` intentionally tolerates `parse_transcript`'s `{"_type":"unparsed"}` lines (SPEC §6.3 prose uses `type: str`; plan follows real jsonl shapes).
 
-**3. Type consistency:** the flat `CCTrace`/`Step` field names (enriched Task 4) are reused verbatim in Task 7 (`Turn.cc_traces`), Task 11 (`trace.model_dump()`), and Task 12 (TS `CCTrace`/`Step`); the shared `cc_summary.classify_tool_use` (Task 4) is the one classifier for both 1c memory and the trace. `extract_trace(parsed, …)` takes a `ParsedTranscript` (not raw records) in Task 4 and Task 11. `UserDirs.input_mnt` (Task 3) consumed in Task 9 (`dirs.input_mnt`) and Task 10 (`dirs.output_mnt`). `_publish_artifacts` returns the dict `{"artifacts","raw","raw_zip"}` (Task 6) consumed by the caller in Task 6 Step 6 + Task 11. `compress`/`decompress` (Task 1) used in Tasks 10/11. The artifact `key` is the relpath under `output/artifacts/` everywhere (Task 6 produces it, Task 10 resolves it, Task 12 sends it).
+**Known coupling note:** Tasks 6 and 8 **must land atomically** on `cc_engine.py` `query_complete` handler (Phase 2 hardened). Tasks 11/11a/13 have no hermetic seam by design — Task 13 live gate is the acceptance bar for Step 3.
 
-**Known coupling note (mirrors PLAN-2):** Tasks 6 and 8 both touch the `query_complete` handler in `cc_engine.py` — Task 6 adds the artifacts channel, Task 8 removes the old Dropbox lines; if Task 6 Step 6 leaves the old `published`/`artifacts_published` lines referencing the new dict shape, the suite may go red until Task 8's grep-guard forces their removal. The full suite is the gate at Task 6 Step 7, Task 7 Step 5, Task 8 Step 6, and Task 9 Step 6. Tasks 11 and 13 have no hermetic seam by design (DB/HTTP/Docker) and are proven in the Task 13 live gate, which is the real acceptance bar for Step 3.
+---
+
+## Permissions Required
+
+| Permission / resource | Tasks | Notes |
+|----------------------|-------|-------|
+| Hermetic pytest via `uv run` | 1–7, 9 validator, 9b | No DB CREATE on this box |
+| Django `makemigrations` (no migrate) | 2 | Reads models only |
+| Celery broker + `batch_upload` queue | 9, 13 Step 4 | Worker must register `cc_assistant.upload` |
+| `MEDIA_ROOT` staging dir write | 9 | Upload temp files before Celery move |
+| Host filesystem: `DMAC_USER_ROOT` / mount roots | 3, 9, 10, 11 | `input_mnt`, `output/artifacts`, `cc-state` jsonl |
+| Django ORM + real DB migrate | 2, 11, 13 | `CCSessionTranscript`, `chat_log` persist |
+| DRF endpoint exposure (owner-scoped) | 9, 9b, 10 | Requires logged-in SEEK user |
+| Docker socket + image rebuild + container recreate | 13 | Step-0 deploy procedure; per-change sign-off |
+| Playwright / live chat UI | 13 | ≤ $2 forced-CC cap |
+| Frontend `npm run test` + `build:embedded` | 12, 13 | Vitest + static bundle emit |
+| Git write on `cc-step3-ui-io` branch | all | Merge back to `feat/dmac-assistant-full-integration` on completion |
+
+Resolved in Phase 5.5 before execution.
+
+---
+
+## Risk Register
+
+| Rank | Task | Likely failure | Catastrophic failure | Rollback |
+|------|------|----------------|---------------------|----------|
+| 1 | 11/11a | Persist in wrong module; chat_log never written → reload empty | Users trust panel data that vanishes on reload | Pause; fix before deploy |
+| 2 | 9 | Celery task not registered → upload 202 but job never runs | Silent I/O regression | Roll back celery_app import + endpoints |
+| 3 | 4 | `classify_tool_use` drift breaks 1c memory strings | Cross-session memory corrupt | Revert cc_summary; block Step 3 merge |
+| 4 | 6+8 | Partial handler edit leaves Dropbox + dict mismatch | Broken CC turns mid-deploy | Atomic revert of cc_engine handler |
+| 5 | 2/11/13 | Migration not applied → ORM errors at runtime | DB inconsistency | `rollback.sh`; do not flip tracker |
+| 6 | 10 | Owner-scoping bypass on download/recover | Cross-user data leak | Block deploy immediately |
+| 7 | 12/13 | Frontend bundle not rebuilt → stale UI | Appears done while UI unchanged | Rebuild embedded + recreate container |
+| 8 | 13 | Swallowed persist exceptions | False "done" with failed live gate | Task 13 must assert non-empty `cc_traces` after reload |
+| 9 | 11 | Best-effort persist silently delivers replies without a saved trace if a jsonl/path mismatch persists post-gate | Panel empty on reload in prod despite successful turns (paid output preserved, but trace lost) | Error-level log on every persist miss; Task 13 reload assertion (row 8) gates it; run the gate with `CC_PERSIST_STRICT=True` for a hard signal. Best-effort guarantees a paid reply is **never** turned into `query_error` (no spend-doubling retry) |
+
+Hidden dependencies: Step 2 multi-user paths (`UserDirs`, `resolve_user_project`); 1b resume cc-state mounts; 1c `cc_summary` output byte-identical after Task 4.
+
+---
+
+## Dependency Validation
+
+| Dependency | Validation | Status |
+|------------|------------|--------|
+| `zstandard` (PyPI ≥0.25) | [pypi.org/project/zstandard](https://pypi.org/project/zstandard/) — `ZstdDecompressor.stream_reader` supports bounded reads (Task 1 bomb guard) | OK — add to pyproject Task 1 |
+| pydantic v2 unpinned | Ordered `Union` with `_Other` last; `TypeAdapter.validate_python` | OK — plan mitigates |
+| orjson | Already used in 1c tests | OK |
+| Celery `batch_upload.celery_app` | `views.py:23` pattern; explicit import required (Phase 2) | OK — hardened in Task 9 |
+| Vitest / `npm run build:embedded` | `chat_frontend/package.json` | OK |
+| Django migration 0007 | Depends on `0006_merge_extra_state_guards` | OK |
+| Playwright live gate | External; Task 13 only | Accepted exception |
+
+---
+
+## Gameability Audit
+
+| Task | Success condition (as written) | Cheapest fake | Remedy |
+|------|-------------------------------|---------------|--------|
+| 2 | Model-shape guard without DB | Source-text grep only | Live migrate in Task 13; shape guard kept |
+| 9 | Validator tests pass | Broken Celery body + missing worker import | Task 9 Step 3b + Task 13 Step 4 live upload |
+| 11 | "Hermetic regression only" | Swallow persist errors | Best-effort: re-raise **only** under `CC_PERSIST_STRICT` (dev/test), else log+deliver; Task 13 reload asserts `cc_traces` |
+| 11a | chat_log append | Write to wrong key | Grep + Task 13 reload hydration |
+| 13 | "Confirm panel survives reload" | Agent prose in markdown | Require `evidence/3-ui-based-io-live/live_gate_transcript.txt` + saved Playwright output |
+| 8 | grep-guard | Dropbox string moved to comment | Scan whole `cc_assistant/` + `services/cc_assistant.py` |
+| 4 | Fixture jsonl tests | Overfit extractor to fixture | Add second fixture with different tool names; 1c full suite gate |
+
+Deterministic validators per task: hermetic pytest for pure modules; Task 13 live gate for DB/HTTP/Docker paths.
+
+---
+
+## Phase 2 Vetting Log
+
+| Iteration | Reviewer | Verdict | MEDIUM+ resolved |
+|-----------|----------|---------|------------------|
+| 1 | Independent cold-context (2026-06-30) | CONDITIONAL_ACCEPTANCE | 5 Critical, 11 Important — hardening applied |
+| 2 | Fresh re-vet (2026-06-30, iter 2) | CONDITIONAL_ACCEPTANCE | Celery commit path, chat_log/E5 clarity, Task 9b gate, second fixture |
+| 3 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-2 residual fixes applied |
+| 4 | Fresh re-vet (2026-06-30, iter 3) | **CONDITIONAL_ACCEPTANCE** | 3 HIGH, 10 MEDIUM — see `.vetting/plan-3-phase2-review-3-fresh.md` |
+| 5 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-3 HIGH fixes |
+| 6 | Fresh re-vet (2026-06-30, iter 4) | **CONDITIONAL_ACCEPTANCE** | 1 HIGH, 8 MEDIUM — see `.vetting/plan-3-phase2-review-4-fresh.md` |
+| 7 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-5: useChatApi sync session id, AppLayout live path, coverage scope |
+| 8 | Fresh re-vet (2026-06-30, iter 5) | **CONDITIONAL_ACCEPTANCE** | 3 HIGH, 8 MEDIUM — see `.vetting/plan-3-phase2-review-5-fresh.md` |
+| 9 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-5: useChatApi sync id, AppLayout parity, Task 9b TDD, coverage, evidence commit |
+| 10 | Fresh re-vet (2026-06-30, iter 6) | **CONDITIONAL_ACCEPTANCE** | 2 HIGH, 6 MEDIUM — see `.vetting/plan-3-phase2-review-6-fresh.md` |
+| 11 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-6: turn-scoped artifacts, Task 11 else branch, 11a order, jsonl raw copy |
+| 12 | User decisions (2026-06-30) | **Locked** | Turn-scoped artifact namespace; live transcript commit required for Step 7 gate |
+| 13 | Fresh re-vet (2026-06-30, iter 7) | **CONDITIONAL_ACCEPTANCE** | 2 HIGH, 10 MEDIUM — see `.vetting/plan-3-phase2-review-7-fresh.md` |
+| 14 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-7: zip-if-multiple, bundleId reload, pytest-cov, realstack, guards |
+| 15 | Fresh re-vet (2026-06-30, iter 8) | **CONDITIONAL_ACCEPTANCE** | 3 HIGH, 10 MEDIUM — see `.vetting/plan-3-phase2-review-8-fresh.md` |
+| 16 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-8: Task 10 paste fix, raw path strip, recover cc_session_id, realstack in commit |
+| 17 | Fresh re-vet (2026-06-30, iter 9) | **CONDITIONAL_ACCEPTANCE** | 1 HIGH, 9 MEDIUM — see `.vetting/plan-3-phase2-review-9-fresh.md` |
+| 18 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-9: `_newest_jsonl_under`, guards, zip relpaths, validate_cc_acceptance commit |
+| 19 | Fresh re-vet (2026-06-30, iter 10) | **CONDITIONAL_ACCEPTANCE** | 4 HIGH, 8 MEDIUM — see `.vetting/plan-3-phase2-review-10-fresh.md` |
+| 20 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-10: min_mtime retry, run_cc_turn wiring, guards paste, zip test, validator |
+| 21 | Fresh re-vet (2026-06-30, iter 11) | **CONDITIONAL_ACCEPTANCE** | 2 HIGH, 6 MEDIUM — see `.vetting/plan-3-phase2-review-11-fresh.md` |
+| 22 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-11: persist fence fix, _turn_start_ts, validator paste, AppLayout service |
+| 23 | Fresh re-vet (2026-06-30, iter 12) | **CONDITIONAL_ACCEPTANCE** | 1 CRITICAL, 2 HIGH, 6 MEDIUM — see `.vetting/plan-3-phase2-review-12-fresh.md` |
+| 25 | Fresh re-vet (2026-06-30, iter 13, **canonical prompt**) | **CONDITIONAL_ACCEPTANCE** | 7 HIGH, 10 MEDIUM — see `.vetting/plan-3-phase2-review-13-fresh.md` |
+| 26 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-13: job_index ownership, persist copy2, 11a paste, _turn_start_ts step, chatApi paste, DEPLOY notes |
+| 27 | Fresh re-vet (2026-06-30, iter 14, **canonical prompt**) | **CONDITIONAL_ACCEPTANCE** | 2 HIGH, 8 MEDIUM — see `.vetting/plan-3-phase2-review-14-fresh.md` |
+| 28 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-14: CCTraceStep rename, Message.mode hydrate, 11a update_fields, Task 11 single persist owner |
+| 29 | Fresh re-vet (2026-06-30, iter 15, **canonical prompt**) | **CONDITIONAL_ACCEPTANCE** | 3 HIGH, 10 MEDIUM — see `.vetting/plan-3-phase2-review-15-fresh.md` |
+| 30 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-15: cc_turn_complete.py, realstack artifacts dump, newest_jsonl test, AppLayout single service |
+| 31 | Fresh re-vet (2026-06-30, iter 16, **canonical prompt**) | **CONDITIONAL_ACCEPTANCE** | 2 HIGH, 4 MEDIUM — see `.vetting/plan-3-phase2-review-16-fresh.md` |
+| 32 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-16: serialize_cc_chat_log_entry paste, realstack lines 181–212, File Structure inventory, decompress max_bytes, upload staging cleanup |
+| 33 | Fresh re-vet (2026-06-30, iter 17, **canonical prompt**) | **CONDITIONAL_ACCEPTANCE** | 1 CRITICAL, 3 HIGH, 2 MEDIUM — see `.vetting/plan-3-phase2-review-17-fresh.md` |
+| 34 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-17: future annotations, chat_log FIFO cap, mode=cc payload, downloadCcArtifact void, duplicate upload reject |
+| 35 | Fresh re-vet (2026-06-30, iter 18, **canonical prompt**) | **CONDITIONAL_ACCEPTANCE** | 2 HIGH, 3 MEDIUM — see `.vetting/plan-3-phase2-review-18-fresh.md` |
+| 36 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-18: celery-free `cc_upload_validate.py` (Task 9), `os.utime` newest-jsonl test (Task 11), `settings` import in `recover_transcript` (Task 10), per-task `--cov-fail-under=95` wiring (Tasks 1/3/4/7/9/9b); Task 5 translate floor **escalated** as a documented exception (live gate covers it) — see `.vetting/plan-3-phase2-fix-log-iter18.md` |
+| 37 | Fresh re-vet (2026-06-30, iter 19, **canonical prompt**) | **CONDITIONAL_ACCEPTANCE** | 1 HIGH, 3 MEDIUM — see `.vetting/plan-3-phase2-review-19-fresh.md`; **Task 5 translate coverage exception adjudicated LEGITIMATE (PASS)** |
+| 38 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-19: `os.replace`→`shutil.move` cross-device (Task 9) + Task 13 `ls` gate; FIFO cap extracted to neutral `cc_turn_complete.append_capped` + mutation test (Task 11a); `run_cc_turn` final order spelled out (Task 6 Step 6); success-path persistence made best-effort behind `CC_PERSIST_STRICT` so a paid reply is never discarded (Task 11) — see `.vetting/plan-3-phase2-fix-log-iter19.md` |
+| 39 | Fresh re-vet (2026-06-30, iter 20, **canonical prompt**) | **CONDITIONAL_ACCEPTANCE** | 2 HIGH, 3 MEDIUM — see `.vetting/plan-3-phase2-review-20-fresh.md`. **HIGH-1 = locked-design conflict (`cc_traces` mirror: SPEC-3 E5/§6.5 mandates it, but iter-17 dropped it) → ESCALATED to user.** HIGH-2 = cross-plan marker handshake (Task 13 Step 8 ↔ PLAN-7:132). Task 5 + Task 9-pragma exceptions re-adjudicated LEGITIMATE |
+| 40 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-20: **user decided RESTORE `cc_traces` mirror** (thread C) — 4 sites reconciled + dual-store write extracted to pure `cc_turn_complete.apply_turn_to_extra_state` with mutation-RED guard test; persist-block missing imports added; projection-passthrough guard test; fixture `# <path>` trap removed (`line_count==6`). Marker handshake (thread B) hardened by the PLAN-7 single-owner pass (Task 13 Step 8 ↔ PLAN-7:132 byte-identical). See `.vetting/plan-3-phase2-fix-log-iter20.md` + `.vetting/defect-lineage.md` |
+| 41 | Fresh re-vet (2026-06-30, iter 21, **canonical prompt, un-steered**) | **CONDITIONAL_ACCEPTANCE** | **0 HIGH**, 2 MEDIUM, 2 LOW — see `.vetting/plan-3-phase2-review-21-fresh.md`. Threads **B + C CLOSED** (not re-raised; mirror + marker handshake verified). New: persist→reload wiring unguarded (2D), thread **E** (Task 11 Step 1 unconditional raise vs locked best-effort). Coverage exceptions re-confirmed legitimate |
+| 42 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-21: two mutation-RED source guards on the persist→reload wiring (`on_turn_complete(TurnCompletePayload(` in cc_engine; `on_turn_complete=_append_cc_turn_complete` in services); **thread E** reconciled (no unconditional-raise wording remains); Task 6 Step 5b coverage run includes both `test_cc_artifacts_split.py` + `test_cc_engine_publish.py`; inventory paths fixed. See `.vetting/plan-3-phase2-fix-log-iter21.md` |
+| 43 | Fresh re-vet (2026-06-30, iter 22, **canonical prompt, un-steered**) | **CONDITIONAL_ACCEPTANCE** | **0 HIGH, 1 MEDIUM**, 1 LOW — see `.vetting/plan-3-phase2-review-22-fresh.md`. Threads **B/C/E re-confirmed CLOSED** (post-reload `cc_traces` DB read closes best-effort gameability). New: Task 9b `ProjectResolutionError` local-import missing (NameError on verbatim paste). All coverage exceptions re-confirmed legitimate |
+| 44 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-22: Task 9b local import → byte-identical to Task 9 `upload` (`resolve_user_project, ProjectResolutionError, build_user_dirs`) + Task-10 ordering note; Task 6 Step 5b `_publish_artifacts` test bodies pasted (turn_id kw-only, dict return, `output/artifacts/<turn_id>/`, +zip/raw-split test). See `.vetting/plan-3-phase2-fix-log-iter22.md` |
+| 45 | Fresh re-vet (2026-06-30, iter 23, **canonical prompt, un-steered**) | **UNCONDITIONAL_ACCEPTANCE** | **0C / 0H / 0M / 0L** (4 cosmetic only) — see `.vetting/plan-3-phase2-review-23-fresh.md`. Reviewer empirically verified every load-bearing claim (primitives/signatures, byte-identical `classify_tool_use` refactor, `models_api` 96% measured, zstandard API live-probed, PLAN-7 marker handshake byte-identical) |
+
+**Phase 2 status: ✅ COMPLETE** — iter-23 independent fresh reviewer returned **UNCONDITIONAL_ACCEPTANCE** (zero MEDIUM+). Per loop rule, a target that returns UA from a fresh reviewer is **not reopened**. Threads A/B/C/E all CLOSED en route. See `.vetting/defect-lineage.md`. **Phase 3 (task-spec writing) is gated on (a) PLAN-7 also completing Phase 2 and (b) a user Phase-2→3 checkpoint — do NOT auto-advance.**

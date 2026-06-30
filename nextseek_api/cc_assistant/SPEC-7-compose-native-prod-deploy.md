@@ -27,8 +27,8 @@ outside the tracked root compose workflow:
   whose source is not fully owned by NExtSEEK.
 
 That violates the user's deploy bar: a clean non-dev machine must be able to deploy full
-Container-CC from the NExtSEEK repo alone with `git pull`/clone, gitignored secrets, and
-`docker compose build && docker compose up -d`.
+Container-CC from the NExtSEEK repo alone with `git pull`/clone, gitignored secrets, external
+volume bootstrap (including CC user-tree persistence), and `docker compose build && docker compose up -d`.
 
 ## 2. Goal / success criteria
 
@@ -36,7 +36,13 @@ Container-CC from the NExtSEEK repo alone with `git pull`/clone, gitignored secr
   needed to build the agent image and Bedrock proxy image. A clean host does not need the
   standalone `dmac-assistant` repo.
 - **Compose-native topology:** root compose owns the proxy service, CC image build target,
-  `dmac-cc-net`, and nginx dual-homing. No required manual network creation or network connect.
+  `dmac-cc-net`, nginx dual-homing, and the **`dmac-cc-users` external named volume** for
+  Step 2 per-user trees. No required manual network creation or network connect.
+- **Volume-backed CC user trees:** Step 2 layout (`input/`, `scratch/`, `cc-state/`, `output/`)
+  persists in compose-declared external volume **`dmac-cc-users`**, mounted into `nextseek` at
+  `DMAC_USER_ROOT_MOUNT` (default `/dmac/users`). Data survives container recreate; it is lost
+  only on explicit volume removal. **No required host bind** under `/srv/dmac/users` and no
+  manual host `mkdir`/`sudo`/`chmod` for operator bring-up.
 - **Operator env contract:** operators fill only gitignored local files
   (`docker/nextseek.env`, `docker/db.env`, `dmac/local_settings.py`, and any gitignored
   proxy-secret file if retained). Tracked templates contain key names and safe defaults only.
@@ -65,6 +71,9 @@ not on dmac-cc-net:
 
 - `nextseek`: Django/NExtSEEK app. It may keep Docker socket access for spawning transient
   CC sibling containers, but it must not leak shared backend secrets into those containers.
+  Mounts external volume **`dmac-cc-users`** at **`/dmac/users`** (`DMAC_USER_ROOT_MOUNT`) for
+  Step 2 per-user trees. Django mkdir/publish uses in-container paths under that mount; sibling
+  CC containers receive **volume subpath** mounts (not host bind sources under `/srv/dmac`).
 - `nextseek_nginx`: dual-homed via compose networks, providing the CC agent's only route back
   to NExtSEEK.
 - `bedrock-proxy`: in-tree source build. It holds `AWS_BEARER_TOKEN_BEDROCK`, allowlists the
@@ -113,9 +122,17 @@ fallback is acceptable only if generated evidence records:
 implementation must add tests or validators that inspect `docker compose config`, not just
 source text, because compose interpolation is the deploy contract.
 
+Root compose must declare external volume **`dmac-cc-users`** and mount it into `nextseek` at
+`DMAC_USER_ROOT_MOUNT`. The six existing SEEK stack external volumes remain required. Bootstrap
+all external volumes via **`./startup.sh install`** (or a documented volume-create subset with
+the same effect) before `docker compose up -d` on a clean host.
+
 `docker/nextseek.env.example` must document every non-secret CC key needed by the integrated
-runtime, including image/network/proxy URL/router config/user-root/server knobs. It must not
-contain real secrets or secret-like sample values.
+runtime, including image/network/proxy URL/router config, **`DMAC_CC_USERS_VOLUME`**
+(default `dmac-cc-users`), **`DMAC_USER_ROOT_MOUNT`**, and server knobs. It must not
+document `/srv/dmac/users` as the deploy-time host root. Legacy env name `DMAC_USER_ROOT`
+(if retained for compatibility) must not imply a required host bind path in the Step 7 deploy
+contract. It must not contain real secrets or secret-like sample values.
 
 Real secrets remain in gitignored files. Any new proxy-specific secret file must have:
 
@@ -130,12 +147,15 @@ Real secrets remain in gitignored files. Any new proxy-specific secret file must
 
 1. pull or clone the correct NExtSEEK branch,
 2. copy/fill gitignored config from tracked examples,
-3. run `docker compose build`,
-4. run `docker compose up -d`,
-5. run the Step 7 verifier.
+3. bootstrap external Docker volumes — run **`./startup.sh install`** (or the documented
+   volume-create subset that creates the six SEEK volumes **and** `dmac-cc-users`),
+4. run `docker compose build`,
+5. run `docker compose up -d`,
+6. run the Step 7 verifier.
 
-The required path must not include the old manual Phase A/B bootstrap. Top-level README/startup
-docs should point operators to the authoritative CC deploy doc instead of duplicating it.
+The required path must not include the old manual Phase A/B bootstrap or host preparation
+under `/srv/dmac/users`. Top-level README/startup docs should point operators to the
+authoritative CC deploy doc instead of duplicating it.
 
 ## 8. Evidence contract
 
@@ -147,7 +167,22 @@ nextseek_api/cc_assistant/tests/acceptance_evidence/step7/<run_id>/
 
 Required generated artifacts:
 
-- `meta.json` - run id, host label, repo branch/commit, timestamp, verifier version.
+- `preflight.json` — **readiness + re-grounding snapshot** (Task 1). Records branch/commit,
+  dirty status, file hashes for compose/DEPLOY/env/PLAN-3/SPEC-3, docker version summary, and
+  **`step3_deploy_gate`** object:
+  - `integration_plan_path`, `integration_plan_sha256`, `tracker_step3_status` (must be `"done"`)
+  - `live_evidence_path` (must be `nextseek_api/cc_assistant/evidence/3-ui-based-io-live/`)
+  - `live_gate_transcript_committed` (boolean — must be true: secret-scanned
+    `live_gate_transcript.txt` committed on the branch under test)
+  - `user_signoff_handoff_path` (supplementary SRS handoff JSON — not a substitute for committed
+    live transcript)
+  - `canonical_integration_plan_sha256`, `docker_engine_meets_subpath_floor` (bool),
+    `docker_compose_meets_subpath_floor` (bool, Compose plugin ≥2.26)
+  - `deploy_commit` — full SHA of `HEAD` at preflight collection on the branch under test; validator re-checks `live_gate_transcript.txt` at this exact SHA and requires `preflight.deploy_commit == meta.json.repo_commit`
+  - `pre_step3_snapshot_tag` — git tag or annotated ref for `:pre-step3` image snapshot taken before Step 3 deploy (empty string if not tagged)
+- `pre_bootstrap_docker_volume_ls.txt` — `docker volume ls` before `./startup.sh install` (MBP required).
+- `pre_bootstrap_docker_network_ls.txt` — `docker network ls` before bootstrap (MBP required).
+- `meta.json` - run id, **`repo_commit`**, **`repo_branch`**, **`host_label`** (locked enum: `"mbp"` for MBP authoritative gate; `"dev-vm"` or `"nextseek-dev"` for dev smoke only), timestamp, verifier version, `budget_cap_usd`.
 - `compose_config.json` - normalized `docker compose config` data or equivalent parse.
 - `compose_services.txt` / `docker_ps.txt` - service/image status after bring-up.
 - `images.json` - image tags/ids used by the run.
@@ -156,6 +191,8 @@ Required generated artifacts:
 - `forced_cc_result.json` - terminal forced-CC result with sentinel, error flag, cost.
 - `proxy_log_window.txt` - only the log window for the run.
 - `agent_env_scan.txt` - sanitized env scan of the transient CC agent.
+- `pre_turn_seed_scan.txt` - **REQUIRED seed-presence proof (amended 2026-06-30 — additive/strengthening).** A root-mounted recursive listing of the `dmac-cc-users` volume (`docker run --rm -v <vol>:/v alpine find /v -maxdepth 4`), written by the harness **immediately after seeding the foreign tree and before the turn**. The validator **fails** the bundle unless this scan is non-empty and contains **every** `meta.json.foreign_token` (`SENTINEL_FOREIGN`, `otherproj`, `bob`). This proves the foreign subtree actually exists at the volume root, so the foreign-absent oracle on `subpath_isolation_scan.txt` is **not vacuous**: skipping the seed turns *this* scan RED *before* the turn runs, while a real `Subpath=""` leak turns the *in-turn* scan RED — the two scans together are the cross-user isolation gate. (Without this artifact, an unseeded volume yields an in-turn scan with zero foreign tokens and the gate passes a genuine whole-volume leak.)
+- `subpath_isolation_scan.txt` - **REQUIRED cross-user isolation proof (amended 2026-06-30; capture mechanism corrected 2026-06-30 — requirement unchanged).** A **recursive** listing of the transient CC agent's mounted trees (e.g. `docker exec <cid> find /data/input /data/scratch /data/shared … -maxdepth 4`), **captured during the turn** from the live sibling polled by `label=nextseek.cc.run=<run_id>` — the agent is force-removed when the turn ends, so a post-turn `docker exec` cannot produce this artifact, and a non-recursive `ls` cannot reach a seeded foreign sentinel — taken with at least one **other** user's tree seeded on `dmac-cc-users` (e.g. `otherproj/bob/input/SENTINEL_FOREIGN`), proving the sibling container sees **only** the forced-CC user's own `<project>/<user>/` subpath and no foreign user tree. The validator **fails** the bundle if this artifact is absent, empty, or shows any foreign user path / seeded foreign token. **Authenticity binding (amended 2026-06-30 — additive/strengthening):** the file MUST be written by the **test harness directly from the live `docker exec … find` subprocess stdout** (never hand-authored by an operator), and the bundle MUST also carry an **in-container live sentinel** — a per-run file (e.g. `LIVE_<sentinel>`) the agent writes into its own `/data/scratch` *during* the turn — whose filename the captured scan MUST contain (recorded as `meta.json.live_sentinel`). The validator fails the bundle if the live sentinel is absent from the scan, so a fabricated/stale clean scan (e.g. one hand-edited to hide a real `Subpath=""` leak) cannot pass the cross-check. This enforces the OI-3 / G7-10 per-user `VolumeOptions.Subpath` isolation invariant at runtime — a check hermetic mount tests alone cannot make (an empty/constant `Subpath` keeps the key present yet mounts the whole volume root). **Seed-presence pairing + leak-detector clarification (amended 2026-06-30 — additive/strengthening):** the foreign-absent check here is meaningful **only** because `pre_turn_seed_scan.txt` independently proves the foreign tree was planted at the volume root before the turn. The leak detector is **foreign-token absence in-turn, gated by foreign-token presence pre-turn** — *not* the live sentinel. The live sentinel is present under **both** the correct and the leaking mount (the agent writes `LIVE_<sentinel>` to the **container path** `/data/scratch`, which the harness `find`s on that same container path regardless of where it is mounted), so it does **not** drop on a leak; its sole role is an anti-stale / anti-substitution binding (it keeps a clean scan from a *different* run out of this bundle).
 - `secret_scan_report.json` - scanner results for every evidence artifact.
 - `validator_output.txt` - output of the zero-spend Step 7 validator.
 - Optional screenshots plus OCR output or documented visual review entries in
@@ -184,7 +221,8 @@ the evidence gate is not vacuous.
 
 Hermetic / zero-spend:
 
-- compose-config parser tests,
+- compose-config parser tests (including **`dmac-cc-users` volume mount** and **absence of
+  `/srv/dmac/users` host bind** as the primary CC store),
 - env-template key and no-secret tests,
 - build-context secret exclusion tests,
 - runtime-file presence tests for prompt/plugin/context,
@@ -223,6 +261,12 @@ Live paid gate:
 - **G7-8 - evidence:** generated bundle + validator only; Markdown is not proof.
 - **G7-9 - screenshots:** optional, but if included they must be scanned or manually reviewed
   and recorded in `secret_scan_report.json`.
+- **G7-10 - CC user persistence (2026-06-30 amend):** Step 2 per-user trees persist in
+  external named volume **`dmac-cc-users`**, created by `./startup.sh install` (or equivalent
+  volume bootstrap), mounted into `nextseek` at `DMAC_USER_ROOT_MOUNT`. Sibling CC containers
+  mount **volume subpaths**, not host paths under `/srv/dmac/users`. Host bind prep is **not**
+  part of the deploy contract. Logical layout under the mount (`<project>/<user>/…`) unchanged
+  from Step 2 D5.
 
 ## 12. Out of scope
 
@@ -231,3 +275,91 @@ Live paid gate:
 - Step 5 port-correctness audit.
 - Retargeting or merging the PR to `dev`.
 - Reintroducing the standalone dmac-assistant app/server as a parallel runtime.
+
+---
+
+## Amendment Log
+
+### 2026-06-30 — G7-10: named volume for CC user trees (Option A)
+
+**Proposed change:** Replace host bind `/srv/dmac/users` as the Step 7 deploy persistence
+mechanism with external named volume **`dmac-cc-users`**, bootstrap via `./startup.sh install`,
+sibling mounts via volume subpaths. Expand §7 deploy procedure with volume bootstrap step.
+
+**Reason:** User decision after Phase 2 vetting — align CC persistence with `seek-filestore` and
+other external volumes; eliminate undeclared host `mkdir`/`sudo`; data survives container
+recreate.
+
+**User approval:** Explicit ("go ahead") after choosing Option A over host-bind automation.
+
+**Blast radius:**
+
+| Artifact | Impact |
+|----------|--------|
+| `PLAN-7-compose-native-prod-deploy.md` Task 6 | Already added — implements G7-10 |
+| `PLAN-7` Tasks 8, 10 | Deploy docs and MBP gate updated — no `/srv/dmac` prep |
+| `SPEC-2` D5 / `SPEC-3` E8 | Logical tree + mount path unchanged; **host path `/srv/dmac/users` wording superseded for deploy** by G7-10 — update at Step 3/7 implementation, not retroactive spec lock conflict |
+| `cc_config.py`, `cc_provision.py`, `cc_engine.py` | Task 6 implementation — volume subpath sibling mounts |
+| `startup/steps/volumes.py` | Add `dmac-cc-users` to `REQUIRED_VOLUMES` |
+| `docker-compose.yml` | Replace host bind with named volume |
+| Dev VM live Step 2 data | One-time migration or wipe (Task 6 Step 4) |
+
+**Re-vet:** PLAN-7 requires fresh Phase 2 reviewer (iter 5) after plan/spec alignment.
+SPEC-3 Phase 2 unaffected unless E8 default text is harmonized during Step 3 execution.
+
+### 2026-06-30 — §8: add `preflight.json` + committed Step 3 live transcript gate
+
+**Proposed change:** Add `preflight.json` as a required generated artifact in §8 with
+`step3_deploy_gate` schema. Step 7 **must not start** until Step 3 tracker is `done` **and**
+secret-scanned `live_gate_transcript.txt` is committed on the integration branch (PLAN-3 Task 13).
+
+**Reason:** User decision during Phase 2 vetting — preflight captures readiness baseline and
+anti-stale-state; committed live transcript is mandatory (handoff-only fallback rejected).
+
+**User approval:** Explicit MCQ selection (`amend_now`, `transcript_required`).
+
+**Blast radius:**
+
+| Artifact | Impact |
+|----------|--------|
+| `PLAN-7` Task 1, Task 2, Gameability | Align gate checks with locked §8 |
+| `PLAN-3` Task 13 Step 9 | Transcript commit is hard prerequisite for Step 7 |
+| Step 7 validator | Reject bundles missing preflight or committed live transcript on branch |
+
+**Re-vet:** PLAN-7 fresh Phase 2 reviewer after amend.
+
+### 2026-06-30 — §8: add `docker_compose_meets_subpath_floor` to preflight schema
+
+**Proposed change:** Extend `preflight.json` in §8 with `docker_compose_meets_subpath_floor` (bool, Compose plugin ≥2.26) alongside existing `docker_engine_meets_subpath_floor`.
+
+**Reason:** PLAN-7 Task 1/2 require both Engine and Compose subpath floors; locked §8 previously listed Engine only — authority drift.
+
+**User approval:** Phase 2 iter-13 hardening (prior user approved §8 preflight amend 2026-06-30).
+
+**Blast radius:** PLAN-7 Task 1 preflight collector, Task 2 validator, DEPLOY prerequisites docs.
+
+**Re-vet:** Fresh Phase 2 reviewer after plan hardening.
+
+### 2026-06-30 — §8: add `deploy_commit` to preflight schema
+
+**Proposed change:** Extend `preflight.json` in §8 with `deploy_commit` (full SHA at collection time); validator requires `preflight.deploy_commit == meta.json.repo_commit` and re-checks committed `live_gate_transcript.txt` at that SHA.
+
+**Reason:** PLAN-7 Task 1/2 already required `deploy_commit`; locked §8 omitted it — authority drift (iter-16 finding).
+
+**User approval:** Phase 2 iter-16 hardening (prior user approved §8 preflight amend 2026-06-30).
+
+**Blast radius:** PLAN-7 Task 1 preflight collector, Task 2 validator.
+
+**Re-vet:** Fresh Phase 2 reviewer after amend.
+
+### 2026-06-30 — §8: add REQUIRED `subpath_isolation_scan.txt` cross-user isolation artifact
+
+**Proposed change:** Add `subpath_isolation_scan.txt` to the §8 required generated artifacts. The Step 7 validator must fail any bundle that lacks it, has it empty, or finds a foreign `<project>/<user>/` path in it. This promotes the previously "recommended" PLAN-7 Task 10 subpath spot-check to a hard, validator-enforced acceptance gate.
+
+**Reason:** iter-18 Phase 2 fresh review (CRITICAL): every hermetic Task 6 mount assertion checked only that the `VolumeOptions.Subpath` **key** existed, never its per-user **value**. A one-line mutation (`Subpath=""`) mounts the whole `dmac-cc-users` root into each agent — a cross-user data leak that breaks the already-locked OI-3 zero-cross-user-exposure invariant — yet passed all gating checks. This amendment only **adds** a stricter required artifact to raise the gate to the level the locked invariant already demands; it weakens, removes, or contradicts **no** existing locked decision (G7-1…G7-10 unchanged).
+
+**User approval:** Phase 2 iter-18 hardening — additive gate enforcing the existing locked OI-3 invariant (no new product decision).
+
+**Blast radius:** PLAN-7 Task 2 validator (new required-artifact check), Task 6 Step 1/2 (concrete `Subpath`-value hermetic assertions + anti-empty negative control), Task 10 Step 4 (emit `subpath_isolation_scan.txt`; promoted from "recommended" to required), Task 9 (same §8 artifact set).
+
+**Re-vet:** Fresh Phase 2 reviewer after amend.
