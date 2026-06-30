@@ -29,6 +29,16 @@ urlpatterns = i18n_patterns(
     re_path("^nextseek_api/", include(nextseek_api.urls)),
 )
 
+# Serve generated download files (Excel exports from retrieve / delete / publish,
+# written under MEDIA_ROOT/download/). DEBUG is off in the docker deployment, so
+# Django's static() media helper is a no-op — use the static serve view directly.
+# Kept outside i18n_patterns so /media/... resolves without a language prefix, and
+# placed before the mezzanine catch-all ("^") below so it isn't swallowed into a 404.
+from django.views.static import serve as _static_serve
+urlpatterns += [
+    re_path(r"^media/(?P<path>.*)$", _static_serve, {"document_root": settings.MEDIA_ROOT}),
+]
+
 if settings.USE_MODELTRANSLATION:
     urlpatterns += [
         re_path('^i18n/$', set_language, name='set_language'),

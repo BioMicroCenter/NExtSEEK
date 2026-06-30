@@ -443,6 +443,14 @@ SERVER_IPADDRESS = os.getenv("NEXTSEEK_HOSTNAME")
 SEEK_HOSTNAME = os.getenv("SEEK_HOSTNAME")
 SEEK_SERVER = os.getenv("SEEK_HOST")
 SEEK_URL = "http://" + SEEK_SERVER + ":3000"
+# Public, browser-reachable SEEK base URL for links emitted into HTML (SOP /
+# data-file / sample tables, report links, the signup redirect). Distinct from
+# SEEK_URL, which is the *internal* docker hostname used for server-to-server
+# SEEK API calls and must stay http://seek:3000. Defaults to SEEK_URL for
+# backward-compat; set SEEK_PUBLIC_URL in docker/nextseek.env to the URL a
+# browser uses to reach SEEK — http://localhost:<SEEK_PORT> for local installs,
+# the real SEEK hostname in production.
+SEEK_PUBLIC_URL = os.getenv("SEEK_PUBLIC_URL", SEEK_URL)
 SEEK_JS_URL = SEEK_SERVER
 
 VIRTUOSO_URL = "http://" + SEEK_SERVER + ":8890/sparql/"
