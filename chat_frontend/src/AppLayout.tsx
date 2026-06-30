@@ -114,6 +114,13 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           addAssistantMessage(d.reply);
           resetProcessing();
           setDebugData((prev) => ({ ...prev, bundleId: d.bundle_id }));
+          // TODO(step-3, deferred Option 3): promote from the AUTHORITATIVE
+          // HTTP-202 body session id (serviceRef.current.sessionId) instead of
+          // this WS event's d.session_id. The backend fix (commit 4016a9b) makes
+          // d.session_id correct for the CC route too (the in-container UUID now
+          // rides cc_session_id), so this is defense-in-depth, not a live bug —
+          // do it alongside the UI-based file-I/O work. See REPORTS-INDEX handoff
+          // "multi-turn-404". Same change needed in EmbeddedApp.tsx.
           if (d.session_id) {
             if (sessions.pendingNewChat) sessions.promoteCreatedSession(d.session_id);
             else sessions.refresh();

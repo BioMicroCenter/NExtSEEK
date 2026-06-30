@@ -37,6 +37,12 @@ class CCStreamTranslator:
     """
 
     def __init__(self) -> None:
+        # Claude Code's OWN in-container session UUID (from system.init/result).
+        # Deliberately surfaced on terminal frames as ``cc_session_id`` — NOT
+        # ``session_id`` — so ``make_db_event_callback``'s setdefault fills
+        # ``session_id`` with the NExtSEEK ChatSession id. Leaking it as
+        # ``session_id`` caused the multi-turn 404 (frontend promoted the new
+        # chat's active session from this value). Kept for later ``--resume``.
         self.session_id: str | None = None
         self._reply_parts: list[str] = []
         # Pending tool_use ids -> tool name, so a later tool_result can close
@@ -69,7 +75,7 @@ class CCStreamTranslator:
         return [(
             "query_complete",
             {"reply": self._joined_reply() or "(no response)", "bundle_id": None,
-             "session_id": self.session_id},
+             "cc_session_id": self.session_id},
         )]
 
     @property
@@ -134,7 +140,7 @@ class CCStreamTranslator:
             detail = payload.get("result") or payload.get("error") or payload.get("subtype") or "container error"
             return [(
                 "query_error",
-                {"error": str(detail), "agent": "container_cc", "session_id": self.session_id},
+                {"error": str(detail), "agent": "container_cc", "cc_session_id": self.session_id},
             )]
         # Prefer Claude's own final `result` text; fall back to accumulated text.
         reply = payload.get("result")
@@ -143,7 +149,10 @@ class CCStreamTranslator:
         return [(
             "query_complete",
             {"reply": reply or "(no response)", "bundle_id": None,
-             "session_id": self.session_id},
+             "cc_session_id": self.session_id,
+             # Surface Claude Code's own accrued spend so the caller can ledger it
+             # (the per-turn cost lives only on the terminal `result` frame).
+             "total_cost_usd": payload.get("total_cost_usd")},
         )]
 
     # ------------------------------------------------------------------ helpers

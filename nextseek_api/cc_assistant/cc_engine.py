@@ -1,29 +1,29 @@
-"""Container Claude Code (CC) engine — sandboxed agentic route, per dmac SDS.
+"""Container Claude Code (CC) engine — sandboxed agentic route.
 
-Runs ONE headless ``claude`` container per query with the dmac_assistant data
-model (ADR-003 / SDS §5.3-5.5):
+Runs ONE headless ``claude`` container per CC query:
 
-* project data mounted READ-ONLY at ``/data/projects/<project>`` (scoped per user),
-* a per-user RW scratch at ``/data/scratch`` (working dir is the per-run subdir),
+* private user input mounted READ-ONLY at ``/data/input``,
+* project shared input mounted READ-ONLY at ``/data/shared``,
+* per-user RW scratch mounted at ``/data/scratch``,
 * after the turn, a host-side copier publishes new scratch files to the user's
-  output dir (``output_root/<user_id>/<run_id>/...`` — the Dropbox
-  ``example-project/demo/`` folder for the dev demo user).
+  nested output dir.
 
-CC never writes the output dir directly; the curated post-turn copier
-(``dmac_assistant.copier`` + ``run_tracker``, imported, not reimplemented) does.
+CC never writes the output dir directly; the bridge diffs scratch and publishes
+regular non-symlink files after the container exits.
 The terminal ``query_complete`` is deferred until after the copier so the reply
 can report the host-side artifact paths (D19).
 
 Topology note: this runs in the nextseek Django container; the CC container is a
 sibling spawned via the host docker socket, so bind *sources* are host paths
-(``CCPaths.host_*``) while the copier reads/writes the same dirs at their
-nextseek-container mount points (``CCPaths.scratch_mount`` / ``output_mount``).
+while the bridge reads/writes the same dirs at ``CCPaths.user_root_mount``.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import re
+import shutil
 import threading
 from collections.abc import Mapping
 from pathlib import Path
@@ -32,6 +32,7 @@ from typing import Any, Callable
 from .attach import BridgeAttachSocket
 from .translate import CCStreamTranslator
 from .cc_config import CCPaths
+from nextseek_api.cc_assistant import cc_session
 
 logger = logging.getLogger(__name__)
 
@@ -39,56 +40,82 @@ SendEvent = Callable[[str, dict[str, Any]], None]
 
 DEFAULT_IMAGE = os.environ.get("NEXTSEEK_CC_IMAGE", "dmac-assistant:poc")
 
-# The CC sibling container joins this existing compose network so the forwarded
-# NExtSEEK topology resolves by service name (NEO4J_URI=neo4j://neo4j,
-# MYSQL_HOST=db, the nextseek REST service at nextseek:8000). MySQL is NOT
-# host-published, so host.docker.internal cannot reach it — network attach is
-# the correct (and simpler) approach. Override via NEXTSEEK_CC_NETWORK.
-DEFAULT_NETWORK = os.environ.get("NEXTSEEK_CC_NETWORK", "nextseek_default")
+# OI-3 / audit A1: the CC sibling joins a DEDICATED 2/3-node network
+# (agent + bedrock-proxy + the nginx entrypoint) — NOT the shared
+# ``nextseek_default`` where neo4j/mysql/seek/solr live. Network segmentation is
+# the real containment control: the de-credentialed agent must not even have L3
+# reach to ``neo4j:7687`` / ``db:3306`` (whose password is the committed default
+# ``demopassword``). The agent reaches only (a) the Bedrock auth-proxy and (b)
+# the NExtSEEK REST API via nginx — both attached to this net. Override via
+# NEXTSEEK_CC_NETWORK; a missing network is fail-fast (see run_cc_turn).
+DEFAULT_NETWORK = os.environ.get("NEXTSEEK_CC_NETWORK", "dmac-cc-net")
 
-# Per-turn cost + time bounds — match the headless E2E batch harness
-# (tools/e2e/run_headless.py): a hard USD spend cap via ``claude
-# --max-budget-usd`` (default $0.50/turn; Claude Code stops the turn when cost
-# hits it; 0 disables) and a wall-clock timeout (hard-capped 180s) that
-# stops + force-removes the container if the turn overruns.
-_DEFAULT_MAX_BUDGET_USD = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "0.50"))
+# OI-3 (T4): the agent reaches Bedrock ONLY through the auth-proxy sidecar, which
+# holds the institutional AWS_BEARER_TOKEN_BEDROCK and adds the Authorization
+# header server-side. The agent emits UNSIGNED requests
+# (CLAUDE_CODE_SKIP_BEDROCK_AUTH=1) to this URL and carries ZERO AWS creds.
+_DEFAULT_BEDROCK_PROXY_URL = os.environ.get(
+    "DMAC_BEDROCK_PROXY_URL", "http://bedrock-proxy:8080"
+)
+
+# Per-turn cost + time bounds. A hard USD spend cap via ``claude
+# --max-budget-usd`` (Claude Code stops the turn when cost hits it; 0 disables),
+# a turn cap via ``--max-turns``, and a wall-clock timeout (hard-capped 180s)
+# that stops + force-removes the container if the turn overruns. All overridable.
+_DEFAULT_MAX_BUDGET_USD = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "2.00"))
+_DEFAULT_MAX_TURNS = os.environ.get("NEXTSEEK_CC_MAX_TURNS", "50")
 _TIMEOUT_HARD_MAX = 180  # seconds; project rule (run_headless._TIMEOUT_HARD_MAX)
 _DEFAULT_TURN_TIMEOUT = min(
     int(os.environ.get("NEXTSEEK_CC_TIMEOUT_SECONDS", str(_TIMEOUT_HARD_MAX))),
     _TIMEOUT_HARD_MAX,
 )
 
-# chat_nextseek's agent-model catalog. The Django container's CATALOG_FILE is a
-# Django-only path; the poc image bakes the catalog here (override via
-# NEXTSEEK_CC_CATALOG_FILE).
-_DEFAULT_CATALOG_FILE = os.environ.get(
-    "NEXTSEEK_CC_CATALOG_FILE", "/tmp/chat_nextseek/agent_model_catalog.json"
-)
+# I-4 (audit B2): user_id / project flow into bind-mount SOURCES, so they must be
+# validated before any path interpolation or a ``..`` user_id is a host-dir escape.
+_USER_ID_RE = re.compile(r"^[A-Za-z0-9._@+-]{1,64}$")
 
-_BEDROCK_KEYS = (
-    "CLAUDE_CODE_USE_BEDROCK",
-    "AWS_BEARER_TOKEN_BEDROCK",
-    "AWS_REGION",
-    "AWS_DEFAULT_REGION",
-    "ANTHROPIC_API_KEY",
-)
+# I-14: keys whose values must never reach a log line. After OI-3 the agent env
+# holds no AWS/backend creds; the per-request NExtSEEK password is the remaining
+# secret. DMAC_PATH_MAPPINGS encodes host layout (not a credential, still redact).
+_REDACTED_ENV_KEYS = frozenset({
+    "NEXTSEEK_PASSWORD", "API_PASS", "DMAC_PATH_MAPPINGS",
+    # belt-and-suspenders: these must NEVER be in the agent env, but redact if seen.
+    "AWS_BEARER_TOKEN_BEDROCK", "NEO4J_PASSWORD", "MYSQL_PASSWORD",
+    "MYSQL_DEV_PASSWORD", "GCP_API_KEY", "ANTHROPIC_API_KEY",
+})
 
+# I-10 (audit checklist 2): auto mode with a classifier gating each tool call —
+# NOT ``--dangerously-skip-permissions``. Model + caps + $defaults-first
+# allowlist are appended in _build_command.
 _BASE_CMD = [
     "claude", "--print",
     "--input-format", "stream-json",
     "--output-format", "stream-json",
-    "--verbose", "--dangerously-skip-permissions",
+    "--verbose",
+    "--permission-mode", "auto",
 ]
 
 _CONTAINER_SCRATCH = "/data/scratch"
 _CONTAINER_OUTPUT = "/data/output"
-_CONTAINER_PROJECTS = "/data/projects"
+_CONTAINER_INPUT = "/data/input"
+_CONTAINER_SHARED = "/data/shared"
 # Image WORKDIR: the baked CLAUDE.md (-> /app/CLAUDE.md) and the nextseek plugin
 # (~/.claude/plugins/local/nextseek) are discovered by claude-code only when cwd
 # is here. Running in /data/scratch leaves the agent with no plugin guidance, so
 # it never invokes nextseek-query. The agent writes artifacts to /data/scratch
 # per the container CLAUDE.md.
 _CONTAINER_WORKDIR = "/home/user"
+# The agent's HOME .claude (session transcripts + config). Mounted per chat
+# session so --resume finds the transcript across the ephemeral per-turn
+# containers (Step 1b). HOME is the image default /home/user (no override).
+_CONTAINER_CLAUDE_HOME = _CONTAINER_WORKDIR + "/.claude"
+# Step 1c: user-tier rolling memory rendered host-side, RO-bound as a NESTED file
+# over 1b's per-session .claude RW mount (live-verified MERGE with the baked
+# project /home/user/CLAUDE.md — see evidence/1c-claude-md-merge-probe.md).
+_CONTAINER_USER_MEMORY = _CONTAINER_CLAUDE_HOME + "/CLAUDE.md"
+# Step 1c: the 10 most-recent OTHER sessions' raw transcripts, RO, for on-demand
+# depth. Outside .claude so it never collides with the session store / resume.
+_CONTAINER_MEMORY_TRANSCRIPTS = _CONTAINER_WORKDIR + "/.cc-memory/transcripts"
 
 
 def cc_runner_available() -> tuple[bool, str]:
@@ -106,37 +133,53 @@ def cc_runner_available() -> tuple[bool, str]:
             f"CC image '{DEFAULT_IMAGE}' not found "
             "(build it via dmac's `make image-build`, or set NEXTSEEK_CC_IMAGE)"
         )
+    # I-17 / audit A1: the bridge NEVER creates the network — a missing one is a
+    # deployment error. Gating here keeps the de-credentialed agent off the shared
+    # net (the segmented net + bedrock-proxy must be up first).
+    try:
+        client.networks.get(DEFAULT_NETWORK)
+    except Exception:
+        return False, (
+            f"CC network '{DEFAULT_NETWORK}' not found — bring up the segmented "
+            "network + bedrock-proxy sidecar first (NEXTSEEK_CC_NETWORK)."
+        )
     return True, "ok"
 
 
-def _bedrock_environment() -> dict[str, str]:
-    env = {k: os.environ[k] for k in _BEDROCK_KEYS if os.environ.get(k)}
-    if env.get("AWS_BEARER_TOKEN_BEDROCK") and not (
-        env.get("AWS_REGION") or env.get("AWS_DEFAULT_REGION")
+def _validate_user_id(user_id: str) -> None:
+    """I-4 (audit B2): reject anything that could escape the per-user mount root.
+
+    ``user_id`` becomes a single path segment of the scratch bind SOURCE
+    (``scratch_root/<user_id>``). A value of ``..`` / ``../x`` / ``a/b`` would
+    mount an arbitrary host dir rw into the agent. Allow Django username chars
+    but never ``.``/``..`` as the whole id and never a path separator.
+    """
+    if (
+        not isinstance(user_id, str)
+        or not _USER_ID_RE.fullmatch(user_id)
+        or user_id in (".", "..")
+        or "/" in user_id
     ):
-        env["AWS_REGION"] = "us-east-1"
-    return env
+        raise ValueError(f"invalid user_id: {user_id!r}")
 
 
-# chat_nextseek / nextseek-plugin credential + topology contract (the env vars
-# ChatConfig reads at construction). Forwarded verbatim from the Django
-# container into the sibling CC container; service-name hosts (neo4j, db)
-# resolve over the shared compose network (see DEFAULT_NETWORK).
-_NEXTSEEK_PASSTHROUGH_KEYS = (
-    "API_USER",
-    "API_PASS",
-    "NEO4J_URI",
-    "NEO4J_USER",
-    "NEO4J_PASSWORD",
-    "NEO4J_DATABASE",
-    "MYSQL_HOST",
-    "MYSQL_HOST_DEV",
-    "MYSQL_PORT",
-    "MYSQL_USER",
-    "MYSQL_PASSWORD",
-    "MYSQL_DEV_PASSWORD",
-    "GCP_API_KEY",
-)
+def _validate_project(name: str) -> None:
+    """Reject project dirname values that could traverse out of the user root.
+
+    Project dirname values are built from SEEK project ids + slugs (or a
+    personal namespace), so this is a traversal guard rather than a strict slug
+    validator.
+    """
+    if (
+        not isinstance(name, str)
+        or not name
+        or len(name) > 128
+        or "/" in name
+        or "\x00" in name
+        or name in (".", "..")
+    ):
+        raise ValueError(f"invalid project name: {name!r}")
+
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "0.0.0.0"})
 # Route the CC container's NExtSEEK REST calls through nginx, not daphne-direct.
@@ -165,54 +208,99 @@ def _rewrite_loopback_url(url: str, service: str = _NEXTSEEK_SERVICE_HOST) -> st
     return url
 
 
-def _nextseek_environment(
-    source: Mapping[str, str] | None = None,
+def build_agent_environment(
     *,
-    api_user: str | None = None,
-    api_pass: str | None = None,
+    source: Mapping[str, str] | None = None,
+    api_user: str | None,
+    api_pass: str | None,
+    path_mappings: Mapping[str, Any],
 ) -> dict[str, str]:
-    """Build the NExtSEEK / chat_nextseek env for the CC container.
+    """The COMPLETE env for the sandboxed Container-CC agent (OI-3).
 
-    Forwards the topology vars the in-container nextseek plugin and chat_nextseek
-    read, from the Django container's env into the sibling CC container. NEO4J/
-    MySQL hosts are compose service names that resolve verbatim on the shared
-    network; only the NExtSEEK REST base URL (loopback in the Django env) is
-    rewritten to the ``nextseek`` service.
-
-    The NExtSEEK login (``api_user``/``api_pass``) is resolved per-request from
-    the authenticated user, NOT from env (API_USER/API_PASS are unset in the
-    Django container), so it is injected explicitly — under both API_USER/API_PASS
-    (what ChatConfig reads) and NEXTSEEK_USERNAME/PASSWORD (what the poc image
-    entrypoint maps to API_USER/API_PASS).
+    SINGLE source of truth for the agent env — ``run_cc_turn`` and the
+    containment canary both call this, so a secret can never sneak in via a
+    separate inline dict (audit B3). The agent holds ZERO AWS creds and NONE of
+    the 16 shared backend credentials (NEO4J_* / MYSQL_* / GCP_API_KEY): it
+    reaches Bedrock only through the auth-proxy, and NExtSEEK data only through
+    the authenticated REST API as the user. ``source`` is the Django/process env
+    to read non-secret topology from (defaults to os.environ; the canary passes a
+    hostile source to prove nothing leaks).
     """
     src = os.environ if source is None else source
-    env: dict[str, str] = {k: src[k] for k in _NEXTSEEK_PASSTHROUGH_KEYS if src.get(k)}
-
+    env: dict[str, str] = {
+        "CLAUDE_CODE_USE_BEDROCK": "1",
+        "ANTHROPIC_BEDROCK_BASE_URL": src.get(
+            "DMAC_BEDROCK_PROXY_URL", _DEFAULT_BEDROCK_PROXY_URL
+        ),
+        "CLAUDE_CODE_SKIP_BEDROCK_AUTH": "1",
+        "CLAUDE_CODE_ENABLE_AUTO_MODE": "1",
+    }
+    # I-9: the agent acts as the USER's OWN login, injected per-request (never a
+    # shared env secret). Entrypoint maps NEXTSEEK_* -> API_USER/API_PASS.
     if api_user:
-        env["API_USER"] = api_user
         env["NEXTSEEK_USERNAME"] = api_user
+        env["API_USER"] = api_user
     if api_pass:
-        env["API_PASS"] = api_pass
         env["NEXTSEEK_PASSWORD"] = api_pass
-
+        env["API_PASS"] = api_pass
+    # Non-secret topology the agent legitimately needs.
+    region = src.get("AWS_REGION") or src.get("AWS_DEFAULT_REGION")
+    if region:
+        env["AWS_REGION"] = region
     base = src.get("NEXTSEEK_BASE_URL") or src.get("NEXTSEEK_URL")
     if base:
         rewritten = _rewrite_loopback_url(base)
-        # entrypoint falls back NEXTSEEK_BASE_URL <- NEXTSEEK_URL; set both.
         env["NEXTSEEK_BASE_URL"] = rewritten
         env["NEXTSEEK_URL"] = rewritten
-
-    # chat_nextseek internal LLM profile (gcp -> Gemini). Set explicitly so it is
-    # deterministic regardless of the image's entrypoint default.
-    env["NEXTSEEK_MODE"] = src.get("NEXTSEEK_MODE", "gcp")
-
-    # Operational vars the Django container provides differently: the agent-model
-    # catalog (Django path -> the catalog baked in the poc image), and the dev DB
-    # profile (only dev creds are forwarded; without this chat_nextseek defaults
-    # to env='prod' and fails on DB host — see tools/e2e/run_headless.py).
-    env["CATALOG_FILE"] = _DEFAULT_CATALOG_FILE
-    env["CHAT_NEXTSEEK_DB_ENV"] = src.get("CHAT_NEXTSEEK_DB_ENV", "dev")
+    # D19: container->host path translation for artifact-location reporting.
+    env["DMAC_PATH_MAPPINGS"] = json.dumps(path_mappings, separators=(",", ":"))
     return env
+
+
+def _redact_env(env: Mapping[str, str]) -> dict[str, str]:
+    """I-14: redact secret-bearing keys for any operational logging."""
+    return {
+        k: ("<REDACTED>" if k in _REDACTED_ENV_KEYS else v) for k, v in env.items()
+    }
+
+
+def _cc_limit_args(max_budget_usd: float) -> list[str]:
+    """OI-5 per-turn caps: turn count + hard USD budget (both exit-with-error)."""
+    args = ["--max-turns", _DEFAULT_MAX_TURNS]
+    if max_budget_usd and max_budget_usd > 0:
+        args += ["--max-budget-usd", str(max_budget_usd)]
+    return args
+
+
+def _automode_settings_args(source: Mapping[str, str] | None = None) -> list[str]:
+    """OI-5 / audit D2: ``$defaults``-FIRST auto-mode allowlist describing trusted
+    lab infra so the classifier doesn't abort the agent's legitimate NS-API calls.
+
+    Built from the DJANGO/source env (NOT the stripped agent env) and carries only
+    DESCRIPTORS (URLs/URIs are topology) — never a secret VALUE. The list MUST
+    start with the literal ``$defaults`` so built-in trust is EXTENDED, not replaced.
+    """
+    src = os.environ if source is None else source
+    environment: list[str] = ["$defaults"]
+    ns_url = src.get("NEXTSEEK_BASE_URL") or src.get("NEXTSEEK_URL")
+    if ns_url:
+        environment.append(
+            "Trusted internal service: the NExtSEEK metadata REST API at "
+            f"{_rewrite_loopback_url(ns_url)} — the MIT BioMicro Center lab's own "
+            "sample/project database (reached as the authenticated user)."
+        )
+    neo4j_uri = src.get("NEO4J_URI")
+    if neo4j_uri:
+        environment.append(
+            f"Trusted internal graph database: Neo4j at {neo4j_uri} (lab lineage graph)."
+        )
+    if src.get("GCP_API_KEY"):
+        environment.append(
+            "Trusted LLM provider: Google Cloud Gemini API — the assistant's own "
+            "model provider."
+        )
+    settings = {"autoMode": {"environment": environment}}
+    return ["--settings", json.dumps(settings, separators=(",", ":"))]
 
 
 def _build_command(
@@ -220,17 +308,15 @@ def _build_command(
     model_id: str | None,
     session_id: str | None = None,
     max_budget_usd: float = _DEFAULT_MAX_BUDGET_USD,
+    source: Mapping[str, str] | None = None,
 ) -> list[str]:
-    """Build the in-container ``claude`` command with the per-turn budget cap.
-
-    Mirrors the headless E2E batch (tools/e2e/run_headless.py): ``--max-budget-usd``
-    makes Claude Code stop the turn when accrued cost hits the cap (0 disables).
-    """
+    """Build the in-container ``claude`` command: auto-mode base + model + per-turn
+    caps + the ``$defaults``-first trusted-infra allowlist (OI-5)."""
     cmd = list(_BASE_CMD)
     if model_id:
         cmd += ["--model", model_id]
-    if max_budget_usd and max_budget_usd > 0:
-        cmd += ["--max-budget-usd", str(max_budget_usd)]
+    cmd += _cc_limit_args(max_budget_usd)
+    cmd += _automode_settings_args(source)
     if session_id:
         cmd += ["--resume", session_id]
     return cmd
@@ -274,13 +360,39 @@ def _run_kwargs(
     }
 
 
-def _dropbox_display(host_path: Path, paths: CCPaths) -> str:
-    """Render a host artifact path as a friendly Dropbox-relative location."""
-    s = str(host_path)
-    root = paths.host_dropbox_root.rstrip("/")
-    if s.startswith(root + "/"):
-        return s[len(root) + 1:]  # e.g. example-project/demo/<run_id>/file.py
-    return s
+def _build_volumes(
+    *,
+    paths: CCPaths,
+    project_dirname: str,
+    user_id: str,
+    cc_state_key: str | None,
+    user_memory_file: str | None = None,
+    transcripts_dir: str | None = None,
+) -> dict[str, dict[str, str]]:
+    """Bind mounts for the CC sibling container using Step-2 nested sources.
+
+    Precondition: callers MUST validate ``project_dirname``, ``user_id``, and
+    ``cc_state_key`` before interpolation into bind sources.
+    """
+    from .cc_provision import build_user_dirs
+
+    dirs = build_user_dirs(paths, project_dirname, user_id, session_id=cc_state_key)
+    volumes: dict[str, dict[str, str]] = {
+        dirs.input_src: {"bind": _CONTAINER_INPUT, "mode": "ro"},
+        dirs.shared_src: {"bind": _CONTAINER_SHARED, "mode": "ro"},
+        dirs.scratch_src: {
+        "bind": _CONTAINER_SCRATCH, "mode": "rw",
+        },
+    }
+    if cc_state_key and dirs.cc_state_src:
+        volumes[dirs.cc_state_src] = {
+            "bind": _CONTAINER_CLAUDE_HOME, "mode": "rw",
+        }
+    if user_memory_file:
+        volumes[user_memory_file] = {"bind": _CONTAINER_USER_MEMORY, "mode": "ro"}
+    if transcripts_dir:
+        volumes[transcripts_dir] = {"bind": _CONTAINER_MEMORY_TRANSCRIPTS, "mode": "ro"}
+    return volumes
 
 
 def run_cc_turn(
@@ -289,10 +401,13 @@ def run_cc_turn(
     model_id: str | None,
     send_event: SendEvent,
     user_id: str,
-    projects: list[str],
+    project_dirname: str,
     run_id: str,
     paths: CCPaths,
     session_id: str | None = None,
+    cc_state_key: str | None = None,
+    user_memory_file: str | None = None,
+    transcripts_dir: str | None = None,
     image: str | None = None,
     api_user: str | None = None,
     api_pass: str | None = None,
@@ -308,40 +423,75 @@ def run_cc_turn(
     from docker.errors import APIError, NotFound
 
     image = image or DEFAULT_IMAGE
-    scratch_mount = Path(paths.scratch_mount)
-    output_mount = Path(paths.output_mount)
+
+    # I-4 (audit B2): validate BEFORE any path interpolation / mkdir / mount.
+    _validate_user_id(user_id)
+    _validate_user_id(run_id)
+    _validate_project(project_dirname)
+    if cc_state_key:
+        _validate_user_id(cc_state_key)  # single-segment path guard (UUID chat id)
+
+    from .cc_provision import build_user_dirs
+
+    effective_session_id = session_id
+    dirs = build_user_dirs(paths, project_dirname, user_id, session_id=cc_state_key)
+    scratch_mount = Path(dirs.scratch_mnt)
+    output_mount = Path(dirs.output_mnt)
 
     # Per-run working dir lives under the user's scratch. Create it via the
     # nextseek-container mount so it exists on the host before the CC container
     # (which mounts the same host dir) starts.
-    (scratch_mount / user_id / run_id).mkdir(parents=True, exist_ok=True)
+    user_scratch = Path(dirs.scratch_mnt)
+    (user_scratch / run_id).mkdir(parents=True, exist_ok=True)
+    # The Django container runs as root; the agent runs as the unprivileged image
+    # user (uid 1001). Make the per-user scratch writable by the agent so it can
+    # create artifacts under /data/scratch (best-effort; dev-instance scratch).
+    for _p in (user_scratch, user_scratch / run_id):
+        try:
+            os.chmod(_p, 0o777)
+        except OSError:
+            pass
 
-    # Bind mounts for the CC sibling container (sources are HOST paths).
-    volumes: dict[str, dict[str, str]] = {}
-    for project in projects:
-        volumes[f"{paths.host_dropbox_root}/{project}"] = {
-            "bind": f"{_CONTAINER_PROJECTS}/{project}", "mode": "ro",
-        }
-    volumes[f"{paths.host_scratch_root}/{user_id}"] = {
-        "bind": _CONTAINER_SCRATCH, "mode": "rw",
-    }
+    # Per-session claude-state store: persists transcripts across the ephemeral
+    # per-turn containers so --resume works. Created via the nextseek-container
+    # mount (user_root_mount) so the host dir exists before the CC sibling mounts
+    # it. Resume only when a prior transcript actually exists (turn-1 / wiped
+    # store -> start fresh, never resume a missing session).
+    if cc_state_key:
+        cc_state_dir = Path(dirs.cc_state_mnt)
+        if session_id and not cc_session.store_has_transcripts(cc_state_dir):
+            logger.info("cc: resume id present but store empty; starting fresh")
+            effective_session_id = None
+        cc_state_dir.mkdir(parents=True, exist_ok=True)
+        for _p in (cc_state_dir.parent, cc_state_dir):
+            try:
+                os.chmod(_p, 0o777)
+            except OSError:
+                pass
+
+    volumes = _build_volumes(
+        paths=paths, project_dirname=project_dirname, user_id=user_id, cc_state_key=cc_state_key,
+        user_memory_file=user_memory_file, transcripts_dir=transcripts_dir,
+    )
 
     # D19: tell the in-container agent how to translate container paths to host
     # paths when it reports artifact locations to the user.
     path_mappings = {
         "output": {"container_root": _CONTAINER_OUTPUT,
-                   "host_root": f"{paths.host_output_root}/{user_id}"},
+                   "host_root": dirs.output_src},
         "scratch": {"container_root": _CONTAINER_SCRATCH,
-                    "host_root": f"{paths.host_scratch_root}/{user_id}"},
+                    "host_root": dirs.scratch_src},
     }
-    environment = {
-        **_bedrock_environment(),
-        **_nextseek_environment(api_user=api_user, api_pass=api_pass),
-    }
-    environment["DMAC_PATH_MAPPINGS"] = json.dumps(path_mappings, separators=(",", ":"))
+    # OI-3: the COMPLETE agent env from the single builder — zero AWS/backend
+    # creds; Bedrock only via the auth-proxy, NExtSEEK only via the user's login.
+    environment = build_agent_environment(
+        source=os.environ, api_user=api_user, api_pass=api_pass,
+        path_mappings=path_mappings,
+    )
 
     command = _build_command(
-        model_id=model_id, session_id=session_id, max_budget_usd=max_budget_usd,
+        model_id=model_id, session_id=effective_session_id, max_budget_usd=max_budget_usd,
+        source=os.environ,
     )
 
     before = snapshot_before(scratch_mount, user_id)
@@ -412,7 +562,7 @@ def run_cc_turn(
             send_event("query_error", {
                 "error": f"Container-CC turn exceeded the {turn_timeout}s limit and was stopped.",
                 "reason": "exec_timeout", "agent": "container_cc",
-                "session_id": translator.session_id,
+                "cc_session_id": translator.session_id,
             })
             return
         if terminal is None:
@@ -420,11 +570,12 @@ def run_cc_turn(
                 terminal = (event, data)
 
         # Post-turn publish: diff scratch, copy new files to the user's output dir.
-        published = _publish_artifacts(scratch_mount, output_mount, user_id, before, paths)
+        published = _publish_artifacts(
+            scratch_mount, output_mount, output_host_root=dirs.output_src, before=before)
 
         if terminal is None:
             terminal = ("query_complete", {"reply": "(no response)", "bundle_id": None,
-                                           "session_id": translator.session_id})
+                                           "cc_session_id": translator.session_id})
         event, data = terminal
         if event == "query_complete" and published:
             listing = "\n".join(f"- `{p}`" for p in published)
@@ -439,11 +590,11 @@ def run_cc_turn(
     except (APIError, NotFound) as exc:
         logger.exception("CC docker error")
         send_event("query_error", {"error": f"Container error: {type(exc).__name__}",
-                                   "agent": "container_cc", "session_id": translator.session_id})
+                                   "agent": "container_cc", "cc_session_id": translator.session_id})
     except Exception as exc:  # noqa: BLE001
         logger.exception("CC turn failed")
         send_event("query_error", {"error": f"Container-CC turn failed: {type(exc).__name__}",
-                                   "agent": "container_cc", "session_id": translator.session_id})
+                                   "agent": "container_cc", "cc_session_id": translator.session_id})
     finally:
         if container is not None:
             try:
@@ -456,33 +607,66 @@ def run_cc_turn(
                 pass
 
 
+def _snapshot_tree(root: Path) -> dict[str, tuple[int, int]]:
+    """Return regular, non-symlink file versions under root, keyed by relpath."""
+    out: dict[str, tuple[int, int]] = {}
+    if not root.is_dir():
+        return out
+    for dirpath, _dirnames, filenames in os.walk(root, followlinks=False):
+        for filename in filenames:
+            full = Path(dirpath) / filename
+            if full.is_symlink():
+                continue
+            try:
+                st = full.stat()
+            except OSError:
+                continue
+            out[str(full.relative_to(root))] = (st.st_size, st.st_mtime_ns)
+    return out
+
+
 def snapshot_before(scratch_mount: Path, user_id: str) -> dict[str, tuple[int, int]]:
-    from dmac_assistant.run_tracker import snapshot_scratch_files
-    return snapshot_scratch_files(scratch_mount, user_id)
+    return _snapshot_tree(scratch_mount)
+
+
+def _safe_relpath(rel: str) -> bool:
+    if not rel:
+        return False
+    path = Path(rel)
+    return not path.is_absolute() and ".." not in path.parts
 
 
 def _publish_artifacts(
-    scratch_mount: Path, output_mount: Path, user_id: str,
-    before: dict[str, tuple[int, int]], paths: CCPaths,
+    scratch_mount: Path,
+    output_mount: Path,
+    *,
+    output_host_root: str,
+    before: dict[str, tuple[int, int]],
 ) -> list[str]:
-    """Diff scratch, copy new/changed files to output, return Dropbox-relative paths."""
-    try:
-        from dmac_assistant.run_tracker import snapshot_scratch_files, diff_files
-        from dmac_assistant.copier import copy_files
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("CC: copier/run_tracker import failed (%s); no publish", type(exc).__name__)
-        return []
-    after = snapshot_scratch_files(scratch_mount, user_id)
+    """Diff nested scratch, copy new/changed files to nested output, return host paths."""
+    from dmac_assistant.run_tracker import diff_files
+
+    after = _snapshot_tree(scratch_mount)
     changed = diff_files(before, after)
     if not changed:
         return []
-    written = copy_files(scratch_mount, output_mount, user_id, changed)
+    written: list[Path] = []
+    for rel in sorted(changed):
+        if not _safe_relpath(rel):
+            logger.warning("CC: refusing unsafe artifact relpath %r", rel)
+            continue
+        src = scratch_mount / rel
+        if src.is_symlink() or not src.is_file():
+            continue
+        dst = output_mount / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        written.append(dst)
     display: list[str] = []
     for dst in written:
         try:
-            rel = dst.relative_to(output_mount)         # <user_id>/<run_id>/<file>
+            rel = dst.relative_to(output_mount)
         except ValueError:
-            rel = Path(user_id) / dst.name
-        host_path = Path(paths.host_output_root) / rel
-        display.append(_dropbox_display(host_path, paths))
+            rel = Path(dst.name)
+        display.append(str(Path(output_host_root) / rel))
     return sorted(display)

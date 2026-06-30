@@ -99,3 +99,14 @@ def _ensure_cache() -> dict[str, str]:
 def resolve(model_class: ModelClass) -> str:
     """Return the Bedrock-qualified model id for a ModelClass enum value."""
     return _ensure_cache()[model_class.name.lower()]
+
+
+def resolve_cc_model() -> str:
+    """Return the fixed Bedrock-qualified model id for every container_cc turn.
+
+    The router no longer selects a model class for the CC route (OI-5): CC
+    always runs on the single auto-mode-capable Opus tier. The id lives ONLY
+    in build_context/router_model_class_map.json (DD-08) under the "opus"
+    key; this reads it rather than hardcoding the literal.
+    """
+    return _ensure_cache()["opus"]
