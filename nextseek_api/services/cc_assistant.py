@@ -75,23 +75,28 @@ def _persist_summary_standalone(user, session_id, summary_dict, fp):
         logger.exception("cc-1c: failed to persist summary for %s", session_id)
 
 
-def _session_metas(user, current_id, paths, mem_cfg):
+def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     """Build cc_memory.SessionMeta for the user's sessions (own sessions only)."""
     from pathlib import Path
+    from nextseek_api.cc_assistant.cc_provision import build_user_dirs
 
     metas = []
     qs = ChatSession.objects.filter(user=user).order_by("-updated_at")
     for s in qs:
         sid = str(s.session_id)
-        store = Path(paths.cc_state_mount) / user.username / sid / "projects"
+        es = s.extra_state or {}
+        session_project = project_dirname or es.get("cc_project_dirname")
+        if not session_project:
+            continue
+        dirs = build_user_dirs(paths, session_project, user.username, session_id=sid)
+        store = Path(dirs.cc_state_mnt) / "projects"
         jsonls = sorted(store.rglob("*.jsonl"), key=lambda p: p.stat().st_mtime,
                         reverse=True) if store.is_dir() else []
         transcript_mount_path = str(jsonls[0]) if jsonls else None
         host_path = None
         if transcript_mount_path:
             host_path = transcript_mount_path.replace(
-                paths.cc_state_mount.rstrip("/"), paths.host_cc_state_root.rstrip("/"), 1)
-        es = s.extra_state or {}
+                paths.user_root_mount.rstrip("/"), paths.host_user_root.rstrip("/"), 1)
         prev_fp = es.get("summary_fingerprint")
         changed = False
         if transcript_mount_path:
@@ -234,6 +239,31 @@ class CCAssistantViewSet(viewsets.ViewSet):
                     cc_send = cc_session.make_session_sniffer(send_event, _persist_cc_session)
 
                     paths = cc_config.CCPaths.from_env()
+                    from nextseek_api.cc_assistant.cc_provision import (
+                        ProjectResolutionError,
+                        build_user_dirs,
+                        resolve_user_project,
+                    )
+                    try:
+                        project = resolve_user_project(api_user, api_pass)
+                    except ProjectResolutionError as exc:
+                        logger.warning("cc-step2: project resolution failed: %s", exc)
+                        send_event("query_error", {
+                            "error": (
+                                "Could not resolve your SEEK project. "
+                                "Please try again shortly."
+                            ),
+                            "agent": "container_cc",
+                            "session_id": resolved_session_id,
+                        })
+                        return
+                    project_dirname = project.dirname
+                    try:
+                        chat_session.extra_state["cc_project_dirname"] = project_dirname
+                        chat_session.save(update_fields=["extra_state", "updated_at"])
+                    except Exception:
+                        logger.exception("cc-step2: failed to persist project dirname")
+
                     mem_cfg = cc_config.CCMemoryConfig.from_env()
                     fresh = bool(getattr(req, "fresh_session", False))
                     user_memory_file = None
@@ -242,13 +272,14 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         from pathlib import Path
                         from django.utils import timezone
 
-                        metas = _session_metas(request.user, cc_state_key, paths, mem_cfg)
+                        metas = _session_metas(
+                            request.user, cc_state_key, paths, mem_cfg, project_dirname)
                         tgt = cc_memory.select_sync_target(metas, current_id=cc_state_key)
                         if tgt is not None and tgt.transcript_path:
                             try:
                                 mount_path = tgt.transcript_path.replace(
-                                    paths.host_cc_state_root.rstrip("/"),
-                                    paths.cc_state_mount.rstrip("/"), 1)
+                                    paths.host_user_root.rstrip("/"),
+                                    paths.user_root_mount.rstrip("/"), 1)
                                 raw = Path(mount_path).read_bytes()
                                 prov = cc_summary.SummaryProvenance(
                                     chat_session_id=tgt.session_id,
@@ -261,14 +292,17 @@ class CCAssistantViewSet(viewsets.ViewSet):
                                     request.user, tgt.session_id,
                                     summary.model_dump(),
                                     cc_summary.fingerprint(raw))
-                                metas = _session_metas(request.user, cc_state_key, paths, mem_cfg)
+                                metas = _session_metas(
+                                    request.user, cc_state_key, paths, mem_cfg, project_dirname)
                             except Exception:
                                 logger.exception("cc-1c: sync summarize failed; continuing")
 
                         window = cc_memory.select_window(
                             metas, current_id=cc_state_key, window_size=mem_cfg.window_size)
-                        mem_root = (Path(paths.cc_state_mount) / request.user.username
-                                    / "_memory" / cc_state_key)
+                        dirs = build_user_dirs(
+                            paths, project_dirname, request.user.username,
+                            session_id=cc_state_key)
+                        mem_root = Path(dirs.memory_mnt)
                         md = cc_memory.render_memory(
                             window, fresh_session=False,
                             transcripts_mount=cc_engine._CONTAINER_MEMORY_TRANSCRIPTS)
@@ -276,18 +310,18 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         staged = cc_memory_io.stage_transcripts(window, mem_root / "transcripts")
                         if written:
                             user_memory_file = str(written).replace(
-                                paths.cc_state_mount.rstrip("/"),
-                                paths.host_cc_state_root.rstrip("/"), 1)
+                                paths.user_root_mount.rstrip("/"),
+                                paths.host_user_root.rstrip("/"), 1)
                         if staged:
                             transcripts_dir = str(staged).replace(
-                                paths.cc_state_mount.rstrip("/"),
-                                paths.host_cc_state_root.rstrip("/"), 1)
+                                paths.user_root_mount.rstrip("/"),
+                                paths.host_user_root.rstrip("/"), 1)
 
                     cc_engine.run_cc_turn(
                         query=req.query, model_id=decision.model_id,
                         send_event=cc_send,
                         user_id=cc_user_id,
-                        projects=cc_config.projects_for(cc_user_id),
+                        project_dirname=project_dirname,
                         run_id=cc_run_id,
                         paths=paths,
                         session_id=prior_id,
