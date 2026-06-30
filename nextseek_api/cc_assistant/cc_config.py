@@ -36,6 +36,8 @@ _DEFAULT_SCRATCH_MOUNT = "/dmac/scratch"
 _DEFAULT_OUTPUT_MOUNT = "/dmac/output"
 _DEFAULT_HOST_CC_STATE_ROOT = "/Users/taishajoseph/dmac-dev/cc-state"
 _DEFAULT_CC_STATE_MOUNT = "/dmac/cc-state"
+_DEFAULT_HOST_USER_ROOT = "/Users/taishajoseph/dmac-dev/users"
+_DEFAULT_USER_ROOT_MOUNT = "/dmac/users"
 
 # Single-user dev mapping (multi-user is a follow-up project). Mirrors
 # dmac_assistant's DMAC_USERS demo -> ["example-project"].
@@ -53,6 +55,8 @@ class CCPaths:
     output_mount: str        # nextseek-container path where host_output_root is mounted
     host_cc_state_root: str  # host: per-user/session claude .claude store (CC bind source)
     cc_state_mount: str      # nextseek-container path where host_cc_state_root is mounted
+    host_user_root: str = ""  # D5: consolidated Step-2 host root (CC bind sources)
+    user_root_mount: str = "" # D5: host_user_root mounted into nextseek
 
     @classmethod
     def from_env(cls) -> "CCPaths":
@@ -64,6 +68,8 @@ class CCPaths:
             output_mount=os.environ.get("DMAC_OUTPUT_MOUNT", _DEFAULT_OUTPUT_MOUNT),
             host_cc_state_root=os.environ.get("DMAC_HOST_CC_STATE_ROOT", _DEFAULT_HOST_CC_STATE_ROOT),
             cc_state_mount=os.environ.get("DMAC_CC_STATE_MOUNT", _DEFAULT_CC_STATE_MOUNT),
+            host_user_root=os.environ.get("DMAC_USER_ROOT", _DEFAULT_HOST_USER_ROOT),
+            user_root_mount=os.environ.get("DMAC_USER_ROOT_MOUNT", _DEFAULT_USER_ROOT_MOUNT),
         )
 
 

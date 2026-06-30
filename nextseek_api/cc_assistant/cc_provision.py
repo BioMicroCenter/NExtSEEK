@@ -35,6 +35,53 @@ class ProjectIdentity:
         return f"{self.id}-{self.slug}"
 
 
+@dataclass(frozen=True)
+class UserDirs:
+    """All Step-2 paths for one project/user/session.
+
+    ``*_src`` values are host paths used as CC bind sources. ``*_mnt`` values
+    are the same directories at their nextseek-container mount point for
+    mkdir, artifact publishing, and memory rendering.
+    """
+
+    input_src: str
+    shared_src: str
+    scratch_src: str
+    output_src: str
+    cc_state_src: str | None
+    scratch_mnt: str
+    output_mnt: str
+    cc_state_mnt: str | None
+    memory_mnt: str | None
+
+
+def build_user_dirs(
+    paths,
+    project_dirname: str,
+    user_id: str,
+    *,
+    session_id: str | None = None,
+) -> UserDirs:
+    """Build the single source of truth for the nested Step-2 layout."""
+    host_root = paths.host_user_root.rstrip("/")
+    mount_root = paths.user_root_mount.rstrip("/")
+    project_host = f"{host_root}/{project_dirname}"
+    project_mount = f"{mount_root}/{project_dirname}"
+    user_host = f"{project_host}/{user_id}"
+    user_mount = f"{project_mount}/{user_id}"
+    return UserDirs(
+        input_src=f"{user_host}/input",
+        shared_src=f"{project_host}/shared",
+        scratch_src=f"{user_host}/scratch",
+        output_src=f"{user_host}/output",
+        cc_state_src=f"{user_host}/cc-state/{session_id}" if session_id else None,
+        scratch_mnt=f"{user_mount}/scratch",
+        output_mnt=f"{user_mount}/output",
+        cc_state_mnt=f"{user_mount}/cc-state/{session_id}" if session_id else None,
+        memory_mnt=f"{user_mount}/_memory/{session_id}" if session_id else None,
+    )
+
+
 class ProjectResolutionError(Exception):
     """SEEK project resolution failed; callers must fail closed."""
 
