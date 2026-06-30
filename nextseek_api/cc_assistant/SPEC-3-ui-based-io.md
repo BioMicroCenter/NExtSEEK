@@ -153,8 +153,8 @@ The trace is assembled from **two distinct sources** — this is load-bearing:
 
 1. **The persisted `.jsonl`** (`cc-state/<session>/.claude/projects/**/*.jsonl`) — the
    conversation records (`user`/`assistant` with content blocks, tool results). Parsed with
-   **orjson** + bulk-validated with a **pydantic `TypeAdapter`** (§6.3). Yields
-   `steps` / `commands` / `tools_used`.
+   **orjson** + bulk-validated with a **pydantic `TypeAdapter`** (§6.3). Yields the ordered
+   `steps` (kind/tool/detail/line/status) + the `tools_used` tally.
 2. **The headless `result` frame** — Claude Code's terminal `{"type":"result", …}` event on the
    stream. **Verified this session: it is NOT written into the persisted `.jsonl`** (a real
    transcript on the live box has no `"type":"result"` record). It is consumed at runtime by
@@ -168,39 +168,58 @@ Plus the **scratch diff** (§5) for the authoritative `files_created` / `files_m
 > Claude Code took *within one chat turn* (headless metadata), **not** a count of user messages.
 > One `CCTrace` == one chat turn; `num_turns` is the inner loop count.
 
-### 6.2 Schema — pydantic models (DRAFT, Decision E4; user may edit fields)
+### 6.2 Schema — pydantic models (LOCKED 2026-06-30, enriched; reuses `cc_summary`)
+
+The schema deliberately **reuses the existing `cc_summary` machinery** rather than
+re-deriving it: the per-step classification comes from a shared
+`cc_summary.classify_tool_use()` (factored out of the existing `_tool_use_line`, `cc_summary.py:87`),
+the line index mirrors `EvidenceRef.line_start` grounding (`cc_summary.py:144`), and the
+envelope fields mirror the `SessionSummary` envelope (`schema_version` / `transcript_line_count` /
+`turn_count`). One flat `Step` (no single-value discriminator tag) with a real `kind`.
 
 ```python
 from pydantic import BaseModel, Field, TypeAdapter
-from typing import Annotated, Literal, Union
+from typing import Literal
 
-class ToolStep(BaseModel):
-    type: Literal["tool_use"] = "tool_use"
-    tool: str                              # "Bash" | "Write" | "Edit" | "Read" | ...
-    detail: str | None = None              # the command, or the file path
-    action: Literal["created", "modified"] | None = None
+SCHEMA_VERSION = "3/trace-v1"              # mirrors cc_summary.SCHEMA_VERSION
 
-class TextStep(BaseModel):
-    type: Literal["text"] = "text"
-    summary: str
-
-Step = Annotated[Union[ToolStep, TextStep], Field(discriminator="type")]
+class Step(BaseModel):
+    line: int                              # 1-based transcript line index — deep-links into the
+                                           #   recoverable jsonl (same idea as EvidenceRef.line_start)
+    kind: Literal["bash", "write", "edit", "read", "skill", "tool", "text"]   # REAL granularity,
+                                           #   from the shared cc_summary.classify_tool_use()
+    tool: str | None = None                # raw tool name ("Bash"|"Write"|"Task"|…) when kind != text
+    detail: str | None = None              # command / file_path / notebook_path / skill name
+    text: str | None = None                # assistant text block (when kind == "text")
+    action: Literal["created", "modified"] | None = None   # POPULATED for write/edit from the §5 diff
+    status: Literal["ok", "error"] | None = None           # from the paired tool_result.is_error
 
 class CCTrace(BaseModel):
+    # --- envelope (mirrors SessionSummary) ---
+    schema_version: str = SCHEMA_VERSION
     cc_session_id: str
     ts: str                                # ISO-8601
+    transcript_line_count: int = 0         # = ParsedTranscript.line_count (reused)
+    turn_count: int = 0                    # USER-message count = ParsedTranscript.turn_count (reused)
     # --- headless result-frame metadata (from translate._handle_result, NOT the .jsonl) ---
-    num_turns: int | None = None           # CC internal agent turns within this ONE chat turn
+    num_turns: int | None = None           # CC INTERNAL agent turns within this ONE chat turn —
+                                           #   distinct from turn_count (user messages)
     duration_ms: int | None = None
     cost_usd: float | None = None          # result frame total_cost_usd
     # --- parsed from the persisted .jsonl (orjson + TypeAdapter, §6.3) ---
     steps: list[Step] = Field(default_factory=list)
-    commands: list[str] = Field(default_factory=list)
     tools_used: dict[str, int] = Field(default_factory=dict)  # tally of tool_use.name
     # --- authoritative, from the scratch diff (§5) ---
     files_created: list[str] = Field(default_factory=list)
     files_modified: list[str] = Field(default_factory=list)
 ```
+
+> **Removed vs the earlier draft:** `commands` (derivable as
+> `[s.detail for s in steps if s.kind == "bash"]`); the single-value `type` discriminator on
+> `ToolStep`/`TextStep` (no information content — replaced by the real `kind` field on one flat
+> `Step`). **Added:** per-step `line` (grounding/deep-link), `kind`, `text`, `status`; a populated
+> `action`; and the `SessionSummary`-style envelope (`schema_version`, `transcript_line_count`,
+> `turn_count`).
 
 ### 6.3 jsonl parsing — orjson + bulk `TypeAdapter`
 
@@ -222,13 +241,25 @@ Record  = Union[_Assistant, _User, _Other]   # left-to-right; _Other last
 RECORDS = TypeAdapter(list[Record])          # RECORDS.validate_python(orjson-decoded lines)
 ```
 
-`steps` are built from `_Assistant.message.content` blocks (`text` → `TextStep`; `tool_use` →
-`ToolStep` with `tool=name`, `detail` = `input.command` for Bash or `input.file_path` for
-Write/Edit); `commands` = the Bash `detail`s; `tools_used` = a tally of `tool_use` names.
-`files_created`/`files_modified` come from the **§5 scratch diff** (authoritative), not from
-trusting tool calls. **[CONFIRM@PLAN]** the exact discriminated-union-vs-ordered-union handling
-of unknown `type` values against the installed pydantic version (the project pins
-`pydantic>=2.13`).
+`steps` are built from `_Assistant.message.content` blocks, **reusing the shared
+`cc_summary.classify_tool_use(block) -> (kind, tool, detail)`** (factored out of the existing
+`_tool_use_line`, `cc_summary.py:87`) so the trace and the 1c memory summary classify tools
+identically and can never drift:
+- `text` block → `Step(kind="text", text=…, line=idx)`.
+- `tool_use` block → `Step(kind=<bash|write|edit|read|skill|tool>, tool=<raw name>, detail=…, line=idx)`,
+  where `(kind, detail)` come from `classify_tool_use` (command for Bash; `file_path`/`notebook_path`
+  for Write/Edit/MultiEdit/NotebookEdit; `file_path` for Read; skill/subagent name for Skill/Task).
+- `action` is filled for `write`/`edit` steps by matching `detail` against the **§5 scratch diff**:
+  in `files_created` → `"created"`, in `files_modified` → `"modified"`.
+- `status` is filled from the **paired `tool_result`** in the following `user` record
+  (`is_error` truthy → `"error"`, else `"ok"`) — the same `tool_result` pairing `build_actions_view`
+  already walks (`cc_summary.py:114`).
+
+`tools_used` = a tally of raw `tool_use` names. `files_created`/`files_modified` come from the
+**§5 scratch diff** (authoritative), not from trusting tool calls. `transcript_line_count`/`turn_count`
+are read straight off `ParsedTranscript` (`.line_count` / `.turn_count`, `cc_summary.py:28-34`).
+The record union is an **ordered `Union` with `_Other` last** (pydantic is **unpinned** in this repo;
+do not rely on a discriminated union — `parse_transcript` already tolerates unknown/malformed lines).
 
 ### 6.4 translate.py extension (required for `num_turns`/`duration_ms`)
 
@@ -256,8 +287,11 @@ Extend `_handle_result` (`translate.py:149-156`) so the `query_complete` frame a
   `debugEntries`), AND persist so it **survives reload**. Extend the Turn serialization
   (`services/assistant.py:476-545`) and `useMessages.hydrateFromTurns` to surface `cc_traces`.
 - **Frontend:** extend the **Search Details** collapsible (`MessageBubble.tsx:111`) to render a
-  CC activity view (num_turns, commands, files created/modified, tools, cost, duration) from the
-  trace. Reuse the existing toggle + panel chrome. Add a `CCTrace` TS type mirroring §6.2.
+  CC activity view from the trace: the ordered `steps` (each with its `kind` icon, `tool`/`detail`,
+  and an `error` badge when `status == "error"`), `files_created`/`files_modified`, `tools_used`
+  tally, and the header line `num_turns` (internal) · `turn_count` (messages) · `duration_ms` ·
+  `cost_usd`. The per-step `line` can deep-link to the recoverable transcript (§7). Reuse the
+  existing toggle + panel chrome. Add a `CCTrace`/`Step` TS type mirroring §6.2.
 
 ## 7. Full transcript recoverability (raw → DB, zstd)
 
@@ -322,7 +356,10 @@ captured at `chatApi.ts:96`) instead of the WS `query_complete` `d.session_id`. 
   later turns), not attached to a single message.
 - **E3 — Output split:** **hybrid** — artifacts = new scratch outside `scratch/raw/`;
   raw = `scratch/raw/` + the jsonl transcript.
-- **E4 — Trace schema:** Claude **drafts** (§6), user edits at the spec-review gate.
+- **E4 — Trace schema:** **LOCKED (enriched) 2026-06-30.** One flat `Step` with a real `kind`
+  (no single-value discriminator), per-step `line`/`status`, a populated `action`, and a
+  `SessionSummary`-style envelope; `commands` dropped. Reuses a shared
+  `cc_summary.classify_tool_use()` and `ParsedTranscript` counts (§6.2/§6.3).
 - **E5 — Display trace storage:** `ChatSession.extra_state["cc_traces"]` (no migration).
 - **E6 — Full transcript storage:** **dedicated `CCSessionTranscript` table** (BinaryField,
   on-demand load), not `extra_state`.
@@ -331,10 +368,13 @@ captured at `chatApi.ts:96`) instead of the WS `query_complete` `d.session_id`. 
   path); do not fail-closed.
 - **E9 — Artifacts UI:** **reuse** the existing `artifacts`/`ReportArtifacts` channel.
 - **E10 — Trace schema = pydantic; jsonl via orjson + `TypeAdapter`:** `CCTrace`/`Step` are
-  pydantic models (§6.2); jsonl parsed with orjson and bulk-validated with a `TypeAdapter` over a
-  record union (§6.3). `num_turns` is the **headless internal-turn count** from the `result`
-  frame (§6.1/§6.4), **not** a user-message count, and is **not** in the persisted `.jsonl` —
-  `translate._handle_result` is extended to surface `num_turns`/`duration_ms`.
+  pydantic models (§6.2); jsonl parsed with orjson and bulk-validated with a `TypeAdapter` over an
+  **ordered** record union with `_Other` last (pydantic is **unpinned**, §6.3). The per-step
+  classification is the **shared `cc_summary.classify_tool_use()`** (refactored out of
+  `_tool_use_line`) so trace + 1c memory never diverge. `num_turns` is the **headless
+  internal-turn count** from the `result` frame (§6.1/§6.4), **not** a user-message count
+  (`turn_count`), and is **not** in the persisted `.jsonl` — `translate._handle_result` is extended
+  to surface `num_turns`/`duration_ms`.
 
 ## 12. Testing (TDD-first)
 
@@ -347,8 +387,10 @@ network/spend):
   everything else → artifacts; zip-if-multiple; single-file passthrough; nothing-changed → no
   artifacts.
 - **Trace extraction (§6):** orjson + `TypeAdapter` bulk-validate a **fixture jsonl** → expected
-  `steps`/`commands`/`tools_used`; `files_created`/`files_modified` from a stubbed scratch diff;
-  unknown record `type` falls through to `_Other` (forward-compat); deterministic `CCTrace`.
+  `steps` (granular `kind`, `line`, `status` from paired `tool_result`) + `tools_used`;
+  `action`/`files_created`/`files_modified` from a stubbed scratch diff; `transcript_line_count`/
+  `turn_count` from `ParsedTranscript`; unknown record `type` falls through to `_Other`
+  (forward-compat); the shared `cc_summary.classify_tool_use` is unit-tested; deterministic `CCTrace`.
 - **Result-frame metadata (§6.4):** `translate._handle_result` on a fixture `result` payload
   surfaces `num_turns`/`duration_ms`/`total_cost_usd` on the `query_complete` frame; missing
   fields → `None` (not a crash). Confirms `num_turns` is **not** sourced from the `.jsonl`.

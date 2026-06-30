@@ -10,7 +10,9 @@
 
 ## Global Constraints
 
-- **Spec of record:** `nextseek_api/cc_assistant/SPEC-3-ui-based-io.md` (locked decisions **E1–E10** in §11). Every task below traces to a spec section. The §6.2 trace schema fields were left "user may edit" — if the user has not edited them at execution time, implement §6.2 verbatim.
+- **Execution mode (locked 2026-06-30):** **subagent-driven** (superpowers:subagent-driven-development) — fresh subagent per task, two-stage review (spec + quality) between tasks, as Steps 1b/2 were run.
+- **Branch (locked 2026-06-30):** implement on a NEW child branch **`cc-step3-ui-io`** off `feat/dmac-assistant-full-integration` (mirroring `cc-step2-multi-user-provisioning`); merge the child back on completion. SPEC-3/PLAN-3 already live on the parent `feat/...` branch.
+- **Spec of record:** `nextseek_api/cc_assistant/SPEC-3-ui-based-io.md` (locked decisions **E1–E10** in §11). Every task below traces to a spec section. The §6.2 trace schema is **LOCKED (enriched) 2026-06-30** — implement it verbatim (Task 4).
 - **Builds on Step 2** (`done`, live): project-stratified `<DMAC_USER_ROOT>/<projectID-slug>/<user>/{input,scratch,cc-state,output}` + `<project>/shared/`. Reuse the Step-2 primitives `resolve_user_project`, `build_user_dirs`, `UserDirs`, `ProjectIdentity`, and the validators `_validate_user_id`/`_validate_project`/`_safe_relpath` — do not reinvent them.
 - **TDD-first**, bite-sized steps, frequent commits. Implementation code only after a failing test.
 - **Hermetic test command (the box cannot run the Django test-DB runner — `seek_db_user` lacks `CREATE`):**
@@ -31,13 +33,14 @@
 
 **Create**
 - `nextseek_api/cc_assistant/cc_transcript_store.py` — `compress(jsonl: bytes) -> bytes` / `decompress(blob: bytes, *, max_bytes) -> bytes` (zstd; decompression-bomb bound).
-- `nextseek_api/cc_assistant/cc_trace.py` — pydantic `Step`/`ToolStep`/`TextStep`/`CCTrace` (§6.2) + the jsonl record union (`_Assistant`/`_User`/`_Other`, §6.3) + `extract_trace(records, *, cc_session_id, ts, files_created, files_modified, result_meta) -> CCTrace`.
+- `nextseek_api/cc_assistant/cc_trace.py` — one flat pydantic `Step` (real `kind`) + `CCTrace` (enriched §6.2, with the `SessionSummary`-style envelope) + the ordered jsonl record union (`_Assistant`/`_User`/`_Other`, `_Other` last, §6.3) + `extract_trace(parsed, *, cc_session_id, ts, files_created, files_modified, result_meta) -> CCTrace`. Reuses the shared `cc_summary.classify_tool_use` + `ParsedTranscript` counts.
 - `nextseek_api/cc_assistant/cc_artifacts.py` — `partition_changed(changed: set[str]) -> tuple[set[str], set[str]]` (artifacts vs raw) + `build_artifact_zip(files: list[Path], dest_zip: Path) -> Path` (mirrors `content_blobs.download_batch`).
-- Tests under `nextseek_api/cc_assistant/tests/`: `test_cc_transcript_store.py`, `test_cc_trace.py`, `test_translate_result_meta.py`, `test_cc_artifacts_split.py`, `test_cc_provision_input_mnt.py`, `test_turn_cc_traces.py`, `test_cc_upload_validate.py`, `test_cc_dropbox_grep_guard.py`, plus the fixture `tests/fixtures/cc_transcript_sample.jsonl`.
+- Tests under `nextseek_api/cc_assistant/tests/`: `test_cc_transcript_store.py`, `test_cc_summary_classify.py`, `test_cc_trace.py`, `test_translate_result_meta.py`, `test_cc_artifacts_split.py`, `test_cc_provision_input_mnt.py`, `test_turn_cc_traces.py`, `test_cc_upload_validate.py`, `test_cc_dropbox_grep_guard.py`, plus the fixture `tests/fixtures/cc_transcript_sample.jsonl`.
 - `nextseek_api/migrations/0007_ccsessiontranscript.py` — additive migration.
 - Frontend: `chat_frontend/src/components/ChatPanel/CCActivityPanel.tsx` (+ `CCActivityPanel.test.tsx`), `chat_frontend/src/components/ChatPanel/UploadControl.tsx` (+ `UploadControl.test.tsx`).
 
 **Modify**
+- `nextseek_api/cc_assistant/cc_summary.py` — factor a structured `classify_tool_use(block) -> (kind, tool, detail)` out of the existing `_tool_use_line` (`:87`) and have both the string formatter and `cc_trace` consume it (shared classifier; no behavior change to 1c memory).
 - `nextseek_api/cc_assistant/cc_provision.py` — add `input_mnt` to `UserDirs` + `build_user_dirs` (uploads write host-side via the mount).
 - `nextseek_api/cc_assistant/translate.py` — `_handle_result` surfaces `num_turns`/`duration_ms` (`:130-156`).
 - `nextseek_api/cc_assistant/cc_engine.py` — rework `_publish_artifacts` (`:639`) to the hybrid split; replace the "Saved to your Dropbox" augmentation (`:580-587`) with an `artifacts` channel + trace metadata on `query_complete`.
@@ -327,28 +330,95 @@ git commit -m "feat(cc-step3): UserDirs.input_mnt for host-side upload writes (�
 - Test: `nextseek_api/cc_assistant/tests/test_cc_trace.py`
 
 **Interfaces:**
-- Consumes: `cc_summary.parse_transcript` (existing, `cc_summary.py:46` — returns `ParsedTranscript(raw_lines, records)`; `records` are plain dicts already orjson-decoded).
-- Produces (§6.2/§6.3):
-  - `ToolStep`, `TextStep`, `Step = Union[ToolStep, TextStep]`
-  - `CCTrace` (pydantic) with the §6.2 fields
-  - `RECORDS = TypeAdapter(list[Union[_Assistant, _User, _Other]])`
-  - `extract_trace(records: list[dict], *, cc_session_id: str, ts: str, files_created: list[str], files_modified: list[str], result_meta: dict | None = None) -> CCTrace`
+- Consumes: `cc_summary.parse_transcript` (existing, `cc_summary.py:46` — returns `ParsedTranscript(raw_lines, records)`; `.line_count`/`.turn_count` properties) and a NEW shared `cc_summary.classify_tool_use` (factored out of `_tool_use_line`, this task).
+- Produces (enriched §6.2/§6.3):
+  - `cc_summary.classify_tool_use(block: dict) -> tuple[str, str, str | None]` → `(kind, tool, detail)`; `kind ∈ {bash,write,edit,read,skill,tool}`. `_tool_use_line` is rewired to call it (no behavior change to 1c).
+  - one flat `Step` (real `kind`, plus `line`/`tool`/`detail`/`text`/`action`/`status`) — NO single-value discriminator.
+  - `CCTrace` with the enriched §6.2 envelope (`schema_version`/`transcript_line_count`/`turn_count` + result-frame meta + steps/tools + diff file lists).
+  - `RECORDS = TypeAdapter(list[Union[_Assistant, _User, _Other]])` (ordered; `_Other.type` optional so blank/`{"_type":"unparsed"}` lines validate).
+  - `extract_trace(parsed, *, cc_session_id, ts, files_created, files_modified, result_meta=None) -> CCTrace`
 
-Spec refs: §6.1 (two sources, do not conflate), §6.2 (schema), §6.3 (orjson + ordered union, `_Other` last), E4/E10.
+Spec refs: §6.1 (two sources, do not conflate), §6.2 (enriched schema), §6.3 (shared classifier + ordered union, `_Other` last), E4/E10.
 
-- [ ] **Step 1: Write the fixture jsonl**
+- [ ] **Step 1: Write the failing test for the shared classifier**
+
+```python
+# nextseek_api/cc_assistant/tests/test_cc_summary_classify.py
+"""classify_tool_use is the single tool classifier shared by 1c summary + trace."""
+from nextseek_api.cc_assistant.cc_summary import classify_tool_use
+
+
+def test_classify_bash_write_edit_read_skill_other():
+    assert classify_tool_use({"name": "Bash", "input": {"command": "ls"}}) == ("bash", "Bash", "ls")
+    assert classify_tool_use({"name": "Write", "input": {"file_path": "/x.md"}}) == ("write", "Write", "/x.md")
+    assert classify_tool_use({"name": "MultiEdit", "input": {"file_path": "/y"}}) == ("edit", "MultiEdit", "/y")
+    assert classify_tool_use({"name": "Read", "input": {"file_path": "/z"}}) == ("read", "Read", "/z")
+    assert classify_tool_use({"name": "Task", "input": {"subagent_type": "Explore"}}) == ("skill", "Task", "Explore")
+    assert classify_tool_use({"name": "WebFetch", "input": {}}) == ("tool", "WebFetch", None)
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `uv run --no-project --with pytest --with orjson --with pydantic python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_summary_classify.py`
+Expected: FAIL — `ImportError: cannot import name 'classify_tool_use'`
+
+- [ ] **Step 3: Factor `classify_tool_use` out of `_tool_use_line`**
+
+In `cc_summary.py`, add `classify_tool_use` and rewire `_tool_use_line` (`:87`) to call it (the rendered strings MUST stay byte-identical so 1c summary output does not change):
+
+```python
+def classify_tool_use(block: dict) -> tuple[str, str, str | None]:
+    """Classify a tool_use content block into (kind, tool, detail). Shared by the
+    1c memory summary (_tool_use_line) and the Step-3 trace (cc_trace) so the two
+    can never drift. kind in {bash, write, edit, read, skill, tool}."""
+    name = block.get("name", "") or ""
+    inp = block.get("input", {}) if isinstance(block.get("input"), dict) else {}
+    n = name.lower()
+    if n == "bash":
+        return "bash", name, (str(inp.get("command", "")) or None)
+    if n in ("write", "edit", "multiedit", "notebookedit"):
+        kind = "write" if n == "write" else "edit"
+        return kind, name, (inp.get("file_path") or inp.get("notebook_path") or None)
+    if n == "read":
+        return "read", name, (inp.get("file_path") or None)
+    if n in ("skill", "task"):
+        return "skill", name, (inp.get("skill") or inp.get("subagent_type") or name)
+    return "tool", name, None
+
+
+def _tool_use_line(block: dict, truncate_chars: int) -> str | None:
+    kind, name, detail = classify_tool_use(block)
+    if kind == "bash":
+        return f"bash: {_truncate(detail or '', truncate_chars)}"
+    if kind in ("write", "edit"):
+        return f"{kind}: {detail or ''}"
+    if kind == "read":
+        return f"read: {detail or ''}"
+    if kind == "skill":
+        return f"skill: {detail or name}"
+    return f"tool[{name}]"
+```
+
+- [ ] **Step 4: Run the classifier test + the FULL suite (1c must not regress)**
+
+Run: `uv run --no-project --with pytest --with orjson --with pydantic python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_summary_classify.py nextseek_api/cc_assistant/tests/`
+Expected: PASS (classifier + every existing 1c test — `_tool_use_line`'s output is unchanged).
+
+- [ ] **Step 5: Write the fixture jsonl (with paired tool_results for `status`)**
 
 ```
 # nextseek_api/cc_assistant/tests/fixtures/cc_transcript_sample.jsonl
 {"type":"user","message":{"role":"user","content":[{"type":"text","text":"list the input files"}]}}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll inspect the inputs."},{"type":"tool_use","name":"Bash","input":{"command":"ls /data/input"}}]}}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"/data/scratch/report.md"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll inspect the inputs."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls /data/input"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"a.csv"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Write","input":{"file_path":"/data/scratch/report.md"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"disk full"}]}}
 {"type":"summary","leafUuid":"abc"}
 ```
 
-(The 4th line is an unknown record `type` — it MUST fall through to `_Other`, proving forward-compat.)
+(Line 6 is an unknown record `type` — it MUST fall through to `_Other`. The two `tool_result`s drive `status`.)
 
-- [ ] **Step 2: Write the failing tests**
+- [ ] **Step 6: Write the failing extractor tests**
 
 ```python
 # nextseek_api/cc_assistant/tests/test_cc_trace.py
@@ -361,101 +431,112 @@ from nextseek_api.cc_assistant.cc_trace import extract_trace, CCTrace
 FIX = Path(__file__).parent / "fixtures" / "cc_transcript_sample.jsonl"
 
 
-def _records():
-    return list(cc_summary.parse_transcript(FIX.read_bytes()).records)
+def _parsed():
+    return cc_summary.parse_transcript(FIX.read_bytes())
 
 
-def test_extract_builds_steps_commands_tools():
-    t = extract_trace(_records(), cc_session_id="sess-1", ts="2026-06-30T00:00:00Z",
+def test_envelope_counts_reuse_parsed_transcript():
+    p = _parsed()
+    t = extract_trace(p, cc_session_id="sess-1", ts="2026-06-30T00:00:00Z",
                       files_created=["report.md"], files_modified=[])
     assert isinstance(t, CCTrace)
-    # one text step + two tool steps
-    kinds = [s.type for s in t.steps]
-    assert kinds == ["text", "tool_use", "tool_use"]
-    assert t.commands == ["ls /data/input"]
+    assert t.schema_version == "3/trace-v1"
+    assert t.transcript_line_count == p.line_count == 6
+    assert t.turn_count == p.turn_count          # user-role record count (reused)
+
+
+def test_steps_have_granular_kind_line_and_tools_tally():
+    t = extract_trace(_parsed(), cc_session_id="s", ts="t",
+                      files_created=["report.md"], files_modified=[])
+    kinds = [s.kind for s in t.steps]
+    assert kinds == ["text", "bash", "write"]
+    bash = next(s for s in t.steps if s.kind == "bash")
+    write = next(s for s in t.steps if s.kind == "write")
+    assert (bash.tool, bash.detail, bash.line) == ("Bash", "ls /data/input", 2)
+    assert (write.tool, write.detail, write.line) == ("Write", "/data/scratch/report.md", 4)
     assert t.tools_used == {"Bash": 1, "Write": 1}
-    # authoritative file lists come from the scratch diff (the args), not the jsonl
-    assert t.files_created == ["report.md"]
-    assert t.files_modified == []
+
+
+def test_action_from_diff_and_status_from_tool_result():
+    t = extract_trace(_parsed(), cc_session_id="s", ts="t",
+                      files_created=["report.md"], files_modified=[])
+    bash = next(s for s in t.steps if s.kind == "bash")
+    write = next(s for s in t.steps if s.kind == "write")
+    assert write.action == "created"             # report.md is in files_created (basename match)
+    assert bash.status == "ok"                    # paired tool_result is_error=false
+    assert write.status == "error"                # paired tool_result is_error=true
 
 
 def test_unknown_record_type_does_not_crash():
-    # the "summary" line must be tolerated (ordered union, _Other last)
-    t = extract_trace(_records(), cc_session_id="s", ts="t",
+    t = extract_trace(_parsed(), cc_session_id="s", ts="t",
                       files_created=[], files_modified=[])
-    assert isinstance(t, CCTrace)
+    assert isinstance(t, CCTrace)                 # the "summary" line tolerated (_Other)
 
 
-def test_result_meta_is_surfaced():
-    t = extract_trace(_records(), cc_session_id="s", ts="t",
+def test_result_meta_is_surfaced_and_distinct_from_turn_count():
+    t = extract_trace(_parsed(), cc_session_id="s", ts="t",
                       files_created=[], files_modified=[],
-                      result_meta={"num_turns": 5, "duration_ms": 1234, "cost_usd": 0.07})
-    assert t.num_turns == 5 and t.duration_ms == 1234 and t.cost_usd == 0.07
-
-
-def test_tool_step_detail_prefers_command_then_file_path():
-    t = extract_trace(_records(), cc_session_id="s", ts="t",
-                      files_created=[], files_modified=[])
-    bash = next(s for s in t.steps if getattr(s, "tool", None) == "Bash")
-    write = next(s for s in t.steps if getattr(s, "tool", None) == "Write")
-    assert bash.detail == "ls /data/input"
-    assert write.detail == "/data/scratch/report.md"
+                      result_meta={"num_turns": 9, "duration_ms": 1234, "cost_usd": 0.07})
+    assert t.num_turns == 9 and t.duration_ms == 1234 and t.cost_usd == 0.07
+    assert t.num_turns != t.turn_count            # internal turns != user-message records
 ```
 
-- [ ] **Step 3: Run them to verify they fail**
+- [ ] **Step 7: Run them to verify they fail**
 
 Run: `uv run --no-project --with pytest --with orjson --with pydantic python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_trace.py`
 Expected: FAIL — `ModuleNotFoundError: No module named 'nextseek_api.cc_assistant.cc_trace'`
 
-- [ ] **Step 4: Implement `cc_trace.py`**
+- [ ] **Step 8: Implement `cc_trace.py`**
 
 ```python
 # nextseek_api/cc_assistant/cc_trace.py
-"""Step 3 — per-turn activity trace (SPEC-3 §6).
+"""Step 3 — per-turn activity trace (SPEC-3 §6, enriched).
 
-ONE CCTrace == ONE chat turn. Assembled from two distinct sources (§6.1):
-  1. the persisted .jsonl conversation records (steps / commands / tools_used),
-  2. the headless `result` frame metadata (num_turns / duration_ms / cost_usd),
-     which is NOT in the .jsonl and is passed in as ``result_meta``.
-File lists are authoritative from the scratch diff (passed in), not from trusting
-tool-call args. pydantic models; jsonl validated with an ordered Union (_Other last).
+ONE CCTrace == ONE chat turn. Assembled from THREE sources (§6.1), never conflated:
+  1. the persisted .jsonl records -> ordered `steps` (kind/tool/detail/line/status) + tools tally,
+  2. the headless `result` frame -> num_turns / duration_ms / cost_usd (passed as ``result_meta``),
+  3. the §5 scratch diff -> authoritative files_created/modified + per-step `action`.
+Reuses cc_summary.classify_tool_use (one shared classifier with 1c memory) and the
+ParsedTranscript counts. jsonl validated with an ordered Union (_Other last).
 """
 from __future__ import annotations
 
+import os
 from typing import Literal, Union
 
 from pydantic import BaseModel, Field, TypeAdapter
 
+from . import cc_summary
 
-class ToolStep(BaseModel):
-    type: Literal["tool_use"] = "tool_use"
-    tool: str
+SCHEMA_VERSION = "3/trace-v1"
+
+
+class Step(BaseModel):
+    line: int
+    kind: Literal["bash", "write", "edit", "read", "skill", "tool", "text"]
+    tool: str | None = None
     detail: str | None = None
+    text: str | None = None
     action: Literal["created", "modified"] | None = None
-
-
-class TextStep(BaseModel):
-    type: Literal["text"] = "text"
-    summary: str
-
-
-Step = Union[ToolStep, TextStep]
+    status: Literal["ok", "error"] | None = None
 
 
 class CCTrace(BaseModel):
+    schema_version: str = SCHEMA_VERSION
     cc_session_id: str
     ts: str
+    transcript_line_count: int = 0
+    turn_count: int = 0
     num_turns: int | None = None
     duration_ms: int | None = None
     cost_usd: float | None = None
     steps: list[Step] = Field(default_factory=list)
-    commands: list[str] = Field(default_factory=list)
     tools_used: dict[str, int] = Field(default_factory=dict)
     files_created: list[str] = Field(default_factory=list)
     files_modified: list[str] = Field(default_factory=list)
 
 
-# --- jsonl record union (§6.3): ordered, _Other LAST (forward-compat) ---
+# --- jsonl record union (§6.3): ordered, _Other LAST + total (optional type) ---
 class _Assistant(BaseModel):
     type: Literal["assistant"]
     message: dict
@@ -467,62 +548,85 @@ class _User(BaseModel):
 
 
 class _Other(BaseModel):
-    type: str
+    type: str | None = None   # optional so blank / {"_type":"unparsed"} lines still validate
 
 
 RECORDS = TypeAdapter(list[Union[_Assistant, _User, _Other]])
 
 
-def _content_blocks(message: dict) -> list[dict]:
-    content = (message or {}).get("content")
+def _content_blocks(message) -> list[dict]:
+    content = (message or {}).get("content") if isinstance(message, dict) else None
     return content if isinstance(content, list) else []
 
 
-def extract_trace(records, *, cc_session_id, ts, files_created, files_modified,
+def extract_trace(parsed, *, cc_session_id, ts, files_created, files_modified,
                   result_meta=None) -> CCTrace:
-    """Build a CCTrace from orjson-decoded jsonl ``records`` + the authoritative
-    scratch-diff file lists + the optional headless ``result_meta``."""
-    validated = RECORDS.validate_python(list(records))
+    """Build a CCTrace from a ParsedTranscript + the §5 diff lists + headless meta."""
+    validated = RECORDS.validate_python([dict(r) for r in parsed.records])
+    created_base = {os.path.basename(p) for p in files_created}
+    modified_base = {os.path.basename(p) for p in files_modified}
+
     steps: list[Step] = []
-    commands: list[str] = []
     tools: dict[str, int] = {}
-    for rec in validated:
-        if not isinstance(rec, _Assistant):
-            continue
-        for block in _content_blocks(rec.message):
-            btype = block.get("type")
-            if btype == "text":
-                txt = block.get("text") or ""
-                if txt.strip():
-                    steps.append(TextStep(summary=txt))
-            elif btype == "tool_use":
-                name = block.get("name") or "?"
-                args = block.get("input") or {}
-                detail = args.get("command") or args.get("file_path")
-                steps.append(ToolStep(tool=name, detail=detail))
-                tools[name] = tools.get(name, 0) + 1
-                if name == "Bash" and args.get("command"):
-                    commands.append(args["command"])
+    by_id: dict[str, Step] = {}
+    for idx, rec in enumerate(validated, start=1):
+        if isinstance(rec, _Assistant):
+            for block in _content_blocks(rec.message):
+                btype = block.get("type")
+                if btype == "text":
+                    txt = (block.get("text") or "").strip()
+                    if txt:
+                        steps.append(Step(line=idx, kind="text", text=txt))
+                elif btype == "tool_use":
+                    kind, tool, detail = cc_summary.classify_tool_use(block)
+                    action = None
+                    if kind in ("write", "edit") and detail:
+                        base = os.path.basename(detail)
+                        if base in created_base:
+                            action = "created"
+                        elif base in modified_base:
+                            action = "modified"
+                    step = Step(line=idx, kind=kind, tool=tool, detail=detail, action=action)
+                    steps.append(step)
+                    tools[tool] = tools.get(tool, 0) + 1
+                    bid = block.get("id")
+                    if bid:
+                        by_id[bid] = step
+        elif isinstance(rec, _User) and rec.message:
+            for block in _content_blocks(rec.message):
+                if block.get("type") == "tool_result":
+                    step = by_id.get(block.get("tool_use_id"))
+                    if step is not None:
+                        step.status = "error" if block.get("is_error") else "ok"
+
     meta = result_meta or {}
     return CCTrace(
         cc_session_id=cc_session_id, ts=ts,
+        transcript_line_count=parsed.line_count, turn_count=parsed.turn_count,
         num_turns=meta.get("num_turns"), duration_ms=meta.get("duration_ms"),
         cost_usd=meta.get("cost_usd"),
-        steps=steps, commands=commands, tools_used=tools,
+        steps=steps, tools_used=tools,
         files_created=list(files_created), files_modified=list(files_modified),
     )
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+> `Step` is a mutable pydantic model (default) so `step.status` can be set when its paired
+> `tool_result` is reached. `action` matches by **basename** because the diff yields scratch
+> relpaths while tool args carry container-absolute paths (`/data/scratch/...`).
+
+- [ ] **Step 9: Run tests to verify they pass**
 
 Run: `uv run --no-project --with pytest --with orjson --with pydantic python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_trace.py`
-Expected: PASS (4 tests)
+Expected: PASS (5 tests)
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add nextseek_api/cc_assistant/cc_trace.py nextseek_api/cc_assistant/tests/test_cc_trace.py nextseek_api/cc_assistant/tests/fixtures/cc_transcript_sample.jsonl
-git commit -m "feat(cc-step3): CCTrace schema + jsonl extractor (orjson + TypeAdapter, §6, E10)"
+git add nextseek_api/cc_assistant/cc_summary.py nextseek_api/cc_assistant/cc_trace.py \
+        nextseek_api/cc_assistant/tests/test_cc_summary_classify.py \
+        nextseek_api/cc_assistant/tests/test_cc_trace.py \
+        nextseek_api/cc_assistant/tests/fixtures/cc_transcript_sample.jsonl
+git commit -m "feat(cc-step3): enriched CCTrace + shared cc_summary.classify_tool_use (§6, E4/E10)"
 ```
 
 ---
@@ -829,9 +933,10 @@ from nextseek_api.assistant.models_api import Turn
 
 def test_turn_accepts_and_dumps_cc_traces():
     t = Turn(bundle_id=0, user_query="hi", reply="ok", mode="cc",
-             cc_traces=[{"cc_session_id": "s", "ts": "t", "commands": ["ls"]}])
+             cc_traces=[{"cc_session_id": "s", "ts": "t",
+                         "steps": [{"line": 2, "kind": "bash", "tool": "Bash", "detail": "ls"}]}])
     d = t.model_dump(mode="json")
-    assert d["cc_traces"][0]["commands"] == ["ls"]
+    assert d["cc_traces"][0]["steps"][0]["detail"] == "ls"
 
 
 def test_turn_cc_traces_defaults_none():
@@ -1264,9 +1369,9 @@ In `services/cc_assistant.py`, in the CC branch after the turn's terminal event,
                         from nextseek_api.cc_assistant import cc_trace, cc_summary, cc_transcript_store
                         from nextseek_api.assistant.models_db import CCSessionTranscript
                         raw = Path(mount_path).read_bytes()          # the session jsonl
-                        records = list(cc_summary.parse_transcript(raw).records)
+                        parsed = cc_summary.parse_transcript(raw)
                         trace = cc_trace.extract_trace(
-                            records, cc_session_id=cc_session_id,
+                            parsed, cc_session_id=cc_session_id,
                             ts=_now_iso(),
                             files_created=files_created, files_modified=files_modified,
                             result_meta=result_meta,
@@ -1308,7 +1413,7 @@ git commit -m "feat(cc-step3): persist CCTrace to extra_state + zstd transcript 
 - Modify: `MessageInput.tsx`, `MessageBubble.tsx`, `EmbeddedApp.tsx`, `AppLayout.tsx`, `lib/api/chatApi.ts`, `lib/types/chat.ts`, `lib/types/api.ts`, `hooks/useMessages.ts`, `ReportArtifacts.tsx`
 
 **Interfaces:**
-- `lib/types/chat.ts`: add `CCTrace` TS type mirroring §6.2 (`cc_session_id`, `ts`, `num_turns?`, `duration_ms?`, `cost_usd?`, `steps`, `commands`, `tools_used`, `files_created`, `files_modified`) + `ccTraces?: CCTrace[]` on `Message`.
+- `lib/types/chat.ts`: add `Step` + `CCTrace` TS types mirroring the enriched §6.2 — `Step { line, kind: "bash"|"write"|"edit"|"read"|"skill"|"tool"|"text", tool?, detail?, text?, action?, status? }` and `CCTrace { schema_version, cc_session_id, ts, transcript_line_count, turn_count, num_turns?, duration_ms?, cost_usd?, steps: Step[], tools_used, files_created, files_modified }` + `ccTraces?: CCTrace[]` on `Message`.
 - `lib/types/api.ts`: add `cc_traces?: CCTrace[]` to `Turn`.
 - `chatApi.ts`: `uploadFiles(files: File[]): Promise<{job_id}>`, `pollUpload(jobId)`, and `downloadCcArtifact(sessionId, key)` → `GET /nextseek_api/cc-assistant/artifacts/{session}/download?key={key}`.
 
@@ -1341,19 +1446,21 @@ And in the live `query_complete` handler (EmbeddedApp), attach `ccTraces` from `
 
 - [ ] **Step 3: `CCActivityPanel` component + Vitest test**
 
-Write `CCActivityPanel.tsx` rendering one trace (num_turns, duration, cost, commands list, files created/modified, tools tally), and a colocated test:
+Write `CCActivityPanel.tsx` rendering one trace: the header line (num_turns · turn_count · duration · cost), the ordered `steps` (each `kind` icon + `tool`/`detail`, with an error badge when `status === "error"`), files created/modified, and the `tools_used` tally. Colocated test:
 
 ```tsx
 // CCActivityPanel.test.tsx
 import { render, screen } from "@testing-library/react";
 import { CCActivityPanel } from "./CCActivityPanel";
 
-test("renders commands and file changes from a trace", () => {
+test("renders steps and file changes from a trace", () => {
   render(<CCActivityPanel trace={{
-    cc_session_id: "s", ts: "t", num_turns: 3, commands: ["ls /data/input"],
-    files_created: ["report.md"], files_modified: [], steps: [], tools_used: { Bash: 1 },
+    schema_version: "3/trace-v1", cc_session_id: "s", ts: "t",
+    transcript_line_count: 6, turn_count: 3, num_turns: 3,
+    files_created: ["report.md"], files_modified: [], tools_used: { Bash: 1 },
+    steps: [{ line: 2, kind: "bash", tool: "Bash", detail: "ls /data/input", status: "ok" }],
   }} />);
-  expect(screen.getByText("ls /data/input")).toBeInTheDocument();
+  expect(screen.getByText("ls /data/input")).toBeInTheDocument();   // rendered from steps
   expect(screen.getByText("report.md")).toBeInTheDocument();
 });
 ```
@@ -1461,6 +1568,6 @@ git commit -m "chore(cc-step3): zstandard dep, migration 0007, embedded frontend
 
 **2. Placeholder scan:** Every code step carries real code. Three explicit verify-against-runtime flags remain, each a confirmation not a gap: (a) the `StreamTranslator` class/init in Task 5 Step 1 (the method body edit is exact); (b) the Celery `app` import path in Task 9 (Task-1 agent quoted `@app.task(name="batch_upload.run")` — copy the real import); (c) the exact `_run`-closure variable names (`mount_path`, `cc_session_id`, `run_id`, `files_created/modified`, `result_meta`, `_now_iso`) in Task 11, which exist in the surrounding code and must be wired, not invented. These are the only `[CONFIRM@PLAN]`s and all are import/name confirmations against live code, resolved at execution by reading the cited file.
 
-**3. Type consistency:** `CCTrace`/`Step`/`ToolStep`/`TextStep` field names (Task 4) are reused verbatim in Task 7 (`Turn.cc_traces`), Task 11 (`trace.model_dump()`), and Task 12 (TS `CCTrace`). `UserDirs.input_mnt` (Task 3) consumed in Task 9 (`dirs.input_mnt`) and Task 10 (`dirs.output_mnt`). `_publish_artifacts` returns the dict `{"artifacts","raw","raw_zip"}` (Task 6) consumed by the caller in Task 6 Step 6 + Task 11. `compress`/`decompress` (Task 1) used in Tasks 10/11. The artifact `key` is the relpath under `output/artifacts/` everywhere (Task 6 produces it, Task 10 resolves it, Task 12 sends it).
+**3. Type consistency:** the flat `CCTrace`/`Step` field names (enriched Task 4) are reused verbatim in Task 7 (`Turn.cc_traces`), Task 11 (`trace.model_dump()`), and Task 12 (TS `CCTrace`/`Step`); the shared `cc_summary.classify_tool_use` (Task 4) is the one classifier for both 1c memory and the trace. `extract_trace(parsed, …)` takes a `ParsedTranscript` (not raw records) in Task 4 and Task 11. `UserDirs.input_mnt` (Task 3) consumed in Task 9 (`dirs.input_mnt`) and Task 10 (`dirs.output_mnt`). `_publish_artifacts` returns the dict `{"artifacts","raw","raw_zip"}` (Task 6) consumed by the caller in Task 6 Step 6 + Task 11. `compress`/`decompress` (Task 1) used in Tasks 10/11. The artifact `key` is the relpath under `output/artifacts/` everywhere (Task 6 produces it, Task 10 resolves it, Task 12 sends it).
 
 **Known coupling note (mirrors PLAN-2):** Tasks 6 and 8 both touch the `query_complete` handler in `cc_engine.py` — Task 6 adds the artifacts channel, Task 8 removes the old Dropbox lines; if Task 6 Step 6 leaves the old `published`/`artifacts_published` lines referencing the new dict shape, the suite may go red until Task 8's grep-guard forces their removal. The full suite is the gate at Task 6 Step 7, Task 7 Step 5, Task 8 Step 6, and Task 9 Step 6. Tasks 11 and 13 have no hermetic seam by design (DB/HTTP/Docker) and are proven in the Task 13 live gate, which is the real acceptance bar for Step 3.
