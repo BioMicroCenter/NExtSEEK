@@ -59,13 +59,15 @@ export interface SearchCompleteData {
   [extra: string]: unknown;
 }
 
-import type { Artifact } from "./chat";
+import type { Artifact, CCTrace } from "./chat";
 
 export interface QueryCompleteData {
   reply: string;
   debug: Record<string, unknown>;
   bundle_id: number;
   artifacts?: Artifact[] | null;
+  cc_traces?: CCTrace[];
+  mode?: "cc" | "ns";
   session_id?: string;
 }
 
@@ -124,6 +126,7 @@ export interface Turn {
   mode: string;
   ts?: string | null;
   artifacts?: Artifact[] | null;
+  cc_traces?: CCTrace[];
 }
 
 // GET /assistant/sessions/{id}/?include=turns response

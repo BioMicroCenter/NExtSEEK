@@ -1,3 +1,28 @@
+export interface CCTraceStep {
+  line: number;
+  kind: "bash" | "write" | "edit" | "read" | "skill" | "tool" | "text";
+  tool?: string;
+  detail?: string;
+  text?: string;
+  action?: string;
+  status?: string;
+}
+
+export interface CCTrace {
+  schema_version: string;
+  cc_session_id: string;
+  ts: string;
+  transcript_line_count: number;
+  turn_count: number;
+  num_turns?: number;
+  duration_ms?: number;
+  cost_usd?: number;
+  steps: CCTraceStep[];
+  tools_used: Record<string, number>;
+  files_created: string[];
+  files_modified: string[];
+}
+
 export interface Message {
   id: string;
   content: string;
@@ -8,6 +33,8 @@ export interface Message {
   debugEntries?: DebugEntry[];
   bundleId?: number | null;
   artifacts?: Artifact[] | null;
+  ccTraces?: CCTrace[];
+  mode?: string;
 }
 
 export interface ArtifactTable {

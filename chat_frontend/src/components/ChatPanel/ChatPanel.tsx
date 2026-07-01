@@ -1,4 +1,5 @@
 import type { Message, ProcessingState } from "@/lib/types/chat";
+import type { NextseekApiService } from "@/lib/services/chatApi";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
 import { MessageList } from "./MessageList";
 import { MessageInput, type SendOptions } from "./MessageInput";
@@ -10,6 +11,8 @@ interface ChatPanelProps {
   isDisabled: boolean;
   onSendMessage: (message: string, opts: SendOptions) => void;
   onArtifactDownload?: (bundleId: number, artifactKey: string) => void;
+  onCcArtifactDownload?: (artifactKey: string) => void;
+  apiService?: NextseekApiService;
   isAdmin?: boolean;
 }
 
@@ -19,6 +22,8 @@ export function ChatPanel({
   isDisabled,
   onSendMessage,
   onArtifactDownload,
+  onCcArtifactDownload,
+  apiService,
   isAdmin = false,
 }: ChatPanelProps) {
   const { scrollRef } = useAutoScroll([messages, processingState.steps]);
@@ -28,11 +33,17 @@ export function ChatPanel({
       {processingState.isProcessing && (
         <ProcessingStepper steps={processingState.steps} />
       )}
-      <MessageList messages={messages} scrollRef={scrollRef} onArtifactDownload={onArtifactDownload} />
+      <MessageList
+        messages={messages}
+        scrollRef={scrollRef}
+        onArtifactDownload={onArtifactDownload}
+        onCcArtifactDownload={onCcArtifactDownload}
+      />
       <MessageInput
         onSend={onSendMessage}
         disabled={isDisabled}
         isAdmin={isAdmin}
+        apiService={apiService}
       />
     </div>
   );

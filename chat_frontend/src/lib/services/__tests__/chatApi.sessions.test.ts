@@ -130,7 +130,7 @@ describe("NextseekApiService — sessions methods", () => {
       const onError = vi.fn();
       await svc.submitQuery("hi", "standard", { sessionId: "uuid-1" }, onProgress, onError);
       const firstCall = fetchSpy.mock.calls[0];
-      expect(firstCall[0]).toBe(`${baseUrl}/nextseek_api/assistant/query/async/`);
+      expect(firstCall[0]).toBe(`${baseUrl}/nextseek_api/cc-assistant/query/async/`);
       const body = JSON.parse((firstCall[1] as RequestInit).body as string);
       expect(body).toEqual({ query: "hi", mode: "standard", use_prod: false, session_id: "uuid-1" });
     });

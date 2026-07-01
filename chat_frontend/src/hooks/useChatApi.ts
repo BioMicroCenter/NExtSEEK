@@ -13,6 +13,8 @@ type SubmitMode = string | { pipeline: "standard" | "plan"; useProd?: boolean };
 interface UseChatApiReturn {
   isQuerying: boolean;
   sessionId: string | null;
+  apiService: NextseekApiService;
+  getAuthoritativeSessionId: () => string | null;
   submitQuery: (
     query: string,
     mode: SubmitMode,
@@ -60,9 +62,16 @@ export function useChatApi(): UseChatApiReturn {
     [],
   );
 
+  const getAuthoritativeSessionId = useCallback(
+    () => serviceRef.current.sessionId,
+    [],
+  );
+
   return {
     isQuerying,
     sessionId,
+    apiService: serviceRef.current,
+    getAuthoritativeSessionId,
     submitQuery,
     fetchTestCases,
     downloadBundle,

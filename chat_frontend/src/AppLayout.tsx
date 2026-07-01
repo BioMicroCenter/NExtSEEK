@@ -5,8 +5,6 @@ import { useSessions } from "@/hooks/useSessions";
 import { ChatPanel } from "@/components/ChatPanel";
 import { HeaderBar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
-import { NextseekApiService } from "@/lib/services/chatApi";
-import { authService } from "@/lib/services/auth";
 import type {
   ProgressEvent,
   AgentStartedData,
@@ -16,7 +14,7 @@ import type {
   QueryCompleteData,
   QueryErrorData,
 } from "@/lib/types/api";
-import type { DebugData } from "@/lib/types/chat";
+import type { DebugData, DebugEntry } from "@/lib/types/chat";
 
 interface AppLayoutProps {
   credentialError: string | null;
@@ -30,7 +28,8 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
   });
   const [debugData, setDebugData] = useState<DebugData>({ entries: [], bundleId: null, query: "" });
 
-  const { messages, addUserMessage, addAssistantMessage, addSystemMessage, hydrateFromTurns } = useMessages();
+  const { messages, addUserMessage, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, hydrateFromTurns } = useMessages();
+  const pendingDebugRef = useRef<DebugEntry[]>([]);
   const {
     processingState,
     handleAgentStarted,
@@ -39,7 +38,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
     handleSearchComplete,
     resetProcessing,
   } = useProcessingState();
-  const { isQuerying, sessionId, submitQuery, downloadBundle } = useChatApi();
+  const { isQuerying, sessionId, submitQuery, downloadBundle, apiService, getAuthoritativeSessionId } = useChatApi();
 
   // sessionsRef breaks the chicken-and-egg between chatRoute (whose popstate
   // callback needs setActive) and sessions (returned after chatRoute). The
@@ -59,9 +58,8 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
       });
     },
   });
-  const [service] = useState(() => new NextseekApiService(authService));
   const sessions = useSessions({
-    service,
+    service: apiService,
     hydrate: hydrateFromTurns,
     onRouteChange: chatRoute.push,
   });
@@ -92,12 +90,15 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         case "agent_complete": {
           const d = event.data as AgentCompleteData;
           handleAgentComplete(d.agent);
+          const entry: DebugEntry = {
+            agent: d.agent,
+            summary: typeof d.summary === "string" ? d.summary : JSON.stringify(d.summary ?? "", null, 2),
+            timestamp: new Date(),
+          };
+          pendingDebugRef.current.push(entry);
           setDebugData((prev) => ({
             ...prev,
-            entries: [
-              ...prev.entries,
-              { agent: d.agent, summary: typeof d.summary === "string" ? d.summary : JSON.stringify(d.summary ?? "", null, 2), timestamp: new Date() },
-            ],
+            entries: [...prev.entries, entry],
           }));
           break;
         }
@@ -112,17 +113,25 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
+          const captured = pendingDebugRef.current.slice();
+          const bid = d.bundle_id ?? null;
+          const artifacts = d.artifacts ?? null;
+          const ccTraces = d.cc_traces ?? undefined;
+          const mode = d.mode ?? undefined;
+          queueMicrotask(() => {
+            updateLastAssistantMessage({
+              debugEntries: captured,
+              bundleId: bid,
+              artifacts,
+              ccTraces,
+              mode,
+            });
+          });
           resetProcessing();
           setDebugData((prev) => ({ ...prev, bundleId: d.bundle_id }));
-          // TODO(step-3, deferred Option 3): promote from the AUTHORITATIVE
-          // HTTP-202 body session id (serviceRef.current.sessionId) instead of
-          // this WS event's d.session_id. The backend fix (commit 4016a9b) makes
-          // d.session_id correct for the CC route too (the in-container UUID now
-          // rides cc_session_id), so this is defense-in-depth, not a live bug —
-          // do it alongside the UI-based file-I/O work. See REPORTS-INDEX handoff
-          // "multi-turn-404". Same change needed in EmbeddedApp.tsx.
-          if (d.session_id) {
-            if (sessions.pendingNewChat) sessions.promoteCreatedSession(d.session_id);
+          const authSid = getAuthoritativeSessionId() ?? d.session_id;
+          if (authSid) {
+            if (sessions.pendingNewChat) sessions.promoteCreatedSession(authSid);
             else sessions.refresh();
           }
           break;
@@ -135,7 +144,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         }
       }
     },
-    [handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, resetProcessing, sessions],
+    [handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, getAuthoritativeSessionId, sessions],
   );
 
   const handleQueryError = useCallback(
@@ -146,6 +155,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
   const handleSendMessage = useCallback(
     (text: string, mode: string | { pipeline: "standard" | "plan"; useProd?: boolean }) => {
       addUserMessage(text);
+      pendingDebugRef.current = [];
       setDebugData({ entries: [], bundleId: null, query: text });
       const opts =
         sessions.activeSessionId ? { sessionId: sessions.activeSessionId } :
@@ -154,6 +164,28 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
       submitQuery(text, mode, opts, handleProgress, handleQueryError);
     },
     [addUserMessage, submitQuery, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat],
+  );
+
+  const handleArtifactDownload = useCallback(
+    (bundleId: number, artifactKey: string) => {
+      const sid = apiService.sessionId;
+      if (sid) {
+        apiService
+          .downloadArtifact(sid, bundleId, artifactKey)
+          .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
+      }
+    },
+    [apiService, addSystemMessage],
+  );
+
+  const handleCcArtifactDownload = useCallback(
+    (artifactKey: string) => {
+      const sid = apiService.sessionId;
+      if (sid) {
+        void apiService.downloadCcArtifact(sid, artifactKey);
+      }
+    },
+    [apiService],
   );
 
   const handleDownload = useCallback(
@@ -192,6 +224,9 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           processingState={processingState}
           isDisabled={isDisabled}
           onSendMessage={handleSendMessage}
+          onArtifactDownload={handleArtifactDownload}
+          onCcArtifactDownload={handleCcArtifactDownload}
+          apiService={apiService}
           isAdmin={isAdmin}
         />
       </div>

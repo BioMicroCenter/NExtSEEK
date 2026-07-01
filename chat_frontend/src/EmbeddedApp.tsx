@@ -118,20 +118,22 @@ export function EmbeddedApp() {
           const captured = pendingDebugRef.current.slice();
           const bid = d.bundle_id ?? null;
           const artifacts = d.artifacts ?? null;
+          const ccTraces = d.cc_traces ?? undefined;
+          const mode = d.mode ?? undefined;
           queueMicrotask(() => {
-            updateLastAssistantMessage({ debugEntries: captured, bundleId: bid, artifacts });
+            updateLastAssistantMessage({
+              debugEntries: captured,
+              bundleId: bid,
+              artifacts,
+              ccTraces,
+              mode,
+            });
           });
           resetProcessing();
           setDebugData((prev) => ({ ...prev, bundleId: d.bundle_id }));
-          // TODO(step-3, deferred Option 3): promote from the AUTHORITATIVE
-          // HTTP-202 body session id (serviceRef.current.sessionId) instead of
-          // this WS event's d.session_id. The backend fix (commit 4016a9b) makes
-          // d.session_id correct for the CC route too (the in-container UUID now
-          // rides cc_session_id), so this is defense-in-depth, not a live bug —
-          // do it alongside the UI-based file-I/O work. See REPORTS-INDEX handoff
-          // "multi-turn-404". Same change needed in AppLayout.tsx.
-          if (d.session_id) {
-            if (sessions.pendingNewChat) sessions.promoteCreatedSession(d.session_id);
+          const authSid = serviceRef.current.sessionId ?? d.session_id;
+          if (authSid) {
+            if (sessions.pendingNewChat) sessions.promoteCreatedSession(authSid);
             else sessions.refresh();
           }
           break;
@@ -184,6 +186,16 @@ export function EmbeddedApp() {
     [addSystemMessage],
   );
 
+  const handleCcArtifactDownload = useCallback(
+    (artifactKey: string) => {
+      const sid = serviceRef.current.sessionId;
+      if (sid) {
+        void serviceRef.current.downloadCcArtifact(sid, artifactKey);
+      }
+    },
+    [],
+  );
+
   const handleDownload = useCallback(
     (format: string) => {
       if (sessionId && debugData.bundleId) serviceRef.current.downloadBundle(sessionId, debugData.bundleId, format);
@@ -222,6 +234,8 @@ export function EmbeddedApp() {
           isDisabled={isQuerying}
           onSendMessage={handleSendMessage}
           onArtifactDownload={handleArtifactDownload}
+          onCcArtifactDownload={handleCcArtifactDownload}
+          apiService={serviceRef.current}
           isAdmin={isAdmin}
         />
       </div>

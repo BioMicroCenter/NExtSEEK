@@ -373,4 +373,49 @@ export class NextseekApiService {
       XLSX.writeFile(wb, filename);
     });
   }
+
+  async uploadFiles(files: File[]): Promise<{ job_id: string }> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const fd = new FormData();
+    files.forEach((f) => fd.append("file", f));
+    const r = await fetch(`${baseUrl}/nextseek_api/cc-assistant/upload/`, {
+      method: "POST",
+      body: fd,
+      credentials: "include",
+      headers: { ...this.auth.getAuthHeaders() },
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  }
+
+  async pollUpload(jobId: string): Promise<{ state: string; result?: unknown }> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const r = await fetch(`${baseUrl}/nextseek_api/cc-assistant/upload/status/${jobId}/`, {
+      credentials: "include",
+      headers: { ...this.auth.getAuthHeaders() },
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  }
+
+  async downloadCcArtifact(sessionId: string, key: string): Promise<void> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const r = await fetch(
+      `${baseUrl}/nextseek_api/cc-assistant/artifacts/${sessionId}/download/?key=${encodeURIComponent(key)}`,
+      { credentials: "include", headers: { ...this.auth.getAuthHeaders() } },
+    );
+    if (!r.ok) throw new Error(await r.text());
+    const blob = await r.blob();
+    const disposition = r.headers.get("Content-Disposition");
+    const filenameMatch = disposition?.match(/filename="?(.+?)"?$/);
+    const filename = filenameMatch?.[1] ?? key.split("/").pop() ?? "artifact";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 }

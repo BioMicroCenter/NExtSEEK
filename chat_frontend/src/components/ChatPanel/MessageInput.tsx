@@ -2,6 +2,8 @@ import { useState } from "react";
 import { SendHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAutoResize } from "@/hooks/useAutoResize";
+import type { NextseekApiService } from "@/lib/services/chatApi";
+import { UploadControl } from "./UploadControl";
 
 export interface SendOptions {
   pipeline: "standard" | "plan";
@@ -12,6 +14,7 @@ interface MessageInputProps {
   onSend: (message: string, opts: SendOptions) => void;
   disabled?: boolean;
   isAdmin?: boolean;
+  apiService?: NextseekApiService;
 }
 
 function readInitialQuery(): string {
@@ -24,7 +27,7 @@ function readInitialQuery(): string {
   }
 }
 
-export function MessageInput({ onSend, disabled, isAdmin = false }: MessageInputProps) {
+export function MessageInput({ onSend, disabled, isAdmin = false, apiService }: MessageInputProps) {
   const [value, setValue] = useState<string>(() => readInitialQuery());
   const [pipeline, setPipeline] = useState<"standard" | "plan">("standard");
   const [useProd, setUseProd] = useState<boolean>(false);
@@ -53,6 +56,7 @@ export function MessageInput({ onSend, disabled, isAdmin = false }: MessageInput
   return (
     <div data-testid="message-input" className="border-t bg-background px-4 py-3">
       <div className="flex items-end gap-2">
+        {apiService && <UploadControl apiService={apiService} disabled={disabled} />}
         <textarea
           ref={textareaRef}
           data-testid="chat-input"
