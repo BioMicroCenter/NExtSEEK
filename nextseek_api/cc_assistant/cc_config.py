@@ -11,8 +11,8 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-# Dev-instance defaults (this machine). Overridable via docker/nextseek.env.
-_DEFAULT_HOST_USER_ROOT = "/Users/taishajoseph/dmac-dev/users"
+# Dev-instance defaults. Overridable via docker/nextseek.env.
+_DEFAULT_HOST_USER_ROOT = "/srv/dmac/users"
 _DEFAULT_USER_ROOT_MOUNT = "/dmac/users"
 
 
