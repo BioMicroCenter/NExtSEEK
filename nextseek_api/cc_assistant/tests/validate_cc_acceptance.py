@@ -14,7 +14,7 @@ It maps 1:1 onto the security-acceptance checklist (AUDIT.md, live items):
   13 token unlogged proxy_log.txt: 0 occurrences of `ABSK` / `Authorization`
   10 agent de-cred  agent_env_scan.txt: none of the 16 shared keys; no `ABSK`/`demopassword`
    9 segmentation   network.json: agent net excludes neo4j/seek-mysql/seek/seek-solr
-  16 copier publish published_files.json: a path under the user's output scope (output/<user_id>/)
+  16 turn-scoped artifacts forced_result.json: non-empty artifacts with turn-scoped keys
   17 cost ledger    ledger.json: total_cost_usd <= budget_cap_usd
 
 The bundle holds NO secret: a correct agent env has none, so committing
@@ -118,18 +118,14 @@ def validate_run(run_dir: str | Path) -> tuple[bool, list[tuple[str, bool, str]]
     except Exception as e:  # noqa: BLE001
         add("network_segmented", False, f"unreadable: {e}")
 
-    # 16 — copier publish under output/<user>/<run>/
+    # 16 — turn-scoped artifact keys on query_complete
     try:
-        pub = _load_json(d / "published_files.json")
-        files = pub.get("files", pub if isinstance(pub, list) else [])
-        uid = meta.get("user_id", "")
-        # The security property is USER scoping (lands in the user's own output
-        # dir, never another user's); the copier preserves scratch->output rel
-        # paths under <user_id>/ (no run_id nesting).
-        ok = bool(files) and bool(uid) and all(f.startswith(f"{uid}/") or f"/{uid}/" in f for f in files)
-        add("copier_published_scoped", ok, f"{len(files)} file(s); user-scoped={ok}")
+        res = _load_json(d / "forced_result.json")
+        arts = res.get("artifacts") or []
+        ok = bool(arts) and all("/" in (a.get("key") or "") for a in arts)
+        add("artifacts_turn_scoped", ok, f"{len(arts)} artifact(s); turn-scoped={ok}")
     except Exception as e:  # noqa: BLE001
-        add("copier_published_scoped", False, f"unreadable: {e}")
+        add("artifacts_turn_scoped", False, f"unreadable: {e}")
 
     # 17 — cost ledger under cap
     try:

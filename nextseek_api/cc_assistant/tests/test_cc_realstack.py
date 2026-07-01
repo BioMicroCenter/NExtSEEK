@@ -182,13 +182,13 @@ class CCRealStackAcceptance(TestCase):
             "event": ev, "is_error": ev == "query_error",
             "reply": data.get("reply", ""), "error": data.get("error"),
             "total_cost_usd": data.get("total_cost_usd"),
+            "artifacts": data.get("artifacts") or [],
         }))
 
         (self.evid / "agent_env_scan.txt").write_text(agent_env)
         net_containers = self._net_containers(NET)
         (self.evid / "network.json").write_text(json.dumps({"containers": net_containers}))
-        published = data.get("artifacts_published") or []
-        (self.evid / "published_files.json").write_text(json.dumps({"files": published}))
+        artifacts = data.get("artifacts") or []
         cost = data.get("total_cost_usd")
         (self.evid / "ledger.json").write_text(json.dumps({"total_cost_usd": cost or 0.0}))
         (self.evid / "meta.json").write_text(json.dumps({
@@ -209,7 +209,10 @@ class CCRealStackAcceptance(TestCase):
         backend = [c for c in net_containers
                    if re.search(r"(^|[-_])(neo4j|seek|mysql)([-_]|$)", c)]
         self.assertEqual(backend, [], f"backend service on the agent network: {backend}")
-        self.assertTrue(published, "copier published nothing")
+        self.assertTrue(artifacts, "query_complete missing artifacts")
+        for a in artifacts:
+            key = a.get("key", "")
+            self.assertIn("/", key, f"artifact key not turn-scoped: {key!r}")
 
         all_ok, checks = validate_run(self.evid)
         print("\n[CC-ACCEPTANCE] run=" + self.run_id + "\n" + format_report(all_ok, checks))

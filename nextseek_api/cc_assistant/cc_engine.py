@@ -414,10 +414,10 @@ def run_cc_turn(
     max_budget_usd: float = _DEFAULT_MAX_BUDGET_USD,
     turn_timeout: int = _DEFAULT_TURN_TIMEOUT,
 ) -> None:
-    """Execute one Container-CC turn with scoped Dropbox mounts + artifact publish.
+    """Execute one Container-CC turn with scoped input/shared mounts + artifact publish.
 
-    Always terminates with exactly one ``query_complete`` (reply augmented with
-    published host paths) or ``query_error``.
+    Always terminates with exactly one ``query_complete`` (structured ``artifacts``
+    channel for deliverables, ``cc_raw_files`` for scratch/raw/) or ``query_error``.
     """
     import docker
     from docker.errors import APIError, NotFound
@@ -569,22 +569,22 @@ def run_cc_turn(
             for event, data in translator.finalize():
                 terminal = (event, data)
 
-        # Post-turn publish: diff scratch, copy new files to the user's output dir.
-        published = _publish_artifacts(
-            scratch_mount, output_mount, output_host_root=dirs.output_src, before=before)
+        # Post-turn publish: diff scratch, split deliverables from scratch/raw/.
+        result = _publish_artifacts(
+            scratch_mount, output_mount,
+            turn_id=str(run_id),
+            output_host_root=dirs.output_src, before=before,
+        )
 
         if terminal is None:
             terminal = ("query_complete", {"reply": "(no response)", "bundle_id": None,
                                            "cc_session_id": translator.session_id})
         event, data = terminal
-        if event == "query_complete" and published:
-            listing = "\n".join(f"- `{p}`" for p in published)
+        if event == "query_complete":
             data = dict(data)
-            data["reply"] = (data.get("reply") or "") + (
-                f"\n\n---\n📁 **Saved to your Dropbox** "
-                f"({len(published)} file(s)):\n{listing}"
-            )
-            data["artifacts_published"] = published
+            data["mode"] = "cc"
+            data["artifacts"] = result["artifacts"] or None
+            data["cc_raw_files"] = result["raw"]
         send_event(event, data)
 
     except (APIError, NotFound) as exc:
@@ -640,33 +640,67 @@ def _publish_artifacts(
     scratch_mount: Path,
     output_mount: Path,
     *,
+    turn_id: str,
     output_host_root: str,
     before: dict[str, tuple[int, int]],
-) -> list[str]:
-    """Diff nested scratch, copy new/changed files to nested output, return host paths."""
+) -> dict:
+    """Diff scratch; split deliverables (artifacts) from scratch/raw/ (raw).
+    Artifacts -> output/artifacts/<turn_id>/ (zipped if >1 per turn, downloadable);
+    raw -> output/raw/ (on disk, not bundled). Keys are turn-scoped: "<turn_id>/<relpath>"."""
     from dmac_assistant.run_tracker import diff_files
+    from . import cc_artifacts
 
     after = _snapshot_tree(scratch_mount)
-    changed = diff_files(before, after)
+    changed = set(diff_files(before, after))
     if not changed:
-        return []
-    written: list[Path] = []
-    for rel in sorted(changed):
-        if not _safe_relpath(rel):
-            logger.warning("CC: refusing unsafe artifact relpath %r", rel)
-            continue
-        src = scratch_mount / rel
-        if src.is_symlink() or not src.is_file():
-            continue
-        dst = output_mount / rel
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
-        written.append(dst)
-    display: list[str] = []
-    for dst in written:
-        try:
-            rel = dst.relative_to(output_mount)
-        except ValueError:
-            rel = Path(dst.name)
-        display.append(str(Path(output_host_root) / rel))
-    return sorted(display)
+        return {"artifacts": [], "raw": [], "raw_zip": None, "files_created": [], "files_modified": []}
+
+    created = {r for r in changed if r not in before}
+    modified = changed - created
+
+    art_rels, raw_rels = cc_artifacts.partition_changed(set(changed))
+    art_dir = output_mount / "artifacts" / turn_id
+    raw_dir = output_mount / "raw"
+
+    def _copy(rels: set[str], dest_root: Path, *, strip_raw_prefix: bool = False) -> list[Path]:
+        written: list[Path] = []
+        for rel in sorted(rels):
+            if not _safe_relpath(rel):
+                logger.warning("CC: refusing unsafe artifact relpath %r", rel)
+                continue
+            src = scratch_mount / rel
+            if src.is_symlink() or not src.is_file():
+                continue
+            out_rel = rel.removeprefix("raw/") if strip_raw_prefix else rel
+            dst = dest_root / out_rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            written.append(dst)
+        return written
+
+    art_files = _copy(art_rels, art_dir)
+    raw_files = _copy(raw_rels, raw_dir, strip_raw_prefix=True)
+
+    artifacts: list[dict] = []
+    if len(art_files) > 1:
+        from nextseek_api.cc_assistant.cc_artifacts import build_artifact_zip
+        zip_path = art_dir / "artifacts.zip"
+        build_artifact_zip(art_files, zip_path, arc_prefix=art_dir)
+        artifacts.append({
+            "artifact_type": "file", "key": f"{turn_id}/artifacts.zip",
+            "label": "artifacts.zip", "file_format": "zip",
+        })
+    elif len(art_files) == 1:
+        dst = art_files[0]
+        rel = dst.relative_to(art_dir)
+        artifacts.append({
+            "artifact_type": "file", "key": f"{turn_id}/{rel}",
+            "label": dst.name, "file_format": dst.suffix.lstrip(".") or "file",
+        })
+    return {
+        "artifacts": artifacts,
+        "raw": [str(Path(output_host_root) / "raw" / p.relative_to(raw_dir)) for p in raw_files],
+        "raw_zip": None,
+        "files_created": sorted(created),
+        "files_modified": sorted(modified),
+    }

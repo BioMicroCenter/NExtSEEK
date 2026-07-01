@@ -21,7 +21,11 @@ def _pass_bundle(d):
                                             "model_class": "opus"})
     _write(d, "forced_result.json", {"is_error": False,
                                      "reply": "done; the marker is SENT123 here",
-                                     "total_cost_usd": 0.12})
+                                     "total_cost_usd": 0.12,
+                                     "artifacts": [{"key": "r1/report.json",
+                                                    "artifact_type": "file",
+                                                    "label": "report.json",
+                                                    "file_format": "json"}]})
     _write(d, "proxy_log.txt",
            f"POST /model/{OPUS}/invoke-with-response-stream -> 200\n"
            f"POST /model/{OPUS}/invoke-with-response-stream -> 200\n")
@@ -32,7 +36,6 @@ def _pass_bundle(d):
            "NEXTSEEK_URL=http://nextseek_nginx\n")
     _write(d, "network.json", {"containers": ["dmac-bedrock-proxy",
                                               "nextseek-nextseek_nginx-1", "cc-agent-r1"]})
-    _write(d, "published_files.json", {"files": ["demo/r1/report.json"]})
     _write(d, "ledger.json", {"total_cost_usd": 0.12})
 
 
@@ -96,7 +99,20 @@ def test_cost_over_cap_fails(tmp_path):
     assert dict((n, ok) for n, ok, _ in validate_run(tmp_path)[1])["cost_under_cap"] is False
 
 
-def test_unpublished_fails(tmp_path):
+def test_missing_artifacts_fails(tmp_path):
     _pass_bundle(tmp_path)
-    _write(tmp_path, "published_files.json", {"files": []})
-    assert dict((n, ok) for n, ok, _ in validate_run(tmp_path)[1])["copier_published_scoped"] is False
+    _write(tmp_path, "forced_result.json", {"is_error": False,
+                                            "reply": "done; the marker is SENT123 here",
+                                            "total_cost_usd": 0.12,
+                                            "artifacts": []})
+    assert dict((n, ok) for n, ok, _ in validate_run(tmp_path)[1])["artifacts_turn_scoped"] is False
+
+
+def test_non_turn_scoped_artifact_key_fails(tmp_path):
+    _pass_bundle(tmp_path)
+    _write(tmp_path, "forced_result.json", {"is_error": False,
+                                            "reply": "done; the marker is SENT123 here",
+                                            "total_cost_usd": 0.12,
+                                            "artifacts": [{"key": "report.json",
+                                                           "artifact_type": "file"}]})
+    assert dict((n, ok) for n, ok, _ in validate_run(tmp_path)[1])["artifacts_turn_scoped"] is False
