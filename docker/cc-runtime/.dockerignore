@@ -1,0 +1,27 @@
+# Harden the Docker build context against common local leak vectors.
+# Ported from the dmac-assistant working clone's root .dockerignore (Step 7
+# Task 3); see PORT-EVIDENCE.json. Adjusted for the docker/cc-runtime/
+# context root (the bedrock-proxy-specific lines from the source were dropped
+# since bedrock-proxy is not part of this build context; a generic
+# proxy-secret.env rule is kept as defense-in-depth in case a future change
+# ever broadens the COPY surface).
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.npmrc
+**/.pytest_cache
+**/.ruff_cache
+**/.coverage*
+**/.env
+**/.env.local
+**/.env.example
+**/.env.prod
+**/.env.dev
+**/*proxy-secret.env
+**/credentials.json
+**/*.pem
+**/*.key
+**/id_rsa
+**/id_rsa.*
+.git
+.venv

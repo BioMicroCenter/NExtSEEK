@@ -1,0 +1,7 @@
+{
+  "name": "nextseek",
+  "version": "0.1.0",
+  "description": "Modular NExtSEEK query workflow for Container-Claude. Wraps the chat_nextseek multi-agent pipeline as discrete plugin tools (entity-extract, parse, plan, api-read, api-write, graph, report, generate-submission) so CC orchestrates routing/planning natively while chat_nextseek owns deterministic execution.",
+  "author": {"name": "BMC"},
+  "keywords": ["nextseek", "chat_nextseek", "bmc", "metadata", "graph"]
+}

@@ -1,0 +1,30 @@
+#!/bin/sh
+# nextseek-generate-submission — emit a submission package for a UID set.
+# --type GEO|SRA|NFCORE_RNASEQ|NFCORE_SCRNASEQ|PRIDE
+# --uids comma-separated UIDs
+# Runner enforces enum + CSV parsing.
+# Plan B · T8.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+TYPE=""
+UIDS=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --type) TYPE="$2"; shift 2 ;;
+    --type=*) TYPE="${1#--type=}"; shift ;;
+    --uids) UIDS="$2"; shift 2 ;;
+    --uids=*) UIDS="${1#--uids=}"; shift ;;
+    --help)
+      echo "Usage: nextseek-generate-submission --type <GEO|SRA|NFCORE_RNASEQ|NFCORE_SCRNASEQ|PRIDE> --uids <UID1,UID2,...>"
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$TYPE" ] || nextseek_die 3 "missing --type"
+[ -n "$UIDS" ] || nextseek_die 3 "missing --uids"
+
+exec python "$SCRIPT_DIR/_nextseek_runner.py" \
+  --agent generate-submission --type "$TYPE" --uids "$UIDS"

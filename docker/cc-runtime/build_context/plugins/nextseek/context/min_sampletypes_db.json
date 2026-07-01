@@ -1,0 +1,709 @@
+[
+  {
+    "SampleType": "MUS",
+    "ID": 10,
+    "Name": "Mouse",
+    "Description": "A mouse sample represents an experimental animal used as a model system. Mice may be exposed to specific treatments or conditions, and tissues or cells are collected from them for downstream analysis.",
+    "Tags": "mouse, Mus musculus, murine, animal model, rodent, C57BL/6, BALB/c, transgenic mouse, knockout mouse, experimental mouse, lab mouse"
+  },
+  {
+    "SampleType": "D.FLOW",
+    "ID": 13,
+    "Name": "Flow Cytometry Data",
+    "Description": "A flow cytometry file stores fluorescence and light-scattering measurements collected from individual cells or particles during cytometric analysis. It represents the digital output of a cytometer used to characterize cell populations and properties.\nTypical file type: .fcs",
+    "Tags": "flow cytometry data, FACS data, cytometry data, .fcs data, immunophenotyping data, cell population data, fluorescence cytometry, flow data file"
+  },
+  {
+    "SampleType": "CEL",
+    "ID": 15,
+    "Name": "Cell",
+    "Description": "A cell sample represents a defined population of living or preserved cells collected or cultured for experimental study. These samples form the foundation for exploring biological mechanisms, testing treatments, or generating derived materials. Each reflects a specific origin or condition, such as tissue type, species, or growth environment.",
+    "Tags": "cell, cell line, primary cells, cultured cells, cell culture, in vitro cells, immortalized cells, stem cells, lymphocytes, PBMC, T cells, B cells, macrophages, monocytes, HEK293"
+  },
+  {
+    "SampleType": "D.MSP",
+    "ID": 17,
+    "Name": "Mass Spectrometry Data",
+    "Description": "A mass spectrometry data file contains spectra representing the mass-to-charge ratios and intensities of detected ions. It captures the digital output of a mass spectrometer used for identifying and quantifying molecules such as proteins, metabolites, or lipids.\nTypical file types: .raw, .mzML, .mzXML",
+    "Tags": "mass spectrometry data, proteomics data, MS raw data, .raw file, .mzML, spectra data, LC-MS data, LC-MS/MS, PRIDE data, peptide spectra, protein MS data"
+  },
+  {
+    "SampleType": "A.MSP",
+    "ID": 18,
+    "Name": "Mass Spectrometry Analysis",
+    "Description": "A mass spectrometry analysis file contains processed spectra or identified molecular features derived from raw mass spec data. It represents quantified or annotated peptide, metabolite, or lipid profiles used in downstream analysis. Each file often summarizes data from multiple spectra or samples into one dataset (many\u21921).\nTypical file types: .mzML, .csv, .xlsx",
+    "Tags": "mass spectrometry analysis, proteomics analysis, MS analysis, peptide quantification, protein identification, mzML analysis, DDA analysis, TMT analysis, label-free quantification, LFQ"
+  },
+  {
+    "SampleType": "BAC",
+    "ID": 23,
+    "Name": "Bacteria Sample",
+    "Description": "A bacteria sample represents a microbial strain used in an experiment, either as an infectious agent or as material isolated from another biological source. It serves as a basis for studying host interactions, gene expression, or microbial composition.",
+    "Tags": "bacteria, bacterial strain, microbial sample, pathogen, Mycobacterium tuberculosis, MTB, E. coli, bacterial culture, microbe, infectious agent, microbial isolate"
+  },
+  {
+    "SampleType": "PAV",
+    "ID": 24,
+    "Name": "Patient Visit",
+    "Description": "A patient visit record represents a specific encounter or collection event for a study participant. It provides temporal and contextual information linking biological samples or data files to a particular time point, condition, or intervention.",
+    "Tags": "patient visit, clinical visit, study visit, visit record, collection event, clinical encounter, study timepoint, blood draw, sample collection visit, longitudinal visit"
+  },
+  {
+    "SampleType": "PAT",
+    "ID": 25,
+    "Name": "Patient",
+    "Description": "A patient sample represents a human participant enrolled in a study. It serves as the source for clinical information and biological material collected to investigate health, disease, or treatment effects.",
+    "Tags": "patient, human subject, study participant, clinical participant, donor, volunteer, human donor, study cohort member, enrolled subject, clinical trial participant"
+  },
+  {
+    "SampleType": "TIS",
+    "ID": 26,
+    "Name": "Tissue Sample",
+    "Description": "A tissue sample represents a portion of biological material collected from an organism. It serves as the source for downstream molecular, cellular, or histological analyses.",
+    "Tags": "tissue, biopsy, tissue biopsy, organ sample, biological tissue, excised tissue, FFPE, fresh frozen tissue, tumor tissue, lung tissue, blood, PBMC, BAL, bronchoalveolar lavage, tissue specimen"
+  },
+  {
+    "SampleType": "GAS",
+    "ID": 28,
+    "Name": "Gas Sample",
+    "Description": "A gas sample represents a collected portion of air or gaseous material used for experimental measurement. It is analyzed to assess chemical composition, concentration, or environmental properties.",
+    "Tags": "gas, gaseous sample, air sample, aerosol, exhaled breath, volatile organic compounds, VOC, ambient air, reactive gas, experimental gas, gas mixture"
+  },
+  {
+    "SampleType": "D.ATM",
+    "ID": 30,
+    "Name": "Atmospheric Data File",
+    "Description": "An atmospheric data file contains recorded measurements of environmental variables such as temperature, pressure, and humidity. It represents the digital output of atmospheric sensors or instruments used to monitor experimental or field conditions.\nTypical file types: .csv, .txt, .nc",
+    "Tags": "atmospheric data, environmental sensor data, air quality data, temperature data, humidity data, climate data, weather data, ambient measurement"
+  },
+  {
+    "SampleType": "DNA",
+    "ID": 32,
+    "Name": "DNA Sample",
+    "Description": "A DNA sample contains extracted genetic material isolated from a biological source. It serves as input for sequencing, amplification, or other genomic analyses.",
+    "Tags": "DNA, deoxyribonucleic acid, genomic DNA, gDNA, extracted DNA, nucleic acid, library prep input, cDNA, amplified DNA, sequencing library, DNA extraction"
+  },
+  {
+    "SampleType": "D.SEQ",
+    "ID": 33,
+    "Name": "Sequencing Data",
+    "Description": "A sequencing file contains raw nucleotide sequence reads and their quality scores. It represents the digital output from a DNA or RNA sequencing run and serves as the starting point for downstream analyses such as alignment or variant calling.\nTypical file type: .fastq or .fastq.gz",
+    "Tags": "sequencing data, FASTQ, raw reads, NGS data, next-generation sequencing, short-read sequencing, Illumina data, RNA-seq raw, WGS, whole genome sequencing, WES, whole exome sequencing, long-read sequencing, Oxford Nanopore"
+  },
+  {
+    "SampleType": "D.VIA",
+    "ID": 34,
+    "Name": "Viability Assay Data",
+    "Description": "A viability assay data file contains quantitative results from experiments assessing cell health, proliferation, or cytotoxicity. It represents the processed output of imaging or plate reader measurements used to evaluate sample viability.\nTypical file types: .csv, .xlsx",
+    "Tags": "viability data, cell viability, cytotoxicity data, MTS assay, MTT assay, WST-1, live/dead assay, CellTiter-Glo, proliferation assay, cell death data"
+  },
+  {
+    "SampleType": "D.SNSR",
+    "ID": 36,
+    "Name": "Sensor Data",
+    "Description": "A sensor data file contains digital readings collected from a specific measurement device. It records time-series or event-based signals reflecting environmental, physiological, or mechanical parameters.\nTypical file types: .csv, .json, .txt",
+    "Tags": "sensor data, biosensor data, environmental sensor, time-series data, monitoring data, electrochemical sensor data, field sensor, IoT sensor data, wearable data"
+  },
+  {
+    "SampleType": "CEX",
+    "ID": 38,
+    "Name": "Cell Extract Sample",
+    "Description": "A cell extract sample contains the soluble contents or fractions derived from lysed cells. It provides material for studying protein expression, enzymatic activity, or molecular interactions.",
+    "Tags": "cell extract, cell lysate, cellular extract, whole cell lysate, protein lysate, cytoplasmic extract, nuclear extract, membrane fraction, cell homogenate"
+  },
+  {
+    "SampleType": "D.IMG",
+    "ID": 40,
+    "Name": "Imaging Data",
+    "Description": "An imaging data file stores visual or spatial information captured from microscopy, radiography, or other imaging systems. It represents the raw or processed image output used for structural or morphological analysis.\nTypical file types: .tiff, .jpg, .png, .ome.tiff",
+    "Tags": "imaging data, microscopy data, image file, micrograph, fluorescence image, confocal data, brightfield image, histology image, radiology image, TIFF, DICOM, whole slide image, WSI"
+  },
+  {
+    "SampleType": "NHP",
+    "ID": 41,
+    "Name": "Non Human Primate",
+    "Description": "A non-human primate sample originates from an organism closely related to humans within the primate order. These samples are collected to study biological processes that share genetic and physiological similarities with human systems. Each reflects controlled collection and handling specific to the species and study design.",
+    "Tags": "NHP, non-human primate, macaque, rhesus macaque, cynomolgus, primate model, Macaca mulatta, Macaca fascicularis, African green monkey, marmoset"
+  },
+  {
+    "SampleType": "D.GPT",
+    "ID": 42,
+    "Name": "GPT Assay Data",
+    "Description": "A GPT assay data file contains results from a glutamate pyruvate transaminase (GPT) activity assay. It represents the quantitative measurement of enzyme activity used to assess cellular or metabolic function.\nTypical file types: .csv, .xlsx",
+    "Tags": "GPT assay data, glutamate pyruvate transaminase data, phage efficiency data, plaque assay data, ALT assay, bacterial growth assay data, phage titer data"
+  },
+  {
+    "SampleType": "D.FILE",
+    "ID": 43,
+    "Name": "Data File (used to upload Data Files to SEEK)",
+    "Description": "This sample is used to upload data files in batch to SEEK. It is not used often and doesn't contain much useful metadata",
+    "Tags": "generic file, miscellaneous data file, unclassified data, supporting file, general data, document, ancillary file"
+  },
+  {
+    "SampleType": "A.FLOW",
+    "ID": 44,
+    "Name": "Flow Cytometry Analysis",
+    "Description": "A flow cytometry analysis file contains processed results derived from raw cytometry data. It represents quantified cell populations, marker expression levels, or gating outcomes used for downstream statistical interpretation. Each file typically aggregates data from multiple raw samples into one analyzed dataset (many\u21921).\nTypical file types: .csv, .xlsx, .fcs",
+    "Tags": "flow cytometry analysis, FACS analysis, cytometry analysis, immunophenotyping analysis, cell sorting analysis, fluorescence cytometry results, cell population analysis"
+  },
+  {
+    "SampleType": "A.LMX",
+    "ID": 47,
+    "Name": "Luminex Analysis",
+    "Description": "A Luminex analysis file contains processed results from multiplexed bead-based assays. It represents summarized analyte concentrations or normalized fluorescence values derived from raw Luminex data. Each file often aggregates multiple wells or samples into a unified dataset (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "Luminex analysis, multiplexed bead assay analysis, cytokine multiplex analysis, xMAP analysis, bead-based immunoassay analysis, BioPlex analysis, Magpix analysis"
+  },
+  {
+    "SampleType": "A.LUM",
+    "ID": 48,
+    "Name": "Luminescene Analysis",
+    "Description": "A luminescence analysis file contains processed signal intensities from luminescent assays. It represents normalized or interpreted results used to evaluate gene expression, enzyme activity, or cellular response. Each file may combine multiple plate wells or replicates into a single summary dataset (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "luminescence analysis, bioluminescence analysis, luciferase analysis, reporter gene analysis, chemiluminescence analysis, RLU analysis, light emission assay results"
+  },
+  {
+    "SampleType": "D.LMX",
+    "ID": 49,
+    "Name": "Luminex Data",
+    "Description": "A Luminex data file contains multiplexed fluorescence intensity measurements generated by bead-based assays. It represents the digital output used to quantify multiple proteins, cytokines, or analytes simultaneously.\nTypical file types: .csv, .xlsx, .xml",
+    "Tags": "Luminex data, bead-based multiplex data, cytokine data, xMAP data, multiplex immunoassay data, BioPlex data, Magpix data, bead array data"
+  },
+  {
+    "SampleType": "D.LUM",
+    "ID": 50,
+    "Name": "Luminescene Data",
+    "Description": "A luminescence data file records light emission measurements produced by reporter or enzyme-based assays. It represents the digital output used to evaluate gene expression, metabolic activity, or compound response.\nTypical file types: .csv, .xlsx",
+    "Tags": "luminescence data, luciferase data, reporter assay data, bioluminescence data, chemiluminescence data, RLU data, plate reader luminescence, glow assay data"
+  },
+  {
+    "SampleType": "A.IMG",
+    "ID": 51,
+    "Name": "Imaging Analysis",
+    "Description": "An imaging analysis file contains processed measurements extracted from image data. It represents quantitative or annotated outputs such as feature segmentation, intensity maps, or region-based statistics. Each file often summarizes data from multiple images or fields of view (many\u21921).\nTypical file types: .tiff, .csv, .json",
+    "Tags": "imaging analysis, image analysis, microscopy analysis, image quantification, segmentation analysis, morphological analysis, fluorescence image analysis, pixel analysis"
+  },
+  {
+    "SampleType": "D.MBL",
+    "ID": 52,
+    "Name": "Microbial Load Data",
+    "Description": "A microbial load data file contains quantitative measurements of microbial abundance or concentration within a sample. It represents the processed output from culture-based or molecular assays assessing contamination or infection levels.\nTypical file types: .csv, .xlsx",
+    "Tags": "microbial load data, bacterial burden data, CFU data, colony forming units, microbial count, pathogen load, infection burden, microbial abundance, bacterial load"
+  },
+  {
+    "SampleType": "D.NMR",
+    "ID": 54,
+    "Name": "Nuclear Magnetic Resonance Data",
+    "Description": "A nuclear magnetic resonance (NMR) data file stores spectra representing the magnetic resonance response of atomic nuclei. It captures the digital output used to determine molecular structures, dynamics, or chemical composition.\nTypical file types: .fid, .zip, .jdx",
+    "Tags": "NMR data, nuclear magnetic resonance data, NMR spectrum, FID data, chemical shift data, metabolomics NMR, spectroscopy data, NMR raw file"
+  },
+  {
+    "SampleType": "CHM",
+    "ID": 55,
+    "Name": "Chemical Sample",
+    "Description": "A chemical sample represents a defined compound or reagent used in an experiment. It may serve as a reactant, control, or treatment substance within an experimental workflow.",
+    "Tags": "chemical, compound, reagent, small molecule, drug, inhibitor, chemical compound, treatment compound, synthetic compound, drug candidate, chemical reagent"
+  },
+  {
+    "SampleType": "A.SCXP",
+    "ID": 57,
+    "Name": "Single Cell Expression Matrix Analysis ",
+    "Description": "A single cell expression matrix file contains processed gene expression counts for individual cells. It represents the normalized matrix used for downstream dimensionality reduction, clustering, or differential expression analysis. Each file integrates thousands of single-cell measurements into one dataset (many\u21921).\nTypical file types: .h5ad, .mtx, .csv",
+    "Tags": "single cell expression matrix, scRNA-seq analysis, single cell transcriptomics, gene expression matrix, count matrix, 10x Genomics analysis, droplet sequencing analysis, single cell RNA"
+  },
+  {
+    "SampleType": "A.SCCL",
+    "ID": 59,
+    "Name": "Single Cell Clustering Analysis ",
+    "Description": "A single cell clustering analysis file contains processed results grouping cells based on shared expression profiles. It represents the interpreted output used to define cellular subpopulations and visualize transcriptomic structure. Each file summarizes results derived from many single-cell inputs (many\u21921).\nTypical file types: .csv, .rds, .h5ad",
+    "Tags": "single cell clustering analysis, scRNA-seq clustering, cell population clustering, UMAP analysis, dimensionality reduction, Seurat clustering, Leiden clustering, cell type annotation"
+  },
+  {
+    "SampleType": "RNA",
+    "ID": 60,
+    "Name": "RNA Sample",
+    "Description": "An RNA sample contains extracted ribonucleic acid from cells or tissues. It is used to study gene expression, transcriptional profiles, or other RNA-based molecular processes.",
+    "Tags": "RNA, ribonucleic acid, extracted RNA, mRNA, total RNA, messenger RNA, RNA isolation, transcriptome input, RNA extraction, gene expression input"
+  },
+  {
+    "SampleType": "A.CTSC",
+    "ID": 65,
+    "Name": "CT Scan Analysis",
+    "Description": "A CT scan analysis file contains processed imaging data or quantitative measurements derived from computed tomography scans. It represents reconstructed images, segmented structures, or volumetric features used for interpretation. Each file typically summarizes one scan or patient dataset (1\u21921).\nTypical file types: .nii, .dcm, .csv",
+    "Tags": "CT scan analysis, computed tomography analysis, CT results, radiological analysis, lung CT analysis, volumetric analysis, 3D imaging analysis, DICOM analysis, radiology"
+  },
+  {
+    "SampleType": "LOC",
+    "ID": 67,
+    "Name": "Geographical Location Sample",
+    "Description": "A geographical location sample represents a defined site or environment from which biological or environmental material is collected. It links samples to spatial coordinates, enabling analysis of regional or ecological variation.",
+    "Tags": "location, geographical site, collection site, field site, GPS coordinates, sampling location, geographic point, environmental site, study site, sampling coordinates"
+  },
+  {
+    "SampleType": "AB",
+    "ID": 68,
+    "Name": "Antibody",
+    "Description": "An antibody sample contains purified immune proteins that specifically recognize and bind to target molecules. These samples are used in experimental procedures that detect, label, or isolate biological components. Each antibody is defined by its binding specificity, source, and production method.",
+    "Tags": "antibody, immunoglobulin, Ab, mAb, monoclonal antibody, polyclonal antibody, primary antibody, secondary antibody, IgG, IgM, IgA, IgE, detection antibody, blocking antibody, isotype control"
+  },
+  {
+    "SampleType": "D.ELSA",
+    "ID": 69,
+    "Name": "ELISA Assay Data",
+    "Description": "An ELISA assay data file contains absorbance or fluorescence readings from enzyme-linked immunosorbent assays. It represents the processed output used to quantify target proteins, antigens, or antibodies.\nTypical file types: .csv, .xlsx",
+    "Tags": "ELISA data, enzyme-linked immunosorbent assay data, immunoassay data, plate reader data, absorbance data, OD data, sandwich ELISA, antibody detection data, ELISA plate output"
+  },
+  {
+    "SampleType": "A.FPCL",
+    "ID": 70,
+    "Name": "Antibody Functional Profiling Cluster Analysis",
+    "Description": "An antibody functional profiling cluster analysis file contains processed results grouping antibody response profiles by shared activity patterns. It represents interpreted datasets used to identify immune response signatures across samples. Each file integrates multiple antibody measurements into one summary dataset (many\u21921).\nTypical file types: .csv, .xlsx, .rds",
+    "Tags": "antibody functional profiling cluster analysis, functional profiling clustering, FPCL, immune response clustering, systems serology clustering, multivariate antibody analysis"
+  },
+  {
+    "SampleType": "ABP",
+    "ID": 72,
+    "Name": "Antibody Panel Sample (Collection of Antibodies)",
+    "Description": "An antibody panel sample represents a curated collection of antibodies used for detection or labeling in assays. It defines the set of reagents applied to measure or visualize specific proteins, cells, or molecular targets. This sample type is used to link AB's together into a single UID",
+    "Tags": "antibody panel, antibody cocktail, staining panel, flow panel, CyTOF panel, multiplex antibody panel, antibody collection, antibody set, reagent panel"
+  },
+  {
+    "SampleType": "A.DBMM",
+    "ID": 73,
+    "Name": "Digitally Barcoded MTB Matrix Analysis",
+    "Description": "A digitally barcoded MTB matrix analysis file contains processed results from barcoded Mycobacterium tuberculosis tracking experiments. It represents summarized abundance or distribution data across bacterial lineages or host conditions. Each file aggregates results from multiple barcoded samples into one matrix (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "digitally barcoded MTB matrix analysis, digital barcode analysis, mycobacterium tuberculosis barcode, bacterial lineage tracking, barcoded strain analysis, TB barcode sequencing"
+  },
+  {
+    "SampleType": "OOC",
+    "ID": 74,
+    "Name": "Organ on Chip",
+    "Description": "An organ-on-chip sample consists of living cells arranged within a microengineered device that mimics the structure and function of human tissues. These samples recreate physiological conditions at a miniature scale, allowing controlled investigation of organ-level responses. Each represents a unique combination of cell types, architecture, and flow conditions.",
+    "Tags": "organ on chip, microphysiological system, MPS, microfluidic device, gut on chip, lung on chip, liver on chip, in vitro organ model, tissue chip, body on chip, microfluidic organ"
+  },
+  {
+    "SampleType": "D.FCS",
+    "ID": 75,
+    "Name": "Flow Cytometry Compensation File Data",
+    "Description": "These samples are similar to D.FILE. They contain compensation files associated with Primary Flow Cytometry files. They are used to convert mixed FCS files into unmixed. They are not always included in D.FLOW samples",
+    "Tags": "FCS file, flow cytometry standard file, compensation file, spectral unmixing file, listmode data, cytometry compensation, unmixing reference, FCS compensation"
+  },
+  {
+    "SampleType": "D.CYTOF",
+    "ID": 76,
+    "Name": "Mass CYTOF Data",
+    "Description": "A mass CYTOF data file contains signal intensity values from mass cytometry, where antibodies are tagged with metal isotopes. It represents the digital output used to profile cellular protein expression at single-cell resolution.\nTypical file types: .fcs, .txt, .csv",
+    "Tags": "CyTOF data, mass cytometry data, metal-tagged cytometry, high-dimensional cytometry, single cell protein data, HDCyto, mass spectrometry cytometry, ion count data"
+  },
+  {
+    "SampleType": "A.ALN",
+    "ID": 77,
+    "Name": "Sequence Alignment Analysis",
+    "Description": "A sequence alignment analysis file contains processed alignment data comparing nucleotide or amino acid sequences to reference genomes. It represents the mapping of reads to a reference used for variant calling or annotation. Each file typically corresponds to a single sequencing sample (1\u21921).\nTypical file types: .bam, .sam",
+    "Tags": "sequence alignment analysis, genome alignment, read mapping, BAM file analysis, SAM analysis, aligned reads, reference mapping, short read alignment, bowtie, BWA, STAR alignment"
+  },
+  {
+    "SampleType": "A.MUSP",
+    "ID": 78,
+    "Name": "Mutational Spectra Analysis",
+    "Description": "A mutational spectra analysis file contains processed summaries of mutation types, frequencies, and contexts. It represents aggregated data used to identify mutational signatures or mechanisms across samples. Each file integrates results from multiple genomic samples into one analyzed dataset (many\u21921).\nTypical file types: .csv, .xlsx, .json",
+    "Tags": "mutational spectra analysis, mutation signature analysis, somatic mutation analysis, SBS signature, trinucleotide context, COSMIC signature, mutational pattern analysis"
+  },
+  {
+    "SampleType": "A.NMR",
+    "ID": 79,
+    "Name": "Nuclear Magnetic Resonance Analysis",
+    "Description": "A nuclear magnetic resonance analysis file contains processed spectra or peak lists derived from raw NMR data. It represents interpreted molecular structure or dynamics data used in chemical or biological characterization. Each file may summarize multiple spectral acquisitions into one analyzed dataset (many\u21921).\nTypical file types: .csv, .txt, .jdx",
+    "Tags": "NMR analysis, nuclear magnetic resonance analysis, NMR spectroscopy analysis, metabolomics NMR, chemical structure analysis, peak list analysis, spectral assignment"
+  },
+  {
+    "SampleType": "D.SPC",
+    "ID": 80,
+    "Name": "Spectroscopy Data",
+    "Description": "A spectroscopy data file records the interaction of light or electromagnetic radiation with a sample. It represents the measured spectra used to analyze molecular composition, structural properties, or chemical bonds.\nTypical file types: .csv, .txt, .spc",
+    "Tags": "spectroscopy data, optical spectroscopy, UV-Vis data, absorption spectra, fluorescence spectra, Raman data, infrared data, spectral data, absorption spectrum"
+  },
+  {
+    "SampleType": "A.SPC",
+    "ID": 81,
+    "Name": "Spectroscopy Analysis",
+    "Description": "A spectroscopy analysis file contains processed spectral data derived from optical or electromagnetic measurements. It represents interpreted wavelength or intensity data used to characterize material or molecular properties. Each file may summarize multiple spectral readings into one analyzed dataset (many\u21921).\nTypical file types: .csv, .xlsx, .txt",
+    "Tags": "spectroscopy analysis, optical spectroscopy analysis, UV-Vis analysis, absorption spectroscopy, fluorescence spectroscopy analysis, Raman analysis, infrared spectroscopy analysis"
+  },
+  {
+    "SampleType": "D.XRS",
+    "ID": 82,
+    "Name": "X-Ray Spectroscopy Data",
+    "Description": "An X-ray spectroscopy data file captures the energy spectra produced when X-rays interact with matter. It represents the digital output used to study elemental composition, bonding environments, or crystalline structures.\nTypical file types: .csv, .xrf, .dat",
+    "Tags": "X-ray spectroscopy data, XRS, XRF data, X-ray fluorescence, SAXS data, WAXS data, small-angle X-ray scattering, X-ray diffraction, elemental analysis data"
+  },
+  {
+    "SampleType": "D.PRM",
+    "ID": 83,
+    "Name": "Paramagnetic Resonance Data",
+    "Description": "A paramagnetic resonance data file contains spectra from electron paramagnetic resonance (EPR) or electron spin resonance (ESR) experiments. It represents the digital output used to study unpaired electrons and local magnetic environments.\nTypical file types: .csv, .jdx, .spc",
+    "Tags": "paramagnetic resonance data, EPR data, ESR data, electron paramagnetic resonance, electron spin resonance, radical detection data, spin label data"
+  },
+  {
+    "SampleType": "D.CRY",
+    "ID": 84,
+    "Name": "Crystallography Data",
+    "Description": "A crystallography data file stores diffraction patterns generated when X-rays pass through a crystalline sample. It represents the raw or processed output used to determine atomic and molecular structures.\nTypical file types: .mtz, .cif, .hkl",
+    "Tags": "crystallography data, X-ray crystallography, diffraction data, crystal structure data, .mtz file, .cif file, protein crystal data, small molecule crystal, synchrotron data"
+  },
+  {
+    "SampleType": "A.CCE",
+    "ID": 85,
+    "Name": "Cancer Cell Extravasation Assay Analysis",
+    "Description": "A cancer cell extravasation assay analysis file contains processed results from experiments tracking cancer cell movement through vascular barriers. It represents quantitative or image-derived data used to assess metastatic potential or cell motility. Each file often summarizes data from multiple imaging or time-lapse measurements (many\u21921).\nTypical file types: .csv, .xlsx, .tiff",
+    "Tags": "cancer cell extravasation analysis, extravasation assay, metastasis assay analysis, tumor cell migration through barrier, vascular barrier assay, transendothelial migration analysis"
+  },
+  {
+    "SampleType": "A.PERM",
+    "ID": 86,
+    "Name": "Permeability Assay Analysis",
+    "Description": "A permeability assay analysis file contains processed results measuring the passage of molecules or cells across a membrane or barrier. It represents the digital output used to evaluate tissue integrity or compound transport. Each file may summarize results from multiple wells or conditions (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "permeability analysis, barrier permeability, membrane permeability, transwell permeability, TEER analysis, paracellular permeability, epithelial barrier analysis, chip permeability"
+  },
+  {
+    "SampleType": "A.CLOT",
+    "ID": 87,
+    "Name": "Clot Forming Assay Analysis",
+    "Description": "A clot forming assay analysis file contains processed measurements of coagulation kinetics or fibrin network formation. It represents time-dependent or endpoint results used to study clotting activity. Each file may correspond to one or several clotting experiments (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "clot forming analysis, coagulation analysis, clotting assay analysis, fibrin network analysis, thrombosis analysis, hemostasis analysis, clotting kinetics"
+  },
+  {
+    "SampleType": "D.TITR",
+    "ID": 88,
+    "Name": "Titer Assay Data",
+    "Description": "A titer assay data file contains quantitative measurements of antibody or viral concentrations from serial dilution experiments. It represents the processed output used to assess immune response or viral load.\nTypical file types: .csv, .xlsx",
+    "Tags": "titer assay data, antibody titer data, bead-based titer, serology data, dilution assay data, endpoint titer, neutralization assay, ELISA titer, binding titer raw data"
+  },
+  {
+    "SampleType": "D.FCRB",
+    "ID": 89,
+    "Name": "Fc-gamma Receptor Binding Assay data",
+    "Description": "An Fc-gamma receptor binding assay data file records binding measurements between antibodies and Fc-gamma receptors. It represents the output used to evaluate antibody effector function and receptor affinity.\nTypical file types: .csv, .xlsx",
+    "Tags": "Fc receptor binding data, FCRB data, Fc-gamma receptor data, receptor binding assay data, effector function raw data, FcR assay output"
+  },
+  {
+    "SampleType": "D.ADCD",
+    "ID": 90,
+    "Name": "Antibody Dependent Complement Deposition Data",
+    "Description": "An antibody dependent complement deposition data file records complement activation measured in response to antibody binding. It represents the digital output used to quantify immune complex formation and complement pathway activity.\nTypical file types: .csv, .xlsx",
+    "Tags": "complement deposition data, ADCD data, C3 deposition data, complement assay raw data, opsonization data, complement activation data"
+  },
+  {
+    "SampleType": "D.ADCP",
+    "ID": 91,
+    "Name": "Antibody Dependent Cellular Phagocytosis Data",
+    "Description": "An antibody dependent cellular phagocytosis data file contains measurements of target cell uptake mediated by antibody opsonization. It represents the digital output used to assess immune cell function and antibody efficacy.\nTypical file types: .csv, .xlsx",
+    "Tags": "phagocytosis data, ADCP raw data, opsonophagocytosis data, THP-1 assay data, bead phagocytosis data, phagocytic assay output"
+  },
+  {
+    "SampleType": "D.ADNKA",
+    "ID": 92,
+    "Name": "Antibody Dependent NK cell activation Data",
+    "Description": "An antibody dependent NK cell activation data file contains fluorescence or luminescence signals measuring natural killer cell activation through antibody engagement. It represents the output used to evaluate antibody-dependent cellular cytotoxicity.\nTypical file types: .csv, .xlsx",
+    "Tags": "NK cell activation data, ADNKA raw data, natural killer cell assay data, ADCC data, NK activation output, cytokine secretion data"
+  },
+  {
+    "SampleType": "D.ADNP",
+    "ID": 93,
+    "Name": "Antibody Dependent Neutrophil Phagocytosis Data",
+    "Description": "An antibody dependent neutrophil phagocytosis data file records quantitative measurements of antibody-mediated uptake by neutrophils. It represents the processed output used to evaluate innate immune activation.\nTypical file types: .csv, .xlsx",
+    "Tags": "neutrophil phagocytosis data, ADNP raw data, granulocyte assay data, neutrophil uptake data"
+  },
+  {
+    "SampleType": "A.COMC",
+    "ID": 94,
+    "Name": "Comet Chip Analysis",
+    "Description": "A comet chip analysis file contains processed data from assays measuring DNA strand breaks in cells. It represents quantified tail moments or damage indices used to assess genotoxicity or DNA repair efficiency. Each file typically aggregates data from multiple comets or replicates (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "comet chip analysis, comet assay analysis, DNA damage analysis, genotoxicity analysis, DNA strand break, tail moment, alkaline comet assay, single cell gel electrophoresis"
+  },
+  {
+    "SampleType": "A.FCRB",
+    "ID": 95,
+    "Name": "FCRB Assay Analysis",
+    "Description": "An FCRB analysis file contains processed binding data from Fc receptor assays. It represents quantified receptor-ligand interactions used to evaluate antibody effector functions. Each file may summarize multiple binding measurements or conditions (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "Fc receptor binding analysis, FcR binding analysis, FCRB analysis, Fc-gamma receptor analysis, antibody effector function analysis, receptor affinity analysis"
+  },
+  {
+    "SampleType": "A.ADCP",
+    "ID": 96,
+    "Name": "ADCP Analysis",
+    "Description": "An ADCP analysis file contains processed results from antibody-dependent cellular phagocytosis assays. It represents quantified phagocytic activity used to assess immune function or antibody efficacy. Each file often summarizes data from multiple replicates or cell populations (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "ADCP analysis, antibody-dependent cellular phagocytosis analysis, opsonophagocytosis analysis, phagocytic score, THP-1 phagocytosis, bead uptake analysis"
+  },
+  {
+    "SampleType": "A.ADNP",
+    "ID": 97,
+    "Name": "ADNP Analysis",
+    "Description": "An ADNP analysis file contains processed data from antibody-dependent neutrophil phagocytosis assays. It represents fluorescence or imaging-based results used to quantify neutrophil uptake activity. Each file typically summarizes data from multiple replicates or conditions (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "neutrophil phagocytosis analysis, ADNP, antibody-dependent neutrophil uptake, granulocyte phagocytosis analysis, innate immune effector analysis"
+  },
+  {
+    "SampleType": "A.ADNKA",
+    "ID": 98,
+    "Name": "ADNKA Analysis",
+    "Description": "An ADNKA analysis file contains processed results from antibody-dependent natural killer cell activation assays. It represents quantified cytokine secretion or surface marker expression used to measure NK cell activity. Each file often summarizes multiple donor or replicate measurements (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "NK cell activation analysis, ADNKA, natural killer cell analysis, antibody-dependent NK activation, ADCC analysis, NK cell cytotoxicity analysis, innate immune analysis"
+  },
+  {
+    "SampleType": "A.TITR",
+    "ID": 99,
+    "Name": "Titer Assay Analysis",
+    "Description": "A titer assay analysis file contains processed results from antibody or viral titer experiments. It represents calculated concentrations or endpoint dilutions used to quantify immune response or viral load. Each file typically summarizes data from serial dilution experiments (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "titer analysis, antibody titer analysis, neutralization titer, endpoint dilution analysis, serology analysis, PRNT analysis, plaque reduction neutralization, IC50 serology"
+  },
+  {
+    "SampleType": "A.GEX",
+    "ID": 100,
+    "Name": "Gene Expression Analysis",
+    "Description": "A gene expression analysis file contains processed transcript abundance or normalized expression values derived from sequencing or array data. It represents interpreted results used for differential expression, clustering, or pathway analysis. Each file often aggregates data from multiple samples or conditions into one dataset (many\u21921).\nTypical file types: .csv, .xlsx, .tsv",
+    "Tags": "gene expression analysis, RNA-seq analysis, transcriptomics analysis, differential expression analysis, DESeq2, count matrix, bulk RNA analysis, expression profiling, transcript abundance"
+  },
+  {
+    "SampleType": "M.LMM",
+    "ID": 101,
+    "Name": "Linear Mixed Model",
+    "Description": "A linear mixed model file contains statistical outputs from models that include both fixed and random effects. It represents results used to analyze complex datasets with repeated measures or hierarchical structure. Each file typically summarizes modeled results from multiple input datasets (many\u21921).\nTypical file types: .rds, .csv, .txt",
+    "Tags": "linear mixed model, LMM, mixed effects model, REML, random effects model, longitudinal model, repeated measures model, statistical model, fixed effects"
+  },
+  {
+    "SampleType": "D.GPC",
+    "ID": 106,
+    "Name": "Gel Permeation Chromatography",
+    "Description": "A gel permeation chromatography data file contains chromatographic traces measuring molecular weight distribution in polymers or biomolecules. It represents the digital output used to assess sample purity and size distribution.\nTypical file types: .csv, .txt",
+    "Tags": "gel permeation chromatography data, GPC data, size exclusion chromatography data, SEC data, molecular weight distribution, polymer characterization, chromatography trace"
+  },
+  {
+    "SampleType": "D.TNSY",
+    "ID": 107,
+    "Name": "Tensiometry Assay",
+    "Description": "A tensiometry assay data file records surface tension or interfacial force measurements. It represents the instrument output used to characterize material properties or molecular interactions.\nTypical file types: .csv, .txt",
+    "Tags": "tensiometry data, surface tension data, pendant drop tensiometry, interfacial force data, dynamic surface tension, surfactant characterization, droplet tensiometry"
+  },
+  {
+    "SampleType": "A.CNV",
+    "ID": 108,
+    "Name": "Copy Number Variation Analysis",
+    "Description": "A copy number variation analysis file contains processed genomic data identifying gains or losses in DNA segments. It represents interpreted results used to study structural variation or genomic instability. Each file may reflect one sample\u2019s CNV profile or an aggregated cohort-level analysis (1\u21921 or many\u21921).\nTypical file types: .csv, .vcf, .bed",
+    "Tags": "copy number variation analysis, CNV, copy number alteration, genomic amplification, chromosomal copy number, somatic copy number, structural variation, CNA"
+  },
+  {
+    "SampleType": "A.MIGR",
+    "ID": 109,
+    "Name": "Migration Analysis ",
+    "Description": "A migration analysis file contains processed results tracking cell or particle movement over time. It represents quantified parameters such as velocity, directionality, or displacement derived from imaging data. Each file may summarize multiple tracked entities or timepoints (many\u21921).\nTypical file types: .csv, .xlsx, .json",
+    "Tags": "migration analysis, cell migration analysis, chemotaxis analysis, motility analysis, scratch assay analysis, wound healing assay, transwell migration analysis, cell tracking"
+  },
+  {
+    "SampleType": "SLD",
+    "ID": 110,
+    "Name": "Slide/Tissue Section",
+    "Description": "A slide of tissue section represents a mounted and prepared sample containing thin slices of biological tissue. It is used for spatial transcriptomics or imaging-based assays that map gene expression across tissue architecture.",
+    "Tags": "slide, tissue slide, histology slide, microscopy slide, tissue section, FFPE slide, frozen section, stained slide, pathology slide, glass slide, tissue mount"
+  },
+  {
+    "SampleType": "A.SPTX",
+    "ID": 111,
+    "Name": "Analyzed Spatial Transcriptomics Data",
+    "Description": "An analyzed spatial transcriptomics file contains processed gene expression and spatial coordinate data derived from tissue imaging experiments. It represents integrated molecular and positional information used for spatially resolved analyses. Each file may represent one tissue section or a combined dataset across multiple regions (1\u21921 or many\u21921).\nTypical file types: .h5ad, .csv, .tsv",
+    "Tags": "spatial transcriptomics analysis, spatial gene expression, Visium analysis, slide-seq analysis, spatially resolved transcriptomics, tissue mapping, in situ transcriptomics"
+  },
+  {
+    "SampleType": "M.CNN",
+    "ID": 112,
+    "Name": "Convolutional Neural Network Model",
+    "Description": "A convolutional neural network (CNN) model file contains trained parameters or outputs from deep learning models used for image or pattern recognition. It represents computationally derived predictions or classifications rather than direct experimental measurements. Each file typically summarizes training results from many input images (many\u21921).\nTypical file types: .h5, .pt, .onnx",
+    "Tags": "convolutional neural network, CNN, deep learning model, image classification model, neural network, computer vision model, machine learning model, .h5 model, .pt model, torch model"
+  },
+  {
+    "SampleType": "D.BSRA",
+    "ID": 113,
+    "Name": "Bacterial Survivability Restriction Assay",
+    "Description": "A bacterial survivability restriction assay data file contains measurements of bacterial viability under defined conditions. It represents the processed output used to assess antimicrobial resistance or stress responses.\nTypical file types: .csv, .xlsx",
+    "Tags": "bacterial survivability data, BSRA, antimicrobial assay data, bacterial killing data, infection assay data, bacterial restriction data, luminescent bacteria data"
+  },
+  {
+    "SampleType": "D.GLYN",
+    "ID": 114,
+    "Name": "Glycosylation Assay",
+    "Description": "A glycosylation assay data file records the presence or structure of carbohydrate modifications on proteins or lipids. It represents the analytical output used to study post-translational modifications or molecular stability.\nTypical file types: .csv, .xlsx, .raw",
+    "Tags": "glycosylation data, glycan data, sugar modification data, post-translational modification data, N-glycan, O-glycan, glycoproteomics data, antibody glycosylation"
+  },
+  {
+    "SampleType": "A.CCI",
+    "ID": 115,
+    "Name": "Cell Culture Imaging Analysis FIles",
+    "Description": "A cell culture imaging analysis file contains processed results extracted from microscopy or live-cell imaging experiments. It represents quantitative image-derived data describing cell morphology, growth, or dynamics. Each file often summarizes data from multiple imaging fields or replicates (many\u21921).\nTypical file types: .csv, .tiff, .json",
+    "Tags": "cell culture imaging analysis, live cell imaging analysis, microscopy analysis, cell morphology analysis, proliferation imaging, cell growth imaging, in vitro imaging analysis"
+  },
+  {
+    "SampleType": "D.PCR",
+    "ID": 116,
+    "Name": "PCR Sequencing Data File",
+    "Description": "A PCR sequencing data file contains read data or amplicon sequences generated from polymerase chain reaction\u2013based assays. It represents the digital output used for variant identification or sequence validation.\nTypical file types: .fastq, .ab1, .csv",
+    "Tags": "PCR data, qPCR data, RT-PCR data, amplicon data, polymerase chain reaction, quantitative PCR, gene expression PCR, Sanger sequencing, amplification data, ddPCR"
+  },
+  {
+    "SampleType": "D.WBLT",
+    "ID": 117,
+    "Name": "Western Blot Data File",
+    "Description": "A western blot data file contains image or densitometric results from protein detection assays. It represents the output used to quantify protein expression or post-translational modifications.\nTypical file types: .tiff, .png, .csv",
+    "Tags": "western blot data, immunoblot data, protein gel data, membrane scan, WB raw data, chemiluminescent blot, fluorescent blot, protein band image, blot image"
+  },
+  {
+    "SampleType": "MDL",
+    "ID": 118,
+    "Name": "MDL",
+    "Description": "An MDL file represents a model definition or machine learning output used for predictive analysis. It contains parameters, trained weights, or configuration metadata describing a computational model. Each file typically summarizes results from training on multiple datasets (many\u21921).\nTypical file types: .mdl, .json, .h5",
+    "Tags": "model, computational model, predictive model, machine learning model, AI model, trained model, statistical model, data model, model output, trained weights"
+  },
+  {
+    "SampleType": "A.IMP",
+    "ID": 119,
+    "Name": "Analyzed Immuno-PeptideOmics",
+    "Description": "An analyzed immuno-peptideomics file contains processed peptide identifications and quantifications from immunopeptidomics assays. It represents interpreted datasets used to study antigen presentation or immune recognition. Each file often summarizes data from multiple samples or runs (many\u21921).\nTypical file types: .csv, .xlsx, .mzid",
+    "Tags": "immunopeptideomics analysis, immuno-peptideomics, MHC peptidome analysis, antigen presentation analysis, HLA peptide analysis, neoantigen analysis, immunopeptidomics"
+  },
+  {
+    "SampleType": "A.PHP",
+    "ID": 120,
+    "Name": "Analyzed PhosphoProteOmics",
+    "Description": "An analyzed phosphoproteomics file contains processed quantification and site-level phosphorylation data from proteomic workflows. It represents summarized results used to study signaling pathways and post-translational modifications. Each file often aggregates results from multiple experimental runs (many\u21921).\nTypical file types: .csv, .xlsx, .tsv",
+    "Tags": "phosphoproteomics analysis, phosphoprotein analysis, phosphorylation site analysis, signaling pathway analysis, post-translational modification analysis, pSTY analysis, kinase substrate analysis"
+  },
+  {
+    "SampleType": "D.PEX",
+    "ID": 121,
+    "Name": "Proximity extension assay ",
+    "Description": "A proximity extension assay data file contains fluorescence or quantification cycle (Cq) values from antibody-based oligonucleotide assays. It represents the processed output used to quantify protein expression at high sensitivity.\nTypical file types: .csv, .xlsx",
+    "Tags": "proximity extension assay data, PEA data, Olink data, protein biomarker data, Olink proximity extension, high-sensitivity proteomics, Cq value data"
+  },
+  {
+    "SampleType": "A.CYCF",
+    "ID": 122,
+    "Name": "cyCIF Analysis",
+    "Description": "A cyclic immunofluorescence (cyCIF) analysis file contains processed image or signal intensity data from multiplexed tissue imaging. It represents quantified marker expression across spatially resolved cell populations. Each file may summarize multiple image tiles or cycles (many\u21921).\nTypical file types: .csv, .tiff, .json",
+    "Tags": "cyCIF analysis, cyclic immunofluorescence analysis, multiplexed imaging analysis, iterative immunofluorescence, tissue imaging analysis, t-CyCIF, cyclic IF, spatial proteomics analysis"
+  },
+  {
+    "SampleType": "D.ADMP",
+    "ID": 123,
+    "Name": "Antibody-dependent macrophage phagocytic Data",
+    "Description": "An antibody-dependent macrophage phagocytic assay data file records uptake events or fluorescence intensities from antibody-mediated macrophage activity. It represents the processed data used to evaluate immune response strength.\nTypical file types: .csv, .xlsx",
+    "Tags": "macrophage assay data, ADMP raw data, macrophage phagocytosis data, macrophage functional assay output"
+  },
+  {
+    "SampleType": "D.ADDCP",
+    "ID": 124,
+    "Name": "Antibody-dependent dendritic cell phagocytic Data",
+    "Description": "An antibody-dependent dendritic cell phagocytic assay data file contains measurements of antibody-driven uptake by dendritic cells. It represents the experimental output used to assess antigen presentation or immune activation.\nTypical file types: .csv, .xlsx",
+    "Tags": "dendritic cell assay data, ADDCP raw data, DC phagocytosis data, antigen presentation assay data, dendritic cell uptake data"
+  },
+  {
+    "SampleType": "D.ONC",
+    "ID": 125,
+    "Name": "Oncopanel Data File",
+    "Description": "An oncopanel data file contains targeted sequencing results for a defined set of cancer-associated genes. It represents the processed output used to identify somatic variants or mutations in tumor samples.\nTypical file types: .fastq, .bam, .vcf",
+    "Tags": "oncopanel data, cancer gene panel, targeted sequencing cancer, tumor sequencing data, somatic variant data, oncology sequencing, cancer mutation panel, targeted oncology NGS"
+  },
+  {
+    "SampleType": "A.CYTOF",
+    "ID": 126,
+    "Name": "CyTOF (mass cytometry) analysis",
+    "Description": "A CyTOF analysis file contains processed single-cell data from mass cytometry experiments. It represents normalized marker expression profiles used for clustering and cell population analysis. Each file often aggregates data from multiple cytometry runs or samples (many\u21921).\nTypical file types: .csv, .fcs, .xlsx",
+    "Tags": "CyTOF analysis, mass cytometry analysis, high-dimensional cytometry, metal-labeled antibody analysis, single cell protein profiling, HDCyto, mass spectrometry cytometry analysis"
+  },
+  {
+    "SampleType": "SNSR",
+    "ID": 127,
+    "Name": "Sensor Sample",
+    "Description": "A sensor sample represents a physical measurement device or detector used within an experiment. It defines the source of recorded data, linking the collected measurements to a specific instrument, configuration, or deployment.",
+    "Tags": "sensor, biosensor, measurement device, detector, electrochemical sensor, optical sensor, monitoring device, probe, transducer, physical sensor, lab sensor"
+  },
+  {
+    "SampleType": "D.SIM",
+    "ID": 128,
+    "Name": "Simulation Data Type",
+    "Description": "A simulation data file contains computationally generated datasets modeling biological, physical, or experimental systems. It represents the digital output of in silico analyses used to test hypotheses or predict outcomes.\nTypical file types: .csv, .json, .txt",
+    "Tags": "simulation data, computational data, in silico data, molecular dynamics, modeling output, computational chemistry, DFT data, energy minimization, quantum chemistry"
+  },
+  {
+    "SampleType": "A.ADMP",
+    "ID": 129,
+    "Name": "Analysis of macrophage dependent functional profile",
+    "Description": "An analysis of macrophage dependent functional profile file contains processed immune response data specific to macrophage-mediated activity. It represents summarized functional measurements across experimental conditions. Each file may aggregate results from multiple assays or donors (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "macrophage functional analysis, ADMP, macrophage activation analysis, macrophage profiling, antibody-dependent macrophage phagocytosis analysis, macrophage-mediated immune response"
+  },
+  {
+    "SampleType": "A.ADDCP",
+    "ID": 130,
+    "Name": "Analysis of dendritic cell dependent functional profile",
+    "Description": "An analysis of dendritic cell dependent functional profile file contains processed measurements of dendritic cell activation or function. It represents integrated results used to assess antigen presentation or immune regulation. Each file often summarizes multiple experimental replicates or conditions (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "dendritic cell functional analysis, ADDCP, DC activation analysis, antigen presentation analysis, dendritic cell profiling, antibody-dependent DC phagocytosis analysis"
+  },
+  {
+    "SampleType": "A.ADCD",
+    "ID": 131,
+    "Name": "Antibody Complement Deposition Assay Analysis",
+    "Description": "A complement deposition assay analysis file contains processed measurements of complement component binding or activation. It represents quantitative data used to evaluate antibody-mediated complement activity. Each file typically summarizes results from multiple replicates or dilutions (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "antibody complement deposition analysis, ADCD, complement fixation analysis, C3 deposition, opsonization complement, antibody-mediated complement activity, complement pathway analysis"
+  },
+  {
+    "SampleType": "D.MSI",
+    "ID": 132,
+    "Name": "Mass Spec Imaging ",
+    "Description": "A mass spectrometry imaging data file combines spatial and spectral information to visualize molecular distributions across a tissue section. It represents the raw or processed output linking mass spectra to spatial coordinates.\nTypical file types: .imzML, .ibd, .txt",
+    "Tags": "mass spectrometry imaging data, MSI data, MALDI-MSI, spatial metabolomics, tissue imaging MS, molecular imaging, MALDI imaging, ion imaging, imzML data"
+  },
+  {
+    "SampleType": "A.CHRM",
+    "ID": 133,
+    "Name": "Chromatin Sequencing Analysis",
+    "Description": "A chromatin sequencing analysis file contains processed reads or signal tracks from assays measuring chromatin accessibility or binding. It represents interpreted genomic regions used to study regulatory elements or epigenetic states. Each file may represent analysis from a single sequencing library or an aggregated dataset (1\u21921 or many\u21921).\nTypical file types: .bam, .bigWig, .csv",
+    "Tags": "chromatin sequencing analysis, ATAC-seq analysis, ChIP-seq analysis, chromatin accessibility, epigenetic sequencing analysis, open chromatin, regulatory element analysis, histone modification analysis"
+  },
+  {
+    "SampleType": "VIR",
+    "ID": 137,
+    "Name": "Virus Sample Type",
+    "Description": "A virus sample represents a viral strain or preparation used in an experiment. It may be employed as an infectious agent, a vector, or material isolated from a host for further molecular analysis.",
+    "Tags": "virus, viral strain, viral sample, pathogen, SARS-CoV-2, influenza, viral preparation, virus stock, viral vector, live virus, attenuated virus, recombinant virus, viral isolate"
+  },
+  {
+    "SampleType": "A.ELSA",
+    "ID": 139,
+    "Name": "ELISA Analysis",
+    "Description": "An ELISA analysis file contains processed optical density measurements and calculated concentrations derived from raw enzyme-linked immunosorbent assay data. It represents quantified protein, antibody, or antigen levels derived from absorbance readings and standard curves. Each file typically summarizes results from one or more plates or sample sets (many\u21921).\nTypical file types: .csv, .xlsx",
+    "Tags": "ELISA analysis, enzyme-linked immunosorbent assay analysis, immunoassay analysis, antibody quantification, antigen detection analysis, OD analysis, plate reader results, absorbance analysis"
+  },
+  {
+    "SampleType": "A.VCF",
+    "ID": 142,
+    "Name": "Variant Call Analysis",
+    "Description": "A variant call analysis file contains processed genomic variant calls derived from aligned sequencing reads. It represents annotated single nucleotide polymorphisms, insertions, deletions, or structural variants identified against a reference genome. Each file typically corresponds to one sample or a merged cohort dataset (1\u219221 or many\u219221).\nTypical file types: .vcf, .vcf.gz, .bcf",
+    "Tags": "VCF analysis, variant call format, variant calling analysis, SNP analysis, SNV analysis, indel analysis, genomic variant annotation, GATK output, mutation calling, variant filtering"
+  },
+  {
+    "SampleType": "A.WBLT",
+    "ID": 141,
+    "Name": "Western Blot Analysis",
+    "Description": "A western blot analysis file contains processed band intensity or densitometry measurements derived from western blot image data. It represents quantified protein expression levels normalized against loading controls and compared across experimental lanes. Each file typically summarizes one gel or a set of blot images (many\u21921).\nTypical file types: .csv, .xlsx, .tiff",
+    "Tags": "western blot analysis, immunoblot analysis, protein gel analysis, densitometry analysis, WB analysis, protein expression analysis, band quantification, western blot results"
+  },
+  {
+    "SampleType": "D.WTR",
+    "ID": 138,
+    "Name": "Water Sample Data",
+    "Description": "A water sample data file contains physicochemical and microbiological measurements collected from drinking water distribution systems. It represents the raw output from water quality testing used to assess chemical composition, disinfection byproduct levels, nutrient concentrations, and microbial presence.\nTypical file types: .csv, .txt, .xlsx",
+    "Tags": "water quality data, drinking water data, tap water data, water chemistry, distribution system water, water monitoring, potable water analysis, water treatment data, disinfection byproduct data, DBP, THM, HAA"
+  },
+  {
+    "SampleType": "SUB",
+    "ID": 140,
+    "Name": "PubChem Substance",
+    "Description": "A PubChem substance record represents a chemical compound or biological molecule standardized and referenced via the NCBI PubChem database. It serves as a curated chemical entity linked to experimental workflows where specific compounds function as treatments, analytes, or reagents. Each record corresponds to a unique PubChem Compound ID (CID) or Substance ID (SID).",
+    "Tags": "substance, PubChem substance, chemical entity, chemical reference, compound, CID, SID, PubChem CID, small molecule, chemical database entry, NCBI compound, reference compound"
+  }
+]

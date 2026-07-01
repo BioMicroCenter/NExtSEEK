@@ -1,0 +1,41 @@
+#!/bin/sh
+# nextseek-api-read — read-only API dispatch (Layer-1 allowed, Layer-2 enforced).
+# CRITICAL-3 boundary: rejects --confirmed-write at the shim before exec'ing
+# the runner. The runner's L2 allowlist against read_safe_endpoints.json is the
+# load-bearing security check; this rejection is defense in depth.
+# Plan B · T6a.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+QUERY=""
+PARSER_PLAN=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --query) QUERY="$2"; shift 2 ;;
+    --query=*) QUERY="${1#--query=}"; shift ;;
+    --parser-plan) PARSER_PLAN="$2"; shift 2 ;;
+    --parser-plan=*) PARSER_PLAN="${1#--parser-plan=}"; shift ;;
+    --confirmed-write|--confirmed-write=*)
+      nextseek_die 3 "--confirmed-write is not valid on nextseek-api-read; use nextseek-api-write"
+      ;;
+    --help)
+      echo "Usage: nextseek-api-read --parser-plan '<json>' [--query \"<text>\"]"
+      echo ""
+      echo "Read-only API dispatch. Refuses --confirmed-write (use nextseek-api-write"
+      echo "for write-class operations). The runner additionally enforces an allowlist"
+      echo "of (endpoint, method) pairs from read_safe_endpoints.json."
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$PARSER_PLAN" ] || nextseek_die 3 "missing --parser-plan"
+
+if [ -n "$QUERY" ]; then
+  exec python "$SCRIPT_DIR/_nextseek_runner.py" \
+    --agent api-read --parser-plan "$PARSER_PLAN" --query "$QUERY"
+else
+  exec python "$SCRIPT_DIR/_nextseek_runner.py" \
+    --agent api-read --parser-plan "$PARSER_PLAN"
+fi

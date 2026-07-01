@@ -1,0 +1,59 @@
+{
+  "port_source_path": "/home/taishajo/work/dmac-assistant",
+  "port_source_commit": "a429f1372a075e5db586a1b6efc8c3b1663e211a",
+  "port_source_verified_clean_tree": true,
+  "generated_at": "2026-07-01T00:00:00Z",
+  "generation_attempts": [
+    {
+      "target": "build_context/plugins/nextseek/context/min_*.json catalog snapshot",
+      "discovered_entrypoint": "make snapshot-nextseek-catalogs (dmac-assistant/Makefile:296-309)",
+      "attempted_command": "make -C /home/taishajo/work/dmac-assistant snapshot-nextseek-catalogs CHAT_NEXTSEEK_SRC=/nonexistent/chat_nextseek",
+      "attempted_command_note": "CHAT_NEXTSEEK_SRC overridden to a deliberately-absent path so the Makefile's own fast-fail existence check (first line of the recipe) runs and exits before any copy -- zero writes to the read-only port source clone either way.",
+      "result": "BLOCKED",
+      "blocker_output": "ERROR: CHAT_NEXTSEEK_SRC not found at /nonexistent/chat_nextseek/src/chat_nextseek/context. Override via 'make snapshot-nextseek-catalogs CHAT_NEXTSEEK_SRC=/path/to/chat_nextseek'.\nmake: *** [Makefile:133: snapshot-nextseek-catalogs] Error 1",
+      "blocker_kind": "missing_external_source_tree",
+      "notes": "The real generation source is an external chat_nextseek working checkout (Makefile default is a macOS-only Dropbox-adjacent path, present on nobody's Linux dev box and not part of this repo or the dmac-assistant repo). Verified the source clone was untouched after the attempt (`git status --porcelain` empty). Fell back to committing the existing generated catalogs already present and git-tracked at build_context/plugins/nextseek/context/ in the pinned port_source_commit -- see context_file_inventory below.",
+      "source_clone_mutated": false
+    },
+    {
+      "target": "docs/nextseek/*.md + container/CLAUDE.md NExtSEEK-docs block ingestion",
+      "discovered_entrypoint": "make ingest-nextseek-docs -> uv run --project build_tools python -m build_tools.ingest_nextseek_docs (dmac-assistant/Makefile:173-180, build_tools/ingest_nextseek_docs/__main__.py)",
+      "attempted_command": "uv run --project <scratch-copy-of-build_tools> python -m build_tools.ingest_nextseek_docs --docs-dir <scratch>/docs-out --claude-md-path <scratch>/CLAUDE-out.md",
+      "attempted_command_note": "Run against an ISOLATED SCRATCH COPY of dmac-assistant/build_tools/ (not the read-only port source clone itself), with --docs-dir/--claude-md-path redirected to scratch paths, specifically to avoid any writes into the pinned clone (the tool's defaults write directly into docs/nextseek/ and container/CLAUDE.md relative to cwd).",
+      "result": "BLOCKED",
+      "blocker_output": "2026-07-01 19:45:38 [INFO] Loading source from https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/~gitbook/site-index (attempt 1/3)\n2026-07-01 19:45:38 [INFO] Fetching source bytes from: https://koch-institute-mit.gitbook.io/.../overview.md\n2026-07-01 19:45:39 [INFO] httpx: HTTP Request: GET .../overview.md \"HTTP/1.1 200 OK\"\n2026-07-01 19:45:39 [ERROR] ingest failed\nTraceback (most recent call last):\n  ...\n  File \"build_tools/ingest_nextseek_docs/fetch.py\", line 139, in _validate_markdown_page\n    raise ValueError(f\"GitBook page {page.title!r} did not start with an H1\")\nValueError: GitBook page 'Overview' did not start with an H1",
+      "blocker_kind": "source_content_format_drift",
+      "notes": "Network egress to the external GitBook source succeeded (HTTP 200, 2 pages fetched) -- this was NOT a network/egress block. The ingestion tool's own H1-validation rejected the live page content, indicating the upstream GitBook page format has drifted from what this tool's parser expects. This is a genuine, reproducible blocker in the dmac-assistant repo's own generation tooling, independent of this port. Fell back to committing the existing generated docs already present and git-tracked at docs/nextseek/ in the pinned port_source_commit -- see context_file_inventory below.",
+      "source_clone_mutated": false
+    }
+  ],
+  "context_file_inventory": [
+    {"path": "build_context/plugins/nextseek/context/capabilities.md", "size_bytes": 11747, "sha256": "fae548efa7c0ac8b768e8f6361728b2249c73d84842aaae3c12bdd7098b970ef"},
+    {"path": "build_context/plugins/nextseek/context/min_api_endpoints.json", "size_bytes": 16901, "sha256": "400a3f2b9f711ff4ad2d7e540f3ac5817083529d4d3c07d486806fde6cd0a020"},
+    {"path": "build_context/plugins/nextseek/context/min_api_endpoints_enriched.json", "size_bytes": 11657, "sha256": "5e9c6370d82676482f9d0c4fa50f4d082129e27fa18e4cab92dc52ffcec23956"},
+    {"path": "build_context/plugins/nextseek/context/min_assays_db.json", "size_bytes": 178403, "sha256": "55d327dfb0039b94a2fb271d9bf74aa5178b80fc0fbc9bf64ed0b7b477b8f678"},
+    {"path": "build_context/plugins/nextseek/context/min_graph_schema.json", "size_bytes": 4165, "sha256": "8884fe59a0edfb46acc0374fbd99b881639a67c3c2e611aaa67af9b3affc40c7"},
+    {"path": "build_context/plugins/nextseek/context/min_sampletypes_db.json", "size_bytes": 58849, "sha256": "38ba18667a4223ea9285d466e7dbb32681c6e4019e3e4ca79ee237e5d10060b4"},
+    {"path": "build_context/plugins/nextseek/context/neo4j_schema.json", "size_bytes": 13542, "sha256": "f8b0334e8e886cc0e7f1fe632826fb2eee50f241eafb980bd8458ae813a959ea"},
+    {"path": "build_context/plugins/nextseek/context/projects_db.json", "size_bytes": 7297, "sha256": "110da7b411e4cb73c5adb5b7324c871de6b40a26c3cfa5084a17437aab672619"},
+    {"path": "build_context/plugins/nextseek/context/read_safe_endpoints.json", "size_bytes": 1107, "sha256": "00cae178bd1d31bdea4cdd3756eda02bf9af1a89ca733f07da677a09e5c0afba"},
+    {"path": "docs/nextseek/.content-hash", "size_bytes": 65, "sha256": "63bf80efdd5a692e50f9661b19ef9e35082935f62a3ed3a8687e31bc6cbd5059"},
+    {"path": "docs/nextseek/01-overview.md", "size_bytes": 3414, "sha256": "1eafd47790d10dc6b7fe85d617d2c803aa6f0c3e1e9d85362c6d61a7bbfbea68"},
+    {"path": "docs/nextseek/02-using-seek-and-nextseek.md", "size_bytes": 11052, "sha256": "f0d86d1eb7dbe745781f1713f7df00cc1f0ee48397b3de02aaa43d4cfd7e994e"},
+    {"path": "docs/nextseek/03-uploading.md", "size_bytes": 8906, "sha256": "de535734e0fc9383e27a71a002b370585ceddb2d75b6b35e3960a5424c151226"},
+    {"path": "docs/nextseek/04-searching-downloading.md", "size_bytes": 7282, "sha256": "59df358b8972ece460d3c2f02c51fe566d1c3970bdac72b5494fa972bffc0170"},
+    {"path": "docs/nextseek/05-admin-pages.md", "size_bytes": 1293, "sha256": "f730ac4c4a31bfc59930852091005dba1caccb8cfdf863a27ad59a593dfe4e8a"},
+    {"path": "docs/nextseek/06-useful-links.md", "size_bytes": 624, "sha256": "ddc39f7bcf5a0d5d1fc560d451d9af9307c57a7152238aab041704bf70ed5d45"},
+    {"path": "docs/nextseek/07-installation.md", "size_bytes": 450, "sha256": "c7729e516766fb799d12bbded8d48ffa8d5af9d1a69c243cac1ec47d06ca171f"},
+    {"path": "docs/nextseek/08-seek.md", "size_bytes": 13130, "sha256": "ba89f73edf6233e552f9c73b172b1d070647880d3664f3c5d771dc4ef3320b17"},
+    {"path": "docs/nextseek/09-nextseek.md", "size_bytes": 10833, "sha256": "657450c8d28142d5588f3df20152ce93ffeb7f67280d3650762acb38b3a9d2c0"},
+    {"path": "docs/nextseek/10-contact-staff.md", "size_bytes": 1401, "sha256": "24c8046890a97e3eec4ed08d9f03652279c15475e01997880329d3858e9b8c02"},
+    {"path": "docs/nextseek/README.md", "size_bytes": 1435, "sha256": "79903ac801bd8cc7fed77b0afe30ae77f779a147aca37478709adaaa8e8154ad"}
+  ],
+  "known_pre_existing_source_drift": [
+    {
+      "path": "build_context/docs/nextseek-api/",
+      "observation": "Empty and untracked (not in git) at the pinned port_source_commit, yet the dmac-assistant Dockerfile COPYs it to /app/docs/nextseek-api/ and that repo's own test_dockerfile_build.py::test_layout_contract_paths_present asserts /app/docs/nextseek-api/README.md exists in the built image. This is pre-existing drift in the port source (not introduced by this port) -- ported as an empty, git-trackable placeholder (.gitkeep) so the COPY line still succeeds on a fresh checkout; /app/docs/nextseek-api/README.md will be absent in images built from docker/cc-runtime/, matching the port source's actual current state rather than its stale test expectation."
+    }
+  ]
+}

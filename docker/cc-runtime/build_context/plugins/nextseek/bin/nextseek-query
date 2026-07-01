@@ -1,0 +1,70 @@
+#!/bin/sh
+# nextseek-query — single-shot chat_nextseek pipeline. Default fast path.
+#
+# Runs the full entity -> parser -> api/memory/reporter/graph/system -> chatter
+# pipeline in one Python invocation.
+#
+# DEFAULT OUTPUT (no --json): prints just the user-facing reply text to stdout
+# — what Container-Claude should surface to the user. Internally, the runner's
+# full dict is captured and inspected; on error it is printed verbatim.
+#
+# WITH --json: prints the full runner dict to stdout:
+#   { "reply": "<final user-facing answer>",
+#     "debug": { "mode": ..., "parser_plan": ..., "api_plan": ..., ... },
+#     "bundle_id": <int|null>,
+#     "artifacts": [...], "files": [...] (optional)
+#   }
+# Use --json only for debug-ladder cases or when downstream tools need the
+# parser_plan / api_plan / bundle_id structure. The default form is what CC
+# should pass to nearly every user question.
+#
+# Add --planner to use the multi-step planner pipeline (run_query_plan).
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+QUERY=""
+PLANNER=""
+JSON_OUT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --query) QUERY="$2"; shift 2 ;;
+    --query=*) QUERY="${1#--query=}"; shift ;;
+    --planner) PLANNER="--planner"; shift ;;
+    --json) JSON_OUT="1"; shift ;;
+    --help)
+      echo "Usage: nextseek-query --query \"<text>\" [--planner] [--json]"
+      echo ""
+      echo "  Default: prints the user-facing reply text only."
+      echo "  --json:  prints the full runner dict (reply + debug + bundle_id + ...)"
+      echo "  --planner: use run_query_plan instead of run_query (multi-step)"
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$QUERY" ] || nextseek_die 3 "missing --query"
+
+if [ -n "$JSON_OUT" ]; then
+  exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent query --query "$QUERY" $PLANNER
+fi
+
+# Default path: extract just the .reply from the runner's JSON dict, surface
+# that to stdout. On any parse failure we surface the raw output so the failure
+# is visible to the caller.
+RAW="$(python "$SCRIPT_DIR/_nextseek_runner.py" --agent query --query "$QUERY" $PLANNER)"
+printf '%s' "$RAW" | python3 -c '
+import sys, json
+raw = sys.stdin.read()
+try:
+    d = json.loads(raw)
+except Exception:
+    sys.stdout.write(raw)
+    sys.exit(0)
+reply = d.get("reply")
+if not isinstance(reply, str):
+    sys.stdout.write(raw)
+    sys.exit(0)
+sys.stdout.write(reply)
+sys.stdout.write("\n")
+'
