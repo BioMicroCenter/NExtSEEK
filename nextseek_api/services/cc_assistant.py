@@ -510,3 +510,18 @@ class CCAssistantViewSet(viewsets.ViewSet):
         elif r.state == "FAILURE":
             resp["meta"] = {"error": str(r.result)}
         return Response(resp)
+
+    @action(detail=False, methods=["get"], url_path="upload/list")
+    def upload_list(self, request):
+        from nextseek_api.cc_assistant.cc_config import CCPaths
+        from nextseek_api.cc_assistant.cc_provision import (
+            resolve_user_project, ProjectResolutionError, build_user_dirs)
+        from nextseek_api.cc_assistant.cc_upload_list import list_input_files
+
+        api_user, api_pass = self._resolve_credentials(request)
+        try:
+            project = resolve_user_project(api_user, api_pass)
+        except ProjectResolutionError:
+            return Response({"error": "could not resolve SEEK project"}, status=503)
+        dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)
+        return Response({"files": list_input_files(dirs.input_mnt)})
