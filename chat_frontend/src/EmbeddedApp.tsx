@@ -176,24 +176,24 @@ export function EmbeddedApp() {
 
   const handleArtifactDownload = useCallback(
     (bundleId: number, artifactKey: string) => {
-      const sid = serviceRef.current.sessionId;
+      const sid = serviceRef.current.sessionId ?? sessions.activeSessionId;
       if (sid) {
         serviceRef.current
           .downloadArtifact(sid, bundleId, artifactKey)
           .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
       }
     },
-    [addSystemMessage],
+    [addSystemMessage, sessions.activeSessionId],
   );
 
   const handleCcArtifactDownload = useCallback(
     (artifactKey: string) => {
-      const sid = serviceRef.current.sessionId;
+      const sid = serviceRef.current.sessionId ?? sessions.activeSessionId;
       if (sid) {
         void serviceRef.current.downloadCcArtifact(sid, artifactKey);
       }
     },
-    [],
+    [sessions.activeSessionId],
   );
 
   const handleDownload = useCallback(
