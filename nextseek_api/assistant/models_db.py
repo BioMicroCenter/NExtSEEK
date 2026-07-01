@@ -67,3 +67,26 @@ class QueryTask(models.Model):
 
     def __str__(self):
         return f"QueryTask {self.task_id} ({self.status})"
+
+
+class CCSessionTranscript(models.Model):
+    """Full Claude Code session jsonl, zstd-compressed, per (session, turn).
+
+    Stored in its OWN table (NOT ChatSession.extra_state) so it is loaded only on
+    demand and never bloats hot ChatSession reads (SPEC-3 §7, E6)."""
+
+    chat_session = models.ForeignKey(
+        "nextseek_api.ChatSession", on_delete=models.CASCADE,
+        related_name="cc_transcripts",
+    )
+    cc_session_id = models.CharField(max_length=128)
+    turn_id = models.CharField(max_length=128)
+    blob = models.BinaryField()
+    uncompressed_size = models.BigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "assistant_cc_transcript"
+        app_label = "nextseek_api"
+        unique_together = (("chat_session", "cc_session_id", "turn_id"),)
+        ordering = ["-created_at"]
