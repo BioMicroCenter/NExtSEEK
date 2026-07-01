@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import threading
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
@@ -413,6 +414,9 @@ def run_cc_turn(
     api_pass: str | None = None,
     max_budget_usd: float = _DEFAULT_MAX_BUDGET_USD,
     turn_timeout: int = _DEFAULT_TURN_TIMEOUT,
+    chat_session: Any | None = None,
+    user_query: str = "",
+    on_turn_complete: Callable[..., None] | None = None,
 ) -> None:
     """Execute one Container-CC turn with scoped input/shared mounts + artifact publish.
 
@@ -497,6 +501,7 @@ def run_cc_turn(
     before = snapshot_before(scratch_mount, user_id)
 
     translator = CCStreamTranslator()
+    translator._turn_start_ts = time.time()
     terminal: tuple[str, dict[str, Any]] | None = None
     client = docker.from_env()
     container = None
@@ -634,6 +639,16 @@ def _safe_relpath(rel: str) -> bool:
         return False
     path = Path(rel)
     return not path.is_absolute() and ".." not in path.parts
+
+
+def _newest_jsonl_under(root: Path, *, min_mtime: float | None = None) -> Path | None:
+    """Pick newest *.jsonl under root; if min_mtime set, only files with mtime >= min_mtime."""
+    candidates = [p for p in root.rglob("*.jsonl") if p.is_file()]
+    if min_mtime is not None:
+        candidates = [p for p in candidates if p.stat().st_mtime >= min_mtime]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
 def _publish_artifacts(

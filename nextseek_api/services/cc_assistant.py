@@ -63,6 +63,32 @@ from nextseek_api.cc_assistant import cc_memory
 from nextseek_api.cc_assistant import cc_memory_io
 from nextseek_api.cc_assistant.cc_provision import ProjectResolutionError
 
+from nextseek_api.cc_assistant.cc_turn_complete import (
+    TurnCompletePayload,
+    apply_turn_to_extra_state,
+)
+from nextseek_api.cc_assistant import cc_transcript_store
+from nextseek_api.assistant.models_db import CCSessionTranscript
+
+MAX_CC_CHAT_LOG_TURNS = 50  # match chat_nextseek/chat_memory.py MAX_TURNS
+
+
+def _append_cc_turn_complete(payload: TurnCompletePayload) -> None:
+    session = payload.chat_session
+    session.extra_state = apply_turn_to_extra_state(
+        session.extra_state, payload, cap=MAX_CC_CHAT_LOG_TURNS)
+    session.save(update_fields=["extra_state", "updated_at"])
+    CCSessionTranscript.objects.update_or_create(
+        chat_session=session,
+        cc_session_id=payload.cc_session_id or "",
+        turn_id=payload.turn_id,
+        defaults={
+            "blob": cc_transcript_store.compress(payload.raw_jsonl),
+            "uncompressed_size": len(payload.raw_jsonl),
+        },
+    )
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -370,6 +396,9 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         user_memory_file=user_memory_file,
                         transcripts_dir=transcripts_dir,
                         api_user=user_api_user, api_pass=user_api_pass,
+                        chat_session=chat_session,
+                        user_query=req.query or "",
+                        on_turn_complete=_append_cc_turn_complete,
                     )
             except Exception:
                 logger.exception("cc-assistant pipeline error")

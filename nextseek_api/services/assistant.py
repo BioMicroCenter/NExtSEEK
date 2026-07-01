@@ -517,7 +517,7 @@ class AssistantViewSet(viewsets.ViewSet):
                         or (bundle.get("terminal_reply") or bundle.get("reply") if bundle else None)
                         or entry.get("assistant_reply_preview", "")
                     ) or ""
-                    artifacts = extract_table_artifacts(bundle) if bundle else None
+                    artifacts = entry.get("artifacts") or (extract_table_artifacts(bundle) if bundle else None)
                     turns.append(
                         Turn(
                             bundle_id=bid if bid is not None else 0,
