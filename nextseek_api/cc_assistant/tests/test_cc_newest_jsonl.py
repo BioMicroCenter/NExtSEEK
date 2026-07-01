@@ -21,3 +21,15 @@ def test_run_cc_turn_sets_turn_start_ts_before_container():
     idx_ts = src.index("translator._turn_start_ts")
     idx_run = src.index("client.containers.run")
     assert idx_ts < idx_run
+
+
+def test_cc_engine_actually_invokes_on_turn_complete():
+    """RED if run_cc_turn's persist block never CALLS the callback (Task 11 Step 2)."""
+    src = (_NSAPI / "cc_assistant" / "cc_engine.py").read_text()
+    assert "on_turn_complete(TurnCompletePayload(" in src
+
+
+def test_services_wires_append_cc_turn_complete_into_run_cc_turn():
+    """RED if services/cc_assistant.py stops passing the real writer (Task 11 Step 3)."""
+    src = (_NSAPI / "services" / "cc_assistant.py").read_text()
+    assert "on_turn_complete=_append_cc_turn_complete" in src

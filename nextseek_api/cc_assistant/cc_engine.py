@@ -590,6 +590,62 @@ def run_cc_turn(
             data["mode"] = "cc"
             data["artifacts"] = result["artifacts"] or None
             data["cc_raw_files"] = result["raw"]
+        if event == "query_complete" and on_turn_complete and chat_session is not None:
+            from django.utils import timezone
+            from . import cc_summary, cc_trace
+            from .cc_turn_complete import TurnCompletePayload
+            turn_start = translator._turn_start_ts
+            jsonl_path = None
+            for _ in range(3):
+                jsonl_path = _newest_jsonl_under(
+                    Path(dirs.cc_state_mnt) / "projects", min_mtime=turn_start - 1)
+                if jsonl_path:
+                    break
+                time.sleep(0.2)
+            raw = jsonl_path.read_bytes() if jsonl_path else b""
+            if raw:
+                raw_copy = Path(dirs.output_mnt) / "raw" / f"transcript-{run_id}.jsonl"
+                raw_copy.parent.mkdir(parents=True, exist_ok=True)
+                if not _safe_relpath(raw_copy.name):
+                    raise ValueError("bad transcript basename")
+                shutil.copy2(jsonl_path, raw_copy)
+            parsed = cc_summary.parse_transcript(raw) if raw else None
+            trace = cc_trace.extract_trace(
+                parsed, cc_session_id=translator.session_id or "",
+                ts=timezone.now().isoformat(),
+                files_created=result["files_created"],
+                files_modified=result["files_modified"],
+                result_meta={"num_turns": data.get("num_turns"),
+                             "duration_ms": data.get("duration_ms"),
+                             "cost_usd": data.get("total_cost_usd")},
+            ) if parsed else None
+            from django.conf import settings
+            strict = getattr(settings, "CC_PERSIST_STRICT", False)
+            if trace is not None:
+                data = dict(data)
+                data["mode"] = "cc"
+                data["cc_traces"] = [trace.model_dump()]
+                try:
+                    on_turn_complete(TurnCompletePayload(
+                        chat_session=chat_session, user_query=user_query or "",
+                        assistant_reply=data.get("reply") or "",
+                        ts=timezone.now().isoformat(),
+                        artifacts=data.get("artifacts"),
+                        cc_traces=[trace.model_dump()],
+                        turn_id=str(run_id),
+                        cc_session_id=translator.session_id,
+                        raw_jsonl=raw,
+                    ))
+                except Exception:
+                    logger.exception("CC persist failed after a successful turn "
+                                     "(run_id=%s); delivering reply, trace not persisted", run_id)
+                    if strict:
+                        raise
+            else:
+                logger.error("cc persist: missing transcript jsonl after successful turn "
+                             "(run_id=%s); delivering reply without persisted trace", run_id)
+                if strict:
+                    raise RuntimeError("cc persist: missing transcript jsonl after successful turn")
         send_event(event, data)
 
     except (APIError, NotFound) as exc:
