@@ -1,0 +1,6 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"list the input files"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll inspect the inputs."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls /data/input"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"a.csv"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Write","input":{"file_path":"/data/scratch/report.md"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"disk full"}]}}
+{"type":"summary","leafUuid":"abc"}
