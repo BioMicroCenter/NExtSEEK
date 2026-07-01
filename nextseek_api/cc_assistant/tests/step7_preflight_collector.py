@@ -72,13 +72,19 @@ _OLD_BOOTSTRAP_MARKERS = (
     "Phase B",
 )
 
-# NOTE (assumption, flagged for Task 6): no engine-side subpath-mount floor is
-# pinned by PLAN-7 yet; Compose's floor (>=2.26, bind subpath support) IS
-# pinned. Task 6 should replace this placeholder with the real engine floor.
-DOCKER_ENGINE_SUBPATH_FLOOR = (25, 0, 0)
+# Plan-pinned real floors (Task 2 brief): the per-user runtime subpaths are
+# applied via docker-py (Engine API) VolumeOptions.Subpath, not compose YAML,
+# so ENGINE -- not Compose -- gates the isolation mount; this is the
+# unconditional, real floor. Compose's floor (>=2.26) is CONDITIONAL (only
+# required when the compose YAML itself uses `subpath:` syntax, which this
+# plan's whole-volume dmac-cc-users mount does not) -- see the validator's
+# independent, conditional re-check in validate_step7_compose_deploy.py.
+DOCKER_ENGINE_SUBPATH_FLOOR = (26, 0, 0)
+DOCKER_API_SUBPATH_FLOOR = (1, 45)
 DOCKER_COMPOSE_SUBPATH_FLOOR = (2, 26, 0)
 
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
+_API_VERSION_RE = re.compile(r"API version:\s*(\d+)\.(\d+)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -141,6 +147,31 @@ def _parse_version_tuple(text: str) -> tuple[int, int, int] | None:
     return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
 
 
+def _parse_api_version_tuple(text: str) -> tuple[int, int] | None:
+    m = _API_VERSION_RE.search(text)
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)))
+
+
+def engine_meets_subpath_floor(version_summary: str) -> bool:
+    """Pure, hermetically-testable: True iff `docker version` output shows
+    BOTH Engine >= DOCKER_ENGINE_SUBPATH_FLOOR and API >= DOCKER_API_SUBPATH_FLOOR."""
+    engine_v = _parse_version_tuple(version_summary)
+    api_v = _parse_api_version_tuple(version_summary)
+    return (
+        engine_v is not None and engine_v >= DOCKER_ENGINE_SUBPATH_FLOOR
+        and api_v is not None and api_v >= DOCKER_API_SUBPATH_FLOOR
+    )
+
+
+def compose_meets_subpath_floor(compose_version: str) -> bool:
+    """Pure, hermetically-testable: True iff Compose plugin version text
+    parses to >= DOCKER_COMPOSE_SUBPATH_FLOOR."""
+    compose_v = _parse_version_tuple(compose_version)
+    return compose_v is not None and compose_v >= DOCKER_COMPOSE_SUBPATH_FLOOR
+
+
 def default_docker_probe() -> DockerProbe:
     """Real (subprocess-based) docker probe. NEVER called by hermetic tests."""
     def _out(cmd: list[str]) -> str:
@@ -153,10 +184,8 @@ def default_docker_probe() -> DockerProbe:
     info_summary = _out(["docker", "info"])
     compose_version = _out(["docker", "compose", "version"])
 
-    engine_v = _parse_version_tuple(version_summary)
-    compose_v = _parse_version_tuple(compose_version)
-    engine_ok = engine_v is not None and engine_v >= DOCKER_ENGINE_SUBPATH_FLOOR
-    compose_ok = compose_v is not None and compose_v >= DOCKER_COMPOSE_SUBPATH_FLOOR
+    engine_ok = engine_meets_subpath_floor(version_summary)
+    compose_ok = compose_meets_subpath_floor(compose_version)
 
     return DockerProbe(
         version_summary=version_summary,

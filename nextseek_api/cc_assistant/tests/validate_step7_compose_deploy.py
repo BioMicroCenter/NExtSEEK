@@ -1,33 +1,26 @@
 """Zero-spend, reproducible validator for the Step 7 (compose-native deploy)
-evidence bundle's ``preflight.json`` / ``step3_deploy_gate``.
+evidence bundle.
 
-Purpose (PLAN-7 Task 1): prevent the Step 7 implementer from acting on stale
-planning-session file state. Before Step 7 may proceed, the bundle must carry
-a fresh ``preflight.json`` proving:
+PLAN-7 Task 1 implemented the preflight/step3_deploy_gate anti-staleness
+checks (``check_preflight_json_present`` .. ``check_live_gate_transcript_committed``
+below). PLAN-7 Task 2 (this extension) adds every remaining check named in
+its own task brief's dense "Step 2: Implement the validator" paragraph,
+covering the rest of the SPEC-7 section 8 evidence contract: the
+deploy_commit/meta.json cross-check, the live-transcript content-marker
+allowlist (byte-identical with PLAN-3 Task 13 Step 8), the MBP greenfield
+pre-bootstrap volume/network scans, the locked ``host_label`` enum, the
+independent Docker Engine/API/Compose subpath-floor re-parse, compose
+topology + forced-CC success/cost/correlation checks, the dev-only
+``migration_policy`` conditionality, the paired pre-turn-seed /
+in-turn-isolation cross-user-leak oracle, legacy-filename rejection, and the
+secret scan + screenshot-review gate.
 
-  - current branch/commit/dirty status and hashes of the files Step 7 will
-    touch were captured at collection time (not hand-typed);
-  - the production-readiness tracker's step 3 ("UI-based I/O") reads "done"
-    **at validation time**, re-read from the tracker file at the recorded
-    ``integration_plan_path`` — not merely trusted from a baked-in string;
-  - the committed Step-3 live-gate transcript (PLAN-3 Task 13 Step 9) exists
-    on the branch under test at the exact ``deploy_commit`` SHA. A
-    supplementary handoff JSON is NOT an accepted substitute (user decision,
-    2026-06-30).
+Validator independence from the collector (``step7_preflight_collector.py``)
+is deliberate: constants here (e.g. the Docker Engine/Compose subpath floors)
+are re-declared rather than imported, so a compromised/buggy collector cannot
+silently relax what the validator enforces.
 
-Only an MBP host may point ``integration_plan_path`` at a snapshot file
-*inside* the evidence bundle (``integration_plan_snapshot.json``) — every
-other bundle pointing its tracker path inside itself is rejected outright,
-since that would let a bundle carry (and validate against) an arbitrary,
-hand-edited tracker file instead of the real one.
-
-This module implements ONLY the preflight/step3_deploy_gate checks named in
-PLAN-7 Task 1. Task 2 extends ``CHECKS`` with the rest of the generated
-evidence bundle's checks (compose services, CC env keys, DEPLOY.md bootstrap
-flag, docker/compose version floors, etc. — currently recorded by the
-collector but not yet gated here).
-
-    python -m nextseek_api.cc_assistant.tests.validate_step7_compose_deploy <run_dir>
+    python -m nextseek_api.cc_assistant.tests.validate_step7_compose_deploy <run_dir> [repo_root]
 """
 from __future__ import annotations
 
@@ -40,8 +33,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from nextseek_api.cc_assistant.tests.validate_cc_acceptance import (
+    LEAK_MARKERS as _CC_LEAK_MARKERS,
+    SHARED_CRED_KEYS as _CC_SHARED_CRED_KEYS,
+)
+
+try:
+    # Authoritative six SEEK volume base names (do not invent names here).
+    # Task 6 extends the set with "dmac-cc-users" -- EXPECTED_VOLUME_BASE_NAMES
+    # below is the module constant Task 6 may further extend.
+    from startup.steps.volumes import REQUIRED_VOLUMES as _SEEK_REQUIRED_VOLUMES
+except ImportError:  # pragma: no cover - defensive; repo_root always has startup/
+    _SEEK_REQUIRED_VOLUMES = [
+        "seek-filestore", "seek-mysql-db", "seek-solr-data",
+        "seek-cache", "nextseek-static-files", "neo4j-data",
+    ]
+
 # Matches typical MBP host_label spellings: "taishajo-mbp", "MBP.local",
-# "mbp-taishajo", "MacBook-Pro", "MacBookPro16,1", etc.
+# "mbp-taishajo", "MacBook-Pro", "MacBookPro16,1", etc. Used ONLY for the
+# narrow Task-1 in-bundle tracker-snapshot exception below -- NOT the same
+# thing as the Task-2 locked host_label enum (HOST_LABEL_VALID), which
+# requires the *exact* literal "mbp" (see check_host_label_enum_valid).
 MBP_HOST_LABEL_RE = re.compile(r"\bmbp\b|macbook[\s_-]*pro", re.IGNORECASE)
 
 MBP_SNAPSHOT_BASENAME = "integration_plan_snapshot.json"
@@ -70,6 +82,80 @@ REQUIRED_GATE_KEYS = (
     "had_host_bind_data",
 )
 
+# --- Task 2 constants --------------------------------------------------------
+
+DEPLOY_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+
+# Byte-identical allowlist, shared verbatim with PLAN-3 Task 13 Step 8 (both
+# sides MUST name the same strings -- see the Task 2 brief). Do NOT require
+# the command substrings ("migrate nextseek_api 0007", "inspect registered")
+# or an "exit-code" substring: PLAN-3 Task 13 Step 8 is contracted only to
+# capture stdout/stderr + exit codes, not echoed command lines.
+TRANSCRIPT_MIGRATION_MARKER_RE = re.compile(
+    r"Applying nextseek_api\.0007|\[X\] 0007_ccsessiontranscript"
+)
+TRANSCRIPT_CC_UPLOAD_MARKER = "cc_assistant.upload"
+TRANSCRIPT_CC_TRACES_MARKER = "cc_traces"
+
+# `host_label` locked enum (SPEC-7 section 8 / Task 2 brief): exact string
+# match, not regex. "mbp" is the ONLY accepted spelling of the MBP
+# authoritative gate.
+HOST_LABEL_VALID = ("mbp", "dev-vm", "nextseek-dev")
+
+# The six SEEK volume base names (read from startup/steps/volumes.py,
+# authoritative) plus "dmac-cc-users" (G7-10). A plain module-level list so
+# Task 6 can extend it (e.g. append further per-user volumes) without
+# touching check logic.
+EXPECTED_VOLUME_BASE_NAMES: list[str] = list(_SEEK_REQUIRED_VOLUMES)
+if "dmac-cc-users" not in EXPECTED_VOLUME_BASE_NAMES:
+    EXPECTED_VOLUME_BASE_NAMES.append("dmac-cc-users")
+
+MBP_REQUIRED_NETWORK = "dmac-cc-net"
+
+# Real, unconditional Docker Engine / API floor (docker-py Engine API
+# VolumeOptions.Subpath gates the per-user isolation mount -- NOT compose
+# YAML). Deliberately re-declared here independent of the collector's
+# DOCKER_ENGINE_SUBPATH_FLOOR constant.
+ENGINE_SUBPATH_FLOOR = (26, 0, 0)
+API_SUBPATH_FLOOR = (1, 45)
+# Compose plugin floor is CONDITIONAL: only enforced when compose_config.json
+# shows the compose YAML itself using `subpath:` syntax (this plan mounts the
+# whole dmac-cc-users volume with no YAML subpath syntax -- Task 5/6).
+COMPOSE_SUBPATH_FLOOR = (2, 26, 0)
+
+_ENGINE_SECTION_VERSION_RE = re.compile(r"Engine:\s*\n\s*Version:\s*(\d+)\.(\d+)(?:\.(\d+))?", re.IGNORECASE)
+_GENERIC_VERSION_RE = re.compile(r"Version:\s*(\d+)\.(\d+)(?:\.(\d+))?", re.IGNORECASE)
+_CLIENT_VERSION_RE = re.compile(r"Docker version (\d+)\.(\d+)(?:\.(\d+))?", re.IGNORECASE)
+_API_VERSION_RE = re.compile(r"API version:\s*(\d+)\.(\d+)", re.IGNORECASE)
+_COMPOSE_VERSION_RE = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
+
+DEFAULT_BUDGET_CAP_USD = 2.0
+
+# The pinned isolation-scan foreign-token grep pattern (SPEC-7 amend
+# 2026-06-30 / Task 2 brief): applied line-wise as the Python equivalent of
+# `grep -nE 'SENTINEL_FOREIGN|(^| |/)otherproj(/|$| )|(^| |/)bob(/|$| )'`. The
+# canonical *values* of the foreign tokens come from meta.json.foreign_tokens
+# (used by the pre-turn seed-scan check below); this compiled pattern is the
+# pinned detector for that canonical set, not derived from meta.json.
+FOREIGN_TOKEN_GREP_RE = re.compile(r"SENTINEL_FOREIGN|(^| |/)otherproj(/|$| )|(^| |/)bob(/|$| )")
+
+# Legacy (pre-SPEC-7) evidence filenames that must never appear anywhere in a
+# Step 7 bundle -- their SPEC-7-named replacements are forced_cc_result.json,
+# proxy_log_window.txt, network_inspect.json.
+LEGACY_ARTIFACT_BASENAMES = ("forced_result.json", "proxy_log.txt", "network.json")
+
+_SCREENSHOT_SUFFIXES = (".png", ".jpg", ".jpeg")
+
+# SPEC-7 section 9 secret-scan negative controls.
+_SECRET_KEY_ASSIGN_MARKERS = ("AWS_BEARER_TOKEN_BEDROCK", "GCP_API_KEY", "MYSQL_PASSWORD", "NEO4J_PASSWORD")
+_SECRET_LITERAL_MARKERS = ("Authorization: Bearer", "ABSK", "demopassword")
+_DJANGO_SECRET_KEY_RE = re.compile(r"SECRET_KEY\s*=\s*['\"]?[A-Za-z0-9+/=_\-]{16,}")
+_NEXTSEEK_PASSWORD_UNREDACTED_RE = re.compile(
+    r"NEXTSEEK_PASSWORD\s*=\s*(?!\*{3,}\b|REDACTED\b|<redacted>|\[redacted\])\S+", re.IGNORECASE
+)
+
+_INVOKE_200_GENERIC_RE = re.compile(r"POST\s+/model/\S+/invoke(?:-with-response-stream)?\b[^\n]*?->\s*200")
+
 
 def _try_load_json(p: Path) -> dict | None:
     try:
@@ -77,6 +163,14 @@ def _try_load_json(p: Path) -> dict | None:
     except (OSError, json.JSONDecodeError):
         return None
     return obj if isinstance(obj, dict) else None
+
+
+def _try_load_json_any(p: Path) -> Any:
+    """Like _try_load_json but accepts any JSON top-level shape (list/dict/…)."""
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _sha256_file(p: Path) -> str | None:
@@ -100,12 +194,93 @@ def _git_blob_size(repo_root: Path, commit: str, rel_path: str) -> int | None:
         return None
 
 
+def _git_blob_text(repo_root: Path, commit: str, rel_path: str) -> str | None:
+    """Contents of ``<commit>:<rel_path>`` per `git cat-file -p`, or None on
+    any git failure. Used ONLY to independently re-verify the live-gate
+    transcript's content markers -- never trusts a hand-edited copy."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_root), "cat-file", "-p", f"{commit}:{rel_path}"],
+            capture_output=True, text=True, check=True,
+        )
+        return proc.stdout
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+
+def _load_instance_prefix(repo_root: Path) -> str:
+    """Read startup/.instance.json's "prefix" field from the repo under test,
+    defaulting to "" (bare volume names) when absent/unreadable."""
+    obj = _try_load_json(repo_root / "startup" / ".instance.json")
+    if obj is None:
+        return ""
+    return str(obj.get("prefix") or "")
+
+
+def _parse_engine_version(text: str) -> tuple[int, int, int] | None:
+    m = _ENGINE_SECTION_VERSION_RE.search(text) or _GENERIC_VERSION_RE.search(text) or _CLIENT_VERSION_RE.search(text)
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
+
+
+def _parse_api_version(text: str) -> tuple[int, int] | None:
+    m = _API_VERSION_RE.search(text)
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)))
+
+
+def _parse_compose_version(text: str) -> tuple[int, int, int] | None:
+    m = _COMPOSE_VERSION_RE.search(text)
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
+
+
+def _compose_uses_subpath_syntax(obj: Any) -> bool:
+    """Recursively search parsed compose_config.json for a `subpath:` key
+    (YAML long-form bind/volume subpath syntax). Whole-volume mounts with no
+    subpath key (this plan's dmac-cc-users mount) do NOT trigger this."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(k, str) and k.lower() == "subpath":
+                return True
+            if _compose_uses_subpath_syntax(v):
+                return True
+    elif isinstance(obj, list):
+        return any(_compose_uses_subpath_syntax(v) for v in obj)
+    return False
+
+
+def _find_key_anywhere(obj: Any, key: str) -> Any:
+    """Recursively search a nested dict/list structure for the first value of
+    a dict key named `key`. Returns None if not found."""
+    if isinstance(obj, dict):
+        if key in obj:
+            return obj[key]
+        for v in obj.values():
+            found = _find_key_anywhere(v, key)
+            if found is not None:
+                return found
+    elif isinstance(obj, list):
+        for v in obj:
+            found = _find_key_anywhere(v, key)
+            if found is not None:
+                return found
+    return None
+
+
 @dataclass(frozen=True)
 class Context:
     run_dir: Path
     preflight: dict[str, Any] | None
     meta: dict[str, Any]
     repo_root: Path
+    # Independently re-fetched (via git, not trusted from any file in the
+    # bundle) content of live_gate_transcript.txt at deploy_commit, computed
+    # once in validate_run and shared by the three transcript-marker checks.
+    transcript_text: str | None = None
 
 
 def _tracker_step3_status(tracker: dict) -> str | None:
@@ -176,9 +351,7 @@ def _resolve_tracker_source(ctx: Context) -> tuple[Path | None, dict | None, str
     return p, tracker, f"MBP exception satisfied: snapshot sha256 matches integration_plan_sha256 ({actual_sha256})"
 
 
-# --- Composable checks ------------------------------------------------------
-# Task 2 appends its own checks to CHECKS; each check takes the Context and
-# returns (name, ok, detail), same convention as validate_cc_acceptance.py.
+# --- Composable checks (Task 1: preflight / step3_deploy_gate) --------------
 
 def check_preflight_json_present(ctx: Context) -> tuple[str, bool, str]:
     ok = ctx.preflight is not None
@@ -285,15 +458,578 @@ def check_live_gate_transcript_committed(ctx: Context) -> tuple[str, bool, str]:
     )
 
 
+# --- Composable checks (Task 2) ---------------------------------------------
+
+def check_deploy_commit_format_valid(ctx: Context) -> tuple[str, bool, str]:
+    """Enforced BEFORE any git re-check: a malformed deploy_commit must not be
+    handed to git at all -- it must fail this dedicated format check."""
+    gate = (ctx.preflight or {}).get("step3_deploy_gate") or {}
+    val = gate.get("deploy_commit")
+    ok = isinstance(val, str) and bool(DEPLOY_COMMIT_RE.match(val))
+    return "deploy_commit_format_valid", ok, f"deploy_commit={val!r} (must match ^[0-9a-f]{{40}}$)"
+
+
+def check_deploy_commit_matches_meta_repo_commit(ctx: Context) -> tuple[str, bool, str]:
+    """preflight.deploy_commit == meta.json.repo_commit -- both must have
+    been collected in the same <run_id> bundle (Task 9/10 regenerate
+    preflight immediately before other section-8 artifacts)."""
+    gate = (ctx.preflight or {}).get("step3_deploy_gate") or {}
+    deploy_commit = gate.get("deploy_commit")
+    repo_commit = ctx.meta.get("repo_commit")
+    ok = bool(deploy_commit) and deploy_commit == repo_commit
+    return "deploy_commit_matches_meta_repo_commit", ok, (
+        f"preflight.deploy_commit={deploy_commit!r} meta.json.repo_commit={repo_commit!r}"
+    )
+
+
+def check_transcript_migration_marker_present(ctx: Context) -> tuple[str, bool, str]:
+    text = ctx.transcript_text
+    if not text:
+        return "transcript_migration_marker_present", False, "transcript content unavailable (invalid deploy_commit / uncommitted / unreadable)"
+    ok = bool(TRANSCRIPT_MIGRATION_MARKER_RE.search(text))
+    return "transcript_migration_marker_present", ok, (
+        "migration marker found" if ok else
+        "neither 'Applying nextseek_api.0007' nor '[X] 0007_ccsessiontranscript' found in committed transcript"
+    )
+
+
+def check_transcript_cc_upload_marker_present(ctx: Context) -> tuple[str, bool, str]:
+    text = ctx.transcript_text
+    if not text:
+        return "transcript_cc_upload_marker_present", False, "transcript content unavailable"
+    ok = TRANSCRIPT_CC_UPLOAD_MARKER in text
+    return "transcript_cc_upload_marker_present", ok, f"{TRANSCRIPT_CC_UPLOAD_MARKER!r} in transcript={ok}"
+
+
+def check_transcript_cc_traces_marker_present(ctx: Context) -> tuple[str, bool, str]:
+    text = ctx.transcript_text
+    if not text:
+        return "transcript_cc_traces_marker_present", False, "transcript content unavailable"
+    ok = TRANSCRIPT_CC_TRACES_MARKER in text
+    return "transcript_cc_traces_marker_present", ok, f"{TRANSCRIPT_CC_TRACES_MARKER!r} in transcript={ok}"
+
+
+def check_supplementary_handoff_valid(ctx: Context) -> tuple[str, bool, str]:
+    """user_signoff_handoff_path is supplementary (NOT a substitute for the
+    committed transcript). If recorded, it must parse as an SRS report
+    (report_meta.schema_version present) and either cite step3_status=="done"
+    or record the same integration_plan_sha256 as the gate."""
+    gate = (ctx.preflight or {}).get("step3_deploy_gate") or {}
+    path_str = gate.get("user_signoff_handoff_path")
+    name = "supplementary_handoff_valid"
+    if not path_str:
+        return name, True, "no supplementary handoff recorded (transcript commit is the hard gate)"
+
+    p = Path(path_str)
+    if not p.is_absolute():
+        p = ctx.repo_root / p
+    obj = _try_load_json(p)
+    if obj is None:
+        return name, False, f"user_signoff_handoff_path {path_str!r} unreadable/not valid JSON"
+
+    report_meta = obj.get("report_meta")
+    schema_version = report_meta.get("schema_version") if isinstance(report_meta, dict) else None
+    if not schema_version or "handoff" not in str(schema_version):
+        return name, False, f"handoff JSON missing SRS report_meta.schema_version (got {schema_version!r})"
+
+    step3_status = _find_key_anywhere(obj, "step3_status")
+    cites_done = step3_status == "done"
+    recorded_sha = _find_key_anywhere(obj, "integration_plan_sha256")
+    expected_sha = gate.get("integration_plan_sha256")
+    matches_sha = bool(expected_sha) and recorded_sha == expected_sha
+    ok = cites_done or matches_sha
+    return name, ok, f"cites_step3_done={cites_done} matches_integration_plan_sha256={matches_sha}"
+
+
+def check_host_label_enum_valid(ctx: Context) -> tuple[str, bool, str]:
+    val = ctx.meta.get("host_label")
+    ok = val in HOST_LABEL_VALID
+    return "host_label_enum_valid", ok, f"host_label={val!r} (must be exactly one of {HOST_LABEL_VALID})"
+
+
+def _parse_volume_ls_names(text: str) -> set[str]:
+    """`docker volume ls` columns are ``DRIVER  VOLUME NAME`` -- the name is
+    the LAST whitespace-separated column."""
+    names: set[str] = set()
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.upper().startswith("DRIVER"):
+            continue
+        parts = line.split()
+        if parts:
+            names.add(parts[-1])
+    return names
+
+
+def _parse_network_ls_names(text: str) -> set[str]:
+    """`docker network ls` columns are ``NETWORK ID  NAME  DRIVER  SCOPE`` --
+    unlike `docker volume ls`, the name is the SECOND column, not the last."""
+    names: set[str] = set()
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.upper().startswith("NETWORK ID"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2:
+            names.add(parts[1])
+    return names
+
+
+def check_mbp_pre_bootstrap_volumes_absent(ctx: Context) -> tuple[str, bool, str]:
+    name = "mbp_pre_bootstrap_volumes_absent"
+    if ctx.meta.get("host_label") != "mbp":
+        return name, True, "not MBP; N/A"
+    p = ctx.run_dir / "pre_bootstrap_docker_volume_ls.txt"
+    if not p.is_file():
+        return name, False, "pre_bootstrap_docker_volume_ls.txt missing (MBP-required)"
+    prefix = _load_instance_prefix(ctx.repo_root)
+    expected = [f"{prefix}{n}" for n in EXPECTED_VOLUME_BASE_NAMES]
+    present_names = _parse_volume_ls_names(p.read_text(encoding="utf-8", errors="replace"))
+    found = [n for n in expected if n in present_names]
+    exception = bool(ctx.meta.get("greenfield_exception")) and bool(ctx.meta.get("greenfield_exception_handoff_path"))
+    if found and not exception:
+        return name, False, f"pre-existing external volumes found: {found} (no greenfield_exception + handoff ref)"
+    return name, True, (
+        "no pre-existing external volumes found" if not found else
+        f"pre-existing volumes {found} covered by greenfield_exception"
+    )
+
+
+def check_mbp_pre_bootstrap_network_absent(ctx: Context) -> tuple[str, bool, str]:
+    name = "mbp_pre_bootstrap_network_absent"
+    if ctx.meta.get("host_label") != "mbp":
+        return name, True, "not MBP; N/A"
+    p = ctx.run_dir / "pre_bootstrap_docker_network_ls.txt"
+    if not p.is_file():
+        return name, False, "pre_bootstrap_docker_network_ls.txt missing (MBP-required)"
+    present_names = _parse_network_ls_names(p.read_text(encoding="utf-8", errors="replace"))
+    exists = MBP_REQUIRED_NETWORK in present_names
+    exception = bool(ctx.meta.get("greenfield_exception")) and bool(ctx.meta.get("greenfield_exception_handoff_path"))
+    if exists and not exception:
+        return name, False, f"{MBP_REQUIRED_NETWORK!r} network pre-exists (no greenfield_exception + handoff ref)"
+    return name, True, (
+        f"{MBP_REQUIRED_NETWORK!r} absent" if not exists else
+        f"{MBP_REQUIRED_NETWORK!r} pre-existing but covered by greenfield_exception"
+    )
+
+
+def check_docker_engine_floor_independent(ctx: Context) -> tuple[str, bool, str]:
+    """Independently parse preflight.json's docker version text; fail when
+    Engine <26 or API <v1.45 EVEN IF the recorded boolean flag claims true.
+    Also fail when the flag itself is not literally true."""
+    name = "docker_engine_floor_independent"
+    pf = ctx.preflight or {}
+    gate = pf.get("step3_deploy_gate") or {}
+    flag = gate.get("docker_engine_meets_subpath_floor")
+    text = pf.get("docker_version_summary") or ""
+    engine_v = _parse_engine_version(text)
+    api_v = _parse_api_version(text)
+    engine_ok = engine_v is not None and engine_v >= ENGINE_SUBPATH_FLOOR
+    api_ok = api_v is not None and api_v >= API_SUBPATH_FLOOR
+    ok = flag is True and engine_ok and api_ok
+    return name, ok, (
+        f"flag={flag!r} parsed_engine={engine_v} (floor {ENGINE_SUBPATH_FLOOR}) "
+        f"parsed_api={api_v} (floor {API_SUBPATH_FLOOR})"
+    )
+
+
+def check_docker_compose_floor_conditional(ctx: Context) -> tuple[str, bool, str]:
+    """Compose >=2.26 is CONDITIONAL: only enforced when compose_config.json
+    shows the compose YAML using `subpath:` syntax. This plan mounts the
+    whole dmac-cc-users volume with no subpath syntax, so a host whose
+    compose file never uses it must NOT be rejected on this floor alone."""
+    name = "docker_compose_floor_conditional"
+    compose_config = _try_load_json_any(ctx.run_dir / "compose_config.json")
+    if not _compose_uses_subpath_syntax(compose_config):
+        return name, True, "compose YAML does not use volume `subpath:` syntax; Compose floor not required"
+    gate = (ctx.preflight or {}).get("step3_deploy_gate") or {}
+    flag = gate.get("docker_compose_meets_subpath_floor")
+    compose_version_text = (ctx.preflight or {}).get("docker_compose_version") or ""
+    v = _parse_compose_version(compose_version_text)
+    ok = flag is True and v is not None and v >= COMPOSE_SUBPATH_FLOOR
+    return name, ok, f"subpath: syntax IS used; flag={flag!r} parsed_compose_version={v} (floor {COMPOSE_SUBPATH_FLOOR})"
+
+
+def check_compose_topology_recorded(ctx: Context) -> tuple[str, bool, str]:
+    name = "compose_topology_recorded"
+    obj = _try_load_json(ctx.run_dir / "compose_config.json")
+    if obj is None:
+        return name, False, "compose_config.json missing/unreadable/not an object"
+    services = obj.get("services") or {}
+    networks = obj.get("networks") or {}
+    volumes = obj.get("volumes") or {}
+    text = json.dumps(obj)
+    has_nextseek = "nextseek" in services
+    has_cc_net = "dmac-cc-net" in networks
+    has_cc_volume = "dmac-cc-users" in volumes or "dmac-cc-users" in text
+    no_legacy_bind = "/srv/dmac/users" not in text
+    ok = has_nextseek and has_cc_net and has_cc_volume and no_legacy_bind
+    return name, ok, (
+        f"nextseek_service={has_nextseek} dmac-cc-net={has_cc_net} "
+        f"dmac-cc-users_volume={has_cc_volume} no_legacy_bind={no_legacy_bind}"
+    )
+
+
+def check_image_service_status_recorded(ctx: Context) -> tuple[str, bool, str]:
+    name = "image_service_status_recorded"
+    services_txt = ctx.run_dir / "compose_services.txt"
+    ps_txt = ctx.run_dir / "docker_ps.txt"
+    images_json = ctx.run_dir / "images.json"
+    has_status_txt = any(
+        p.is_file() and p.stat().st_size > 0 for p in (services_txt, ps_txt)
+    )
+    images_obj = _try_load_json_any(images_json)
+    has_images = bool(images_obj)
+    ok = has_status_txt and has_images
+    return name, ok, f"status_txt_present={has_status_txt} images_json_present={has_images}"
+
+
+def check_cc_runner_available_ok(ctx: Context) -> tuple[str, bool, str]:
+    name = "cc_runner_available_ok"
+    obj = _try_load_json_any(ctx.run_dir / "cc_runner_available.json")
+    if obj is None:
+        return name, False, "cc_runner_available.json missing/unreadable"
+    if isinstance(obj, list) and obj:
+        ok = obj[0] is True
+    elif isinstance(obj, dict):
+        ok = obj.get("ok") is True
+    else:
+        return name, False, f"unexpected cc_runner_available.json shape: {obj!r}"
+    return name, ok, f"cc_runner_available() result={obj!r}"
+
+
+def check_forced_cc_success(ctx: Context) -> tuple[str, bool, str]:
+    name = "forced_cc_success"
+    obj = _try_load_json(ctx.run_dir / "forced_cc_result.json")
+    if obj is None:
+        return name, False, "forced_cc_result.json missing/unreadable"
+    is_err = bool(obj.get("is_error") or obj.get("error"))
+    sentinel = obj.get("sentinel")
+    ok = (not is_err) and bool(sentinel)
+    return name, ok, f"is_error={is_err} sentinel={sentinel!r}"
+
+
+def check_forced_cc_cost_within_budget(ctx: Context) -> tuple[str, bool, str]:
+    name = "forced_cc_cost_within_budget"
+    obj = _try_load_json(ctx.run_dir / "forced_cc_result.json") or {}
+    cost = obj.get("cost")
+    cap = ctx.meta.get("budget_cap_usd", DEFAULT_BUDGET_CAP_USD)
+    try:
+        cost_f = float(cost)
+        cap_f = float(cap)
+    except (TypeError, ValueError):
+        return name, False, f"cost={cost!r} budget_cap_usd={cap!r} not numeric"
+    ok = cost_f <= cap_f
+    return name, ok, f"cost=${cost_f:.4f} <= budget_cap_usd=${cap_f:.2f}"
+
+
+def check_forced_cc_cost_positive_unless_exception(ctx: Context) -> tuple[str, bool, str]:
+    name = "forced_cc_cost_positive_unless_zero_cost_exception"
+    obj = _try_load_json(ctx.run_dir / "forced_cc_result.json") or {}
+    cost = obj.get("cost")
+    exception = bool(ctx.meta.get("zero_cost_exception"))
+    try:
+        cost_f = float(cost)
+    except (TypeError, ValueError):
+        return name, False, f"cost={cost!r} not numeric"
+    ok = cost_f > 0 or exception
+    return name, ok, f"cost=${cost_f:.4f} zero_cost_exception={exception}"
+
+
+def check_forced_cc_run_id_matches_meta(ctx: Context) -> tuple[str, bool, str]:
+    name = "forced_cc_result_run_id_matches_meta"
+    obj = _try_load_json(ctx.run_dir / "forced_cc_result.json") or {}
+    result_run_id = obj.get("run_id")
+    meta_run_id = ctx.meta.get("run_id")
+    ok = bool(meta_run_id) and result_run_id == meta_run_id
+    return name, ok, f"forced_cc_result.run_id={result_run_id!r} meta.run_id={meta_run_id!r}"
+
+
+def check_proxy_invoke_recorded(ctx: Context) -> tuple[str, bool, str]:
+    name = "proxy_invoke_recorded"
+    p = ctx.run_dir / "proxy_log_window.txt"
+    if not p.is_file():
+        return name, False, "proxy_log_window.txt missing"
+    text = p.read_text(encoding="utf-8", errors="replace")
+    ok = bool(text.strip()) and bool(_INVOKE_200_GENERIC_RE.search(text))
+    return name, ok, ("proxy invoke ->200 found" if ok else "no proxy invoke ->200 line found in proxy_log_window.txt")
+
+
+def check_network_segmentation_ok(ctx: Context) -> tuple[str, bool, str]:
+    name = "network_segmentation_ok"
+    obj = _try_load_json_any(ctx.run_dir / "network_inspect.json")
+    if obj is None:
+        return name, False, "network_inspect.json missing/unreadable"
+    if isinstance(obj, dict):
+        peers = obj.get("containers", [])
+    elif isinstance(obj, list):
+        peers = obj
+    else:
+        peers = []
+    bad = sorted(p for p in peers if isinstance(p, str) and any(rx.search(p) for rx in _cc_peer_res().values()))
+    ok = not bad
+    return name, ok, f"forbidden backend peers on agent net: {bad}"
+
+
+def _cc_peer_res():
+    from nextseek_api.cc_assistant.tests.validate_cc_acceptance import _PEER_RE
+    return _PEER_RE
+
+
+def check_agent_env_decredentialed(ctx: Context) -> tuple[str, bool, str]:
+    name = "agent_env_decredentialed"
+    p = ctx.run_dir / "agent_env_scan.txt"
+    if not p.is_file():
+        return name, False, "agent_env_scan.txt missing"
+    text = p.read_text(encoding="utf-8", errors="replace")
+    present_keys = [k for k in _CC_SHARED_CRED_KEYS if re.search(rf"(^|\W){re.escape(k)}=", text)]
+    present_markers = [m for m in _CC_LEAK_MARKERS if m in text]
+    ok = not present_keys and not present_markers
+    return name, ok, f"leaked_keys={present_keys} leak_markers={present_markers}"
+
+
+def check_proxy_token_not_logged(ctx: Context) -> tuple[str, bool, str]:
+    name = "proxy_token_not_logged"
+    p = ctx.run_dir / "proxy_log_window.txt"
+    if not p.is_file():
+        return name, False, "proxy_log_window.txt missing"
+    text = p.read_text(encoding="utf-8", errors="replace")
+    leaks = sum(text.count(m) for m in ("ABSK", "Authorization", "authorization"))
+    ok = leaks == 0
+    return name, ok, f"{leaks} token/authz occurrence(s) in proxy_log_window.txt"
+
+
+def check_run_id_in_proxy_log(ctx: Context) -> tuple[str, bool, str]:
+    name = "cross_artifact_run_id_in_proxy_log"
+    run_id = ctx.meta.get("run_id")
+    p = ctx.run_dir / "proxy_log_window.txt"
+    if not run_id:
+        return name, False, "meta.json.run_id missing"
+    if not p.is_file():
+        return name, False, "proxy_log_window.txt missing"
+    text = p.read_text(encoding="utf-8", errors="replace")
+    ok = run_id in text
+    return name, ok, f"run_id {run_id!r} present in proxy_log_window.txt={ok}"
+
+
+def check_agent_container_in_network_inspect(ctx: Context) -> tuple[str, bool, str]:
+    name = "cross_artifact_agent_container_in_network_inspect"
+    run_id = ctx.meta.get("run_id")
+    obj = _try_load_json_any(ctx.run_dir / "network_inspect.json")
+    if not run_id:
+        return name, False, "meta.json.run_id missing"
+    if obj is None:
+        return name, False, "network_inspect.json missing/unreadable"
+    text = json.dumps(obj)
+    ok = run_id in text
+    return name, ok, f"run_id {run_id!r} present in network_inspect.json={ok}"
+
+
+def check_migration_policy_conditionality(ctx: Context) -> tuple[str, bool, str]:
+    """dev-only migration_policy required iff host_label is dev-vm/nextseek-dev
+    AND preflight.json.had_host_bind_data == true (greenfield dev-VM: optional).
+    Forbidden when host_label == "mbp"."""
+    name = "migration_policy_conditionality"
+    host_label = ctx.meta.get("host_label")
+    migration_policy = ctx.meta.get("migration_policy")
+    gate = (ctx.preflight or {}).get("step3_deploy_gate") or {}
+    had_host_bind_data = gate.get("had_host_bind_data")
+
+    if host_label == "mbp":
+        ok = not migration_policy
+        return name, ok, f"host_label=mbp: migration_policy must be absent; got {migration_policy!r}"
+    if host_label in ("dev-vm", "nextseek-dev"):
+        if had_host_bind_data is True:
+            ok = bool(migration_policy)
+            return name, ok, (
+                f"host_label={host_label!r} had_host_bind_data=True: migration_policy required; "
+                f"got {migration_policy!r}"
+            )
+        return name, True, (
+            f"host_label={host_label!r} had_host_bind_data={had_host_bind_data!r} "
+            f"(greenfield or unset): migration_policy optional"
+        )
+    return name, True, f"host_label={host_label!r} not dev-vm/nextseek-dev/mbp; N/A here (see host_label_enum_valid)"
+
+
+def check_pre_turn_seed_scan_contains_foreign_tokens(ctx: Context) -> tuple[str, bool, str]:
+    name = "pre_turn_seed_scan_contains_foreign_tokens"
+    p = ctx.run_dir / "pre_turn_seed_scan.txt"
+    foreign = ctx.meta.get("foreign_tokens")
+    if not p.is_file():
+        return name, False, "pre_turn_seed_scan.txt missing"
+    text = p.read_text(encoding="utf-8", errors="replace")
+    if not text.strip():
+        return name, False, "pre_turn_seed_scan.txt is empty"
+    if not isinstance(foreign, list) or not foreign:
+        return name, False, "meta.json.foreign_tokens missing/empty; cannot prove seed"
+    missing = [t for t in foreign if t not in text]
+    ok = not missing
+    return name, ok, ("all foreign tokens present pre-turn" if ok else f"missing foreign tokens pre-turn: {missing}")
+
+
+def check_subpath_isolation_scan_valid(ctx: Context) -> tuple[str, bool, str]:
+    """(a) contains own_marker, (b) contains live_sentinel, (c) contains none
+    of the foreign tokens via the pinned grep pattern. Neither this check
+    alone nor check_pre_turn_seed_scan_contains_foreign_tokens alone suffices
+    -- the pair is the cross-user isolation gate."""
+    name = "subpath_isolation_scan_valid"
+    p = ctx.run_dir / "subpath_isolation_scan.txt"
+    own_marker = ctx.meta.get("own_marker")
+    live_sentinel = ctx.meta.get("live_sentinel")
+    if not p.is_file():
+        return name, False, "subpath_isolation_scan.txt missing"
+    text = p.read_text(encoding="utf-8", errors="replace")
+    if not text.strip():
+        return name, False, "subpath_isolation_scan.txt is empty"
+    if not own_marker or own_marker not in text:
+        return name, False, f"meta.json.own_marker {own_marker!r} not found in subpath_isolation_scan.txt"
+    if not live_sentinel or live_sentinel not in text:
+        return name, False, f"meta.json.live_sentinel {live_sentinel!r} not found in subpath_isolation_scan.txt"
+    bad_lines = [ln for ln in text.splitlines() if FOREIGN_TOKEN_GREP_RE.search(ln)]
+    ok = not bad_lines
+    return name, ok, ("own_marker + live_sentinel present; no foreign tokens" if ok else
+                       f"foreign token(s) found on line(s): {bad_lines[:5]}")
+
+
+def check_meta_tokens_pairwise_disjoint(ctx: Context) -> tuple[str, bool, str]:
+    name = "meta_tokens_pairwise_disjoint"
+    foreign = ctx.meta.get("foreign_tokens")
+    own_marker = ctx.meta.get("own_marker")
+    live_sentinel = ctx.meta.get("live_sentinel")
+    if not isinstance(foreign, list) or not own_marker or not live_sentinel:
+        return name, False, "meta.json missing foreign_tokens/own_marker/live_sentinel"
+    ok = own_marker not in foreign and live_sentinel not in foreign and own_marker != live_sentinel
+    return name, ok, f"own_marker={own_marker!r} live_sentinel={live_sentinel!r} foreign_tokens={foreign!r}"
+
+
+def check_no_legacy_artifact_filenames(ctx: Context) -> tuple[str, bool, str]:
+    name = "no_legacy_artifact_filenames"
+    found = sorted(
+        str(p.relative_to(ctx.run_dir)) for p in ctx.run_dir.rglob("*")
+        if p.is_file() and p.name in LEGACY_ARTIFACT_BASENAMES
+    )
+    ok = not found
+    return name, ok, ("no legacy filenames present" if ok else f"legacy filenames rejected: {found}")
+
+
+def check_secret_scan_report_present(ctx: Context) -> tuple[str, bool, str]:
+    name = "secret_scan_report_present"
+    obj = _try_load_json_any(ctx.run_dir / "secret_scan_report.json")
+    ok = isinstance(obj, dict)
+    return name, ok, ("secret_scan_report.json present" if ok else "secret_scan_report.json missing/unreadable/not an object")
+
+
+def _iter_bundle_text_files(run_dir: Path):
+    for p in sorted(run_dir.rglob("*")):
+        if p.is_file() and p.suffix.lower() not in _SCREENSHOT_SUFFIXES:
+            yield p
+
+
+def check_secret_scan_clean(ctx: Context) -> tuple[str, bool, str]:
+    """SPEC-7 section 9 negative controls: fail on AWS_BEARER_TOKEN_BEDROCK=,
+    Authorization: Bearer, ABSK, GCP_API_KEY=, MYSQL_PASSWORD=, NEO4J_PASSWORD=,
+    demopassword, Django SECRET_KEY values, unredacted NEXTSEEK_PASSWORD=."""
+    name = "secret_scan_clean"
+    hits: list[str] = []
+    for p in _iter_bundle_text_files(ctx.run_dir):
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rel = str(p.relative_to(ctx.run_dir))
+        for key in _SECRET_KEY_ASSIGN_MARKERS:
+            if re.search(rf"(^|\W){re.escape(key)}\s*=\s*\S", text):
+                hits.append(f"{rel}:{key}")
+        for marker in _SECRET_LITERAL_MARKERS:
+            if marker in text:
+                hits.append(f"{rel}:{marker}")
+        if _DJANGO_SECRET_KEY_RE.search(text):
+            hits.append(f"{rel}:SECRET_KEY")
+        if _NEXTSEEK_PASSWORD_UNREDACTED_RE.search(text):
+            hits.append(f"{rel}:NEXTSEEK_PASSWORD")
+    ok = not hits
+    return name, ok, ("no secret markers found in any evidence artifact" if ok else f"secret markers found: {hits}")
+
+
+def check_screenshot_review_recorded(ctx: Context) -> tuple[str, bool, str]:
+    name = "screenshot_review_recorded"
+    screenshots = sorted(
+        p for p in ctx.run_dir.rglob("*") if p.is_file() and p.suffix.lower() in _SCREENSHOT_SUFFIXES
+    )
+    if not screenshots:
+        return name, True, "no screenshots present; review not required"
+    report = _try_load_json_any(ctx.run_dir / "secret_scan_report.json")
+    if not isinstance(report, dict):
+        return name, False, "screenshots present but secret_scan_report.json missing/unreadable"
+    entries = report.get("screenshots")
+    if not isinstance(entries, dict):
+        return name, False, "screenshots present but secret_scan_report.json has no 'screenshots' entries"
+    missing = []
+    for p in screenshots:
+        rel = str(p.relative_to(ctx.run_dir))
+        entry = entries.get(rel)
+        method = entry.get("method") if isinstance(entry, dict) else None
+        if method not in ("ocr", "manual_review"):
+            missing.append(rel)
+    ok = not missing
+    return name, ok, ("all screenshots have documented OCR/manual review" if ok else
+                       f"missing/undocumented review for: {missing}")
+
+
+def check_not_markdown_only_bundle(ctx: Context) -> tuple[str, bool, str]:
+    name = "not_markdown_only_bundle"
+    files = [p for p in ctx.run_dir.rglob("*") if p.is_file()]
+    if not files:
+        return name, False, "run_dir is empty"
+    non_md = [p for p in files if p.suffix.lower() not in (".md", ".markdown")]
+    ok = bool(non_md)
+    return name, ok, ("bundle has non-Markdown evidence" if ok else
+                       "bundle contains ONLY Markdown files -- Markdown prose is not proof (SPEC-7 G7-8)")
+
+
 CHECKS: list[Callable[[Context], tuple[str, bool, str]]] = [
     check_preflight_json_present,
     check_branch_and_commit_recorded,
     check_required_file_hashes_present,
     check_step3_gate_fields_present,
+    check_deploy_commit_format_valid,
     check_tracker_path_not_arbitrary,
     check_tracker_step3_done,
     check_live_evidence_path_literal,
     check_live_gate_transcript_committed,
+    check_deploy_commit_matches_meta_repo_commit,
+    check_transcript_migration_marker_present,
+    check_transcript_cc_upload_marker_present,
+    check_transcript_cc_traces_marker_present,
+    check_supplementary_handoff_valid,
+    check_host_label_enum_valid,
+    check_mbp_pre_bootstrap_volumes_absent,
+    check_mbp_pre_bootstrap_network_absent,
+    check_docker_engine_floor_independent,
+    check_docker_compose_floor_conditional,
+    check_compose_topology_recorded,
+    check_image_service_status_recorded,
+    check_cc_runner_available_ok,
+    check_forced_cc_success,
+    check_forced_cc_cost_within_budget,
+    check_forced_cc_cost_positive_unless_exception,
+    check_forced_cc_run_id_matches_meta,
+    check_proxy_invoke_recorded,
+    check_network_segmentation_ok,
+    check_agent_env_decredentialed,
+    check_proxy_token_not_logged,
+    check_run_id_in_proxy_log,
+    check_agent_container_in_network_inspect,
+    check_migration_policy_conditionality,
+    check_pre_turn_seed_scan_contains_foreign_tokens,
+    check_subpath_isolation_scan_valid,
+    check_meta_tokens_pairwise_disjoint,
+    check_no_legacy_artifact_filenames,
+    check_secret_scan_report_present,
+    check_secret_scan_clean,
+    check_screenshot_review_recorded,
+    check_not_markdown_only_bundle,
 ]
 
 
@@ -315,9 +1051,16 @@ def validate_run(
     d = Path(run_dir)
     preflight = _try_load_json(d / "preflight.json")
     meta = _try_load_json(d / "meta.json") or {}
+    root = Path(repo_root) if repo_root is not None else default_repo_root()
+
+    deploy_commit = ((preflight or {}).get("step3_deploy_gate") or {}).get("deploy_commit")
+    transcript_text = None
+    if isinstance(deploy_commit, str) and DEPLOY_COMMIT_RE.match(deploy_commit):
+        transcript_text = _git_blob_text(root, deploy_commit, LIVE_GATE_TRANSCRIPT_REL)
+
     ctx = Context(
-        run_dir=d, preflight=preflight, meta=meta,
-        repo_root=Path(repo_root) if repo_root is not None else default_repo_root(),
+        run_dir=d, preflight=preflight, meta=meta, repo_root=root,
+        transcript_text=transcript_text,
     )
 
     checks = [check(ctx) for check in CHECKS]
@@ -326,7 +1069,7 @@ def validate_run(
 
 
 def format_report(all_ok: bool, checks: list[tuple[str, bool, str]]) -> str:
-    lines = [f"{'PASS' if ok else 'FAIL'}  {name:32s} {detail}" for name, ok, detail in checks]
+    lines = [f"{'PASS' if ok else 'FAIL'}  {name:48s} {detail}" for name, ok, detail in checks]
     lines.append("")
     lines.append(f"{'ALL CHECKS PASSED' if all_ok else 'STEP 7 PREFLIGHT GATE FAILED'} "
                  f"({sum(ok for _, ok, _ in checks)}/{len(checks)})")
