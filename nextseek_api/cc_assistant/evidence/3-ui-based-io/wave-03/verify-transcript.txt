@@ -1,0 +1,20 @@
+=== Task 9 Step 4 validator + coverage ===
+.........                                                                [100%]
+=============================== warnings summary ===============================
+../../../../tmp/cursor-sandbox-cache/daf3079d22f09fc971c9afe31219bbe4/uv/archive-v0/iPKS7V5wzIE9Ajc15u9fj/lib/python3.12/site-packages/_pytest/config/__init__.py:1464
+  /tmp/cursor-sandbox-cache/daf3079d22f09fc971c9afe31219bbe4/uv/archive-v0/iPKS7V5wzIE9Ajc15u9fj/lib/python3.12/site-packages/_pytest/config/__init__.py:1464: PytestConfigWarning: Unknown config option: DJANGO_SETTINGS_MODULE
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.12.13-final-0 _______________
+
+Name                                              Stmts   Miss  Cover   Missing
+-------------------------------------------------------------------------------
+nextseek_api/cc_assistant/cc_upload_validate.py       9      0   100%
+-------------------------------------------------------------------------------
+TOTAL                                                 9      0   100%
+Required test coverage of 95% reached. Total coverage: 100.00%
+9 passed, 1 warning in 0.08s
+exit=0
