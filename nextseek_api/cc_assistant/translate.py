@@ -152,7 +152,9 @@ class CCStreamTranslator:
              "cc_session_id": self.session_id,
              # Surface Claude Code's own accrued spend so the caller can ledger it
              # (the per-turn cost lives only on the terminal `result` frame).
-             "total_cost_usd": payload.get("total_cost_usd")},
+             "total_cost_usd": payload.get("total_cost_usd"),
+             "num_turns": payload.get("num_turns"),
+             "duration_ms": payload.get("duration_ms")},
         )]
 
     # ------------------------------------------------------------------ helpers
