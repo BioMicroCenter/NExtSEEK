@@ -8,8 +8,9 @@ docker run --rm --network host \
   -v /home/taishajo/work/NExtSEEK/nextseek_api/cc_assistant/evidence/3-ui-based-io-live/playwright:/work \
   -e SEEK_USER=demo -e SEEK_PASS=... \
   mcr.microsoft.com/playwright:v1.46.1-jammy \
-  bash -lc 'cd /work && npm install --no-audit --no-fund && node step3_live_gap_closure.mjs'
+  bash -lc 'cd /work && npm ci --no-audit --no-fund && node step3_live_gap_closure.mjs'
 ```
 
-Regression scripts use the same invocation with `node resume_ui.mjs` and
-`node xsession_1c.mjs`.
+The 1b resume regression uses the same invocation with `node resume_ui.mjs`.
+`node xsession_1c.mjs` is a non-canonical probe unless it is first aligned with
+the exact prior 1c live-test prompts.
