@@ -1,8 +1,12 @@
 """Tests for the router heuristic fallback (BAML-independent).
 
 These exercise the keyword fallback used when dmac's BAML router is
-unavailable. Run standalone (no Django/dmac installed -> decide() falls through
-to the heuristic):
+unavailable. They are hermetic and zero-spend in ANY environment: the pure
+heuristic cases call ``_heuristic`` directly, and the ``decide()`` fallback case
+monkeypatches ``_baml_decision`` to report "unavailable" instead of relying on
+dmac_assistant being absent -- so no real BAML/LLM call is ever made even when
+dmac_assistant IS installed (e.g. the full app container).
+
     uv run --no-project --with pytest python -m pytest \
         nextseek_api/cc_assistant/tests/test_router_heuristic.py
 """
@@ -40,11 +44,23 @@ def test_code_and_file_queries_route_to_cc():
         assert cc_router._heuristic(q).route == cc_router.ROUTE_CC, q
 
 
-def test_decide_falls_back_to_heuristic_when_baml_unavailable():
-    # dmac_assistant is not installed in this standalone test env, so the BAML
-    # path raises ImportError and decide() must fall through to the heuristic.
+def test_decide_falls_back_to_heuristic_when_baml_unavailable(monkeypatch):
+    # Force the BAML layer to report "unavailable" (return None) so decide() must
+    # fall through to the heuristic -- deterministically and with ZERO spend,
+    # regardless of whether dmac_assistant/BAML is importable in this env.
+    # (Previously this relied on dmac_assistant being absent; in the full app
+    # container decide() reached the REAL BAML router and made a live LLM call,
+    # returning source="baml" and failing this assertion.)
+    consulted = []
+
+    def _unavailable(query):
+        consulted.append(query)
+        return None  # signal "BAML router unavailable" -> decide() uses heuristic
+
+    monkeypatch.setattr(cc_router, "_baml_decision", _unavailable)
     d = cc_router.decide("Find me all mice treated with NDMA.")
-    assert d.route == cc_router.ROUTE_NS
+    assert consulted == ["Find me all mice treated with NDMA."]  # decide() consulted BAML...
+    assert d.route == cc_router.ROUTE_NS                          # ...then fell back to heuristic
     assert d.source == "heuristic"
 
 
