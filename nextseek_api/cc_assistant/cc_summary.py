@@ -84,20 +84,35 @@ def _content_text(content) -> str:
     return ""
 
 
-def _tool_use_line(block: dict, truncate_chars: int) -> str | None:
-    name = block.get("name", "")
+def classify_tool_use(block: dict) -> tuple[str, str, str | None]:
+    """Classify a tool_use content block into (kind, tool, detail). Shared by the
+    1c memory summary (_tool_use_line) and the Step-3 trace (cc_trace) so the two
+    can never drift. kind in {bash, write, edit, read, skill, tool}."""
+    name = block.get("name", "") or ""
     inp = block.get("input", {}) if isinstance(block.get("input"), dict) else {}
     n = name.lower()
     if n == "bash":
-        return f"bash: {_truncate(str(inp.get('command', '')), truncate_chars)}"
+        return "bash", name, (str(inp.get("command", "")) or None)
     if n in ("write", "edit", "multiedit", "notebookedit"):
-        op = {"write": "write", "edit": "edit", "multiedit": "edit",
-              "notebookedit": "edit"}[n]
-        return f"{op}: {inp.get('file_path') or inp.get('notebook_path', '')}"
+        kind = "write" if n == "write" else "edit"
+        return kind, name, (inp.get("file_path") or inp.get("notebook_path") or None)
     if n == "read":
-        return f"read: {inp.get('file_path', '')}"
+        return "read", name, (inp.get("file_path") or None)
     if n in ("skill", "task"):
-        return f"skill: {inp.get('skill') or inp.get('subagent_type') or name}"
+        return "skill", name, (inp.get("skill") or inp.get("subagent_type") or name)
+    return "tool", name, None
+
+
+def _tool_use_line(block: dict, truncate_chars: int) -> str | None:
+    kind, name, detail = classify_tool_use(block)
+    if kind == "bash":
+        return f"bash: {_truncate(detail or '', truncate_chars)}"
+    if kind in ("write", "edit"):
+        return f"{kind}: {detail or ''}"
+    if kind == "read":
+        return f"read: {detail or ''}"
+    if kind == "skill":
+        return f"skill: {detail or name}"
     return f"tool[{name}]"
 
 
