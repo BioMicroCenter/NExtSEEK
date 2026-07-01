@@ -23,7 +23,9 @@ import logging
 import os
 import threading
 import time
+from pathlib import Path
 
+from django.http import Http404, StreamingHttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -59,8 +61,28 @@ from nextseek_api.cc_assistant import cc_session
 from nextseek_api.cc_assistant import cc_summary
 from nextseek_api.cc_assistant import cc_memory
 from nextseek_api.cc_assistant import cc_memory_io
+from nextseek_api.cc_assistant.cc_provision import ProjectResolutionError
 
 logger = logging.getLogger(__name__)
+
+
+def _iter_and_cleanup(path: Path):
+    """Mirror content_blobs._iter_and_cleanup — unlink temp zip after stream."""
+    try:
+        with path.open("rb") as fh:
+            while chunk := fh.read(65536):
+                yield chunk
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _iter_file(path: Path):
+    with path.open("rb") as fh:
+        while chunk := fh.read(65536):
+            yield chunk
 
 
 def _persist_summary_standalone(user, session_id, summary_dict, fp):
@@ -525,3 +547,72 @@ class CCAssistantViewSet(viewsets.ViewSet):
             return Response({"error": "could not resolve SEEK project"}, status=503)
         dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)
         return Response({"files": list_input_files(dirs.input_mnt)})
+
+    @action(detail=False, methods=["get"], url_path=r"artifacts/(?P<session>[0-9a-f-]+)/download")
+    def download_artifact(self, request, session=None):
+        from nextseek_api.assistant.models_db import ChatSession
+        from nextseek_api.cc_assistant.cc_config import CCPaths
+        from nextseek_api.cc_assistant.cc_provision import resolve_user_project, build_user_dirs
+        from nextseek_api.cc_assistant.cc_engine import _safe_relpath
+
+        cs = ChatSession.objects.filter(user=request.user, session_id=session).first()
+        if cs is None:
+            raise Http404("no such session")
+        key = request.query_params.get("key", "")
+        if not key or (key != "all" and not _safe_relpath(key)):
+            raise Http404("bad key")
+
+        api_user, api_pass = self._resolve_credentials(request)
+        try:
+            project = resolve_user_project(api_user, api_pass)
+        except ProjectResolutionError:
+            return Response({"error": "could not resolve SEEK project"}, status=503)
+        dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)
+        from nextseek_api.cc_assistant.cc_endpoint_guards import resolve_artifact_path
+        art_dir = Path(dirs.output_mnt) / "artifacts"
+        if key == "all":
+            turn_id = request.query_params.get("turn_id", "")
+            if not turn_id or not _safe_relpath(turn_id):
+                raise Http404("bad turn_id")
+            art_dir = art_dir / turn_id
+            import tempfile
+            from nextseek_api.cc_assistant.cc_artifacts import build_artifact_zip
+            # Exclude the per-turn artifacts.zip written by Task 6 into this same
+            # art_dir, else key="all" nests the prior zip inside the new one.
+            files = [p for p in art_dir.rglob("*") if p.is_file() and p.name != "artifacts.zip"]
+            tmp = Path(tempfile.mkstemp(suffix=".zip")[1])
+            build_artifact_zip(files, tmp, arc_prefix=art_dir)
+            resp = StreamingHttpResponse(_iter_and_cleanup(tmp), content_type="application/zip")
+            resp["Content-Disposition"] = 'attachment; filename="artifacts.zip"'
+            return resp
+
+        target = resolve_artifact_path(str(art_dir), key)
+        if not target.is_file():
+            raise Http404("not found")
+        resp = StreamingHttpResponse(_iter_file(target), content_type="application/octet-stream")
+        resp["Content-Disposition"] = f'attachment; filename="{target.name}"'
+        return resp
+
+    @action(detail=False, methods=["get"], url_path=r"transcript/(?P<session>[0-9a-f-]+)/(?P<turn>[^/.]+)")
+    def recover_transcript(self, request, session=None, turn=None):
+        from django.conf import settings
+        from django.http import HttpResponse
+        from nextseek_api.assistant.models_db import ChatSession, CCSessionTranscript
+        from nextseek_api.cc_assistant.cc_transcript_store import decompress
+
+        cs = ChatSession.objects.filter(user=request.user, session_id=session).first()
+        if cs is None:
+            raise Http404("no such session")
+        cc_sid = request.query_params.get("cc_session_id")
+        qs = CCSessionTranscript.objects.filter(chat_session=cs, turn_id=turn)
+        if cc_sid:
+            qs = qs.filter(cc_session_id=cc_sid)
+        elif qs.count() > 1:
+            return Response({"error": "cc_session_id required"}, status=400)
+        row = qs.order_by("-created_at").first()
+        if row is None:
+            raise Http404("no transcript")
+        jsonl = decompress(bytes(row.blob), max_bytes=getattr(settings, "CC_TRANSCRIPT_MAX_BYTES", 256 * 1024 * 1024))
+        resp = HttpResponse(jsonl, content_type="application/x-ndjson")
+        resp["Content-Disposition"] = f'attachment; filename="transcript-{turn}.jsonl"'
+        return resp
