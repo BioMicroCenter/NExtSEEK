@@ -1,0 +1,14 @@
+Downloading django (7.9MiB)
+ Downloaded django
+Installed 18 packages in 99ms
+........................................................................ [ 37%]
+........................................................................ [ 74%]
+..................................................                       [100%]
+=============================== warnings summary ===============================
+../../../../tmp/cursor-sandbox-cache/daf3079d22f09fc971c9afe31219bbe4/uv/archive-v0/iPKS7V5wzIE9Ajc15u9fj/lib/python3.12/site-packages/_pytest/config/__init__.py:1464
+  /tmp/cursor-sandbox-cache/daf3079d22f09fc971c9afe31219bbe4/uv/archive-v0/iPKS7V5wzIE9Ajc15u9fj/lib/python3.12/site-packages/_pytest/config/__init__.py:1464: PytestConfigWarning: Unknown config option: DJANGO_SETTINGS_MODULE
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+194 passed, 1 warning in 1.09s
