@@ -526,6 +526,7 @@ class AssistantViewSet(viewsets.ViewSet):
                             mode=entry.get("mode", ""),
                             ts=entry.get("ts"),
                             artifacts=artifacts or None,
+                            cc_traces=entry.get("cc_traces"),
                         ).model_dump(mode="json")
                     )
             else:

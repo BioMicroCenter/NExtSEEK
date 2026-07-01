@@ -134,6 +134,7 @@ class Turn(BaseModel):
     mode: str
     ts: Optional[str] = None
     artifacts: Optional[List[Dict[str, Any]]] = None
+    cc_traces: Optional[List[Dict[str, Any]]] = None
 
     model_config = ConfigDict(extra="forbid")
 
