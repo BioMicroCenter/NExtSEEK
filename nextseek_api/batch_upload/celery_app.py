@@ -52,3 +52,4 @@ app.autodiscover_tasks(["nextseek_api.batch_upload"])
 
 # Step 1c Celery sweep (registers cc_assistant.sweep_cc_summaries)
 import nextseek_api.cc_assistant.cc_sweep  # noqa: F401, E402
+import nextseek_api.cc_assistant.cc_upload_tasks  # noqa: F401, E402

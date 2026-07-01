@@ -20,7 +20,9 @@ runs a sandboxed ``claude`` container via ``cc_assistant.cc_engine``.
 from __future__ import annotations
 
 import logging
+import os
 import threading
+import time
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -442,3 +444,69 @@ class CCAssistantViewSet(viewsets.ViewSet):
             ).model_dump(mode="json"),
             status=status.HTTP_200_OK,
         )
+
+    @action(detail=False, methods=["post"], url_path="upload")
+    def upload(self, request):
+        from django.conf import settings
+        from rest_framework.response import Response
+        from rest_framework import status as drf_status
+        from nextseek_api.cc_assistant.cc_config import CCPaths
+        from nextseek_api.cc_assistant.cc_provision import (
+            resolve_user_project, ProjectResolutionError, build_user_dirs)
+        from nextseek_api.cc_assistant.cc_upload_tasks import run_cc_upload_task
+        from nextseek_api.cc_assistant.cc_upload_validate import validate_upload_filename
+
+        uploaded = request.FILES.getlist("file")
+        if not uploaded:
+            return Response({"error": "no files"}, status=400)
+        cap = getattr(settings, "BATCH_UPLOAD_MAX_TOTAL_BYTES", 200 * 1024 * 1024)
+        if sum(f.size for f in uploaded) > cap:
+            return Response({"error": "upload too large"}, status=413)
+
+        api_user, api_pass = self._resolve_credentials(request)
+        try:
+            project = resolve_user_project(api_user, api_pass)
+        except ProjectResolutionError:
+            return Response({"error": "could not resolve SEEK project"}, status=503)
+        dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)
+
+        staged = []
+        seen_names: set[str] = set()
+        stage_root = os.path.join(getattr(settings, "MEDIA_ROOT", "/tmp"), "cc_upload_staging")
+        os.makedirs(stage_root, exist_ok=True)
+        for f in uploaded:
+            safe = validate_upload_filename(getattr(f, "name", ""))
+            if safe in seen_names:
+                return Response({"error": f"duplicate filename in batch: {safe}"}, status=400)
+            seen_names.add(safe)
+            tmp = os.path.join(stage_root, f"{int(time.time() * 1000)}_{safe}")
+            with open(tmp, "wb") as out:
+                for chunk in f.chunks():
+                    out.write(chunk)
+            staged.append({"name": safe, "tmp_path": tmp})
+
+        from nextseek_api.batch_upload.job_index import register_job
+
+        task = run_cc_upload_task.delay(input_mnt=dirs.input_mnt, files=staged)
+        register_job(user_id=request.user.pk, job_id=task.id, project_id=int(project.id) if str(project.id).isdigit() else 0)
+        return Response({"job_id": task.id, "status": "queued"},
+                        status=drf_status.HTTP_202_ACCEPTED)
+
+    @action(detail=False, methods=["get"], url_path=r"upload/status/(?P<job_id>[^/.]+)")
+    def upload_status(self, request, job_id=None):
+        from rest_framework.response import Response
+        from celery.result import AsyncResult
+        from nextseek_api.batch_upload.celery_app import app as celery_app
+        from nextseek_api.batch_upload.job_index import user_owns_job
+
+        if not user_owns_job(request.user.pk, job_id):
+            return Response({"error": "not found"}, status=404)
+        r = AsyncResult(job_id, app=celery_app)
+        resp = {"job_id": job_id, "state": r.state, "meta": {}, "result": None}
+        if r.state == "PROGRESS":
+            resp["meta"] = r.info or {}
+        elif r.state == "SUCCESS":
+            resp["result"] = r.result
+        elif r.state == "FAILURE":
+            resp["meta"] = {"error": str(r.result)}
+        return Response(resp)
