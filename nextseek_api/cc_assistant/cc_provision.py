@@ -66,6 +66,7 @@ class UserDirs:
     """
 
     input_src: str
+    input_mnt: str
     shared_src: str
     scratch_src: str
     output_src: str
@@ -98,6 +99,7 @@ def build_user_dirs(
     user_mount = f"{project_mount}/{user_id}"
     return UserDirs(
         input_src=f"{user_host}/input",
+        input_mnt=f"{user_mount}/input",
         shared_src=f"{project_host}/shared",
         scratch_src=f"{user_host}/scratch",
         output_src=f"{user_host}/output",
