@@ -168,24 +168,24 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
 
   const handleArtifactDownload = useCallback(
     (bundleId: number, artifactKey: string) => {
-      const sid = apiService.sessionId;
+      const sid = apiService.sessionId ?? sessions.activeSessionId;
       if (sid) {
         apiService
           .downloadArtifact(sid, bundleId, artifactKey)
           .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
       }
     },
-    [apiService, addSystemMessage],
+    [apiService, addSystemMessage, sessions.activeSessionId],
   );
 
   const handleCcArtifactDownload = useCallback(
     (artifactKey: string) => {
-      const sid = apiService.sessionId;
+      const sid = apiService.sessionId ?? sessions.activeSessionId;
       if (sid) {
         void apiService.downloadCcArtifact(sid, artifactKey);
       }
     },
-    [apiService],
+    [apiService, sessions.activeSessionId],
   );
 
   const handleDownload = useCallback(
