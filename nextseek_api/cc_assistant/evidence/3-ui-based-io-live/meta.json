@@ -1,0 +1,13 @@
+{
+  "repo_commit": "988d974f9e503c5d2f284f8cc5bc4b639e8295cf",
+  "branch": "cc-step3-ui-io",
+  "deploy_image_id": "7c1843138d05",
+  "pre_step3_snapshot_tag": "nextseek-nextseek:pre-step3",
+  "pre_step3_image_id": "38895032f45d",
+  "deploy_timestamp": "2026-07-01T01:18:00Z",
+  "live_gate_verdict": "PASS",
+  "playwright_scripts": [
+    "/home/taishajo/work/state/pw/step3_live_gate.mjs",
+    "/home/taishajo/work/state/pw/resume_ui.mjs"
+  ]
+}

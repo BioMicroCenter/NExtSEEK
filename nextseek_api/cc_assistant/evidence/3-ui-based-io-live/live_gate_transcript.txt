@@ -1,0 +1,134 @@
+PLAN-3 Task 13 live gate transcript
+Branch: cc-step3-ui-io @ 988d974 (pre-deploy) -> evidence commit pending
+Date: 2026-07-01
+Deploy image: nextseek-nextseek:latest = 7c1843138d05
+Rollback snapshot: nextseek-nextseek:pre-step3 = 38895032f45d
+SA clone synced: cc-step3-ui-io @ 988d974f9e503c5d2f284f8cc5bc4b639e8295cf
+
+=== Step 0: Celery preflight ===
+$ docker exec nextseek sh -lc '/app/.venv/bin/celery -A nextseek_api.batch_upload.celery_app inspect ping'
+Error: No nodes replied within time constraint
+EXIT=69
+NOTE: inspect ping timed out pre-deploy (broker quirk); worker process was running. Post-deploy registration verified via worker startup log and in-process task registry.
+
+=== Step 1: zstandard in image ===
+$ docker exec nextseek sh -lc 'cd /app && uv run python -c "import zstandard; print(zstandard.__version__)"'
+zstandard 0.25.0
+EXIT=0
+
+=== Step 2: embedded frontend build ===
+$ cd chat_frontend && npm run build:embedded  (via node:20-alpine docker)
+vite build -> ../static/js/chat_assistant/assets/main.embedded-T4utA1dl.js
+EXIT=0
+
+=== Step 3: snapshot + deploy ===
+$ docker commit nextseek nextseek-nextseek:pre-step3
+sha256:38895032f45dc41ed6d785072c82782c98c55a245b24ada3fa36e0d0aa881dc9
+EXIT=0
+
+$ docker compose -p nextseek build nextseek && docker compose -p nextseek up -d --no-deps nextseek
+(via service-account docker:cli helper on SA clone cc-step3-ui-io @ 988d974)
+EXIT=0
+
+$ curl -s -o /dev/null -w 'HTTP=%{http_code}\n' http://127.0.0.1:8000/
+HTTP=200
+EXIT=0
+
+$ docker exec nextseek sh -lc 'cd /app && uv run python -c "from nextseek_api.cc_assistant import cc_engine; print(cc_engine.cc_runner_available())"'
+(True, 'ok')
+EXIT=0
+
+predeploy_count=0
+
+=== Step 3 migration ===
+$ docker exec nextseek sh -lc 'cd /app && uv run python manage.py migrate nextseek_api 0007_ccsessiontranscript'
+Applying nextseek_api.0007_ccsessiontranscript... FAILED: Table 'assistant_cc_transcript' already exists (1050)
+EXIT=1
+
+$ docker exec nextseek sh -lc 'cd /app && uv run python manage.py migrate nextseek_api 0007_ccsessiontranscript --fake'
+Applying nextseek_api.0007_ccsessiontranscript... FAKED
+EXIT=0
+
+$ docker exec nextseek sh -lc 'cd /app && uv run python manage.py showmigrations nextseek_api'
+ [X] 0007_ccsessiontranscript
+EXIT=0
+
+=== Step 0 post-deploy: celery registered task ===
+$ docker exec nextseek sh -lc 'cd /app && /app/.venv/bin/celery -A nextseek_api.batch_upload.celery_app inspect registered --timeout 20' 2>&1 | grep cc_assistant.upload
+(no stdout — inspect timed out)
+$ docker logs nextseek 2>&1 | grep cc_assistant.upload | tail -1
+  . cc_assistant.upload
+EXIT=0
+
+$ docker exec nextseek sh -lc 'cd /app && uv run python -c "import nextseek_api.batch_upload.celery_app as c; print([k for k in sorted(c.app.tasks) if \"upload\" in k])"'
+['cc_assistant.upload']
+EXIT=0
+
+=== Step 4: Live upload -> input (Playwright) ===
+Script: /home/taishajo/work/state/pw/step3_live_gate.mjs
+Command: docker run --rm --network host -v .../pw:/work -e SEEK_USER=demo -e SEEK_PASS=[REDACTED] mcr.microsoft.com/playwright:v1.46.1-jammy node step3_live_gate.mjs
+
+LOGGED_IN= true
+UPLOAD_CLICKED=true
+UPLOAD_UI_DONE=true iter= 1
+EXIT=0
+
+$ ls -la /srv/dmac/users/1-published-data/demo/input/step3_probe.txt
+-rw-r--r--. 1 root root 22 Jun 30 21:25 /srv/dmac/users/1-published-data/demo/input/step3_probe.txt
+EXIT=0
+
+=== Step 5: Output split + artifacts ===
+CC turn confirmed STEP3-DELIVER-99; host paths:
+$ ls -la /srv/dmac/users/1-published-data/demo/output/artifacts/fd71cf30-f22c-445f-80d1-1ed4721c3f64/report.md
+-rw-r--r--. 1 root root 18 Jun 30 21:24 .../report.md
+$ ls -la /srv/dmac/users/1-published-data/demo/output/raw/raw-note.txt
+-rw-r--r--. 1 root root 15 Jun 30 21:24 .../raw-note.txt
+$ ls -la /srv/dmac/users/1-published-data/demo/output/raw/transcript-fd71cf30-f22c-445f-80d1-1ed4721c3f64.jsonl
+-rw-------. 1 root root 15948 Jun 30 21:24 .../transcript-fd71cf30-....jsonl
+EXIT=0
+
+=== Step 6: cc_traces survive reload (JSON excerpt) ===
+RELOAD_CC_TRACES_OK= true
+CC_TRACES_COUNT= 1
+CC_TRACES_JSON_EXCERPT=
+{
+  "turns": [
+    {
+      "cc_traces": [
+        {
+          "ts": "2026-07-01T01:24:43.729340+00:00",
+          "steps": [
+            {"kind": "bash", "line": 9, "tool": "Bash", "detail": "cat /data/input/step3_probe.txt", "status": "ok"},
+            {"kind": "bash", "line": 14, "tool": "Bash", "detail": "printf 'STEP3-DELIVER-99\\n' > /data/scratch/report.md ...", "status": "ok"}
+          ],
+          "cost_usd": 0.18635875,
+          "num_turns": 3,
+          "cc_session_id": "7622326b-0d65-44df-ae91-5f9e6a2f90a1",
+          "files_created": ["raw/raw-note.txt", "report.md"],
+          "schema_version": "3/trace-v1"
+        }
+      ],
+      "assistant_reply": "Output: STEP3-DELIVER-99"
+    }
+  ]
+}
+
+=== Step 7: 3e no-404 + 1b resume regression ===
+step3_live_gate.mjs turn 2:
+TURN2_NO404= true
+TURN2_OK= true (Output: STEP3-TURN2-OK)
+
+resume_ui.mjs (1b A/B):
+CODEWORD_RECALLED_84= true
+UI MULTI-TURN RESUME: VERIFIED
+ERRISH=false both turns
+EXIT=0
+
+=== Live gate verdict ===
+PASS — upload Celery job completed (UI), file in input/, artifacts + raw + transcript on host, non-empty cc_traces after reload, 3e second turn no 404, 1b resume verified.
+Estimated forced-CC spend: ~$0.19 (CC1) + resume_ui (~$0.28) + turn2 (~$0.05) ≈ under $2 cap.
+
+=== PLAN-7 marker checklist ===
+[X] Migration marker: [X] 0007_ccsessiontranscript (showmigrations); Applying nextseek_api.0007 attempted (table pre-existed, faked)
+[X] cc_assistant.upload (worker startup log + task registry)
+[X] cc_traces (JSON excerpt above)

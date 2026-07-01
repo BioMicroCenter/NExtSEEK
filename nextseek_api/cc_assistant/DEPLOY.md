@@ -113,6 +113,26 @@ docker exec nextseek python -c "from nextseek_api.cc_assistant import cc_engine;
 # -> (True, 'ok')
 ```
 
+## Step 3 — UI-based I/O deploy (PLAN-3 Task 13)
+
+After Wave 7 frontend merge on `cc-step3-ui-io`, before snapshot + image rebuild:
+
+1. Build embedded bundles on the working clone:
+   `cd chat_frontend && npm run build:embedded`
+   (emits fingerprinted assets under `static/js/chat_assistant/`).
+2. Snapshot rollback tag: `docker commit nextseek nextseek-nextseek:pre-step3`.
+3. Fast-forward the service-account build-context clone from the working clone
+   (`merge --ff-only`), then rebuild + recreate `--no-deps nextseek` via the
+   service-account `docker:cli` helper (same Phase B commands above).
+4. Inside the running container:
+   - `python manage.py migrate nextseek_api 0007_ccsessiontranscript`
+   - `python manage.py showmigrations nextseek_api` (idempotency marker for evidence)
+   - `python -c "import zstandard; print(zstandard.__version__)"`
+5. Celery worker must register the upload task:
+   `/app/.venv/bin/celery -A nextseek_api.batch_upload.celery_app inspect registered | grep cc_assistant.upload`
+6. Live gate evidence: `nextseek_api/cc_assistant/evidence/3-ui-based-io-live/live_gate_transcript.txt`
+   (must contain migration marker, `cc_assistant.upload`, and `cc_traces` JSON excerpt).
+
 ## Acceptance (paid, gated)
 
 ```bash
