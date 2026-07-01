@@ -1,0 +1,9 @@
+> nextseek-chat-frontend@0.1.0 test
+> vitest run
+
+ Test Files  21 passed (21)
+      Tests  124 passed (124)
+   Duration  2.99s
+
+New specs: CCActivityPanel.test.tsx, UploadControl.test.tsx
+Extended: MessageBubble (CC download branch), useMessages (cc_traces/mode hydrate), chatApi (upload/poll/downloadCc)
