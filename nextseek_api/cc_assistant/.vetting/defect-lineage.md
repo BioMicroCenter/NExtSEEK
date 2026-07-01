@@ -78,7 +78,7 @@ shape copied from `services/cc_assistant.py:65-72`); new mutation-RED guard test
 
 ---
 
-## Thread D — PLAN-7 cc_engine whole-module ≥95% coverage floor  [STATUS: OPEN — hardened iter-21, pending iter-22 fresh re-vet]
+## Thread D — PLAN-7 cc_engine whole-module ≥95% coverage floor  [STATUS: CLOSED @ iter-23 — fresh reviewer (plan-7-phase2-review-23-fresh) adjudicated the rescope LEGITIMATE: hermetic ≥95% floor on pure cc_config + RED-blocking Subpath-value tests + the live realstack isolation gate = three independent enforced nets; run_cc_turn is live-only. Reconfirmed iter-24 (review-24 item 7). Stale OPEN header corrected 2026-07-01.]
 
 | Iter | Severity | Finding | Class | Parent |
 |------|----------|---------|-------|--------|
@@ -92,7 +92,7 @@ pattern as PLAN-3 Task 5); restate the floor consistently; remove the false prag
 mount helpers surfaced via `--cov-report=term-missing` (no fail-under); `run_cc_turn` on the live
 realstack gate as a justified exception; false pragma claim removed. Pending iter-22 fresh re-vet.
 
-## Thread E — PLAN-3 missing-jsonl persistence policy consistency  [STATUS: OPEN — hardened iter-21, pending iter-22 fresh re-vet]
+## Thread E — PLAN-3 missing-jsonl persistence policy consistency  [STATUS: CLOSED @ iter-22 — fresh reviewer (plan-3-phase2-review-22-fresh) confirmed persistence is best-effort on success behind CC_PERSIST_STRICT (a paid reply is never converted to query_error); no unconditional-raise wording remains. Reconfirmed iter-23. Stale OPEN header corrected 2026-07-01.]
 
 | Iter | Severity | Finding | Class | Parent |
 |------|----------|---------|-------|--------|

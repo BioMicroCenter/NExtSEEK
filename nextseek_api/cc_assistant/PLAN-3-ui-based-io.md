@@ -1,5 +1,24 @@
 # Step 3 — UI-based I/O Implementation Plan
 
+> **ONBOARD / TRUE STATE — updated 2026-07-01 (post-merge + redeploy, live-verified).**
+> **EXECUTED, merged to the integration branch, and live.** Implemented via
+> `superpowers:subagent-driven-development` on `cc-step3-ui-io`; Phase 2 vetting =
+> UNCONDITIONAL_ACCEPTANCE @ iter-23 (fresh); tracker Step 3 (3a–3e) = done.
+> - **Integration branch:** `feat/dmac-assistant-full-integration` fast-forwarded to
+>   `c87c874` and **pushed to origin** — GitHub now carries Steps 1–3 (the prerequisite
+>   for the Step-7 off-server greenfield verify). Secret scan PASS before push.
+> - **Live deploy:** `nextseek` container rebuilt from `feat@c87c874` (image `ad61f29`)
+>   via the service-account clone + `collectstatic`; gunicorn+celery, migration `0007`
+>   applied, `cc_assistant.upload` registered, HTTP 200.
+> - **Live gate re-run on the feat build (2026-07-01):** step3 UI upload / download /
+>   activity panel / reload / transcript recover ALL PASS + 1b resume (BANANA-42→84)
+>   VERIFIED. Real spend $0.33 (`cc_trace.cost_usd`), max turn $0.19, under the $2/turn cap.
+> - **The task checkboxes below were NOT tick-tracked during execution** — source of truth
+>   is the git history + `integration-plan.json` + `evidence/3-ui-based-io-live/`.
+> - **STALE (do not act on):** the "Phase 3 (task-spec writing) is gated" footer — execution
+>   ran directly via subagent-driven-development, so ultraplan Phase-3 task-spec explosion
+>   did not run for this plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the vestigial Dropbox-shaped I/O with real UI-based I/O — per-user uploads into `input/`, a hybrid artifacts/raw output split with in-UI download, a reload-surviving CC activity panel, a zstd-compressed full-transcript record in the DB, removal of the Dropbox copy/laptop path, and the deferred authoritative-session-id fix.
