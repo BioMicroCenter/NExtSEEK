@@ -703,6 +703,39 @@ def test_forced_cc_run_id_mismatch_fails(tmp_path):
 
 
 # ==========================================================================
+# proxy_invoke_recorded: pinned to the allowed Opus model id (Task 16 debt
+# fix -- the pre-fix `_INVOKE_200_GENERIC_RE` accepted an invoke-200 for ANY
+# model id, not just the one the bedrock-proxy allowlist actually permits).
+# ==========================================================================
+
+def test_proxy_invoke_recorded_passes_for_the_allowed_opus_model(tmp_path):
+    repo, bundle, tracker, sha = _bundle(tmp_path)
+    _full_bundle(bundle, tracker, deploy_commit=sha)
+
+    all_ok, checks = validate_run(bundle, repo_root=repo)
+    assert _names(checks)["proxy_invoke_recorded"] is True
+    assert all_ok, checks
+
+
+def test_proxy_invoke_recorded_rejects_non_allowed_model_id(tmp_path):
+    """A well-formed invoke->200 line for a model OTHER than the pinned
+    allowed Opus id must NOT satisfy this check -- a generic any-model regex
+    would wrongly accept it (the exact pre-fix behavior this test guards
+    against)."""
+    repo, bundle, tracker, sha = _bundle(tmp_path)
+    _full_bundle(bundle, tracker, deploy_commit=sha)
+    (bundle / "proxy_log_window.txt").write_text(
+        f"[2026-07-01T12:00:00Z] run_id={RUN_ID} "
+        f"POST /model/us.anthropic.claude-sonnet-4-5/invoke -> 200\n",
+        encoding="utf-8",
+    )
+
+    all_ok, checks = validate_run(bundle, repo_root=repo)
+    assert not all_ok
+    assert _names(checks)["proxy_invoke_recorded"] is False
+
+
+# ==========================================================================
 # Cross-artifact correlation: run_id in proxy log; agent container in
 # network_inspect.json
 # ==========================================================================

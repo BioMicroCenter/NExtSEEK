@@ -57,6 +57,15 @@ CC_ENV_KEYS = (
     "DMAC_ROUTER_ENABLED",
     "DMAC_ROUTE_CAPABILITIES_FILE",
     "DMAC_ROUTER_MODEL_CLASS_MAP_FILE",
+    # RETIRED (Task 6, G7-10): the host-bind path this key configured
+    # ("/srv/dmac/users") was eradicated in favor of the `dmac-cc-users`
+    # named volume + per-user Engine-API `Subpath` mounts (see
+    # docker/nextseek.env.example's "the old DMAC_USER_ROOT host-bind model
+    # is retired" note). This collector only RECORDS whichever of
+    # CC_ENV_KEYS are present in docker/nextseek.env.example -- it does not
+    # gate on any of them -- so the key stays here for visibility if a
+    # stale env file still sets it. Do NOT reintroduce a host-path bind
+    # under this key (Task 16 debt-fix annotation).
     "DMAC_USER_ROOT",
     "DMAC_USER_ROOT_MOUNT",
     "DMAC_CC_USERS_VOLUME",

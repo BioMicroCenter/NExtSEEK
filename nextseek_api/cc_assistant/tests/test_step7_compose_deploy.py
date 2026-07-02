@@ -35,6 +35,7 @@ from pathlib import Path
 import pytest
 
 from nextseek_api.cc_assistant import cc_engine
+from nextseek_api.cc_assistant.tests import step7_preflight_collector as _collector_mod
 from nextseek_api.cc_assistant.tests.step7_preflight_collector import (
     CC_ENV_KEYS,
     DOCKER_API_SUBPATH_FLOOR,
@@ -45,13 +46,16 @@ from nextseek_api.cc_assistant.tests.step7_preflight_collector import (
     _deploy_md_has_old_bootstrap,
     _parse_cc_env_keys,
     _parse_compose,
+    _tracker_step_status,
     collect_preflight,
     compose_meets_subpath_floor,
+    default_docker_probe,
     engine_meets_subpath_floor,
     read_tracker_step3_status,
     resolve_integration_plan_path,
     sha256_file,
 )
+from nextseek_api.cc_assistant.tests.validate_cc_acceptance import OPUS as CC_OPUS_MODEL_ID
 from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import (
     LIVE_EVIDENCE_PATH_LITERAL,
     main as validator_main,
@@ -343,7 +347,10 @@ def _write_auxiliary_artifacts(bundle_dir: Path, *, run_id: str = RUN_ID,
     }), encoding="utf-8")
     (bundle_dir / "proxy_log_window.txt").write_text(
         f"[2026-07-01T12:00:00Z] run_id={run_id} "
-        f"POST /model/us.anthropic.claude-sonnet-4-5/invoke -> 200\n",
+        # Task 16: proxy_invoke_recorded is pinned to the allowed Opus model
+        # id (CC_OPUS_MODEL_ID) -- a clean bundle's proxy log must carry an
+        # invoke->200 line for THAT exact model, not an arbitrary one.
+        f"POST /model/{CC_OPUS_MODEL_ID}/invoke -> 200\n",
         encoding="utf-8",
     )
     (bundle_dir / "agent_env_scan.txt").write_text(
@@ -1506,6 +1513,65 @@ def test_default_git_probe_reports_real_repo_state_and_blob_sizes(tmp_path):
     assert default_git_probe(repo).dirty is True
 
 
+# --------------------------------------------------------------------------
+# default_docker_probe -- "NEVER called by hermetic tests" against a REAL
+# docker daemon, but its own logic (subprocess dispatch + per-call exception
+# handling + delegation to engine_meets_subpath_floor/
+# compose_meets_subpath_floor) is ordinary Python this suite CAN and should
+# cover hermetically by faking `subprocess.run` itself -- no docker socket,
+# no daemon, no network (Task 16 coverage debt fix).
+# --------------------------------------------------------------------------
+
+def test_default_docker_probe_success_and_failure_paths(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd == ["docker", "compose", "version"]:
+            raise subprocess.CalledProcessError(1, cmd)
+        return subprocess.CompletedProcess(
+            cmd, 0,
+            stdout=(
+                "Docker version 27.0.0, build abc123\n"
+                "Engine:\n Version: 27.0.0\n API version: 1.47 (minimum version 1.24)\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(_collector_mod.subprocess, "run", fake_run)
+
+    probe = default_docker_probe()
+
+    assert calls == [
+        ["docker", "version"], ["docker", "info"], ["docker", "compose", "version"],
+    ]
+    assert probe.version_summary.startswith("Docker version 27.0.0")
+    assert probe.info_summary.startswith("Docker version 27.0.0")  # both use the same fake stdout
+    assert probe.compose_version.startswith("<unavailable:")
+    assert probe.engine_meets_subpath_floor is True
+    # `docker compose version` failed -> unparseable -> floor not met.
+    assert probe.compose_meets_subpath_floor is False
+
+
+# --------------------------------------------------------------------------
+# _tracker_step_status -- the loop-exhausted "no step id==3 present at all"
+# branch (distinct from "file missing/malformed", already covered above).
+# --------------------------------------------------------------------------
+
+def test_tracker_step_status_returns_none_when_step_3_absent():
+    tracker = {"steps": [{"id": "0", "status": "done"}, {"id": "4", "status": "not_started"}]}
+    assert _tracker_step_status(tracker, "3") is None
+
+
+# --------------------------------------------------------------------------
+# _parse_cc_env_keys -- the file-missing-entirely branch (distinct from the
+# already-covered "file exists, no known keys present" case).
+# --------------------------------------------------------------------------
+
+def test_parse_cc_env_keys_missing_file_returns_empty(tmp_path):
+    assert _parse_cc_env_keys(tmp_path / "does-not-exist.env.example") == []
+
+
 # ==========================================================================
 # PLAN-7 Task 5: real ``docker compose -f docker-compose.yml config``
 # topology tests. Parses the ACTUAL compose CLI's subprocess output over a
@@ -1669,6 +1735,18 @@ def test_compose_config_nextseek_itself_not_on_dmac_cc_net(tmp_path):
     cfg = _real_compose_config(tmp_path)
     nets = set(cfg["services"]["nextseek"].get("networks") or {})
     assert "dmac-cc-net" not in nets
+
+
+def test_compose_config_nextseek_container_name_pinned(tmp_path):
+    """Task 16: hermetic pin for ``container_name: nextseek`` on the
+    ``nextseek`` service itself. This is load-bearing for
+    ``validate_step7_compose_deploy.check_network_segmentation_ok``'s
+    exact-string-equality rejection of a literal ``"nextseek"`` peer on the
+    agent's network -- that check only works because the real compose file
+    guarantees the app container's runtime name IS exactly "nextseek" (never
+    a compose-prefixed variant), a guarantee this test pins against drift."""
+    cfg = _real_compose_config(tmp_path)
+    assert cfg["services"]["nextseek"]["container_name"] == "nextseek"
 
 
 @pytest.mark.parametrize("backend_service", ["db", "seek", "seek_workers", "solr", "neo4j"])

@@ -35,6 +35,7 @@ from typing import Any, Callable
 
 from nextseek_api.cc_assistant.tests.validate_cc_acceptance import (
     LEAK_MARKERS as _CC_LEAK_MARKERS,
+    OPUS as _CC_OPUS_MODEL_ID,
     SHARED_CRED_KEYS as _CC_SHARED_CRED_KEYS,
     is_dmac_cc_net_closed_set_member as _cc_net_closed_set_member,
     matrix_executor_name as _matrix_executor_name,
@@ -165,7 +166,16 @@ _NEXTSEEK_PASSWORD_UNREDACTED_RE = re.compile(
     r"NEXTSEEK_PASSWORD\s*=\s*(?!\*{3,}\b|REDACTED\b|<redacted>|\[redacted\])\S+", re.IGNORECASE
 )
 
-_INVOKE_200_GENERIC_RE = re.compile(r"POST\s+/model/\S+/invoke(?:-with-response-stream)?\b[^\n]*?->\s*200")
+# Task 16 debt fix: pinned to the single allowed Bedrock model id (the
+# bedrock-proxy allowlist -- docker/bedrock-proxy/app/config.py's
+# `_DEFAULT_ALLOWED_MODELS`, mirrored here as `_CC_OPUS_MODEL_ID` /
+# `validate_cc_acceptance.OPUS`), NOT a `\S+` wildcard that would accept a
+# proxy invoke-200 for ANY model id. A generic wildcard here would pass even
+# when the proxy relayed a call to a model the allowlist never authorized --
+# defeating the point of pinning the proxy to exactly one model.
+_INVOKE_200_OPUS_RE = re.compile(
+    r"POST\s+/model/" + re.escape(_CC_OPUS_MODEL_ID) + r"/invoke(?:-with-response-stream)?\b[^\n]*?->\s*200"
+)
 
 # --- Task 15 (G7-11 capability gate) constants ------------------------------
 
@@ -899,14 +909,22 @@ def check_proxy_invoke_recorded(ctx: Context) -> tuple[str, bool, str]:
     if not p.is_file():
         return name, False, "proxy_log_window.txt missing"
     text = p.read_text(encoding="utf-8", errors="replace")
-    ok = bool(text.strip()) and bool(_INVOKE_200_GENERIC_RE.search(text))
-    return name, ok, ("proxy invoke ->200 found" if ok else "no proxy invoke ->200 line found in proxy_log_window.txt")
+    ok = bool(text.strip()) and bool(_INVOKE_200_OPUS_RE.search(text))
+    return name, ok, (
+        "proxy invoke ->200 found for the allowed model" if ok else
+        f"no proxy invoke ->200 line found for the allowed model ({_CC_OPUS_MODEL_ID}) in proxy_log_window.txt"
+    )
 
 
 def check_network_segmentation_ok(ctx: Context) -> tuple[str, bool, str]:
     """OI-3: `nextseek` itself must NOT be attached to the agent's network --
-    only nginx (dual-homed by design, per the pinned `container_name: nginx*`
-    convention below) may bridge it to the backend.
+    only nginx (the dual-homed `nextseek_nginx` service) may bridge it to the
+    backend. Unlike `nextseek` below, `nextseek_nginx` carries NO
+    `container_name:` pin in docker-compose.yml -- its runtime name follows
+    Compose's default project-prefixed naming (e.g.
+    `nextseek-nextseek_nginx-1`). This check does not need to allowlist that
+    name explicitly: as the next paragraph explains, none of the `_PEER_RE`
+    backend stems match it, so it is simply never flagged.
 
     The shared `_PEER_RE` stems ("neo4j", "seek", "mysql") are word-boundary
     regexes and deliberately do NOT include a "nextseek" stem: adding one
