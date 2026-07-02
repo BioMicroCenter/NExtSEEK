@@ -139,6 +139,15 @@ DEFAULT_BUDGET_CAP_USD = 2.0
 # pinned detector for that canonical set, not derived from meta.json.
 FOREIGN_TOKEN_GREP_RE = re.compile(r"SENTINEL_FOREIGN|(^| |/)otherproj(/|$| )|(^| |/)bob(/|$| )")
 
+# The canonical foreign-token set (SPEC-7 amend 2026-06-30 / Task 2 brief):
+# the exact set of tokens FOREIGN_TOKEN_GREP_RE is pinned to detect. This is
+# the *values* counterpart of that compiled regex; meta.json.foreign_tokens
+# MUST equal this set exactly (see check_foreign_tokens_canonical_set) --
+# otherwise the pre-turn seed-scan oracle only proves presence of whatever a
+# harness chose to seed, while a real leak of the actual pinned tokens stays
+# invisible to the in-turn (regex-based) detector.
+CANONICAL_FOREIGN_TOKENS = frozenset({"SENTINEL_FOREIGN", "otherproj", "bob"})
+
 # Legacy (pre-SPEC-7) evidence filenames that must never appear anywhere in a
 # Step 7 bundle -- their SPEC-7-named replacements are forced_cc_result.json,
 # proxy_log_window.txt, network_inspect.json.
@@ -756,6 +765,28 @@ def check_proxy_invoke_recorded(ctx: Context) -> tuple[str, bool, str]:
 
 
 def check_network_segmentation_ok(ctx: Context) -> tuple[str, bool, str]:
+    """OI-3: `nextseek` itself must NOT be attached to the agent's network --
+    only nginx (dual-homed by design, per the pinned `container_name: nginx*`
+    convention below) may bridge it to the backend.
+
+    The shared `_PEER_RE` stems ("neo4j", "seek", "mysql") are word-boundary
+    regexes and deliberately do NOT include a "nextseek" stem: adding one
+    would false-positive the legitimately dual-homed nginx entrypoint, whose
+    compose-project-prefixed runtime name (e.g.
+    "nextseek-nextseek_nginx-1") CONTAINS the substring "nextseek". A regex
+    can't distinguish that from the app container itself joining the network
+    by drift.
+
+    Instead this check adds a second, non-regex test: exact string equality
+    against the literal "nextseek". docker-compose.yml pins
+    `container_name: nextseek` for the app service (see
+    check_agent_container_in_network_inspect's sibling checks / DEPLOY.md),
+    so at runtime the container name IS exactly "nextseek" when healthy --
+    there is no compose-prefixed variant to worry about missing. Any name
+    containing "nginx" (bare "nextseek_nginx" or prefixed
+    "nextseek-nextseek_nginx-1") is unaffected by this exact check and stays
+    legitimate.
+    """
     name = "network_segmentation_ok"
     obj = _try_load_json_any(ctx.run_dir / "network_inspect.json")
     if obj is None:
@@ -766,7 +797,10 @@ def check_network_segmentation_ok(ctx: Context) -> tuple[str, bool, str]:
         peers = obj
     else:
         peers = []
-    bad = sorted(p for p in peers if isinstance(p, str) and any(rx.search(p) for rx in _cc_peer_res().values()))
+    bad = sorted(
+        p for p in peers
+        if isinstance(p, str) and (p == "nextseek" or any(rx.search(p) for rx in _cc_peer_res().values()))
+    )
     ok = not bad
     return name, ok, f"forbidden backend peers on agent net: {bad}"
 
@@ -890,6 +924,24 @@ def check_subpath_isolation_scan_valid(ctx: Context) -> tuple[str, bool, str]:
     ok = not bad_lines
     return name, ok, ("own_marker + live_sentinel present; no foreign tokens" if ok else
                        f"foreign token(s) found on line(s): {bad_lines[:5]}")
+
+
+def check_foreign_tokens_canonical_set(ctx: Context) -> tuple[str, bool, str]:
+    """meta.json.foreign_tokens must equal CANONICAL_FOREIGN_TOKENS exactly
+    (set equality) -- fail-closed on missing/wrong-type. This pins the
+    pre-turn seed-scan oracle (check_pre_turn_seed_scan_contains_foreign_tokens)
+    to the same tokens the in-turn leak detector (FOREIGN_TOKEN_GREP_RE) is
+    hardcoded to catch, so a harness cannot substitute non-canonical tokens
+    that prove presence pre-turn while a real leak of the canonical tokens
+    goes undetected in-turn."""
+    name = "foreign_tokens_canonical_set"
+    foreign = ctx.meta.get("foreign_tokens")
+    if not isinstance(foreign, list) or not all(isinstance(t, str) for t in foreign):
+        return name, False, f"meta.json.foreign_tokens missing or not a list of strings: {foreign!r}"
+    ok = set(foreign) == CANONICAL_FOREIGN_TOKENS
+    return name, ok, (
+        f"foreign_tokens={foreign!r} (must equal exactly {sorted(CANONICAL_FOREIGN_TOKENS)})"
+    )
 
 
 def check_meta_tokens_pairwise_disjoint(ctx: Context) -> tuple[str, bool, str]:
@@ -1024,6 +1076,7 @@ CHECKS: list[Callable[[Context], tuple[str, bool, str]]] = [
     check_migration_policy_conditionality,
     check_pre_turn_seed_scan_contains_foreign_tokens,
     check_subpath_isolation_scan_valid,
+    check_foreign_tokens_canonical_set,
     check_meta_tokens_pairwise_disjoint,
     check_no_legacy_artifact_filenames,
     check_secret_scan_report_present,

@@ -119,7 +119,8 @@ def _write_auxiliary_artifacts(bundle_dir: Path, *, run_id: str = RUN_ID,
                                 sentinel: str = LIVE_SENTINEL,
                                 pre_bootstrap: bool = False,
                                 pre_existing_volume_names: list[str] | None = None,
-                                pre_existing_network_names: list[str] | None = None) -> None:
+                                pre_existing_network_names: list[str] | None = None,
+                                network_inspect_containers: list[str] | None = None) -> None:
     """Write every SPEC-7 section 8 artifact Task 2 checks beyond preflight.json
     + meta.json, with values that make a clean, fully-passing bundle."""
     foreign_tokens = FOREIGN_TOKENS if foreign_tokens is None else foreign_tokens
@@ -144,8 +145,12 @@ def _write_auxiliary_artifacts(bundle_dir: Path, *, run_id: str = RUN_ID,
     (bundle_dir / "images.json").write_text(
         json.dumps({"nextseek": "nextseek:dev", "bedrock-proxy": "bedrock-proxy:dev"}), encoding="utf-8"
     )
+    containers = (
+        [f"cc-agent-{run_id}", "bedrock-proxy"]
+        if network_inspect_containers is None else network_inspect_containers
+    )
     (bundle_dir / "network_inspect.json").write_text(
-        json.dumps({"containers": [f"cc-agent-{run_id}", "bedrock-proxy"]}), encoding="utf-8"
+        json.dumps({"containers": containers}), encoding="utf-8"
     )
     (bundle_dir / "cc_runner_available.json").write_text(json.dumps([True, "ok"]), encoding="utf-8")
     (bundle_dir / "forced_cc_result.json").write_text(json.dumps({
@@ -336,6 +341,7 @@ ALL_CHECK_NAMES = {
     "proxy_token_not_logged", "cross_artifact_run_id_in_proxy_log",
     "cross_artifact_agent_container_in_network_inspect", "migration_policy_conditionality",
     "pre_turn_seed_scan_contains_foreign_tokens", "subpath_isolation_scan_valid",
+    "foreign_tokens_canonical_set",
     "meta_tokens_pairwise_disjoint", "no_legacy_artifact_filenames", "secret_scan_report_present",
     "secret_scan_clean", "screenshot_review_recorded", "not_markdown_only_bundle",
 }
@@ -822,6 +828,111 @@ def test_mbp_host_but_tracker_path_outside_bundle_still_validates_normally(tmp_p
     all_ok, checks = validate_run(bundle, repo_root=repo)
 
     assert all_ok, checks
+
+
+# --------------------------------------------------------------------------
+# Final-review Fix 1: exact-name `nextseek` peer detection in
+# check_network_segmentation_ok (drifted host with the app container itself
+# joined to dmac-cc-net must fail; the legitimately dual-homed nginx entry
+# -- both the bare compose service name and the compose-project-prefixed
+# runtime form -- must still pass; existing backend-peer stem rejection
+# must stay covered).
+# --------------------------------------------------------------------------
+
+def test_network_segmentation_fails_when_exact_nextseek_container_attached(tmp_path):
+    repo, sha = _repo_with_transcript(tmp_path)
+    bundle = tmp_path / "bundle"
+    tracker = tmp_path / "tracker" / "integration-plan.json"
+    _full_bundle(
+        bundle, tracker, deploy_commit=sha,
+        aux_overrides={"network_inspect_containers": ["nextseek", "bedrock-proxy", f"cc-agent-{RUN_ID}"]},
+    )
+
+    all_ok, checks = validate_run(bundle, repo_root=repo)
+
+    assert not all_ok
+    assert _names(checks)["network_segmentation_ok"] is False
+
+
+@pytest.mark.parametrize("nginx_name", ["nextseek_nginx", "nextseek-nextseek_nginx-1"])
+def test_network_segmentation_passes_for_legitimately_dual_homed_nginx_names(tmp_path, nginx_name):
+    repo, sha = _repo_with_transcript(tmp_path)
+    bundle = tmp_path / "bundle"
+    tracker = tmp_path / "tracker" / "integration-plan.json"
+    _full_bundle(
+        bundle, tracker, deploy_commit=sha,
+        aux_overrides={"network_inspect_containers": [nginx_name, "bedrock-proxy", f"cc-agent-{RUN_ID}"]},
+    )
+
+    all_ok, checks = validate_run(bundle, repo_root=repo)
+
+    assert _names(checks)["network_segmentation_ok"] is True, checks
+
+
+@pytest.mark.parametrize("peer_name", ["neo4j", "seek-mysql", "seek", "mysql"])
+def test_network_segmentation_still_fails_for_existing_backend_peer_stems(tmp_path, peer_name):
+    repo, sha = _repo_with_transcript(tmp_path)
+    bundle = tmp_path / "bundle"
+    tracker = tmp_path / "tracker" / "integration-plan.json"
+    _full_bundle(
+        bundle, tracker, deploy_commit=sha,
+        aux_overrides={"network_inspect_containers": [peer_name, "bedrock-proxy", f"cc-agent-{RUN_ID}"]},
+    )
+
+    all_ok, checks = validate_run(bundle, repo_root=repo)
+
+    assert not all_ok
+    assert _names(checks)["network_segmentation_ok"] is False
+
+
+# --------------------------------------------------------------------------
+# Final-review Fix 2: canonical foreign-token set assertion. The pre-turn
+# seed-scan check only proves presence of whatever meta.json.foreign_tokens
+# lists; without pinning that list to the canonical set, a harness could
+# seed non-canonical tokens and pass pre-turn while a real leak (of the
+# actual pinned FOREIGN_TOKEN_GREP_RE tokens) stays invisible in-turn.
+# --------------------------------------------------------------------------
+
+def test_foreign_tokens_missing_one_canonical_token_fails(tmp_path):
+    repo, sha = _repo_with_transcript(tmp_path)
+    bundle = tmp_path / "bundle"
+    tracker = tmp_path / "tracker" / "integration-plan.json"
+    _full_bundle(
+        bundle, tracker, deploy_commit=sha,
+        meta_overrides={"foreign_tokens": ["SENTINEL_FOREIGN", "otherproj"]},
+    )
+
+    all_ok, checks = validate_run(bundle, repo_root=repo)
+
+    assert not all_ok
+    assert _names(checks)["foreign_tokens_canonical_set"] is False
+
+
+def test_foreign_tokens_extra_noncanonical_token_fails(tmp_path):
+    repo, sha = _repo_with_transcript(tmp_path)
+    bundle = tmp_path / "bundle"
+    tracker = tmp_path / "tracker" / "integration-plan.json"
+    extra = ["SENTINEL_FOREIGN", "otherproj", "bob", "harness_seeded_token"]
+    _full_bundle(
+        bundle, tracker, deploy_commit=sha,
+        meta_overrides={"foreign_tokens": extra},
+    )
+
+    all_ok, checks = validate_run(bundle, repo_root=repo)
+
+    assert not all_ok
+    assert _names(checks)["foreign_tokens_canonical_set"] is False
+
+
+def test_foreign_tokens_exact_canonical_set_passes(tmp_path):
+    repo, sha = _repo_with_transcript(tmp_path)
+    bundle = tmp_path / "bundle"
+    tracker = tmp_path / "tracker" / "integration-plan.json"
+    _full_bundle(bundle, tracker, deploy_commit=sha)  # default FOREIGN_TOKENS is canonical
+
+    all_ok, checks = validate_run(bundle, repo_root=repo)
+
+    assert _names(checks)["foreign_tokens_canonical_set"] is True, checks
 
 
 # --------------------------------------------------------------------------
