@@ -1,0 +1,33 @@
+# Harden the Docker build context against common local leak vectors.
+# New for this port (the pinned dmac-assistant source did not carry a
+# .dockerignore of its own -- its Dockerfile relied on the repo-root
+# .dockerignore via `context: ..`); adapted from
+# docker/bedrock-proxy/.dockerignore's pattern (PLAN-7 Task 4 precedent) for
+# this port's docker/ns-sidecar/ context root.
+#
+# OI-3: the sidecar holds no credentials of its own -- its only env is
+# NEXTSEEK_BASE_URL, SIDECAR_STAGING_DIR, SIDECAR_WS_PORT. Per-user
+# credentials arrive per-request inside the WS envelope, never via env or a
+# baked-in file. These guards exclude the upstream local-dev env overlay
+# files (local-nextseek*.env) and the upstream standalone compose fragment,
+# neither of which this port carries or wires (later tasks 13-15 own
+# compose wiring).
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.ruff_cache
+**/.coverage*
+**/.env
+**/.env.local
+**/.env.prod
+**/.env.dev
+local-nextseek*.env
+docker-compose.yml
+**/credentials.json
+**/*.pem
+**/*.key
+**/id_rsa
+**/id_rsa.*
+.git
+.venv
