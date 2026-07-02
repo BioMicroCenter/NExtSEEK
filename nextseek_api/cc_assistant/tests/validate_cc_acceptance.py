@@ -47,6 +47,51 @@ LEAK_MARKERS = ("ABSK", "demopassword")
 # entrypoint (which contains the substring "seek") is NOT a false positive.
 FORBIDDEN_NET_PEERS = ("neo4j", "seek", "mysql")
 _PEER_RE = {s: re.compile(rf"(^|[-_]){re.escape(s)}([-_]|$)") for s in FORBIDDEN_NET_PEERS}
+
+# --- G7-11 / Task 15: dmac-cc-net CLOSED-SET peer identity primitives -------
+# This module is the existing home of the denylist peer-stem rules above
+# (``_PEER_RE`` / ``FORBIDDEN_NET_PEERS``), which
+# ``validate_step7_compose_deploy.check_network_segmentation_ok`` already
+# imports and reuses. Task 15 Step 2 (SPEC-7 section 10 G7-11) hardens
+# ``dmac-cc-net`` membership from a denylist into an enforceable CLOSED SET;
+# these constants/helper are mirrored HERE (single source of truth) so both
+# validators reuse the identical peer identity rule rather than each
+# maintaining a drift-prone copy.
+CC_AGENT_NAME_RE = re.compile(r"^dmac-cc-agent-[0-9a-f-]{1,64}$")
+NGINX_PEER_NAME_RE = re.compile(r"(^|[-_])nextseek_nginx(?:[-_]\d+)?$")
+BEDROCK_PROXY_CONTAINER_NAME = "dmac-bedrock-proxy"
+SIDECAR_CONTAINER_NAME = "nextseek-sidecar"
+
+
+def matrix_executor_name(run_id: str) -> str:
+    """The reserved Task 15 gate-executor container name for one capability-gate run."""
+    return f"dmac-cc-matrix-{run_id}"
+
+
+def is_dmac_cc_net_closed_set_member(name: str, *, run_id: str | None = None) -> bool:
+    """True iff ``name`` is a legitimate ``dmac-cc-net`` peer under the G7-11
+    closed-set rule (Task 15 Step 2 / SPEC-7 section 10 G7-11): the nginx
+    entrypoint (bare ``nextseek_nginx`` or compose-project-prefixed runtime
+    form), the bedrock proxy, the NS sidecar, any general-pattern transient CC
+    agent (``dmac-cc-agent-<run>`` — concurrent legitimate turns from other
+    users are lawful on a shared dev VM), or -- when ``run_id`` is supplied --
+    THIS run's reserved gate-executor name (``dmac-cc-matrix-<run_id>``,
+    exact; not a general pattern, unlike agents). The exact literal
+    ``"nextseek"`` is NEVER a member: the app container itself must never
+    join the de-credentialed agent's segmented network."""
+    if name == "nextseek":
+        return False
+    if NGINX_PEER_NAME_RE.search(name):
+        return True
+    if name in (BEDROCK_PROXY_CONTAINER_NAME, SIDECAR_CONTAINER_NAME):
+        return True
+    if CC_AGENT_NAME_RE.match(name):
+        return True
+    if run_id and name == matrix_executor_name(run_id):
+        return True
+    return False
+
+
 OPUS = "us.anthropic.claude-opus-4-8"
 _INVOKE_200 = re.compile(
     r"POST\s+/model/" + re.escape(OPUS) + r"/invoke(?:-with-response-stream)?\b[^\n]*?->\s*200"

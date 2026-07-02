@@ -77,10 +77,18 @@ TRANSCRIPT_CONTENT = (
 # (`all_ok is True`) must carry every one of those artifacts too.
 # --------------------------------------------------------------------------
 
-RUN_ID = "run-20260701-0001"
+# Hex-and-hyphen only (matches cc_engine._CONTAINER_NAME_SAFE_RE /
+# ^dmac-cc-agent-[0-9a-f-]{1,64}$ -- Task 15's closed-set general-agent
+# pattern): real run_ids are Celery task UUIDs.
+RUN_ID = "a1b2c3d4-e5f6-0001"
 OWN_MARKER = f"OWN_{RUN_ID}"
 LIVE_SENTINEL = "LIVE_SENT-feed1234"
 FOREIGN_TOKENS = ["SENTINEL_FOREIGN", "otherproj", "bob"]
+
+
+GATE_PROJECT = "1-sandbox"
+GATE_USER_ID = "ccgateuser"
+CC_IMAGE_DEFAULT = "dmac-assistant:poc"
 
 
 def _write_meta_full(bundle_dir: Path, *, run_id: str = RUN_ID, repo_commit: str,
@@ -91,6 +99,13 @@ def _write_meta_full(bundle_dir: Path, *, run_id: str = RUN_ID, repo_commit: str
                       greenfield_exception: bool = False,
                       greenfield_exception_handoff_path: str | None = None,
                       zero_cost_exception: bool = False,
+                      gate_project: str = GATE_PROJECT,
+                      gate_user_id: str = GATE_USER_ID,
+                      matrix_spend_estimate_usd: float = 0.35,
+                      matrix_spend_estimate_method: str = (
+                          "sum of per-op wall_secs * a flat $/s LLM-call rate estimate; "
+                          "exact per-op server-side cost is not programmatically available"
+                      ),
                       **extra) -> None:
     meta = {
         "run_id": run_id,
@@ -107,9 +122,167 @@ def _write_meta_full(bundle_dir: Path, *, run_id: str = RUN_ID, repo_commit: str
         "greenfield_exception": greenfield_exception,
         "greenfield_exception_handoff_path": greenfield_exception_handoff_path,
         "zero_cost_exception": zero_cost_exception,
+        "gate_project": gate_project,
+        "gate_user_id": gate_user_id,
+        "matrix_spend_estimate_usd": matrix_spend_estimate_usd,
+        "matrix_spend_estimate_method": matrix_spend_estimate_method,
     }
     meta.update(extra)
     (bundle_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+def _network_inspect_json(names: list[str], *, id_prefix: str = "cid") -> dict:
+    """Build the FULL `docker network inspect dmac-cc-net` shape (a JSON array
+    whose sole element carries `Containers`, keyed by container ID, each with
+    a `Name` field) from a plain list of container names -- the format Task
+    15 pins for network_inspect.json / network_inspect_matrix.json."""
+    return [{
+        "Name": "dmac-cc-net",
+        "Id": "netid0000000000000000000000000000000000000000000000000000000000",
+        "Containers": {
+            f"{id_prefix}{i:04d}{'0' * 56}"[:64]: {"Name": nm}
+            for i, nm in enumerate(names)
+        },
+    }]
+
+
+def _matrix_row(op: str, *, run_id: str, cc_image: str, container_id: str,
+                 exit_code: int = 0, excerpt: str | None = None,
+                 transport: str | None = None, wall_secs: float = 4.2,
+                 published_path: str | None = None) -> dict:
+    from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import (
+        OP_EXCERPT_ALLOWED_FIELDS,
+    )
+    if transport is None:
+        transport = "viewset" if op in ("nextseek-query", "nextseek-plan") else "sidecar"
+    if excerpt is None:
+        if op in ("nextseek-query", "nextseek-plan"):
+            excerpt = json.dumps({"reply": f"[{op} ok]", "debug": {}, "bundle_id": None})
+        else:
+            wire_op = op.removeprefix("nextseek-")
+            allowed = OP_EXCERPT_ALLOWED_FIELDS.get(op, frozenset({"op", "result"}))
+            body: dict = {"op": wire_op, "result": {}}
+            if "download" in allowed:
+                body["download"] = None
+            excerpt = json.dumps(body)
+    row = {
+        "op": op,
+        "transport": transport,
+        "exit_code": exit_code,
+        "excerpt": excerpt,
+        "container_id": container_id,
+        "container_name": f"dmac-cc-matrix-{run_id}",
+        "image": cc_image,
+        "wall_secs": wall_secs,
+    }
+    if published_path is not None:
+        row["published_path"] = published_path
+    return row
+
+
+def _write_matrix_artifacts(bundle_dir: Path, *, run_id: str = RUN_ID,
+                             cc_image: str = CC_IMAGE_DEFAULT,
+                             gate_project: str = GATE_PROJECT,
+                             gate_user_id: str = GATE_USER_ID,
+                             matrix_overrides: dict | None = None,
+                             extra_matrix_ops: list[str] | None = None,
+                             omit_matrix_ops: list[str] | None = None,
+                             network_inspect_matrix_containers: list[str] | None = None,
+                             skip: set[str] | None = None) -> None:
+    """Write plugin_ops_matrix.json + every Task 15 companion artifact with
+    values that make a clean, fully-passing bundle. ``skip`` names artifacts
+    to omit entirely (for negative "bundle missing X" tests)."""
+    from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import BIN_OPS
+
+    skip = skip or set()
+    matrix_executor_id = "matrixcid" + "0" * 55
+    matrix_executor_id = matrix_executor_id[:64]
+    matrix_executor_name = f"dmac-cc-matrix-{run_id}"
+
+    report_path = f"/dmac/users/{gate_project}/{gate_user_id}/scratch/nextseek-artifacts/report.xlsx"
+    submission_path = f"/dmac/users/{gate_project}/{gate_user_id}/scratch/nextseek-artifacts/submission.zip"
+
+    matrix: dict[str, dict] = {}
+    ops = list(BIN_OPS) + list(extra_matrix_ops or [])
+    for op in ops:
+        if omit_matrix_ops and op in omit_matrix_ops:
+            continue
+        kwargs = {"run_id": run_id, "cc_image": cc_image, "container_id": matrix_executor_id}
+        if op == "nextseek-api-write":
+            kwargs.update(exit_code=5, excerpt=json.dumps(
+                {"error": {"code": "WRITE_BLOCKED", "message": "nextseek-api-write requires --confirmed-write"}}
+            ))
+        elif op == "nextseek-report":
+            kwargs["published_path"] = report_path
+        elif op == "nextseek-generate-submission":
+            kwargs["published_path"] = submission_path
+        row = _matrix_row(op, **kwargs)
+        if matrix_overrides and op in matrix_overrides:
+            row.update(matrix_overrides[op])
+        matrix[op] = row
+
+    if "plugin_ops_matrix" not in skip:
+        (bundle_dir / "plugin_ops_matrix.json").write_text(json.dumps(matrix), encoding="utf-8")
+
+    if "seeded_fixture" not in skip:
+        (bundle_dir / "seeded_fixture.json").write_text(json.dumps({
+            "project": gate_project,
+            "uids": ["S0001", "S0002"],
+            "requests": [f"POST /nextseek_api/samples/ as {gate_user_id}"],
+        }), encoding="utf-8")
+
+    if "gate_access_log_window" not in skip:
+        from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import (
+            OP_ASSISTANT_ENDPOINT,
+        )
+        endpoints = sorted({OP_ASSISTANT_ENDPOINT[op] for op in BIN_OPS})
+        lines = [
+            f'172.20.0.5 - - [01/Jul/2026:12:05:0{i} +0000] "POST {ep} HTTP/1.1" 200 42 "-" "httpx"'
+            for i, ep in enumerate(endpoints)
+        ]
+        (bundle_dir / "gate_access_log_window.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    if "post_sweep_user_tree_scan" not in skip:
+        (bundle_dir / "post_sweep_user_tree_scan.txt").write_text(
+            f"{report_path}\n{submission_path}\n", encoding="utf-8",
+        )
+
+    if "matrix_env_scan" not in skip:
+        (bundle_dir / "matrix_env_scan.txt").write_text(
+            "NEXTSEEK_SIDECAR_HOST=nextseek-sidecar\nNEXTSEEK_SIDECAR_PORT=8765\nHOME=/home/user\n",
+            encoding="utf-8",
+        )
+
+    if "sweep_invocation" not in skip:
+        (bundle_dir / "sweep_invocation.json").write_text(json.dumps({
+            "command": (
+                f"docker exec nextseek /app/.venv/bin/python manage.py cc_sweep_staging "
+                f"--user-id {gate_user_id} --api-user {gate_user_id} --project {gate_project}"
+            ),
+            "exit_code": 0,
+            "output_excerpt": json.dumps({"user_id": gate_user_id, "delivered_count": 2}),
+            "timestamp": "2026-07-01T12:10:00Z",
+        }), encoding="utf-8")
+
+    if "network_inspect_matrix" not in skip:
+        names = (
+            [matrix_executor_name, "dmac-bedrock-proxy"]
+            if network_inspect_matrix_containers is None else network_inspect_matrix_containers
+        )
+        # The matrix executor's peer record MUST key on exactly
+        # `matrix_executor_id` (the same id the matrix rows' `container_id`
+        # carries) so the validator's row->inspect join actually resolves --
+        # never derive it from the generic per-name id formula, which has no
+        # reason to coincide.
+        containers_map = {}
+        for i, nm in enumerate(names):
+            cid = matrix_executor_id if nm == matrix_executor_name else f"peercid{i:04d}{'0' * 53}"[:64]
+            containers_map[cid] = {"Name": nm}
+        (bundle_dir / "network_inspect_matrix.json").write_text(json.dumps([{
+            "Name": "dmac-cc-net",
+            "Id": "netid0000000000000000000000000000000000000000000000000000000000",
+            "Containers": containers_map,
+        }]), encoding="utf-8")
 
 
 def _write_auxiliary_artifacts(bundle_dir: Path, *, run_id: str = RUN_ID,
@@ -120,9 +293,19 @@ def _write_auxiliary_artifacts(bundle_dir: Path, *, run_id: str = RUN_ID,
                                 pre_bootstrap: bool = False,
                                 pre_existing_volume_names: list[str] | None = None,
                                 pre_existing_network_names: list[str] | None = None,
-                                network_inspect_containers: list[str] | None = None) -> None:
-    """Write every SPEC-7 section 8 artifact Task 2 checks beyond preflight.json
-    + meta.json, with values that make a clean, fully-passing bundle."""
+                                network_inspect_containers: list[str] | None = None,
+                                cc_image: str = CC_IMAGE_DEFAULT,
+                                gate_project: str = GATE_PROJECT,
+                                gate_user_id: str = GATE_USER_ID,
+                                matrix_overrides: dict | None = None,
+                                extra_matrix_ops: list[str] | None = None,
+                                omit_matrix_ops: list[str] | None = None,
+                                network_inspect_matrix_containers: list[str] | None = None,
+                                skip_matrix_artifacts: set[str] | None = None,
+                                write_matrix_artifacts: bool = True) -> None:
+    """Write every SPEC-7 section 8 artifact Task 2/15 checks beyond
+    preflight.json + meta.json, with values that make a clean, fully-passing
+    bundle."""
     foreign_tokens = FOREIGN_TOKENS if foreign_tokens is None else foreign_tokens
     bundle_dir.mkdir(parents=True, exist_ok=True)
 
@@ -143,14 +326,16 @@ def _write_auxiliary_artifacts(bundle_dir: Path, *, run_id: str = RUN_ID,
         "CONTAINER ID   IMAGE           STATUS\nabc123         nextseek:dev    Up 2 minutes\n", encoding="utf-8"
     )
     (bundle_dir / "images.json").write_text(
-        json.dumps({"nextseek": "nextseek:dev", "bedrock-proxy": "bedrock-proxy:dev"}), encoding="utf-8"
+        json.dumps({
+            "nextseek": "nextseek:dev", "bedrock-proxy": "bedrock-proxy:dev", "cc-agent": cc_image,
+        }), encoding="utf-8"
     )
     containers = (
-        [f"cc-agent-{run_id}", "bedrock-proxy"]
+        [f"dmac-cc-agent-{run_id}", "dmac-bedrock-proxy"]
         if network_inspect_containers is None else network_inspect_containers
     )
     (bundle_dir / "network_inspect.json").write_text(
-        json.dumps({"containers": containers}), encoding="utf-8"
+        json.dumps(_network_inspect_json(containers)), encoding="utf-8"
     )
     (bundle_dir / "cc_runner_available.json").write_text(json.dumps([True, "ok"]), encoding="utf-8")
     (bundle_dir / "forced_cc_result.json").write_text(json.dumps({
@@ -183,6 +368,14 @@ def _write_auxiliary_artifacts(bundle_dir: Path, *, run_id: str = RUN_ID,
         ]
         (bundle_dir / "pre_bootstrap_docker_network_ls.txt").write_text(
             "\n".join(net_lines) + "\n", encoding="utf-8"
+        )
+    if write_matrix_artifacts:
+        _write_matrix_artifacts(
+            bundle_dir, run_id=run_id, cc_image=cc_image, gate_project=gate_project,
+            gate_user_id=gate_user_id, matrix_overrides=matrix_overrides,
+            extra_matrix_ops=extra_matrix_ops, omit_matrix_ops=omit_matrix_ops,
+            network_inspect_matrix_containers=network_inspect_matrix_containers,
+            skip=skip_matrix_artifacts,
         )
 
 
@@ -344,6 +537,15 @@ ALL_CHECK_NAMES = {
     "foreign_tokens_canonical_set",
     "meta_tokens_pairwise_disjoint", "no_legacy_artifact_filenames", "secret_scan_report_present",
     "secret_scan_clean", "screenshot_review_recorded", "not_markdown_only_bundle",
+    # Task 15 additions (G7-11 capability gate):
+    "dmac_cc_net_closed_set", "plugin_ops_matrix_present", "plugin_ops_matrix_all_ops_present",
+    "plugin_ops_matrix_row_schema_valid", "plugin_ops_matrix_exit_codes_valid",
+    "plugin_ops_matrix_excerpt_shape_valid", "plugin_ops_matrix_executor_provenance",
+    "plugin_ops_matrix_published_paths_under_user_subtree",
+    "post_sweep_user_tree_scan_contains_published_paths",
+    "gate_access_log_window_hits_every_op", "matrix_env_scan_no_shared_creds",
+    "sweep_invocation_valid", "seeded_fixture_present",
+    "plugin_ops_matrix_in_turn_viability", "meta_matrix_spend_estimate_recorded",
 }
 
 

@@ -36,6 +36,8 @@ from typing import Any, Callable
 from nextseek_api.cc_assistant.tests.validate_cc_acceptance import (
     LEAK_MARKERS as _CC_LEAK_MARKERS,
     SHARED_CRED_KEYS as _CC_SHARED_CRED_KEYS,
+    is_dmac_cc_net_closed_set_member as _cc_net_closed_set_member,
+    matrix_executor_name as _matrix_executor_name,
 )
 
 try:
@@ -165,6 +167,110 @@ _NEXTSEEK_PASSWORD_UNREDACTED_RE = re.compile(
 
 _INVOKE_200_GENERIC_RE = re.compile(r"POST\s+/model/\S+/invoke(?:-with-response-stream)?\b[^\n]*?->\s*200")
 
+# --- Task 15 (G7-11 capability gate) constants ------------------------------
+
+# The exact 9 bin command names -- `plugin_ops_matrix.json` keys are exactly
+# these (iter-1 L-3: three name spaces exist -- bin name, wire-op name, and
+# the assistant-viewset URL segment -- the matrix is keyed on BIN names).
+BIN_OPS: tuple[str, ...] = (
+    "nextseek-entity-extract",
+    "nextseek-parse",
+    "nextseek-api-read",
+    "nextseek-api-write",
+    "nextseek-graph",
+    "nextseek-report",
+    "nextseek-generate-submission",
+    "nextseek-query",
+    "nextseek-plan",
+)
+
+# bin name -> wire-op name (docker/cc-runtime/.../_nextseek_runner.py's
+# --agent value / the sidecar op name); recorded for readability, not used to
+# derive the endpoint below (two bins deliberately share one endpoint).
+BIN_TO_WIRE_OP: dict[str, str] = {
+    "nextseek-entity-extract": "entity",
+    "nextseek-parse": "parse",
+    "nextseek-api-read": "api-read",
+    "nextseek-api-write": "api-write",
+    "nextseek-graph": "graph",
+    "nextseek-report": "report",
+    "nextseek-generate-submission": "generate-submission",
+    "nextseek-query": "query",
+    "nextseek-plan": "plan",
+}
+
+# bin name -> the NExtSEEK assistant-viewset endpoint it traverses (derived
+# from docker/ns-sidecar/app/ns_client.py's ``POST
+# /nextseek_api/assistant/{op}/`` for the 7 sidecar ops, and
+# docker/cc-runtime/.../_assistant_client.py's ``POST .../query/async/`` for
+# the 2 viewset ops -- iter-3 L-4). ``nextseek-query`` and ``nextseek-plan``
+# deliberately map to the SAME literal endpoint: the access-log hit check
+# below is endpoint-keyed (not op-keyed), so this pair is evaluated as ONE
+# shared hit requirement, never double-counted.
+OP_ASSISTANT_ENDPOINT: dict[str, str] = {
+    "nextseek-entity-extract": "/nextseek_api/assistant/entity/",
+    "nextseek-parse": "/nextseek_api/assistant/parse/",
+    "nextseek-api-read": "/nextseek_api/assistant/api-read/",
+    "nextseek-api-write": "/nextseek_api/assistant/api-write/",
+    "nextseek-graph": "/nextseek_api/assistant/graph/",
+    "nextseek-report": "/nextseek_api/assistant/report/",
+    "nextseek-generate-submission": "/nextseek_api/assistant/generate-submission/",
+    "nextseek-query": "/nextseek_api/assistant/query/async/",
+    "nextseek-plan": "/nextseek_api/assistant/query/async/",
+}
+
+# Per-op top-level response-field allowlist (anti-fabrication -- iter-1 M-4 /
+# iter-2 R2-M4): the 7 sidecar ops echo the AssistantViewSet's
+# ``{op, result, download?}`` envelope (nextseek_api/assistant/models_api.py
+# *OpResponse models, all ``extra="forbid"`` at the top level); the 2 viewset
+# ops echo the runner's ``{reply, debug, bundle_id}`` shape
+# (_nextseek_runner.py's ``_run_viewset``). A recorded excerpt with a
+# top-level field outside this set cannot have come from the real server.
+OP_EXCERPT_ALLOWED_FIELDS: dict[str, frozenset[str]] = {
+    "nextseek-entity-extract": frozenset({"op", "result"}),
+    "nextseek-parse": frozenset({"op", "result"}),
+    "nextseek-graph": frozenset({"op", "result"}),
+    "nextseek-api-read": frozenset({"op", "result"}),
+    "nextseek-api-write": frozenset({"op", "result"}),
+    "nextseek-report": frozenset({"op", "result", "download"}),
+    "nextseek-generate-submission": frozenset({"op", "result", "download"}),
+    "nextseek-query": frozenset({"reply", "debug", "bundle_id"}),
+    "nextseek-plan": frozenset({"reply", "debug", "bundle_id"}),
+}
+
+# The two ops whose row must additionally carry `published_path` (Sweep
+# cross-check, iter-1 H-1 / iter-2 R2-M4).
+PUBLISHED_PATH_OPS: tuple[str, ...] = ("nextseek-report", "nextseek-generate-submission")
+
+REQUIRED_MATRIX_ROW_KEYS: tuple[str, ...] = (
+    "op", "transport", "exit_code", "excerpt",
+    "container_id", "container_name", "image", "wall_secs",
+)
+
+# images.json key the harness records the CC agent image tag under (mirrors
+# the other images.json keys, which are compose SERVICE names -- "nextseek",
+# "bedrock-proxy" -- so the CC agent's compose service name "cc-agent" is
+# used here too).
+IMAGES_JSON_CC_IMAGE_KEY = "cc-agent"
+
+# Exit-code law (iter-1 M-4 / SPEC-7 section 8's plugin_ops_matrix.json
+# paragraph): 7 == TRANSPORT_ERROR (missing backend, the amendment's
+# defining failure) always fails; the ONLY other acceptable nonzero exit is
+# the pinned Layer-2 write-blocked form (exit 5, stderr code WRITE_BLOCKED,
+# op == nextseek-api-write only -- no other op can legitimately produce it).
+TRANSPORT_ERROR_EXIT = 7
+WRITE_BLOCKED_EXIT = 5
+WRITE_BLOCKED_OP = "nextseek-api-write"
+WRITE_BLOCKED_STDERR_MARKER = "WRITE_BLOCKED"
+
+# The documented in-turn headroom constant (iter-3 M-2 / SPEC-7 section 8):
+# 150s = cc_engine._TIMEOUT_HARD_MAX (180) minus boot/prompt slack (30s).
+# Re-declared here independent of cc_engine per this validator's existing
+# independence discipline (see module docstring) -- DO NOT import
+# _TIMEOUT_HARD_MAX and subtract inline; this is the one place the 150s
+# figure is pinned for the in_turn_viable evaluation.
+IN_TURN_HEADROOM_SECS = 150
+
 
 def _try_load_json(p: Path) -> dict | None:
     try:
@@ -180,6 +286,39 @@ def _try_load_json_any(p: Path) -> Any:
         return json.loads(p.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def _load_network_inspect_containers(p: Path) -> dict[str, dict] | None:
+    """Parse a ``docker network inspect <net>`` capture (Task 15 / SPEC-7
+    section 8: "the FULL `docker network inspect` JSON, containers keyed by
+    ID with `Name` fields"). Accepts the real CLI shape (a JSON array whose
+    first element carries ``"Containers": {<id>: {"Name": ..., ...}, ...}``)
+    and, defensively, a bare ``{"Containers": {...}}`` object. Fail-closed
+    (returns None) on any other shape -- including the pre-Task-15
+    ``{"containers": [<name>, ...]}`` list-of-strings shape, which is no
+    longer accepted."""
+    obj = _try_load_json_any(p)
+    if isinstance(obj, list):
+        if not obj or not isinstance(obj[0], dict):
+            return None
+        containers = obj[0].get("Containers")
+    elif isinstance(obj, dict):
+        containers = obj.get("Containers")
+    else:
+        return None
+    return containers if isinstance(containers, dict) else None
+
+
+def _network_inspect_names(p: Path) -> set[str] | None:
+    """The set of container ``Name`` values present in a network-inspect
+    capture, or None if the artifact is missing/unreadable/malformed."""
+    containers = _load_network_inspect_containers(p)
+    if containers is None:
+        return None
+    return {
+        rec.get("Name") for rec in containers.values()
+        if isinstance(rec, dict) and isinstance(rec.get("Name"), str) and rec.get("Name")
+    }
 
 
 def _sha256_file(p: Path) -> str | None:
@@ -788,18 +927,15 @@ def check_network_segmentation_ok(ctx: Context) -> tuple[str, bool, str]:
     legitimate.
     """
     name = "network_segmentation_ok"
-    obj = _try_load_json_any(ctx.run_dir / "network_inspect.json")
-    if obj is None:
-        return name, False, "network_inspect.json missing/unreadable"
-    if isinstance(obj, dict):
-        peers = obj.get("containers", [])
-    elif isinstance(obj, list):
-        peers = obj
-    else:
-        peers = []
+    names = _network_inspect_names(ctx.run_dir / "network_inspect.json")
+    if names is None:
+        return name, False, (
+            "network_inspect.json missing/unreadable/not the full `docker network "
+            "inspect` shape (containers keyed by ID with Name fields)"
+        )
     bad = sorted(
-        p for p in peers
-        if isinstance(p, str) and (p == "nextseek" or any(rx.search(p) for rx in _cc_peer_res().values()))
+        nm for nm in names
+        if nm == "nextseek" or any(rx.search(nm) for rx in _cc_peer_res().values())
     )
     ok = not bad
     return name, ok, f"forbidden backend peers on agent net: {bad}"
@@ -847,16 +983,55 @@ def check_run_id_in_proxy_log(ctx: Context) -> tuple[str, bool, str]:
 
 
 def check_agent_container_in_network_inspect(ctx: Context) -> tuple[str, bool, str]:
+    """Task 15 Step 2 (iter-2 R2-M1 / iter-3 M-3): REPLACES the former fragile
+    ``run_id in json.dumps(network_inspect)`` substring check (a
+    self-referential-injection seam -- run_id could appear anywhere in the
+    JSON, not just as an actual peer's Name) with deterministic name
+    presence: the bundle's own ``dmac-cc-agent-<meta.run_id>`` container must
+    be an ACTUAL peer (a Name field of some container record) in the
+    DURING-TURN network-inspect capture."""
     name = "cross_artifact_agent_container_in_network_inspect"
     run_id = ctx.meta.get("run_id")
-    obj = _try_load_json_any(ctx.run_dir / "network_inspect.json")
     if not run_id:
         return name, False, "meta.json.run_id missing"
-    if obj is None:
-        return name, False, "network_inspect.json missing/unreadable"
-    text = json.dumps(obj)
-    ok = run_id in text
-    return name, ok, f"run_id {run_id!r} present in network_inspect.json={ok}"
+    names = _network_inspect_names(ctx.run_dir / "network_inspect.json")
+    if names is None:
+        return name, False, (
+            "network_inspect.json missing/unreadable/not the full `docker network "
+            "inspect` shape (containers keyed by ID with Name fields)"
+        )
+    expected = f"dmac-cc-agent-{run_id}"
+    ok = expected in names
+    return name, ok, f"expected agent container name {expected!r} present in network_inspect.json={ok}"
+
+
+def check_dmac_cc_net_closed_set(ctx: Context) -> tuple[str, bool, str]:
+    """Task 15 Step 2 (SPEC-7 section 10 G7-11): ``dmac-cc-net`` membership,
+    gathered from BOTH network-inspect captures (during-turn + matrix
+    window), must be a CLOSED SET -- the legitimate trio (nginx / bedrock
+    proxy / sidecar), general-pattern transient agents, and (when this run
+    spawned one) the reserved matrix executor. Anything else -- including the
+    exact literal ``"nextseek"`` -- fails. Fail-closed if neither inspect
+    capture is present/parseable."""
+    name = "dmac_cc_net_closed_set"
+    run_id = ctx.meta.get("run_id")
+    names: set[str] = set()
+    any_present = False
+    for fname in ("network_inspect.json", "network_inspect_matrix.json"):
+        found = _network_inspect_names(ctx.run_dir / fname)
+        if found is not None:
+            any_present = True
+            names |= found
+    if not any_present:
+        return name, False, "neither network_inspect.json nor network_inspect_matrix.json is readable"
+    strangers = sorted(
+        nm for nm in names if not _cc_net_closed_set_member(nm, run_id=run_id)
+    )
+    ok = not strangers
+    return name, ok, (
+        "dmac-cc-net membership is the closed set" if ok
+        else f"stranger peer(s) on dmac-cc-net (not in the closed set): {strangers}"
+    )
 
 
 def check_migration_policy_conditionality(ctx: Context) -> tuple[str, bool, str]:
@@ -1040,6 +1215,368 @@ def check_not_markdown_only_bundle(ctx: Context) -> tuple[str, bool, str]:
                        "bundle contains ONLY Markdown files -- Markdown prose is not proof (SPEC-7 G7-8)")
 
 
+# --- Task 15 (G7-11 capability gate: plugin_ops_matrix.json + companions) --
+
+def _load_matrix(ctx: Context) -> dict[str, Any] | None:
+    obj = _try_load_json_any(ctx.run_dir / "plugin_ops_matrix.json")
+    return obj if isinstance(obj, dict) else None
+
+
+def check_plugin_ops_matrix_present(ctx: Context) -> tuple[str, bool, str]:
+    name = "plugin_ops_matrix_present"
+    ok = _load_matrix(ctx) is not None
+    return name, ok, ("plugin_ops_matrix.json present" if ok else
+                       "plugin_ops_matrix.json missing/unreadable/not an object")
+
+
+def check_plugin_ops_matrix_all_ops_present(ctx: Context) -> tuple[str, bool, str]:
+    """Bundle FAILS on any missing op (all 9 bin names required, keyed exactly)."""
+    name = "plugin_ops_matrix_all_ops_present"
+    matrix = _load_matrix(ctx)
+    if matrix is None:
+        return name, False, "plugin_ops_matrix.json missing/unreadable"
+    missing = [op for op in BIN_OPS if op not in matrix]
+    unexpected = sorted(k for k in matrix if k not in BIN_OPS)
+    ok = not missing and not unexpected
+    return name, ok, f"missing={missing} unexpected_keys={unexpected}"
+
+
+def check_plugin_ops_matrix_row_schema_valid(ctx: Context) -> tuple[str, bool, str]:
+    name = "plugin_ops_matrix_row_schema_valid"
+    matrix = _load_matrix(ctx)
+    if matrix is None:
+        return name, False, "plugin_ops_matrix.json missing/unreadable"
+    bad: list[str] = []
+    for op in BIN_OPS:
+        row = matrix.get(op)
+        if not isinstance(row, dict):
+            bad.append(f"{op}: missing/not-an-object row")
+            continue
+        missing_keys = [k for k in REQUIRED_MATRIX_ROW_KEYS if k not in row]
+        if missing_keys:
+            bad.append(f"{op}: missing keys {missing_keys}")
+        if op in PUBLISHED_PATH_OPS and not row.get("published_path"):
+            bad.append(f"{op}: missing published_path")
+    ok = not bad
+    return name, ok, ("all rows well-formed" if ok else f"bad rows: {bad}")
+
+
+def check_plugin_ops_matrix_exit_codes_valid(ctx: Context) -> tuple[str, bool, str]:
+    """Exit-code law: exit 7 (TRANSPORT_ERROR) always fails; any other
+    nonzero exit fails EXCEPT exit 5 + a WRITE_BLOCKED stderr marker on
+    nextseek-api-write (the pinned Layer-2 unconfirmed-write-leg form)."""
+    name = "plugin_ops_matrix_exit_codes_valid"
+    matrix = _load_matrix(ctx)
+    if matrix is None:
+        return name, False, "plugin_ops_matrix.json missing/unreadable"
+    bad: list[str] = []
+    for op in BIN_OPS:
+        row = matrix.get(op)
+        if not isinstance(row, dict):
+            bad.append(f"{op}: missing row")
+            continue
+        exit_code = row.get("exit_code")
+        excerpt = row.get("excerpt") or ""
+        if exit_code == TRANSPORT_ERROR_EXIT:
+            bad.append(f"{op}: exit {TRANSPORT_ERROR_EXIT} (TRANSPORT_ERROR / missing backend)")
+        elif exit_code == 0:
+            continue
+        elif exit_code == WRITE_BLOCKED_EXIT and op == WRITE_BLOCKED_OP:
+            if WRITE_BLOCKED_STDERR_MARKER not in str(excerpt):
+                bad.append(f"{op}: exit {WRITE_BLOCKED_EXIT} without stderr marker {WRITE_BLOCKED_STDERR_MARKER!r}")
+        else:
+            bad.append(f"{op}: disallowed exit_code={exit_code!r}")
+    ok = not bad
+    return name, ok, ("all exit codes valid" if ok else f"invalid row(s): {bad}")
+
+
+def check_plugin_ops_matrix_excerpt_shape_valid(ctx: Context) -> tuple[str, bool, str]:
+    """Anti-fabrication: on exit-0 rows, the excerpt must parse as the op's
+    allowlisted success shape -- no 'error' field, no 'ok: false', and no
+    top-level field outside the per-op allowlist. A documented SUCCESSFUL-
+    empty result (empty rows/saved_files WITH the op's success marker) still
+    passes; an exit-0 excerpt carrying a failure payload does not (agent
+    failure is not empty data)."""
+    name = "plugin_ops_matrix_excerpt_shape_valid"
+    matrix = _load_matrix(ctx)
+    if matrix is None:
+        return name, False, "plugin_ops_matrix.json missing/unreadable"
+    bad: list[str] = []
+    for op in BIN_OPS:
+        row = matrix.get(op)
+        if not isinstance(row, dict):
+            bad.append(f"{op}: missing row")
+            continue
+        if row.get("exit_code") != 0:
+            continue  # only exit-0 rows carry a success-shape excerpt
+        excerpt = row.get("excerpt")
+        obj = None
+        if isinstance(excerpt, str):
+            try:
+                obj = json.loads(excerpt)
+            except json.JSONDecodeError:
+                obj = None
+        if not isinstance(obj, dict):
+            bad.append(f"{op}: excerpt is not a JSON object")
+            continue
+        if obj.get("error"):
+            bad.append(f"{op}: excerpt carries a failure 'error' field ({obj['error']!r})")
+            continue
+        if obj.get("ok") is False:
+            bad.append(f"{op}: excerpt carries ok:false")
+            continue
+        allowed = OP_EXCERPT_ALLOWED_FIELDS.get(op)
+        if allowed is not None:
+            extra = sorted(set(obj) - allowed)
+            if extra:
+                bad.append(f"{op}: excerpt has field(s) outside the allowlist: {extra}")
+    ok = not bad
+    return name, ok, ("all excerpt shapes ok" if ok else f"bad excerpt(s): {bad}")
+
+
+def check_plugin_ops_matrix_executor_provenance(ctx: Context) -> tuple[str, bool, str]:
+    """Every row's image must equal images.json's CC image, and its
+    container_id must join network_inspect_matrix.json to a container whose
+    Name == dmac-cc-matrix-<run_id> (iter-3 M-3: no in-turn-agent exception --
+    ALL matrix rows come from the dedicated gate executor)."""
+    name = "plugin_ops_matrix_executor_provenance"
+    matrix = _load_matrix(ctx)
+    if matrix is None:
+        return name, False, "plugin_ops_matrix.json missing/unreadable"
+    run_id = ctx.meta.get("run_id")
+    if not run_id:
+        return name, False, "meta.json.run_id missing"
+    expected_name = _matrix_executor_name(run_id)
+    images = _try_load_json_any(ctx.run_dir / "images.json")
+    cc_image = images.get(IMAGES_JSON_CC_IMAGE_KEY) if isinstance(images, dict) else None
+    if not cc_image:
+        return name, False, f"images.json missing/unreadable, or no {IMAGES_JSON_CC_IMAGE_KEY!r} key"
+    containers = _load_network_inspect_containers(ctx.run_dir / "network_inspect_matrix.json")
+    if containers is None:
+        return name, False, (
+            "network_inspect_matrix.json missing/unreadable/not the full "
+            "`docker network inspect` shape"
+        )
+    bad: list[str] = []
+    for op in BIN_OPS:
+        row = matrix.get(op)
+        if not isinstance(row, dict):
+            bad.append(f"{op}: missing row")
+            continue
+        cid = row.get("container_id")
+        image = row.get("image")
+        cname = row.get("container_name")
+        if image != cc_image:
+            bad.append(f"{op}: image {image!r} != images.json CC image {cc_image!r}")
+        rec = containers.get(cid) if isinstance(cid, str) else None
+        inspect_name = rec.get("Name") if isinstance(rec, dict) else None
+        if inspect_name != expected_name:
+            bad.append(
+                f"{op}: container_id {cid!r} joins to Name={inspect_name!r} "
+                f"(expected {expected_name!r})"
+            )
+        if cname != expected_name:
+            bad.append(f"{op}: row.container_name={cname!r} != {expected_name!r}")
+    ok = not bad
+    return name, ok, ("executor provenance ok for every row" if ok else f"mismatches: {bad}")
+
+
+def check_plugin_ops_matrix_published_paths_under_user_subtree(ctx: Context) -> tuple[str, bool, str]:
+    """Sweep cross-check (iter-1 H-1; hardened iter-2 R2-M4): nextseek-report
+    and nextseek-generate-submission rows must record published_path under
+    the gate user's own {project}/{user}/ subtree; a dead /staging/...-only
+    path fails."""
+    name = "plugin_ops_matrix_published_paths_under_user_subtree"
+    matrix = _load_matrix(ctx)
+    if matrix is None:
+        return name, False, "plugin_ops_matrix.json missing/unreadable"
+    project = ctx.meta.get("gate_project")
+    user = ctx.meta.get("gate_user_id")
+    bad: list[str] = []
+    for op in PUBLISHED_PATH_OPS:
+        row = matrix.get(op)
+        if not isinstance(row, dict):
+            bad.append(f"{op}: missing row")
+            continue
+        path = row.get("published_path")
+        if not isinstance(path, str) or not path:
+            bad.append(f"{op}: no published_path recorded")
+            continue
+        if "/staging/" in path or path.startswith("/staging") or path.startswith("_staging/"):
+            bad.append(f"{op}: published_path is a dead /staging/... path: {path!r}")
+            continue
+        if not project or not user:
+            bad.append(f"{op}: meta.json missing gate_project/gate_user_id; cannot verify subtree")
+            continue
+        needle = f"/{project}/{user}/"
+        if needle not in path:
+            bad.append(f"{op}: published_path {path!r} not under the gate user's own {needle!r} subtree")
+    ok = not bad
+    return name, ok, ("published_path ok for every row that needs one" if ok else f"bad: {bad}")
+
+
+def check_post_sweep_user_tree_scan_contains_published_paths(ctx: Context) -> tuple[str, bool, str]:
+    """Anti-fabrication (on-disk artifact check, not a bare string assertion):
+    every recorded published_path must appear in a harness-captured recursive
+    `find` of the gate user's subtree taken AFTER the recorded sweep
+    invocation."""
+    name = "post_sweep_user_tree_scan_contains_published_paths"
+    p = ctx.run_dir / "post_sweep_user_tree_scan.txt"
+    if not p.is_file():
+        return name, False, "post_sweep_user_tree_scan.txt missing"
+    text = p.read_text(encoding="utf-8", errors="replace")
+    if not text.strip():
+        return name, False, "post_sweep_user_tree_scan.txt is empty"
+    matrix = _load_matrix(ctx)
+    if matrix is None:
+        return name, False, "plugin_ops_matrix.json missing/unreadable"
+    missing: list[tuple[str, Any]] = []
+    for op in PUBLISHED_PATH_OPS:
+        row = matrix.get(op) or {}
+        path = row.get("published_path")
+        if not path or path not in text:
+            missing.append((op, path))
+    ok = not missing
+    return name, ok, (
+        "every published_path found on disk in post_sweep_user_tree_scan.txt" if ok
+        else f"published_path(s) not found on disk: {missing}"
+    )
+
+
+def check_gate_access_log_window_hits_every_op(ctx: Context) -> tuple[str, bool, str]:
+    """Anti-fabrication binding (iter-2 R2-M4): the nginx access-log window
+    for the matrix run must show >=1 hit per op's assistant endpoint.
+    nextseek-query/nextseek-plan share ONE endpoint (query/async/) and are
+    therefore evaluated as ONE shared hit requirement, not two."""
+    name = "gate_access_log_window_hits_every_op"
+    p = ctx.run_dir / "gate_access_log_window.txt"
+    if not p.is_file():
+        return name, False, "gate_access_log_window.txt missing"
+    text = p.read_text(encoding="utf-8", errors="replace")
+    if not text.strip():
+        return name, False, "gate_access_log_window.txt is empty"
+    missing_endpoints: list[str] = []
+    seen: set[str] = set()
+    for op in BIN_OPS:
+        endpoint = OP_ASSISTANT_ENDPOINT[op]
+        if endpoint in seen:
+            continue
+        seen.add(endpoint)
+        pattern = re.compile(r"\b(?:POST|GET)\s+" + re.escape(endpoint) + r"(?:[\s?]|$)", re.MULTILINE)
+        if not pattern.search(text):
+            missing_endpoints.append(endpoint)
+    ok = not missing_endpoints
+    return name, ok, (
+        "every distinct op endpoint has >=1 hit in the window" if ok
+        else f"no access-log hit for endpoint(s): {missing_endpoints}"
+    )
+
+
+def check_matrix_env_scan_no_shared_creds(ctx: Context) -> tuple[str, bool, str]:
+    """matrix_env_scan.txt is validated with the SAME no-shared-creds rules
+    as agent_env_scan.txt (iter-3 M-1)."""
+    name = "matrix_env_scan_no_shared_creds"
+    p = ctx.run_dir / "matrix_env_scan.txt"
+    if not p.is_file():
+        return name, False, "matrix_env_scan.txt missing"
+    text = p.read_text(encoding="utf-8", errors="replace")
+    present_keys = [k for k in _CC_SHARED_CRED_KEYS if re.search(rf"(^|\W){re.escape(k)}=", text)]
+    present_markers = [m for m in _CC_LEAK_MARKERS if m in text]
+    ok = not present_keys and not present_markers
+    return name, ok, f"leaked_keys={present_keys} leak_markers={present_markers}"
+
+
+def check_sweep_invocation_valid(ctx: Context) -> tuple[str, bool, str]:
+    """sweep_invocation.json {command, exit_code, output_excerpt, timestamp}
+    -- presence + exit 0 required whenever the matrix artifacts are present."""
+    name = "sweep_invocation_valid"
+    obj = _try_load_json(ctx.run_dir / "sweep_invocation.json")
+    if obj is None:
+        return name, False, "sweep_invocation.json missing/unreadable/not an object"
+    problems: list[str] = []
+    command = obj.get("command")
+    if not isinstance(command, str) or "cc_sweep_staging" not in command:
+        problems.append("command missing or does not invoke the trusted cc_sweep_staging entrypoint")
+    if obj.get("exit_code") != 0:
+        problems.append(f"exit_code={obj.get('exit_code')!r} (must be 0)")
+    output_excerpt = obj.get("output_excerpt")
+    if not isinstance(output_excerpt, str) or not output_excerpt.strip():
+        problems.append("output_excerpt missing/empty")
+    if not obj.get("timestamp"):
+        problems.append("timestamp missing")
+    ok = not problems
+    return name, ok, ("sweep_invocation.json ok" if ok else f"problems: {problems}")
+
+
+def check_seeded_fixture_present(ctx: Context) -> tuple[str, bool, str]:
+    """Step 3b: the minimal seeded fixture (sandbox project + sample UIDs)
+    created via the gate user's authenticated REST calls, BEFORE the matrix
+    run, that data-dependent ops target."""
+    name = "seeded_fixture_present"
+    obj = _try_load_json_any(ctx.run_dir / "seeded_fixture.json")
+    if not isinstance(obj, dict):
+        return name, False, "seeded_fixture.json missing/unreadable/not an object"
+    project = obj.get("project")
+    uids = obj.get("uids")
+    ok = isinstance(project, str) and bool(project) and isinstance(uids, list) and len(uids) > 0
+    return name, ok, f"project={project!r} uid_count={len(uids) if isinstance(uids, list) else 'N/A'}"
+
+
+def check_plugin_ops_matrix_in_turn_viability(ctx: Context) -> tuple[str, bool, str]:
+    """in_turn_viable = wall_secs < IN_TURN_HEADROOM_SECS, evaluated per op
+    (iter-3 M-2). Exceeding the headroom does NOT fail the bundle (capability
+    != latency) -- it is only listed here, for Task 11's handoff to surface
+    as a named user decision. Malformed/missing wall_secs data DOES fail this
+    check (fail-closed on the input, not on the latency verdict itself)."""
+    name = "plugin_ops_matrix_in_turn_viability"
+    matrix = _load_matrix(ctx)
+    if matrix is None:
+        return name, False, "plugin_ops_matrix.json missing/unreadable"
+    viable: list[str] = []
+    exceeders: list[str] = []
+    problems: list[str] = []
+    for op in BIN_OPS:
+        row = matrix.get(op)
+        if not isinstance(row, dict):
+            problems.append(f"{op}: missing row")
+            continue
+        try:
+            wall_secs = float(row.get("wall_secs"))
+        except (TypeError, ValueError):
+            problems.append(f"{op}: wall_secs not numeric ({row.get('wall_secs')!r})")
+            continue
+        if wall_secs < IN_TURN_HEADROOM_SECS:
+            viable.append(op)
+        else:
+            exceeders.append(f"{op}={wall_secs}s")
+    ok = not problems
+    return name, ok, (
+        f"in_turn_viable(<{IN_TURN_HEADROOM_SECS}s)={viable}; "
+        f"EXCEEDS_HEADROOM(named user decision, Task 11 handoff)={exceeders}"
+        + (f"; problems={problems}" if problems else "")
+    )
+
+
+def check_meta_matrix_spend_estimate_recorded(ctx: Context) -> tuple[str, bool, str]:
+    """meta.json gains matrix_spend_estimate_usd (best-effort estimate) +
+    matrix_spend_estimate_method (the method note: exact per-op server-side
+    cost is not programmatically available, and that limitation is recorded,
+    not hidden)."""
+    name = "meta_matrix_spend_estimate_recorded"
+    matrix = _load_matrix(ctx)
+    if matrix is None:
+        return name, False, "plugin_ops_matrix.json missing/unreadable"
+    val = ctx.meta.get("matrix_spend_estimate_usd")
+    method = ctx.meta.get("matrix_spend_estimate_method")
+    try:
+        v = float(val)
+        ok_num = v >= 0
+    except (TypeError, ValueError):
+        ok_num = False
+    ok = ok_num and isinstance(method, str) and bool(method.strip())
+    return name, ok, f"matrix_spend_estimate_usd={val!r} matrix_spend_estimate_method={method!r}"
+
+
 CHECKS: list[Callable[[Context], tuple[str, bool, str]]] = [
     check_preflight_json_present,
     check_branch_and_commit_recorded,
@@ -1083,6 +1620,22 @@ CHECKS: list[Callable[[Context], tuple[str, bool, str]]] = [
     check_secret_scan_clean,
     check_screenshot_review_recorded,
     check_not_markdown_only_bundle,
+    # Task 15 (G7-11 capability gate)
+    check_dmac_cc_net_closed_set,
+    check_plugin_ops_matrix_present,
+    check_plugin_ops_matrix_all_ops_present,
+    check_plugin_ops_matrix_row_schema_valid,
+    check_plugin_ops_matrix_exit_codes_valid,
+    check_plugin_ops_matrix_excerpt_shape_valid,
+    check_plugin_ops_matrix_executor_provenance,
+    check_plugin_ops_matrix_published_paths_under_user_subtree,
+    check_post_sweep_user_tree_scan_contains_published_paths,
+    check_gate_access_log_window_hits_every_op,
+    check_matrix_env_scan_no_shared_creds,
+    check_sweep_invocation_valid,
+    check_seeded_fixture_present,
+    check_plugin_ops_matrix_in_turn_viability,
+    check_meta_matrix_spend_estimate_recorded,
 ]
 
 

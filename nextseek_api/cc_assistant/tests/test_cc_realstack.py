@@ -38,9 +38,14 @@ from django.test import TestCase
 
 from nextseek_api.cc_assistant import cc_config, cc_engine
 from nextseek_api.cc_assistant import router as cc_router
+from nextseek_api.cc_assistant.tests import cc_matrix_gate_harness as gate
 from nextseek_api.cc_assistant.tests.validate_cc_acceptance import (
     format_report,
     validate_run,
+)
+from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import (
+    format_report as step7_format_report,
+    validate_run as step7_validate_run,
 )
 
 RUN = os.environ.get("RUN_REALSTACK") == "1"
@@ -49,6 +54,19 @@ PROXY_CONTAINER = os.environ.get("DMAC_PROXY_CONTAINER", "dmac-bedrock-proxy")
 NET = cc_engine.DEFAULT_NETWORK
 BUDGET_CAP = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "2.0"))
 EVID_ROOT = Path(settings.BASE_DIR) / "outputs" / "cc_acceptance"
+
+# Task 15 (G7-11) capability-gate evidence bundle root -- the SPEC-7 section 8
+# convention (PLAN-7-compose-native-prod-deploy.md): "acceptance_evidence/step7/<run_id>/".
+STEP7_EVID_ROOT = (
+    Path(settings.BASE_DIR) / "nextseek_api" / "cc_assistant" / "tests" / "acceptance_evidence" / "step7"
+)
+GATE_NEXTSEEK_CONTAINER = os.environ.get("NEXTSEEK_CONTAINER", "nextseek")
+# nginx carries no `container_name:` pin (docker-compose.yml) -- its runtime
+# name is compose-project-prefixed. Resolved by substring match at run time
+# (gate.resolve_container_by_name_substring), NOT hardcoded to either the
+# bare service name or one specific project prefix; overridable for
+# non-default topologies.
+GATE_NGINX_NAME_SUBSTRING = os.environ.get("NEXTSEEK_NGINX_CONTAINER_SUBSTRING", "nextseek_nginx")
 
 
 def _docker(*args, timeout=30):
@@ -217,3 +235,194 @@ class CCRealStackAcceptance(TestCase):
         all_ok, checks = validate_run(self.evid)
         print("\n[CC-ACCEPTANCE] run=" + self.run_id + "\n" + format_report(all_ok, checks))
         self.assertTrue(all_ok, f"validator failed: {[c for c in checks if not c[1]]}")
+
+
+@unittest.skipUnless(RUN, "Task 15 capability gate; set RUN_REALSTACK=1 to run")
+class CCCapabilityGateMatrix(TestCase):
+    """Task 15 (G7-11): proves all 9 ``nextseek-*`` plugin ops live, in a
+    DEDICATED gate executor (``dmac-cc-matrix-<run_id>``) -- OUTSIDE the
+    180s in-turn cap, which makes a live 9-op matrix structurally
+    unachievable inside one forced-CC turn (iter-2 R2-H1/R2-M2).
+
+    Written now (Task 15); EXECUTED only later (Tasks 9/10) on a dev-VM/MBP
+    with the user's sign-off -- never in this session. GATED identically to
+    ``CCRealStackAcceptance`` above (``RUN_REALSTACK=1``); needs the
+    deployed stack (``nextseek-sidecar``/``dmac-bedrock-proxy``/nginx up,
+    ``/var/run/docker.sock``, the gate user's own SEEK login with a real
+    sandbox project to seed against).
+
+    Writes every SPEC-7 section 8 plugin_ops_matrix.json + companion
+    artifact under ``acceptance_evidence/step7/<run_id>/`` and re-checks the
+    bundle with ``validate_step7_compose_deploy.validate_run`` (zero
+    additional spend -- the checker only reads committed files).
+    """
+
+    databases = {"default"}
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        ok, detail = cc_engine.cc_runner_available()
+        if not ok:
+            raise unittest.SkipTest(f"CC runner not available: {detail}")
+        cls.run_id = "matrix-" + uuid.uuid4().hex[:12]
+        cls.gate_user_id = os.environ.get("NEXTSEEK_CC_GATE_USER_ID", "ccgateuser")
+        cls.gate_project = os.environ.get("NEXTSEEK_CC_GATE_PROJECT", "1-sandbox")
+        cls.api_user, cls.api_pass = _seek_creds()
+        cls.paths = cc_config.CCPaths.from_env()
+        cls.evid = STEP7_EVID_ROOT / cls.run_id
+        cls.evid.mkdir(parents=True, exist_ok=True)
+
+    def _op_kwargs(self, fixture: "gate.SeededFixture") -> dict:
+        """One representative, safe, read-mostly invocation per op, targeting
+        the seeded fixture for the data-dependent ops (Step 3b). The write op
+        defaults to the SAFE unconfirmed leg (pinned Layer-2 exit-5
+        WRITE_BLOCKED form) unless the operator has recorded explicit
+        sign-off via NEXTSEEK_CC_GATE_CONFIRM_WRITE=1 -- confirming a write
+        must never be this harness's own silent default."""
+        confirmed = os.environ.get("NEXTSEEK_CC_GATE_CONFIRM_WRITE") == "1"
+        uids = ",".join(fixture.uids) if fixture.uids else "S0001"
+        return {
+            "nextseek-entity-extract": {"query": "list sampletypes and assays used in this project"},
+            "nextseek-parse": {"query": f"find samples in project {fixture.project}"},
+            "nextseek-graph": {"query": f"show lineage for a sample in project {fixture.project}"},
+            "nextseek-plan": {"query": f"recommend next steps to summarize project {fixture.project}"},
+            "nextseek-query": {"query": f"how many samples exist in project {fixture.project}?"},
+            "nextseek-api-read": {
+                "parser_plan": json.dumps({"endpoint": "/nextseek_api/samples/", "method": "GET"}),
+            },
+            "nextseek-api-write": {
+                "parser_plan": json.dumps({
+                    "endpoint": "/nextseek_api/samples/", "method": "PATCH",
+                    "requestBody": {"notes": f"Task 15 capability gate {self.run_id}"},
+                }),
+                "confirmed_write": confirmed,
+            },
+            "nextseek-report": {"mode": "samples", "project": fixture.project},
+            "nextseek-generate-submission": {"submission_type": "GEO", "uids": uids},
+        }
+
+    def test_01_seeded_fixture_matrix_sweep_and_companions(self):
+        # --- Step 3b: seeded fixture, BEFORE the matrix run ------------------
+        base_url = os.environ.get("NEXTSEEK_BASE_URL", "http://nextseek_nginx")
+        fixture = gate.create_seeded_fixture(
+            assistant_base_url=base_url, gate_project=self.gate_project,
+            api_user=self.api_user, api_pass=self.api_pass,
+        )
+        gate.write_json(self.evid / "seeded_fixture.json", fixture.to_json())
+
+        # images.json's CC-image key (Task 1's collector normally writes the
+        # full images.json; re-record just this key here so the matrix's own
+        # provenance check is independently satisfiable).
+        cc_image = cc_engine.DEFAULT_IMAGE
+        images_path = self.evid / "images.json"
+        images_obj = json.loads(images_path.read_text()) if images_path.is_file() else {}
+        images_obj["cc-agent"] = cc_image
+        gate.write_json(images_path, images_obj)
+
+        # --- Step 3: spawn the DEDICATED gate executor -----------------------
+        environment = gate.gate_executor_environment(
+            api_user=self.api_user, api_pass=self.api_pass,
+            path_mappings={"scratch": self.paths.user_root_mount},
+        )
+        run_kwargs = gate.build_gate_executor_run_kwargs(
+            run_id=self.run_id, image=cc_image, environment=environment,
+        )
+
+        import docker  # local import: never required for the hermetic suite
+        client = docker.from_env()
+        executor = client.containers.run(**run_kwargs)
+        container_name = run_kwargs["name"]
+        try:
+            provenance = gate.docker_inspect_one(container_name)
+            self.assertIsNotNone(provenance, "docker inspect of the gate executor failed")
+            container_id = provenance["Id"]
+
+            nginx_name = gate.resolve_container_by_name_substring(GATE_NGINX_NAME_SUBSTRING)
+            self.assertIsNotNone(nginx_name, f"no running container matches {GATE_NGINX_NAME_SUBSTRING!r}")
+            nginx_before = subprocess.run(
+                ["docker", "logs", nginx_name], capture_output=True, text=True,
+            ).stdout
+
+            op_kwargs = self._op_kwargs(fixture)
+            matrix: dict = {}
+            for op in gate.BIN_OPS:
+                argv = gate.build_op_argv(op, **op_kwargs[op])
+                result = gate.docker_exec_op(container_name, argv)
+                matrix[op] = gate.make_matrix_row(
+                    op, result=result, container_id=container_id, container_name=container_name,
+                    image=cc_image, transport=gate.TRANSPORT_FOR_OP[op],
+                )
+            gate.write_json(self.evid / "plugin_ops_matrix.json", matrix)
+
+            nginx_window = gate.capture_nginx_log_window(nginx_name, before=nginx_before)
+            gate.write_text(self.evid / "gate_access_log_window.txt", nginx_window)
+
+            gate.write_text(self.evid / "matrix_env_scan.txt", gate.capture_matrix_env_scan(container_name))
+
+            network_inspect_matrix = gate.docker_network_inspect(NET)
+            gate.write_json(self.evid / "network_inspect_matrix.json", network_inspect_matrix)
+        finally:
+            try:
+                executor.remove(force=True)
+            except Exception:  # noqa: BLE001 -- best-effort cleanup, never mask the real failure
+                pass
+
+        # --- Step 3: trusted sweep, AFTER the matrix --------------------------
+        sweep = gate.run_trusted_sweep(
+            nextseek_container=GATE_NEXTSEEK_CONTAINER, user_id=self.gate_user_id,
+            api_user=self.api_user, project=self.gate_project,
+        )
+        gate.write_json(self.evid / "sweep_invocation.json", sweep)
+
+        # Sweep cross-check: patch published_path onto the two rows whose
+        # published artifacts the sweep just delivered. Best-effort
+        # positional correlation (report, then generate-submission, in the
+        # order the sweep's own delivered list reports them) -- Task 9/10
+        # should verify this pairing holds against the live sweep output
+        # shape before treating a gate run as authoritative (see the Task 15
+        # report's "Concerns" section).
+        try:
+            sweep_body = json.loads(sweep["output_excerpt"])
+        except (KeyError, TypeError, ValueError):
+            sweep_body = {}
+        delivered = sweep_body.get("delivered") or []
+        scratch_dir = sweep_body.get("scratch_dir")
+        matrix = json.loads((self.evid / "plugin_ops_matrix.json").read_text())
+        for op, relpath in zip(gate.PUBLISHED_PATH_OPS, delivered):
+            if scratch_dir:
+                matrix[op]["published_path"] = f"{scratch_dir}/{relpath}"
+        gate.write_json(self.evid / "plugin_ops_matrix.json", matrix)
+
+        post_sweep_scan = gate.capture_post_sweep_user_tree_scan(volume=self.paths.users_volume)
+        gate.write_text(self.evid / "post_sweep_user_tree_scan.txt", post_sweep_scan)
+
+        # --- meta.json (best-effort spend estimate, iter-3 L-3) --------------
+        total_wall = sum(float(r.get("wall_secs") or 0) for r in matrix.values())
+        meta_path = self.evid / "meta.json"
+        meta = json.loads(meta_path.read_text()) if meta_path.is_file() else {}
+        meta.update({
+            "run_id": self.run_id,
+            "gate_project": self.gate_project,
+            "gate_user_id": self.gate_user_id,
+            "matrix_spend_estimate_usd": round(total_wall * 0.01, 4),
+            "matrix_spend_estimate_method": (
+                "sum of per-op wall_secs * a flat $0.01/s heuristic; exact "
+                "per-op server-side LLM cost is not programmatically available"
+            ),
+        })
+        gate.write_json(meta_path, meta)
+
+        # --- direct assertions + the independent validator re-check ----------
+        for op in gate.BIN_OPS:
+            row = matrix[op]
+            self.assertNotEqual(row["exit_code"], 7, f"{op}: TRANSPORT_ERROR (missing backend)")
+
+        all_ok, checks = step7_validate_run(self.evid)
+        print("\n[CC-CAPABILITY-GATE] run=" + self.run_id + "\n" + step7_format_report(all_ok, checks))
+        # NOTE: a full green `all_ok` additionally needs the REST of the
+        # SPEC-7 section 8 bundle (preflight.json, network_inspect.json from
+        # the isolation-scan harness, etc.) -- this test writes only the
+        # Task 15 matrix + its companions, so it does not itself assert
+        # `all_ok`. Task 9/10 assembles the full bundle from both harnesses
+        # before treating the validator's verdict as authoritative.

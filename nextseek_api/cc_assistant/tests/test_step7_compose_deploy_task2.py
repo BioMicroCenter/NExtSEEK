@@ -720,6 +720,23 @@ def test_cross_artifact_run_id_missing_from_proxy_log_fails(tmp_path):
 
 
 def test_cross_artifact_agent_container_missing_from_network_inspect_fails(tmp_path):
+    """A genuine (well-formed, Task-15-shape) network_inspect.json whose
+    containers simply do NOT include the bundle's own agent name must fail --
+    not merely a malformed-shape artifact."""
+    repo, bundle, tracker, sha = _bundle(tmp_path)
+    _full_bundle(
+        bundle, tracker, deploy_commit=sha,
+        aux_overrides={"network_inspect_containers": ["dmac-bedrock-proxy"]},
+    )
+
+    all_ok, checks = validate_run(bundle, repo_root=repo)
+    assert not all_ok
+    assert _names(checks)["cross_artifact_agent_container_in_network_inspect"] is False
+
+
+def test_cross_artifact_agent_container_malformed_network_inspect_shape_fails(tmp_path):
+    """The pre-Task-15 ``{"containers": [<name>, ...]}`` list-of-strings shape
+    is no longer accepted at all (fail-closed on the wrong shape)."""
     repo, bundle, tracker, sha = _bundle(tmp_path)
     _full_bundle(bundle, tracker, deploy_commit=sha)
     (bundle / "network_inspect.json").write_text(json.dumps({"containers": ["bedrock-proxy"]}), encoding="utf-8")
@@ -727,6 +744,7 @@ def test_cross_artifact_agent_container_missing_from_network_inspect_fails(tmp_p
     all_ok, checks = validate_run(bundle, repo_root=repo)
     assert not all_ok
     assert _names(checks)["cross_artifact_agent_container_in_network_inspect"] is False
+    assert _names(checks)["network_segmentation_ok"] is False
 
 
 # ==========================================================================
@@ -734,10 +752,12 @@ def test_cross_artifact_agent_container_missing_from_network_inspect_fails(tmp_p
 # ==========================================================================
 
 def test_network_segmentation_backend_peer_present_fails(tmp_path):
+    """A genuine (well-formed) network_inspect.json carrying a real backend
+    peer (neo4j) alongside the legitimate agent must fail."""
     repo, bundle, tracker, sha = _bundle(tmp_path)
-    _full_bundle(bundle, tracker, deploy_commit=sha)
-    (bundle / "network_inspect.json").write_text(
-        json.dumps({"containers": [f"cc-agent-{RUN_ID}", "neo4j"]}), encoding="utf-8"
+    _full_bundle(
+        bundle, tracker, deploy_commit=sha,
+        aux_overrides={"network_inspect_containers": [f"dmac-cc-agent-{RUN_ID}", "neo4j"]},
     )
 
     all_ok, checks = validate_run(bundle, repo_root=repo)
