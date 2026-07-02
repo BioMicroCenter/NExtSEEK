@@ -141,11 +141,11 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
         store = Path(dirs.cc_state_mnt) / "projects"
         jsonls = sorted(store.rglob("*.jsonl"), key=lambda p: p.stat().st_mtime,
                         reverse=True) if store.is_dir() else []
+        # G7-10: transcript_path is the nextseek-container MOUNT path (under
+        # user_root_mount, inside the dmac-cc-users volume) — no host bind exists
+        # any more, so cc_sweep / the sync summarizer read it directly with no
+        # mount->host translation.
         transcript_mount_path = str(jsonls[0]) if jsonls else None
-        host_path = None
-        if transcript_mount_path:
-            host_path = transcript_mount_path.replace(
-                paths.user_root_mount.rstrip("/"), paths.host_user_root.rstrip("/"), 1)
         prev_fp = es.get("summary_fingerprint")
         changed = False
         if transcript_mount_path:
@@ -157,7 +157,7 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
         metas.append(cc_memory.SessionMeta(
             session_id=sid, updated_at=s.updated_at.timestamp(),
             fingerprint=prev_fp, summary=es.get("summary"),
-            transcript_path=host_path, changed=changed))
+            transcript_path=transcript_mount_path, changed=changed))
     return metas
 
 
@@ -333,8 +333,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
 
                     mem_cfg = cc_config.CCMemoryConfig.from_env()
                     fresh = bool(getattr(req, "fresh_session", False))
-                    user_memory_file = None
-                    transcripts_dir = None
+                    memory_claude_md = None
+                    transcripts_subpath = None
                     if not fresh:
                         from pathlib import Path
                         from django.utils import timezone
@@ -344,10 +344,9 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         tgt = cc_memory.select_sync_target(metas, current_id=cc_state_key)
                         if tgt is not None and tgt.transcript_path:
                             try:
-                                mount_path = tgt.transcript_path.replace(
-                                    paths.host_user_root.rstrip("/"),
-                                    paths.user_root_mount.rstrip("/"), 1)
-                                raw = Path(mount_path).read_bytes()
+                                # G7-10: transcript_path is already the mount path
+                                # inside the volume — read directly, no host xlate.
+                                raw = Path(tgt.transcript_path).read_bytes()
                                 prov = cc_summary.SummaryProvenance(
                                     chat_session_id=tgt.session_id,
                                     claude_session_id=(tgt.summary or {}).get("claude_session_id"),
@@ -375,14 +374,13 @@ class CCAssistantViewSet(viewsets.ViewSet):
                             transcripts_mount=cc_engine._CONTAINER_MEMORY_TRANSCRIPTS)
                         written = cc_memory_io.write_memory_file(mem_root / "CLAUDE.md", md)
                         staged = cc_memory_io.stage_transcripts(window, mem_root / "transcripts")
+                        # G7-10: pass the merged CLAUDE.md's MOUNT path (run_cc_turn
+                        # byte-copies it into the cc-state subpath before spawn) and
+                        # the transcripts volume subpath (RO-mounted) — no host xlate.
                         if written:
-                            user_memory_file = str(written).replace(
-                                paths.user_root_mount.rstrip("/"),
-                                paths.host_user_root.rstrip("/"), 1)
+                            memory_claude_md = str(written)
                         if staged:
-                            transcripts_dir = str(staged).replace(
-                                paths.user_root_mount.rstrip("/"),
-                                paths.host_user_root.rstrip("/"), 1)
+                            transcripts_subpath = dirs.transcripts_subpath
 
                     cc_engine.run_cc_turn(
                         query=req.query, model_id=decision.model_id,
@@ -393,8 +391,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         paths=paths,
                         session_id=prior_id,
                         cc_state_key=cc_state_key,
-                        user_memory_file=user_memory_file,
-                        transcripts_dir=transcripts_dir,
+                        memory_claude_md=memory_claude_md,
+                        transcripts_subpath=transcripts_subpath,
                         api_user=user_api_user, api_pass=user_api_pass,
                         chat_session=chat_session,
                         user_query=req.query or "",

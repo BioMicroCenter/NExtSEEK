@@ -39,8 +39,8 @@ def run_cc_upload_task(self, *, input_mnt: str, files: list[dict]):
             dst = dest_root / safe
             # MUST be shutil.move, not os.replace/os.rename: the staging dir is
             # MEDIA_ROOT="/media" (container overlayfs, no volume mount) while
-            # input_mnt is under the host bind mount /srv/dmac/users:/dmac/users —
-            # a different device. os.replace is rename(2) and raises
+            # input_mnt is under the dmac-cc-users named volume mounted at
+            # /dmac/users — a different device. os.replace is rename(2) and raises
             # OSError(EXDEV, "Invalid cross-device link") across devices; shutil.move
             # falls back to copy2 + unlink when rename fails cross-device.
             shutil.move(f["tmp_path"], dst)

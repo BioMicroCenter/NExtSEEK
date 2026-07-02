@@ -1366,6 +1366,50 @@ def test_compose_config_backend_services_not_on_dmac_cc_net(tmp_path, backend_se
 
 
 # --------------------------------------------------------------------------
+# Task 6 (G7-10): CC user trees in the dmac-cc-users named external volume.
+# Real `docker compose config` over the committed YAML — never a hand-edited
+# golden fixture.
+# --------------------------------------------------------------------------
+
+def _nextseek_volume_mounts(cfg: dict) -> list[dict]:
+    return cfg["services"]["nextseek"].get("volumes") or []
+
+
+def test_compose_config_nextseek_mounts_dmac_cc_users_volume_at_dmac_users(tmp_path):
+    cfg = _real_compose_config(tmp_path)
+    cc_mounts = [v for v in _nextseek_volume_mounts(cfg)
+                 if v.get("target") == "/dmac/users"]
+    assert len(cc_mounts) == 1, cc_mounts
+    v = cc_mounts[0]
+    assert v["type"] == "volume"
+    assert v["source"] == "dmac-cc-users"
+
+
+def test_compose_config_nextseek_has_no_srv_dmac_users_host_bind(tmp_path):
+    """Negative guard: the pre-G7-10 host bind `/srv/dmac/users:/dmac/users`
+    must never be reintroduced as the primary CC store."""
+    cfg = _real_compose_config(tmp_path)
+    for v in _nextseek_volume_mounts(cfg):
+        assert v.get("source") != "/srv/dmac/users", v
+        assert not (v.get("type") == "bind" and v.get("target") == "/dmac/users"), v
+
+
+def test_compose_config_declares_dmac_cc_users_external_like_seek_filestore(tmp_path):
+    cfg = _real_compose_config(tmp_path)
+    vols = cfg.get("volumes") or {}
+    assert "dmac-cc-users" in vols
+    assert vols["dmac-cc-users"].get("external") is True
+    # same pattern as the existing six external volumes
+    assert vols["seek-filestore"].get("external") is True
+
+
+def test_compose_yaml_text_never_mentions_srv_dmac_users():
+    text = COMPOSE_FILE.read_text(encoding="utf-8")
+    assert "/srv/dmac/users" not in text
+    assert "dmac-cc-users:/dmac/users" in text
+
+
+# --------------------------------------------------------------------------
 # Task 5 Step 3: service-name (`bedrock-proxy`) vs container-name
 # (`dmac-bedrock-proxy`) must never be conflated. These lock in -- with a
 # real cross-file check -- what cc_engine.py / test_cc_realstack.py already

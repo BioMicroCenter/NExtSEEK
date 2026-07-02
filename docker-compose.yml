@@ -21,11 +21,15 @@ services:
       # `claude` containers on the host Docker daemon. Used only by the new
       # cc-assistant endpoints; the existing assistant never touches it.
       - /var/run/docker.sock:/var/run/docker.sock
-      # Container-CC Step 2 user tree. The nextseek worker creates scratch,
-      # cc-state, memory, and output dirs here; sibling CC containers bind host
-      # subpaths from DMAC_USER_ROOT into /data/input, /data/shared,
-      # /data/scratch, /data/output, and /home/user/.claude.
-      - /srv/dmac/users:/dmac/users
+      # Container-CC user trees (G7-10). Persisted in the external named volume
+      # `dmac-cc-users` (same pattern as seek-filestore) — NOT a host bind, so
+      # no manual host mkdir/chmod is ever required and data survives
+      # `docker compose up`/recreate (lost only on `down -v` / `startup.sh reset`).
+      # The nextseek worker mkdirs scratch/cc-state/memory/output dirs here;
+      # sibling CC containers mount per-user *subpaths* of this SAME volume
+      # (VolumeOptions.Subpath) into /data/input, /data/shared, /data/scratch,
+      # /home/user/.claude, and /home/user/.cc-memory/transcripts.
+      - dmac-cc-users:/dmac/users
 
   nextseek_nginx:
     image: nginx:latest
@@ -204,4 +208,9 @@ volumes:
   nextseek-static-files:
     external: true
   neo4j-data:
+    external: true
+  # Container-CC per-project/per-user trees (G7-10). Created by
+  # `./startup.sh install` (startup/steps/volumes.py REQUIRED_VOLUMES), same as
+  # the six SEEK/NExtSEEK volumes above.
+  dmac-cc-users:
     external: true

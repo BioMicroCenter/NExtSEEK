@@ -30,6 +30,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
+import docker
+
 from .attach import BridgeAttachSocket
 from .translate import CCStreamTranslator
 from .cc_config import CCPaths
@@ -110,10 +112,14 @@ _CONTAINER_WORKDIR = "/home/user"
 # session so --resume finds the transcript across the ephemeral per-turn
 # containers (Step 1b). HOME is the image default /home/user (no override).
 _CONTAINER_CLAUDE_HOME = _CONTAINER_WORKDIR + "/.claude"
-# Step 1c: user-tier rolling memory rendered host-side, RO-bound as a NESTED file
-# over 1b's per-session .claude RW mount (live-verified MERGE with the baked
-# project /home/user/CLAUDE.md — see evidence/1c-claude-md-merge-probe.md).
-_CONTAINER_USER_MEMORY = _CONTAINER_CLAUDE_HOME + "/CLAUDE.md"
+# Step 1c / G7-10: user-tier rolling merged CLAUDE.md. Docker volume subpaths
+# mount DIRECTORIES, not single-file overlays, so the merged memory is
+# byte-copied into the cc-state subpath at ``{cc_state_mnt}/CLAUDE.md`` before
+# spawn (cc-state mounts to /home/user/.claude, so this lands at
+# /home/user/.claude/CLAUDE.md — NOT a nested .claude/.claude path). The old RO
+# file bind is dropped; MERGE with the baked project /home/user/CLAUDE.md is
+# preserved (live-verified — see evidence/run_1c_claude_md_live_probe.py).
+_CONTAINER_MEMORY_CLAUDE_MD = "CLAUDE.md"  # basename copied into the cc-state subpath
 # Step 1c: the 10 most-recent OTHER sessions' raw transcripts, RO, for on-demand
 # depth. Outside .claude so it never collides with the session store / resume.
 _CONTAINER_MEMORY_TRANSCRIPTS = _CONTAINER_WORKDIR + "/.cc-memory/transcripts"
@@ -330,7 +336,7 @@ def _run_kwargs(
     image: str,
     command: list[str],
     environment: dict[str, str],
-    volumes: dict[str, dict[str, str]] | None,
+    mounts: list[dict] | None,
     run_id: str,
     user_id: str,
     network: str = DEFAULT_NETWORK,
@@ -338,15 +344,19 @@ def _run_kwargs(
 ) -> dict[str, Any]:
     """Build the docker-py ``containers.run`` kwargs for one CC turn.
 
-    The container joins ``network`` (the nextseek compose network) so the
-    forwarded service-name hosts resolve, and runs in ``workdir`` (the image
-    WORKDIR) so the baked CLAUDE.md + nextseek plugin guidance are discovered.
+    The container joins ``network`` — which DEFAULTS to the segmented
+    ``dmac-cc-net`` (``DEFAULT_NETWORK``), NOT the shared nextseek compose
+    network — so the de-credentialed agent reaches only the bedrock-proxy and
+    the nginx entrypoint; it runs in ``workdir`` (the image WORKDIR) so the
+    baked CLAUDE.md + nextseek plugin guidance are discovered. CC user trees are
+    passed as ``mounts`` (Engine-API volume-subpath ``Mount`` dicts), never as a
+    host-path ``volumes`` dict (G7-10 named-volume cutover).
     """
     return {
         "image": image,
         "command": command,
         "environment": environment,
-        "volumes": volumes or None,
+        "mounts": mounts or None,
         "working_dir": workdir,
         "network": network,
         "labels": {
@@ -363,39 +373,72 @@ def _run_kwargs(
     }
 
 
+def _mount_volume_subpath(source: str, target: str, subpath: str, *, read_only: bool = False) -> dict:
+    """docker-py 7.1.0: Mount() has no subpath kwarg — patch VolumeOptions onto Mount dict subclass."""
+    m = docker.types.Mount(target=target, source=source, type="volume", read_only=read_only)
+    m["VolumeOptions"] = {"Subpath": subpath}  # PascalCase key required by Engine API
+    return m
+
+
 def _build_volumes(
     *,
     paths: CCPaths,
     project_dirname: str,
     user_id: str,
     cc_state_key: str | None,
-    user_memory_file: str | None = None,
-    transcripts_dir: str | None = None,
-) -> dict[str, dict[str, str]]:
-    """Bind mounts for the CC sibling container using Step-2 nested sources.
+    transcripts_subpath: str | None = None,
+) -> list[dict]:
+    """Engine-API ``Mount`` payloads (volume subpaths of ``dmac-cc-users``) for
+    the CC sibling container.
+
+    Every mount targets the SAME named volume (``paths.users_volume``) and
+    isolates the agent to its own per-user (or, for ``shared``, per-project)
+    ``VolumeOptions.Subpath`` tail — the cross-user-leak guard (OI-3). The
+    per-mount Subpath VALUE is supplied directly by ``build_user_dirs``'s
+    ``*_subpath`` fields (never by stripping a prefix): ``shared`` is
+    project-scoped, and transcripts is the ``_memory/<session>`` tail plus a
+    ``/transcripts`` child.
 
     Precondition: callers MUST validate ``project_dirname``, ``user_id``, and
-    ``cc_state_key`` before interpolation into bind sources.
+    ``cc_state_key`` before interpolation into subpaths.
     """
     from .cc_provision import build_user_dirs
 
     dirs = build_user_dirs(paths, project_dirname, user_id, session_id=cc_state_key)
-    volumes: dict[str, dict[str, str]] = {
-        dirs.input_src: {"bind": _CONTAINER_INPUT, "mode": "ro"},
-        dirs.shared_src: {"bind": _CONTAINER_SHARED, "mode": "ro"},
-        dirs.scratch_src: {
-        "bind": _CONTAINER_SCRATCH, "mode": "rw",
-        },
-    }
-    if cc_state_key and dirs.cc_state_src:
-        volumes[dirs.cc_state_src] = {
-            "bind": _CONTAINER_CLAUDE_HOME, "mode": "rw",
-        }
-    if user_memory_file:
-        volumes[user_memory_file] = {"bind": _CONTAINER_USER_MEMORY, "mode": "ro"}
-    if transcripts_dir:
-        volumes[transcripts_dir] = {"bind": _CONTAINER_MEMORY_TRANSCRIPTS, "mode": "ro"}
-    return volumes
+    vol = paths.users_volume
+    mounts: list[dict] = [
+        _mount_volume_subpath(vol, _CONTAINER_INPUT, dirs.input_subpath, read_only=True),
+        _mount_volume_subpath(vol, _CONTAINER_SHARED, dirs.shared_subpath, read_only=True),
+        _mount_volume_subpath(vol, _CONTAINER_SCRATCH, dirs.scratch_subpath, read_only=False),
+    ]
+    if cc_state_key and dirs.cc_state_subpath:
+        mounts.append(
+            _mount_volume_subpath(vol, _CONTAINER_CLAUDE_HOME, dirs.cc_state_subpath, read_only=False)
+        )
+    if transcripts_subpath:
+        mounts.append(
+            _mount_volume_subpath(
+                vol, _CONTAINER_MEMORY_TRANSCRIPTS, transcripts_subpath, read_only=True
+            )
+        )
+    return mounts
+
+
+def _preflight_subpath_dirs(user_root_mount: str, mounts: list[dict]) -> None:
+    """Fail closed BEFORE spawn if any mount's backing subpath dir is absent in
+    the volume. The Engine's ``VolumeOptions.Subpath`` refuses to start a
+    container when the exact subdir does not exist, so Django must have mkdir'd
+    every one (via ``user_root_mount``) first."""
+    root = Path(user_root_mount)
+    for m in mounts:
+        subpath = m.get("VolumeOptions", {}).get("Subpath")
+        if not subpath:
+            raise ValueError(f"mount missing VolumeOptions.Subpath: {m!r}")
+        backing = root / subpath
+        if not backing.is_dir():
+            raise FileNotFoundError(
+                f"CC mount subpath dir missing in {user_root_mount}: {subpath}"
+            )
 
 
 def run_cc_turn(
@@ -409,8 +452,8 @@ def run_cc_turn(
     paths: CCPaths,
     session_id: str | None = None,
     cc_state_key: str | None = None,
-    user_memory_file: str | None = None,
-    transcripts_dir: str | None = None,
+    memory_claude_md: str | None = None,
+    transcripts_subpath: str | None = None,
     image: str | None = None,
     api_user: str | None = None,
     api_pass: str | None = None,
@@ -443,50 +486,66 @@ def run_cc_turn(
     dirs = build_user_dirs(paths, project_dirname, user_id, session_id=cc_state_key)
     scratch_mount = Path(dirs.scratch_mnt)
     output_mount = Path(dirs.output_mnt)
+    mount_root = Path(paths.user_root_mount.rstrip("/"))
 
-    # Per-run working dir lives under the user's scratch. Create it via the
-    # nextseek-container mount so it exists on the host before the CC container
-    # (which mounts the same host dir) starts.
-    user_scratch = Path(dirs.scratch_mnt)
-    (user_scratch / run_id).mkdir(parents=True, exist_ok=True)
-    # The Django container runs as root; the agent runs as the unprivileged image
-    # user (uid 1001). Make the per-user scratch writable by the agent so it can
-    # create artifacts under /data/scratch (best-effort; dev-instance scratch).
-    for _p in (user_scratch, user_scratch / run_id):
+    # G7-10: build the volume-subpath Mounts first; every mount's backing subdir
+    # must exist inside the dmac-cc-users volume before spawn (the Engine's
+    # VolumeOptions.Subpath refuses to start a container otherwise), so Django
+    # (root in nextseek) mkdirs + chmod 0777 each one via user_root_mount.
+    mounts = _build_volumes(
+        paths=paths, project_dirname=project_dirname, user_id=user_id,
+        cc_state_key=cc_state_key, transcripts_subpath=transcripts_subpath,
+    )
+    for _m in mounts:
+        _backing = mount_root / _m["VolumeOptions"]["Subpath"]
+        _backing.mkdir(parents=True, exist_ok=True)
+        # The Django container runs as root; the agent runs as the unprivileged
+        # image user (uid 1001). Make each backing dir writable (best-effort;
+        # dev-instance). Task 10 sentinel scratch write proves uid-1001 writes.
         try:
-            os.chmod(_p, 0o777)
+            os.chmod(_backing, 0o777)
         except OSError:
             pass
 
+    # Per-run working dir lives under the user's scratch subpath.
+    user_scratch = Path(dirs.scratch_mnt)
+    (user_scratch / run_id).mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(user_scratch / run_id, 0o777)
+    except OSError:
+        pass
+
     # Per-session claude-state store: persists transcripts across the ephemeral
-    # per-turn containers so --resume works. Created via the nextseek-container
-    # mount (user_root_mount) so the host dir exists before the CC sibling mounts
-    # it. Resume only when a prior transcript actually exists (turn-1 / wiped
-    # store -> start fresh, never resume a missing session).
-    if cc_state_key:
+    # per-turn containers so --resume works. Resume only when a prior transcript
+    # actually exists (turn-1 / wiped store -> start fresh, never resume a
+    # missing session). The dir itself was mkdir'd in the mount pass above.
+    if cc_state_key and dirs.cc_state_mnt:
         cc_state_dir = Path(dirs.cc_state_mnt)
         if session_id and not cc_session.store_has_transcripts(cc_state_dir):
             logger.info("cc: resume id present but store empty; starting fresh")
             effective_session_id = None
-        cc_state_dir.mkdir(parents=True, exist_ok=True)
-        for _p in (cc_state_dir.parent, cc_state_dir):
+        # G7-10 1c: byte-copy the merged user-tier CLAUDE.md into the cc-state
+        # subpath (mounts to /home/user/.claude) so it lands at
+        # /home/user/.claude/CLAUDE.md and MERGES with the baked project
+        # /home/user/CLAUDE.md. Replaces the dropped RO file bind; the agent may
+        # transiently overwrite it within a turn (re-copied next turn — accepted).
+        if memory_claude_md:
             try:
-                os.chmod(_p, 0o777)
+                shutil.copyfile(memory_claude_md, cc_state_dir / _CONTAINER_MEMORY_CLAUDE_MD)
             except OSError:
-                pass
+                logger.warning("cc-1c: failed to stage merged CLAUDE.md into cc-state")
 
-    volumes = _build_volumes(
-        paths=paths, project_dirname=project_dirname, user_id=user_id, cc_state_key=cc_state_key,
-        user_memory_file=user_memory_file, transcripts_dir=transcripts_dir,
-    )
+    # Fail closed if any mount's backing subpath dir is still missing.
+    _preflight_subpath_dirs(str(mount_root), mounts)
 
-    # D19: tell the in-container agent how to translate container paths to host
-    # paths when it reports artifact locations to the user.
+    # D19: tell the in-container agent how to translate container paths to the
+    # user-facing logical paths (under user_root_mount) when it reports artifact
+    # locations. G7-10 retires host-bind ``host_root`` strings for ``logical_root``.
     path_mappings = {
         "output": {"container_root": _CONTAINER_OUTPUT,
-                   "host_root": dirs.output_src},
+                   "logical_root": dirs.output_mnt},
         "scratch": {"container_root": _CONTAINER_SCRATCH,
-                    "host_root": dirs.scratch_src},
+                    "logical_root": dirs.scratch_mnt},
     }
     # OI-3: the COMPLETE agent env from the single builder — zero AWS/backend
     # creds; Bedrock only via the auth-proxy, NExtSEEK only via the user's login.
@@ -511,7 +570,7 @@ def run_cc_turn(
         container = client.containers.run(
             **_run_kwargs(
                 image=image, command=command, environment=environment,
-                volumes=volumes, run_id=run_id, user_id=user_id,
+                mounts=mounts, run_id=run_id, user_id=user_id,
             )
         )
 
@@ -580,7 +639,7 @@ def run_cc_turn(
         result = _publish_artifacts(
             scratch_mount, output_mount,
             turn_id=str(run_id),
-            output_host_root=dirs.output_src, before=before,
+            output_logical_root=dirs.output_mnt, before=before,
         )
 
         if terminal is None:
@@ -714,7 +773,7 @@ def _publish_artifacts(
     output_mount: Path,
     *,
     turn_id: str,
-    output_host_root: str,
+    output_logical_root: str,
     before: dict[str, tuple[int, int]],
 ) -> dict:
     """Diff scratch; split deliverables (artifacts) from scratch/raw/ (raw).
@@ -772,7 +831,7 @@ def _publish_artifacts(
         })
     return {
         "artifacts": artifacts,
-        "raw": [str(Path(output_host_root) / "raw" / p.relative_to(raw_dir)) for p in raw_files],
+        "raw": [str(Path(output_logical_root) / "raw" / p.relative_to(raw_dir)) for p in raw_files],
         "raw_zip": None,
         "files_created": sorted(created),
         "files_modified": sorted(modified),

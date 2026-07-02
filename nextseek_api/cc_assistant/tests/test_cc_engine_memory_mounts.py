@@ -1,48 +1,59 @@
-"""Hermetic: the two Step-1c RO memory mounts. No Docker/Django."""
+"""Hermetic: Step-1c memory in G7-10 volume mode.
+
+Old→new mapping: ``test_user_memory_mounted_ro_nested_over_session_claude``
+asserted the pre-cutover RO ``user_memory_file`` host-file bind nested over the
+session ``.claude`` mount; G7-10 drops that bind entirely (Docker volume
+subpaths mount directories, not file overlays) — the merged CLAUDE.md is now
+byte-copied into the cc-state subpath before spawn (covered in
+``test_cc_volume_subpath.py``). This file keeps the transcripts-mount and
+no-file-bind contracts at the ``_build_volumes`` level.
+"""
 from nextseek_api.cc_assistant import cc_engine
 from nextseek_api.cc_assistant.cc_config import CCPaths
 
 
 def _paths() -> CCPaths:
-    return CCPaths(host_user_root="/host/users", user_root_mount="/dmac/users")
+    return CCPaths(users_volume="dmac-cc-users", user_root_mount="/dmac/users")
 
 
-def test_user_memory_mounted_ro_nested_over_session_claude():
-    vols = cc_engine._build_volumes(
-        paths=_paths(),
-        project_dirname="42-px",
-        user_id="demo",
-        cc_state_key="S1",
-        user_memory_file="/host/users/42-px/demo/_memory/S1/CLAUDE.md",
+def _by_target(mounts):
+    return {m["Target"]: m for m in mounts}
+
+
+def test_no_user_memory_file_bind_in_volume_mode():
+    # The RO CLAUDE.md file bind is GONE: cc-state (RW) is the only .claude
+    # mount, and no mount targets /home/user/.claude/CLAUDE.md.
+    mounts = cc_engine._build_volumes(
+        paths=_paths(), project_dirname="42-px", user_id="demo", cc_state_key="S1",
+        transcripts_subpath="42-px/demo/_memory/S1/transcripts",
     )
-    assert vols["/host/users/42-px/demo/_memory/S1/CLAUDE.md"] == {
-        "bind": "/home/user/.claude/CLAUDE.md", "mode": "ro"}
-    assert vols["/host/users/42-px/demo/cc-state/S1"] == {
-        "bind": "/home/user/.claude", "mode": "rw"}
+    by_target = _by_target(mounts)
+    assert "/home/user/.claude/CLAUDE.md" not in by_target
+    state = by_target["/home/user/.claude"]
+    assert state["ReadOnly"] is False
+    assert state["VolumeOptions"]["Subpath"] == "42-px/demo/cc-state/S1"
 
 
 def test_transcripts_dir_mounted_ro():
-    vols = cc_engine._build_volumes(
-        paths=_paths(),
-        project_dirname="42-px",
-        user_id="demo",
-        cc_state_key="S1",
-        transcripts_dir="/host/users/42-px/demo/_memory/S1/transcripts",
-    )
-    assert vols["/host/users/42-px/demo/_memory/S1/transcripts"] == {
-        "bind": "/home/user/.cc-memory/transcripts", "mode": "ro"}
+    mounts = _by_target(cc_engine._build_volumes(
+        paths=_paths(), project_dirname="42-px", user_id="demo", cc_state_key="S1",
+        transcripts_subpath="42-px/demo/_memory/S1/transcripts",
+    ))
+    tr = mounts["/home/user/.cc-memory/transcripts"]
+    assert tr["VolumeOptions"]["Subpath"] == "42-px/demo/_memory/S1/transcripts"
+    assert tr["ReadOnly"] is True
 
 
 def test_no_memory_mounts_when_none():
-    vols = cc_engine._build_volumes(
+    mounts = cc_engine._build_volumes(
         paths=_paths(), project_dirname="42-px", user_id="demo", cc_state_key="S1")
-    assert not any(v["bind"] == "/home/user/.claude/CLAUDE.md" for v in vols.values())
-    assert not any(v["bind"] == "/home/user/.cc-memory/transcripts" for v in vols.values())
+    assert not any(m["Target"] == "/home/user/.claude/CLAUDE.md" for m in mounts)
+    assert not any(m["Target"] == "/home/user/.cc-memory/transcripts" for m in mounts)
 
 
 def test_existing_volume_shape_unchanged():
-    vols = cc_engine._build_volumes(
-        paths=_paths(), project_dirname="42-px", user_id="demo", cc_state_key="S1")
-    assert vols["/host/users/42-px/demo/input"]["mode"] == "ro"
-    assert vols["/host/users/42-px/shared"]["mode"] == "ro"
-    assert vols["/host/users/42-px/demo/scratch"]["mode"] == "rw"
+    mounts = _by_target(cc_engine._build_volumes(
+        paths=_paths(), project_dirname="42-px", user_id="demo", cc_state_key="S1"))
+    assert mounts["/data/input"]["ReadOnly"] is True
+    assert mounts["/data/shared"]["ReadOnly"] is True
+    assert mounts["/data/scratch"]["ReadOnly"] is False

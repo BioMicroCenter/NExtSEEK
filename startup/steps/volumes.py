@@ -1,4 +1,4 @@
-"""Create the six named volumes required by the compose stack."""
+"""Create the named volumes required by the compose stack."""
 from __future__ import annotations
 
 from startup.lib.docker_ops import volume_exists, volume_create
@@ -10,6 +10,9 @@ REQUIRED_VOLUMES: list[str] = [
     "seek-cache",
     "nextseek-static-files",
     "neo4j-data",
+    # Container-CC per-project/per-user trees (G7-10) — persists CC input,
+    # shared, scratch, cc-state, memory, and output across container recreate.
+    "dmac-cc-users",
 ]
 
 

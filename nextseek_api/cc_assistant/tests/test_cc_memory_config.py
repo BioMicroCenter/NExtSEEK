@@ -31,6 +31,11 @@ def test_bad_int_env_falls_back_to_default():
 
 
 def test_container_path_constants():
+    # G7-10: the RO CLAUDE.md file-bind constant (_CONTAINER_USER_MEMORY) is
+    # retired — the merged memory is byte-copied to {cc_state_mnt}/CLAUDE.md
+    # (basename constant) so it lands at /home/user/.claude/CLAUDE.md via the
+    # cc-state subpath mount, never at a nested .claude/.claude path.
     eng = importlib.import_module("nextseek_api.cc_assistant.cc_engine")
-    assert eng._CONTAINER_USER_MEMORY == "/home/user/.claude/CLAUDE.md"
+    assert not hasattr(eng, "_CONTAINER_USER_MEMORY")
+    assert eng._CONTAINER_MEMORY_CLAUDE_MD == "CLAUDE.md"
     assert eng._CONTAINER_MEMORY_TRANSCRIPTS == "/home/user/.cc-memory/transcripts"

@@ -1,9 +1,12 @@
 """Path configuration for the Container-CC route.
 
-Step 2 consolidates all per-project/per-user CC paths under one host root:
-``DMAC_USER_ROOT/<project>/<user>/...``. The nextseek container sees that same
-tree at ``DMAC_USER_ROOT_MOUNT`` so it can mkdir scratch/cc-state dirs, render
-memory, and publish artifacts before/after spawning the sibling CC container.
+G7-10 (Step 7, compose-native): all per-project/per-user CC trees live in the
+external named Docker volume ``dmac-cc-users`` (same pattern as
+``seek-filestore``) — never a host bind directory. The volume is
+mounted once into the nextseek container at ``DMAC_USER_ROOT_MOUNT``
+(``/dmac/users``) so Django can mkdir scratch/cc-state dirs, render memory, and
+publish artifacts; each per-turn CC sibling mounts a *subpath* of that same
+volume (``VolumeOptions.Subpath``), so bind SOURCES are no longer host paths.
 """
 from __future__ import annotations
 
@@ -12,21 +15,27 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 # Dev-instance defaults. Overridable via docker/nextseek.env.
-_DEFAULT_HOST_USER_ROOT = "/srv/dmac/users"
+_DEFAULT_USERS_VOLUME = "dmac-cc-users"
 _DEFAULT_USER_ROOT_MOUNT = "/dmac/users"
 
 
 @dataclass(frozen=True)
 class CCPaths:
-    """Single Step-2 host root + its nextseek-container mount point."""
+    """The named CC user-tree volume + its nextseek-container mount point.
 
-    host_user_root: str  # host: consolidated per-project/per-user CC bind sources
-    user_root_mount: str # nextseek-container path where host_user_root is mounted
+    ``users_volume`` is the external Docker volume that persists every
+    per-project/per-user CC tree; ``user_root_mount`` is where that volume is
+    mounted inside the nextseek container. Per-CC-sibling mounts address
+    subpaths of ``users_volume`` (there is no host bind source root).
+    """
+
+    users_volume: str    # external named Docker volume (e.g. dmac-cc-users)
+    user_root_mount: str  # nextseek-container path where users_volume is mounted
 
     @classmethod
     def from_env(cls) -> "CCPaths":
         return cls(
-            host_user_root=os.environ.get("DMAC_USER_ROOT", _DEFAULT_HOST_USER_ROOT),
+            users_volume=os.environ.get("DMAC_CC_USERS_VOLUME", _DEFAULT_USERS_VOLUME),
             user_root_mount=os.environ.get("DMAC_USER_ROOT_MOUNT", _DEFAULT_USER_ROOT_MOUNT),
         )
 

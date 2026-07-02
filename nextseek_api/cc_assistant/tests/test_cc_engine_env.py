@@ -32,12 +32,13 @@ def test_default_network_is_dedicated_segmented_net():
 def test_run_kwargs_attaches_default_network():
     kw = cc_engine._run_kwargs(
         image="img", command=["claude"], environment={"A": "b"},
-        volumes={}, run_id="r1", user_id="demo",
+        mounts=[], run_id="r1", user_id="demo",
     )
     assert kw["network"] == "dmac-cc-net"
     assert kw["working_dir"] == "/home/user"
     assert kw["labels"]["nextseek.cc.user"] == "demo"
     assert kw["labels"]["nextseek.cc.run"] == "r1"
+    assert "volumes" not in kw  # G7-10 atomic cutover: mounts=, never volumes=
 
 
 # --- OI-3 zero-credential agent env (THE security contract) -------------------

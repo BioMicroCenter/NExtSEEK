@@ -38,30 +38,14 @@ You MAY use the Read tool to inspect /home/user/CLAUDE.md and /home/user/.claude
 def main() -> int:
     paths = cc_config.CCPaths.from_env()
     dirs = build_user_dirs(paths, PROJECT_DIRNAME, USER_ID, session_id=CC_STATE_KEY)
-    probe_host = os.environ.get("PROBE_MEMORY_HOST")
-    if not probe_host:
-        probe_host = str(Path(dirs.memory_mnt) / "CLAUDE.md").replace(
-            paths.user_root_mount.rstrip("/"), paths.host_user_root.rstrip("/"), 1)
-    probe_container = str(Path(dirs.memory_mnt) / "CLAUDE.md")
-    if Path(probe_container).is_file():
-        pass
-    elif Path(probe_host).is_file():
-        pass
-    else:
-        print(
-            f"ERROR: probe memory missing at container={probe_container} host={probe_host}",
-            file=sys.stderr,
-        )
+    # G7-10: memory + cc-state live in the dmac-cc-users volume, addressed via
+    # their nextseek-container mount paths (under user_root_mount). The merged
+    # CLAUDE.md is byte-copied into the cc-state subpath by run_cc_turn, so this
+    # probe writes it at the rendered-memory mount path and passes it through.
+    probe_memory = os.environ.get("PROBE_MEMORY_MNT") or str(Path(dirs.memory_mnt) / "CLAUDE.md")
+    if not Path(probe_memory).is_file():
+        print(f"ERROR: probe memory missing at {probe_memory}", file=sys.stderr)
         return 2
-
-    orig_build = cc_engine._build_volumes
-
-    def _build_with_probe_memory(**kwargs):
-        vols = orig_build(**kwargs)
-        vols[probe_host] = {"bind": "/home/user/.claude/CLAUDE.md", "mode": "ro"}
-        return vols
-
-    cc_engine._build_volumes = _build_with_probe_memory  # type: ignore[method-assign]
 
     run_id = f"probe-{uuid.uuid4().hex[:8]}"
     events: list[tuple[str, dict]] = []
@@ -82,7 +66,7 @@ def main() -> int:
         f"Starting live probe run_id={run_id} project_dirname={PROJECT_DIRNAME} "
         f"cc_state_key={CC_STATE_KEY}"
     )
-    print(f"Memory bind: {probe_host} -> /home/user/.claude/CLAUDE.md:ro")
+    print(f"Memory copy: {probe_memory} -> cc-state subpath /home/user/.claude/CLAUDE.md")
 
     model_id = cc_router._resolve_cc_model_id()
     print(f"Model: {model_id}")
@@ -97,6 +81,7 @@ def main() -> int:
         paths=paths,
         session_id=None,
         cc_state_key=CC_STATE_KEY,
+        memory_claude_md=probe_memory,
         api_user=api_user,
         api_pass=api_pass,
         max_budget_usd=MAX_BUDGET,

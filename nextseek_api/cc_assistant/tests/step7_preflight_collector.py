@@ -59,6 +59,7 @@ CC_ENV_KEYS = (
     "DMAC_ROUTER_MODEL_CLASS_MAP_FILE",
     "DMAC_USER_ROOT",
     "DMAC_USER_ROOT_MOUNT",
+    "DMAC_CC_USERS_VOLUME",
 )
 
 # Heuristic markers of DEPLOY.md's old hand-run bootstrap procedure (Phase A /

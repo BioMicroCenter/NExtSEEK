@@ -1,4 +1,10 @@
-"""Hermetic tests for nested scratch -> output artifact publishing."""
+"""Hermetic tests for nested scratch -> output artifact publishing.
+
+G7-10: ``_publish_artifacts`` reports display paths under the mount-relative
+``logical_root`` (``output_logical_root`` = ``dirs.output_mnt``, an in-container
+path under ``user_root_mount``) — never a host bind string (the old
+``output_host_root`` / ``output_src`` are retired).
+"""
 from pathlib import Path
 
 from nextseek_api.cc_assistant import cc_engine
@@ -16,7 +22,7 @@ def test_publish_artifacts_copies_nested_scratch_changes(tmp_path):
         scratch,
         output,
         turn_id="run1",
-        output_host_root="/host/users/42-px/alice/output",
+        output_logical_root="/dmac/users/42-px/alice/output",
         before=before,
     )
 
@@ -46,7 +52,7 @@ def test_publish_artifacts_skips_symlinks(tmp_path):
         scratch,
         output,
         turn_id="run1",
-        output_host_root="/host/output",
+        output_logical_root="/dmac/users/42-px/alice/output",
         before=before,
     )
 
@@ -71,7 +77,7 @@ def test_publish_artifacts_zips_multiple_and_splits_raw(tmp_path):
         scratch,
         output,
         turn_id="run9",
-        output_host_root="/host/users/42-px/alice/output",
+        output_logical_root="/dmac/users/42-px/alice/output",
         before=before,
     )
 
@@ -81,12 +87,32 @@ def test_publish_artifacts_zips_multiple_and_splits_raw(tmp_path):
         "label": "artifacts.zip", "file_format": "zip",
     }]
     assert (output / "artifacts" / "run9" / "artifacts.zip").is_file()
-    # scratch/raw/ is split off (prefix stripped), copied to output/raw/, not bundled.
+    # scratch/raw/ is split off (prefix stripped), copied to output/raw/, not
+    # bundled — reported under the LOGICAL root (mount-relative display path,
+    # concrete expected string), never a /srv or /host bind path.
     assert (output / "raw" / "debug.log").read_text() == "noise"
-    assert result["raw"] == ["/host/users/42-px/alice/output/raw/debug.log"]
+    assert result["raw"] == ["/dmac/users/42-px/alice/output/raw/debug.log"]
     assert result["raw_zip"] is None
     assert result["files_created"] == ["a.txt", "b.txt", "raw/debug.log"]
     assert result["files_modified"] == []
+
+
+def test_publish_raw_paths_never_use_host_bind_roots(tmp_path):
+    scratch = tmp_path / "scratch"
+    output = tmp_path / "output"
+    scratch.mkdir()
+    before = cc_engine.snapshot_before(scratch, "alice")
+    (scratch / "raw").mkdir()
+    (scratch / "raw" / "x.log").write_text("n")
+
+    result = cc_engine._publish_artifacts(
+        scratch, output, turn_id="t1",
+        output_logical_root="/dmac/users/42-px/alice/output", before=before,
+    )
+
+    for p in result["raw"]:
+        assert p.startswith("/dmac/users/")
+        assert "/srv/dmac" not in p and "/host/" not in p
 
 
 def test_safe_relpath_rejects_escape_paths():

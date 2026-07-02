@@ -34,10 +34,9 @@ def _run_sweep():
             if not tgt.transcript_path:
                 continue
             try:
-                mount_path = tgt.transcript_path.replace(
-                    paths.host_user_root.rstrip("/"),
-                    paths.user_root_mount.rstrip("/"), 1)
-                raw = Path(mount_path).read_bytes()
+                # G7-10: transcript_path is already the mount path inside the
+                # dmac-cc-users volume — read it directly (no host translation).
+                raw = Path(tgt.transcript_path).read_bytes()
                 prov = cc_summary.SummaryProvenance(
                     chat_session_id=tgt.session_id,
                     claude_session_id=(tgt.summary or {}).get("claude_session_id"),

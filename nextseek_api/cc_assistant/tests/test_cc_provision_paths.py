@@ -1,49 +1,63 @@
-"""Hermetic tests for the Step-2 single path-builder."""
+"""Hermetic tests for the G7-10 volume-subpath path-builder."""
 from nextseek_api.cc_assistant.cc_config import CCPaths
 from nextseek_api.cc_assistant.cc_provision import build_user_dirs
 
 
 def _paths() -> CCPaths:
-    return CCPaths(host_user_root="/host/users", user_root_mount="/dmac/users")
+    return CCPaths(users_volume="dmac-cc-users", user_root_mount="/dmac/users")
 
 
-def test_host_sources_are_nested_under_project_and_user():
+def test_subpaths_are_volume_relative_tails():
     dirs = build_user_dirs(_paths(), "42-liver-tox", "alice", session_id="S1")
 
-    assert dirs.shared_src == "/host/users/42-liver-tox/shared"
-    assert dirs.input_src == "/host/users/42-liver-tox/alice/input"
-    assert dirs.scratch_src == "/host/users/42-liver-tox/alice/scratch"
-    assert dirs.cc_state_src == "/host/users/42-liver-tox/alice/cc-state/S1"
-    assert dirs.output_src == "/host/users/42-liver-tox/alice/output"
+    # shared is PROJECT-scoped (no user segment); the rest are per-user.
+    assert dirs.shared_subpath == "42-liver-tox/shared"
+    assert dirs.input_subpath == "42-liver-tox/alice/input"
+    assert dirs.scratch_subpath == "42-liver-tox/alice/scratch"
+    assert dirs.output_subpath == "42-liver-tox/alice/output"
+    assert dirs.cc_state_subpath == "42-liver-tox/alice/cc-state/S1"
+    assert dirs.memory_subpath == "42-liver-tox/alice/_memory/S1"
+    assert dirs.transcripts_subpath == "42-liver-tox/alice/_memory/S1/transcripts"
+    # never absolute — an absolute Subpath is rejected by the Engine.
+    for s in (dirs.shared_subpath, dirs.input_subpath, dirs.scratch_subpath,
+              dirs.output_subpath, dirs.cc_state_subpath, dirs.memory_subpath,
+              dirs.transcripts_subpath):
+        assert not s.startswith("/")
 
 
 def test_mount_paths_use_the_container_mount_root():
     dirs = build_user_dirs(_paths(), "42-liver-tox", "alice", session_id="S1")
 
+    assert dirs.input_mnt == "/dmac/users/42-liver-tox/alice/input"
     assert dirs.scratch_mnt == "/dmac/users/42-liver-tox/alice/scratch"
     assert dirs.cc_state_mnt == "/dmac/users/42-liver-tox/alice/cc-state/S1"
     assert dirs.output_mnt == "/dmac/users/42-liver-tox/alice/output"
     assert dirs.memory_mnt == "/dmac/users/42-liver-tox/alice/_memory/S1"
 
 
-def test_cc_state_and_memory_are_none_without_session():
+def test_session_scoped_fields_are_none_without_session():
     dirs = build_user_dirs(_paths(), "42-liver-tox", "alice", session_id=None)
 
-    assert dirs.cc_state_src is None
+    assert dirs.cc_state_subpath is None
+    assert dirs.memory_subpath is None
+    assert dirs.transcripts_subpath is None
     assert dirs.cc_state_mnt is None
     assert dirs.memory_mnt is None
-    assert dirs.scratch_src == "/host/users/42-liver-tox/alice/scratch"
+    # non-session fields still resolve
+    assert dirs.scratch_subpath == "42-liver-tox/alice/scratch"
 
 
-def test_missing_user_roots_fail_closed():
-    paths = CCPaths(host_user_root="", user_root_mount="")
-
-    try:
-        build_user_dirs(paths, "42-liver-tox", "alice", session_id="S1")
-    except ValueError as exc:
-        assert "host_user_root" in str(exc)
-    else:
-        raise AssertionError("missing Step-2 roots must fail closed")
+def test_missing_volume_or_root_fail_closed():
+    for paths in (
+        CCPaths(users_volume="", user_root_mount="/dmac/users"),
+        CCPaths(users_volume="dmac-cc-users", user_root_mount=""),
+    ):
+        try:
+            build_user_dirs(paths, "42-liver-tox", "alice", session_id="S1")
+        except ValueError as exc:
+            assert "users_volume" in str(exc)
+        else:
+            raise AssertionError("missing volume/root must fail closed")
 
 
 def test_builder_rejects_malicious_segments():

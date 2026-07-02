@@ -58,19 +58,29 @@ class ProjectIdentity:
 
 @dataclass(frozen=True)
 class UserDirs:
-    """All Step-2 paths for one project/user/session.
+    """All CC paths for one project/user/session (G7-10 named-volume layout).
 
-    ``*_src`` values are host paths used as CC bind sources. ``*_mnt`` values
-    are the same directories at their nextseek-container mount point for
-    mkdir, artifact publishing, and memory rendering.
+    ``*_subpath`` values are volume-relative tails under the ``dmac-cc-users``
+    volume root — each is the exact ``VolumeOptions.Subpath`` for that CC
+    sibling mount (there is no host bind source). ``shared_subpath`` is
+    project-scoped (no ``{user_id}`` segment, SPEC-2 D5). ``transcripts_subpath``
+    is the ``_memory/<session>`` tail plus a ``/transcripts`` child.
+
+    ``*_mnt`` values are the same directories at their nextseek-container mount
+    point (under ``user_root_mount``) for mkdir/chmod, artifact publishing, and
+    memory rendering.
     """
 
-    input_src: str
+    # Volume-relative subpaths (each is a CC sibling mount's exact Subpath).
+    input_subpath: str
+    shared_subpath: str
+    scratch_subpath: str
+    output_subpath: str
+    cc_state_subpath: str | None
+    memory_subpath: str | None
+    transcripts_subpath: str | None
+    # nextseek-container mount paths (under user_root_mount).
     input_mnt: str
-    shared_src: str
-    scratch_src: str
-    output_src: str
-    cc_state_src: str | None
     scratch_mnt: str
     output_mnt: str
     cc_state_mnt: str | None
@@ -84,26 +94,29 @@ def build_user_dirs(
     *,
     session_id: str | None = None,
 ) -> UserDirs:
-    """Build the single source of truth for the nested Step-2 layout."""
-    host_root = paths.host_user_root.rstrip("/")
+    """Build the single source of truth for the nested CC volume layout."""
     mount_root = paths.user_root_mount.rstrip("/")
-    if not host_root or not mount_root:
-        raise ValueError("host_user_root and user_root_mount are required")
+    if not paths.users_volume or not mount_root:
+        raise ValueError("users_volume and user_root_mount are required")
     _validate_segment("project dirname", project_dirname)
     _validate_segment("user_id", user_id)
     if session_id is not None:
         _validate_segment("session_id", session_id)
-    project_host = f"{host_root}/{project_dirname}"
-    project_mount = f"{mount_root}/{project_dirname}"
-    user_host = f"{project_host}/{user_id}"
+    # Volume-relative tails (no leading slash — an absolute Subpath is rejected
+    # by the Engine and would defeat per-user isolation).
+    project_rel = project_dirname
+    user_rel = f"{project_rel}/{user_id}"
+    project_mount = f"{mount_root}/{project_rel}"
     user_mount = f"{project_mount}/{user_id}"
     return UserDirs(
-        input_src=f"{user_host}/input",
+        input_subpath=f"{user_rel}/input",
+        shared_subpath=f"{project_rel}/shared",  # project-scoped: NO user segment
+        scratch_subpath=f"{user_rel}/scratch",
+        output_subpath=f"{user_rel}/output",
+        cc_state_subpath=f"{user_rel}/cc-state/{session_id}" if session_id else None,
+        memory_subpath=f"{user_rel}/_memory/{session_id}" if session_id else None,
+        transcripts_subpath=f"{user_rel}/_memory/{session_id}/transcripts" if session_id else None,
         input_mnt=f"{user_mount}/input",
-        shared_src=f"{project_host}/shared",
-        scratch_src=f"{user_host}/scratch",
-        output_src=f"{user_host}/output",
-        cc_state_src=f"{user_host}/cc-state/{session_id}" if session_id else None,
         scratch_mnt=f"{user_mount}/scratch",
         output_mnt=f"{user_mount}/output",
         cc_state_mnt=f"{user_mount}/cc-state/{session_id}" if session_id else None,
