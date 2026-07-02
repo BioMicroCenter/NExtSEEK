@@ -168,6 +168,11 @@ local_settings.py
 # See docker/nextseek.env.example for the template.
 docker/nextseek.env
 docker/db.env
+
+# Bedrock auth-proxy real secret env (holds AWS_BEARER_TOKEN_BEDROCK). Never
+# tracked; injected into the proxy container only at runtime via compose
+# env_file: (gate G6). See docker/bedrock-proxy/proxy-secret.env.example.
+docker/bedrock-proxy/proxy-secret.env
 internal_docs/
 .cursor/
 .claude/

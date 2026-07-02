@@ -1,0 +1,25 @@
+# Harden the Docker build context against common local leak vectors.
+# New for this port (the pinned dmac-assistant source did not carry a
+# .dockerignore of its own); adapted from docker/cc-runtime/.dockerignore's
+# pattern (PLAN-7 Task 3 precedent) for the docker/bedrock-proxy/ context
+# root. The real secret env file must NEVER enter the build context -- the
+# bearer token is injected only at container runtime via compose `env_file:`
+# (gate G6), never baked into the image.
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.ruff_cache
+**/.coverage*
+**/.env
+**/.env.local
+**/.env.prod
+**/.env.dev
+proxy-secret.env
+**/credentials.json
+**/*.pem
+**/*.key
+**/id_rsa
+**/id_rsa.*
+.git
+.venv

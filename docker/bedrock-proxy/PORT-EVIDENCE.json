@@ -1,0 +1,50 @@
+{
+  "port_source_path": "/home/taishajo/work/dmac-assistant/bedrock-proxy",
+  "port_source_commit": "a429f1372a075e5db586a1b6efc8c3b1663e211a",
+  "port_source_verified_clean_tree": true,
+  "generated_at": "2026-07-01T20:03:00Z",
+  "task": "PLAN-7 Task 4: port Bedrock proxy source into NExtSEEK",
+  "byte_identical_files": [
+    "__init__.py",
+    "app/__init__.py",
+    "app/config.py",
+    "app/proxy.py",
+    "proxy-secret.env.example"
+  ],
+  "adapted_files": [
+    {
+      "path": "Dockerfile",
+      "adaptation": "comment/path-level only -- COPY source changed from the source's repo-root-relative `bedrock-proxy/app/` to this port's build-context-relative `app/`, because this port builds with context = docker/bedrock-proxy/ itself (the source's compose set `context: ..`, i.e. repo root). No proxy logic, dependency pins, user/uid, healthcheck, or CMD changed."
+    },
+    {
+      "path": ".dockerignore",
+      "adaptation": "new file -- the pinned source did not carry a .dockerignore of its own (its Dockerfile relied on the repo-root .dockerignore via `context: ..`). Adapted from docker/cc-runtime/.dockerignore's pattern (PLAN-7 Task 3 precedent) for this build context root; excludes the real proxy-secret.env from ever entering the Docker build context."
+    }
+  ],
+  "not_ported": [
+    {
+      "path": "docker-compose.yml",
+      "reason": "PLAN-7 explicitly scopes root-compose wiring to Task 5. The source's docker-compose.yml is a standalone sidecar compose (its own `name:`, network join, container_name) -- reference only. See test_step7_proxy_port.py::test_standalone_sidecar_compose_not_ported."
+    }
+  ],
+  "file_inventory": [
+    {"path": "__init__.py", "size_bytes": 145, "sha256": "6e20c439586b2f237ade5334ec7f4d62d57903f527bceea74fc1841a93fba069"},
+    {"path": "app/__init__.py", "size_bytes": 46, "sha256": "e81e6cfec1157608321d2166cda98f3376486f49308c7ea80038fc1fb6bd86fd"},
+    {"path": "app/config.py", "size_bytes": 3062, "sha256": "eb464c910f288964f7d80753c5fe9ef7abdf9abc7900abde7f19579cb4c826cb"},
+    {"path": "app/proxy.py", "size_bytes": 13794, "sha256": "e890f99a690b6dd3e03b454f95200c3261186f5df90cdf5f001a0b957f3b6859"},
+    {"path": "proxy-secret.env.example", "size_bytes": 821, "sha256": "fdbf6c5cb8184158faf9ea06668d2dcf2aee21a37516103142040cfd02bf1d16"},
+    {"path": "Dockerfile", "size_bytes": 2398, "sha256": "8449007570f2dfb9227c028d04ae2edf39fed879ed141c0a6668105af35f2a83"},
+    {"path": ".dockerignore", "size_bytes": 696, "sha256": "4b5f91bec5ffcd99b42d1f32a22a25396b2bd1eb6eed4d2444606084e902e820"}
+  ],
+  "mapping_table": [
+    {"dest": "docker/bedrock-proxy/__init__.py", "source": "bedrock-proxy/__init__.py", "status": "byte-identical"},
+    {"dest": "docker/bedrock-proxy/app/__init__.py", "source": "bedrock-proxy/app/__init__.py", "status": "byte-identical"},
+    {"dest": "docker/bedrock-proxy/app/config.py", "source": "bedrock-proxy/app/config.py", "status": "byte-identical"},
+    {"dest": "docker/bedrock-proxy/app/proxy.py", "source": "bedrock-proxy/app/proxy.py", "status": "byte-identical"},
+    {"dest": "docker/bedrock-proxy/proxy-secret.env.example", "source": "bedrock-proxy/proxy-secret.env.example", "status": "byte-identical"},
+    {"dest": "docker/bedrock-proxy/Dockerfile", "source": "bedrock-proxy/Dockerfile", "status": "adapted (COPY path only, see adapted_files)"},
+    {"dest": "docker/bedrock-proxy/.dockerignore", "source": "none (new)", "status": "new file, adapted from docker/cc-runtime/.dockerignore pattern"},
+    {"dest": "N/A", "source": "bedrock-proxy/docker-compose.yml", "status": "not ported -- Task 5 scope, see not_ported"},
+    {"dest": "N/A", "source": "bedrock-proxy/proxy-secret.env", "status": "NEVER ported -- real secret file, gitignored and dockerignored"}
+  ]
+}
