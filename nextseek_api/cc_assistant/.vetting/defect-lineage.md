@@ -164,7 +164,7 @@ iter-20 Compose ≥2.26 vs docker-py Engine-API floor inconsistency.
 
 # G7-11 sidecar-wave threads (opened 2026-07-02, iter-1 fresh review)
 
-## Thread G — same-turn staging sweep / capability surfacing  [STATUS: OPEN]
+## Thread G — same-turn staging sweep / capability surfacing  [STATUS: CLOSED @ G7-11 iter-4]
 
 | Iter | Severity | Finding | Class | Parent |
 |------|----------|---------|-------|--------|
@@ -172,7 +172,7 @@ iter-20 Compose ≥2.26 vs docker-py Engine-API floor inconsistency.
 | 1 | MEDIUM | Task 13 whole-volume placeholder-behind-failing-test contradicts green/zero-skips discipline; mid-wave whole-volume sidecar exposure (M-2) | NEW | — |
 | 1 (hardener) | — | Fifth locked invariant (in-turn sweep, published_path cross-check in matrix); "or the sidecar itself" struck; placeholder deleted → no-mount two-state | pending fresh re-vet | — |
 
-## Thread H — capability-matrix / network-membership enforceability  [STATUS: OPEN]
+## Thread H — capability-matrix / network-membership enforceability  [STATUS: CLOSED @ G7-11 iter-4]
 
 | Iter | Severity | Finding | Class | Parent |
 |------|----------|---------|-------|--------|
@@ -180,7 +180,7 @@ iter-20 Compose ≥2.26 vs docker-py Engine-API floor inconsistency.
 | 1 | MEDIUM | Matrix provenance unpinned (no container/image binding); Layer-2 write alternative not machine-checkable (M-4) | NEW | — |
 | 1 (hardener) | — | Deterministic agent names dmac-cc-agent-<run_id> (Task 13 Step 2b) + name-based closed set replacing run_id-substring seam; matrix rows carry container_id/image/wall_secs + images.json/network join; Layer-2 pinned exit-5/WRITE_BLOCKED | pending fresh re-vet | — |
 
-## Thread I — greenfield achievability of the 9/9 gate  [STATUS: OPEN]
+## Thread I — greenfield achievability of the 9/9 gate  [STATUS: CLOSED @ G7-11 iter-3]
 
 | Iter | Severity | Finding | Class | Parent |
 |------|----------|---------|-------|--------|
@@ -188,7 +188,7 @@ iter-20 Compose ≥2.26 vs docker-py Engine-API floor inconsistency.
 | 1 | MEDIUM | `_staging` greenfield provisioning unowned → compose up fails sidecar create on fresh volume; dedicated-volume fallback ripple unenumerated (M-1) | NEW | — |
 | 1 (hardener) | — | Step 3b seeded fixture (seeded_fixture.json) + per-op empty-data semantics + GCP/Bedrock prereqs into Tasks 7/8 + spend estimate; Step 2c startup `_staging` bootstrap + fallback blast radius pre-enumerated | pending fresh re-vet | — |
 
-## Thread J — locked-text authority drift  [STATUS: OPEN]
+## Thread J — locked-text authority drift  [STATUS: CLOSED @ G7-11 iter-3]
 
 | Iter | Severity | Finding | Class | Parent |
 |------|----------|---------|-------|--------|
@@ -220,3 +220,14 @@ Iter-2 also VERIFIED (no re-raise): fifth-invariant hook real at run_cc_turn pub
 | G | 3 | MEDIUM | Uncapped gate certifies ops the 180 s production turn can never run; wall_secs recorded never evaluated (M-2) | PARTIAL | R2-H1 |
 | H | 3 | MEDIUM | "agent name if exec'd in-turn" join branch contradicts §8; reopens executor-provenance seam (M-3) | REGRESSION | iter-2 hardening |
 | — | 3 (hardener) | — | M-1→env via production build_agent_environment + REQUIRED matrix_env_scan.txt; M-2→per-op wall_secs vs pinned 150 s headroom, exceeders listed + Task 11 user decision; M-3→branch struck; L-1..L-5 applied (sweep_invocation.json pinned, container_name in Step 1 schema, nginx access_log directive owned by Task 13, query/plan shared endpoint, successful-empty-only shape) | pending fresh re-vet | — |
+
+### Iter-4 fresh review (2026-07-02) — UNCONDITIONAL_ACCEPTANCE; ALL G7-11 THREADS CLOSED
+
+| Thread | Iter | Verdict |
+|--------|------|---------|
+| G | 4 | **CLOSED** — wall_secs machine-evaluated per op vs single pinned 150 s constant in both texts; exceeders listed + named user decision; no silent certification path |
+| H | 4 | **CLOSED** — build_agent_environment verified harness-callable (keyword-only args, no turn state) + sufficient for all 9 bin ops; matrix_env_scan reuses shipped _CC_SHARED_CRED_KEYS oracle; join branch struck, no residue |
+| I | 4 | stayed CLOSED (L-5 tightening damage-checked vs granular.py — successful-empty graph shape reachable) |
+| J | 4 | stayed CLOSED (55aa503 delta touches no locked-text spot) |
+
+G7-11 sidecar-wave Phase 2: COMPLETE at iter-4 (0C/0H/0M, 6 LOW). Exit per convergence rule.
