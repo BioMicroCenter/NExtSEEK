@@ -221,13 +221,22 @@ Required generated artifacts:
 - `subpath_isolation_scan.txt` - **REQUIRED cross-user isolation proof (amended 2026-06-30; capture mechanism corrected 2026-06-30 — requirement unchanged).** A **recursive** listing of the transient CC agent's mounted trees (e.g. `docker exec <cid> find /data/input /data/scratch /data/shared … -maxdepth 4`), **captured during the turn** from the live sibling polled by `label=nextseek.cc.run=<run_id>` — the agent is force-removed when the turn ends, so a post-turn `docker exec` cannot produce this artifact, and a non-recursive `ls` cannot reach a seeded foreign sentinel — taken with at least one **other** user's tree seeded on `dmac-cc-users` (e.g. `otherproj/bob/input/SENTINEL_FOREIGN`), proving the sibling container sees **only** the forced-CC user's own `<project>/<user>/` subpath and no foreign user tree. The validator **fails** the bundle if this artifact is absent, empty, or shows any foreign user path / seeded foreign token. **Authenticity binding (amended 2026-06-30 — additive/strengthening):** the file MUST be written by the **test harness directly from the live `docker exec … find` subprocess stdout** (never hand-authored by an operator), and the bundle MUST also carry an **in-container live sentinel** — a per-run file (e.g. `LIVE_<sentinel>`) the agent writes into its own `/data/scratch` *during* the turn — whose filename the captured scan MUST contain (recorded as `meta.json.live_sentinel`). The validator fails the bundle if the live sentinel is absent from the scan, so a fabricated/stale clean scan (e.g. one hand-edited to hide a real `Subpath=""` leak) cannot pass the cross-check. This enforces the OI-3 / G7-10 per-user `VolumeOptions.Subpath` isolation invariant at runtime — a check hermetic mount tests alone cannot make (an empty/constant `Subpath` keeps the key present yet mounts the whole volume root). **Seed-presence pairing + leak-detector clarification (amended 2026-06-30 — additive/strengthening):** the foreign-absent check here is meaningful **only** because `pre_turn_seed_scan.txt` independently proves the foreign tree was planted at the volume root before the turn. The leak detector is **foreign-token absence in-turn, gated by foreign-token presence pre-turn** — *not* the live sentinel. The live sentinel is present under **both** the correct and the leaking mount (the agent writes `LIVE_<sentinel>` to the **container path** `/data/scratch`, which the harness `find`s on that same container path regardless of where it is mounted), so it does **not** drop on a leak; its sole role is an anti-stale / anti-substitution binding (it keeps a clean scan from a *different* run out of this bundle).
 - `secret_scan_report.json` - scanner results for every evidence artifact.
 - `plugin_ops_matrix.json` — **REQUIRED capability-completeness proof (G7-11, amended
-  2026-07-01).** Per-op live results for **all 9** `nextseek-*` plugin ops executed from inside
-  the transient CC agent (or a same-image, same-network, same-env harness container) during the
-  gate run: op name, transport (`viewset`|`sidecar`), exit code, and a redacted result/error
-  excerpt. The validator fails the bundle unless every op records exit 0 (write-gated ops may
-  alternatively record the documented Layer-2 confirmation flow), and fails any op recording
-  exit 7 (`TRANSPORT_ERROR`) — the signature of a missing backend. Secret-scanned like every
-  artifact.
+  2026-07-01; schema hardened 2026-07-02 iter-1).** Per-op live results for **all 9** plugin
+  ops, keyed by **bin command name** (`nextseek-entity-extract` … `nextseek-plan`; wire-op
+  mapping recorded per row), executed **inside the live transient CC agent** (`docker exec`
+  into the deterministically-named `dmac-cc-agent-<run_id>` during the turn; a separate harness
+  container is permitted only with identical image+network+env and recorded provenance). Per-op
+  record: `{op, transport, exit_code, excerpt, container_id, image, wall_secs}` — the validator
+  requires executor `image` == the CC image in `images.json` and executor attachment to
+  `dmac-cc-net` (join on `network_inspect.json`). Fails on: any missing op; any exit 7
+  (`TRANSPORT_ERROR` — missing backend); any nonzero exit except the pinned Layer-2 write form
+  (unconfirmed write leg = exit 5 + stderr `WRITE_BLOCKED`; user-approved confirmed leg =
+  exit 0). `nextseek-report`/`nextseek-generate-submission` rows must record `published_path`
+  under the gate user's own `{project}/{user}/` subtree (the in-turn sweep's output — dead
+  `/staging/...`-only paths fail). Data-dependent ops target the seeded fixture recorded in
+  **`seeded_fixture.json`** (companion REQUIRED artifact when the matrix runs: sandbox
+  project/sample ids created via the gate user's authenticated REST calls). Secret-scanned like
+  every artifact; `meta.json` gains `matrix_spend_estimate_usd` (best-effort + method note).
 - `validator_output.txt` - output of the zero-spend Step 7 validator.
 - Optional screenshots plus OCR output or documented visual review entries in
   `secret_scan_report.json`.
@@ -274,8 +283,11 @@ Docker/local additions (G7-11):
 - compose-config tests: `nextseek-sidecar` service present, `dmac-cc-net` only, no host
   `ports:`, healthcheck defined, env carries only non-secret topology keys,
 - validator/acceptance network-peer rules updated: `dmac-cc-net` membership is the **closed
-  set** {`nextseek_nginx`, `bedrock-proxy`/`dmac-bedrock-proxy`, `nextseek-sidecar`} plus
-  transient `label=nextseek.cc.run` agents — anything else fails.
+  set** {`nextseek_nginx` (bare or compose-prefixed), `dmac-bedrock-proxy`, `nextseek-sidecar`}
+  plus transient agents matching the deterministic name `dmac-cc-agent-<run_id>` (== the
+  bundle's `meta.json.run_id`) — anything else fails. (Name-based because `docker network
+  inspect` exposes no labels; `cc_engine` names agent containers deterministically for exactly
+  this reason — G7-11 iter-1 H-2.)
 
 Live paid gate:
 

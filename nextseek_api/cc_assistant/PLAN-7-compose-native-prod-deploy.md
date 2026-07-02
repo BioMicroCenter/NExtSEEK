@@ -134,7 +134,7 @@ The tests should create temp bundles with the required artifact names from SPEC-
 
 - [ ] **Step 2: Implement the validator**
 
-Checks must cover **preflight.json** + **`step3_deploy_gate`** (tracker SHA, **`live_gate_transcript_committed == true`**, MBP snapshot exception rules, supplementary handoff must parse SRS fields and cite step 3 `done` or match `integration_plan_sha256`), **`preflight.deploy_commit == meta.json.repo_commit`** (both collected in same `<run_id>` bundle — Task 9/10 must regenerate preflight immediately before other §8 artifacts), **live transcript content markers** (non-empty plus allowlist substrings **guaranteed to appear in real PLAN-3 Task 13 stdout** — not command-text the transcript is not contracted to echo. **Byte-identical allowlist, shared verbatim with PLAN-3 Task 13 Step 8 — both sides MUST name the same strings:** (1) the **migration marker**, accepted as **`Applying nextseek_api.0007` OR `[X] 0007_ccsessiontranscript`** (at least one required — grep `Applying nextseek_api\.0007|\[X\] 0007_ccsessiontranscript`): the first is Step 3 fresh-migrate stdout (`migrate nextseek_api 0007_ccsessiontranscript` → `Applying nextseek_api.0007_ccsessiontranscript… OK`), the second is `python manage.py showmigrations nextseek_api` stdout that prints `[X] 0007_ccsessiontranscript` on **any already-applied DB**; this OR is **idempotency-robust** — a legitimate re-run whose `migrate` prints `No migrations to apply.` still passes via the `showmigrations` form (PLAN-3 Task 13 Step 8 is contracted to capture `showmigrations nextseek_api` stdout for exactly this reason), so an already-deployed instance's committed transcript can never permanently fail this gate. (2) `cc_assistant.upload` (Step 0 `inspect registered | grep cc_assistant.upload` output / registered-task name — present on any worker that registered the task, idempotent). (3) `cc_traces` (the JSON key in Step 6's saved `GET …?include=turns` excerpt) — not stub-only. Do **not** require the *command* substrings `migrate nextseek_api 0007` or `inspect registered`: PLAN-3 Task 13 Step 8 contracts only saved **stdout/stderr + exit codes**, not echoed command lines, so a legitimate already-committed transcript may omit them and a hard start-gate must not falsely reject it. Exit codes are saved but PLAN-3 leaves their format unpinned, so do **not** hard-require an `exit-code` substring), **MBP greenfield:** parse `pre_bootstrap_docker_volume_ls.txt` — fail if any of the seven external volumes exist unless `meta.json.greenfield_exception` + handoff ref. **Volume name resolution:** read `startup/.instance.json` `prefix` when present — expected names are `{prefix}seek-filestore`, …, `{prefix}dmac-cc-users` (empty prefix = bare names as listed). Task 10 Step 0: require default instance (no `--instance` prefix) **or** document prefix-adjusted oracle in validator; parse `pre_bootstrap_docker_network_ls.txt` — fail if `dmac-cc-net` exists unless exception. **`meta.json.host_label` (locked enum):** MBP authoritative gate → **`"mbp"`** (exact string; Task 10 must write this literal; validator exact-match, not regex). Dev-VM smoke → **`"dev-vm"`** or **`"nextseek-dev"`** only. Reject all other values. **Independently parse** `preflight.json` docker version strings and fail when Engine <26 / API <v1.45 even if the boolean flag claims true; fail when `preflight.json.docker_engine_meets_subpath_floor` is not `true`. **Engine ≥26 / API v1.45 is the unconditional, real floor** — the per-user runtime subpaths are applied via **docker-py (Engine API) `VolumeOptions.Subpath`**, not compose YAML (Task 6 `_mount_volume_subpath`), so Engine — not Compose — gates the isolation mount. The **Compose ≥2.26 floor is CONDITIONAL**: enforce it (and require `docker_compose_meets_subpath_floor == true`) **only when `compose_config.json` shows the compose YAML itself uses `volume.subpath:` syntax**. This plan mounts the **whole** `dmac-cc-users` volume at `/dmac/users` with **no** YAML subpath syntax (Task 5/Task 6), so Compose ≥2.26 is **not** hard-required and a valid host whose compose file never uses subpath syntax MUST NOT be rejected on the Compose floor alone (reconciled with the conditional DEPLOY Step 0 / Task 1 Step 2 wording). Compose topology, image/service status, `cc_runner_available`, forced-CC success, **`forced_cc_result.json.cost <= meta.json.budget_cap_usd`** (default 2.0), proxy invoke, network segmentation, agent env de-credentialing, proxy token logging, **cross-artifact correlation** (`run_id` in proxy log; agent container in network inspect), dev-only **`migration_policy`** required **iff** `host_label` is `dev-vm` or `nextseek-dev` **AND** `preflight.json.had_host_bind_data == true` (greenfield dev-VM with no prior `/srv/dmac/users` data: `migration_policy` is **optional** and the bundle must still pass — matches Task 9 Step 2 / Task 6 Step 5; forbidden when `host_label == "mbp"`), **`pre_turn_seed_scan.txt`** present, non-empty, and **containing every `meta.json.foreign_token`** (`SENTINEL_FOREIGN`, `otherproj`, `bob`) — the harness-written root-mounted volume listing taken **after seeding the foreign tree, before the turn** (Task 10 Step 4). This proves the foreign subtree exists at the volume root, so the foreign-absent oracle below is **not vacuous**: a skipped seed step leaves this scan missing the tokens ⇒ **RED before the turn**, which is what stops an unseeded `Subpath=""` whole-volume leak from passing green. **`subpath_isolation_scan.txt`** present, non-empty, and passing the **seed-gated foreign-absent oracle** (REQUIRED §8 cross-user isolation gate — Task 6/Task 10): the scan is a recursive `find … -maxdepth 4` listing **captured during the turn from the live sibling** (see Task 10 Step 4 — the agent is force-removed at turn end, so post-turn `docker exec` is impossible), and the validator MUST confirm it (a) **contains the own marker filename** (`meta.json.own_marker`, i.e. `OWN_<run_id>` under the user's own `/data/input` subpath — a hand-written empty stub fails); (b) **contains the live in-container sentinel filename** (`meta.json.live_sentinel`, i.e. `LIVE_<sentinel>` written by the agent into its own `/data/scratch` *during* the turn — see Task 10 Step 4; this is an **anti-stale / anti-substitution** binding that ties the scan to **this** run's live container so a stale/blank scan reused from a different (clean) run cannot be substituted, and a hand-edited clean scan that omits the agent-authored live sentinel fails this cross-check — it is **not** a leak detector: the agent writes it to container path `/data/scratch`, which the `find` lists under both correct and leaking mounts); and (c) **contains none** of `meta.json.foreign_tokens` via pinned `grep -nE 'SENTINEL_FOREIGN|(^| |/)otherproj(/|$| )|(^| |/)bob(/|$| )'` (any match ⇒ fail). **The actual leak detector is the pair (pre-turn foreign-present) ∧ (in-turn foreign-absent)** — neither alone suffices. Writing `subpath_isolation_scan.txt` directly from the live `docker exec … find` subprocess stdout (Task 10 Step 4) is a **harness-implementation requirement** (a text-file validator cannot prove file authorship); the validator's enforceable guarantees are the seed-scan/in-turn-scan pair plus the live-sentinel and own-marker cross-checks, and that `meta.json.foreign_tokens`, `meta.json.own_marker`, and `meta.json.live_sentinel` are pairwise disjoint. The old non-recursive `ls` + slash-bearing `{project}/{user}/` matcher is rejected — it shows only top-level project names and cannot surface the empty/root-`Subpath` leak. And secret-scan pass.
+Checks must cover **preflight.json** + **`step3_deploy_gate`** (tracker SHA, **`live_gate_transcript_committed == true`**, MBP snapshot exception rules, supplementary handoff must parse SRS fields and cite step 3 `done` or match `integration_plan_sha256`), **`preflight.deploy_commit == meta.json.repo_commit`** (both collected in same `<run_id>` bundle — Task 9/10 must regenerate preflight immediately before other §8 artifacts), **live transcript content markers** (non-empty plus allowlist substrings **guaranteed to appear in real PLAN-3 Task 13 stdout** — not command-text the transcript is not contracted to echo. **Byte-identical allowlist, shared verbatim with PLAN-3 Task 13 Step 8 — both sides MUST name the same strings:** (1) the **migration marker**, accepted as **`Applying nextseek_api.0007` OR `[X] 0007_ccsessiontranscript`** (at least one required — grep `Applying nextseek_api\.0007|\[X\] 0007_ccsessiontranscript`): the first is Step 3 fresh-migrate stdout (`migrate nextseek_api 0007_ccsessiontranscript` → `Applying nextseek_api.0007_ccsessiontranscript… OK`), the second is `python manage.py showmigrations nextseek_api` stdout that prints `[X] 0007_ccsessiontranscript` on **any already-applied DB**; this OR is **idempotency-robust** — a legitimate re-run whose `migrate` prints `No migrations to apply.` still passes via the `showmigrations` form (PLAN-3 Task 13 Step 8 is contracted to capture `showmigrations nextseek_api` stdout for exactly this reason), so an already-deployed instance's committed transcript can never permanently fail this gate. (2) `cc_assistant.upload` (Step 0 `inspect registered | grep cc_assistant.upload` output / registered-task name — present on any worker that registered the task, idempotent). (3) `cc_traces` (the JSON key in Step 6's saved `GET …?include=turns` excerpt) — not stub-only. Do **not** require the *command* substrings `migrate nextseek_api 0007` or `inspect registered`: PLAN-3 Task 13 Step 8 contracts only saved **stdout/stderr + exit codes**, not echoed command lines, so a legitimate already-committed transcript may omit them and a hard start-gate must not falsely reject it. Exit codes are saved but PLAN-3 leaves their format unpinned, so do **not** hard-require an `exit-code` substring), **MBP greenfield:** parse `pre_bootstrap_docker_volume_ls.txt` — fail if any of the seven external volumes exist unless `meta.json.greenfield_exception` + handoff ref. **Volume name resolution:** read `startup/.instance.json` `prefix` when present — expected names are `{prefix}seek-filestore`, …, `{prefix}dmac-cc-users` (empty prefix = bare names as listed). Task 10 Step 0: require default instance (no `--instance` prefix) **or** document prefix-adjusted oracle in validator; parse `pre_bootstrap_docker_network_ls.txt` — fail if `dmac-cc-net` exists unless exception. **`meta.json.host_label` (locked enum):** MBP authoritative gate → **`"mbp"`** (exact string; Task 10 must write this literal; validator exact-match, not regex). Dev-VM smoke → **`"dev-vm"`** or **`"nextseek-dev"`** only. Reject all other values. **Independently parse** `preflight.json` docker version strings and fail when Engine <26 / API <v1.45 even if the boolean flag claims true; fail when `preflight.json.docker_engine_meets_subpath_floor` is not `true`. **Engine ≥26 / API v1.45 is the unconditional, real floor** — the per-user runtime subpaths are applied via **docker-py (Engine API) `VolumeOptions.Subpath`**, not compose YAML (Task 6 `_mount_volume_subpath`), so Engine — not Compose — gates the isolation mount. The **Compose ≥2.26 floor is CONDITIONAL**: enforce it (and require `docker_compose_meets_subpath_floor == true`) **only when `compose_config.json` shows the compose YAML itself uses `volume.subpath:` syntax**. Tasks 5/6 mount the **whole** `dmac-cc-users` volume at `/dmac/users` with **no** YAML subpath syntax, so Compose ≥2.26 is **not** hard-required for them — **unless the G7-11 sidecar staging mount (Task 14) uses YAML `subpath:` syntax in compose, in which case the conditional floor BINDS on every deploy host** (iter-1 M-3 amendment; the check mechanism already self-detects this via `compose_config.json`). A valid host whose compose file never uses subpath syntax MUST NOT be rejected on the Compose floor alone (reconciled with the conditional DEPLOY Step 0 / Task 1 Step 2 wording). Compose topology, image/service status, `cc_runner_available`, forced-CC success, **`forced_cc_result.json.cost <= meta.json.budget_cap_usd`** (default 2.0), proxy invoke, network segmentation, agent env de-credentialing, proxy token logging, **cross-artifact correlation** (`run_id` in proxy log; agent container in network inspect), dev-only **`migration_policy`** required **iff** `host_label` is `dev-vm` or `nextseek-dev` **AND** `preflight.json.had_host_bind_data == true` (greenfield dev-VM with no prior `/srv/dmac/users` data: `migration_policy` is **optional** and the bundle must still pass — matches Task 9 Step 2 / Task 6 Step 5; forbidden when `host_label == "mbp"`), **`pre_turn_seed_scan.txt`** present, non-empty, and **containing every `meta.json.foreign_token`** (`SENTINEL_FOREIGN`, `otherproj`, `bob`) — the harness-written root-mounted volume listing taken **after seeding the foreign tree, before the turn** (Task 10 Step 4). This proves the foreign subtree exists at the volume root, so the foreign-absent oracle below is **not vacuous**: a skipped seed step leaves this scan missing the tokens ⇒ **RED before the turn**, which is what stops an unseeded `Subpath=""` whole-volume leak from passing green. **`subpath_isolation_scan.txt`** present, non-empty, and passing the **seed-gated foreign-absent oracle** (REQUIRED §8 cross-user isolation gate — Task 6/Task 10): the scan is a recursive `find … -maxdepth 4` listing **captured during the turn from the live sibling** (see Task 10 Step 4 — the agent is force-removed at turn end, so post-turn `docker exec` is impossible), and the validator MUST confirm it (a) **contains the own marker filename** (`meta.json.own_marker`, i.e. `OWN_<run_id>` under the user's own `/data/input` subpath — a hand-written empty stub fails); (b) **contains the live in-container sentinel filename** (`meta.json.live_sentinel`, i.e. `LIVE_<sentinel>` written by the agent into its own `/data/scratch` *during* the turn — see Task 10 Step 4; this is an **anti-stale / anti-substitution** binding that ties the scan to **this** run's live container so a stale/blank scan reused from a different (clean) run cannot be substituted, and a hand-edited clean scan that omits the agent-authored live sentinel fails this cross-check — it is **not** a leak detector: the agent writes it to container path `/data/scratch`, which the `find` lists under both correct and leaking mounts); and (c) **contains none** of `meta.json.foreign_tokens` via pinned `grep -nE 'SENTINEL_FOREIGN|(^| |/)otherproj(/|$| )|(^| |/)bob(/|$| )'` (any match ⇒ fail). **The actual leak detector is the pair (pre-turn foreign-present) ∧ (in-turn foreign-absent)** — neither alone suffices. Writing `subpath_isolation_scan.txt` directly from the live `docker exec … find` subprocess stdout (Task 10 Step 4) is a **harness-implementation requirement** (a text-file validator cannot prove file authorship); the validator's enforceable guarantees are the seed-scan/in-turn-scan pair plus the live-sentinel and own-marker cross-checks, and that `meta.json.foreign_tokens`, `meta.json.own_marker`, and `meta.json.live_sentinel` are pairwise disjoint. The old non-recursive `ls` + slash-bearing `{project}/{user}/` matcher is rejected — it shows only top-level project names and cannot surface the empty/root-`Subpath` leak. And secret-scan pass.
 
 **`host_label` branching table:** MBP → require pre-bootstrap volume absent + snapshot rules; dev-VM → require `migration_policy` **only when `preflight.json.had_host_bind_data == true`** (greenfield dev-VM: optional); monorepo dev → default `integration_plan_path` outside bundle.
 
@@ -412,7 +412,12 @@ Assert every required non-secret CC key is documented and no real secret-like va
 Document `NEXTSEEK_CC_IMAGE`, `NEXTSEEK_CC_NETWORK`, `DMAC_BEDROCK_PROXY_URL`,
 `DMAC_ROUTER_ENABLED`, `DMAC_ROUTE_CAPABILITIES_FILE`,
 `DMAC_ROUTER_MODEL_CLASS_MAP_FILE`, `DMAC_USER_ROOT_MOUNT`, `DMAC_CC_USERS_VOLUME`,
-`NEXTSEEK_SERVER`, and any additional Step 3/7 keys discovered during re-grounding.
+`NEXTSEEK_SERVER`, **`NEXTSEEK_SIDECAR_HOST` / `NEXTSEEK_SIDECAR_PORT` (G7-11, iter-1 M-3)**,
+and any additional Step 3/7 keys discovered during re-grounding. **G7-11 live-gate
+prerequisite keys:** the 7 sidecar ops invoke NExtSEEK-side LLM agents, so the template must
+name (as gitignored-secret key names, never values) the server-side `GCP_API_KEY` and Bedrock
+reach the capability gate requires. Also note the compose mount target/volume name must change
+in tandem with `DMAC_CC_USERS_VOLUME`/`DMAC_USER_ROOT_MOUNT` overrides.
 (`DMAC_USER_ROOT` host-path bind is **retired** by Task 6 — do not re-document `/srv/dmac/users`.)
 
 - [ ] **Step 3: Re-run agent env leak tests**
@@ -444,7 +449,10 @@ agent.
 
 Tests must fail if the required deploy path reintroduces separate `dmac-assistant` repo build,
 manual `docker network create`, manual `docker network connect`, or Phase A/B sidecar bootstrap
-as required steps. Validator must parse the **numbered procedure** and fail if forbidden commands appear there; **also** scan the **entire** `DEPLOY.md` (not only numbered steps) for `/srv/dmac/users` co-occurring with `mkdir` or `chmod` as a required deploy action — same appendix dodge as Phase A/B sidecar bootstrap. **Positive requirements:** when compose declares `external: true` volumes, numbered procedure MUST include `./startup.sh install` (or documented volume-create subset that creates **`dmac-cc-users`** plus the six SEEK volumes).
+as required steps. **(G7-11, iter-1 M-3):** the guard targets the *manual Phase A/B bootstrap
+command patterns* — the compose-owned `nextseek-sidecar` SERVICE is a legitimate, required part
+of the post-G7-11 deploy path and must NOT be flagged; do not key the guard on the bare token
+"sidecar". Validator must parse the **numbered procedure** and fail if forbidden commands appear there; **also** scan the **entire** `DEPLOY.md` (not only numbered steps) for `/srv/dmac/users` co-occurring with `mkdir` or `chmod` as a required deploy action — same appendix dodge as Phase A/B sidecar bootstrap. **Positive requirements:** when compose declares `external: true` volumes, numbered procedure MUST include `./startup.sh install` (or documented volume-create subset that creates **`dmac-cc-users`** plus the six SEEK volumes).
 
 - [ ] **Step 2: Rewrite docs**
 
@@ -818,9 +826,13 @@ uses `context: ..` and COPYs `sidecar/__init__.py` + `sidecar/app/`; restructure
 byte-verbatim from `sidecar/app/` @ a429f13, `PORT-EVIDENCE.json`, tests
 (`test_step7_sidecar_port.py`).
 
-- [ ] Step 1: failing presence/parity tests — Dockerfile, all 10 `app/*.py` modules, no
-  `local-nextseek*.env`, no upstream compose fragment wired; hardcoded-sha256 parity constants
-  for every logic-bearing module (conscious-update rule comment, Task 4 pattern).
+- [ ] Step 1: failing presence/parity tests — Dockerfile, all 10 non-`__init__` `app/*.py`
+  modules PLUS both package files (`app/__init__.py` and the parent package `__init__.py` —
+  iter-1 L-5: the upstream Dockerfile COPYs both and `python -m sidecar.app.server` with
+  `PYTHONPATH=/app` requires the package shape; the self-contained restructure must preserve
+  the import layout, test-pinned), no `local-nextseek*.env`, no upstream compose fragment
+  wired; hardcoded-sha256 parity constants for every logic-bearing module (conscious-update
+  rule comment, Task 4 pattern).
 - [ ] Step 2: port; build-context/secret guards (`.dockerignore`; no env files COPYd); grep
   guards: no `SESSION_DB_`, no `chat_nextseek`, no torch imports (T16/T17 lean contract).
 - [ ] Step 3: `docker build docker/ns-sidecar/` from the worktree succeeds (throwaway tag,
@@ -838,21 +850,45 @@ names), `test_step7_compose_deploy.py`, `test_cc_engine_env.py` (or equivalent).
 
 - [ ] Step 1: failing compose-config tests — service `nextseek-sidecar` exists; image/build
   target `docker/ns-sidecar/`; **`dmac-cc-net` only** (exact set == {"dmac-cc-net"}); **no
-  `ports:` key**; `container_name: nextseek-sidecar` pinned (client default DNS name —
-  `_sidecar_client.py` resolves `NEXTSEEK_SIDECAR_HOST` default `nextseek-sidecar`, so service
-  DNS MUST equal it); healthcheck present; env carries only the three non-secret keys;
-  `NEXTSEEK_BASE_URL` == the same in-network nginx URL the agent uses
-  (`http://nextseek_nginx` — assert consistency with `cc_engine._rewrite_loopback_url`
-  semantics, cite at implementation time).
+  `ports:` key**; healthcheck present with cold-start tolerance (upstream used `retries: 6`,
+  `start_period: 20s` — the sidecar is legitimately unhealthy until Django serves through
+  nginx; encode a start_period so Task 9/10 bring-up evidence doesn't capture a red-herring
+  "unhealthy"); env carries only the three non-secret keys with `NEXTSEEK_BASE_URL` pinned to
+  the literal `http://nextseek_nginx` (do NOT assert equality with the agent's rewritten URL —
+  `_rewrite_loopback_url` passes non-loopback URLs through unchanged, so agent URL ≠ sidecar
+  URL is legitimate). **The compose SERVICE name is the load-bearing identity**: service DNS
+  alias `nextseek-sidecar` MUST equal `_sidecar_client.py`'s `NEXTSEEK_SIDECAR_HOST` default —
+  that is what agents resolve. Additionally pin `container_name: nextseek-sidecar` for
+  host-side ops and the validator's closed-set peer check (analogous to `dmac-bedrock-proxy`;
+  the DNS behavior comes from the service name, not `container_name`).
 - [ ] Step 2: failing agent-env tests — `build_agent_environment` emits
   `NEXTSEEK_SIDECAR_HOST=nextseek-sidecar` and `NEXTSEEK_SIDECAR_PORT=8765` (defaults
   overridable via documented env); existing agent env-leak tests still prove no shared creds.
-- [ ] Step 3: wire compose + engine; staging mount per Task 14's locked design (if Task 14 not
-  yet landed, mount the whole-volume placeholder ONLY behind a failing test that Task 14
-  replaces — do not ship an unenumerated agent-side mount; the AGENT mount set stays exactly
-  the five enumerated subpaths, unchanged).
+- [ ] Step 2b (iter-1 H-2): deterministic agent container naming — `_run_kwargs` gains
+  `name=f"dmac-cc-agent-{run_id}"` so agents are identifiable in `docker network inspect`
+  output by name (today they get random Docker names, making any name-based network-membership
+  check unevaluable). Hermetic tests: name present in `containers.run` kwargs and equal to the
+  expected pattern; spawn path removes/handles a stale same-name container before `run`
+  (name conflicts from a crashed prior run must not brick the turn — `docker rm -f` the exact
+  name on `409 Conflict`, then retry once); existing label `nextseek.cc.run=<run_id>` retained.
+- [ ] Step 2c (iter-1 M-1): `_staging` bootstrap owned here — extend the startup volume step
+  (Files: `startup/steps/volumes.py` or a sibling step + `startup/tests/`) so bootstrap runs a
+  one-shot helper (`docker run --rm -v <vol>:/v alpine sh -c 'mkdir -p /v/_staging && chown
+  1001 /v/_staging'`) after volume creation; startup tests cover it; DEPLOY/Task 8 inherits it
+  as part of `./startup.sh install` (no new operator step). Sidecar `docker compose up` on a
+  fresh volume must not fail container-create (Engine refuses a subpath mount whose dir is
+  absent — compose `restart:` does NOT retry create failures).
+- [ ] Step 3: wire compose + engine. **The sidecar ships in Task 13 with NO `dmac-cc-users`
+  mount** (iter-1 M-2 — the placeholder option is deleted): `SIDECAR_STAGING_DIR` points at a
+  container-local path (upstream `config.py` only requires the var; `staging.py` mkdirs
+  lazily), and a compose test asserts the sidecar has no `dmac-cc-users` mount. Task 14 lands
+  the `_staging` subpath mount and flips that test (documented two-state, Task 3/4 precedent).
+  Download/stage ops are therefore non-functional-by-design between Tasks 13 and 14 — that gap
+  is closed inside this wave, before Tasks 9/10 run any gate. The AGENT mount set stays exactly
+  the five enumerated subpaths throughout.
 - [ ] Success: `docker compose config` parses with the new service; all Task 5/6 topology tests
-  still green (nextseek still NOT on dmac-cc-net; backends excluded); zero skips.
+  still green (nextseek still NOT on dmac-cc-net; backends excluded); zero skips; every commit
+  in this task is green (no deliberately-failing tests committed).
 - [ ] Commit: `feat(cc-step7): compose-own the NS sidecar + agent env wiring (G7-11)`
 
 ### Task 14: Staging flow design + implementation (download/stage ops)
@@ -869,12 +905,33 @@ bridge; the flow must be redesigned for the G7-10 volume world.
 - No cross-user path is ever constructible from a WS request (negative tests: foreign
   project/user components in a staging key must be rejected/normalized — hermetic).
 - The sidecar's staging mount is the RESERVED top-level `_staging/` subtree of `dmac-cc-users`
-  via `VolumeOptions.Subpath` (recommended; a dedicated volume is the fallback if vetting
-  rejects the reservation) — `_staging` must be excluded from project-dirname space and created
-  by provision/startup before sidecar start (Engine subpath rule).
-- Sweep (staging → user subtree) is performed by trusted code (`cc_engine`/Django or the
-  sidecar itself if it can prove per-request user scoping) — never by the agent, never via a
-  whole-volume agent mount.
+  (recommended; a dedicated volume is the fallback if vetting rejects the reservation) —
+  `_staging` cannot collide with project dirnames (`project_dirname()` always emits
+  `{pid}-{slug}` with a hyphen; `_staging` has none) and is created before sidecar start
+  (Engine subpath rule) by the Task 13 Step 2c bootstrap. **Compose-floor consequence:** if the
+  sidecar's compose mount uses YAML `volumes: … subpath:` syntax, the SPEC-7 conditional
+  Compose ≥2.26 floor becomes BINDING on every deploy host (Task 2's conditional check
+  self-detects this via `compose_config.json`; the Task 2 prose is amended accordingly).
+  **Dedicated-volume fallback blast radius (pre-enumerated, iter-1 M-1):**
+  `startup/steps/volumes.py` `REQUIRED_VOLUMES` 7→8, Task 2's "seven external volumes"
+  greenfield oracle, Task 10 Step 0's "seven `external: true` volumes" wording, `DEPLOY.md`
+  bootstrap text, and the validator's expected-volume-set constant — all change together or
+  the fallback is rejected.
+- Sweep (staging → user subtree) is performed by trusted code (`cc_engine`/Django) — never by
+  the agent, never via a whole-volume agent mount, and **never by the sidecar** (its mount is
+  locked to `_staging/`, so it cannot write `{project}/{user}/` paths by construction; the
+  iter-1-reviewed "or the sidecar itself" alternative was dead-on-arrival and is struck).
+- **Same-turn sweep + artifact surfacing (iter-1 H-1 — make-or-break):** the sweep completes
+  WITHIN the turn that staged the artifact — post-op, pre-publish, triggered from
+  `run_cc_turn`'s existing post-turn publish path in `cc_engine.py` (mirroring upstream
+  `ws.py:281-291`: sweep `.complete`-marked request dirs BEFORE the turn's artifact diff) —
+  swept files land under the requesting user's own subtree AND appear in the turn's published
+  artifact set. The op-result path payload (sidecar-container `/staging/...` strings,
+  meaningless in the agent) must be translated to the published user-visible location or
+  explicitly documented as superseded by published artifacts. Any sweep schedule other than
+  in-turn (janitor, hourly, next-turn) FAILS this invariant even if files eventually arrive.
+  Hermetic tests: a fake-staged `.complete` dir must surface in the publish set of the same
+  simulated turn; a non-`.complete` dir must not; negative control proves the invariant fires.
 
 - [ ] Step 1: read the real upstream contract (`staging.py` key semantics, `.complete` marker,
   path payload returned to the agent) and write the design note into the task report + a
@@ -890,23 +947,61 @@ bridge; the flow must be redesigned for the G7-10 volume world.
 **Files:** `validate_step7_compose_deploy.py`, `test_step7_compose_deploy.py`,
 `test_cc_realstack.py` (RUN_REALSTACK-gated harness additions), `validate_cc_acceptance.py`.
 
-- [ ] Step 1: failing validator tests — new REQUIRED §8 artifact `plugin_ops_matrix.json`:
-  exactly the 9 op names; per-op `{transport, exit_code, excerpt}`; bundle FAILS on any missing
-  op, any nonzero exit (write-gated ops may record the documented Layer-2 confirmation flow
-  instead), and specifically on any exit 7; secret-scanned like all artifacts.
-- [ ] Step 2: failing validator tests — `dmac-cc-net` membership becomes a CLOSED SET:
-  {`nextseek_nginx`-pattern, `dmac-bedrock-proxy`, `nextseek-sidecar`} plus containers labeled
-  `nextseek.cc.run=*`; anything else fails (keeps the exact-name `nextseek` rejection; replaces
-  stem-blocklist-only semantics). Mirror in `validate_cc_acceptance.py` peers where reused.
+- [ ] Step 1: failing validator tests — new REQUIRED §8 artifact `plugin_ops_matrix.json`.
+  **Keys are exactly the 9 bin command names** (`nextseek-entity-extract`, `nextseek-parse`,
+  `nextseek-api-read`, `nextseek-api-write`, `nextseek-graph`, `nextseek-report`,
+  `nextseek-generate-submission`, `nextseek-query`, `nextseek-plan` — iter-1 L-3: three name
+  spaces exist; the matrix uses bin names, with the wire-op mapping recorded per row). Per-op
+  record (iter-1 M-4 provenance pinning): `{op, transport, exit_code, excerpt, container_id,
+  image, wall_secs}` where the harness writes `container_id`/`image` from `docker inspect` of
+  the executor; the validator requires executor `image` == the CC image recorded in
+  `images.json` and the executor attached to `dmac-cc-net` (via `network_inspect.json` join on
+  container id/name). Bundle FAILS on: any missing op, any exit 7 (missing backend — the
+  amendment's defining failure), any nonzero exit EXCEPT the pinned Layer-2 write form, or
+  fabricated-looking excerpts (per-op response-field allowlist). **Layer-2 write alternative
+  (machine-checkable pin):** an unconfirmed write leg records exit 5 with stderr code
+  `WRITE_BLOCKED`; if the sandbox write is user-approved, the confirmed leg records exit 0 —
+  the validator matches these exact fields, nothing looser. **Sweep cross-check (iter-1 H-1):**
+  `nextseek-report` and `nextseek-generate-submission` rows must additionally record
+  `published_path` — a path under the gate user's own `{project}/{user}/` subtree where the
+  swept artifact landed — and the validator asserts the prefix; exit 0 with dead
+  `/staging/...`-only paths fails.
+- [ ] Step 2: failing validator tests — `dmac-cc-net` membership becomes a CLOSED SET,
+  **enforceable from names** (iter-1 H-2 — `docker network inspect` carries no labels and
+  agents previously had random names; Task 13 Step 2b fixes that): allowed = nginx pattern
+  (`nextseek_nginx` / compose-prefixed form), `dmac-bedrock-proxy`, `nextseek-sidecar`, plus
+  names matching `^dmac-cc-agent-<run_id>$` where `<run_id>` == `meta.json.run_id`; anything
+  else fails; exact-name `nextseek` rejection retained. The existing fragile
+  run_id-substring-in-network-inspect check is REPLACED by the deterministic agent-name match
+  (closes the self-referential-injection seam). Mirror in `validate_cc_acceptance.py` where
+  its peer rules are reused; hermetic tests cover bare + compose-prefixed forms of every
+  legitimate peer and a planted stranger.
 - [ ] Step 3: implement; extend the realstack harness to emit `plugin_ops_matrix.json` during
-  the live gate: execute each of the 9 ops from inside the live transient agent (or a
-  same-image/same-network/same-env harness container) with the gate user's own creds; define
-  the minimal-safe write-op exercise (write-gate confirmation against a sandbox/test entity —
-  design recorded in the report, vetting sharpens it; a documented dry-run exception for a
-  write op requires explicit user sign-off recorded in evidence).
+  the live gate: execute each of the 9 ops **inside the live transient agent container**
+  (`docker exec` into `dmac-cc-agent-<run_id>` during the turn — same pattern as the isolation
+  scan; a separate harness container is permitted ONLY with identical image + network + env
+  and its own `docker inspect` provenance recorded) with the gate user's own creds.
+- [ ] Step 3b (iter-1 H-3 — seeded fixture, no unachievable gates): the gate harness creates a
+  minimal seeded fixture BEFORE the matrix run, as the gate user via the authenticated REST
+  API: one sandbox project + a small set of sample UIDs (recorded in a new generated artifact
+  `seeded_fixture.json`: what was created, ids, requests used — secret-scanned). All
+  data-dependent ops (`report`, `generate-submission`, `api-read`, `graph`) target the seeded
+  fixture. Where an op has legitimate empty-data semantics instead, the plan documents the
+  expected non-exit-7 result per op. The write-op exercise targets ONLY seeded sandbox
+  entities (write-gate confirmed leg needs the user's explicit sign-off recorded in evidence;
+  otherwise the exit-5 `WRITE_BLOCKED` leg alone is recorded and the validator accepts the
+  pinned Layer-2 form). **Server-side LLM prerequisites:** the 7 sidecar ops invoke
+  NExtSEEK-side LLM agents (GCP + Bedrock via the server) — `GCP_API_KEY` (gitignored
+  `docker/nextseek.env`) and server-side Bedrock reach are live-gate prerequisites; Task 7's
+  key list and Task 8's prerequisites gain them; per-op `wall_secs` + a per-op timeout bound
+  the spend, and `meta.json` gains `matrix_spend_estimate_usd` (best-effort estimate + method
+  note; exact per-op server-side cost is not programmatically available and that limitation is
+  recorded, not hidden).
 - [ ] Success: hermetic suite green, zero skips; validator rejects a synthetic 8/9 matrix, a
-  matrix with one exit-7, and a bundle missing the artifact; closed-set peer check passes the
-  legitimate trio + agents and fails a planted stranger.
+  matrix with one exit-7, a matrix whose executor image/network provenance mismatches, a
+  report row without a user-subtree `published_path`, and a bundle missing the artifact;
+  closed-set peer check passes the legitimate trio + named agents and fails a planted stranger
+  (bare and compose-prefixed forms both tested).
 - [ ] Commit: `test(cc-step7): all-9-ops capability gate + closed-set dmac-cc-net peers (G7-11)`
 
 ### Task 16: Debt fixes from the Tasks 1-6 final review
@@ -955,4 +1050,5 @@ bridge; the flow must be redesigned for the G7-10 volume world.
 
 | Iteration | Reviewer | Verdict | Notes |
 |-----------|----------|---------|-------|
-| (pending) | — | — | Wave authored 2026-07-01; adversarial vetting required before implementation (same bar: fresh cold reviewers, defect-lineage ledger, threads OPEN until a fresh reviewer clears them, UNCONDITIONAL_ACCEPTANCE to exit) |
+| 1 | Fresh cold-context (2026-07-02) | **CONDITIONAL_ACCEPTANCE** | 0C/3H/4M/5L — see `.vetting/plan-7-g711-review-1-fresh.md`. H-1 same-turn sweep invariant missing; H-2 closed-set peer rule unimplementable from names-less inspect; H-3 9/9-exit-0 unachievable on greenfield (no seeding, server-side LLM prereqs unstated). All load-bearing upstream claims verified TRUE |
+| 2 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-1: H-1 fifth invariant (in-turn sweep + published_path cross-check) + sidecar-sweeper clause struck; H-2 deterministic agent names (`dmac-cc-agent-<run_id>`, Task 13 Step 2b) + name-based closed set replacing run_id-substring seam; H-3 seeded fixture (`seeded_fixture.json`, Step 3b) + Layer-2 exit-5/WRITE_BLOCKED pin + server-side LLM prereqs into Tasks 7/8 + spend estimate; M-1 `_staging` bootstrap owned (Step 2c) + fallback blast radius pre-enumerated; M-2 placeholder deleted (no-mount two-state); M-3 Task 2/7/8 locked-text amendments; M-4 matrix provenance (container_id/image/network join); L-1..L-5 all applied |

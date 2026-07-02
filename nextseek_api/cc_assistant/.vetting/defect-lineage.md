@@ -159,3 +159,38 @@ iter-20 Compose ≥2.26 vs docker-py Engine-API floor inconsistency.
   confirmed, and the one premature closure (thread A @ iter-21) was caught and corrected by iter-22.
 - **Do NOT advance PLAN-3 to Phase 3 yet:** ultraplan governance blocks Phase 3 until Phase 2 completes
   on BOTH plans, AND Phase 2→3 is a user checkpoint. Park PLAN-3 at Phase-2-complete; finish PLAN-7.
+
+---
+
+# G7-11 sidecar-wave threads (opened 2026-07-02, iter-1 fresh review)
+
+## Thread G — same-turn staging sweep / capability surfacing  [STATUS: OPEN]
+
+| Iter | Severity | Finding | Class | Parent |
+|------|----------|---------|-------|--------|
+| 1 | HIGH | Task 14 invariants omit same-turn sweep + artifact surfacing; janitor sweep passes; exit-0 matrix hides dead staged artifacts (H-1) | NEW | — |
+| 1 | MEDIUM | Task 13 whole-volume placeholder-behind-failing-test contradicts green/zero-skips discipline; mid-wave whole-volume sidecar exposure (M-2) | NEW | — |
+| 1 (hardener) | — | Fifth locked invariant (in-turn sweep, published_path cross-check in matrix); "or the sidecar itself" struck; placeholder deleted → no-mount two-state | pending fresh re-vet | — |
+
+## Thread H — capability-matrix / network-membership enforceability  [STATUS: OPEN]
+
+| Iter | Severity | Finding | Class | Parent |
+|------|----------|---------|-------|--------|
+| 1 | HIGH | Closed-set peer rule unimplementable: inspect has names only, agents unnamed, labels invisible (H-2) | NEW | — |
+| 1 | MEDIUM | Matrix provenance unpinned (no container/image binding); Layer-2 write alternative not machine-checkable (M-4) | NEW | — |
+| 1 (hardener) | — | Deterministic agent names dmac-cc-agent-<run_id> (Task 13 Step 2b) + name-based closed set replacing run_id-substring seam; matrix rows carry container_id/image/wall_secs + images.json/network join; Layer-2 pinned exit-5/WRITE_BLOCKED | pending fresh re-vet | — |
+
+## Thread I — greenfield achievability of the 9/9 gate  [STATUS: OPEN]
+
+| Iter | Severity | Finding | Class | Parent |
+|------|----------|---------|-------|--------|
+| 1 | HIGH | 9/9-exit-0 unachievable on greenfield MBP: no data seeding; server-side LLM prereqs + spend unaddressed (H-3) | NEW | — |
+| 1 | MEDIUM | `_staging` greenfield provisioning unowned → compose up fails sidecar create on fresh volume; dedicated-volume fallback ripple unenumerated (M-1) | NEW | — |
+| 1 (hardener) | — | Step 3b seeded fixture (seeded_fixture.json) + per-op empty-data semantics + GCP/Bedrock prereqs into Tasks 7/8 + spend estimate; Step 2c startup `_staging` bootstrap + fallback blast radius pre-enumerated | pending fresh re-vet | — |
+
+## Thread J — locked-text authority drift  [STATUS: OPEN]
+
+| Iter | Severity | Finding | Class | Parent |
+|------|----------|---------|-------|--------|
+| 1 | MEDIUM | Task 7 env keys, Task 8 doc-guard "sidecar" token ambiguity, Task 2 no-YAML-subpath prose all contradicted by the wave and unamended (M-3) | NEW | — |
+| 1 (hardener) | — | All three locked texts amended in place with (G7-11, iter-1 M-3) markers | pending fresh re-vet | — |
