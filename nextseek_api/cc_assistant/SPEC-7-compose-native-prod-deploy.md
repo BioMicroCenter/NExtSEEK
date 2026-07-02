@@ -52,7 +52,8 @@ volume bootstrap (including CC user-tree persistence), and `docker compose build
 - **Capability completeness (G7-11, amended 2026-07-01):** the deployed stack delivers a
   **functional** assistant, not just a running one — **all 9 `nextseek-*` plugin ops** shipped in
   the CC agent image have a working backend and are proven live. The 7 sidecar-backed ops
-  (`entity-extract`, `parse`, `api-read`, `api-write`, `graph`, `report`, `generate-submission`)
+  (bin commands `nextseek-entity-extract`, `nextseek-parse`, `nextseek-api-read`,
+  `nextseek-api-write`, `nextseek-graph`, `nextseek-report`, `nextseek-generate-submission`)
   require the in-tree **NS sidecar** service on `dmac-cc-net`. Step 7 is **incomplete while any
   shipped plugin op lacks a working backend** (user ruling 2026-07-01; see Amendment Log).
 - **Greenfield verification:** Step 7 is not complete until the user's local MBP, not prod and
@@ -212,7 +213,11 @@ Required generated artifacts:
 - `compose_config.json` - normalized `docker compose config` data or equivalent parse.
 - `compose_services.txt` / `docker_ps.txt` - service/image status after bring-up.
 - `images.json` - image tags/ids used by the run.
-- `network_inspect.json` - `dmac-cc-net` peers.
+- `network_inspect.json` - `dmac-cc-net` peers — **full `docker network inspect` JSON
+  (containers keyed by ID with Names), captured DURING the forced turn** (iter-2 R2-M1: the
+  agent is force-removed at turn end; a names-only post-turn capture can satisfy neither the
+  closed-set rule nor the agent-name presence check). Companion `network_inspect_matrix.json`:
+  same format, captured during the capability-matrix window.
 - `cc_runner_available.json` - exact result of `cc_runner_available()`.
 - `forced_cc_result.json` - terminal forced-CC result with sentinel, error flag, cost.
 - `proxy_log_window.txt` - only the log window for the run.
@@ -223,12 +228,20 @@ Required generated artifacts:
 - `plugin_ops_matrix.json` — **REQUIRED capability-completeness proof (G7-11, amended
   2026-07-01; schema hardened 2026-07-02 iter-1).** Per-op live results for **all 9** plugin
   ops, keyed by **bin command name** (`nextseek-entity-extract` … `nextseek-plan`; wire-op
-  mapping recorded per row), executed **inside the live transient CC agent** (`docker exec`
-  into the deterministically-named `dmac-cc-agent-<run_id>` during the turn; a separate harness
-  container is permitted only with identical image+network+env and recorded provenance). Per-op
-  record: `{op, transport, exit_code, excerpt, container_id, image, wall_secs}` — the validator
-  requires executor `image` == the CC image in `images.json` and executor attachment to
-  `dmac-cc-net` (join on `network_inspect.json`). Fails on: any missing op; any exit 7
+  mapping recorded per row), executed in the **dedicated gate executor**
+  `dmac-cc-matrix-<run_id>` (harness-spawned: same CC image as `images.json`, attached to
+  `dmac-cc-net`, agent env contract with the gate user's own creds, recorded `docker inspect`
+  provenance; the matrix CANNOT run inside a live turn — the engine's 180 s hard turn cap is
+  not relaxable and 7 ops invoke server-side LLM agents). Per-op record:
+  `{op, transport, exit_code, excerpt, container_id, container_name, image, wall_secs}` — the
+  validator joins row `container_id` → the matrix-window full `docker network inspect` JSON
+  (`network_inspect_matrix.json`, containers keyed by ID with Names) and requires
+  `Name == dmac-cc-matrix-<run_id>` and `image` == the CC image in `images.json`. Companion
+  REQUIRED artifacts: `gate_access_log_window.txt` (nginx access-log window for the gate;
+  validator matches ≥1 hit per op endpoint inside the window — anti-fabrication) and
+  `post_sweep_user_tree_scan.txt` (recursive `find` of the gate user's subtree after the
+  recorded trusted-sweep invocation; every recorded `published_path` must appear on disk).
+  Fails on: any missing op; any exit 7
   (`TRANSPORT_ERROR` — missing backend); any nonzero exit except the pinned Layer-2 write form
   (unconfirmed write leg = exit 5 + stderr `WRITE_BLOCKED`; user-approved confirmed leg =
   exit 0). `nextseek-report`/`nextseek-generate-submission` rows must record `published_path`
@@ -284,10 +297,14 @@ Docker/local additions (G7-11):
   `ports:`, healthcheck defined, env carries only non-secret topology keys,
 - validator/acceptance network-peer rules updated: `dmac-cc-net` membership is the **closed
   set** {`nextseek_nginx` (bare or compose-prefixed), `dmac-bedrock-proxy`, `nextseek-sidecar`}
-  plus transient agents matching the deterministic name `dmac-cc-agent-<run_id>` (== the
-  bundle's `meta.json.run_id`) — anything else fails. (Name-based because `docker network
-  inspect` exposes no labels; `cc_engine` names agent containers deterministically for exactly
-  this reason — G7-11 iter-1 H-2.)
+  plus transient agents matching the general pattern `^dmac-cc-agent-[0-9a-f-]{1,64}$`, plus
+  the gate executor `dmac-cc-matrix-<run_id>` — anything else fails; additionally the bundle's
+  own `dmac-cc-agent-<meta.run_id>` must appear in the DURING-TURN full network inspect
+  (`network_inspect.json`; the agent is force-removed at turn end, so only in-turn capture can
+  contain it), and the matrix executor in `network_inspect_matrix.json`. (Name-based because
+  `docker network inspect` exposes no labels; deterministic agent naming is the TARGET
+  contract Task 13 Step 2b introduces — current branch code sets labels only — G7-11 iter-1
+  H-2, iter-2 R2-M1/L4/L5.)
 
 Live paid gate:
 

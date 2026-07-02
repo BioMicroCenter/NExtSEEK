@@ -194,3 +194,18 @@ iter-20 Compose ≥2.26 vs docker-py Engine-API floor inconsistency.
 |------|----------|---------|-------|--------|
 | 1 | MEDIUM | Task 7 env keys, Task 8 doc-guard "sidecar" token ambiguity, Task 2 no-YAML-subpath prose all contradicted by the wave and unamended (M-3) | NEW | — |
 | 1 (hardener) | — | All three locked texts amended in place with (G7-11, iter-1 M-3) markers | pending fresh re-vet | — |
+
+### Iter-2 fresh review (2026-07-02) — all four threads RE-RAISED PARTIAL; iter-2 hardening applied
+
+| Thread | Iter | Severity | Finding | Class | Parent |
+|--------|------|----------|---------|-------|--------|
+| G | 2 | HIGH | In-turn matrix→sweep→published_path chain unachievable under 180 s hard turn cap; next-turn-sweep ban blocks recovery (R2-H1) | PARTIAL | iter-1 H-1 |
+| G | 2 | LOW | Invariant outlawed upstream's own stray-dir housekeeping (R2-L6) | REGRESSION | iter-1 H-1 hardening |
+| H | 2 | MEDIUM | network_inspect captured post-turn, names-only; matrix join has no common key (R2-M1) | PARTIAL | iter-1 H-2/M-4 |
+| H | 2 | MEDIUM | Separate-harness-executor clause DOA vs closed set + name uniqueness (R2-M2) | REGRESSION | iter-1 hardening |
+| H | 2 | MEDIUM | Matrix rows self-reported, no per-run unpredictable binding (R2-M4) | PARTIAL | iter-1 M-4 |
+| I | 2 | MEDIUM | Empty-data hatch (non-exit-7) contradicts pinned fail-any-nonzero rule (R2-M3) | REGRESSION | iter-1 H-3 hardening |
+| J | 2 | LOW | Tracker-7b leg of iter-1 M-3 silently dropped; ledger overstated "all three amended" (R2-L1) | PARTIAL | iter-1 M-3 |
+| — | 2 (hardener) | — | R2-H1→single trusted sweep entrypoint + dedicated gate executor dmac-cc-matrix-<run_id> (no cap relaxation); R2-M1→dual full inspects + container_name + id→Name join; R2-M2→reserved executor name in closed set; R2-M3→exit-0-empty-shape only; R2-M4→gate_access_log_window per-op nginx match + post_sweep_user_tree_scan on-disk check; L1/L2/L3/L4/L5/L6 all applied | pending fresh re-vet | — |
+
+Iter-2 also VERIFIED (no re-raise): fifth-invariant hook real at run_cc_turn publish path; no-mount Task-13 two-state valid; _staging bootstrap uid-1001 correct; seeded greenfield credible (tracked seed dumps + admin demo user + both fixture endpoints in-tree); Layer-2 pin matches wire contract; all three in-plan locked-text amendments correct.

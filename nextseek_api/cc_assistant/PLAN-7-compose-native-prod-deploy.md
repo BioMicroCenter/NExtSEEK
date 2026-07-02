@@ -804,6 +804,11 @@ Pause-and-ask: any failed MBP forced-CC turn, secret scan failure, or `step3_dep
 > document and prove the sidecar-inclusive stack, never the 2/9 facade. Task 16 (debt fixes)
 > may run any time in the wave. Grounding dossier: session artifact `sidecar-dossier.md`
 > (2026-07-01) — re-verify its file:line cites at implementation time.
+> **Tracker-7b obligation (iter-2 R2-L1):** tracker 7b still enumerates retired
+> `DMAC_USER_ROOT` and omits `NEXTSEEK_SIDECAR_HOST`/`NEXTSEEK_SIDECAR_PORT`; description
+> edits need user sign-off, so Task 11 Step 1 MUST propose the 7b wording fix at the next
+> tracker touch (recorded here so the obligation survives; the iter-1 hardener's "all three
+> locked texts amended" claim covered only the in-plan texts).
 
 ## Wave-global constraints
 
@@ -868,9 +873,13 @@ names), `test_step7_compose_deploy.py`, `test_cc_engine_env.py` (or equivalent).
   `name=f"dmac-cc-agent-{run_id}"` so agents are identifiable in `docker network inspect`
   output by name (today they get random Docker names, making any name-based network-membership
   check unevaluable). Hermetic tests: name present in `containers.run` kwargs and equal to the
-  expected pattern; spawn path removes/handles a stale same-name container before `run`
-  (name conflicts from a crashed prior run must not brick the turn — `docker rm -f` the exact
-  name on `409 Conflict`, then retry once); existing label `nextseek.cc.run=<run_id>` retained.
+  expected pattern; **fail-closed name-charset guard (iter-2 R2-L2): `run_id` must match a
+  Docker-name-safe pattern (`^[0-9a-f-]{1,64}$` — Celery task UUIDs satisfy it; `_USER_ID_RE`
+  admits `@`/`+` and is NOT sufficient) before use in `name=`, error out otherwise**; spawn
+  path removes/handles a stale same-name container before `run` (genuinely needed: Celery
+  retries reuse the same task_id, so a crashed prior attempt can hold the name — `docker rm
+  -f` the exact name on `409 Conflict`, then retry once); existing label
+  `nextseek.cc.run=<run_id>` retained.
 - [ ] Step 2c (iter-1 M-1): `_staging` bootstrap owned here — extend the startup volume step
   (Files: `startup/steps/volumes.py` or a sibling step + `startup/tests/`) so bootstrap runs a
   one-shot helper (`docker run --rm -v <vol>:/v alpine sh -c 'mkdir -p /v/_staging && chown
@@ -921,17 +930,32 @@ bridge; the flow must be redesigned for the G7-10 volume world.
   the agent, never via a whole-volume agent mount, and **never by the sidecar** (its mount is
   locked to `_staging/`, so it cannot write `{project}/{user}/` paths by construction; the
   iter-1-reviewed "or the sidecar itself" alternative was dead-on-arrival and is struck).
-- **Same-turn sweep + artifact surfacing (iter-1 H-1 — make-or-break):** the sweep completes
-  WITHIN the turn that staged the artifact — post-op, pre-publish, triggered from
-  `run_cc_turn`'s existing post-turn publish path in `cc_engine.py` (mirroring upstream
-  `ws.py:281-291`: sweep `.complete`-marked request dirs BEFORE the turn's artifact diff) —
-  swept files land under the requesting user's own subtree AND appear in the turn's published
-  artifact set. The op-result path payload (sidecar-container `/staging/...` strings,
-  meaningless in the agent) must be translated to the published user-visible location or
-  explicitly documented as superseded by published artifacts. Any sweep schedule other than
-  in-turn (janitor, hourly, next-turn) FAILS this invariant even if files eventually arrive.
-  Hermetic tests: a fake-staged `.complete` dir must surface in the publish set of the same
-  simulated turn; a non-`.complete` dir must not; negative control proves the invariant fires.
+- **Same-turn sweep + artifact surfacing (iter-1 H-1; refined iter-2 R2-H1/R2-L6):** the
+  PRODUCTION flow's invariant: artifacts staged by turn N are swept — post-op, pre-publish,
+  triggered from `run_cc_turn`'s existing publish path in `cc_engine.py` (post-loop,
+  pre-`_publish_artifacts`, mirroring upstream `ws.py:276-293`: sweep `.complete`-marked
+  request dirs BEFORE the turn's artifact diff) — landing under the requesting user's own
+  subtree AND appearing in turn N's published artifact set. The op-result path payload
+  (sidecar-container `/staging/...` strings, meaningless in the agent) must be translated to
+  the published user-visible location or explicitly documented as superseded by published
+  artifacts. Deferring turn-N artifacts to a later schedule (janitor, hourly, next-turn) FAILS
+  the invariant; **housekeeping of OLDER completed strays** (e.g. `.complete` dirs left by a
+  crashed/timed-out earlier turn) in a later sweep run is PERMITTED recovery, not a violation
+  (upstream `staging_sweep.py` keeps `.complete` breadcrumbs for exactly this), and the sweep
+  entrypoint below doubles as that recovery path. Hermetic tests: a fake-staged `.complete`
+  dir surfaces in the same simulated turn's publish set; a non-`.complete` dir does not; an
+  older stray sweeps without being attributed to the current turn; negative control fires.
+- **Single trusted sweep entrypoint (iter-2 R2-H1 fix (b) — gate flow decoupled from the
+  180 s turn cap):** the sweep is implemented ONCE as a callable trusted-code entrypoint
+  (`cc_engine`/Django function, invokable in-process by `run_cc_turn` AND via a documented
+  `docker exec nextseek …` management command). `run_cc_turn` calls it in-turn (production
+  invariant above). The Task 15 capability gate — whose 9 ops CANNOT run inside a live turn:
+  `cc_engine._TIMEOUT_HARD_MAX = 180` s is a hard engine safety bound this wave must NOT relax,
+  and 7 ops invoke server-side LLM agents sized at up to 300 s recv each — invokes the SAME
+  entrypoint once, immediately after the matrix completes, with the invocation itself recorded
+  in evidence (command, exit code, output excerpt). The gate therefore proves the identical
+  trusted sweep code path, with explicit provenance, without weakening the turn cap or
+  requiring an unachievable in-turn matrix.
 
 - [ ] Step 1: read the real upstream contract (`staging.py` key semantics, `.complete` marker,
   path payload returned to the agent) and write the design note into the task report + a
@@ -961,33 +985,62 @@ bridge; the flow must be redesigned for the G7-10 volume world.
   fabricated-looking excerpts (per-op response-field allowlist). **Layer-2 write alternative
   (machine-checkable pin):** an unconfirmed write leg records exit 5 with stderr code
   `WRITE_BLOCKED`; if the sandbox write is user-approved, the confirmed leg records exit 0 —
-  the validator matches these exact fields, nothing looser. **Sweep cross-check (iter-1 H-1):**
-  `nextseek-report` and `nextseek-generate-submission` rows must additionally record
-  `published_path` — a path under the gate user's own `{project}/{user}/` subtree where the
-  swept artifact landed — and the validator asserts the prefix; exit 0 with dead
-  `/staging/...`-only paths fails.
+  the validator matches these exact fields, nothing looser. **Sweep cross-check (iter-1 H-1;
+  hardened iter-2 R2-M4):** `nextseek-report` and `nextseek-generate-submission` rows must
+  additionally record `published_path` under the gate user's own `{project}/{user}/` subtree,
+  AND the bundle must carry `post_sweep_user_tree_scan.txt` — a harness-captured recursive
+  `find` of the gate user's subtree taken AFTER the recorded sweep invocation — in which every
+  `published_path` appears (an on-disk artifact check, not a bare string assertion); exit 0
+  with dead `/staging/...`-only paths fails. **Anti-fabrication binding (iter-2 R2-M4):** the
+  bundle must carry `gate_access_log_window.txt` — the nginx access-log window for the matrix
+  run (harness-written from `docker logs` of the nginx container, timestamps inside the gate
+  window) — and the validator matches, per op, at least one hit on that op's assistant
+  endpoint path within the window (all 9 ops traverse nginx: sidecar ops via
+  sidecar→nginx→Django, viewset ops via agent→nginx). A matrix row set copied from another run
+  cannot supply this window. Per-op request nonces echoed in server responses MAY additionally
+  be recorded where the op's contract already echoes request fields (optional strengthening,
+  not required).
 - [ ] Step 2: failing validator tests — `dmac-cc-net` membership becomes a CLOSED SET,
   **enforceable from names** (iter-1 H-2 — `docker network inspect` carries no labels and
   agents previously had random names; Task 13 Step 2b fixes that): allowed = nginx pattern
-  (`nextseek_nginx` / compose-prefixed form), `dmac-bedrock-proxy`, `nextseek-sidecar`, plus
-  names matching `^dmac-cc-agent-<run_id>$` where `<run_id>` == `meta.json.run_id`; anything
-  else fails; exact-name `nextseek` rejection retained. The existing fragile
-  run_id-substring-in-network-inspect check is REPLACED by the deterministic agent-name match
-  (closes the self-referential-injection seam). Mirror in `validate_cc_acceptance.py` where
-  its peer rules are reused; hermetic tests cover bare + compose-prefixed forms of every
-  legitimate peer and a planted stranger.
-- [ ] Step 3: implement; extend the realstack harness to emit `plugin_ops_matrix.json` during
-  the live gate: execute each of the 9 ops **inside the live transient agent container**
-  (`docker exec` into `dmac-cc-agent-<run_id>` during the turn — same pattern as the isolation
-  scan; a separate harness container is permitted ONLY with identical image + network + env
-  and its own `docker inspect` provenance recorded) with the gate user's own creds.
+  (`nextseek_nginx` / compose-prefixed form), `dmac-bedrock-proxy`, `nextseek-sidecar`, names
+  matching the general agent pattern `^dmac-cc-agent-[0-9a-f-]{1,64}$` (iter-2 R2-L5:
+  concurrent legitimate turns from other users are lawful on a shared dev VM; MBP greenfield
+  has none), and the reserved gate executor `^dmac-cc-matrix-<run_id>$`; anything else fails;
+  exact-name `nextseek` rejection retained. ADDITIONALLY the bundle's own
+  `dmac-cc-agent-<meta.run_id>` name MUST appear in the during-turn inspect (see Step 3
+  capture spec). The existing fragile run_id-substring-in-network-inspect check is REPLACED by
+  this deterministic name presence (closes the self-referential-injection seam). Mirror in
+  `validate_cc_acceptance.py` where its peer rules are reused; hermetic tests cover bare +
+  compose-prefixed forms of every legitimate peer, the general-agent and matrix names, and a
+  planted stranger.
+- [ ] Step 3: implement; the matrix runs in a DEDICATED GATE EXECUTOR, not inside the live
+  turn (iter-2 R2-H1/R2-M2 — the 180 s turn hard cap makes an in-turn 9-op matrix
+  structurally unachievable and this wave must not relax the cap): the harness spawns
+  `dmac-cc-matrix-<run_id>` with the SAME image as `images.json`'s CC image, attached to
+  `dmac-cc-net`, with the same agent env contract (gate user's own creds + sidecar/topology
+  vars; NEVER shared secrets), executes the 9 ops sequentially inside it via `docker exec`
+  (per-op timeout pinned; harness controls executor lifetime), records its `docker inspect`
+  provenance, then invokes the trusted sweep entrypoint (Task 14) and captures
+  `post_sweep_user_tree_scan.txt`. **Capture spec (iter-2 R2-M1):** `network_inspect.json`
+  becomes the FULL `docker network inspect dmac-cc-net` JSON (containers keyed by ID with
+  `Name` fields), captured TWICE into the bundle: `network_inspect.json` DURING the forced
+  turn (same poll window as the isolation scan — the post-turn agent is force-removed, so
+  only an in-turn capture can contain the agent name) and `network_inspect_matrix.json`
+  during the matrix window (contains `dmac-cc-matrix-<run_id>`). Matrix rows gain
+  `container_name`; the validator joins row `container_id` → inspect JSON key → `Name` and
+  requires `Name == "dmac-cc-matrix-<run_id>"` (or the agent name if an op was legitimately
+  exec'd in-turn), image == `images.json` CC image.
 - [ ] Step 3b (iter-1 H-3 — seeded fixture, no unachievable gates): the gate harness creates a
   minimal seeded fixture BEFORE the matrix run, as the gate user via the authenticated REST
   API: one sandbox project + a small set of sample UIDs (recorded in a new generated artifact
   `seeded_fixture.json`: what was created, ids, requests used — secret-scanned). All
   data-dependent ops (`report`, `generate-submission`, `api-read`, `graph`) target the seeded
-  fixture. Where an op has legitimate empty-data semantics instead, the plan documents the
-  expected non-exit-7 result per op. The write-op exercise targets ONLY seeded sandbox
+  fixture. Where an op has legitimate empty-data semantics instead, the ONLY acceptable form
+  is **exit 0 with a documented empty-result excerpt shape** (empty rows / empty saved_files —
+  iter-2 R2-M3: a documented NONZERO exit is never acceptable; if an op cannot exit 0 against
+  the fixture, that is a fixture defect this step fixes by seeding more, not a validator
+  allowance). The write-op exercise targets ONLY seeded sandbox
   entities (write-gate confirmed leg needs the user's explicit sign-off recorded in evidence;
   otherwise the exit-5 `WRITE_BLOCKED` leg alone is recorded and the validator accepts the
   pinned Layer-2 form). **Server-side LLM prerequisites:** the 7 sidecar ops invoke
@@ -998,10 +1051,13 @@ bridge; the flow must be redesigned for the G7-10 volume world.
   note; exact per-op server-side cost is not programmatically available and that limitation is
   recorded, not hidden).
 - [ ] Success: hermetic suite green, zero skips; validator rejects a synthetic 8/9 matrix, a
-  matrix with one exit-7, a matrix whose executor image/network provenance mismatches, a
-  report row without a user-subtree `published_path`, and a bundle missing the artifact;
-  closed-set peer check passes the legitimate trio + named agents and fails a planted stranger
-  (bare and compose-prefixed forms both tested).
+  matrix with one exit-7, a matrix whose executor image/name provenance mismatches the
+  matrix-window inspect, a report row without a user-subtree `published_path`, a
+  `published_path` absent from `post_sweep_user_tree_scan.txt`, a bundle missing any of
+  {matrix, seeded_fixture, gate_access_log_window, post_sweep_user_tree_scan, either inspect},
+  and an access-log window lacking a hit for any op; closed-set peer check passes the
+  legitimate trio + general-pattern agents + this run's required agent name + the matrix
+  executor, and fails a planted stranger (bare and compose-prefixed forms both tested).
 - [ ] Commit: `test(cc-step7): all-9-ops capability gate + closed-set dmac-cc-net peers (G7-11)`
 
 ### Task 16: Debt fixes from the Tasks 1-6 final review
@@ -1052,3 +1108,5 @@ bridge; the flow must be redesigned for the G7-10 volume world.
 |-----------|----------|---------|-------|
 | 1 | Fresh cold-context (2026-07-02) | **CONDITIONAL_ACCEPTANCE** | 0C/3H/4M/5L — see `.vetting/plan-7-g711-review-1-fresh.md`. H-1 same-turn sweep invariant missing; H-2 closed-set peer rule unimplementable from names-less inspect; H-3 9/9-exit-0 unachievable on greenfield (no seeding, server-side LLM prereqs unstated). All load-bearing upstream claims verified TRUE |
 | 2 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-1: H-1 fifth invariant (in-turn sweep + published_path cross-check) + sidecar-sweeper clause struck; H-2 deterministic agent names (`dmac-cc-agent-<run_id>`, Task 13 Step 2b) + name-based closed set replacing run_id-substring seam; H-3 seeded fixture (`seeded_fixture.json`, Step 3b) + Layer-2 exit-5/WRITE_BLOCKED pin + server-side LLM prereqs into Tasks 7/8 + spend estimate; M-1 `_staging` bootstrap owned (Step 2c) + fallback blast radius pre-enumerated; M-2 placeholder deleted (no-mount two-state); M-3 Task 2/7/8 locked-text amendments; M-4 matrix provenance (container_id/image/network join); L-1..L-5 all applied |
+| 3 | Fresh cold-context (2026-07-02, iter 2) | **CONDITIONAL_ACCEPTANCE** | 0C/1H/4M/6L — see `.vetting/plan-7-g711-review-2-fresh.md`. Threads G/H/I/J all RE-RAISED PARTIAL. R2-H1: in-turn matrix structurally unachievable under the 180 s hard turn cap; R2-M1 inspect timing/format/join-key; R2-M2 DOA harness-executor clause; R2-M3 empty-data hatch contradicts pinned exit rule; R2-M4 no anti-fabrication binding. Hardener mechanisms verified real (publish-path hook, uid 1001, seed dumps, endpoint existence) |
+| 4 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-2: R2-H1 fix (b) — single trusted sweep entrypoint (in-turn for production, harness-invoked for the gate) + dedicated gate executor `dmac-cc-matrix-<run_id>` (no turn-cap relaxation); R2-M1 dual FULL network inspects (during-turn + matrix-window) + `container_name` in rows + id→Name join; R2-M2 clause replaced by the reserved matrix executor in the closed set; R2-M3 hatch pinned to exit-0-with-empty-shape only; R2-M4 `gate_access_log_window.txt` per-op nginx-hit match + `post_sweep_user_tree_scan.txt` on-disk published_path check; R2-L1 tracker-7b obligation recorded (preamble + Task 11); R2-L2 name-charset guard; R2-L3 §2 bin names; R2-L4 target-contract tense; R2-L5 general agent pattern + own-name-required; R2-L6 stray-housekeeping carve-out |
