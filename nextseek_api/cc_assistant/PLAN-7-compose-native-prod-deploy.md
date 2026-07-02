@@ -780,3 +780,179 @@ Pause-and-ask: any failed MBP forced-CC turn, secret scan failure, or `step3_dep
 | 49 | Fresh re-vet (2026-06-30, iter 24, **canonical prompt, un-steered**) | **UNCONDITIONAL_ACCEPTANCE** | **0C / 0H / 0M** (3 LOW/cosmetic) — see `.vetting/plan-7-phase2-review-24-fresh.md`. Reviewer live-probed docker-py 7.1.0 `Mount`/`VolumeOptions.Subpath` survives into HostConfig; all 5 Subpath values match `build_user_dirs` (`cc_provision.py:99–109`); marker handshake byte-identical; paired seed/in-turn isolation oracle sound; coverage exception legit. **Thread F CLOSED** |
 
 **Phase 2 status: ✅ COMPLETE** — iter-24 independent fresh reviewer returned **UNCONDITIONAL_ACCEPTANCE** (zero MEDIUM+). All threads A–F CLOSED; hard-gate sections present. Per loop rule, not reopened. See `.vetting/defect-lineage.md`. **Phase 3 (task-spec writing) is gated on a user Phase-2→3 checkpoint — do NOT auto-advance.**
+
+---
+
+# Sidecar wave (Amendment G7-11, 2026-07-01) — Tasks 12-16
+
+> **Why this wave exists:** G7-5's phrasing conflated the deprecated app/chat server with the
+> **NS sidecar op-proxy** that 7 of the 9 shipped `nextseek-*` plugin ops hard-require
+> (`_sidecar_client.py` → WS `nextseek-sidecar:8765`, no fallback, exit 7 without it). Verified
+> live 2026-07-01: the deployed agent fails those 7 ops with `TRANSPORT_ERROR (gaierror)`.
+> **User ruling:** the sidecar is Step 7 work; Step 7 is incomplete while any shipped plugin op
+> lacks a working backend. SPEC-7 G7-11 + §8 `plugin_ops_matrix.json` are the spec of record.
+> **Sequencing:** Tasks 12-15 join the tracker-7a scope and MUST complete before Task 7 (env
+> template), Task 8 (DEPLOY.md), and Tasks 9-10 (evidence gates) are executed, so 7b/7c/7d
+> document and prove the sidecar-inclusive stack, never the 2/9 facade. Task 16 (debt fixes)
+> may run any time in the wave. Grounding dossier: session artifact `sidecar-dossier.md`
+> (2026-07-01) — re-verify its file:line cites at implementation time.
+
+## Wave-global constraints
+
+- Port source stays the pinned clone `/home/taishajo/work/dmac-assistant` @ `a429f13`
+  (`port_source_commit`); the T16/T17 rewire (0f5bfdd/bfdf0e3/3c40a1a, 2026-06-13) is included.
+- **OI-3 unchanged:** the sidecar holds no credentials (env = `NEXTSEEK_BASE_URL`,
+  `SIDECAR_STAGING_DIR`, `SIDECAR_WS_PORT` only); per-request user Basic auth arrives inside
+  each WS frame from the agent; NExtSEEK reach is exclusively via dual-homed `nextseek_nginx`.
+  Do NOT port the upstream A-1 `nextseek-local` backend-network attachment (dead post-T16).
+- Same execution discipline as Tasks 1-6: TDD/validator-first, hermetic zero-spend tests in the
+  canonical harness, byte-verbatim ports with hardcoded-sha256 parity tests (Task 4 pattern),
+  generated evidence only, secret-scan before every commit, per-change sign-off before touching
+  any running instance.
+
+### Task 12: Port the NS sidecar into NExtSEEK
+
+**Files:** create `docker/ns-sidecar/` (Dockerfile adapted to a self-contained context — upstream
+uses `context: ..` and COPYs `sidecar/__init__.py` + `sidecar/app/`; restructure so
+`docker build docker/ns-sidecar/` works alone, Task 4 precedent), `docker/ns-sidecar/app/…`
+byte-verbatim from `sidecar/app/` @ a429f13, `PORT-EVIDENCE.json`, tests
+(`test_step7_sidecar_port.py`).
+
+- [ ] Step 1: failing presence/parity tests — Dockerfile, all 10 `app/*.py` modules, no
+  `local-nextseek*.env`, no upstream compose fragment wired; hardcoded-sha256 parity constants
+  for every logic-bearing module (conscious-update rule comment, Task 4 pattern).
+- [ ] Step 2: port; build-context/secret guards (`.dockerignore`; no env files COPYd); grep
+  guards: no `SESSION_DB_`, no `chat_nextseek`, no torch imports (T16/T17 lean contract).
+- [ ] Step 3: `docker build docker/ns-sidecar/` from the worktree succeeds (throwaway tag,
+  removed after); hermetic tests stay docker-free.
+- [ ] Success: image builds standalone; parity tests pin a429f13 bytes; healthcheck module
+  ported as-is (single HTTP GET to `{NEXTSEEK_BASE_URL}/nextseek_api/assistant/me/`, 200/401
+  healthy — verify this claim against the ported source and record in the report).
+- [ ] Commit: `feat(cc-step7): port NS sidecar into NExtSEEK (G7-11)`
+
+### Task 13: Compose service + agent env wiring
+
+**Files:** `docker-compose.yml`, `nextseek_api/cc_assistant/cc_engine.py`
+(`build_agent_environment` + any sidecar-availability detail strings), `cc_config.py` (env
+names), `test_step7_compose_deploy.py`, `test_cc_engine_env.py` (or equivalent).
+
+- [ ] Step 1: failing compose-config tests — service `nextseek-sidecar` exists; image/build
+  target `docker/ns-sidecar/`; **`dmac-cc-net` only** (exact set == {"dmac-cc-net"}); **no
+  `ports:` key**; `container_name: nextseek-sidecar` pinned (client default DNS name —
+  `_sidecar_client.py` resolves `NEXTSEEK_SIDECAR_HOST` default `nextseek-sidecar`, so service
+  DNS MUST equal it); healthcheck present; env carries only the three non-secret keys;
+  `NEXTSEEK_BASE_URL` == the same in-network nginx URL the agent uses
+  (`http://nextseek_nginx` — assert consistency with `cc_engine._rewrite_loopback_url`
+  semantics, cite at implementation time).
+- [ ] Step 2: failing agent-env tests — `build_agent_environment` emits
+  `NEXTSEEK_SIDECAR_HOST=nextseek-sidecar` and `NEXTSEEK_SIDECAR_PORT=8765` (defaults
+  overridable via documented env); existing agent env-leak tests still prove no shared creds.
+- [ ] Step 3: wire compose + engine; staging mount per Task 14's locked design (if Task 14 not
+  yet landed, mount the whole-volume placeholder ONLY behind a failing test that Task 14
+  replaces — do not ship an unenumerated agent-side mount; the AGENT mount set stays exactly
+  the five enumerated subpaths, unchanged).
+- [ ] Success: `docker compose config` parses with the new service; all Task 5/6 topology tests
+  still green (nextseek still NOT on dmac-cc-net; backends excluded); zero skips.
+- [ ] Commit: `feat(cc-step7): compose-own the NS sidecar + agent env wiring (G7-11)`
+
+### Task 14: Staging flow design + implementation (download/stage ops)
+
+**Purpose:** upstream stages downloads into `SIDECAR_STAGING_DIR` and a host-run bridge swept
+`.complete`-marked artifacts into the agent's scratch the same turn. This integration has no
+bridge; the flow must be redesigned for the G7-10 volume world.
+
+**Locked invariants (vetting enforces; mechanism is implementer-grounded in `staging.py` +
+`_sidecar_client.py` + `ops.py` at implementation time):**
+- Staged artifacts land ONLY in the requesting user's own `{project}/{user}/` subtree (scratch
+  or a dedicated child), reachable by that user's agent through its EXISTING enumerated mounts —
+  the agent mount set does not grow.
+- No cross-user path is ever constructible from a WS request (negative tests: foreign
+  project/user components in a staging key must be rejected/normalized — hermetic).
+- The sidecar's staging mount is the RESERVED top-level `_staging/` subtree of `dmac-cc-users`
+  via `VolumeOptions.Subpath` (recommended; a dedicated volume is the fallback if vetting
+  rejects the reservation) — `_staging` must be excluded from project-dirname space and created
+  by provision/startup before sidecar start (Engine subpath rule).
+- Sweep (staging → user subtree) is performed by trusted code (`cc_engine`/Django or the
+  sidecar itself if it can prove per-request user scoping) — never by the agent, never via a
+  whole-volume agent mount.
+
+- [ ] Step 1: read the real upstream contract (`staging.py` key semantics, `.complete` marker,
+  path payload returned to the agent) and write the design note into the task report + a
+  failing hermetic test skeleton encoding the invariants above.
+- [ ] Step 2: implement + hermetic tests (positive flow with fakes; the cross-user negative
+  controls; subpath-reservation guards mirroring Task 6's per-mount exact-value pattern).
+- [ ] Success: hermetic suite green; invariants each have a firing negative control
+  (mutation-demonstrated RED); no agent-side mount changes beyond the enumerated five.
+- [ ] Commit: `feat(cc-step7): user-scoped sidecar staging flow (G7-11)`
+
+### Task 15: Capability gate — all 9 ops live + validator closed-set peers
+
+**Files:** `validate_step7_compose_deploy.py`, `test_step7_compose_deploy.py`,
+`test_cc_realstack.py` (RUN_REALSTACK-gated harness additions), `validate_cc_acceptance.py`.
+
+- [ ] Step 1: failing validator tests — new REQUIRED §8 artifact `plugin_ops_matrix.json`:
+  exactly the 9 op names; per-op `{transport, exit_code, excerpt}`; bundle FAILS on any missing
+  op, any nonzero exit (write-gated ops may record the documented Layer-2 confirmation flow
+  instead), and specifically on any exit 7; secret-scanned like all artifacts.
+- [ ] Step 2: failing validator tests — `dmac-cc-net` membership becomes a CLOSED SET:
+  {`nextseek_nginx`-pattern, `dmac-bedrock-proxy`, `nextseek-sidecar`} plus containers labeled
+  `nextseek.cc.run=*`; anything else fails (keeps the exact-name `nextseek` rejection; replaces
+  stem-blocklist-only semantics). Mirror in `validate_cc_acceptance.py` peers where reused.
+- [ ] Step 3: implement; extend the realstack harness to emit `plugin_ops_matrix.json` during
+  the live gate: execute each of the 9 ops from inside the live transient agent (or a
+  same-image/same-network/same-env harness container) with the gate user's own creds; define
+  the minimal-safe write-op exercise (write-gate confirmation against a sandbox/test entity —
+  design recorded in the report, vetting sharpens it; a documented dry-run exception for a
+  write op requires explicit user sign-off recorded in evidence).
+- [ ] Success: hermetic suite green, zero skips; validator rejects a synthetic 8/9 matrix, a
+  matrix with one exit-7, and a bundle missing the artifact; closed-set peer check passes the
+  legitimate trio + agents and fails a planted stranger.
+- [ ] Commit: `test(cc-step7): all-9-ops capability gate + closed-set dmac-cc-net peers (G7-11)`
+
+### Task 16: Debt fixes from the Tasks 1-6 final review
+
+- [ ] Model-pin the Step-7 validator's proxy-invoke check (allowed Opus model id, not
+  `_INVOKE_200_GENERIC_RE`-any-model).
+- [ ] Create `nextseek_api/cc_assistant/tests/acceptance_evidence/step7/` README (named plan
+  artifact; explains generated bundles without being evidence).
+- [ ] Raise `validate_step7_compose_deploy.py` coverage to ≥95% (currently 85%; collector 91%)
+  and add the gate command with an explicit neutral `--rcfile` to the plan-of-record test docs
+  (the repo `.coveragerc` omits `nextseek_api/*/tests/*`, which silently defeated the plan's
+  own `--cov` command — record this in the report).
+- [ ] Hermetic test pinning `container_name: nextseek` (now load-bearing for the exact-name
+  peer check) + fix the 805722b docstring prose ("container_name: nginx*" misdescription).
+- [ ] Annotate retired `DMAC_USER_ROOT` in the collector's `CC_ENV_KEYS` (recording-only).
+- [ ] Commit: `test(cc-step7): close final-review debt (validator model pin, coverage, pins)`
+
+## Wave permissions (delta over the main table)
+
+| Permission / resource | Tasks | Notes |
+|----------------------|-------|-------|
+| Read pinned dmac-assistant clone (sidecar/, plugin bin) | 12, 14 | Read-only; verify still @ a429f13 |
+| `docker build` sidecar image (throwaway tag) | 12 | Host build OK; no compose up |
+| Live-gate execution of 9 plugin ops incl. write-gated ops | 15 (runs in 9/10) | Needs sandbox-entity decision + sign-off for writes |
+
+## Wave risk register (delta)
+
+| Rank | Task | Likely failure | Catastrophic failure | Rollback/guard |
+|------|------|----------------|---------------------|----------------|
+| 1 | 14 | Staging key admits foreign path components | Cross-user artifact delivery (OI-3 breach) | Hermetic negative controls + closed invariants; sidecar mounts only `_staging` subpath |
+| 2 | 13 | Sidecar service DNS ≠ client default | 7 ops still exit-7 in "green" stack | Compose test pins service name == `_sidecar_client` default |
+| 3 | 15 | Write-op live exercise mutates real data | Data corruption on dev/MBP | Sandbox-entity design + explicit sign-off; write-gate Layer-2 |
+| 4 | 12 | Port drifts from a429f13 or revives A-1/DB deps | Backend-network exposure | Parity sha256 pins + grep guards (SESSION_DB_, nextseek-local) |
+| 5 | 15 | Closed-set peer check misses compose-prefixed names | Stranger container passes evidence gate | Test both bare + compose-prefixed forms of all legit peers |
+
+## Wave gameability audit (delta)
+
+| Task | Success condition | Cheapest fake | Remedy |
+|------|-------------------|---------------|--------|
+| 15 | `plugin_ops_matrix.json` all exit 0 | Hand-written matrix | Harness-written from subprocess stdout; per-op excerpts must contain op-specific response fields; run_id cross-correlated; secret-scanned |
+| 15 | 9/9 ops | Drop hard ops from the matrix | Validator pins the exact 9-op name set |
+| 14 | "user-scoped staging" | Whole-volume agent mount "temporarily" | Task 6 unenumerated-mount test already fails any sixth agent mount; keep it |
+| 12 | "sidecar ported" | Wire upstream compose fragment w/ backend network | Grep guard: no `nextseek-local`, no `db:3306` reach |
+
+## Phase 2 Vetting Log (sidecar wave)
+
+| Iteration | Reviewer | Verdict | Notes |
+|-----------|----------|---------|-------|
+| (pending) | — | — | Wave authored 2026-07-01; adversarial vetting required before implementation (same bar: fresh cold reviewers, defect-lineage ledger, threads OPEN until a fresh reviewer clears them, UNCONDITIONAL_ACCEPTANCE to exit) |

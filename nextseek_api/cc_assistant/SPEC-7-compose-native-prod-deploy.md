@@ -49,6 +49,12 @@ volume bootstrap (including CC user-tree persistence), and `docker compose build
 - **Isolation preserved:** the CC agent gets only the logged-in user's own NExtSEEK credentials
   plus non-secret topology. Shared AWS/GCP/DB/backend credentials remain out of reach. Bedrock
   credentials live only in `bedrock-proxy`.
+- **Capability completeness (G7-11, amended 2026-07-01):** the deployed stack delivers a
+  **functional** assistant, not just a running one — **all 9 `nextseek-*` plugin ops** shipped in
+  the CC agent image have a working backend and are proven live. The 7 sidecar-backed ops
+  (`entity-extract`, `parse`, `api-read`, `api-write`, `graph`, `report`, `generate-submission`)
+  require the in-tree **NS sidecar** service on `dmac-cc-net`. Step 7 is **incomplete while any
+  shipped plugin op lacks a working backend** (user ruling 2026-07-01; see Amendment Log).
 - **Greenfield verification:** Step 7 is not complete until the user's local MBP, not prod and
   not this dev VM, proves compose-only bring-up from the Step 7 branch before dev merge.
 - **Generated evidence only:** acceptance evidence is machine-generated and validated. Markdown
@@ -64,6 +70,7 @@ default compose network:
 
 dmac-cc-net:
   bedrock-proxy <-> nextseek_nginx <-> transient per-turn CC agent containers
+  nextseek-sidecar <-> nextseek_nginx (HTTP)  /  <- transient CC agents (WS :8765)
 
 not on dmac-cc-net:
   db, seek, seek-workers, solr, neo4j
@@ -82,6 +89,15 @@ not on dmac-cc-net:
   preserve the current `NEXTSEEK_CC_IMAGE`/`dmac-assistant:poc` contract unless it deliberately
   changes that contract with tests and docs.
 - `dmac-cc-net`: compose-managed segmented network. It must not be created manually.
+- `nextseek-sidecar` (G7-11): in-tree source build of the upstream NS sidecar (post-T16/T17
+  rewire: a lean `httpx` WS→HTTP forwarder). Serves the agent's 7 sidecar-backed plugin ops on
+  WS port 8765, `dmac-cc-net` only, **no host `ports:`**. Reaches NExtSEEK exclusively via the
+  dual-homed `nextseek_nginx` (`NEXTSEEK_BASE_URL=http://nextseek_nginx`). **Holds no
+  credentials**: per-request user Basic auth travels inside each WS frame from the agent
+  (which holds only the logged-in user's own NExtSEEK login — unchanged OI-3 boundary); its env
+  is non-secret topology only (`NEXTSEEK_BASE_URL`, `SIDECAR_STAGING_DIR`, `SIDECAR_WS_PORT`).
+  The upstream A-1 backend-network attachment (`nextseek-local` for `db:3306`) is dead code
+  post-T16 and is **not** ported — the sidecar never joins the default stack network.
 
 ## 4. Runtime port scope
 
@@ -98,9 +114,19 @@ implementation time:
 - `pyproject.toml`/`uv.lock` pieces required for the agent image dependency install.
 - Bedrock proxy source, Dockerfile, and safe env template.
 
-Do **not** port the old standalone websocket/FastAPI server layer as runnable infrastructure.
-NExtSEEK's Django bridge remains the only integrated app server path. If old server files are
-needed for reference, they must not be wired into compose or imported by runtime code.
+- **NS sidecar tree (`sidecar/app/…`, Dockerfile) — G7-11 (amended 2026-07-01):** the sidecar is
+  **in scope** and ported in-tree. It is *not* the "old standalone server layer": the excluded
+  layer is the deprecated dmac-assistant **app/WS chat server** (`src/` FastAPI server,
+  `main.py`), which duplicated what NExtSEEK's Django bridge now does. The sidecar is the
+  **op-proxy backend** that 7 of the 9 shipped plugin bin commands hard-require
+  (`_sidecar_client.py` → WS `nextseek-sidecar:8765`; no fallback path — exit 7 without it).
+  The original phrasing below conflated the two, which silently shipped an agent with 2/9
+  working NExtSEEK tools; that boundary error is corrected by this amendment.
+
+Do **not** port the old standalone **app/chat websocket/FastAPI server** layer as runnable
+infrastructure. NExtSEEK's Django bridge remains the only integrated **app server** path. If old
+server files are needed for reference, they must not be wired into compose or imported by
+runtime code. This exclusion does **not** cover the NS sidecar op-proxy (see above).
 
 ## 5. Plugin context/catalog policy
 
@@ -194,6 +220,14 @@ Required generated artifacts:
 - `pre_turn_seed_scan.txt` - **REQUIRED seed-presence proof (amended 2026-06-30 — additive/strengthening).** A root-mounted recursive listing of the `dmac-cc-users` volume (`docker run --rm -v <vol>:/v alpine find /v -maxdepth 4`), written by the harness **immediately after seeding the foreign tree and before the turn**. The validator **fails** the bundle unless this scan is non-empty and contains **every** `meta.json.foreign_token` (`SENTINEL_FOREIGN`, `otherproj`, `bob`). This proves the foreign subtree actually exists at the volume root, so the foreign-absent oracle on `subpath_isolation_scan.txt` is **not vacuous**: skipping the seed turns *this* scan RED *before* the turn runs, while a real `Subpath=""` leak turns the *in-turn* scan RED — the two scans together are the cross-user isolation gate. (Without this artifact, an unseeded volume yields an in-turn scan with zero foreign tokens and the gate passes a genuine whole-volume leak.)
 - `subpath_isolation_scan.txt` - **REQUIRED cross-user isolation proof (amended 2026-06-30; capture mechanism corrected 2026-06-30 — requirement unchanged).** A **recursive** listing of the transient CC agent's mounted trees (e.g. `docker exec <cid> find /data/input /data/scratch /data/shared … -maxdepth 4`), **captured during the turn** from the live sibling polled by `label=nextseek.cc.run=<run_id>` — the agent is force-removed when the turn ends, so a post-turn `docker exec` cannot produce this artifact, and a non-recursive `ls` cannot reach a seeded foreign sentinel — taken with at least one **other** user's tree seeded on `dmac-cc-users` (e.g. `otherproj/bob/input/SENTINEL_FOREIGN`), proving the sibling container sees **only** the forced-CC user's own `<project>/<user>/` subpath and no foreign user tree. The validator **fails** the bundle if this artifact is absent, empty, or shows any foreign user path / seeded foreign token. **Authenticity binding (amended 2026-06-30 — additive/strengthening):** the file MUST be written by the **test harness directly from the live `docker exec … find` subprocess stdout** (never hand-authored by an operator), and the bundle MUST also carry an **in-container live sentinel** — a per-run file (e.g. `LIVE_<sentinel>`) the agent writes into its own `/data/scratch` *during* the turn — whose filename the captured scan MUST contain (recorded as `meta.json.live_sentinel`). The validator fails the bundle if the live sentinel is absent from the scan, so a fabricated/stale clean scan (e.g. one hand-edited to hide a real `Subpath=""` leak) cannot pass the cross-check. This enforces the OI-3 / G7-10 per-user `VolumeOptions.Subpath` isolation invariant at runtime — a check hermetic mount tests alone cannot make (an empty/constant `Subpath` keeps the key present yet mounts the whole volume root). **Seed-presence pairing + leak-detector clarification (amended 2026-06-30 — additive/strengthening):** the foreign-absent check here is meaningful **only** because `pre_turn_seed_scan.txt` independently proves the foreign tree was planted at the volume root before the turn. The leak detector is **foreign-token absence in-turn, gated by foreign-token presence pre-turn** — *not* the live sentinel. The live sentinel is present under **both** the correct and the leaking mount (the agent writes `LIVE_<sentinel>` to the **container path** `/data/scratch`, which the harness `find`s on that same container path regardless of where it is mounted), so it does **not** drop on a leak; its sole role is an anti-stale / anti-substitution binding (it keeps a clean scan from a *different* run out of this bundle).
 - `secret_scan_report.json` - scanner results for every evidence artifact.
+- `plugin_ops_matrix.json` — **REQUIRED capability-completeness proof (G7-11, amended
+  2026-07-01).** Per-op live results for **all 9** `nextseek-*` plugin ops executed from inside
+  the transient CC agent (or a same-image, same-network, same-env harness container) during the
+  gate run: op name, transport (`viewset`|`sidecar`), exit code, and a redacted result/error
+  excerpt. The validator fails the bundle unless every op records exit 0 (write-gated ops may
+  alternatively record the documented Layer-2 confirmation flow), and fails any op recording
+  exit 7 (`TRANSPORT_ERROR`) — the signature of a missing backend. Secret-scanned like every
+  artifact.
 - `validator_output.txt` - output of the zero-spend Step 7 validator.
 - Optional screenshots plus OCR output or documented visual review entries in
   `secret_scan_report.json`.
@@ -235,9 +269,19 @@ Docker/local:
 - compose-up creates the segmented topology without manual network commands,
 - `cc_runner_available()==(True, "ok")`.
 
+Docker/local additions (G7-11):
+
+- compose-config tests: `nextseek-sidecar` service present, `dmac-cc-net` only, no host
+  `ports:`, healthcheck defined, env carries only non-secret topology keys,
+- validator/acceptance network-peer rules updated: `dmac-cc-net` membership is the **closed
+  set** {`nextseek_nginx`, `bedrock-proxy`/`dmac-bedrock-proxy`, `nextseek-sidecar`} plus
+  transient `label=nextseek.cc.run` agents — anything else fails.
+
 Live paid gate:
 
 - one forced-CC turn on the MBP clean environment, with a per-run sentinel,
+- **all 9 `nextseek-*` plugin ops proven live** (`plugin_ops_matrix.json`, §8) — no exit-7
+  transport errors; the 7 sidecar ops exercised through the running `nextseek-sidecar`,
 - proxy invoke 200 for the allowed model,
 - no shared secrets in agent env,
 - no token/header leak in proxy log,
@@ -261,6 +305,15 @@ Live paid gate:
 - **G7-8 - evidence:** generated bundle + validator only; Markdown is not proof.
 - **G7-9 - screenshots:** optional, but if included they must be scanned or manually reviewed
   and recorded in `secret_scan_report.json`.
+- **G7-11 - NS sidecar in scope; capability completeness (2026-07-01 amend, user ruling):**
+  the NS sidecar (post-T16/T17 lean `httpx` WS→HTTP op-proxy) is Step 7 infrastructure: ported
+  in-tree, compose-owned on `dmac-cc-net` (no host ports, no credentials, per-request user Basic
+  auth only), with `cc_engine` passing `NEXTSEEK_SIDECAR_HOST`/`NEXTSEEK_SIDECAR_PORT` to agents.
+  **Step 7 is not done while any shipped plugin op lacks a working backend**, and 7d's live bar
+  includes all 9 ops (§8 `plugin_ops_matrix.json`). Deferring the sidecar was a spec-boundary
+  error (G7-5's phrasing conflated the op-proxy with the deprecated app server); per the user,
+  capability gaps discovered mid-step are **in-scope defects of the current step**, not
+  future-step input.
 - **G7-10 - CC user persistence (2026-06-30 amend):** Step 2 per-user trees persist in
   external named volume **`dmac-cc-users`**, created by `./startup.sh install` (or equivalent
   volume bootstrap), mounted into `nextseek` at `DMAC_USER_ROOT_MOUNT`. Sibling CC containers
@@ -274,7 +327,8 @@ Live paid gate:
 - Step 4 CI/CD runner implementation.
 - Step 5 port-correctness audit.
 - Retargeting or merging the PR to `dev`.
-- Reintroducing the standalone dmac-assistant app/server as a parallel runtime.
+- Reintroducing the standalone dmac-assistant **app/chat server** (`src/` FastAPI/WS server,
+  `main.py`) as a parallel runtime. (The NS sidecar op-proxy is explicitly **in** scope — G7-11.)
 
 ---
 
@@ -363,3 +417,49 @@ anti-stale-state; committed live transcript is mandatory (handoff-only fallback 
 **Blast radius:** PLAN-7 Task 2 validator (new required-artifact check), Task 6 Step 1/2 (concrete `Subpath`-value hermetic assertions + anti-empty negative control), Task 10 Step 4 (emit `subpath_isolation_scan.txt`; promoted from "recommended" to required), Task 9 (same §8 artifact set).
 
 **Re-vet:** Fresh Phase 2 reviewer after amend.
+
+### 2026-07-01 — G7-11: NS sidecar in scope; capability-completeness bar (user ruling)
+
+**Defect being corrected:** §4's exclusion of "the old standalone websocket/FastAPI server
+layer" was read throughout planning and 24 vetting iterations as excluding the **NS sidecar**.
+That conflated two different things: the deprecated dmac-assistant **app/chat server** (truly
+superseded by NExtSEEK's Django bridge) and the **sidecar op-proxy** that 7 of the 9 shipped
+`nextseek-*` plugin bin commands hard-require (`_sidecar_client.py` → WS
+`nextseek-sidecar:8765`, no fallback, exit 7 without it). Consequence, verified empirically
+2026-07-01 on the live dev instance: the deployed agent has carried all 9 commands since
+2026-06-25 while 7 of them fail with `TRANSPORT_ERROR: sidecar unreachable (gaierror)` — the
+integration has been shipping an assistant with 2/9 of its NExtSEEK toolkit, undetected because
+no live gate ever exercised the sidecar ops.
+
+**User ruling (verbatim intent):** the sidecar belongs **in Step 7** — deferring it was against
+the clearly stated goals of the integration; Step 5 is a *verification* step, not a parking lot
+for known-missing work; capability gaps discovered mid-step are in-scope defects of the current
+step. Step 7 is incomplete while any shipped plugin op lacks a working backend.
+
+**Proposed change (applied):** §2 capability-completeness goal; §3 topology adds
+`nextseek-sidecar` (dmac-cc-net only, no host ports, no credentials, per-request user Basic
+auth, `NEXTSEEK_BASE_URL=http://nextseek_nginx`; upstream A-1 backend-network attachment is
+dead post-T16 and not ported); §4 carve-out distinguishing the excluded app/chat server from
+the in-scope sidecar; §8 adds REQUIRED `plugin_ops_matrix.json` (all 9 ops live, exit-7 fails
+the bundle); §10 sidecar compose tests + closed-set `dmac-cc-net` membership rule + live-gate
+all-9-ops bar; §11 G7-11; §12 clarified.
+
+**Grounding:** upstream sidecar rewire commits 0f5bfdd/bfdf0e3/3c40a1a (T16/T17, 2026-06-13,
+ancestors of pinned port source a429f13): 7 ops rewired to NExtSEEK HTTP forwarding, torch +
+chat_nextseek dropped, image is `httpx`/`websockets`/`pydantic` only; `sidecar/app/config.py`
+requires only `NEXTSEEK_BASE_URL`/`SIDECAR_STAGING_DIR`(/`SIDECAR_WS_PORT`); healthcheck is one
+HTTP GET to `{NEXTSEEK_BASE_URL}/nextseek_api/assistant/me/` (200/401 healthy — no DB, no
+backend network). Full dossier: session artifact `sidecar-dossier.md` (2026-07-01).
+
+**Blast radius:** PLAN-7 gains a sidecar task wave (port, compose+env wiring, staging sweep
+design, capability gate, validator peer-rule closed set); Tasks 7/8 (env template, DEPLOY.md)
+must document sidecar keys/service; Tasks 9/10 bundles must include `plugin_ops_matrix.json`;
+`cc_engine.build_agent_environment` adds `NEXTSEEK_SIDECAR_HOST`/`NEXTSEEK_SIDECAR_PORT`;
+validator + `validate_cc_acceptance` peer rules move from stem-blocklist to closed-set
+membership for `dmac-cc-net`.
+
+**User approval:** 2026-07-01 — explicit ruling that the sidecar is Step 7 work; tracker 7a/7d
+descriptions amended same day with user-approved wording (status fields untouched).
+
+**Re-vet:** Fresh adversarial reviewers on the amendment + new task wave before implementation,
+same Phase-2 bar (defect-lineage ledger, threads stay OPEN until a fresh reviewer clears them).
