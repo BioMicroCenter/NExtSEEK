@@ -8,6 +8,7 @@ executed live.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -259,6 +260,255 @@ def test_write_json_and_text_roundtrip(tmp_path):
     assert json.loads((tmp_path / "a.json").read_text()) == {"x": 1}
     gate.write_text(tmp_path / "b.txt", "hello\n")
     assert (tmp_path / "b.txt").read_text() == "hello\n"
+
+
+# ==========================================================================
+# Seeded fixture (Step 3b): creation is the PRIMARY behavior -- greenfield
+# works from zero, via an injected fake HTTP layer (zero live calls).
+# ==========================================================================
+
+SAMPLE_TYPES_BODY = {"data": [{"id": "12", "type": "sample_types", "attributes": {"title": "Generic"}}]}
+EMPTY_LIST_BODY = {"data": []}
+
+
+class FakeHttp:
+    """A fake ``(method, path, json_body=None, params=None) -> (status, body)``
+    HTTP layer. ``routes`` maps (method, path) -> a response or an ordered
+    list of responses (popped per call). Records every call + payload."""
+
+    def __init__(self, routes):
+        self.routes = {k: (list(v) if isinstance(v, list) else [v]) for k, v in routes.items()}
+        self.calls: list[tuple[str, str, dict | None]] = []
+
+    def __call__(self, method, path, json_body=None, params=None):
+        self.calls.append((method, path, json_body))
+        responses = self.routes.get((method, path))
+        if not responses:
+            return 404, {"errors": [{"title": f"no fake route for {method} {path}"}]}
+        resp = responses.pop(0) if len(responses) > 1 else responses[0]
+        return resp
+
+
+def _sample_created_body(seek_id, uid=None):
+    attrs = {"title": f"sample {seek_id}"}
+    if uid:
+        attrs["attribute_map"] = {"UID": uid}
+    return 201, {"data": {"id": str(seek_id), "type": "samples", "attributes": attrs}}
+
+
+def _greenfield_http():
+    return FakeHttp({
+        ("GET", gate.PROJECTS_ENDPOINT): (200, EMPTY_LIST_BODY),
+        ("POST", gate.PROJECTS_ENDPOINT): (
+            201, {"data": {"id": "42", "type": "projects",
+                            "attributes": {"title": gate.DEFAULT_GATE_PROJECT_TITLE}}},
+        ),
+        ("GET", gate.SAMPLE_TYPES_ENDPOINT): (200, SAMPLE_TYPES_BODY),
+        ("POST", gate.SAMPLES_ENDPOINT): [
+            _sample_created_body(101, uid="SMP-101"),
+            _sample_created_body(102, uid="SMP-102"),
+        ],
+    })
+
+
+def test_seeded_fixture_greenfield_creates_project_and_samples():
+    http = _greenfield_http()
+    fx = gate.create_seeded_fixture(
+        assistant_base_url="http://nextseek_nginx", api_user="gateuser", api_pass="x",
+        run_id="deadbeef", http=http,
+    )
+    # PRIMARY behavior: from zero, the project WAS created...
+    methods = [(m, p) for m, p, _ in http.calls]
+    assert ("POST", gate.PROJECTS_ENDPOINT) in methods
+    # ...and both samples were created against it, sample_type resolved live.
+    sample_posts = [b for m, p, b in http.calls if (m, p) == ("POST", gate.SAMPLES_ENDPOINT)]
+    assert len(sample_posts) == gate.DEFAULT_FIXTURE_SAMPLE_COUNT
+    for body in sample_posts:
+        rel = body["data"]["relationships"]
+        assert rel["sample_type"]["data"] == {"type": "sample_types", "id": "12"}
+        assert rel["projects"]["data"] == [{"type": "projects", "id": "42"}]
+    # dirname = {pid}-{slug} from the CREATED project's real id (engine helpers).
+    assert fx.project == "42-cc-capability-gate-sandbox"
+    assert fx.seek_project_id == "42"
+    assert fx.uids == ["SMP-101", "SMP-102"]
+    assert fx.title == gate.DEFAULT_GATE_PROJECT_TITLE
+    # Requests used are recorded, per the Step 3b clause.
+    assert len(fx.requests) == 5  # GET projects, POST project, GET sample_types, 2x POST samples
+    assert any("POST /nextseek_api/projects/" in r for r in fx.requests)
+    assert sum("POST /nextseek_api/samples/" in r for r in fx.requests) == 2
+
+
+def test_seeded_fixture_reuses_existing_project_as_secondary_idempotence_path():
+    http = FakeHttp({
+        ("GET", gate.PROJECTS_ENDPOINT): (200, {"data": [
+            {"id": "7", "type": "projects", "attributes": {"title": "Unrelated"}},
+            {"id": "42", "type": "projects",
+             "attributes": {"title": gate.DEFAULT_GATE_PROJECT_TITLE}},
+        ]}),
+        ("GET", gate.SAMPLE_TYPES_ENDPOINT): (200, SAMPLE_TYPES_BODY),
+        ("POST", gate.SAMPLES_ENDPOINT): [
+            _sample_created_body(201, uid="SMP-201"),
+            _sample_created_body(202, uid="SMP-202"),
+        ],
+    })
+    fx = gate.create_seeded_fixture(
+        assistant_base_url="http://nextseek_nginx", api_user="gateuser", api_pass="x", http=http,
+    )
+    # SECONDARY path: no project POST when a prior gate run left the sandbox.
+    assert ("POST", gate.PROJECTS_ENDPOINT) not in [(m, p) for m, p, _ in http.calls]
+    assert fx.seek_project_id == "42"
+    # Samples are STILL created fresh (creation stays primary for the data).
+    assert fx.uids == ["SMP-201", "SMP-202"]
+
+
+def test_seeded_fixture_project_create_failure_raises():
+    http = FakeHttp({
+        ("GET", gate.PROJECTS_ENDPOINT): (200, EMPTY_LIST_BODY),
+        ("POST", gate.PROJECTS_ENDPOINT): (403, {"errors": [{"title": "forbidden"}]}),
+    })
+    with pytest.raises(gate.FixtureCreationError, match="project create failed"):
+        gate.create_seeded_fixture(
+            assistant_base_url="http://x", api_user="u", api_pass="p", http=http,
+        )
+
+
+def test_seeded_fixture_no_sample_types_raises_environment_prerequisite():
+    http = FakeHttp({
+        ("GET", gate.PROJECTS_ENDPOINT): (200, EMPTY_LIST_BODY),
+        ("POST", gate.PROJECTS_ENDPOINT): (201, {"data": {"id": "42", "type": "projects", "attributes": {}}}),
+        ("GET", gate.SAMPLE_TYPES_ENDPOINT): (200, EMPTY_LIST_BODY),
+    })
+    with pytest.raises(gate.FixtureCreationError, match="no sample_type available"):
+        gate.create_seeded_fixture(
+            assistant_base_url="http://x", api_user="u", api_pass="p", http=http,
+        )
+
+
+def test_seeded_fixture_sample_create_failure_raises():
+    http = FakeHttp({
+        ("GET", gate.PROJECTS_ENDPOINT): (200, EMPTY_LIST_BODY),
+        ("POST", gate.PROJECTS_ENDPOINT): (201, {"data": {"id": "42", "type": "projects", "attributes": {}}}),
+        ("GET", gate.SAMPLE_TYPES_ENDPOINT): (200, SAMPLE_TYPES_BODY),
+        ("POST", gate.SAMPLES_ENDPOINT): (422, {"errors": [{"title": "Invalid request"}]}),
+    })
+    with pytest.raises(gate.FixtureCreationError, match="sample create failed"):
+        gate.create_seeded_fixture(
+            assistant_base_url="http://x", api_user="u", api_pass="p", http=http,
+        )
+
+
+def test_seeded_fixture_project_create_without_id_raises():
+    http = FakeHttp({
+        ("GET", gate.PROJECTS_ENDPOINT): (200, EMPTY_LIST_BODY),
+        ("POST", gate.PROJECTS_ENDPOINT): (201, {"data": {"type": "projects", "attributes": {}}}),
+    })
+    with pytest.raises(gate.FixtureCreationError, match="no data.id"):
+        gate.create_seeded_fixture(
+            assistant_base_url="http://x", api_user="u", api_pass="p", http=http,
+        )
+
+
+def test_seeded_fixture_to_json_passes_validator_check(tmp_path):
+    """The writer's output shape must satisfy check_seeded_fixture_present
+    (project non-empty str + uids non-empty list)."""
+    from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import (
+        Context,
+        check_seeded_fixture_present,
+    )
+    http = _greenfield_http()
+    fx = gate.create_seeded_fixture(
+        assistant_base_url="http://x", api_user="u", api_pass="p", http=http,
+    )
+    gate.write_json(tmp_path / "seeded_fixture.json", fx.to_json())
+    ctx = Context(run_dir=tmp_path, preflight=None, meta={}, repo_root=tmp_path)
+    name, ok, detail = check_seeded_fixture_present(ctx)
+    assert ok is True, detail
+
+
+def test_extract_sample_uid_prefers_attribute_map_uid_over_seek_id():
+    _, body = _sample_created_body(300, uid="SMP-300")
+    assert gate.extract_sample_uid(body) == "SMP-300"
+
+
+def test_extract_sample_uid_falls_back_to_jsonapi_id():
+    _, body = _sample_created_body(301)  # no attribute_map UID
+    assert gate.extract_sample_uid(body) == "301"
+
+
+def test_find_project_id_by_title_exact_match_only():
+    body = {"data": [{"id": "9", "type": "projects", "attributes": {"title": "CC Capability Gate Sandbox EXTRA"}}]}
+    assert gate.find_project_id_by_title(body, "CC Capability Gate Sandbox") is None
+    assert gate.find_project_id_by_title(None, "x") is None
+
+
+def test_first_sample_type_id():
+    assert gate.first_sample_type_id(SAMPLE_TYPES_BODY) == "12"
+    assert gate.first_sample_type_id(EMPTY_LIST_BODY) is None
+    assert gate.first_sample_type_id(None) is None
+
+
+# ==========================================================================
+# Drift-pins: the payload builders' contract vs the ACTUAL server-side
+# request models + viewset create actions (nextseek_api.models needs
+# configured Django settings, so the pin reads the source -- this repo's
+# established cross-file literal-lock pattern).
+# ==========================================================================
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_drift_pin_sample_create_contract_in_models_source():
+    src = (_REPO_ROOT / "nextseek_api" / "models.py").read_text(encoding="utf-8")
+    # SamplePostAttributes: title is the required attribute the builder emits.
+    assert "class SamplePostAttributes(BaseModel):\n    title: str" in src
+    # SamplePostRelationships: sample_type REQUIRED, projects Optional.
+    assert "class SamplePostRelationships(BaseModel):\n    sample_type: SingleReference" in src
+    assert "projects: Optional[MultipleReferences]" in src
+    # The JSON:API type literal the builder pins.
+    assert "type: Literal['samples']" in src
+    assert "class SampleCreateRequest(BaseModel):" in src
+
+
+def test_drift_pin_project_create_contract_in_models_source():
+    src = (_REPO_ROOT / "nextseek_api" / "models.py").read_text(encoding="utf-8")
+    assert "class ProjectPostAttributes(BaseModel):\n    title: str" in src
+    assert "type: Literal['projects']" in src
+    assert "class ProjectCreateRequest(BaseModel):" in src
+    # relationships are Optional on ProjectPostData -- the builder may omit them.
+    assert "relationships: Optional[ProjectPostRelationships] = None" in src
+
+
+def test_drift_pin_create_viewset_actions_exist():
+    samples_src = (_REPO_ROOT / "nextseek_api" / "services" / "samples.py").read_text(encoding="utf-8")
+    projects_src = (_REPO_ROOT / "nextseek_api" / "services" / "projects.py").read_text(encoding="utf-8")
+    urls_src = (_REPO_ROOT / "nextseek_api" / "urls.py").read_text(encoding="utf-8")
+    assert "SampleCreateRequest.model_validate(request.data)" in samples_src
+    assert "ProjectCreateRequest.model_validate(request.data)" in projects_src
+    # DRF DefaultRouter create routes: POST /nextseek_api/samples/ and
+    # /nextseek_api/projects/ exist because these viewsets are registered.
+    assert 'router.register(r"samples", views.SampleViewSet' in urls_src
+    assert 'router.register(r"projects", views.ProjectViewSet' in urls_src
+    assert 'router.register(r"sample_types", views.SampleTypeViewSet' in urls_src
+
+
+def test_payload_builders_emit_exactly_the_declared_shapes():
+    """extra='forbid' on the server models: the builders must emit EXACTLY
+    the declared key sets, nothing more."""
+    p = gate.build_project_create_payload("T")
+    assert set(p) == {"data"}
+    assert set(p["data"]) == {"type", "attributes"}
+    assert p["data"]["type"] == "projects"
+    assert set(p["data"]["attributes"]) == {"title"}
+
+    s = gate.build_sample_create_payload("T", "12", "42")
+    assert set(s) == {"data"}
+    assert set(s["data"]) == {"type", "attributes", "relationships"}
+    assert s["data"]["type"] == "samples"
+    assert set(s["data"]["attributes"]) == {"title"}
+    assert set(s["data"]["relationships"]) == {"sample_type", "projects"}
+
+    s_no_proj = gate.build_sample_create_payload("T", "12")
+    assert set(s_no_proj["data"]["relationships"]) == {"sample_type"}
 
 
 # ==========================================================================

@@ -267,7 +267,15 @@ class CCCapabilityGateMatrix(TestCase):
             raise unittest.SkipTest(f"CC runner not available: {detail}")
         cls.run_id = "matrix-" + uuid.uuid4().hex[:12]
         cls.gate_user_id = os.environ.get("NEXTSEEK_CC_GATE_USER_ID", "ccgateuser")
-        cls.gate_project = os.environ.get("NEXTSEEK_CC_GATE_PROJECT", "1-sandbox")
+        # Step 3b (iter-1 H-3): the sandbox SEEK project is CREATED by the
+        # fixture; the {pid}-{slug} gate_project dirname is DERIVED from the
+        # created project's real id (fixture.project) inside the test --
+        # never assumed to pre-exist (greenfield works from zero).
+        # NEXTSEEK_CC_GATE_PROJECT remains an explicit operator OVERRIDE only.
+        cls.gate_project_title = os.environ.get(
+            "NEXTSEEK_CC_GATE_PROJECT_TITLE", gate.DEFAULT_GATE_PROJECT_TITLE
+        )
+        cls.gate_project_override = os.environ.get("NEXTSEEK_CC_GATE_PROJECT")
         cls.api_user, cls.api_pass = _seek_creds()
         cls.paths = cc_config.CCPaths.from_env()
         cls.evid = STEP7_EVID_ROOT / cls.run_id
@@ -281,13 +289,20 @@ class CCCapabilityGateMatrix(TestCase):
         sign-off via NEXTSEEK_CC_GATE_CONFIRM_WRITE=1 -- confirming a write
         must never be this harness's own silent default."""
         confirmed = os.environ.get("NEXTSEEK_CC_GATE_CONFIRM_WRITE") == "1"
-        uids = ",".join(fixture.uids) if fixture.uids else "S0001"
+        # No fabricated-UID fallback: the fixture CREATED these samples
+        # (create_seeded_fixture raises FixtureCreationError otherwise), and
+        # the caller asserts uids is non-empty before building op kwargs.
+        uids = ",".join(fixture.uids)
+        # The ops address the sandbox project by its SEEK TITLE (what the
+        # server-side agents resolve project references by), not the local
+        # {pid}-{slug} CC dirname (which only names the CC user tree).
+        project_title = fixture.title
         return {
             "nextseek-entity-extract": {"query": "list sampletypes and assays used in this project"},
-            "nextseek-parse": {"query": f"find samples in project {fixture.project}"},
-            "nextseek-graph": {"query": f"show lineage for a sample in project {fixture.project}"},
-            "nextseek-plan": {"query": f"recommend next steps to summarize project {fixture.project}"},
-            "nextseek-query": {"query": f"how many samples exist in project {fixture.project}?"},
+            "nextseek-parse": {"query": f"find samples in project {project_title}"},
+            "nextseek-graph": {"query": f"show lineage for a sample in project {project_title}"},
+            "nextseek-plan": {"query": f"recommend next steps to summarize project {project_title}"},
+            "nextseek-query": {"query": f"how many samples exist in project {project_title}?"},
             "nextseek-api-read": {
                 "parser_plan": json.dumps({"endpoint": "/nextseek_api/samples/", "method": "GET"}),
             },
@@ -298,17 +313,23 @@ class CCCapabilityGateMatrix(TestCase):
                 }),
                 "confirmed_write": confirmed,
             },
-            "nextseek-report": {"mode": "samples", "project": fixture.project},
+            "nextseek-report": {"mode": "samples", "project": project_title},
             "nextseek-generate-submission": {"submission_type": "GEO", "uids": uids},
         }
 
     def test_01_seeded_fixture_matrix_sweep_and_companions(self):
-        # --- Step 3b: seeded fixture, BEFORE the matrix run ------------------
+        # --- Step 3b: CREATE the seeded fixture, BEFORE the matrix run --------
+        # (iter-1 H-3: one sandbox project + sample UIDs, created as the gate
+        # user via the authenticated REST API; FixtureCreationError fails the
+        # gate loudly -- nothing is faked, greenfield works from zero.)
         base_url = os.environ.get("NEXTSEEK_BASE_URL", "http://nextseek_nginx")
         fixture = gate.create_seeded_fixture(
-            assistant_base_url=base_url, gate_project=self.gate_project,
+            assistant_base_url=base_url,
             api_user=self.api_user, api_pass=self.api_pass,
+            gate_project_title=self.gate_project_title, run_id=self.run_id,
         )
+        self.assertTrue(fixture.uids, "seeded fixture created no sample UIDs")
+        gate_project = self.gate_project_override or fixture.project
         gate.write_json(self.evid / "seeded_fixture.json", fixture.to_json())
 
         # images.json's CC-image key (Task 1's collector normally writes the
@@ -371,7 +392,7 @@ class CCCapabilityGateMatrix(TestCase):
         # --- Step 3: trusted sweep, AFTER the matrix --------------------------
         sweep = gate.run_trusted_sweep(
             nextseek_container=GATE_NEXTSEEK_CONTAINER, user_id=self.gate_user_id,
-            api_user=self.api_user, project=self.gate_project,
+            api_user=self.api_user, project=gate_project,
         )
         gate.write_json(self.evid / "sweep_invocation.json", sweep)
 
@@ -403,7 +424,7 @@ class CCCapabilityGateMatrix(TestCase):
         meta = json.loads(meta_path.read_text()) if meta_path.is_file() else {}
         meta.update({
             "run_id": self.run_id,
-            "gate_project": self.gate_project,
+            "gate_project": gate_project,
             "gate_user_id": self.gate_user_id,
             "matrix_spend_estimate_usd": round(total_wall * 0.01, 4),
             "matrix_spend_estimate_method": (

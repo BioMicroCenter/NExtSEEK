@@ -362,57 +362,261 @@ def capture_matrix_env_scan(container_name: str, *, docker_bin: str = "docker") 
 
 
 # --------------------------------------------------------------------------
-# Seeded fixture (Step 3b): a minimal sandbox project + sample UIDs, created/
-# resolved via the gate user's OWN authenticated REST calls, BEFORE the
-# matrix run. Data-dependent ops (report/generate-submission/api-read/graph)
-# target this fixture.
+# Seeded fixture (Step 3b): the gate harness CREATES a minimal sandbox
+# fixture as the gate user via the authenticated REST API, BEFORE the matrix
+# run -- one sandbox project + a small set of sample UIDs (iter-1 H-3: on a
+# greenfield MBP gate there IS no pre-existing data, so reading alone makes
+# the 9/9 gate unachievable). Data-dependent ops (report/generate-submission/
+# api-read/graph) target this fixture.
+#
+# GROUNDED WRITE PATHS (both exist in-tree; the hermetic drift-pin tests in
+# test_cc_matrix_gate_harness.py verify these facts against the source):
+#
+# * ``POST /nextseek_api/projects/`` -- ProjectViewSet.create
+#   (nextseek_api/services/projects.py:172; request model
+#   ProjectCreateRequest, nextseek_api/models.py:578: ``{"data": {"type":
+#   "projects", "attributes": {"title": ...}}}``, relationships optional).
+# * ``POST /nextseek_api/samples/`` -- SampleViewSet.create
+#   (nextseek_api/services/samples.py:175; request model
+#   SampleCreateRequest, nextseek_api/models.py:1390: ``{"data": {"type":
+#   "samples", "attributes": {"title": ...}, "relationships":
+#   {"sample_type": {"data": {"type": "sample_types", "id": ...}},
+#   "projects": {"data": [...]}}}}`` -- sample_type is the one REQUIRED
+#   relationship, SamplePostRelationships nextseek_api/models.py:1370).
+# * ``GET /nextseek_api/projects/`` / ``GET /nextseek_api/sample_types/`` --
+#   JSON:API list shapes (``{"data": [{"id", "type", "attributes":
+#   {"title"}}, ...]}``) used for the idempotence check and the required
+#   sample_type reference.
+#
+# The payload dicts are built by pure functions here (NOT by importing
+# nextseek_api.models -- that module needs configured Django settings, which
+# the hermetic suite deliberately runs without); the hermetic tests pin the
+# builders' output to the models' declared field/type contract by reading
+# the model source, per this repo's cross-file literal-lock pattern.
 # --------------------------------------------------------------------------
+
+PROJECTS_ENDPOINT = "/nextseek_api/projects/"
+SAMPLES_ENDPOINT = "/nextseek_api/samples/"
+SAMPLE_TYPES_ENDPOINT = "/nextseek_api/sample_types/"
+DEFAULT_GATE_PROJECT_TITLE = "CC Capability Gate Sandbox"
+DEFAULT_FIXTURE_SAMPLE_COUNT = 2
+
+
+class FixtureCreationError(RuntimeError):
+    """Seeded-fixture creation failed. NEVER caught-and-faked: the gate run
+    must fail loudly (a fixture the harness could not actually create is a
+    fixture the data-dependent ops cannot be proven against)."""
+
 
 @dataclass
 class SeededFixture:
-    project: str
+    project: str                      # validated {pid}-{slug} CC project dirname
     uids: list[str] = field(default_factory=list)
     requests: list[str] = field(default_factory=list)
+    seek_project_id: str = ""
+    title: str = ""
 
     def to_json(self) -> dict[str, Any]:
-        return {"project": self.project, "uids": self.uids, "requests": self.requests}
+        return {
+            "project": self.project,
+            "uids": self.uids,
+            "requests": self.requests,
+            "seek_project_id": self.seek_project_id,
+            "title": self.title,
+        }
+
+
+def build_project_create_payload(title: str) -> dict[str, Any]:
+    """Matches ProjectCreateRequest/ProjectPostData/ProjectPostAttributes
+    (nextseek_api/models.py:548-587; extra='forbid' -- emit EXACTLY the
+    declared shape, nothing more): title is the only required attribute,
+    relationships are Optional."""
+    return {"data": {"type": "projects", "attributes": {"title": title}}}
+
+
+def build_sample_create_payload(
+    title: str, sample_type_id: str, project_id: str | None = None,
+) -> dict[str, Any]:
+    """Matches SampleCreateRequest/SamplePostData/SamplePostAttributes/
+    SamplePostRelationships (nextseek_api/models.py:1359-1393;
+    extra='forbid'): title required; relationships.sample_type is the one
+    REQUIRED SingleReference; projects is an Optional MultipleReferences."""
+    relationships: dict[str, Any] = {
+        "sample_type": {"data": {"type": "sample_types", "id": str(sample_type_id)}},
+    }
+    if project_id:
+        relationships["projects"] = {"data": [{"type": "projects", "id": str(project_id)}]}
+    return {
+        "data": {
+            "type": "samples",
+            "attributes": {"title": title},
+            "relationships": relationships,
+        }
+    }
+
+
+def find_project_id_by_title(list_body: Any, title: str) -> str | None:
+    """First project id in a JSON:API list body whose attributes.title equals
+    ``title`` exactly, or None. The idempotence SECONDARY path: reuse-existing
+    only when a prior gate run already created the sandbox project."""
+    if not isinstance(list_body, dict):
+        return None
+    for item in list_body.get("data") or []:
+        if not isinstance(item, dict):
+            continue
+        attrs = item.get("attributes") or {}
+        if isinstance(attrs, dict) and attrs.get("title") == title and item.get("id"):
+            return str(item["id"])
+    return None
+
+
+def first_sample_type_id(list_body: Any) -> str | None:
+    """The first sample_type id in a JSON:API list body, or None."""
+    if not isinstance(list_body, dict):
+        return None
+    for item in list_body.get("data") or []:
+        if isinstance(item, dict) and item.get("id"):
+            return str(item["id"])
+    return None
+
+
+def extract_created_id(body: Any) -> str | None:
+    """``data.id`` of a JSON:API single-resource response (what both create
+    endpoints return on 200/201), or None."""
+    if not isinstance(body, dict):
+        return None
+    data = body.get("data")
+    if isinstance(data, dict) and data.get("id"):
+        return str(data["id"])
+    return None
+
+
+def extract_sample_uid(body: Any) -> str | None:
+    """The created sample's NExtSEEK UID when the response's attribute_map
+    carries one (``UID``/``uid`` key), else the JSON:API ``data.id``."""
+    if isinstance(body, dict) and isinstance(body.get("data"), dict):
+        attrs = body["data"].get("attributes") or {}
+        if isinstance(attrs, dict):
+            amap = attrs.get("attribute_map") or {}
+            if isinstance(amap, dict):
+                for key in ("UID", "uid"):
+                    if amap.get(key):
+                        return str(amap[key])
+    return extract_created_id(body)
+
+
+def default_fixture_http(base_url: str, auth: tuple[str, str], timeout: float):
+    """The real HTTP layer for ``create_seeded_fixture``: a callable
+    ``(method, path, json_body=None, params=None) -> (status_code,
+    parsed_body)`` over httpx with the gate user's Basic auth. Hermetic
+    tests inject a fake with the same signature instead (zero live calls)."""
+    import httpx  # local import: never required for the hermetic suite
+
+    base = base_url.rstrip("/")
+
+    def _call(method: str, path: str, json_body: dict | None = None, params: dict | None = None):
+        with httpx.Client(auth=auth, timeout=timeout) as client:
+            resp = client.request(method, base + path, json=json_body, params=params)
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        return resp.status_code, body
+
+    return _call
 
 
 def create_seeded_fixture(
-    *, assistant_base_url: str, gate_project: str, api_user: str, api_pass: str,
-    sample_page_size: int = 5, timeout: float = 30.0,
+    *,
+    assistant_base_url: str,
+    api_user: str,
+    api_pass: str,
+    gate_project_title: str = DEFAULT_GATE_PROJECT_TITLE,
+    sample_count: int = DEFAULT_FIXTURE_SAMPLE_COUNT,
+    run_id: str = "",
+    timeout: float = 30.0,
+    http=None,
 ) -> SeededFixture:
-    """Resolve a minimal seeded fixture as the gate user, via authenticated
-    REST calls -- NOT a fabricated/synthetic dataset.
+    """CREATE the minimal seeded fixture as the gate user via the
+    authenticated REST API (Step 3b, iter-1 H-3): one sandbox project +
+    ``sample_count`` samples, recorded (ids + the requests used) in the
+    returned SeededFixture / ``seeded_fixture.json``.
 
-    The CC personal-project namespace (``gate_project``, e.g.
-    ``"<pid>-<slug>"``) is a LOCAL identity (``cc_provision.project_dirname``)
-    rather than something created by a REST call; there is no
-    project-creation endpoint in this integration for it. What IS created
-    over REST here is the DATA the data-dependent ops (report/
-    generate-submission/api-read/graph) need: a small set of REAL existing
-    sample UIDs, read via ``GET /nextseek_api/samples/`` as the gate user
-    (read-only -- zero write risk, and does not depend on a SEEK
-    sample-creation payload contract this module has not verified against
-    the live schema). This is a deliberate, documented judgment call
-    (Task 15 self-review): if the live dev-VM/MBP instance's authenticated
-    user needs writable sandbox SAMPLES rather than read access to existing
-    ones, Task 9/10 should first verify (and, if needed, extend) this
-    function against the live SEEK sample-creation contract -- see the
-    Task 15 report's "Concerns" section.
+    Creation is the PRIMARY behavior -- greenfield works from zero. Reuse of
+    an existing same-titled sandbox project is the SECONDARY idempotence
+    path only (a prior gate run on the same host). Any failure raises
+    ``FixtureCreationError`` with specifics; nothing is ever faked.
+
+    ``http`` is the injectable HTTP layer (see ``default_fixture_http``);
+    hermetic tests pass a fake, the live gate leaves it None.
     """
-    import httpx  # local import: never required for the hermetic suite
+    from nextseek_api.cc_assistant.cc_provision import project_dirname, slugify_project
 
-    url = assistant_base_url.rstrip("/") + "/nextseek_api/samples/"
-    with httpx.Client(auth=(api_user, api_pass), timeout=timeout) as client:
-        resp = client.get(url, params={"page_size": sample_page_size})
-        resp.raise_for_status()
-        body = resp.json()
-    results = body.get("results", body if isinstance(body, list) else [])
-    uids = [str(r.get("uid") or r.get("id")) for r in results if isinstance(r, dict) and (r.get("uid") or r.get("id"))]
+    call = http if http is not None else default_fixture_http(
+        assistant_base_url, (api_user, api_pass), timeout,
+    )
+    requests: list[str] = []
+
+    # 1. Idempotence check (SECONDARY path): does the sandbox project exist?
+    status, body = call("GET", PROJECTS_ENDPOINT)
+    requests.append(f"GET {PROJECTS_ENDPOINT} as {api_user} -> {status}")
+    project_id = find_project_id_by_title(body, gate_project_title) if 200 <= status < 300 else None
+
+    # 2. PRIMARY path: create the sandbox project.
+    if project_id is None:
+        payload = build_project_create_payload(gate_project_title)
+        status, body = call("POST", PROJECTS_ENDPOINT, json_body=payload)
+        requests.append(f"POST {PROJECTS_ENDPOINT} title={gate_project_title!r} as {api_user} -> {status}")
+        if not (200 <= status < 300):
+            raise FixtureCreationError(
+                f"project create failed: POST {PROJECTS_ENDPOINT} -> {status} ({body!r})"
+            )
+        project_id = extract_created_id(body)
+        if not project_id:
+            raise FixtureCreationError(
+                f"project create returned no data.id: POST {PROJECTS_ENDPOINT} -> {status} ({body!r})"
+            )
+
+    # 3. Resolve the REQUIRED sample_type reference (SamplePostRelationships).
+    status, body = call("GET", SAMPLE_TYPES_ENDPOINT)
+    requests.append(f"GET {SAMPLE_TYPES_ENDPOINT} as {api_user} -> {status}")
+    sample_type_id = first_sample_type_id(body) if 200 <= status < 300 else None
+    if not sample_type_id:
+        raise FixtureCreationError(
+            f"no sample_type available (GET {SAMPLE_TYPES_ENDPOINT} -> {status}): a SEEK "
+            "instance with zero sample types cannot accept a sample create "
+            "(relationships.sample_type is required) -- seed at least one sample "
+            "type in the instance (environment prerequisite), do not fake the fixture"
+        )
+
+    # 4. Create the sandbox samples.
+    uids: list[str] = []
+    for i in range(sample_count):
+        title = f"Task15 gate sample {run_id or 'gate'}-{i + 1}"
+        payload = build_sample_create_payload(title, sample_type_id, project_id)
+        status, body = call("POST", SAMPLES_ENDPOINT, json_body=payload)
+        requests.append(
+            f"POST {SAMPLES_ENDPOINT} title={title!r} sample_type={sample_type_id} "
+            f"project={project_id} as {api_user} -> {status}"
+        )
+        if not (200 <= status < 300):
+            raise FixtureCreationError(
+                f"sample create failed: POST {SAMPLES_ENDPOINT} -> {status} ({body!r})"
+            )
+        uid = extract_sample_uid(body)
+        if not uid:
+            raise FixtureCreationError(
+                f"sample create returned no id/UID: POST {SAMPLES_ENDPOINT} -> {status} ({body!r})"
+            )
+        uids.append(uid)
+
+    # 5. The CC project dirname identity ({pid}-{slug}) for this sandbox
+    #    project, built by the SAME production helpers the engine uses.
+    dirname = project_dirname(str(project_id), slugify_project(gate_project_title))
+
     return SeededFixture(
-        project=gate_project, uids=uids[:sample_page_size],
-        requests=[f"GET {url}?page_size={sample_page_size} as {api_user}"],
+        project=dirname, uids=uids, requests=requests,
+        seek_project_id=str(project_id), title=gate_project_title,
     )
 
 
@@ -449,9 +653,22 @@ __all__ = [
     "PUBLISHED_PATH_OPS",
     "PER_OP_EXEC_TIMEOUT_SECS",
     "TRANSPORT_FOR_OP",
+    "PROJECTS_ENDPOINT",
+    "SAMPLES_ENDPOINT",
+    "SAMPLE_TYPES_ENDPOINT",
+    "DEFAULT_GATE_PROJECT_TITLE",
+    "DEFAULT_FIXTURE_SAMPLE_COUNT",
     "ExecResult",
+    "FixtureCreationError",
     "SeededFixture",
     "build_op_argv",
+    "build_project_create_payload",
+    "build_sample_create_payload",
+    "find_project_id_by_title",
+    "first_sample_type_id",
+    "extract_created_id",
+    "extract_sample_uid",
+    "default_fixture_http",
     "gate_executor_environment",
     "build_gate_executor_run_kwargs",
     "docker_exec_op",
