@@ -849,7 +849,9 @@ byte-verbatim from `sidecar/app/` @ a429f13, `PORT-EVIDENCE.json`, tests
 
 ### Task 13: Compose service + agent env wiring
 
-**Files:** `docker-compose.yml`, `nextseek_api/cc_assistant/cc_engine.py`
+**Files:** `docker-compose.yml`, `docker/nginx.conf` (explicit `access_log` directive — iter-3
+L-4: the gate's `gate_access_log_window.txt` evidence source must not ride on the compiled
+default a conf edit could silently drop; add a hermetic guard test), `nextseek_api/cc_assistant/cc_engine.py`
 (`build_agent_environment` + any sidecar-availability detail strings), `cc_config.py` (env
 names), `test_step7_compose_deploy.py`, `test_cc_engine_env.py` (or equivalent).
 
@@ -976,9 +978,9 @@ bridge; the flow must be redesigned for the G7-10 volume world.
   `nextseek-api-read`, `nextseek-api-write`, `nextseek-graph`, `nextseek-report`,
   `nextseek-generate-submission`, `nextseek-query`, `nextseek-plan` — iter-1 L-3: three name
   spaces exist; the matrix uses bin names, with the wire-op mapping recorded per row). Per-op
-  record (iter-1 M-4 provenance pinning): `{op, transport, exit_code, excerpt, container_id,
-  image, wall_secs}` where the harness writes `container_id`/`image` from `docker inspect` of
-  the executor; the validator requires executor `image` == the CC image recorded in
+  record (iter-1 M-4 provenance pinning; iter-3 L-2): `{op, transport, exit_code, excerpt,
+  container_id, container_name, image, wall_secs}` where the harness writes
+  `container_id`/`container_name`/`image` from `docker inspect` of the executor; the validator requires executor `image` == the CC image recorded in
   `images.json` and the executor attached to `dmac-cc-net` (via `network_inspect.json` join on
   container id/name). Bundle FAILS on: any missing op, any exit 7 (missing backend — the
   amendment's defining failure), any nonzero exit EXCEPT the pinned Layer-2 write form, or
@@ -996,8 +998,13 @@ bridge; the flow must be redesigned for the G7-10 volume world.
   run (harness-written from `docker logs` of the nginx container, timestamps inside the gate
   window) — and the validator matches, per op, at least one hit on that op's assistant
   endpoint path within the window (all 9 ops traverse nginx: sidecar ops via
-  sidecar→nginx→Django, viewset ops via agent→nginx). A matrix row set copied from another run
-  cannot supply this window. Per-op request nonces echoed in server responses MAY additionally
+  sidecar→nginx→Django, viewset ops via agent→nginx). **Endpoint-mapping notes (iter-3 L-4):**
+  `nextseek-query` and `nextseek-plan` both hit `POST /nextseek_api/assistant/query/async/` —
+  their check is ONE shared endpoint-hit requirement, not two (a literal per-op count would
+  double-count one request); and the artifact depends on nginx access logging, which
+  `docker/nginx.conf` currently leaves to the compiled default — Task 13 pins an explicit
+  `access_log` directive so a future conf edit cannot silently kill the gate's evidence
+  source. A matrix row set copied from another run cannot supply this window. Per-op request nonces echoed in server responses MAY additionally
   be recorded where the op's contract already echoes request fields (optional strengthening,
   not required).
 - [ ] Step 2: failing validator tests — `dmac-cc-net` membership becomes a CLOSED SET,
@@ -1018,29 +1025,46 @@ bridge; the flow must be redesigned for the G7-10 volume world.
   turn (iter-2 R2-H1/R2-M2 — the 180 s turn hard cap makes an in-turn 9-op matrix
   structurally unachievable and this wave must not relax the cap): the harness spawns
   `dmac-cc-matrix-<run_id>` with the SAME image as `images.json`'s CC image, attached to
-  `dmac-cc-net`, with the same agent env contract (gate user's own creds + sidecar/topology
-  vars; NEVER shared secrets), executes the 9 ops sequentially inside it via `docker exec`
-  (per-op timeout pinned; harness controls executor lifetime), records its `docker inspect`
-  provenance, then invokes the trusted sweep entrypoint (Task 14) and captures
-  `post_sweep_user_tree_scan.txt`. **Capture spec (iter-2 R2-M1):** `network_inspect.json`
+  `dmac-cc-net`, **with env produced by the SAME `build_agent_environment` code path used for
+  production agents** (iter-3 M-1: the harness must not hand-assemble the env — it calls the
+  engine's own builder, or spawns via an engine helper that does, so every existing env guard
+  applies by construction), executes the 9 ops sequentially inside it via `docker exec`
+  (per-op timeout pinned; harness controls executor lifetime and removes it after), records
+  its `docker inspect` provenance, then invokes the trusted sweep entrypoint (Task 14) and
+  captures `post_sweep_user_tree_scan.txt`. **REQUIRED companion artifacts (iter-3 M-1/L-3):**
+  `matrix_env_scan.txt` — sanitized env scan of the executor, validated with the SAME
+  no-shared-creds rules as `agent_env_scan.txt`; and `sweep_invocation.json` — the recorded
+  trusted-sweep invocation `{command, exit_code, output_excerpt, timestamp}` (the validator
+  enforces presence + exit 0 whenever the matrix artifacts are present).
+  **In-turn viability evaluation (iter-3 M-2 — the gate must not silently certify ops the
+  180 s production turn can never run):** the validator computes, per op, an
+  `in_turn_viable` verdict = `wall_secs` < the documented headroom constant (pinned:
+  150 s = `_TIMEOUT_HARD_MAX` − boot/prompt slack); ops failing it do NOT fail the bundle
+  (capability ≠ latency), but the validator output MUST list them and Task 11's handoff MUST
+  surface them as a named user decision (raise the cap? accept ops as gate-proven but
+  in-turn-degraded? async op pattern?). `wall_secs` is thereby evaluated, not just recorded. **Capture spec (iter-2 R2-M1):** `network_inspect.json`
   becomes the FULL `docker network inspect dmac-cc-net` JSON (containers keyed by ID with
   `Name` fields), captured TWICE into the bundle: `network_inspect.json` DURING the forced
   turn (same poll window as the isolation scan — the post-turn agent is force-removed, so
   only an in-turn capture can contain the agent name) and `network_inspect_matrix.json`
   during the matrix window (contains `dmac-cc-matrix-<run_id>`). Matrix rows gain
   `container_name`; the validator joins row `container_id` → inspect JSON key → `Name` and
-  requires `Name == "dmac-cc-matrix-<run_id>"` (or the agent name if an op was legitimately
-  exec'd in-turn), image == `images.json` CC image.
+  requires `Name == "dmac-cc-matrix-<run_id>"` for EVERY row (iter-3 M-3: the former
+  "or the agent name if exec'd in-turn" branch is struck — all matrix rows come from the gate
+  executor, no exceptions), image == `images.json` CC image.
 - [ ] Step 3b (iter-1 H-3 — seeded fixture, no unachievable gates): the gate harness creates a
   minimal seeded fixture BEFORE the matrix run, as the gate user via the authenticated REST
   API: one sandbox project + a small set of sample UIDs (recorded in a new generated artifact
   `seeded_fixture.json`: what was created, ids, requests used — secret-scanned). All
   data-dependent ops (`report`, `generate-submission`, `api-read`, `graph`) target the seeded
   fixture. Where an op has legitimate empty-data semantics instead, the ONLY acceptable form
-  is **exit 0 with a documented empty-result excerpt shape** (empty rows / empty saved_files —
-  iter-2 R2-M3: a documented NONZERO exit is never acceptable; if an op cannot exit 0 against
-  the fixture, that is a fixture defect this step fixes by seeding more, not a validator
-  allowance). The write-op exercise targets ONLY seeded sandbox
+  is **exit 0 with a documented SUCCESSFUL-empty excerpt shape** (empty rows / empty
+  saved_files WITH the op's success marker, e.g. `ok: true` / no `error` field — iter-2 R2-M3
+  + iter-3 L-5: a documented NONZERO exit is never acceptable, and an exit-0 excerpt carrying
+  a failure payload such as `{"ok": false, "error": "graph agent produced no cypher"}` MUST
+  FAIL the shape check — agent failure is not empty data; if an op cannot produce a
+  successful result against the fixture, that is a fixture defect this step fixes by seeding
+  more, not a validator allowance). The write-op exercise targets ONLY seeded sandbox
   entities (write-gate confirmed leg needs the user's explicit sign-off recorded in evidence;
   otherwise the exit-5 `WRITE_BLOCKED` leg alone is recorded and the validator accepts the
   pinned Layer-2 form). **Server-side LLM prerequisites:** the 7 sidecar ops invoke
@@ -1054,8 +1078,10 @@ bridge; the flow must be redesigned for the G7-10 volume world.
   matrix with one exit-7, a matrix whose executor image/name provenance mismatches the
   matrix-window inspect, a report row without a user-subtree `published_path`, a
   `published_path` absent from `post_sweep_user_tree_scan.txt`, a bundle missing any of
-  {matrix, seeded_fixture, gate_access_log_window, post_sweep_user_tree_scan, either inspect},
-  and an access-log window lacking a hit for any op; closed-set peer check passes the
+  {matrix, seeded_fixture, gate_access_log_window, post_sweep_user_tree_scan, either inspect,
+  matrix_env_scan, sweep_invocation}, a matrix_env_scan carrying shared creds, a
+  sweep_invocation with nonzero exit, and an access-log window lacking a hit for any op
+  (query/plan share one endpoint check); closed-set peer check passes the
   legitimate trio + general-pattern agents + this run's required agent name + the matrix
   executor, and fails a planted stranger (bare and compose-prefixed forms both tested).
 - [ ] Commit: `test(cc-step7): all-9-ops capability gate + closed-set dmac-cc-net peers (G7-11)`
@@ -1110,3 +1136,5 @@ bridge; the flow must be redesigned for the G7-10 volume world.
 | 2 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-1: H-1 fifth invariant (in-turn sweep + published_path cross-check) + sidecar-sweeper clause struck; H-2 deterministic agent names (`dmac-cc-agent-<run_id>`, Task 13 Step 2b) + name-based closed set replacing run_id-substring seam; H-3 seeded fixture (`seeded_fixture.json`, Step 3b) + Layer-2 exit-5/WRITE_BLOCKED pin + server-side LLM prereqs into Tasks 7/8 + spend estimate; M-1 `_staging` bootstrap owned (Step 2c) + fallback blast radius pre-enumerated; M-2 placeholder deleted (no-mount two-state); M-3 Task 2/7/8 locked-text amendments; M-4 matrix provenance (container_id/image/network join); L-1..L-5 all applied |
 | 3 | Fresh cold-context (2026-07-02, iter 2) | **CONDITIONAL_ACCEPTANCE** | 0C/1H/4M/6L — see `.vetting/plan-7-g711-review-2-fresh.md`. Threads G/H/I/J all RE-RAISED PARTIAL. R2-H1: in-turn matrix structurally unachievable under the 180 s hard turn cap; R2-M1 inspect timing/format/join-key; R2-M2 DOA harness-executor clause; R2-M3 empty-data hatch contradicts pinned exit rule; R2-M4 no anti-fabrication binding. Hardener mechanisms verified real (publish-path hook, uid 1001, seed dumps, endpoint existence) |
 | 4 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-2: R2-H1 fix (b) — single trusted sweep entrypoint (in-turn for production, harness-invoked for the gate) + dedicated gate executor `dmac-cc-matrix-<run_id>` (no turn-cap relaxation); R2-M1 dual FULL network inspects (during-turn + matrix-window) + `container_name` in rows + id→Name join; R2-M2 clause replaced by the reserved matrix executor in the closed set; R2-M3 hatch pinned to exit-0-with-empty-shape only; R2-M4 `gate_access_log_window.txt` per-op nginx-hit match + `post_sweep_user_tree_scan.txt` on-disk published_path check; R2-L1 tracker-7b obligation recorded (preamble + Task 11); R2-L2 name-charset guard; R2-L3 §2 bin names; R2-L4 target-contract tense; R2-L5 general agent pattern + own-name-required; R2-L6 stray-housekeeping carve-out |
+| 5 | Fresh cold-context (2026-07-02, iter 3) | **CONDITIONAL_ACCEPTANCE** | 0C/0H/3M/5L — see `.vetting/plan-7-g711-review-3-fresh.md`. Threads **I + J CLOSED** (exit-0-only hatch proven achievable per-op vs granular.py; all locked-text amendments verified). G/H re-raised PARTIAL: M-1 executor env asserted not verified (bypasses build_agent_environment guards, no env-scan artifact); M-2 uncapped gate never evaluates wall_secs vs the 180 s production cap; M-3 in-turn-agent-name join branch contradicts §8 |
+| 6 | Hardener (orchestrator) — **not a reviewer** | *(pending fresh re-vet)* | Iter-3: M-1 executor env via production `build_agent_environment` code path + REQUIRED `matrix_env_scan.txt` (same no-shared-creds validation); M-2 per-op `wall_secs` evaluated vs pinned 150 s in-turn headroom — bundle stays green but exceeders MUST appear in validator output + Task 11 handoff as a named user decision; M-3 branch struck (all rows executor-only); L-1 §8 parenthetical fixed; L-2 container_name in Step 1 schema; L-3 `sweep_invocation.json` pinned; L-4 explicit nginx `access_log` directive (Task 13 Files) + query/plan shared-endpoint note; L-5 successful-empty shape only (ok:false payload MUST FAIL) |

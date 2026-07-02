@@ -245,8 +245,16 @@ Required generated artifacts:
   (`TRANSPORT_ERROR` — missing backend); any nonzero exit except the pinned Layer-2 write form
   (unconfirmed write leg = exit 5 + stderr `WRITE_BLOCKED`; user-approved confirmed leg =
   exit 0). `nextseek-report`/`nextseek-generate-submission` rows must record `published_path`
-  under the gate user's own `{project}/{user}/` subtree (the in-turn sweep's output — dead
-  `/staging/...`-only paths fail). Data-dependent ops target the seeded fixture recorded in
+  under the gate user's own `{project}/{user}/` subtree (the post-matrix trusted-sweep
+  invocation's output, recorded in **`sweep_invocation.json`** `{command, exit_code,
+  output_excerpt, timestamp}` — iter-3 L-1/L-3; dead `/staging/...`-only paths fail). The
+  executor's env is produced by the production `build_agent_environment` code path and proven
+  by **`matrix_env_scan.txt`** (same no-shared-creds validation as `agent_env_scan.txt` —
+  iter-3 M-1); every row's `Name` must equal `dmac-cc-matrix-<run_id>` (no in-turn-agent
+  exception — iter-3 M-3). The validator evaluates per-op `wall_secs` against the documented
+  150 s in-turn headroom constant: ops exceeding it stay bundle-green (capability ≠ latency)
+  but MUST be listed in `validator_output.txt` and surfaced by Task 11's handoff as a named
+  user decision (iter-3 M-2). Data-dependent ops target the seeded fixture recorded in
   **`seeded_fixture.json`** (companion REQUIRED artifact when the matrix runs: sandbox
   project/sample ids created via the gate user's authenticated REST calls). Secret-scanned like
   every artifact; `meta.json` gains `matrix_spend_estimate_usd` (best-effort + method note).

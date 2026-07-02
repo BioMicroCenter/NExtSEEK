@@ -209,3 +209,14 @@ iter-20 Compose ≥2.26 vs docker-py Engine-API floor inconsistency.
 | — | 2 (hardener) | — | R2-H1→single trusted sweep entrypoint + dedicated gate executor dmac-cc-matrix-<run_id> (no cap relaxation); R2-M1→dual full inspects + container_name + id→Name join; R2-M2→reserved executor name in closed set; R2-M3→exit-0-empty-shape only; R2-M4→gate_access_log_window per-op nginx match + post_sweep_user_tree_scan on-disk check; L1/L2/L3/L4/L5/L6 all applied | pending fresh re-vet | — |
 
 Iter-2 also VERIFIED (no re-raise): fifth-invariant hook real at run_cc_turn publish path; no-mount Task-13 two-state valid; _staging bootstrap uid-1001 correct; seeded greenfield credible (tracked seed dumps + admin demo user + both fixture endpoints in-tree); Layer-2 pin matches wire contract; all three in-plan locked-text amendments correct.
+
+### Iter-3 fresh review (2026-07-02) — threads I + J CLOSED; G/H re-raised PARTIAL; iter-3 hardening applied
+
+| Thread | Iter | Severity | Finding | Class | Parent |
+|--------|------|----------|---------|-------|--------|
+| I | 3 | — | **CLOSED** — exit-0-only hatch consistent; per-op achievability independently proven vs granular.py | — | — |
+| J | 3 | — | **CLOSED** — all locked-text amendments verified; tracker-7b obligation durably recorded | — | — |
+| H | 3 | MEDIUM | Gate executor env asserted only — bypasses build_agent_environment guards; no env-scan artifact (M-1) | NEW | iter-2 hardening |
+| G | 3 | MEDIUM | Uncapped gate certifies ops the 180 s production turn can never run; wall_secs recorded never evaluated (M-2) | PARTIAL | R2-H1 |
+| H | 3 | MEDIUM | "agent name if exec'd in-turn" join branch contradicts §8; reopens executor-provenance seam (M-3) | REGRESSION | iter-2 hardening |
+| — | 3 (hardener) | — | M-1→env via production build_agent_environment + REQUIRED matrix_env_scan.txt; M-2→per-op wall_secs vs pinned 150 s headroom, exceeders listed + Task 11 user decision; M-3→branch struck; L-1..L-5 applied (sweep_invocation.json pinned, container_name in Step 1 schema, nginx access_log directive owned by Task 13, query/plan shared endpoint, successful-empty-only shape) | pending fresh re-vet | — |
