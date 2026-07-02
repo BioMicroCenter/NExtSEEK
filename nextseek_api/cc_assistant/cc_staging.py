@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -76,6 +77,17 @@ STAGING_SUBDIR = "_staging"
 # Destination child under the user's scratch subtree (upstream parity:
 # staging_sweep.py:52 uses ``nextseek-artifacts``).
 ARTIFACTS_SUBDIR = "nextseek-artifacts"
+
+# Fix round 1 (reviewer finding): request dirs are named by the sidecar's
+# request_id, which the WS contract canonicalizes via ``str(UUID(v))``
+# (docker/ns-sidecar/app/contract.py:57-64) — always the 36-char lowercase
+# hex+hyphen form. Pin the sweep to exactly that shape so a marker whose stem
+# is ``..`` (or any other non-canonical name) can never become a request-dir
+# path segment — a guard INDEPENDENT of the sidecar's own canonicalization,
+# as the module docstring promises.
+_REQUEST_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
 
 
 @dataclass(frozen=True)
@@ -120,13 +132,17 @@ def _safe_rel(rel: Path) -> bool:
 
 
 def _is_within(base: Path, candidate: Path) -> bool:
-    """True iff ``candidate`` is lexically inside ``base`` (no symlink resolution
-    — dest is the user's own scratch; we only guard against ``..`` escapes)."""
+    """True iff ``candidate`` is lexically inside ``base`` AND its base-relative
+    tail carries no ``..`` component. ``Path.relative_to`` alone is purely
+    lexical — ``(base / "..").relative_to(base)`` yields ``PurePath("..")``
+    WITHOUT raising — so the tail must additionally be ``..``-free or a
+    ``..``-named segment would escape ``base`` (fix round 1, reviewer finding).
+    No symlink resolution (symlinks are refused separately by the callers)."""
     try:
-        candidate.relative_to(base)
-        return True
+        rel = candidate.relative_to(base)
     except ValueError:
         return False
+    return ".." not in rel.parts
 
 
 def _disambiguate(dst: Path) -> Path:
@@ -183,6 +199,15 @@ def sweep_user_staging(
 
     for marker in sorted(src_base.glob("*.complete")):
         req_id = marker.stem
+        # Fix round 1: req_id becomes a path segment — pin it to the canonical
+        # UUID form the sidecar contract guarantees BEFORE any use (including
+        # deferral bookkeeping). A ``..``/separator-bearing or otherwise
+        # non-canonical marker stem is refused, never interpolated.
+        if not _REQUEST_ID_RE.fullmatch(req_id):
+            logger.warning(
+                "cc staging sweep: refusing non-canonical request id %r", req_id
+            )
+            continue
         req_dir = src_base / req_id
 
         # In-turn mode: skip OLDER strays (not this turn) so they are not

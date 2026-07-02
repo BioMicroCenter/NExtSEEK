@@ -281,6 +281,86 @@ def test_safe_rel_and_within_guards():
     base = Path("/dmac/users/42-proj/alice/scratch/nextseek-artifacts")
     assert cc_staging._is_within(base, base / "sub" / "f.txt")
     assert not cc_staging._is_within(base, base.parent / "escape.txt")
+    # Fix round 1: Path.relative_to is purely lexical — (base/"..") "passes" it
+    # (yields PurePath("..")), so _is_within must ALSO reject ``..`` tails.
+    assert not cc_staging._is_within(base, base / "..")
+    assert not cc_staging._is_within(base, base / ".." / "sibling")
+    assert not cc_staging._is_within(base, base / "sub" / ".." / ".." / "x")
+
+
+def test_dotdot_named_request_marker_cannot_escape_hashed_base(tmp_path):
+    """FIRING control (fix round 1, reviewer finding): a hostile ``...complete``
+    marker (the only filename that can put ``..`` in front of the ``.complete``
+    tail) must be refused with the marker LEFT IN PLACE, and a foreign user's
+    staged bytes must never reach the caller's scratch.
+
+    Why this fires RED under the unfixed code: ``marker.stem`` semantics are
+    pathlib-version-dependent — on Pythons where ``Path("...complete").stem ==
+    ".."``, the old ``req_dir = src_base / ".."`` resolved to the WHOLE
+    ``_staging`` dir and ``Path.relative_to`` (purely lexical) did not flag it,
+    so the sweep would rglob EVERY user's hash dir and deliver foreign bytes
+    (the foreign-bytes assertions below catch that); on the runtime Python
+    (3.14, where the stem parses as the whole name) the old code instead
+    UNLINKED the marker as a "stray" (the marker-preserved assertion below
+    catches that). The fixed code refuses any non-canonical-UUID stem before
+    any use — version-independent — and ``_is_within`` now independently
+    rejects ``..`` tails (unit-tested above)."""
+    root = tmp_path / "users"
+    scratch = _scratch(root, PROJECT, USER)
+    # A FOREIGN user's completed staged artifact elsewhere under _staging.
+    foreign_req = _stage(root, "mallory@x", "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                         {"foreign.csv": b"FOREIGN"})
+    base = root / "_staging" / hashlib.sha256(API_USER.encode()).hexdigest()
+    base.mkdir(parents=True, exist_ok=True)
+    hostile = base / "...complete"
+    hostile.write_text("")
+
+    res = cc_staging.sweep_user_staging(
+        user_root_mount=str(root), scratch_dir=str(scratch),
+        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+    )
+    # Nothing delivered; the foreign user's bytes never reach the caller's scratch.
+    assert res.delivered == [] and res.deferred_markers == []
+    assert not (scratch / "nextseek-artifacts").exists()
+    for p in scratch.rglob("*"):
+        if p.is_file():
+            assert p.read_bytes() != b"FOREIGN"
+    # Refused marker is preserved (never unlinked / interpolated).
+    assert hostile.exists()
+    # Foreign staging untouched (not swept, not deleted).
+    assert (foreign_req / "foreign.csv").read_bytes() == b"FOREIGN"
+    assert (foreign_req.parent / "cccccccc-cccc-cccc-cccc-cccccccccccc.complete").exists()
+
+
+@pytest.mark.parametrize("bad_stem", [
+    "..",                                    # traversal
+    "evil",                                  # not a UUID
+    "AAAAAAAA-1111-1111-1111-111111111111",  # uppercase hex — not str(UUID(...)) canonical form
+    "11111111111111111111111111111111",      # unhyphenated hex
+])
+def test_non_canonical_request_id_marker_refused(tmp_path, bad_stem):
+    """The sweep only ever interpolates canonical `str(UUID(...))` request ids
+    (docker/ns-sidecar/app/contract.py:57-64) as path segments — a shape guard
+    independent of the sidecar's own canonicalization (defense in depth, fix
+    round 1). Refused markers are left in place, never unlinked as strays."""
+    root = tmp_path / "users"
+    scratch = _scratch(root, PROJECT, USER)
+    base = root / "_staging" / hashlib.sha256(API_USER.encode()).hexdigest()
+    base.mkdir(parents=True, exist_ok=True)
+    if bad_stem != "..":  # a dir literally named ".." cannot exist
+        req = base / bad_stem
+        req.mkdir(parents=True, exist_ok=True)
+        (req / "x.csv").write_bytes(b"x")
+    (base / f"{bad_stem}.complete").write_text("")
+
+    res = cc_staging.sweep_user_staging(
+        user_root_mount=str(root), scratch_dir=str(scratch),
+        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+    )
+    assert res.delivered == [] and res.deferred_markers == []
+    assert not (scratch / "nextseek-artifacts").exists()
+    # Refused marker is left in place (never unlinked as a "stray").
+    assert (base / f"{bad_stem}.complete").exists()
 
 
 def test_nested_relpath_preserved_within_subtree(tmp_path):
