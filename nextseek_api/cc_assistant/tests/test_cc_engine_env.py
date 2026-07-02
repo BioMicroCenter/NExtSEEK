@@ -32,13 +32,124 @@ def test_default_network_is_dedicated_segmented_net():
 def test_run_kwargs_attaches_default_network():
     kw = cc_engine._run_kwargs(
         image="img", command=["claude"], environment={"A": "b"},
-        mounts=[], run_id="r1", user_id="demo",
+        mounts=[], run_id="a1", user_id="demo",
     )
     assert kw["network"] == "dmac-cc-net"
     assert kw["working_dir"] == "/home/user"
     assert kw["labels"]["nextseek.cc.user"] == "demo"
-    assert kw["labels"]["nextseek.cc.run"] == "r1"
+    assert kw["labels"]["nextseek.cc.run"] == "a1"
     assert "volumes" not in kw  # G7-10 atomic cutover: mounts=, never volumes=
+
+
+# --- Step 2b (iter-1 H-2): deterministic agent container naming --------------
+
+def test_run_kwargs_sets_deterministic_container_name():
+    kw = cc_engine._run_kwargs(
+        image="img", command=["claude"], environment={}, mounts=[],
+        run_id="abcd1234-ef56", user_id="demo",
+    )
+    assert kw["name"] == "dmac-cc-agent-abcd1234-ef56"
+
+
+def test_run_kwargs_name_pattern_matches_celery_uuid_style_run_id():
+    # Celery task UUIDs are exactly this charset (hex + dashes).
+    run_id = "3fae7c9a-1b2d-4e3f-9a0b-6c7d8e9f0a1b"
+    kw = cc_engine._run_kwargs(
+        image="img", command=["claude"], environment={}, mounts=[],
+        run_id=run_id, user_id="demo",
+    )
+    assert kw["name"] == f"dmac-cc-agent-{run_id}"
+
+
+@pytest.mark.parametrize("bad_run_id", [
+    "demo@mit.edu",   # _USER_ID_RE admits '@' -- not docker-name-safe
+    "run+1",          # _USER_ID_RE admits '+' -- not docker-name-safe
+    "",
+    "Has_Upper_And_Underscore",
+    "run id with spaces",
+])
+def test_run_kwargs_rejects_names_unsafe_for_docker_container_name(bad_run_id):
+    with pytest.raises(ValueError):
+        cc_engine._run_kwargs(
+            image="img", command=["claude"], environment={}, mounts=[],
+            run_id=bad_run_id, user_id="demo",
+        )
+
+
+# --- Step 2b: stale-name retry on a 409 Conflict ------------------------------
+
+def test_spawn_retries_once_on_stale_name_conflict():
+    from docker.errors import APIError
+
+    class _FakeResponse:
+        status_code = 409
+
+    class _FakeContainers:
+        def __init__(self):
+            self.run_calls = 0
+            self.removed = []
+
+        def run(self, **kw):
+            self.run_calls += 1
+            if self.run_calls == 1:
+                raise APIError("conflict", response=_FakeResponse())
+            return "container-ok"
+
+        def get(self, name):
+            class _Stale:
+                def remove(_self, force=False):
+                    self.removed.append((name, force))
+            return _Stale()
+
+    class _FakeClient:
+        def __init__(self):
+            self.containers = _FakeContainers()
+
+    client = _FakeClient()
+    result = cc_engine._spawn_with_stale_name_retry(client, {"name": "dmac-cc-agent-abc"})
+
+    assert result == "container-ok"
+    assert client.containers.run_calls == 2
+    assert client.containers.removed == [("dmac-cc-agent-abc", True)]
+
+
+def test_spawn_does_not_retry_on_non_409_error():
+    from docker.errors import APIError
+
+    class _FakeResponse:
+        status_code = 500
+
+    class _FakeContainers:
+        def __init__(self):
+            self.run_calls = 0
+
+        def run(self, **kw):
+            self.run_calls += 1
+            raise APIError("server error", response=_FakeResponse())
+
+        def get(self, name):  # pragma: no cover — must not be reached
+            raise AssertionError("must not call containers.get on a non-409 error")
+
+    class _FakeClient:
+        def __init__(self):
+            self.containers = _FakeContainers()
+
+    client = _FakeClient()
+    with pytest.raises(APIError):
+        cc_engine._spawn_with_stale_name_retry(client, {"name": "dmac-cc-agent-abc"})
+    assert client.containers.run_calls == 1
+
+
+def test_spawn_succeeds_immediately_without_conflict():
+    class _FakeContainers:
+        def run(self, **kw):
+            return "container-first-try"
+
+    class _FakeClient:
+        containers = _FakeContainers()
+
+    result = cc_engine._spawn_with_stale_name_retry(_FakeClient(), {"name": "dmac-cc-agent-abc"})
+    assert result == "container-first-try"
 
 
 # --- OI-3 zero-credential agent env (THE security contract) -------------------
@@ -164,6 +275,27 @@ def test_rewrite_helper_without_port():
 
 def test_rewrite_helper_leaves_remote_host():
     assert cc_engine._rewrite_loopback_url("http://example.org:9000") == "http://example.org:9000"
+
+
+# --- Step 2: NS sidecar host/port (load-bearing -- must equal the compose ----
+# service name / _sidecar_client.py's own defaults) --------------------------
+
+def test_agent_env_includes_sidecar_host_and_port_defaults():
+    env = cc_engine.build_agent_environment(
+        source={}, api_user="d", api_pass="p", path_mappings={},
+    )
+    assert env["NEXTSEEK_SIDECAR_HOST"] == "nextseek-sidecar"
+    assert env["NEXTSEEK_SIDECAR_PORT"] == "8765"
+
+
+def test_agent_env_sidecar_host_and_port_overridable():
+    env = cc_engine.build_agent_environment(
+        source={"NEXTSEEK_SIDECAR_HOST": "other-sidecar-host",
+                "NEXTSEEK_SIDECAR_PORT": "9999"},
+        api_user="d", api_pass="p", path_mappings={},
+    )
+    assert env["NEXTSEEK_SIDECAR_HOST"] == "other-sidecar-host"
+    assert env["NEXTSEEK_SIDECAR_PORT"] == "9999"
 
 
 # --- command: auto-mode + caps + $defaults-first allowlist (NOT skip-perms) ---

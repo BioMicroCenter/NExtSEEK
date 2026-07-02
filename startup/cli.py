@@ -140,6 +140,10 @@ def install(
     ui.step(5, total, "Creating docker volumes")
     created = volumes.ensure_volumes(prefix)
     ui.ok(f"{len(created)} created, {6 - len(created)} already existed")
+    # G7-11 Task 13 (iter-1 M-1): bootstrap the `_staging` dir inside
+    # dmac-cc-users ahead of Task 14's sidecar subpath mount -- no new
+    # operator step, folded into the same install phase as the volumes above.
+    volumes.ensure_cc_staging_dir(prefix)
 
     # [6/9] Seeds (gated on populated check, or skipped entirely with --no-seed)
     ui.step(6, total, "Importing seed databases")

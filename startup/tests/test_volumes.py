@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from startup.steps.volumes import REQUIRED_VOLUMES, volume_names_for_prefix, ensure_volumes
+from startup.steps.volumes import (
+    REQUIRED_VOLUMES,
+    volume_names_for_prefix,
+    ensure_volumes,
+    ensure_cc_staging_dir,
+)
 
 
 def test_required_volumes_has_seven_names() -> None:
@@ -57,3 +62,26 @@ def test_ensure_volumes_skips_existing(mock_create: MagicMock, mock_exists: Magi
     created = ensure_volumes("")
     assert mock_create.call_count == 0
     assert created == []
+
+
+# --------------------------------------------------------------------------
+# Step 2c (iter-1 M-1): `_staging` bootstrap. Docker's Engine refuses a
+# container-create whose VolumeOptions.Subpath backing dir is absent inside
+# the volume, and compose `restart:` does NOT retry create failures -- so
+# the `_staging` dir (Task 14's future sidecar subpath mount) must exist
+# before any `docker compose up` of the sidecar is ever attempted. This runs
+# as part of `./startup.sh install` (no new operator step).
+# --------------------------------------------------------------------------
+
+@patch("startup.steps.volumes.bootstrap_staging_dir")
+def test_ensure_cc_staging_dir_bootstraps_prefixed_dmac_cc_users_volume(
+    mock_bootstrap: MagicMock,
+) -> None:
+    ensure_cc_staging_dir("test-")
+    mock_bootstrap.assert_called_once_with("test-dmac-cc-users")
+
+
+@patch("startup.steps.volumes.bootstrap_staging_dir")
+def test_ensure_cc_staging_dir_empty_prefix(mock_bootstrap: MagicMock) -> None:
+    ensure_cc_staging_dir("")
+    mock_bootstrap.assert_called_once_with("dmac-cc-users")

@@ -93,6 +93,58 @@ services:
     network_mode: none
     command: ["true"]
 
+  # NS shared-cred sidecar (G7-11, Task 13): forwards granular per-request
+  # NExtSEEK ops over a WebSocket the agent's nextseek plugin dials directly
+  # (docker/cc-runtime/build_context/plugins/nextseek/bin/_sidecar_client.py).
+  # THE COMPOSE SERVICE NAME IS THE LOAD-BEARING IDENTITY: `nextseek-sidecar`
+  # MUST equal `_sidecar_client.py`'s `NEXTSEEK_SIDECAR_HOST` default — that
+  # is the Docker DNS alias agents actually resolve. `container_name:
+  # nextseek-sidecar` is pinned only for host-side ops (`docker logs` /
+  # `docker inspect` / the validator's closed-set peer check), same pattern
+  # as `dmac-bedrock-proxy` above.
+  #
+  # OI-3: env carries ONLY the three non-secret keys below.
+  # NEXTSEEK_BASE_URL is pinned to the literal dual-homed nginx entrypoint —
+  # the sidecar's ONLY route back into NExtSEEK, same as the agent
+  # (cc_engine._NEXTSEEK_SERVICE_HOST). Per-request user Basic auth arrives
+  # inside WS frames from the agent, never via os.environ. No `ports:` —
+  # reachable only inside dmac-cc-net, never the default stack network.
+  #
+  # Task 13 vs Task 14 (documented two-state, Task 3/4 precedent): this
+  # service ships with NO `dmac-cc-users` mount; `SIDECAR_STAGING_DIR` points
+  # at a container-local path (the upstream `config.py` only requires the
+  # var to be set; `staging.py` mkdirs it lazily on first use). Download/
+  # stage ops are therefore non-functional-by-design until Task 14 lands the
+  # `_staging` subpath mount of `dmac-cc-users` (bootstrapped by
+  # `startup/steps/volumes.py::ensure_cc_staging_dir` ahead of that mount).
+  nextseek-sidecar:
+    build:
+      context: ./docker/ns-sidecar
+    image: nextseek-ns-sidecar:latest
+    container_name: nextseek-sidecar
+    restart: unless-stopped
+    environment:
+      NEXTSEEK_BASE_URL: http://nextseek_nginx
+      SIDECAR_STAGING_DIR: /home/sidecar/staging
+      SIDECAR_WS_PORT: "8765"
+    networks:
+      - dmac-cc-net
+    # Cold-start tolerance (Task 9/10 bring-up evidence must not capture a
+    # red-herring "unhealthy"): the sidecar's healthcheck GETs through
+    # nginx -> Django (see docker/ns-sidecar/app/healthcheck.py), which is
+    # legitimately unhealthy until the whole stack finishes booting.
+    # start_period + retries lifted from the upstream sidecar compose
+    # fragment's tolerance (dmac-assistant/sidecar/docker-compose.yml
+    # @a429f13) — everything else there (networks, env files, volumes) is
+    # deliberately NOT ported (the A-1 backend-network attachment is dead
+    # post-T16 and forbidden here).
+    healthcheck:
+      test: ["CMD", "python", "-m", "sidecar.app.healthcheck"]
+      interval: 10s
+      timeout: 8s
+      retries: 6
+      start_period: 20s
+
   db: # Database implementation, in this case MySQL
     image: mysql:8.0
     container_name: seek-mysql

@@ -47,7 +47,10 @@ def main() -> int:
         print(f"ERROR: probe memory missing at {probe_memory}", file=sys.stderr)
         return 2
 
-    run_id = f"probe-{uuid.uuid4().hex[:8]}"
+    # Step 2b (iter-2 R2-L2): run_id feeds the deterministic container name
+    # (cc_engine._container_name_for_run), which fail-closes on anything
+    # outside [0-9a-f-] -- a "probe-" prefix would trip that guard.
+    run_id = uuid.uuid4().hex[:12]
     events: list[tuple[str, dict]] = []
 
     def send_event(name: str, data: dict) -> None:

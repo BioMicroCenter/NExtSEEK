@@ -13,6 +13,7 @@ from startup.lib.docker_ops import (
     compose_exec,
     volume_exists,
     volume_create,
+    bootstrap_staging_dir,
 )
 
 
@@ -59,6 +60,36 @@ def test_volume_create_invokes_docker_volume_create(mock_run: MagicMock) -> None
     volume_create("my-volume")
     args = mock_run.call_args.args[0]
     assert args == ["docker", "volume", "create", "my-volume"]
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_bootstrap_staging_dir_invokes_docker_run_alpine_mkdir_chown(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    bootstrap_staging_dir("dmac-cc-users")
+    args = mock_run.call_args.args[0]
+    assert args[:4] == ["docker", "run", "--rm", "-v"]
+    assert "dmac-cc-users:/v" in args
+    assert args[-4] == "alpine"
+    assert args[-3] == "sh"
+    assert args[-2] == "-c"
+    shell_cmd = args[-1]
+    assert "mkdir -p /v/_staging" in shell_cmd
+    assert "chown 1001 /v/_staging" in shell_cmd
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_bootstrap_staging_dir_uid_overridable(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    bootstrap_staging_dir("dmac-cc-users", uid=2000)
+    shell_cmd = mock_run.call_args.args[0][-1]
+    assert "chown 2000 /v/_staging" in shell_cmd
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_bootstrap_staging_dir_raises_on_nonzero_exit(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="boom")
+    with pytest.raises(DockerOpsError, match="boom"):
+        bootstrap_staging_dir("dmac-cc-users")
 
 
 @patch("startup.lib.docker_ops.subprocess.run")

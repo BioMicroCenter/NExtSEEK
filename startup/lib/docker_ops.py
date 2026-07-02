@@ -150,3 +150,24 @@ def volume_create(name: str) -> None:
         text=True,
     )
     _check(result, f"docker volume create {name}")
+
+
+def bootstrap_staging_dir(volume_name: str, *, uid: int = 1001) -> None:
+    """One-shot helper container: mkdir -p + chown the `_staging` subdir
+    inside `volume_name` so a later VolumeOptions.Subpath mount (the NS
+    sidecar's `_staging` mount, Task 14) finds a pre-existing backing
+    directory. Docker's Engine refuses to start a container whose
+    VolumeOptions.Subpath backing dir is absent, and compose `restart:` does
+    NOT retry container-create failures -- this must run at install time.
+    Idempotent (mkdir -p / chown are safe to re-run). `uid` defaults to 1001,
+    the NS sidecar image's non-root user (docker/ns-sidecar/Dockerfile).
+    """
+    result = subprocess.run(
+        [
+            "docker", "run", "--rm", "-v", f"{volume_name}:/v", "alpine",
+            "sh", "-c", f"mkdir -p /v/_staging && chown {uid} /v/_staging",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    _check(result, f"bootstrap _staging dir in volume {volume_name}")

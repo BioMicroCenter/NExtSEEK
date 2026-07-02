@@ -1521,6 +1521,131 @@ def test_compose_yaml_text_never_mentions_srv_dmac_users():
 
 
 # --------------------------------------------------------------------------
+# Task 13 (G7-11): NS shared-cred sidecar compose service. Real
+# `docker compose config` over the committed YAML -- never a hand-edited
+# golden fixture (Task 5 precedent, carried into Task 13).
+# --------------------------------------------------------------------------
+
+SIDECAR_CLIENT_FILE = (
+    REPO_ROOT / "docker" / "cc-runtime" / "build_context" / "plugins"
+    / "nextseek" / "bin" / "_sidecar_client.py"
+)
+
+
+def _duration_to_seconds(value) -> float:
+    """Parse a Go-style duration string (`docker compose config`'s rendering
+    of a healthcheck ``start_period``/``interval``/``timeout``, e.g. "20s",
+    "1m30s") into total seconds. Also accepts a bare int/float (already
+    seconds) for robustness across compose versions."""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    total = 0.0
+    for amount, unit in re.findall(r"(\d+(?:\.\d+)?)(h|m|s|ms)", str(value)):
+        amount = float(amount)
+        total += {"h": 3600.0, "m": 60.0, "s": 1.0, "ms": 0.001}[unit] * amount
+    return total
+
+
+def test_compose_config_includes_nextseek_sidecar_service(tmp_path):
+    cfg = _real_compose_config(tmp_path)
+    assert "nextseek-sidecar" in cfg["services"]
+
+
+def test_compose_config_sidecar_build_context_is_docker_ns_sidecar(tmp_path):
+    cfg = _real_compose_config(tmp_path)
+    ctx = cfg["services"]["nextseek-sidecar"]["build"]["context"]
+    assert ctx.rstrip("/").endswith("docker/ns-sidecar")
+
+
+def test_compose_config_sidecar_container_name_pinned(tmp_path):
+    cfg = _real_compose_config(tmp_path)
+    assert cfg["services"]["nextseek-sidecar"]["container_name"] == "nextseek-sidecar"
+
+
+def test_compose_config_sidecar_service_name_matches_agent_client_default():
+    """The compose SERVICE name is the load-bearing identity: whatever
+    `_sidecar_client.py`'s NEXTSEEK_SIDECAR_HOST falls back to must be the
+    exact compose service key -- that's the Docker DNS alias agents actually
+    resolve (`container_name` is a host-side identity only, see the
+    bedrock-proxy precedent above)."""
+    text = SIDECAR_CLIENT_FILE.read_text(encoding="utf-8")
+    m = re.search(r'os\.environ\.get\("NEXTSEEK_SIDECAR_HOST",\s*"([^"]+)"\)', text)
+    assert m, "could not find NEXTSEEK_SIDECAR_HOST default in _sidecar_client.py"
+    assert m.group(1) == "nextseek-sidecar"
+
+
+def test_compose_config_sidecar_attached_only_to_dmac_cc_net(tmp_path):
+    cfg = _real_compose_config(tmp_path)
+    nets = set(cfg["services"]["nextseek-sidecar"].get("networks") or {})
+    assert nets == {"dmac-cc-net"}
+
+
+def test_compose_config_sidecar_has_no_host_ports_key(tmp_path):
+    """The WS port must be reachable only inside dmac-cc-net, never published
+    to the host."""
+    cfg = _real_compose_config(tmp_path)
+    assert "ports" not in cfg["services"]["nextseek-sidecar"]
+
+
+def test_compose_config_sidecar_healthcheck_present_with_cold_start_tolerance(tmp_path):
+    """The sidecar's healthcheck GETs through nginx -> Django, so it is
+    legitimately unhealthy until the whole stack finishes booting --
+    start_period + retries must encode that so Task 9/10 bring-up evidence
+    doesn't capture a red-herring 'unhealthy'."""
+    cfg = _real_compose_config(tmp_path)
+    hc = cfg["services"]["nextseek-sidecar"].get("healthcheck")
+    assert hc is not None
+    assert hc.get("test")
+    assert hc.get("retries", 0) >= 6
+    # `docker compose config --format json` renders durations back out as Go
+    # duration strings (e.g. "20s", "1m30s"), not nanoseconds.
+    assert _duration_to_seconds(hc.get("start_period")) >= 20
+
+
+def test_compose_config_sidecar_env_carries_only_three_nonsecret_keys(tmp_path):
+    cfg = _real_compose_config(tmp_path)
+    env = cfg["services"]["nextseek-sidecar"].get("environment") or {}
+    assert set(env) == {"NEXTSEEK_BASE_URL", "SIDECAR_STAGING_DIR", "SIDECAR_WS_PORT"}
+
+
+def test_compose_config_sidecar_base_url_pinned_to_nginx_literal(tmp_path):
+    """Do NOT assert equality with the agent's rewritten URL --
+    `_rewrite_loopback_url` passes non-loopback URLs through unchanged, so
+    agent URL != sidecar URL is legitimate; only the sidecar's own literal is
+    pinned here."""
+    cfg = _real_compose_config(tmp_path)
+    env = cfg["services"]["nextseek-sidecar"]["environment"]
+    assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx"
+
+
+def test_compose_config_sidecar_no_dmac_cc_users_mount(tmp_path):
+    """Task 13 ships with NO dmac-cc-users mount (the placeholder option is
+    deleted, iter-1 M-2). Task 14 lands the `_staging` subpath mount and
+    flips this test (documented two-state, Task 3/4 precedent)."""
+    cfg = _real_compose_config(tmp_path)
+    vols = cfg["services"]["nextseek-sidecar"].get("volumes") or []
+    assert not any(v.get("source") == "dmac-cc-users" for v in vols)
+
+
+# --------------------------------------------------------------------------
+# Task 13: nginx access_log must not silently ride on the nginx-image-baked
+# default -- a hermetic guard against a future conf edit that drops it.
+# --------------------------------------------------------------------------
+
+NGINX_CONF_FILE = REPO_ROOT / "docker" / "nginx.conf"
+
+
+def test_nginx_conf_has_explicit_access_log_directive():
+    text = NGINX_CONF_FILE.read_text(encoding="utf-8")
+    assert re.search(r"access_log\s+\S", text), (
+        "docker/nginx.conf must declare an explicit access_log directive "
+        "(never rely on the compiled-in default)"
+    )
+
+
+# --------------------------------------------------------------------------
 # Task 5 Step 3: service-name (`bedrock-proxy`) vs container-name
 # (`dmac-bedrock-proxy`) must never be conflated. These lock in -- with a
 # real cross-file check -- what cc_engine.py / test_cc_realstack.py already

@@ -17,9 +17,19 @@ def test_newest_jsonl_respects_min_mtime(tmp_path):
 
 
 def test_run_cc_turn_sets_turn_start_ts_before_container():
+    """`translator._turn_start_ts` must be set before the CC sibling is
+    spawned. Step 2b (G7-11) extracted the actual `client.containers.run`
+    call into `_spawn_with_stale_name_retry` (defined ahead of `run_cc_turn`
+    in the file for the stale-name-conflict retry), so this now checks
+    ordering WITHIN `run_cc_turn`'s own body against the spawn call site
+    (`_spawn_with_stale_name_retry(client`), not the raw
+    `client.containers.run` substring (which is now that helper's internal
+    implementation detail and would appear earlier in the file regardless of
+    `run_cc_turn`'s internal ordering)."""
     src = (_NSAPI / "cc_assistant" / "cc_engine.py").read_text()
-    idx_ts = src.index("translator._turn_start_ts")
-    idx_run = src.index("client.containers.run")
+    body = src[src.index("def run_cc_turn("):]
+    idx_ts = body.index("translator._turn_start_ts")
+    idx_run = body.index("_spawn_with_stale_name_retry(client")
     assert idx_ts < idx_run
 
 

@@ -1,7 +1,7 @@
 """Create the named volumes required by the compose stack."""
 from __future__ import annotations
 
-from startup.lib.docker_ops import volume_exists, volume_create
+from startup.lib.docker_ops import volume_exists, volume_create, bootstrap_staging_dir
 
 REQUIRED_VOLUMES: list[str] = [
     "seek-filestore",
@@ -29,3 +29,22 @@ def ensure_volumes(prefix: str) -> list[str]:
             volume_create(full_name)
             created.append(full_name)
     return created
+
+
+def ensure_cc_staging_dir(prefix: str) -> None:
+    """Step 2c (G7-11 Task 13, iter-1 M-1): ensure the `_staging` subdir
+    exists inside the (possibly instance-prefixed) `dmac-cc-users` volume,
+    owned by uid 1001 (the NS sidecar's non-root user), before Task 14's
+    `_staging` subpath mount is ever attempted.
+
+    Docker's Engine refuses to start a container whose
+    `VolumeOptions.Subpath` backing directory does not already exist inside
+    the volume, and compose `restart:` does NOT retry container-create
+    failures -- so this must run at install time (`./startup.sh install`,
+    same as `ensure_volumes` above), not lazily at sidecar startup. `_staging`
+    is a reserved top-level name distinct from every project dir (those are
+    always `{pid}-{slug}`, always containing a hyphen after a numeric id),
+    so it can never collide with per-project CC trees in the same volume.
+    Idempotent (mkdir -p / chown).
+    """
+    bootstrap_staging_dir(f"{prefix}dmac-cc-users")

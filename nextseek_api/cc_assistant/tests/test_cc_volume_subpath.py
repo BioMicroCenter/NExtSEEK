@@ -218,7 +218,7 @@ def test_run_kwargs_uses_mounts_not_volumes():
     mounts = _mounts()
     kw = cc_engine._run_kwargs(
         image="img", command=["claude"], environment={"A": "b"},
-        mounts=mounts, run_id="r1", user_id="alice",
+        mounts=mounts, run_id="a1", user_id="alice",
     )
     assert "mounts" in kw
     assert "volumes" not in kw
@@ -304,7 +304,7 @@ def _spy_run_cc_turn(tmp_path, monkeypatch, **overrides):
     kwargs = dict(
         query="q", model_id=None,
         send_event=lambda e, d: events.append((e, d)),
-        user_id="alice", project_dirname="proj", run_id="r1",
+        user_id="alice", project_dirname="proj", run_id="a1",
         paths=paths, cc_state_key="sess",
         memory_claude_md=str(merged),
         transcripts_subpath="proj/alice/_memory/sess/transcripts",

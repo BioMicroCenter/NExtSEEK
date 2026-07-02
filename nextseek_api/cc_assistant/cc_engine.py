@@ -77,6 +77,13 @@ _DEFAULT_TURN_TIMEOUT = min(
 # validated before any path interpolation or a ``..`` user_id is a host-dir escape.
 _USER_ID_RE = re.compile(r"^[A-Za-z0-9._@+-]{1,64}$")
 
+# Step 2b (iter-1 H-2 / iter-2 R2-L2): the deterministic agent container NAME
+# is built from ``run_id`` (a Celery task UUID). ``_USER_ID_RE`` above admits
+# ``@``/``+`` (legal in a NExtSEEK username) but those are NOT safe inside a
+# Docker container ``name=`` — this fail-closed guard is intentionally
+# stricter and scoped only to the name-construction path.
+_CONTAINER_NAME_SAFE_RE = re.compile(r"^[0-9a-f-]{1,64}$")
+
 # I-14: keys whose values must never reach a log line. After OI-3 the agent env
 # holds no AWS/backend creds; the per-request NExtSEEK password is the remaining
 # secret. DMAC_PATH_MAPPINGS encodes host layout (not a credential, still redact).
@@ -197,6 +204,17 @@ _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "0.0.0.0"})
 # Django-safe upstream Host (proxy_set_header Host localhost) so it returns 200.
 _NEXTSEEK_SERVICE_HOST = "nextseek_nginx"
 
+# Step 2 (G7-11, Task 13): the agent's nextseek plugin dials the NS shared-cred
+# sidecar directly over a WebSocket (docker/cc-runtime/build_context/plugins/
+# nextseek/bin/_sidecar_client.py — NEXTSEEK_SIDECAR_HOST/NEXTSEEK_SIDECAR_PORT
+# defaults). These two literals MUST match the compose SERVICE name
+# (docker-compose.yml's ``nextseek-sidecar:`` key — the Docker DNS alias
+# agents actually resolve, matching that file's own load-bearing-identity
+# note) and the sidecar's SIDECAR_WS_PORT. Overridable via the same-named env
+# vars on the Django/source side for non-default topologies.
+_DEFAULT_SIDECAR_HOST = "nextseek-sidecar"
+_DEFAULT_SIDECAR_PORT = "8765"
+
 
 def _rewrite_loopback_url(url: str, service: str = _NEXTSEEK_SERVICE_HOST) -> str:
     """Rewrite a loopback host in ``url`` to the in-network nginx entrypoint.
@@ -261,6 +279,11 @@ def build_agent_environment(
         rewritten = _rewrite_loopback_url(base)
         env["NEXTSEEK_BASE_URL"] = rewritten
         env["NEXTSEEK_URL"] = rewritten
+    # Step 2 (G7-11): the NS sidecar's compose service DNS name + WS port —
+    # the ONLY two keys the plugin's _sidecar_client.py needs (never a
+    # credential; per-request user Basic auth travels inside WS frames).
+    env["NEXTSEEK_SIDECAR_HOST"] = src.get("NEXTSEEK_SIDECAR_HOST", _DEFAULT_SIDECAR_HOST)
+    env["NEXTSEEK_SIDECAR_PORT"] = src.get("NEXTSEEK_SIDECAR_PORT", _DEFAULT_SIDECAR_PORT)
     # D19: container->host path translation for artifact-location reporting.
     env["DMAC_PATH_MAPPINGS"] = json.dumps(path_mappings, separators=(",", ":"))
     return env
@@ -331,6 +354,21 @@ def _build_command(
     return cmd
 
 
+def _container_name_for_run(run_id: str) -> str:
+    """Step 2b (iter-1 H-2): the deterministic ``dmac-cc-agent-<run_id>`` name
+    used so agents are identifiable BY NAME in ``docker network inspect``
+    output (previously a random Docker name, making any name-based
+    network-membership check unevaluable).
+
+    Fail-closed (iter-2 R2-L2): raises if ``run_id`` doesn't match the strict
+    Docker-name-safe charset ``^[0-9a-f-]{1,64}$`` — Celery task UUIDs satisfy
+    this; ``_USER_ID_RE`` is NOT sufficient here (it admits ``@``/``+``).
+    """
+    if not _CONTAINER_NAME_SAFE_RE.fullmatch(run_id or ""):
+        raise ValueError(f"run_id not safe for a docker container name: {run_id!r}")
+    return f"dmac-cc-agent-{run_id}"
+
+
 def _run_kwargs(
     *,
     image: str,
@@ -350,7 +388,8 @@ def _run_kwargs(
     the nginx entrypoint; it runs in ``workdir`` (the image WORKDIR) so the
     baked CLAUDE.md + nextseek plugin guidance are discovered. CC user trees are
     passed as ``mounts`` (Engine-API volume-subpath ``Mount`` dicts), never as a
-    host-path ``volumes`` dict (G7-10 named-volume cutover).
+    host-path ``volumes`` dict (G7-10 named-volume cutover). ``name`` is the
+    Step 2b deterministic ``dmac-cc-agent-<run_id>`` name.
     """
     return {
         "image": image,
@@ -359,6 +398,7 @@ def _run_kwargs(
         "mounts": mounts or None,
         "working_dir": workdir,
         "network": network,
+        "name": _container_name_for_run(run_id),
         "labels": {
             "nextseek.cc": "1",
             "nextseek.cc.user": user_id,
@@ -371,6 +411,38 @@ def _run_kwargs(
         "stdout": True,
         "stderr": True,
     }
+
+
+def _spawn_with_stale_name_retry(client: Any, run_kwargs: dict[str, Any]) -> Any:
+    """Spawn the CC sibling container, handling a stale same-name collision.
+
+    Step 2b: Celery retries reuse the same ``task_id`` (== ``run_id``), so a
+    crashed prior attempt can still hold the deterministic ``name=`` (Step 2b
+    above). On the Docker SDK this surfaces as ``docker.errors.APIError``
+    with ``status_code == 409`` (Engine's "Conflict. The container name … is
+    already in use" response) — force-remove the EXACT stale name and retry
+    the spawn ONCE. Any other error (including a repeat 409 on the retry)
+    propagates unchanged.
+    """
+    from docker.errors import APIError, NotFound
+
+    try:
+        return client.containers.run(**run_kwargs)
+    except APIError as exc:
+        if exc.status_code != 409:
+            raise
+        stale_name = run_kwargs.get("name")
+        if not stale_name:
+            raise
+        logger.warning(
+            "cc: stale container %s held the deterministic name (409 Conflict) "
+            "— removing and retrying once", stale_name,
+        )
+        try:
+            client.containers.get(stale_name).remove(force=True)
+        except NotFound:
+            pass
+        return client.containers.run(**run_kwargs)
 
 
 def _mount_volume_subpath(source: str, target: str, subpath: str, *, read_only: bool = False) -> dict:
@@ -567,12 +639,11 @@ def run_cc_turn(
     client = docker.from_env()
     container = None
     try:
-        container = client.containers.run(
-            **_run_kwargs(
-                image=image, command=command, environment=environment,
-                mounts=mounts, run_id=run_id, user_id=user_id,
-            )
+        spawn_kwargs = _run_kwargs(
+            image=image, command=command, environment=environment,
+            mounts=mounts, run_id=run_id, user_id=user_id,
         )
+        container = _spawn_with_stale_name_retry(client, spawn_kwargs)
 
         # Hard wall-clock bound on the turn (belt-and-suspenders to --max-budget-usd):
         # if it overruns, stop + force-remove the container, which ends the stdout
