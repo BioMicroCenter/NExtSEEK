@@ -110,13 +110,22 @@ services:
   # inside WS frames from the agent, never via os.environ. No `ports:` —
   # reachable only inside dmac-cc-net, never the default stack network.
   #
-  # Task 13 vs Task 14 (documented two-state, Task 3/4 precedent): this
-  # service ships with NO `dmac-cc-users` mount; `SIDECAR_STAGING_DIR` points
-  # at a container-local path (the upstream `config.py` only requires the
-  # var to be set; `staging.py` mkdirs it lazily on first use). Download/
-  # stage ops are therefore non-functional-by-design until Task 14 lands the
-  # `_staging` subpath mount of `dmac-cc-users` (bootstrapped by
-  # `startup/steps/volumes.py::ensure_cc_staging_dir` ahead of that mount).
+  # Task 14 (G7-11, documented two-state flip of Task 13, Task 3/4 precedent):
+  # the sidecar mounts the RESERVED top-level `_staging/` subpath of the
+  # `dmac-cc-users` volume at `SIDECAR_STAGING_DIR` (long-syntax
+  # `volume.subpath:` below). `_staging` is bootstrapped + chowned to uid 1001
+  # (the sidecar user) by `startup/steps/volumes.py::ensure_cc_staging_dir`
+  # BEFORE the sidecar ever starts (the Engine refuses to start a container
+  # whose `VolumeOptions.Subpath` backing dir is absent). The sidecar can write
+  # ONLY under `_staging/` — never a `{project}/{user}/` tree — so it cannot
+  # deliver cross-user by construction; the trusted `cc_engine`/management
+  # sweep (`nextseek_api/cc_assistant/cc_staging.py`) moves completed
+  # `.complete`-marked artifacts into the requesting user's own subtree.
+  #
+  # COMPOSE-FLOOR CONSEQUENCE (SPEC-7 conditional, PLAN-7 Task 2 iter-1 M-3):
+  # because this mount uses YAML `volume.subpath:` syntax, the Compose >=2.26
+  # floor now BINDS on every deploy host (Task 2's validator self-detects this
+  # via `compose_config.json`). Host Compose is well above 2.26.
   nextseek-sidecar:
     build:
       context: ./docker/ns-sidecar
@@ -127,6 +136,16 @@ services:
       NEXTSEEK_BASE_URL: http://nextseek_nginx
       SIDECAR_STAGING_DIR: /home/sidecar/staging
       SIDECAR_WS_PORT: "8765"
+    volumes:
+      # `_staging` subpath of dmac-cc-users -> the sidecar's SIDECAR_STAGING_DIR.
+      # Only this reserved subtree is writable to the sidecar; the trusted sweep
+      # (Django, whole-volume mount at /dmac/users) reads it and delivers into
+      # each user's own {project}/{user}/scratch.
+      - type: volume
+        source: dmac-cc-users
+        target: /home/sidecar/staging
+        volume:
+          subpath: _staging
     networks:
       - dmac-cc-net
     # Cold-start tolerance (Task 9/10 bring-up evidence must not capture a

@@ -1620,13 +1620,31 @@ def test_compose_config_sidecar_base_url_pinned_to_nginx_literal(tmp_path):
     assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx"
 
 
-def test_compose_config_sidecar_no_dmac_cc_users_mount(tmp_path):
-    """Task 13 ships with NO dmac-cc-users mount (the placeholder option is
-    deleted, iter-1 M-2). Task 14 lands the `_staging` subpath mount and
-    flips this test (documented two-state, Task 3/4 precedent)."""
+def test_compose_config_sidecar_mounts_staging_subpath_of_dmac_cc_users(tmp_path):
+    """Task 14 (G7-11) FLIP of the Task 13 no-mount two-state: the sidecar now
+    mounts EXACTLY the reserved `_staging` subpath of `dmac-cc-users` at its
+    `SIDECAR_STAGING_DIR`, and nothing else. The `volume.subpath:` long syntax
+    is what makes the SPEC-7 Compose >=2.26 floor bind (Task 2 self-detects via
+    compose_config.json). The sidecar can therefore write ONLY under `_staging`
+    — never a `{project}/{user}/` tree — so cross-user delivery is impossible by
+    construction; the trusted sweep does the delivery."""
     cfg = _real_compose_config(tmp_path)
     vols = cfg["services"]["nextseek-sidecar"].get("volumes") or []
-    assert not any(v.get("source") == "dmac-cc-users" for v in vols)
+    cc_mounts = [v for v in vols if v.get("source") == "dmac-cc-users"]
+    assert len(cc_mounts) == 1, cc_mounts
+    v = cc_mounts[0]
+    assert v["type"] == "volume"
+    assert v["target"] == "/home/sidecar/staging"
+    assert (v.get("volume") or {}).get("subpath") == "_staging"
+    # The mount target IS the sidecar's SIDECAR_STAGING_DIR (staged bytes land
+    # on the volume's `_staging` subtree, visible to the trusted sweep).
+    env = cfg["services"]["nextseek-sidecar"]["environment"]
+    assert env["SIDECAR_STAGING_DIR"] == v["target"]
+    # No OTHER volume mount sneaks a broader dmac-cc-users view into the sidecar.
+    assert all(
+        (mv.get("source") != "dmac-cc-users") or ((mv.get("volume") or {}).get("subpath") == "_staging")
+        for mv in vols
+    )
 
 
 # --------------------------------------------------------------------------

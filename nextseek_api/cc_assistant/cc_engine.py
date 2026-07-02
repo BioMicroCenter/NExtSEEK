@@ -632,6 +632,10 @@ def run_cc_turn(
     )
 
     before = snapshot_before(scratch_mount, user_id)
+    # G7-11 (Task 14): timestamp captured BEFORE the agent runs, so the in-turn
+    # staging sweep can distinguish THIS turn's ``.complete`` markers (mtime >=
+    # sweep_since) from older strays. Sidecar + Django share the host clock.
+    sweep_since = time.time()
 
     translator = CCStreamTranslator()
     translator._turn_start_ts = time.time()
@@ -705,6 +709,31 @@ def run_cc_turn(
         if terminal is None:
             for event, data in translator.finalize():
                 terminal = (event, data)
+
+        # G7-11 (Task 14): same-turn sidecar staging sweep. Mirrors upstream
+        # ws.py:276-293 — sweep this user's ``.complete``-marked staging dirs
+        # into their OWN ``{project}/{user}/scratch/nextseek-artifacts/`` subtree
+        # BEFORE the publish diff, so turn-N staged artifacts (report /
+        # generate-submission downloads) surface in turn N's published set.
+        # Trusted-code only (never the agent, never the sidecar). ``sweep_since``
+        # limits the in-turn sweep to THIS turn's markers; older strays are left
+        # for the ``cc_sweep_staging`` recovery entrypoint. Never fatal to the
+        # turn (upstream _sweep_then_diff swallows sweep errors likewise).
+        if api_user:
+            try:
+                from . import cc_staging
+                cc_staging.sweep_user_staging(
+                    user_root_mount=paths.user_root_mount,
+                    scratch_dir=dirs.scratch_mnt,
+                    api_user=api_user,
+                    user_id=user_id,
+                    project_dirname=project_dirname,
+                    since_ts=sweep_since,
+                )
+            except Exception as exc:  # noqa: BLE001 — sweep must not kill the turn
+                logger.warning(
+                    "cc staging sweep failed for user=%s: %s", user_id, type(exc).__name__
+                )
 
         # Post-turn publish: diff scratch, split deliverables from scratch/raw/.
         result = _publish_artifacts(
