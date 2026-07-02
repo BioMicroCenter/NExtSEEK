@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -145,15 +146,102 @@ def _is_within(base: Path, candidate: Path) -> bool:
     return ".." not in rel.parts
 
 
-def _disambiguate(dst: Path) -> Path:
-    """First free ``<stem>__N<suffix>`` sibling (never clobber a prior artifact;
-    upstream staging_sweep.py:19-26 pattern)."""
+def _disambiguate_names(base_name: str):
+    """Yield ``base_name`` then ``<stem>__1<suffix>``, ``<stem>__2<suffix>``, …
+    (never clobber a prior artifact; upstream staging_sweep.py:19-26 pattern).
+    Name-only generator — the authoritative no-clobber guard is O_EXCL at open,
+    so this must not stat/follow anything (fix round 2)."""
+    yield base_name
+    stem, dot, suffix = base_name.partition(".")
+    suffix = f".{suffix}" if dot else ""
     n = 1
-    candidate = dst.parent / f"{dst.stem}__{n}{dst.suffix}"
-    while candidate.exists():
+    while True:
+        yield f"{stem}__{n}{suffix}"
         n += 1
-        candidate = dst.parent / f"{dst.stem}__{n}{dst.suffix}"
-    return candidate
+
+
+class _DestUnsafe(RuntimeError):
+    """A destination path component is (or raced into) a symlink / non-dir /
+    escapes the user's real scratch subtree. Fail closed: refuse the request dir,
+    preserve the marker, never deliver cross-user (fix round 2, reviewer C1)."""
+
+
+# ``os.open`` flags for a directory step that MUST NOT traverse a symlink and
+# MUST be a real directory (openat semantics via ``dir_fd``).
+_DIR_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY
+_FILE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+
+
+def _deliver_file_safely(src: Path, scratch_dir: str, rel_dir_parts: tuple[str, ...],
+                         leaf_name: str) -> str:
+    """Copy ``src`` bytes to ``{scratch_dir}/nextseek-artifacts/<rel_dir>/<name>``
+    WITHOUT ever following a symlink in the destination path, and return the
+    final basename actually written (``__N``-disambiguated on collision).
+
+    The destination subtree is AGENT-CONTROLLED (the CC agent's own scratch on
+    the shared ``dmac-cc-users`` volume), so it is treated as adversarial: the
+    trusted Django sweep must not be redirected through a planted directory
+    symlink into a FOREIGN user's tree (reviewer C1 PoC). Every directory step
+    is opened with ``O_NOFOLLOW | O_DIRECTORY`` relative to the previous step's
+    fd (openat chain — TOCTOU-safe, unlike a realpath-check-then-write), and the
+    leaf is created ``O_CREAT | O_EXCL | O_NOFOLLOW`` so a raced/planted symlink
+    at the final component cannot redirect the write either. Any symlink /
+    non-directory / escape in the chain raises ``_DestUnsafe``.
+
+    ``scratch_dir`` is the trusted, identity-derived per-user scratch root (from
+    ``build_user_dirs``); it is opened ``O_NOFOLLOW`` too (paranoia: if the mount
+    root itself were a symlink the whole subtree is compromised → refuse)."""
+    steps = (ARTIFACTS_SUBDIR, *rel_dir_parts)
+    open_fds: list[int] = []
+    try:
+        try:
+            root_fd = os.open(scratch_dir, _DIR_FLAGS)
+        except OSError as exc:
+            raise _DestUnsafe(f"scratch root not a real directory: {type(exc).__name__}") from exc
+        open_fds.append(root_fd)
+        cur = root_fd
+        for name in steps:
+            try:
+                nxt = os.open(name, _DIR_FLAGS, dir_fd=cur)
+            except FileNotFoundError:
+                # Component absent: create it (mkdirat) then open O_NOFOLLOW.
+                try:
+                    os.mkdir(name, 0o755, dir_fd=cur)
+                    nxt = os.open(name, _DIR_FLAGS, dir_fd=cur)
+                except OSError as exc:
+                    raise _DestUnsafe(f"cannot create dir step {name!r}: {type(exc).__name__}") from exc
+            except OSError as exc:
+                # ELOOP (symlink under O_NOFOLLOW) / ENOTDIR (a file) → adversarial.
+                raise _DestUnsafe(f"unsafe dir step {name!r}: {type(exc).__name__}") from exc
+            open_fds.append(nxt)
+            cur = nxt
+
+        # Leaf: O_EXCL|O_NOFOLLOW create, disambiguating with __N on EEXIST.
+        for candidate in _disambiguate_names(leaf_name):
+            try:
+                leaf_fd = os.open(candidate, _FILE_FLAGS, 0o644, dir_fd=cur)
+            except FileExistsError:
+                continue  # name (or a planted symlink at that name) taken → next __N
+            except OSError as exc:
+                raise _DestUnsafe(f"unsafe leaf {candidate!r}: {type(exc).__name__}") from exc
+            try:
+                with os.fdopen(leaf_fd, "wb") as out, open(src, "rb") as inp:
+                    shutil.copyfileobj(inp, out)
+                # Preserve mtime/atime on the just-created fd (no path re-lookup,
+                # so no symlink re-traversal). Mode is fixed 0o644 by _FILE_FLAGS.
+                st = os.stat(src)
+                os.utime(candidate, ns=(st.st_atime_ns, st.st_mtime_ns), dir_fd=cur,
+                         follow_symlinks=False)
+            except OSError as exc:
+                raise _DestUnsafe(f"write failed for {candidate!r}: {type(exc).__name__}") from exc
+            return candidate
+        raise _DestUnsafe("no free disambiguated name")
+    finally:
+        for fd in reversed(open_fds):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
 
 def staging_root_for(user_root_mount: str) -> Path:
@@ -238,23 +326,36 @@ def sweep_user_staging(
             if not _safe_rel(rel):
                 logger.warning("cc staging sweep: refusing unsafe staged relpath %r", str(rel))
                 continue
-            out_rel = Path(ARTIFACTS_SUBDIR) / rel
+            # Lexical fast-reject (cheap), then the authoritative symlink-safe
+            # delivery. The destination subtree is AGENT-CONTROLLED, so the
+            # openat chain (O_NOFOLLOW dir steps + O_EXCL|O_NOFOLLOW leaf) is what
+            # actually prevents a planted directory symlink from redirecting the
+            # trusted sweep into a FOREIGN user's tree (reviewer C1).
             dst = dst_base / rel
             if not _is_within(dst_base, dst):
                 logger.warning("cc staging sweep: refusing out-of-subtree dest for %r", str(rel))
                 continue
             try:
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                if dst.exists():
-                    dst = _disambiguate(dst)
-                    out_rel = out_rel.parent / dst.name
-                shutil.copy2(src, dst)
+                final_name = _deliver_file_safely(
+                    src, scratch_dir, rel.parent.parts, rel.name
+                )
+            except _DestUnsafe as exc:
+                # Adversarial / compromised destination — refuse the WHOLE request
+                # dir (fail closed): preserve the marker for a later retry, never
+                # deliver cross-user. Stop processing this req_dir.
+                swept_ok = False
+                logger.warning(
+                    "cc staging sweep: refusing request %s — unsafe destination for %r (%s)",
+                    req_id, str(rel), exc,
+                )
+                break
             except OSError as exc:
                 swept_ok = False
                 logger.warning(
                     "cc staging sweep: copy failed for %r (%s)", str(rel), type(exc).__name__
                 )
                 continue
+            out_rel = Path(ARTIFACTS_SUBDIR) / rel.parent / final_name
             result.delivered.append(str(out_rel))
 
         # Cleanup after a successful sweep; on failure keep the marker so a later

@@ -377,6 +377,123 @@ def test_nested_relpath_preserved_within_subtree(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# INVARIANT (fix round 2, reviewer C1): the DESTINATION subtree is agent-
+# controlled and adversarial. A planted directory symlink in the caller's own
+# scratch must never redirect the trusted full-volume sweep into a FOREIGN
+# user's tree. Firing controls for both the dir-symlink and nested/dangling
+# variants the reviewer's PoC exploited.
+# --------------------------------------------------------------------------
+
+def _foreign_tree(root: Path) -> Path:
+    """A second user's real, writable subtree on the same volume."""
+    d = root / "9-otherproj" / "bob" / "input"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def test_dest_artifacts_dir_symlink_to_foreign_tree_refused(tmp_path):
+    """(a) `nextseek-artifacts` itself is a symlink into a foreign user's tree.
+    FIRING control: the unfixed sweep did `dst.parent.mkdir(exist_ok=True)` +
+    `shutil.copy2` which FOLLOW the link, writing attacker bytes into bob's tree
+    (`CROSS-USER WRITE via dir symlink: True`). The fixed openat chain opens
+    `nextseek-artifacts` with O_NOFOLLOW -> ELOOP -> refuse, marker preserved,
+    zero foreign writes."""
+    root = tmp_path / "users"
+    scratch = _scratch(root, PROJECT, USER)
+    foreign = _foreign_tree(root)
+    # Agent plants: {scratch}/nextseek-artifacts -> ../../9-otherproj/bob/input
+    (scratch / "nextseek-artifacts").symlink_to(foreign, target_is_directory=True)
+    _stage(root, API_USER, "dddddddd-dddd-dddd-dddd-dddddddddddd",
+           {"payload.csv": b"ATTACKER"})
+
+    res = cc_staging.sweep_user_staging(
+        user_root_mount=str(root), scratch_dir=str(scratch),
+        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+    )
+    assert res.delivered == []                       # nothing delivered
+    assert not (foreign / "payload.csv").exists()    # NO cross-user write
+    assert list(foreign.iterdir()) == []             # foreign tree untouched
+    # Marker preserved (failed sweep) for a later retry.
+    base = root / "_staging" / hashlib.sha256(API_USER.encode()).hexdigest()
+    assert (base / "dddddddd-dddd-dddd-dddd-dddddddddddd.complete").exists()
+
+
+def test_dest_nested_dir_symlink_to_foreign_tree_refused(tmp_path):
+    """(b) `nextseek-artifacts` is a REAL dir but a nested component (`sub`) is a
+    planted directory symlink into an EXISTING foreign subtree. FIRING control:
+    the unfixed path `mkdir(parents=True, exist_ok=True)` accepts the symlinked
+    dir (is_dir() follows to the real foreign dir) and `copy2` then writes
+    `sub/payload.csv` THROUGH the link into bob's tree. The fixed chain opens
+    `sub` with O_NOFOLLOW|O_DIRECTORY -> ELOOP -> refuse; nothing written."""
+    root = tmp_path / "users"
+    scratch = _scratch(root, PROJECT, USER)
+    foreign = _foreign_tree(root)
+    planted = foreign / "planted"
+    planted.mkdir()  # existing foreign dir the link resolves to
+    arts = scratch / "nextseek-artifacts"
+    arts.mkdir()
+    (arts / "sub").symlink_to(planted, target_is_directory=True)
+    _stage(root, API_USER, "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+           {"sub/payload.csv": b"ATTACKER"})
+
+    res = cc_staging.sweep_user_staging(
+        user_root_mount=str(root), scratch_dir=str(scratch),
+        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+    )
+    assert res.delivered == []
+    assert not (planted / "payload.csv").exists()    # NO cross-user write
+    assert list(planted.iterdir()) == []
+    base = root / "_staging" / hashlib.sha256(API_USER.encode()).hexdigest()
+    assert (base / "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee.complete").exists()
+
+
+def test_dest_nested_dangling_symlink_refused(tmp_path):
+    """(b') Belt: a nested component that is a DANGLING symlink is also refused
+    (openat O_NOFOLLOW -> ELOOP), never materializing the link target."""
+    root = tmp_path / "users"
+    scratch = _scratch(root, PROJECT, USER)
+    foreign = _foreign_tree(root)
+    arts = scratch / "nextseek-artifacts"
+    arts.mkdir()
+    (arts / "sub").symlink_to(foreign / "planted", target_is_directory=True)  # dangling
+    _stage(root, API_USER, "eeeeeeee-1111-1111-1111-eeeeeeeeeeee",
+           {"sub/payload.csv": b"ATTACKER"})
+
+    res = cc_staging.sweep_user_staging(
+        user_root_mount=str(root), scratch_dir=str(scratch),
+        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+    )
+    assert res.delivered == []
+    assert not (foreign / "planted").exists()
+    assert list(foreign.iterdir()) == []
+
+
+def test_dest_leaf_symlink_refused_not_followed(tmp_path):
+    """A planted symlink at the FINAL (file) component must not be followed:
+    O_EXCL|O_NOFOLLOW create refuses it. Belt to the two dir-symlink controls."""
+    root = tmp_path / "users"
+    scratch = _scratch(root, PROJECT, USER)
+    foreign = _foreign_tree(root)
+    arts = scratch / "nextseek-artifacts"
+    arts.mkdir()
+    (arts / "payload.csv").symlink_to(foreign / "leak.csv")  # dangling leaf link
+    _stage(root, API_USER, "ffffffff-ffff-ffff-ffff-ffffffffffff",
+           {"payload.csv": b"ATTACKER"})
+
+    res = cc_staging.sweep_user_staging(
+        user_root_mount=str(root), scratch_dir=str(scratch),
+        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+    )
+    # O_EXCL treats the planted symlink name as taken and disambiguates to a
+    # fresh REAL file — the write never follows the link into the foreign tree.
+    assert res.delivered == ["nextseek-artifacts/payload__1.csv"]
+    delivered = arts / "payload__1.csv"
+    assert not delivered.is_symlink() and delivered.read_bytes() == b"ATTACKER"
+    assert not (foreign / "leak.csv").exists()
+    assert list(foreign.iterdir()) == []
+
+
+# --------------------------------------------------------------------------
 # cleanup, collisions, no-op, hash parity, reserved-name safety
 # --------------------------------------------------------------------------
 

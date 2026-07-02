@@ -139,7 +139,8 @@ def install(
     # [5/9] Volumes
     ui.step(5, total, "Creating docker volumes")
     created = volumes.ensure_volumes(prefix)
-    ui.ok(f"{len(created)} created, {6 - len(created)} already existed")
+    ui.ok(f"{len(created)} created, "
+          f"{len(volumes.REQUIRED_VOLUMES) - len(created)} already existed")
     # G7-11 Task 13 (iter-1 M-1): bootstrap the `_staging` dir inside
     # dmac-cc-users ahead of Task 14's sidecar subpath mount -- no new
     # operator step, folded into the same install phase as the volumes above.
