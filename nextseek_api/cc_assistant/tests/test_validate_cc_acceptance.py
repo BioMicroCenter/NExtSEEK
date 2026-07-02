@@ -116,3 +116,53 @@ def test_non_turn_scoped_artifact_key_fails(tmp_path):
                                             "artifacts": [{"key": "report.json",
                                                            "artifact_type": "file"}]})
     assert dict((n, ok) for n, ok, _ in validate_run(tmp_path)[1])["artifacts_turn_scoped"] is False
+
+
+def test_pre_nested_flat_user_id_prefixed_artifact_key_fails(tmp_path):
+    """Publish-scope migration negative control (PLAN-7 Task 5 Step 3): a key
+    that STILL uses the pre-Step-2 flat copier-scope prefix -- literally
+    `{user_id}/<relpath>` -- must fail even though it contains a slash
+    (which the old, weaker oracle accepted). `meta.json.user_id` is "demo"
+    in `_pass_bundle`, so a key leading with that exact segment is the flat
+    legacy shape, not the nested/turn-scoped `{turn_id}/<relpath>` shape the
+    real bridge emits."""
+    _pass_bundle(tmp_path)
+    _write(tmp_path, "forced_result.json", {"is_error": False,
+                                            "reply": "done; the marker is SENT123 here",
+                                            "total_cost_usd": 0.12,
+                                            "artifacts": [{"key": "demo/report.json",
+                                                           "artifact_type": "file"}]})
+    all_ok, checks = validate_run(tmp_path)
+    d = dict((n, ok) for n, ok, _ in checks)
+    assert not all_ok
+    assert d["artifacts_turn_scoped"] is False
+
+
+def test_turn_scoped_key_still_passes_even_when_it_shares_no_segment_with_user_id(tmp_path):
+    """Sanity companion to the negative control above: a key whose leading
+    segment is the run/turn id (never equal to user_id by construction) must
+    still pass -- this is the real shape `_publish_artifacts` emits today."""
+    _pass_bundle(tmp_path)
+    _write(tmp_path, "forced_result.json", {"is_error": False,
+                                            "reply": "done; the marker is SENT123 here",
+                                            "total_cost_usd": 0.12,
+                                            "artifacts": [{"key": "r1/report.json",
+                                                           "artifact_type": "file"}]})
+    all_ok, checks = validate_run(tmp_path)
+    assert dict((n, ok) for n, ok, _ in checks)["artifacts_turn_scoped"] is True
+    assert all_ok, checks
+
+
+def test_nested_project_user_prefixed_key_passes(tmp_path):
+    """Forward-compatible with Task 6's `logical_root` nesting: a fully
+    nested `{project}/{user}/...` key (leading segment is the project
+    dirname, not the bare user_id) must also pass."""
+    _pass_bundle(tmp_path)
+    _write(tmp_path, "forced_result.json", {"is_error": False,
+                                            "reply": "done; the marker is SENT123 here",
+                                            "total_cost_usd": 0.12,
+                                            "artifacts": [{"key": "personal-demo-demo/demo/output/report.json",
+                                                           "artifact_type": "file"}]})
+    all_ok, checks = validate_run(tmp_path)
+    assert dict((n, ok) for n, ok, _ in checks)["artifacts_turn_scoped"] is True
+    assert all_ok, checks

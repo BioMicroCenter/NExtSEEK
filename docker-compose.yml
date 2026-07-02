@@ -36,6 +36,58 @@ services:
       - nextseek-static-files:/static:ro
     depends_on:
       - nextseek
+    # OI-3 / Container-CC route: nginx is the ONLY dual-homed service. It stays
+    # on the default stack network (reaching `nextseek`) and additionally joins
+    # the segmented `dmac-cc-net`, where it is the sandboxed CC agent's ONLY
+    # route back into NExtSEEK (see cc_engine._NEXTSEEK_SERVICE_HOST /
+    # _rewrite_loopback_url). `nextseek` itself is deliberately NOT listed here
+    # and so stays default-only — the de-credentialed agent must never gain L3
+    # reach to `nextseek`, `db`, `seek`, `solr`, or `neo4j` directly.
+    networks:
+      - default
+      - dmac-cc-net
+
+  # Container-CC (CC) route sidecar: holds the institutional
+  # AWS_BEARER_TOKEN_BEDROCK and adds the Authorization header server-side so
+  # the agent never carries an AWS credential (OI-3). Reachable ONLY on
+  # dmac-cc-net via the compose service DNS name `bedrock-proxy` (matches
+  # cc_engine.DMAC_BEDROCK_PROXY_URL's default host) — never on the default
+  # stack network, so it cannot be reached from db/seek/solr/neo4j either.
+  # `container_name: dmac-bedrock-proxy` is the HOST-side identity used only
+  # for `docker logs`/`docker inspect`/`docker network inspect` (see
+  # DMAC_PROXY_CONTAINER in test_cc_realstack.py) — never for in-network URLs.
+  bedrock-proxy:
+    build:
+      context: ./docker/bedrock-proxy
+    image: nextseek-bedrock-proxy:latest
+    container_name: dmac-bedrock-proxy
+    restart: always
+    env_file:
+      - ./docker/bedrock-proxy/proxy-secret.env
+    networks:
+      - dmac-cc-net
+    # :8080 must be reachable ONLY on dmac-cc-net (R-8/gate G5) — no host
+    # `ports:` publish here, ever.
+
+  # Container-CC agent image build target ONLY. The nextseek Django worker
+  # spawns one ephemeral, per-turn sibling container from this image directly
+  # via the host docker socket (docker-py `containers.run`, see cc_engine.py)
+  # — it is NOT a persistent compose-managed service. This stanza exists so
+  # `docker compose build` (part of the canonical `docker compose build &&
+  # docker compose up -d` deploy flow) produces/tags the image compose-
+  # natively instead of a separate manual `docker build`/`make image-build`
+  # step. `image:` is pinned to the literal NEXTSEEK_CC_IMAGE default
+  # (cc_config/cc_engine.DEFAULT_IMAGE) so a fresh build always produces the
+  # exact image cc_runner_available() looks for. `network_mode: none` +
+  # `command: ["true"]` make an accidental `docker compose up -d` start of
+  # this stanza a harmless, instantly-exiting no-op with no restart policy —
+  # never a networked or long-running container.
+  cc-agent:
+    build:
+      context: ./docker/cc-runtime
+    image: dmac-assistant:poc
+    network_mode: none
+    command: ["true"]
 
   db: # Database implementation, in this case MySQL
     image: mysql:8.0
@@ -127,6 +179,17 @@ services:
       - solr-precreate
       - seek
       - /opt/solr/server/solr/configsets/seek_config
+
+
+networks:
+  # Container-CC segmented network (OI-3). Compose-managed but pinned to the
+  # literal name `dmac-cc-net` (no project-name prefix) so it matches
+  # cc_engine.DEFAULT_NETWORK / NEXTSEEK_CC_NETWORK exactly. Members: this
+  # compose file only ever attaches `bedrock-proxy` and `nextseek_nginx` — the
+  # per-turn CC agent containers join it at spawn time via docker-py, not
+  # through this file. No manual `docker network create`/`connect` needed.
+  dmac-cc-net:
+    name: dmac-cc-net
 
 
 volumes:

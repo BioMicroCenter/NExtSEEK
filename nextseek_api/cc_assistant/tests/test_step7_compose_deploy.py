@@ -5,22 +5,36 @@ Purpose (PLAN-7 Task 1): prove, over synthetic bundles only (no docker socket,
 no network), that the preflight guard actually catches stale planning-session
 file state before Step 7 ever touches the running stack.
 
-No Docker and no network are used. Docker facts are injected via a fake
-``DockerProbe``; collector git facts via a fake ``GitProbe``. The validator's
-independent transcript re-check IS exercised against real throwaway git repos
-built under ``tmp_path`` (git is available in the hermetic test container;
-``git init/add/commit`` needs no network), because the whole point of that
-check is that a hand-edited ``preflight.json`` cannot forge it.
+No Docker and no network are used for the preflight/validator suite above.
+Docker facts are injected via a fake ``DockerProbe``; collector git facts via
+a fake ``GitProbe``. The validator's independent transcript re-check IS
+exercised against real throwaway git repos built under ``tmp_path`` (git is
+available in the hermetic test container; ``git init/add/commit`` needs no
+network), because the whole point of that check is that a hand-edited
+``preflight.json`` cannot forge it.
+
+PLAN-7 Task 5 (compose-native topology) ADDS a second suite at the bottom of
+this file that DOES shell out to the real ``docker compose ... config`` CLI
+(client-side only -- no daemon socket, no network egress -- see the harness
+mount note in ``.superpowers/sdd/progress.md``) against a throwaway tmp-path
+copy of the repo's actual ``docker-compose.yml``, plus hermetic
+(no-docker-module-required) tests for ``cc_engine.cc_runner_available()``'s
+detail strings.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import subprocess
+import sys
+import types
 from pathlib import Path
 
 import pytest
 
+from nextseek_api.cc_assistant import cc_engine
 from nextseek_api.cc_assistant.tests.step7_preflight_collector import (
     CC_ENV_KEYS,
     DOCKER_API_SUBPATH_FLOOR,
@@ -1177,3 +1191,297 @@ def test_default_git_probe_reports_real_repo_state_and_blob_sizes(tmp_path):
     # dirty detection
     (repo / "scratch.txt").write_text("uncommitted", encoding="utf-8")
     assert default_git_probe(repo).dirty is True
+
+
+# ==========================================================================
+# PLAN-7 Task 5: real ``docker compose -f docker-compose.yml config``
+# topology tests. Parses the ACTUAL compose CLI's subprocess output over a
+# throwaway tmp-path copy of the repo's real docker-compose.yml -- never a
+# hand-edited golden fixture (Task 5 brief mandate).
+# ==========================================================================
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
+
+
+def _write_compose_env_files(tmp_root: Path, repo_root: Path = REPO_ROOT) -> None:
+    """Synthesize the gitignored ``env_file:`` targets ``docker compose
+    config`` needs to just exist and be parseable. None of their CONTENT is
+    topology-relevant except the bedrock-proxy one, whose two keys are seeded
+    from the committed ``.example`` placeholder template (empty values, never
+    a real token) so the fixture matches a genuinely fresh checkout.
+
+    Deliberately NOT synthesized (verified empirically -- see
+    ``_real_compose_config``'s docstring): ``docker/nginx.conf`` and the
+    ``docker/cc-runtime/`` / ``docker/bedrock-proxy/`` build-context
+    directories. ``docker compose config`` does not validate bind-mount host
+    paths or build-context existence, only ``env_file:`` existence.
+    """
+    (tmp_root / "docker").mkdir(parents=True, exist_ok=True)
+    (tmp_root / "docker" / "db.env").write_text("", encoding="utf-8")
+    (tmp_root / "docker" / "nextseek.env").write_text("", encoding="utf-8")
+    proxy_dir = tmp_root / "docker" / "bedrock-proxy"
+    proxy_dir.mkdir(parents=True, exist_ok=True)
+    example = repo_root / "docker" / "bedrock-proxy" / "proxy-secret.env.example"
+    proxy_secret_text = example.read_text(encoding="utf-8") if example.is_file() else ""
+    (proxy_dir / "proxy-secret.env").write_text(proxy_secret_text, encoding="utf-8")
+
+
+def _real_compose_config(tmp_path: Path, repo_root: Path = REPO_ROOT) -> dict:
+    """Run the REAL ``docker compose -f docker-compose.yml config`` subprocess
+    against a throwaway copy of the repo's actual ``docker-compose.yml`` and
+    return the parsed JSON.
+
+    Never mutates the repo tree and never hand-edits the copied YAML's
+    content -- only a byte-for-byte copy of the committed file plus
+    synthesized (gitignored-in-the-real-repo) env files live under
+    ``tmp_path``. Fails (raises/asserts), never skips, if the ``docker``/
+    ``docker compose`` CLI is unavailable or config resolution errors for any
+    other reason -- the zero-skip standard for this suite.
+    """
+    compose_dst = tmp_path / "docker-compose.yml"
+    compose_dst.write_bytes((repo_root / "docker-compose.yml").read_bytes())
+    _write_compose_env_files(tmp_path, repo_root)
+
+    proc = subprocess.run(
+        ["docker", "compose", "-f", str(compose_dst), "config", "--format", "json"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=60,
+    )
+    assert proc.returncode == 0, (
+        f"docker compose config failed (rc={proc.returncode}):\n"
+        f"stdout={proc.stdout}\nstderr={proc.stderr}"
+    )
+    return json.loads(proc.stdout)
+
+
+def _expected_cc_image_default() -> str:
+    """Mirror ``cc_engine.DEFAULT_IMAGE``'s own computation exactly (same env
+    var, same literal fallback) so the alignment check is genuine rather than
+    two independently-guessed constants that happen to match today."""
+    return os.environ.get("NEXTSEEK_CC_IMAGE", "dmac-assistant:poc")
+
+
+def test_compose_config_includes_bedrock_proxy_service(tmp_path):
+    cfg = _real_compose_config(tmp_path)
+    assert "bedrock-proxy" in cfg["services"]
+
+
+def test_compose_config_bedrock_proxy_container_name_pinned(tmp_path):
+    cfg = _real_compose_config(tmp_path)
+    assert cfg["services"]["bedrock-proxy"]["container_name"] == "dmac-bedrock-proxy"
+
+
+def test_compose_config_bedrock_proxy_has_no_host_ports_key(tmp_path):
+    """R-8/gate G5: the proxy's :8080 must be reachable only on dmac-cc-net,
+    never published to the host."""
+    cfg = _real_compose_config(tmp_path)
+    assert "ports" not in cfg["services"]["bedrock-proxy"]
+
+
+def test_compose_config_bedrock_proxy_build_context_is_docker_bedrock_proxy(tmp_path):
+    cfg = _real_compose_config(tmp_path)
+    ctx = cfg["services"]["bedrock-proxy"]["build"]["context"]
+    assert ctx.rstrip("/").endswith("docker/bedrock-proxy")
+    assert "cc-runner" not in ctx
+    assert "cc-runtime" not in ctx
+
+
+def test_compose_config_bedrock_proxy_attached_only_to_dmac_cc_net(tmp_path):
+    """The proxy must be reachable only on dmac-cc-net -- never the default
+    stack network (db/seek/solr/neo4j must not be able to reach it either)."""
+    cfg = _real_compose_config(tmp_path)
+    nets = set(cfg["services"]["bedrock-proxy"].get("networks") or {})
+    assert nets == {"dmac-cc-net"}
+
+
+def test_compose_config_includes_cc_image_build_target(tmp_path):
+    cfg = _real_compose_config(tmp_path)
+    assert "cc-agent" in cfg["services"]
+
+
+def test_compose_config_cc_image_build_context_is_docker_cc_runtime_not_cc_runner(tmp_path):
+    """G7-3: the compose CC image build target must point at the canonical
+    ``docker/cc-runtime/`` -- never the lean, explicitly non-production
+    ``docker/cc-runner/`` proof image."""
+    cfg = _real_compose_config(tmp_path)
+    ctx = cfg["services"]["cc-agent"]["build"]["context"]
+    assert ctx.rstrip("/").endswith("docker/cc-runtime")
+    assert "cc-runner" not in ctx
+
+
+def test_compose_config_cc_image_tag_matches_nextseek_cc_image_default(tmp_path):
+    """Required for ``cc_runner_available()``: a fresh ``docker compose
+    build`` must tag the image under the exact name ``NEXTSEEK_CC_IMAGE``
+    resolves to by default, or the runner-availability probe never finds it."""
+    cfg = _real_compose_config(tmp_path)
+    assert cfg["services"]["cc-agent"]["image"] == _expected_cc_image_default()
+
+
+def test_compose_config_cc_agent_has_no_network_attachment(tmp_path):
+    """The compose-declared build stanza is never meant to run as a reachable
+    service -- it carries no network attachment at all (the real per-turn
+    sibling containers join dmac-cc-net via docker-py at spawn time, not
+    through this stanza)."""
+    cfg = _real_compose_config(tmp_path)
+    assert not (cfg["services"]["cc-agent"].get("networks") or {})
+
+
+def test_compose_config_dmac_cc_net_network_present_with_pinned_literal_name(tmp_path):
+    """cc_engine.DEFAULT_NETWORK expects the literal (unprefixed) name
+    ``dmac-cc-net`` -- compose's default project-prefixing behavior must be
+    overridden via ``networks.dmac-cc-net.name``."""
+    cfg = _real_compose_config(tmp_path)
+    assert "dmac-cc-net" in cfg["networks"]
+    assert cfg["networks"]["dmac-cc-net"]["name"] == "dmac-cc-net"
+
+
+def test_compose_config_dmac_cc_net_is_compose_managed_not_external(tmp_path):
+    """An ``external: true`` network requires a pre-existing manual ``docker
+    network create`` before ``up`` -- the primary deploy path must not
+    require that."""
+    cfg = _real_compose_config(tmp_path)
+    assert not cfg["networks"]["dmac-cc-net"].get("external")
+
+
+def test_compose_config_nginx_dual_homed_default_and_dmac_cc_net(tmp_path):
+    cfg = _real_compose_config(tmp_path)
+    nets = set(cfg["services"]["nextseek_nginx"].get("networks") or {})
+    assert nets == {"default", "dmac-cc-net"}
+
+
+def test_compose_config_nextseek_itself_not_on_dmac_cc_net(tmp_path):
+    """OI-3 segmentation: only ``nextseek_nginx`` is dual-homed. ``nextseek``
+    (which holds the Docker socket mount used to spawn CC siblings) must
+    never itself gain L3 reach onto the segmented net."""
+    cfg = _real_compose_config(tmp_path)
+    nets = set(cfg["services"]["nextseek"].get("networks") or {})
+    assert "dmac-cc-net" not in nets
+
+
+@pytest.mark.parametrize("backend_service", ["db", "seek", "seek_workers", "solr", "neo4j"])
+def test_compose_config_backend_services_not_on_dmac_cc_net(tmp_path, backend_service):
+    cfg = _real_compose_config(tmp_path)
+    nets = set(cfg["services"][backend_service].get("networks") or {})
+    assert "dmac-cc-net" not in nets
+
+
+# --------------------------------------------------------------------------
+# Task 5 Step 3: service-name (`bedrock-proxy`) vs container-name
+# (`dmac-bedrock-proxy`) must never be conflated. These lock in -- with a
+# real cross-file check -- what cc_engine.py / test_cc_realstack.py already
+# do correctly, so a future global find-and-replace cannot silently reconflate
+# the two.
+# --------------------------------------------------------------------------
+
+REALSTACK_FILE = REPO_ROOT / "nextseek_api" / "cc_assistant" / "tests" / "test_cc_realstack.py"
+CC_ENGINE_FILE = REPO_ROOT / "nextseek_api" / "cc_assistant" / "cc_engine.py"
+
+
+def test_cc_engine_bedrock_proxy_default_url_uses_service_dns_not_container_name():
+    """In-network URLs must resolve the compose SERVICE name ``bedrock-proxy``
+    (a Docker DNS alias only inside dmac-cc-net) -- never the host-side
+    CONTAINER name ``dmac-bedrock-proxy``, which is not a network alias and
+    does not resolve from inside a sibling container."""
+    text = CC_ENGINE_FILE.read_text(encoding="utf-8")
+    assert "http://bedrock-proxy:8080" in text
+    assert "http://dmac-bedrock-proxy:8080" not in text
+
+
+def test_realstack_host_side_inspection_uses_container_name_not_service_name():
+    """Host-side ``docker logs``/``docker inspect``/``docker network
+    inspect`` must key off the CONTAINER name ``dmac-bedrock-proxy``
+    (overridable via ``DMAC_PROXY_CONTAINER``) -- the compose service name
+    ``bedrock-proxy`` is not a valid host-side ``docker inspect`` target."""
+    text = REALSTACK_FILE.read_text(encoding="utf-8")
+    assert 'os.environ.get("DMAC_PROXY_CONTAINER", "dmac-bedrock-proxy")' in text
+
+
+def test_compose_bedrock_proxy_container_name_matches_realstack_default(tmp_path):
+    """Cross-file lock: whatever literal ``container_name`` root compose pins
+    for ``bedrock-proxy`` must be the exact default
+    ``test_cc_realstack.py``'s ``PROXY_CONTAINER`` falls back to -- otherwise
+    a migrated realstack run can never find the live proxy container by its
+    default name."""
+    cfg = _real_compose_config(tmp_path)
+    compose_container_name = cfg["services"]["bedrock-proxy"]["container_name"]
+    text = REALSTACK_FILE.read_text(encoding="utf-8")
+    m = re.search(r'os\.environ\.get\("DMAC_PROXY_CONTAINER",\s*"([^"]+)"\)', text)
+    assert m, "could not find the PROXY_CONTAINER default in test_cc_realstack.py"
+    assert m.group(1) == compose_container_name
+
+
+# ==========================================================================
+# PLAN-7 Task 5: cc_runner_available() detail strings cite `docker compose
+# build` + NEXTSEEK_CC_IMAGE -- never the old standalone `make image-build` /
+# manual sidecar bring-up language. Hermetic: a fake `docker` module is
+# injected into sys.modules so no real Docker daemon or docker-py install is
+# required (cc_runner_available() does a local `import docker`).
+# ==========================================================================
+
+def _fake_docker_module(*, ping_exc=None, image_exc=None, network_exc=None):
+    mod = types.ModuleType("docker")
+
+    class _Images:
+        def get(self, name):
+            if image_exc is not None:
+                raise image_exc
+            return object()
+
+    class _Networks:
+        def get(self, name):
+            if network_exc is not None:
+                raise network_exc
+            return object()
+
+    class _Client:
+        def __init__(self):
+            self.images = _Images()
+            self.networks = _Networks()
+
+        def ping(self):
+            if ping_exc is not None:
+                raise ping_exc
+
+    mod.from_env = lambda: _Client()
+    return mod
+
+
+def test_cc_runner_available_ok_when_daemon_image_and_network_all_present(monkeypatch):
+    monkeypatch.setitem(sys.modules, "docker", _fake_docker_module())
+    ok, detail = cc_engine.cc_runner_available()
+    assert ok is True
+    assert detail == "ok"
+
+
+def test_cc_runner_available_daemon_unreachable_detail_unaffected(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules, "docker",
+        _fake_docker_module(ping_exc=ConnectionError("connection refused")),
+    )
+    ok, detail = cc_engine.cc_runner_available()
+    assert ok is False
+    assert "docker daemon unreachable" in detail
+
+
+def test_cc_runner_available_image_missing_detail_excludes_make_image_build(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules, "docker",
+        _fake_docker_module(image_exc=LookupError("no such image")),
+    )
+    ok, detail = cc_engine.cc_runner_available()
+    assert ok is False
+    assert "make image-build" not in detail
+    assert "docker compose build" in detail
+    assert "NEXTSEEK_CC_IMAGE" in detail
+
+
+def test_cc_runner_available_network_missing_detail_excludes_make_image_build_and_cites_compose(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules, "docker",
+        _fake_docker_module(network_exc=LookupError("no such network")),
+    )
+    ok, detail = cc_engine.cc_runner_available()
+    assert ok is False
+    assert "make image-build" not in detail
+    assert "docker compose" in detail
+    assert "NEXTSEEK_CC_NETWORK" in detail

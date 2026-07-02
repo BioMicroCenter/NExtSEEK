@@ -132,7 +132,8 @@ def cc_runner_available() -> tuple[bool, str]:
     except Exception:
         return False, (
             f"CC image '{DEFAULT_IMAGE}' not found "
-            "(build it via dmac's `make image-build`, or set NEXTSEEK_CC_IMAGE)"
+            "(run `docker compose build cc-agent` to build/tag it compose-natively "
+            "from docker/cc-runtime/, or set NEXTSEEK_CC_IMAGE to an existing image)"
         )
     # I-17 / audit A1: the bridge NEVER creates the network — a missing one is a
     # deployment error. Gating here keeps the de-credentialed agent off the shared
@@ -141,8 +142,9 @@ def cc_runner_available() -> tuple[bool, str]:
         client.networks.get(DEFAULT_NETWORK)
     except Exception:
         return False, (
-            f"CC network '{DEFAULT_NETWORK}' not found — bring up the segmented "
-            "network + bedrock-proxy sidecar first (NEXTSEEK_CC_NETWORK)."
+            f"CC network '{DEFAULT_NETWORK}' not found — run `docker compose up -d` "
+            "(dmac-cc-net and bedrock-proxy are compose-managed; see docker-compose.yml) "
+            "or override via NEXTSEEK_CC_NETWORK."
         )
     return True, "ok"
 

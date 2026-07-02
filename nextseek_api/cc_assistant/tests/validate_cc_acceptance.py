@@ -15,6 +15,8 @@ It maps 1:1 onto the security-acceptance checklist (AUDIT.md, live items):
   10 agent de-cred  agent_env_scan.txt: none of the 16 shared keys; no `ABSK`/`demopassword`
    9 segmentation   network.json: agent net excludes neo4j/seek-mysql/seek/seek-solr
   16 turn-scoped artifacts forced_result.json: non-empty artifacts with turn-scoped keys
+                    (nested/turn-scoped shape -- rejects the pre-Step-2 flat
+                    ``{user_id}/...`` copier-scope prefix)
   17 cost ledger    ledger.json: total_cost_usd <= budget_cap_usd
 
 The bundle holds NO secret: a correct agent env has none, so committing
@@ -118,11 +120,28 @@ def validate_run(run_dir: str | Path) -> tuple[bool, list[tuple[str, bool, str]]
     except Exception as e:  # noqa: BLE001
         add("network_segmented", False, f"unreadable: {e}")
 
-    # 16 — turn-scoped artifact keys on query_complete
+    # 16 — turn-scoped artifact keys on query_complete (copier-scope oracle).
+    # PLAN-7 Task 5 Step 3 publish-scope migration: the pre-Step-2 copier used
+    # a FLAT `{user_id}/<relpath>` publish prefix; Step 2's nested per-project
+    # per-user dirs (and Task 6's `logical_root`) replaced it with turn-scoped
+    # `{turn_id}/<relpath>` keys (see cc_engine._publish_artifacts). A key is
+    # only rejected as the stale flat scheme when its leading path segment is
+    # LITERALLY the run's own `user_id` (from meta.json) -- that is the
+    # concrete, checkable difference between "flat {user_id}/ prefix" and any
+    # nested/turn-scoped shape, which by construction never leads with the
+    # bare user_id segment.
     try:
         res = _load_json(d / "forced_result.json")
         arts = res.get("artifacts") or []
-        ok = bool(arts) and all("/" in (a.get("key") or "") for a in arts)
+        user_id = str(meta.get("user_id") or "")
+
+        def _not_flat_user_id_prefixed(key: str) -> bool:
+            if not key or "/" not in key:
+                return False
+            leading = key.split("/", 1)[0]
+            return not (user_id and leading == user_id)
+
+        ok = bool(arts) and all(_not_flat_user_id_prefixed(a.get("key") or "") for a in arts)
         add("artifacts_turn_scoped", ok, f"{len(arts)} artifact(s); turn-scoped={ok}")
     except Exception as e:  # noqa: BLE001
         add("artifacts_turn_scoped", False, f"unreadable: {e}")
