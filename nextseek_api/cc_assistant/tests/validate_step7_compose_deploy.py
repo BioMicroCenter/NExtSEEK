@@ -255,6 +255,7 @@ PUBLISHED_PATH_OPS: tuple[str, ...] = ("nextseek-report", "nextseek-generate-sub
 REQUIRED_MATRIX_ROW_KEYS: tuple[str, ...] = (
     "op", "transport", "exit_code", "excerpt",
     "container_id", "container_name", "image", "wall_secs",
+    "exercise_id", "upstream_ref",
 )
 
 # images.json key the harness records the CC agent image tag under (mirrors
@@ -1593,7 +1594,7 @@ def check_plugin_ops_matrix_in_turn_viability(ctx: Context) -> tuple[str, bool, 
 
 
 def check_cost_ledger_valid(ctx: Context) -> tuple[str, bool, str]:
-    """Gate 3C: real per-op cost ledger required; estimate-only bundles fail closed."""
+    """Gate 3C.5: real per-op cost ledger; fail-closed on estimates and zero-filled charged ops."""
     name = "cost_ledger_valid"
     ledger = _try_load_json(ctx.run_dir / "cost_ledger.json")
     if ledger is None:
@@ -1604,6 +1605,10 @@ def check_cost_ledger_valid(ctx: Context) -> tuple[str, bool, str]:
     entries = ledger.get("entries")
     if not isinstance(entries, list) or not entries:
         return name, False, "cost_ledger.entries missing or empty"
+    source_map = _try_load_json(
+        Path(__file__).resolve().parents[1] / "acceptance_evidence" / "step7" / "cost_source_map.json"
+    ) or {}
+    map_ops = source_map.get("ops") or {}
     problems: list[str] = []
     seen_ops: set[str] = set()
     for i, row in enumerate(entries):
@@ -1620,6 +1625,9 @@ def check_cost_ledger_valid(ctx: Context) -> tuple[str, bool, str]:
         src = row.get("source_system")
         if not isinstance(src, str) or not src.strip():
             problems.append(f"{op}: missing source_system")
+        expected = (map_ops.get(op) or {}).get("source_system")
+        if expected and src != expected and not (src == "hermetic_fixture" and expected == "llm_client_ledger"):
+            problems.append(f"{op}: source_system {src!r} != cost_source_map {expected!r}")
         usd = row.get("usd")
         try:
             v = float(usd)
@@ -1627,6 +1635,10 @@ def check_cost_ledger_valid(ctx: Context) -> tuple[str, bool, str]:
                 problems.append(f"{op}: negative usd")
             if src == "estimate" or row.get("estimated") is True:
                 problems.append(f"{op}: estimated cost rejected")
+            charged = (map_ops.get(op) or {}).get("charged", True)
+            if charged and op != "nextseek-api-write" and v <= 0:
+                if not ctx.meta.get("zero_cost_exception"):
+                    problems.append(f"{op}: charged op usd must be > 0 (got {v})")
         except (TypeError, ValueError):
             problems.append(f"{op}: usd not numeric ({usd!r})")
         if not row.get("call_id") and not row.get("timestamp"):
@@ -1636,6 +1648,60 @@ def check_cost_ledger_valid(ctx: Context) -> tuple[str, bool, str]:
             problems.append(f"missing ledger entry for {op}")
     ok = not problems
     return name, ok, ("cost_ledger ok" if ok else f"problems: {problems}")
+
+
+def check_cost_extraction_evidence(ctx: Context) -> tuple[str, bool, str]:
+    """Gate 3C.5: cost_extraction_evidence.json correlates to cost_ledger entries."""
+    name = "cost_extraction_evidence"
+    evid = _try_load_json(ctx.run_dir / "cost_extraction_evidence.json")
+    ledger = _try_load_json(ctx.run_dir / "cost_ledger.json")
+    if evid is None:
+        return name, False, "cost_extraction_evidence.json missing/unreadable"
+    entries = evid.get("entries")
+    if not isinstance(entries, list) or not entries:
+        return name, False, "entries missing or empty"
+    ledger_entries = (ledger or {}).get("entries") or []
+    ledger_by_op = {e.get("op"): e for e in ledger_entries if isinstance(e, dict)}
+    problems: list[str] = []
+    for row in entries:
+        if not isinstance(row, dict):
+            problems.append("entry not object")
+            continue
+        op = row.get("op")
+        if op not in ledger_by_op:
+            problems.append(f"{op}: no matching cost_ledger entry")
+            continue
+        if row.get("call_id") != ledger_by_op[op].get("call_id"):
+            problems.append(f"{op}: call_id mismatch vs cost_ledger")
+        try:
+            ev_usd = float(row.get("usd"))
+            ld_usd = float(ledger_by_op[op].get("usd"))
+            if abs(ev_usd - ld_usd) > 1e-9:
+                problems.append(f"{op}: usd mismatch evidence vs ledger")
+        except (TypeError, ValueError):
+            problems.append(f"{op}: usd not numeric in evidence")
+    ok = not problems
+    return name, ok, ("cost extraction ok" if ok else f"problems: {problems}")
+
+
+def check_r26_live_probes_present(ctx: Context) -> tuple[str, bool, str]:
+    """Gate 3C.5: R26-live-probes.json with executed runbook commands."""
+    name = "r26_live_probes_present"
+    obj = _try_load_json(ctx.run_dir / "R26-live-probes.json")
+    if obj is None:
+        return name, False, "R26-live-probes.json missing/unreadable"
+    probes = obj.get("probes")
+    if not isinstance(probes, list) or len(probes) < 4:
+        return name, False, f"probes list too short ({len(probes) if isinstance(probes, list) else 0})"
+    required = {"project_binding", "sample_count", "sample_type_count", "reference_uid"}
+    seen = {p.get("name") for p in probes if isinstance(p, dict)}
+    missing = required - seen
+    if missing:
+        return name, False, f"missing probe names: {sorted(missing)}"
+    failed = [p.get("name") for p in probes if isinstance(p, dict) and not p.get("pass")]
+    if failed:
+        return name, False, f"failed probes: {failed}"
+    return name, True, f"R26 probes ok ({len(probes)} recorded)"
 
 
 def check_meta_matrix_spend_estimate_recorded(ctx: Context) -> tuple[str, bool, str]:
@@ -1711,6 +1777,8 @@ CHECKS: list[Callable[[Context], tuple[str, bool, str]]] = [
     check_gate_instance_binding_present,
     check_plugin_ops_matrix_in_turn_viability,
     check_cost_ledger_valid,
+    check_cost_extraction_evidence,
+    check_r26_live_probes_present,
     check_meta_matrix_spend_estimate_recorded,
 ]
 

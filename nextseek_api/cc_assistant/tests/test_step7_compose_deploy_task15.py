@@ -72,6 +72,7 @@ def test_clean_bundle_matrix_checks_all_pass(tmp_path):
         "gate_access_log_window_hits_every_op", "matrix_env_scan_no_shared_creds",
         "sweep_invocation_valid", "gate_instance_binding_present",
         "plugin_ops_matrix_in_turn_viability", "cost_ledger_valid",
+        "cost_extraction_evidence", "r26_live_probes_present",
         "meta_matrix_spend_estimate_recorded",
     ):
         assert d[name] is True, name

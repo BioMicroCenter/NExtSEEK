@@ -40,6 +40,7 @@ from django.test import TestCase
 from nextseek_api.cc_assistant import cc_config, cc_engine
 from nextseek_api.cc_assistant import router as cc_router
 from nextseek_api.cc_assistant import step7_gate_catalog as catalog
+from nextseek_api.cc_assistant import step7_llm_cost_ledger as cost_ledger
 from nextseek_api.cc_assistant.tests import cc_matrix_gate_harness as gate
 from nextseek_api.cc_assistant.tests.validate_cc_acceptance import (
     format_report,
@@ -327,14 +328,48 @@ class CCCapabilityGateMatrix(TestCase):
             ).stdout
 
             op_kwargs = self._catalog_op_kwargs()
+            exercises_by_op = {ex["bin_op"]: ex for ex in self.exercises}
+            ledger_file = cost_ledger.ledger_path(Path(settings.BASE_DIR))
+            ledger_start = len(cost_ledger.read_ledger_lines(ledger_file))
+            cumulative_usd = 0.0
+            budget_cap = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "10"))
+            extraction_rows: list[dict[str, Any]] = []
             matrix: dict = {}
             for op in gate.BIN_OPS:
                 argv = gate.build_op_argv(op, **op_kwargs[op])
                 result = gate.docker_exec_op(container_name, argv)
+                ledger_end = len(cost_ledger.read_ledger_lines(ledger_file))
+                ex = exercises_by_op[op]
+                call_id = f"{self.run_id}-{op}"
+                cost_kwargs: dict[str, Any] = {
+                    "exercise_id": ex.get("exercise_id"),
+                    "upstream_ref": ex.get("upstream_ref"),
+                }
+                if op != "nextseek-api-write":
+                    if ledger_end <= ledger_start:
+                        raise AssertionError(
+                            f"{op}: no LLM ledger lines appended (STEP7_LLM_LEDGER=1 required on nextseek)"
+                        )
+                    ext = cost_ledger.build_extraction_entry(
+                        op, call_id=call_id,
+                        ledger_line_start=ledger_start, ledger_line_end=ledger_end,
+                        path=ledger_file,
+                    )
+                    extraction_rows.append(ext)
+                    cost_kwargs.update({
+                        "cost_usd": ext["usd"],
+                        "call_id": call_id,
+                        "cost_source": "llm_client_ledger",
+                    })
+                    cumulative_usd += float(ext["usd"])
+                    cost_ledger.budget_guard(cumulative_usd, budget_cap, op=op)
+                else:
+                    cost_kwargs["call_id"] = call_id
                 matrix[op] = gate.make_matrix_row(
                     op, result=result, container_id=container_id, container_name=container_name,
-                    image=cc_image, transport=gate.TRANSPORT_FOR_OP[op],
+                    image=cc_image, transport=gate.TRANSPORT_FOR_OP[op], **cost_kwargs,
                 )
+                ledger_start = ledger_end
             gate.write_json(self.evid / "plugin_ops_matrix.json", matrix)
 
             nginx_window = gate.capture_nginx_log_window(nginx_name, before=nginx_before)
@@ -379,11 +414,22 @@ class CCCapabilityGateMatrix(TestCase):
         post_sweep_scan = gate.capture_post_sweep_user_tree_scan(volume=self.paths.users_volume)
         gate.write_text(self.evid / "post_sweep_user_tree_scan.txt", post_sweep_scan)
 
-        # --- cost_ledger.json (Gate 3C: real ledger, not estimate-only) ----
+        # --- cost_ledger.json (Gate 3C.5: real ledger from matrix rows) ----
         total_wall = sum(float(r.get("wall_secs") or 0) for r in matrix.values())
-        ts = "2026-07-01T12:00:00Z"
-        ledger = catalog.build_cost_ledger_from_matrix(matrix, run_id=self.run_id, timestamp=ts)
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        ledger = catalog.build_cost_ledger_from_matrix(
+            matrix, run_id=self.run_id, timestamp=ts,
+        )
         gate.write_json(self.evid / "cost_ledger.json", ledger)
+        gate.write_json(self.evid / "cost_extraction_evidence.json", {
+            "run_id": self.run_id,
+            "entries": extraction_rows,
+        })
+        if ledger_file.is_file():
+            gate.write_text(
+                self.evid / "llm_client_ledger_window.jsonl",
+                ledger_file.read_text(encoding="utf-8"),
+            )
 
         meta_path = self.evid / "meta.json"
         meta = json.loads(meta_path.read_text()) if meta_path.is_file() else {}

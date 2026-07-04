@@ -167,6 +167,7 @@ INSTALLED_APPS = (
     "corsheaders",
     "channels",
     "nextseek_api",
+    "nextseek_api.cc_assistant.apps.CcAssistantConfig",
 )
 
 # Django Channels (ASGI)

@@ -123,40 +123,65 @@ def build_op_kwargs_from_catalog(
     return by_op
 
 
+def load_cost_source_map(path: Path | None = None) -> dict[str, Any]:
+    p = path or COST_SOURCE_MAP_PATH
+    return load_json(p)
+
+
+def charged_ops(source_map: dict[str, Any] | None = None) -> set[str]:
+    sm = source_map or load_cost_source_map()
+    ops = sm.get("ops") or {}
+    return {op for op, spec in ops.items() if isinstance(spec, dict) and spec.get("charged")}
+
+
 def build_cost_ledger_from_matrix(
     matrix: dict[str, dict[str, Any]],
     *,
     run_id: str,
     timestamp: str,
+    source_map: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build ``cost_ledger.json`` from live matrix rows (Gate 3D writer helper)."""
+    """Build ``cost_ledger.json`` from live matrix rows (Gate 3D writer helper).
+
+    Fail-closed (Gate 3C.5): charged ops must carry numeric ``cost_usd`` > 0,
+    ``call_id``, and ``cost_source`` — no defaults or fabrication.
+    """
+    charged = charged_ops(source_map)
     entries: list[dict[str, Any]] = []
     total = 0.0
     for op in BIN_OPS:
         row = matrix.get(op) or {}
-        if op == "nextseek-api-write":
-            entries.append({
-                "op": op,
-                "source_system": "none",
-                "usd": 0.0,
-                "call_id": f"{run_id}-{op}-blocked",
-                "timestamp": timestamp,
-                "reconciliation_note": "WRITE_BLOCKED unconfirmed leg",
-            })
+        if op == "nextseek-api-write" or op not in charged:
+            if op == "nextseek-api-write":
+                entries.append({
+                    "op": op,
+                    "source_system": "none",
+                    "usd": 0.0,
+                    "call_id": row.get("call_id") or f"{run_id}-{op}-blocked",
+                    "timestamp": timestamp,
+                    "reconciliation_note": "WRITE_BLOCKED unconfirmed leg",
+                })
             continue
-        usd = row.get("cost_usd")
-        if usd is None:
-            usd = 0.0
+        if "cost_usd" not in row:
+            raise ValueError(f"{op}: missing cost_usd on matrix row (fail-closed)")
         try:
-            usd_f = float(usd)
-        except (TypeError, ValueError):
-            usd_f = 0.0
+            usd_f = float(row["cost_usd"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{op}: cost_usd not numeric ({row.get('cost_usd')!r})") from exc
+        if usd_f <= 0:
+            raise ValueError(f"{op}: cost_usd must be > 0 for charged op (got {usd_f})")
+        src = row.get("cost_source")
+        if not isinstance(src, str) or not src.strip():
+            raise ValueError(f"{op}: missing cost_source on matrix row")
+        call_id = row.get("call_id")
+        if not isinstance(call_id, str) or not call_id.strip():
+            raise ValueError(f"{op}: missing call_id on matrix row")
         total += usd_f
         entries.append({
             "op": op,
-            "source_system": row.get("cost_source") or "sidecar_server_llm",
+            "source_system": src,
             "usd": usd_f,
-            "call_id": row.get("call_id") or f"{run_id}-{op}",
+            "call_id": call_id,
             "timestamp": row.get("cost_timestamp") or timestamp,
             "reconciliation_note": row.get("cost_reconciliation") or "matrix row correlation",
         })

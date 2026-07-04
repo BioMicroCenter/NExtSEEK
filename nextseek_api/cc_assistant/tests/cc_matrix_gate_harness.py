@@ -259,6 +259,9 @@ def docker_network_inspect(network: str, *, docker_bin: str = "docker") -> Any:
 def make_matrix_row(
     op: str, *, result: ExecResult, container_id: str, container_name: str,
     image: str, transport: str, published_path: str | None = None,
+    exercise_id: str | None = None, upstream_ref: str | None = None,
+    cost_usd: float | None = None, call_id: str | None = None,
+    cost_source: str | None = None,
 ) -> dict[str, Any]:
     """Shape one ``plugin_ops_matrix.json`` row from an ExecResult + the
     executor's provenance -- the {op, transport, exit_code, excerpt,
@@ -281,6 +284,16 @@ def make_matrix_row(
     }
     if published_path is not None:
         row["published_path"] = published_path
+    if exercise_id is not None:
+        row["exercise_id"] = exercise_id
+    if upstream_ref is not None:
+        row["upstream_ref"] = upstream_ref
+    if cost_usd is not None:
+        row["cost_usd"] = cost_usd
+    if call_id is not None:
+        row["call_id"] = call_id
+    if cost_source is not None:
+        row["cost_source"] = cost_source
     return row
 
 

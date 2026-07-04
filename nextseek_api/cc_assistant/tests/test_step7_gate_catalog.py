@@ -65,7 +65,14 @@ def test_binding_fixture_record_shape():
 
 
 def test_cost_ledger_from_matrix_schema():
-    matrix = {op: {"cost_usd": 0.01, "call_id": f"c-{op}"} for op in catalog.BIN_OPS}
+    matrix = {
+        op: {
+            "cost_usd": 0.01,
+            "call_id": f"c-{op}",
+            "cost_source": "llm_client_ledger",
+        }
+        for op in catalog.BIN_OPS
+    }
     ledger = catalog.build_cost_ledger_from_matrix(
         matrix, run_id="dry-run", timestamp="2026-07-04T12:00:00Z",
     )
@@ -73,6 +80,22 @@ def test_cost_ledger_from_matrix_schema():
     write_row = next(e for e in ledger["entries"] if e["op"] == "nextseek-api-write")
     assert write_row["source_system"] == "none"
     assert write_row["usd"] == 0.0
+
+
+def test_cost_ledger_missing_cost_usd_raises():
+    matrix = {op: {"call_id": "x", "cost_source": "llm_client_ledger", "cost_usd": 0.01}
+              for op in catalog.BIN_OPS}
+    del matrix["nextseek-graph"]["cost_usd"]
+    with pytest.raises(ValueError, match="missing cost_usd"):
+        catalog.build_cost_ledger_from_matrix(matrix, run_id="x", timestamp="t")
+
+
+def test_cost_ledger_zero_charged_op_raises():
+    matrix = {op: {"call_id": "x", "cost_source": "llm_client_ledger", "cost_usd": 0.01}
+              for op in catalog.BIN_OPS}
+    matrix["nextseek-parse"]["cost_usd"] = 0.0
+    with pytest.raises(ValueError, match="must be > 0"):
+        catalog.build_cost_ledger_from_matrix(matrix, run_id="x", timestamp="t")
 
 
 def test_provenance_and_coverage_artifacts_present():

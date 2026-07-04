@@ -1,71 +1,78 @@
 {
-  "schema_version": "step7-cost-source-map/v1",
-  "generated_at": "2026-07-04T14:45:00-04:00",
+  "schema_version": "step7-cost-source-map/v2",
+  "generated_at": "2026-07-04T16:50:00-04:00",
+  "price_table_version": "2026-06-granular-realstack",
   "budget_cap_field": "meta.json.budget_cap_usd",
+  "probe_note": "Bedrock proxy logs METHOD path -> status only (no USD). Sidecar responses carry no cost. Authoritative source: llm_client_ledger (outputs/_ledger.jsonl) with token×PRICES; claude_code_result for forced_cc_result.json.",
   "ops": {
     "nextseek-query": {
       "charged": true,
-      "source_system": "claude_code_result",
-      "code_path": "nextseek_api/cc_assistant/cc_engine.py:run_cc_turn",
-      "usd_field": "total_cost_usd",
-      "correlation_field": "run_id",
-      "notes": "Agent-path ops; cc_trace.cost_usd from result frame (PLAN-3 precedent)"
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id",
+      "notes": "Viewset path; STEP7_LLM_LEDGER=1 on nextseek gunicorn"
     },
     "nextseek-plan": {
       "charged": true,
-      "source_system": "claude_code_result",
-      "code_path": "nextseek_api/cc_assistant/cc_engine.py:run_cc_turn",
-      "usd_field": "total_cost_usd",
-      "correlation_field": "run_id"
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id"
     },
     "nextseek-entity-extract": {
       "charged": true,
-      "source_system": "sidecar_server_llm",
-      "code_path": "docker/ns-sidecar/app/ops.py:run_op",
-      "usd_field": "cost_ledger.json entries",
-      "correlation_field": "call_id",
-      "notes": "Requires aggregation from Bedrock proxy invoke logs + GCP server-side billing hooks"
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id"
     },
     "nextseek-parse": {
       "charged": true,
-      "source_system": "sidecar_server_llm",
-      "code_path": "docker/ns-sidecar/app/ops.py:run_op",
-      "usd_field": "cost_ledger.json entries",
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
       "correlation_field": "call_id"
     },
     "nextseek-graph": {
       "charged": true,
-      "source_system": "sidecar_server_llm",
-      "code_path": "docker/ns-sidecar/app/ops.py:run_op",
-      "usd_field": "cost_ledger.json entries",
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
       "correlation_field": "call_id"
     },
     "nextseek-api-read": {
       "charged": true,
-      "source_system": "sidecar_server_llm",
-      "code_path": "docker/ns-sidecar/app/ops.py:run_op",
-      "usd_field": "cost_ledger.json entries",
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
       "correlation_field": "call_id"
     },
     "nextseek-api-write": {
       "charged": false,
       "source_system": "none",
-      "code_path": "docker/ns-sidecar/app/write_gate.py",
-      "notes": "Unconfirmed leg only; exit 5 WRITE_BLOCKED — no LLM spend expected"
+      "notes": "Unconfirmed leg only; exit 5 WRITE_BLOCKED"
     },
     "nextseek-report": {
       "charged": true,
-      "source_system": "sidecar_server_llm",
-      "code_path": "docker/ns-sidecar/app/ops.py:run_op",
-      "usd_field": "cost_ledger.json entries",
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
       "correlation_field": "call_id"
     },
     "nextseek-generate-submission": {
       "charged": true,
-      "source_system": "sidecar_server_llm",
-      "code_path": "docker/ns-sidecar/app/ops.py:run_op",
-      "usd_field": "cost_ledger.json entries",
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
       "correlation_field": "call_id"
+    },
+    "forced_cc_turn": {
+      "charged": true,
+      "source_system": "claude_code_result",
+      "code_path": "forced_cc_result.json",
+      "usd_field": "cost",
+      "correlation_field": "run_id"
     }
   }
 }

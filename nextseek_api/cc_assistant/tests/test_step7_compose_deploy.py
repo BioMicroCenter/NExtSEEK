@@ -145,15 +145,37 @@ def _write_cost_ledger(bundle_dir: Path, *, run_id: str = RUN_ID) -> None:
             continue
         entries.append({
             "op": op,
-            "source_system": "hermetic_fixture",
+            "source_system": "llm_client_ledger",
             "usd": 0.01,
             "call_id": f"{run_id}-{op}-1",
             "timestamp": "2026-07-01T12:00:00Z",
-            "reconciliation_note": "synthetic Gate 3C fixture",
+            "reconciliation_note": "synthetic Gate 3C.5 fixture",
         })
     (bundle_dir / "cost_ledger.json").write_text(
         json.dumps({"run_id": run_id, "entries": entries, "total_usd": round(0.01 * (len(BIN_OPS) - 1), 4)}),
         encoding="utf-8",
+    )
+
+
+def _write_cost_extraction_evidence(bundle_dir: Path, *, run_id: str = RUN_ID) -> None:
+    from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import BIN_OPS
+
+    rows = []
+    for op in BIN_OPS:
+        if op == "nextseek-api-write":
+            continue
+        rows.append({
+            "op": op,
+            "call_id": f"{run_id}-{op}-1",
+            "source_system": "llm_client_ledger",
+            "ledger_path": "outputs/_ledger.jsonl",
+            "ledger_line_start": 0,
+            "ledger_line_end": 1,
+            "usd": 0.01,
+            "price_table_version": "2026-06-granular-realstack",
+        })
+    (bundle_dir / "cost_extraction_evidence.json").write_text(
+        json.dumps({"run_id": run_id, "entries": rows}), encoding="utf-8"
     )
 
 
@@ -200,6 +222,11 @@ def _matrix_row(op: str, *, run_id: str, cc_image: str, container_id: str,
         "container_name": f"dmac-cc-matrix-{run_id}",
         "image": cc_image,
         "wall_secs": wall_secs,
+        "exercise_id": f"T18-{op.removeprefix('nextseek-')}-1",
+        "upstream_ref": f"dmac-assistant@a429f13:fixture:{op}",
+        "cost_usd": 0.0 if op == "nextseek-api-write" else 0.01,
+        "call_id": f"{run_id}-{op}-1",
+        "cost_source": "none" if op == "nextseek-api-write" else "llm_client_ledger",
     }
     if published_path is not None:
         row["published_path"] = published_path
@@ -264,6 +291,19 @@ def _write_matrix_artifacts(bundle_dir: Path, *, run_id: str = RUN_ID,
 
     if "cost_ledger" not in skip:
         _write_cost_ledger(bundle_dir, run_id=run_id)
+        _write_cost_extraction_evidence(bundle_dir, run_id=run_id)
+
+    if "r26_live_probes" not in skip:
+        (bundle_dir / "R26-live-probes.json").write_text(json.dumps({
+            "run_id": run_id,
+            "probes": [
+                {"name": "project_binding", "pass": True, "exit_code": 0, "stdout": "1\tPublished Data"},
+                {"name": "sample_count", "pass": True, "exit_code": 0, "stdout": "50886"},
+                {"name": "sample_type_count", "pass": True, "exit_code": 0, "stdout": "104"},
+                {"name": "reference_uid", "pass": True, "exit_code": 0, "stdout": "319625\tA.ADCD-250312ALT-1-PUB"},
+                {"name": "mus_count", "pass": True, "exit_code": 0, "stdout": "1179"},
+            ],
+        }), encoding="utf-8")
 
     if "gate_access_log_window" not in skip:
         from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import (
@@ -582,7 +622,8 @@ ALL_CHECK_NAMES = {
     "post_sweep_user_tree_scan_contains_published_paths",
     "gate_access_log_window_hits_every_op", "matrix_env_scan_no_shared_creds",
     "sweep_invocation_valid", "gate_instance_binding_present",
-    "plugin_ops_matrix_in_turn_viability", "cost_ledger_valid", "meta_matrix_spend_estimate_recorded",
+    "plugin_ops_matrix_in_turn_viability", "cost_ledger_valid", "cost_extraction_evidence",
+    "r26_live_probes_present", "meta_matrix_spend_estimate_recorded",
 }
 
 
