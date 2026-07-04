@@ -269,15 +269,16 @@ class CCCapabilityGateMatrix(TestCase):
         ok, detail = cc_engine.cc_runner_available()
         if not ok:
             raise unittest.SkipTest(f"CC runner not available: {detail}")
-        cls.run_id = "matrix-" + uuid.uuid4().hex[:12]
-        cls.gate_user_id = os.environ.get("NEXTSEEK_CC_GATE_USER_ID", "ccgateuser")
+        cls.run_id = os.environ.get("STEP7_GATE3D_RUN_ID") or ("matrix-" + uuid.uuid4().hex[:12])
+        cls.gate_user_id = os.environ.get("NEXTSEEK_CC_GATE_USER_ID", "demo")
+        bundle_override = os.environ.get("STEP7_GATE3D_BUNDLE_DIR")
         os.environ["NEXTSEEK_STEP7_INSTANCE_BINDING"] = "1"
         cls.binding = catalog.load_instance_binding()
         cls.exercises = catalog.load_exercise_catalog()
         cls.gate_project_override = os.environ.get("NEXTSEEK_CC_GATE_PROJECT")
         cls.api_user, cls.api_pass = _seek_creds()
         cls.paths = cc_config.CCPaths.from_env()
-        cls.evid = STEP7_EVID_ROOT / cls.run_id
+        cls.evid = Path(bundle_override) if bundle_override else (STEP7_EVID_ROOT / cls.run_id)
         cls.evid.mkdir(parents=True, exist_ok=True)
 
     def _catalog_op_kwargs(self) -> dict[str, dict[str, Any]]:
