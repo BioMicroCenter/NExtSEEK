@@ -70,8 +70,9 @@ def test_clean_bundle_matrix_checks_all_pass(tmp_path):
         "plugin_ops_matrix_published_paths_under_user_subtree",
         "post_sweep_user_tree_scan_contains_published_paths",
         "gate_access_log_window_hits_every_op", "matrix_env_scan_no_shared_creds",
-        "sweep_invocation_valid", "seeded_fixture_present",
-        "plugin_ops_matrix_in_turn_viability", "meta_matrix_spend_estimate_recorded",
+        "sweep_invocation_valid", "gate_instance_binding_present",
+        "plugin_ops_matrix_in_turn_viability", "cost_ledger_valid",
+        "meta_matrix_spend_estimate_recorded",
     ):
         assert d[name] is True, name
 
@@ -336,7 +337,7 @@ def test_published_path_absent_from_post_sweep_scan_fails(tmp_path):
 # ==========================================================================
 
 @pytest.mark.parametrize("skip_key", [
-    "plugin_ops_matrix", "seeded_fixture", "gate_access_log_window",
+    "plugin_ops_matrix", "instance_binding", "cost_ledger", "gate_access_log_window",
     "post_sweep_user_tree_scan", "matrix_env_scan", "sweep_invocation",
     "network_inspect_matrix",
 ])
@@ -482,23 +483,30 @@ def test_op_endpoint_map_covers_every_bin_op():
 
 
 # ==========================================================================
-# seeded_fixture.json
+# instance_binding.json (Gate 3C)
 # ==========================================================================
 
-def test_seeded_fixture_missing_fails(tmp_path):
-    all_ok, checks, _, _ = _clean(tmp_path, skip_matrix_artifacts={"seeded_fixture"})
+def test_instance_binding_missing_fails(tmp_path):
+    all_ok, checks, _, _ = _clean(tmp_path, skip_matrix_artifacts={"instance_binding"})
     assert not all_ok
-    assert _names(checks)["seeded_fixture_present"] is False
+    assert _names(checks)["gate_instance_binding_present"] is False
 
 
-def test_seeded_fixture_empty_uids_fails(tmp_path):
+def test_instance_binding_empty_uids_fails(tmp_path):
     repo, bundle, tracker, sha = _bundle(tmp_path)
     _full_bundle(bundle, tracker, deploy_commit=sha)
-    (bundle / "seeded_fixture.json").write_text(json.dumps({"project": GATE_PROJECT, "uids": []}), encoding="utf-8")
+    (bundle / "instance_binding.json").write_text(json.dumps({
+        "project_title": "Published Data",
+        "project": GATE_PROJECT,
+        "reference_uids": [],
+        "uids": [],
+        "forbidden_actions": ["create_seeded_fixture"],
+        "source": "instance_binding.json",
+    }), encoding="utf-8")
 
     all_ok, checks = validate_run(bundle, repo_root=repo)
     assert not all_ok
-    assert _names(checks)["seeded_fixture_present"] is False
+    assert _names(checks)["gate_instance_binding_present"] is False
 
 
 # ==========================================================================
@@ -526,17 +534,27 @@ def test_op_wall_secs_not_numeric_fails_viability_check(tmp_path):
 
 
 # ==========================================================================
-# meta.json.matrix_spend_estimate_usd
+# cost_ledger.json (Gate 3C)
 # ==========================================================================
 
-def test_missing_matrix_spend_estimate_fails(tmp_path):
+def test_missing_cost_ledger_fails(tmp_path):
+    all_ok, checks, _, _ = _clean(tmp_path, skip_matrix_artifacts={"cost_ledger"})
+    assert not all_ok
+    assert _names(checks)["cost_ledger_valid"] is False
+    assert _names(checks)["meta_matrix_spend_estimate_recorded"] is False
+
+
+def test_estimate_only_bundle_fails(tmp_path):
     repo, bundle, tracker, sha = _bundle(tmp_path)
     _full_bundle(bundle, tracker, deploy_commit=sha, meta_overrides={
-        "matrix_spend_estimate_usd": None, "matrix_spend_estimate_method": None,
+        "matrix_spend_estimate_usd": 0.35,
+        "matrix_spend_estimate_method": "heuristic",
     })
+    (bundle / "cost_ledger.json").unlink(missing_ok=True)
 
     all_ok, checks = validate_run(bundle, repo_root=repo)
     assert not all_ok
+    assert _names(checks)["cost_ledger_valid"] is False
     assert _names(checks)["meta_matrix_spend_estimate_recorded"] is False
 
 

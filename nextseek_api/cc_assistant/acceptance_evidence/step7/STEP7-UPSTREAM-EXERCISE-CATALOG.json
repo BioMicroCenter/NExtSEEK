@@ -1,0 +1,95 @@
+{
+  "schema_version": "step7-upstream-exercise-catalog/v1",
+  "upstream_sha": "a429f1372a075e5db586a1b6efc8c3b1663e211a",
+  "generated_at": "2026-07-04T14:45:00-04:00",
+  "exercises": [
+    {
+      "exercise_id": "T18-entity-1",
+      "bin_op": "nextseek-entity-extract",
+      "proof_paradigm": "forced_cc_direct",
+      "upstream_ref": "dmac-assistant@a429f13:tools/e2e/run_t18_rewire_e2e.py:PAID_PROJECTIONS[0]",
+      "query_id": null,
+      "task_family": null,
+      "expected_route": null,
+      "inputs": {"query": "mouse samples treated with NDMA"},
+      "expected_exit_code": 0,
+      "data_grounding": {"requires_ndma_mus_samples": true}
+    },
+    {
+      "exercise_id": "T18-parse-1",
+      "bin_op": "nextseek-parse",
+      "proof_paradigm": "forced_cc_direct",
+      "upstream_ref": "dmac-assistant@a429f13:tools/e2e/run_t18_rewire_e2e.py:PAID_PROJECTIONS[1]",
+      "inputs": {"query": "mouse samples treated with NDMA"},
+      "expected_exit_code": 0
+    },
+    {
+      "exercise_id": "T18-graph-1",
+      "bin_op": "nextseek-graph",
+      "proof_paradigm": "forced_cc_direct",
+      "upstream_ref": "dmac-assistant@a429f13:tools/e2e/run_t18_rewire_e2e.py:PAID_PROJECTIONS[2]",
+      "inputs": {"query": "lineage of mouse samples"},
+      "expected_exit_code": 0
+    },
+    {
+      "exercise_id": "T18-api-read-1",
+      "bin_op": "nextseek-api-read",
+      "proof_paradigm": "forced_cc_direct",
+      "upstream_ref": "dmac-assistant@a429f13:tools/e2e/run_t18_rewire_e2e.py:PAID_PROJECTIONS[3]",
+      "inputs": {
+        "parser_plan": "{\"target_endpoint\": \"/nextseek_api/samples/advanced_search/\", \"intent_summary\": \"mouse samples treated with NDMA\", \"filters\": {\"keywords\": [\"NDMA\"]}, \"resolved\": {\"sampletypes\": [{\"code\": \"MUS\"}]}}"
+      },
+      "expected_exit_code": 0
+    },
+    {
+      "exercise_id": "T18-api-write-1",
+      "bin_op": "nextseek-api-write",
+      "proof_paradigm": "forced_cc_direct",
+      "upstream_ref": "dmac-assistant@a429f13:tools/e2e/run_t18_rewire_e2e.py:Step2c",
+      "inputs": {
+        "parser_plan": "{\"target_endpoint\": \"/nextseek_api/samples/advanced_search/\", \"intent_summary\": \"mouse samples treated with NDMA\", \"filters\": {\"keywords\": [\"NDMA\"]}, \"resolved\": {\"sampletypes\": [{\"code\": \"MUS\"}]}}",
+        "confirmed_write": false
+      },
+      "expected_exit_code": 5,
+      "expected_excerpt_contains": ["WRITE_BLOCKED"]
+    },
+    {
+      "exercise_id": "T18-report-1",
+      "bin_op": "nextseek-report",
+      "proof_paradigm": "forced_cc_direct",
+      "upstream_ref": "dmac-assistant@a429f13:tools/e2e/run_t18_rewire_e2e.py:REPORT_PROJECT",
+      "inputs": {"mode": "published", "project": "Published Data"},
+      "expected_exit_code": 0
+    },
+    {
+      "exercise_id": "T18-generate-submission-1",
+      "bin_op": "nextseek-generate-submission",
+      "proof_paradigm": "forced_cc_direct",
+      "upstream_ref": "dmac-assistant@a429f13:tools/e2e/run_t18_rewire_e2e.py:PAID_PROJECTIONS[4]",
+      "inputs": {"type": "GEO", "uids": "A.ADCD-250312ALT-1-PUB"},
+      "expected_exit_code": 0,
+      "mapping_rationale": "Upstream UID D.MSP-250319WHI-49-PUB overridden per dev instance_binding probe 2026-07-04"
+    },
+    {
+      "exercise_id": "ROUTER-Search-Basic-1",
+      "bin_op": "nextseek-query",
+      "proof_paradigm": "forced_cc_nl",
+      "upstream_ref": "dmac-assistant@a429f13:tools/e2e/run_router_e2e.py:DISCRIMINATORS[0]",
+      "query_id": "Search-Basic-1",
+      "task_family": "Search-Basic",
+      "expected_route": "nextseek_query",
+      "inputs": {"query": "find mice"},
+      "expected_exit_code": 0
+    },
+    {
+      "exercise_id": "CORPUS-plan-1",
+      "bin_op": "nextseek-plan",
+      "proof_paradigm": "forced_cc_nl",
+      "upstream_ref": "dmac-assistant@a429f13:tools/e2e/runbook.md:Write-Create-1-adjacent",
+      "query_id": null,
+      "task_family": "Write-Create",
+      "inputs": {"query": "What steps would you recommend to summarize samples treated with NDMA in this project?"},
+      "expected_exit_code": 0
+    }
+  ]
+}

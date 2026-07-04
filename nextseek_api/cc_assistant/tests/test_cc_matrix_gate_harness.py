@@ -408,20 +408,26 @@ def test_seeded_fixture_project_create_without_id_raises():
         )
 
 
-def test_seeded_fixture_to_json_passes_validator_check(tmp_path):
-    """The writer's output shape must satisfy check_seeded_fixture_present
-    (project non-empty str + uids non-empty list)."""
+def test_binding_fixture_record_passes_validator_check(tmp_path):
+    """Writer output must satisfy ``check_gate_instance_binding_present``."""
+    from nextseek_api.cc_assistant import step7_gate_catalog as catalog
     from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import (
         Context,
-        check_seeded_fixture_present,
+        check_gate_instance_binding_present,
     )
-    http = _greenfield_http()
-    fx = gate.create_seeded_fixture(
-        assistant_base_url="http://x", api_user="u", api_pass="p", http=http,
+    binding = catalog.InstanceBinding(
+        binding_id="hermetic",
+        project_id=1,
+        project_title="Published Data",
+        sample_count=100,
+        sample_type_count=10,
+        reference_uids=["A.ADCD-250312ALT-1-PUB"],
+        cc_project_dirname="1-published-data",
+        forbidden_actions=["create_seeded_fixture"],
     )
-    gate.write_json(tmp_path / "seeded_fixture.json", fx.to_json())
+    gate.write_json(tmp_path / "instance_binding.json", catalog.binding_fixture_record(binding))
     ctx = Context(run_dir=tmp_path, preflight=None, meta={}, repo_root=tmp_path)
-    name, ok, detail = check_seeded_fixture_present(ctx)
+    name, ok, detail = check_gate_instance_binding_present(ctx)
     assert ok is True, detail
 
 

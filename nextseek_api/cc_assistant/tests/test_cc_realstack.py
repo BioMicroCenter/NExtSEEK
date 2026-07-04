@@ -32,12 +32,14 @@ import time
 import unittest
 import uuid
 from pathlib import Path
+from typing import Any
 
 from django.conf import settings
 from django.test import TestCase
 
 from nextseek_api.cc_assistant import cc_config, cc_engine
 from nextseek_api.cc_assistant import router as cc_router
+from nextseek_api.cc_assistant import step7_gate_catalog as catalog
 from nextseek_api.cc_assistant.tests import cc_matrix_gate_harness as gate
 from nextseek_api.cc_assistant.tests.validate_cc_acceptance import (
     format_report,
@@ -248,8 +250,9 @@ class CCCapabilityGateMatrix(TestCase):
     with the user's sign-off -- never in this session. GATED identically to
     ``CCRealStackAcceptance`` above (``RUN_REALSTACK=1``); needs the
     deployed stack (``nextseek-sidecar``/``dmac-bedrock-proxy``/nginx up,
-    ``/var/run/docker.sock``, the gate user's own SEEK login with a real
-    sandbox project to seed against).
+    ``/var/run/docker.sock``, the gate user's own SEEK login bound to an
+    **existing** project via ``instance_binding.json`` — no greenfield
+    ``create_seeded_fixture``).
 
     Writes every SPEC-7 section 8 plugin_ops_matrix.json + companion
     artifact under ``acceptance_evidence/step7/<run_id>/`` and re-checks the
@@ -267,70 +270,28 @@ class CCCapabilityGateMatrix(TestCase):
             raise unittest.SkipTest(f"CC runner not available: {detail}")
         cls.run_id = "matrix-" + uuid.uuid4().hex[:12]
         cls.gate_user_id = os.environ.get("NEXTSEEK_CC_GATE_USER_ID", "ccgateuser")
-        # Step 3b (iter-1 H-3): the sandbox SEEK project is CREATED by the
-        # fixture; the {pid}-{slug} gate_project dirname is DERIVED from the
-        # created project's real id (fixture.project) inside the test --
-        # never assumed to pre-exist (greenfield works from zero).
-        # NEXTSEEK_CC_GATE_PROJECT remains an explicit operator OVERRIDE only.
-        cls.gate_project_title = os.environ.get(
-            "NEXTSEEK_CC_GATE_PROJECT_TITLE", gate.DEFAULT_GATE_PROJECT_TITLE
-        )
+        os.environ["NEXTSEEK_STEP7_INSTANCE_BINDING"] = "1"
+        cls.binding = catalog.load_instance_binding()
+        cls.exercises = catalog.load_exercise_catalog()
         cls.gate_project_override = os.environ.get("NEXTSEEK_CC_GATE_PROJECT")
         cls.api_user, cls.api_pass = _seek_creds()
         cls.paths = cc_config.CCPaths.from_env()
         cls.evid = STEP7_EVID_ROOT / cls.run_id
         cls.evid.mkdir(parents=True, exist_ok=True)
 
-    def _op_kwargs(self, fixture: "gate.SeededFixture") -> dict:
-        """One representative, safe, read-mostly invocation per op, targeting
-        the seeded fixture for the data-dependent ops (Step 3b). The write op
-        defaults to the SAFE unconfirmed leg (pinned Layer-2 exit-5
-        WRITE_BLOCKED form) unless the operator has recorded explicit
-        sign-off via NEXTSEEK_CC_GATE_CONFIRM_WRITE=1 -- confirming a write
-        must never be this harness's own silent default."""
+    def _catalog_op_kwargs(self) -> dict[str, dict[str, Any]]:
+        """Per-op kwargs from committed upstream exercise catalog (Gate 3C)."""
         confirmed = os.environ.get("NEXTSEEK_CC_GATE_CONFIRM_WRITE") == "1"
-        # No fabricated-UID fallback: the fixture CREATED these samples
-        # (create_seeded_fixture raises FixtureCreationError otherwise), and
-        # the caller asserts uids is non-empty before building op kwargs.
-        uids = ",".join(fixture.uids)
-        # The ops address the sandbox project by its SEEK TITLE (what the
-        # server-side agents resolve project references by), not the local
-        # {pid}-{slug} CC dirname (which only names the CC user tree).
-        project_title = fixture.title
-        return {
-            "nextseek-entity-extract": {"query": "list sampletypes and assays used in this project"},
-            "nextseek-parse": {"query": f"find samples in project {project_title}"},
-            "nextseek-graph": {"query": f"show lineage for a sample in project {project_title}"},
-            "nextseek-plan": {"query": f"recommend next steps to summarize project {project_title}"},
-            "nextseek-query": {"query": f"how many samples exist in project {project_title}?"},
-            "nextseek-api-read": {
-                "parser_plan": json.dumps({"endpoint": "/nextseek_api/samples/", "method": "GET"}),
-            },
-            "nextseek-api-write": {
-                "parser_plan": json.dumps({
-                    "endpoint": "/nextseek_api/samples/", "method": "PATCH",
-                    "requestBody": {"notes": f"Task 15 capability gate {self.run_id}"},
-                }),
-                "confirmed_write": confirmed,
-            },
-            "nextseek-report": {"mode": "samples", "project": project_title},
-            "nextseek-generate-submission": {"submission_type": "GEO", "uids": uids},
-        }
-
-    def test_01_seeded_fixture_matrix_sweep_and_companions(self):
-        # --- Step 3b: CREATE the seeded fixture, BEFORE the matrix run --------
-        # (iter-1 H-3: one sandbox project + sample UIDs, created as the gate
-        # user via the authenticated REST API; FixtureCreationError fails the
-        # gate loudly -- nothing is faked, greenfield works from zero.)
-        base_url = os.environ.get("NEXTSEEK_BASE_URL", "http://nextseek_nginx")
-        fixture = gate.create_seeded_fixture(
-            assistant_base_url=base_url,
-            api_user=self.api_user, api_pass=self.api_pass,
-            gate_project_title=self.gate_project_title, run_id=self.run_id,
+        return catalog.build_op_kwargs_from_catalog(
+            self.exercises, self.binding, allow_confirmed_write=confirmed,
         )
-        self.assertTrue(fixture.uids, "seeded fixture created no sample UIDs")
-        gate_project = self.gate_project_override or fixture.project
-        gate.write_json(self.evid / "seeded_fixture.json", fixture.to_json())
+
+    def test_01_instance_binding_matrix_sweep_and_companions(self):
+        # --- Gate 3C: bind to existing instance (no greenfield fixture) ------
+        binding = self.binding
+        self.assertTrue(binding.reference_uids, "instance_binding has no reference_uids")
+        gate_project = self.gate_project_override or binding.cc_project_dirname
+        gate.write_json(self.evid / "instance_binding.json", catalog.binding_fixture_record(binding))
 
         # images.json's CC-image key (Task 1's collector normally writes the
         # full images.json; re-record just this key here so the matrix's own
@@ -365,7 +326,7 @@ class CCCapabilityGateMatrix(TestCase):
                 ["docker", "logs", nginx_name], capture_output=True, text=True,
             ).stdout
 
-            op_kwargs = self._op_kwargs(fixture)
+            op_kwargs = self._catalog_op_kwargs()
             matrix: dict = {}
             for op in gate.BIN_OPS:
                 argv = gate.build_op_argv(op, **op_kwargs[op])
@@ -418,19 +379,21 @@ class CCCapabilityGateMatrix(TestCase):
         post_sweep_scan = gate.capture_post_sweep_user_tree_scan(volume=self.paths.users_volume)
         gate.write_text(self.evid / "post_sweep_user_tree_scan.txt", post_sweep_scan)
 
-        # --- meta.json (best-effort spend estimate, iter-3 L-3) --------------
+        # --- cost_ledger.json (Gate 3C: real ledger, not estimate-only) ----
         total_wall = sum(float(r.get("wall_secs") or 0) for r in matrix.values())
+        ts = "2026-07-01T12:00:00Z"
+        ledger = catalog.build_cost_ledger_from_matrix(matrix, run_id=self.run_id, timestamp=ts)
+        gate.write_json(self.evid / "cost_ledger.json", ledger)
+
         meta_path = self.evid / "meta.json"
         meta = json.loads(meta_path.read_text()) if meta_path.is_file() else {}
         meta.update({
             "run_id": self.run_id,
             "gate_project": gate_project,
             "gate_user_id": self.gate_user_id,
-            "matrix_spend_estimate_usd": round(total_wall * 0.01, 4),
-            "matrix_spend_estimate_method": (
-                "sum of per-op wall_secs * a flat $0.01/s heuristic; exact "
-                "per-op server-side LLM cost is not programmatically available"
-            ),
+            "matrix_wall_secs_total": round(total_wall, 3),
+            "exercise_catalog_sha256": None,
+            "instance_binding_sha256": None,
         })
         gate.write_json(meta_path, meta)
 

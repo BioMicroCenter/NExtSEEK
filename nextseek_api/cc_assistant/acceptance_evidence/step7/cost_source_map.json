@@ -1,0 +1,71 @@
+{
+  "schema_version": "step7-cost-source-map/v1",
+  "generated_at": "2026-07-04T14:45:00-04:00",
+  "budget_cap_field": "meta.json.budget_cap_usd",
+  "ops": {
+    "nextseek-query": {
+      "charged": true,
+      "source_system": "claude_code_result",
+      "code_path": "nextseek_api/cc_assistant/cc_engine.py:run_cc_turn",
+      "usd_field": "total_cost_usd",
+      "correlation_field": "run_id",
+      "notes": "Agent-path ops; cc_trace.cost_usd from result frame (PLAN-3 precedent)"
+    },
+    "nextseek-plan": {
+      "charged": true,
+      "source_system": "claude_code_result",
+      "code_path": "nextseek_api/cc_assistant/cc_engine.py:run_cc_turn",
+      "usd_field": "total_cost_usd",
+      "correlation_field": "run_id"
+    },
+    "nextseek-entity-extract": {
+      "charged": true,
+      "source_system": "sidecar_server_llm",
+      "code_path": "docker/ns-sidecar/app/ops.py:run_op",
+      "usd_field": "cost_ledger.json entries",
+      "correlation_field": "call_id",
+      "notes": "Requires aggregation from Bedrock proxy invoke logs + GCP server-side billing hooks"
+    },
+    "nextseek-parse": {
+      "charged": true,
+      "source_system": "sidecar_server_llm",
+      "code_path": "docker/ns-sidecar/app/ops.py:run_op",
+      "usd_field": "cost_ledger.json entries",
+      "correlation_field": "call_id"
+    },
+    "nextseek-graph": {
+      "charged": true,
+      "source_system": "sidecar_server_llm",
+      "code_path": "docker/ns-sidecar/app/ops.py:run_op",
+      "usd_field": "cost_ledger.json entries",
+      "correlation_field": "call_id"
+    },
+    "nextseek-api-read": {
+      "charged": true,
+      "source_system": "sidecar_server_llm",
+      "code_path": "docker/ns-sidecar/app/ops.py:run_op",
+      "usd_field": "cost_ledger.json entries",
+      "correlation_field": "call_id"
+    },
+    "nextseek-api-write": {
+      "charged": false,
+      "source_system": "none",
+      "code_path": "docker/ns-sidecar/app/write_gate.py",
+      "notes": "Unconfirmed leg only; exit 5 WRITE_BLOCKED — no LLM spend expected"
+    },
+    "nextseek-report": {
+      "charged": true,
+      "source_system": "sidecar_server_llm",
+      "code_path": "docker/ns-sidecar/app/ops.py:run_op",
+      "usd_field": "cost_ledger.json entries",
+      "correlation_field": "call_id"
+    },
+    "nextseek-generate-submission": {
+      "charged": true,
+      "source_system": "sidecar_server_llm",
+      "code_path": "docker/ns-sidecar/app/ops.py:run_op",
+      "usd_field": "cost_ledger.json entries",
+      "correlation_field": "call_id"
+    }
+  }
+}

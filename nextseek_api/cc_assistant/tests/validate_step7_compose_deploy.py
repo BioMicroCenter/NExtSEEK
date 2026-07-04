@@ -1526,18 +1526,35 @@ def check_sweep_invocation_valid(ctx: Context) -> tuple[str, bool, str]:
     return name, ok, ("sweep_invocation.json ok" if ok else f"problems: {problems}")
 
 
+def check_gate_instance_binding_present(ctx: Context) -> tuple[str, bool, str]:
+    """Live gate binds to pre-existing instance data (Gate 3C / CQ-12).
+    Accepts ``instance_binding.json`` in the bundle (preferred) or legacy
+    ``seeded_fixture.json`` only when it carries ``source=instance_binding``."""
+    name = "gate_instance_binding_present"
+    for fname in ("instance_binding.json", "seeded_fixture.json"):
+        obj = _try_load_json_any(ctx.run_dir / fname)
+        if not isinstance(obj, dict):
+            continue
+        if fname == "seeded_fixture.json" and obj.get("source") != "instance_binding.json":
+            continue
+        title = obj.get("project_title") or obj.get("title")
+        project = obj.get("project")
+        uids = obj.get("reference_uids") or obj.get("uids")
+        ok = (
+            isinstance(title, str) and bool(title.strip())
+            and isinstance(project, str) and bool(project.strip())
+            and isinstance(uids, list) and len(uids) > 0
+        )
+        forbidden = obj.get("forbidden_actions") or []
+        if "create_seeded_fixture" not in forbidden and fname == "instance_binding.json":
+            ok = ok and isinstance(forbidden, list)
+        return name, ok, f"{fname}: title={title!r} project={project!r} uid_count={len(uids) if isinstance(uids, list) else 0}"
+    return name, False, "instance_binding.json missing (greenfield seeded_fixture not accepted)"
+
+
 def check_seeded_fixture_present(ctx: Context) -> tuple[str, bool, str]:
-    """Step 3b: the minimal seeded fixture (sandbox project + sample UIDs)
-    created via the gate user's authenticated REST calls, BEFORE the matrix
-    run, that data-dependent ops target."""
-    name = "seeded_fixture_present"
-    obj = _try_load_json_any(ctx.run_dir / "seeded_fixture.json")
-    if not isinstance(obj, dict):
-        return name, False, "seeded_fixture.json missing/unreadable/not an object"
-    project = obj.get("project")
-    uids = obj.get("uids")
-    ok = isinstance(project, str) and bool(project) and isinstance(uids, list) and len(uids) > 0
-    return name, ok, f"project={project!r} uid_count={len(uids) if isinstance(uids, list) else 'N/A'}"
+    """Deprecated alias — Gate 3C uses ``check_gate_instance_binding_present``."""
+    return check_gate_instance_binding_present(ctx)
 
 
 def check_plugin_ops_matrix_in_turn_viability(ctx: Context) -> tuple[str, bool, str]:
@@ -1575,24 +1592,64 @@ def check_plugin_ops_matrix_in_turn_viability(ctx: Context) -> tuple[str, bool, 
     )
 
 
+def check_cost_ledger_valid(ctx: Context) -> tuple[str, bool, str]:
+    """Gate 3C: real per-op cost ledger required; estimate-only bundles fail closed."""
+    name = "cost_ledger_valid"
+    ledger = _try_load_json(ctx.run_dir / "cost_ledger.json")
+    if ledger is None:
+        est = ctx.meta.get("matrix_spend_estimate_usd")
+        if est is not None:
+            return name, False, "cost_ledger.json missing but matrix_spend_estimate_usd present (estimate-only rejected)"
+        return name, False, "cost_ledger.json missing/unreadable"
+    entries = ledger.get("entries")
+    if not isinstance(entries, list) or not entries:
+        return name, False, "cost_ledger.entries missing or empty"
+    problems: list[str] = []
+    seen_ops: set[str] = set()
+    for i, row in enumerate(entries):
+        if not isinstance(row, dict):
+            problems.append(f"entry[{i}]: not an object")
+            continue
+        op = row.get("op")
+        if not isinstance(op, str) or not op.strip():
+            problems.append(f"entry[{i}]: missing op")
+            continue
+        if op in seen_ops:
+            problems.append(f"duplicate op {op!r}")
+        seen_ops.add(op)
+        src = row.get("source_system")
+        if not isinstance(src, str) or not src.strip():
+            problems.append(f"{op}: missing source_system")
+        usd = row.get("usd")
+        try:
+            v = float(usd)
+            if v < 0:
+                problems.append(f"{op}: negative usd")
+            if src == "estimate" or row.get("estimated") is True:
+                problems.append(f"{op}: estimated cost rejected")
+        except (TypeError, ValueError):
+            problems.append(f"{op}: usd not numeric ({usd!r})")
+        if not row.get("call_id") and not row.get("timestamp"):
+            problems.append(f"{op}: missing call_id and timestamp")
+    for op in BIN_OPS:
+        if op not in seen_ops and op != "nextseek-api-write":
+            problems.append(f"missing ledger entry for {op}")
+    ok = not problems
+    return name, ok, ("cost_ledger ok" if ok else f"problems: {problems}")
+
+
 def check_meta_matrix_spend_estimate_recorded(ctx: Context) -> tuple[str, bool, str]:
-    """meta.json gains matrix_spend_estimate_usd (best-effort estimate) +
-    matrix_spend_estimate_method (the method note: exact per-op server-side
-    cost is not programmatically available, and that limitation is recorded,
-    not hidden)."""
+    """Estimate-only accounting is superseded by ``check_cost_ledger_valid`` (Gate 3C).
+    If ``cost_ledger.json`` is present and valid, this check passes vacuously.
+    If only estimate fields exist, fail closed."""
     name = "meta_matrix_spend_estimate_recorded"
-    matrix = _load_matrix(ctx)
-    if matrix is None:
-        return name, False, "plugin_ops_matrix.json missing/unreadable"
+    _, ledger_ok, ledger_detail = check_cost_ledger_valid(ctx)
+    if ledger_ok:
+        return name, True, "superseded by cost_ledger.json (estimate not required)"
     val = ctx.meta.get("matrix_spend_estimate_usd")
-    method = ctx.meta.get("matrix_spend_estimate_method")
-    try:
-        v = float(val)
-        ok_num = v >= 0
-    except (TypeError, ValueError):
-        ok_num = False
-    ok = ok_num and isinstance(method, str) and bool(method.strip())
-    return name, ok, f"matrix_spend_estimate_usd={val!r} matrix_spend_estimate_method={method!r}"
+    if val is not None:
+        return name, False, f"estimate-only bundle rejected: {ledger_detail}"
+    return name, False, f"neither cost_ledger nor legacy estimate: {ledger_detail}"
 
 
 CHECKS: list[Callable[[Context], tuple[str, bool, str]]] = [
@@ -1651,8 +1708,9 @@ CHECKS: list[Callable[[Context], tuple[str, bool, str]]] = [
     check_gate_access_log_window_hits_every_op,
     check_matrix_env_scan_no_shared_creds,
     check_sweep_invocation_valid,
-    check_seeded_fixture_present,
+    check_gate_instance_binding_present,
     check_plugin_ops_matrix_in_turn_viability,
+    check_cost_ledger_valid,
     check_meta_matrix_spend_estimate_recorded,
 ]
 

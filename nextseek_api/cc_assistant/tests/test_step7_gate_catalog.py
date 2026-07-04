@@ -1,0 +1,86 @@
+"""Hermetic tests for Gate 3C exercise catalog + instance binding (PLAN-7)."""
+from __future__ import annotations
+
+import copy
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+from nextseek_api.cc_assistant import step7_gate_catalog as catalog
+from nextseek_api.cc_assistant.tests import cc_matrix_gate_harness as gate
+
+
+def test_committed_catalog_covers_all_nine_ops():
+    exercises = catalog.load_exercise_catalog()
+    assert catalog.catalog_covers_all_ops(exercises)
+    assert len(exercises) == 9
+
+
+def test_build_op_kwargs_from_catalog_one_per_op():
+    binding = catalog.load_instance_binding()
+    exercises = catalog.load_exercise_catalog()
+    kwargs = catalog.build_op_kwargs_from_catalog(exercises, binding)
+    assert set(kwargs) == set(catalog.BIN_OPS)
+    assert kwargs["nextseek-api-write"]["confirmed_write"] is False
+
+
+def test_catalog_mutation_missing_op_raises():
+    binding = catalog.load_instance_binding()
+    exercises = copy.deepcopy(catalog.load_exercise_catalog())
+    exercises = [ex for ex in exercises if ex["bin_op"] != "nextseek-graph"]
+    with pytest.raises(ValueError, match="catalog missing bin_ops"):
+        catalog.build_op_kwargs_from_catalog(exercises, binding)
+
+
+def test_create_seeded_fixture_blocked_under_instance_binding_mode():
+    os.environ["NEXTSEEK_STEP7_INSTANCE_BINDING"] = "1"
+    try:
+        with pytest.raises(RuntimeError, match="create_seeded_fixture disabled"):
+            gate.create_seeded_fixture(
+                assistant_base_url="http://x", api_user="u", api_pass="p",
+            )
+    finally:
+        os.environ.pop("NEXTSEEK_STEP7_INSTANCE_BINDING", None)
+
+
+def test_realstack_harness_has_no_op_kwargs_method():
+    """Live matrix must use catalog builder, not integration-invented _op_kwargs."""
+    import inspect
+    from nextseek_api.cc_assistant.tests import test_cc_realstack as mod
+
+    cls = mod.CCCapabilityGateMatrix
+    assert not hasattr(cls, "_op_kwargs") or "_op_kwargs" not in cls.__dict__
+    assert "_catalog_op_kwargs" in cls.__dict__
+
+
+def test_binding_fixture_record_shape():
+    binding = catalog.load_instance_binding()
+    rec = catalog.binding_fixture_record(binding)
+    assert rec["source"] == "instance_binding.json"
+    assert rec["forbidden_actions"]
+    assert "create_seeded_fixture" in rec["forbidden_actions"]
+    assert rec["uids"]
+
+
+def test_cost_ledger_from_matrix_schema():
+    matrix = {op: {"cost_usd": 0.01, "call_id": f"c-{op}"} for op in catalog.BIN_OPS}
+    ledger = catalog.build_cost_ledger_from_matrix(
+        matrix, run_id="dry-run", timestamp="2026-07-04T12:00:00Z",
+    )
+    assert len(ledger["entries"]) == 9
+    write_row = next(e for e in ledger["entries"] if e["op"] == "nextseek-api-write")
+    assert write_row["source_system"] == "none"
+    assert write_row["usd"] == 0.0
+
+
+def test_provenance_and_coverage_artifacts_present():
+    for path in (
+        catalog.PROVENANCE_PATH,
+        catalog.COVERAGE_PATH,
+        catalog.COST_SOURCE_MAP_PATH,
+        catalog.INSTANCE_BINDING_PATH,
+        catalog.CATALOG_PATH,
+    ):
+        assert path.is_file(), f"missing Gate 3C artifact: {path}"

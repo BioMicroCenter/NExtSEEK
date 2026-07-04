@@ -105,11 +105,6 @@ def _write_meta_full(bundle_dir: Path, *, run_id: str = RUN_ID, repo_commit: str
                       zero_cost_exception: bool = False,
                       gate_project: str = GATE_PROJECT,
                       gate_user_id: str = GATE_USER_ID,
-                      matrix_spend_estimate_usd: float = 0.35,
-                      matrix_spend_estimate_method: str = (
-                          "sum of per-op wall_secs * a flat $/s LLM-call rate estimate; "
-                          "exact per-op server-side cost is not programmatically available"
-                      ),
                       **extra) -> None:
     meta = {
         "run_id": run_id,
@@ -128,11 +123,38 @@ def _write_meta_full(bundle_dir: Path, *, run_id: str = RUN_ID, repo_commit: str
         "zero_cost_exception": zero_cost_exception,
         "gate_project": gate_project,
         "gate_user_id": gate_user_id,
-        "matrix_spend_estimate_usd": matrix_spend_estimate_usd,
-        "matrix_spend_estimate_method": matrix_spend_estimate_method,
     }
     meta.update(extra)
     (bundle_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+def _write_cost_ledger(bundle_dir: Path, *, run_id: str = RUN_ID) -> None:
+    from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import BIN_OPS
+
+    entries = []
+    for op in BIN_OPS:
+        if op == "nextseek-api-write":
+            entries.append({
+                "op": op,
+                "source_system": "none",
+                "usd": 0.0,
+                "call_id": f"{run_id}-{op}-blocked",
+                "timestamp": "2026-07-01T12:00:00Z",
+                "reconciliation_note": "WRITE_BLOCKED unconfirmed leg",
+            })
+            continue
+        entries.append({
+            "op": op,
+            "source_system": "hermetic_fixture",
+            "usd": 0.01,
+            "call_id": f"{run_id}-{op}-1",
+            "timestamp": "2026-07-01T12:00:00Z",
+            "reconciliation_note": "synthetic Gate 3C fixture",
+        })
+    (bundle_dir / "cost_ledger.json").write_text(
+        json.dumps({"run_id": run_id, "entries": entries, "total_usd": round(0.01 * (len(BIN_OPS) - 1), 4)}),
+        encoding="utf-8",
+    )
 
 
 def _network_inspect_json(names: list[str], *, id_prefix: str = "cid") -> dict:
@@ -228,12 +250,20 @@ def _write_matrix_artifacts(bundle_dir: Path, *, run_id: str = RUN_ID,
     if "plugin_ops_matrix" not in skip:
         (bundle_dir / "plugin_ops_matrix.json").write_text(json.dumps(matrix), encoding="utf-8")
 
-    if "seeded_fixture" not in skip:
-        (bundle_dir / "seeded_fixture.json").write_text(json.dumps({
+    if "instance_binding" not in skip and "seeded_fixture" not in skip:
+        (bundle_dir / "instance_binding.json").write_text(json.dumps({
+            "binding_id": "hermetic-fixture",
+            "project_id": 1,
+            "project_title": "Published Data",
             "project": gate_project,
-            "uids": ["S0001", "S0002"],
-            "requests": [f"POST /nextseek_api/samples/ as {gate_user_id}"],
+            "reference_uids": ["A.ADCD-250312ALT-1-PUB"],
+            "uids": ["A.ADCD-250312ALT-1-PUB"],
+            "forbidden_actions": ["create_seeded_fixture"],
+            "source": "instance_binding.json",
         }), encoding="utf-8")
+
+    if "cost_ledger" not in skip:
+        _write_cost_ledger(bundle_dir, run_id=run_id)
 
     if "gate_access_log_window" not in skip:
         from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import (
@@ -551,8 +581,8 @@ ALL_CHECK_NAMES = {
     "plugin_ops_matrix_published_paths_under_user_subtree",
     "post_sweep_user_tree_scan_contains_published_paths",
     "gate_access_log_window_hits_every_op", "matrix_env_scan_no_shared_creds",
-    "sweep_invocation_valid", "seeded_fixture_present",
-    "plugin_ops_matrix_in_turn_viability", "meta_matrix_spend_estimate_recorded",
+    "sweep_invocation_valid", "gate_instance_binding_present",
+    "plugin_ops_matrix_in_turn_viability", "cost_ledger_valid", "meta_matrix_spend_estimate_recorded",
 }
 
 

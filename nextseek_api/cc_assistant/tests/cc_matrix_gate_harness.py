@@ -550,6 +550,12 @@ def create_seeded_fixture(
     ``http`` is the injectable HTTP layer (see ``default_fixture_http``);
     hermetic tests pass a fake, the live gate leaves it None.
     """
+    import os
+    if os.environ.get("NEXTSEEK_STEP7_INSTANCE_BINDING") == "1":
+        raise RuntimeError(
+            "create_seeded_fixture disabled under Gate 3C instance binding mode "
+            "(set instance_binding.json + catalog instead)"
+        )
     from nextseek_api.cc_assistant.cc_provision import project_dirname, slugify_project
 
     call = http if http is not None else default_fixture_http(

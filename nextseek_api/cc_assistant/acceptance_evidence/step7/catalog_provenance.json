@@ -1,0 +1,39 @@
+{
+  "schema_version": "step7-catalog-provenance/v1",
+  "upstream_sha": "a429f1372a075e5db586a1b6efc8c3b1663e211a",
+  "upstream_files": [
+    {
+      "path": "/home/taishajo/work/dmac-assistant/tools/e2e/run_t18_rewire_e2e.py",
+      "sha256": "extracted-at-gate-3c"
+    },
+    {
+      "path": "/home/taishajo/work/dmac-assistant/tools/e2e/run_router_e2e.py",
+      "sha256": "extracted-at-gate-3c"
+    }
+  ],
+  "rows": [
+    {
+      "exercise_id": "T18-entity-1",
+      "upstream_file": "run_t18_rewire_e2e.py",
+      "symbol": "PAID_PROJECTIONS[0].args.query",
+      "original_value": "mouse samples treated with NDMA",
+      "catalog_value": "mouse samples treated with NDMA"
+    },
+    {
+      "exercise_id": "T18-report-1",
+      "upstream_file": "run_t18_rewire_e2e.py",
+      "symbol": "REPORT_PROJECT",
+      "original_value": "Published Data",
+      "catalog_value": "Published Data",
+      "mapping_rationale": "Dev instance project title matches upstream T18 constant"
+    },
+    {
+      "exercise_id": "T18-generate-submission-1",
+      "upstream_file": "run_t18_rewire_e2e.py",
+      "symbol": "PAID_PROJECTIONS[4].uids",
+      "original_value": "D.MSP-250319WHI-49-PUB",
+      "catalog_value": "A.ADCD-250312ALT-1-PUB",
+      "mapping_rationale": "Dev instance override documented in instance_binding.json"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": "step7-catalog-coverage/v1",
+  "generated_at": "2026-07-04T14:45:00-04:00",
+  "all_nine_ops_covered": true,
+  "bin_ops": [
+    "nextseek-entity-extract",
+    "nextseek-parse",
+    "nextseek-graph",
+    "nextseek-plan",
+    "nextseek-query",
+    "nextseek-api-read",
+    "nextseek-api-write",
+    "nextseek-report",
+    "nextseek-generate-submission"
+  ],
+  "proof_paradigms_present": ["forced_cc_direct", "forced_cc_nl"],
+  "greenfield_fallback_rows": 0
+}
