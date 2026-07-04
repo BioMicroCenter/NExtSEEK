@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""Gate 3D live bundle assembler — preflight + forced CC + R26 + matrix + validate.
+"""Gate 3D live bundle assembler — container-side live work only (option C).
 
-Run inside the live ``nextseek`` container after sidecar deploy and
-``STEP7_LLM_LEDGER=1``::
+Runs inside the live ``nextseek`` container after sidecar deploy and
+``STEP7_LLM_LEDGER=1``.  Preflight git probes and ``validate_run`` are
+**host-side** — see ``step7_gate3d_host_finalize.py`` after ``docker cp``.
+
+  docker cp /home/taishajo/work/state/integration-plan.json nextseek:/app/integration-plan.json
 
   docker exec -e RUN_REALSTACK=1 \\
     -e SEEK_TEST_USER=demo -e SEEK_TEST_PASS=demopassword \\
     -e NEXTSEEK_CC_GATE_USER_ID=demo \\
     -e NEXTSEEK_CC_MAX_BUDGET_USD=10 \\
-    -e INTEGRATION_PLAN_PATH=/home/taishajo/work/state/integration-plan.json \\
-    nextseek sh -lc '/app/.venv/bin/python nextseek_api/cc_assistant/scripts/step7_gate3d_live.py'
+    -e STEP7_GATE3D_RUN_ID=<run_id> \\
+    -e STEP7_REPO_COMMIT=<40-char-sha> \\
+    -e STEP7_REPO_BRANCH=cc-step7-compose-native \\
+    -e INTEGRATION_PLAN_PATH=/app/integration-plan.json \\
+    nextseek sh -lc 'cd /app && uv run python nextseek_api/cc_assistant/scripts/step7_gate3d_live.py'
 """
 from __future__ import annotations
 
@@ -24,22 +30,18 @@ import time
 import uuid
 from pathlib import Path
 
-# Django bootstrap (must run before cc_assistant imports)
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmac.settings")
 import django  # noqa: E402
 
 django.setup()
 
-from django.conf import settings  # noqa: E402
-
 from nextseek_api.cc_assistant import cc_config, cc_engine  # noqa: E402
-from nextseek_api.cc_assistant import router as cc_router  # noqa: E402
-from nextseek_api.cc_assistant import step7_gate_catalog as catalog  # noqa: E402
-from nextseek_api.cc_assistant.tests import step7_preflight_collector as preflight_mod  # noqa: E402
 from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import (  # noqa: E402
     CANONICAL_FOREIGN_TOKENS,
-    format_report,
-    validate_run,
 )
 from nextseek_api.cc_assistant.tests.validate_cc_acceptance import OPUS  # noqa: E402
 
@@ -49,15 +51,21 @@ PROXY_CONTAINER = os.environ.get("DMAC_PROXY_CONTAINER", "dmac-bedrock-proxy")
 NET = cc_engine.DEFAULT_NETWORK
 BUDGET_CAP = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "10"))
 USERS_VOLUME = cc_config.CCPaths.from_env().users_volume
-PORT_SOURCE = os.environ.get("DMAC_PORT_SOURCE", "/home/taishajo/work/dmac-assistant")
+_CC_RUN_ID_RE = re.compile(r"^[0-9a-f-]{1,64}$")
+
+
+def _cc_run_id(run_id: str) -> str:
+    """Docker container names allow only ``[0-9a-f-]``; derive from the gate run_id."""
+    if _CC_RUN_ID_RE.fullmatch(run_id or ""):
+        return run_id
+    derived = re.sub(r"[^0-9a-f]", "", (run_id or "").lower())[:64]
+    if derived:
+        return derived
+    return uuid.uuid4().hex
 
 
 def _run(cmd: list[str], *, timeout: float = 120) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-
-
-def _sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def _write_json(path: Path, obj) -> None:
@@ -87,29 +95,6 @@ def _capture_compose_artifacts(bundle: Path, *, repo_root: Path) -> None:
         (bundle / "network_inspect.json").write_text(net.stdout, encoding="utf-8")
     ok, detail = cc_engine.cc_runner_available()
     _write_json(bundle / "cc_runner_available.json", [ok, detail])
-
-
-def _collect_preflight(bundle: Path, *, repo_root: Path) -> dict:
-    git = preflight_mod.default_git_probe(repo_root)
-    docker = preflight_mod.default_docker_probe()
-    port_commit = "unknown"
-    try:
-        port_commit = subprocess.run(
-            ["git", "-C", PORT_SOURCE, "rev-parse", "HEAD"],
-            capture_output=True, text=True, check=True,
-        ).stdout.strip()
-    except Exception:  # noqa: BLE001
-        pass
-    data = preflight_mod.collect_preflight(
-        repo_root=repo_root,
-        git=git,
-        docker=docker,
-        port_source_path=PORT_SOURCE,
-        port_source_commit=port_commit,
-        had_host_bind_data=bool(Path("/srv/dmac/users").exists()),
-    )
-    _write_json(bundle / "preflight.json", data)
-    return data
 
 
 def _seed_foreign_and_pre_scan(bundle: Path) -> str:
@@ -185,9 +170,17 @@ def _forced_cc(bundle: Path, *, run_id: str, sentinel: str, own_marker: str, liv
         raise RuntimeError(f"forced CC produced no terminal event: err={errbox}")
     ev, data = terminal
     cost = float(data.get("total_cost_usd") or 0.0)
-    _write_json(bundle / "forced_cc_result.json", {
+    result: dict = {
         "run_id": run_id, "is_error": ev == "query_error", "sentinel": sentinel, "cost": cost,
-    })
+    }
+    if ev == "query_error":
+        # Persist the failure detail — a bare is_error/$0 result is undiagnosable
+        # after the in-memory events list is gone (2026-07-04 proxy-alias outage).
+        result["error"] = data.get("error")
+        result["error_reason"] = data.get("reason")
+        if errbox:
+            result["raised"] = errbox.get("err")
+    _write_json(bundle / "forced_cc_result.json", result)
 
     ps = _run(["docker", "ps", "-q", "--filter", f"label=nextseek.cc.run={run_id}"])
     cid = (ps.stdout or "").strip().split("\n")[0]
@@ -299,9 +292,13 @@ def _run_matrix(bundle: Path, *, run_id: str) -> None:
     env["STEP7_GATE3D_BUNDLE_DIR"] = str(bundle)
     env["NEXTSEEK_STEP7_INSTANCE_BINDING"] = "1"
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q",
-         "nextseek_api/cc_assistant/tests/test_cc_realstack.py::CCCapabilityGateMatrix::test_01_instance_binding_matrix_sweep_and_companions",
-         "--noinput"],
+        [
+            "uv", "run", "python", "manage.py", "test",
+            "nextseek_api.cc_assistant.tests.test_cc_realstack.CCCapabilityGateMatrix"
+            ".test_01_instance_binding_matrix_sweep_and_companions",
+            "--settings=dmac.test_settings_realstack",
+            "--noinput",
+        ],
         cwd=str(REPO_ROOT), env=env, text=True, timeout=3600,
     )
     if proc.returncode != 0:
@@ -310,6 +307,7 @@ def _run_matrix(bundle: Path, *, run_id: str) -> None:
 
 def main() -> int:
     run_id = os.environ.get("STEP7_GATE3D_RUN_ID") or str(uuid.uuid4())
+    cc_run_id = _cc_run_id(run_id)
     sentinel = "G3D-" + uuid.uuid4().hex[:10].upper()
     own_marker = f"OWN_{run_id}"
     live_sentinel = f"LIVE_{sentinel}"
@@ -318,16 +316,22 @@ def main() -> int:
     api_user = os.environ.get("SEEK_TEST_USER", "demo")
     api_pass = os.environ.get("SEEK_TEST_PASS", "demopassword")
 
+    repo_commit = os.environ.get("STEP7_REPO_COMMIT", "").strip()
+    repo_branch = os.environ.get("STEP7_REPO_BRANCH", "cc-step7-compose-native").strip()
+    if not repo_commit or len(repo_commit) != 40:
+        raise RuntimeError(
+            "STEP7_REPO_COMMIT must be set to the 40-char host worktree HEAD before live run "
+            "(preflight/validate are host-side per option C)"
+        )
+
     bundle = Path(os.environ.get("STEP7_GATE3D_BUNDLE_DIR") or (EVID_ROOT / run_id))
     bundle.mkdir(parents=True, exist_ok=True)
 
-    preflight = _collect_preflight(bundle, repo_root=REPO_ROOT)
-    repo_commit = preflight.get("commit") or preflight.get("step3_deploy_gate", {}).get("deploy_commit")
-
     _write_json(bundle / "meta.json", {
         "run_id": run_id,
+        "cc_run_id": cc_run_id,
         "repo_commit": repo_commit,
-        "repo_branch": preflight.get("branch", "cc-step7-compose-native"),
+        "repo_branch": repo_branch,
         "host_label": "dev-vm",
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "verifier_version": "1",
@@ -337,12 +341,14 @@ def main() -> int:
         "live_sentinel": live_sentinel,
         "gate_project": gate_project,
         "gate_user_id": gate_user_id,
+        "live_only": True,
+        "host_finalize": "step7_gate3d_host_finalize.py",
     })
 
     _capture_compose_artifacts(bundle, repo_root=REPO_ROOT)
     _seed_foreign_and_pre_scan(bundle)
     forced_cost = _forced_cc(
-        bundle, run_id=run_id, sentinel=sentinel, own_marker=own_marker,
+        bundle, run_id=cc_run_id, sentinel=sentinel, own_marker=own_marker,
         live_sentinel=live_sentinel, api_user=api_user, api_pass=api_pass,
         gate_user_id=gate_user_id, gate_project=gate_project,
     )
@@ -351,7 +357,7 @@ def main() -> int:
 
     _r26_probes(bundle, run_id=run_id)
     _r1_sidecar_proof(bundle, run_id=run_id)
-    _run_matrix(bundle, run_id=run_id)
+    _run_matrix(bundle, run_id=cc_run_id)
     _secret_scan(bundle)
 
     manifest_files = sorted(p.name for p in bundle.iterdir() if p.is_file())
@@ -360,12 +366,14 @@ def main() -> int:
         "absolute_path": str(bundle.resolve()),
         "repo_commit": repo_commit,
         "files": manifest_files,
+        "live_only": True,
     })
 
-    all_ok, checks = validate_run(bundle, repo_root=REPO_ROOT)
-    print(format_report(all_ok, checks))
-    print(f"\nGate 3D bundle: {bundle}")
-    return 0 if all_ok else 1
+    print(f"\nGate 3D live bundle (container): {bundle}")
+    print("Next: docker cp bundle to worktree, then host finalize:")
+    print("  cd <worktree> && uv run python nextseek_api/cc_assistant/scripts/step7_gate3d_host_finalize.py \\")
+    print(f"    nextseek_api/cc_assistant/tests/acceptance_evidence/step7/{run_id}")
+    return 0
 
 
 if __name__ == "__main__":
