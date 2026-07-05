@@ -26,6 +26,13 @@ class ArtifactTable(BaseModel):
     label: str
     columns: list[str]
     data: list[dict[str, Any]]
+    # excel_export.extract_table_artifacts appends these when a table exceeds
+    # MAX_INLINE_ROWS=200 (truncated, total_rows) or comes from reporter_result
+    # (rows_returned). Optional so a <=200-row table still validates; without
+    # them a >200-row query tripped extra_forbidden -> shim exit 4.
+    truncated: bool | None = None
+    total_rows: int | None = None
+    rows_returned: int | None = None
 
 
 class ArtifactFile(BaseModel):
@@ -37,7 +44,22 @@ class ArtifactFile(BaseModel):
     file_format: str
 
 
-Artifact = ArtifactTable | ArtifactFile
+class ArtifactPreview(BaseModel):
+    """GEO/report workbook preview — excel_export.py emits artifact_type="preview"
+    with per-sheet {name, columns, data, total_rows} dicts (no top-level columns).
+    Missing this variant made GEO submissions fail QueryCompleteEvent with 7
+    validation errors -> shim exit 4 (2026-07-05). The server emits it as a raw
+    dict and the browser UI already renders it; sheets kept as raw dicts (same
+    drift-tolerant treatment as QueryCompleteEvent.files / Turn.artifacts)."""
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_type: Literal["preview"]
+    key: str
+    label: str
+    sheets: list[dict[str, Any]]
+
+
+Artifact = ArtifactTable | ArtifactFile | ArtifactPreview
 
 
 class QueryCompleteEvent(BaseModel):
