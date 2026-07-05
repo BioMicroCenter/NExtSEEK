@@ -46,49 +46,33 @@ from nextseek_api.cc_assistant import (  # noqa: E402
 )
 from nextseek_api.cc_assistant.tests.validate_cc_acceptance import OPUS  # noqa: E402
 
-BUDGET_CAP = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "10"))
+# Per-turn Bedrock budget cap — the ported/UI value (live NEXTSEEK_CC_MAX_BUDGET_USD).
+# Passed to each run_cc_turn; the engine also emits --max-budget-usd from the env.
+PER_TURN_BUDGET = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "0.50"))
+# Total-run guard: abort before starting an op if cumulative spend would exceed
+# this. 8 ops x $0.50 = $4 worst case, inside the <$10 total E2E budget.
+TOTAL_BUDGET_CAP = float(os.environ.get("STEP7_PER_OP_TOTAL_BUDGET_USD", "10"))
 # Project hard turn cap (cc_engine._TIMEOUT_HARD_MAX). The outer thread join must
 # not impose a bound different from the engine's own 180s watchdog.
 TURN_TIMEOUT = 180
 
-# Per-op natural-language queries. Each is a user-phrased request that should
-# route the agent to invoke the target op's bin. "Published Data" is named
-# explicitly (the agent's baked projects_db.json is still the upstream catalog —
-# see STEP7-GATE3D-AMENDMENT-per-op-forced-cc-2026-07-05.md caveat 1).
+# The 8 LOCKED per-op E2E questions (user-approved 2026-07-05), verbatim from the
+# canonical chat_nextseek/e2e/catalog.json (distinct from the SKILL.md doc
+# examples). No "use the nextseek plugin" preamble — the per-op SKILL.md/CLAUDE.md
+# instruct the agent; the query is the natural user request. One question per op.
 OP_QUERIES: dict[str, str] = {
-    "nextseek-entity-extract": (
-        "Using the nextseek plugin, extract the biological entities from this "
-        "request and show me the structured result: mouse samples treated with NDMA."
-    ),
-    "nextseek-parse": (
-        "Using the nextseek plugin, parse this into a NExtSEEK API query plan and "
-        "show it to me: mouse samples treated with NDMA."
-    ),
-    "nextseek-api-read": (
-        "Using the nextseek plugin, search NExtSEEK for mouse samples treated with "
-        "NDMA and tell me what you find."
-    ),
-    "nextseek-api-write": (
-        "Using the nextseek plugin, update NExtSEEK sample A.ADCD-250312ALT-1-PUB to "
-        "set its title to CHANGED-BY-GATE. Go ahead and apply the change."
-    ),
-    "nextseek-graph": (
-        "Using the nextseek plugin, show me the lineage graph of mouse samples."
-    ),
-    "nextseek-report": (
-        "Using the nextseek plugin, give me a published-data summary report for the "
-        "Published Data project."
-    ),
+    "nextseek-entity-extract": "What monkeys exist in the database?",
+    "nextseek-parse": "Find RNA samples with a RIN score greater than 7.",
+    "nextseek-api-read": "Retrieve all samples associated with: NHP-220630FLY-5-PUB.",
+    "nextseek-graph": "Find PBMC samples from the GBM study that also have sequencing data.",
+    "nextseek-report": "How many samples were uploaded for IMPACT from 2023 to 2025?",
     "nextseek-generate-submission": (
-        "Using the nextseek plugin, generate a GEO submission for NExtSEEK sample "
-        "A.ADCD-250312ALT-1-PUB."
+        "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB."
     ),
-    "nextseek-query": (
-        "Using the nextseek plugin, how many samples are in the Published Data project?"
-    ),
+    "nextseek-api-write": "Update the scientist field on NHP-220630FLY-1-PUB to Jane Doe",
     "nextseek-plan": (
-        "Using the nextseek plugin, what steps would you recommend to summarize the "
-        "samples treated with NDMA in the Published Data project?"
+        "Find me D.SEQ samples for the SHA lab, then narrow those results to samples "
+        "collected after 2023."
     ),
 }
 
@@ -137,7 +121,7 @@ def _run_one_op(op: str, *, bundle: Path, user_id: str, project: str,
                 query=query, model_id=OPUS, send_event=_send,
                 user_id=user_id, project_dirname=project, run_id=cc_run_id,
                 paths=paths, cc_state_key=cc_state_key, session_id=None,
-                api_user=api_user, api_pass=api_pass, max_budget_usd=BUDGET_CAP,
+                api_user=api_user, api_pass=api_pass, max_budget_usd=PER_TURN_BUDGET,
                 turn_timeout=TURN_TIMEOUT,
             )
         except Exception as exc:  # noqa: BLE001
@@ -203,7 +187,15 @@ def main() -> int:
 
     rows: list[ev.OpRow] = []
     cumulative = 0.0
+    aborted = False
     for op in ops:
+        # Pre-emptive total-budget guard: never START an op that could push the
+        # cumulative spend past the <$10 total cap.
+        if cumulative + PER_TURN_BUDGET > TOTAL_BUDGET_CAP:
+            print(f"[per-op] TOTAL BUDGET GUARD: cum ${cumulative:.4f} + per-turn "
+                  f"${PER_TURN_BUDGET} would exceed ${TOTAL_BUDGET_CAP} — stop before {op}", flush=True)
+            aborted = True
+            break
         print(f"[per-op] === {op} ===", flush=True)
         row = _run_one_op(op, bundle=bundle, user_id=user_id, project=project,
                           api_user=api_user, api_pass=api_pass)
@@ -212,19 +204,19 @@ def main() -> int:
         print(f"[per-op] {op}: cost=${row.cost_usd:.4f} invoked={row.invoked} "
               f"cum=${cumulative:.4f} -> {status}", flush=True)
         rows.append(row)
-        if cumulative > BUDGET_CAP:
-            print(f"[per-op] BUDGET CAP ${BUDGET_CAP} exceeded (cum ${cumulative:.4f}) — stop", flush=True)
-            break
 
     matrix = {r.op: r.to_dict() for r in rows}
     _write_json(bundle / "plugin_ops_matrix.json", matrix)
     fresh_violations = ev.assert_fresh_sessions(rows)
     summary = {
         "ops_run": [r.op for r in rows],
-        "all_pass": all(not r.problems for r in rows) and not fresh_violations and len(rows) == len(ops),
+        "all_pass": (all(not r.problems for r in rows) and not fresh_violations
+                     and len(rows) == len(ops) and not aborted),
+        "aborted_on_budget": aborted,
         "fresh_session_violations": fresh_violations,
         "total_cost_usd": cumulative,
-        "budget_cap_usd": BUDGET_CAP,
+        "per_turn_budget_usd": PER_TURN_BUDGET,
+        "total_budget_cap_usd": TOTAL_BUDGET_CAP,
         "failing_ops": {r.op: r.problems for r in rows if r.problems},
     }
     _write_json(bundle / "per_op_summary.json", summary)
