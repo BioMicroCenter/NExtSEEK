@@ -1,13 +1,13 @@
 ---
-description: NExtSEEK query workflow. Routes via the nextseek skill.
+description: NExtSEEK data workflow. Routes via the nextseek skill.
 allowed-tools: Bash, Read
 ---
 
 # /nextseek
 
-You have been invoked via the `/nextseek` slash command. Use the `nextseek` skill (auto-loads from `skills/nextseek/SKILL.md`).
+You have been invoked via the `/nextseek` slash command. Use the `nextseek` skill (auto-loads from `skills/nextseek/SKILL.md`), which documents the NExtSEEK ops and when to use each.
 
-The user's question is below the `---`. Default action: a single `nextseek-query --query "<user's full question>"` call. Read the answer's `reply` field and surface it. Do NOT call `nextseek-entity-extract`, `nextseek-parse`, or `nextseek-plan` first — `nextseek-query` runs that pipeline internally. See SKILL.md for routing rules and escape hatches (writes, submissions, debugging).
+The user's question is below the `---`. Pick the right op(s) for the task per SKILL.md: a search is `nextseek-parse` then `nextseek-api-read`; lineage is `nextseek-graph`; a project report is `nextseek-report`; a submission is `nextseek-generate-submission`; a multi-step "do X, then Y" request is `nextseek-plan`; a create/update/delete is `nextseek-parse` then `nextseek-api-write` under the Layer-3 plain-text confirmation. Compose the answer from what the op(s) return.
 
 ---
 

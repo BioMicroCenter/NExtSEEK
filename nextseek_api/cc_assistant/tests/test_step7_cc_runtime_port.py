@@ -133,7 +133,9 @@ def test_cc_runtime_plugin_skill_md_present():
     assert skill.is_file()
     text = _read(skill)
     assert text.startswith("---")
-    assert "nextseek-query" in text
+    # Per-op amendment (2026-07-05): nextseek-query is disabled and must be
+    # absent. Detailed SKILL.md content contract lives in test_plugin_skill_md.py.
+    assert "nextseek-query" not in text
 
 
 def test_cc_runtime_plugin_command_present():
@@ -142,7 +144,6 @@ def test_cc_runtime_plugin_command_present():
 
 
 @pytest.mark.parametrize("bin_name", [
-    "nextseek-query",
     "nextseek-entity-extract",
     "nextseek-parse",
     "nextseek-plan",
@@ -155,6 +156,13 @@ def test_cc_runtime_plugin_command_present():
 def test_cc_runtime_plugin_bin_scripts_present(bin_name):
     path = CC_RUNTIME / "build_context" / "plugins" / "nextseek" / "bin" / bin_name
     assert path.is_file(), f"missing plugin bin script: {path}"
+
+
+def test_cc_runtime_nextseek_query_bin_removed():
+    """Per-op amendment (2026-07-05): the nextseek-query op is disabled; its bin
+    must be absent so the agent cannot invoke it."""
+    path = CC_RUNTIME / "build_context" / "plugins" / "nextseek" / "bin" / "nextseek-query"
+    assert not path.exists(), "nextseek-query bin must be removed (op disabled)"
 
 
 def test_cc_runtime_plugin_scripts_setup_present():
