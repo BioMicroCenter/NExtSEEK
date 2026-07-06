@@ -15,7 +15,7 @@ except Exception:  # pragma: no cover
     _HAVE_YAML = False
 
 from .catalog import get_pipeline_entry
-from .ena import ENAResolution
+from .ena import ENAResolution, ENARun
 from .tower_client import TowerAPIError, TowerClient
 from .tower_datasets import upload_samplesheet_as_dataset
 

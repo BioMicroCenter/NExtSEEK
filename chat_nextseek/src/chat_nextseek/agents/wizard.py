@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from streamlit.runtime.state.session_state_proxy import SessionStateProxy
+
+from ..session import SessionState
 from ..config import ChatConfig
 from ..helpers import (
     log_prompt,
