@@ -19,8 +19,12 @@ class SidecarCallError(RuntimeError):
 
 
 def _connect(url: str):
+    # max_size MUST match the sidecar server (ns-sidecar/app/server.py). The
+    # websockets default recv cap is 1 MiB, which truncated large op RESPONSES
+    # (e.g. an api-read of all NHP samples) into a WS 1009 "message too big"
+    # close, surfaced to the agent as TRANSPORT_ERROR (2026-07-06 T6 blocker).
     from websockets.sync.client import connect
-    return connect(url, open_timeout=10, close_timeout=5)
+    return connect(url, open_timeout=10, close_timeout=5, max_size=16 * 1024 * 1024)
 
 
 def call_op(op: str, args: dict, *, ns_login: tuple[str, str], sidecar_url: str,
