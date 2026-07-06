@@ -69,13 +69,29 @@ def test_skill_points_to_manifest_and_auto_entity_extract():
     assert "automatic" in skill.lower() or "UserPromptSubmit" in skill
 
 
-def test_entrypoint_registers_hook_in_user_settings():
-    """Headless `claude --print` does not load local-plugin hooks, so the entrypoint
-    must register the UserPromptSubmit hook in ~/.claude/settings.json at startup."""
-    entrypoint = (
+def _entrypoint_text() -> str:
+    return (
         Path(__file__).resolve().parents[3]
         / "docker" / "cc-runtime" / "container" / "entrypoint.sh"
     ).read_text(encoding="utf-8")
+
+
+def test_entrypoint_registers_hook_in_user_settings():
+    """Headless `claude --print` does not load local-plugin hooks, so the entrypoint
+    must register the UserPromptSubmit hook in ~/.claude/settings.json at startup."""
+    entrypoint = _entrypoint_text()
     assert "UserPromptSubmit" in entrypoint
     assert "entity_preamble.sh" in entrypoint
     assert "settings.json" in entrypoint
+
+
+def test_entrypoint_installs_l1_allowlist():
+    """Write-safety Layer 1: the entrypoint must run setup.sh so the permission
+    allowlist is installed into settings.json and loaded when CC runs (port gap;
+    no-security-regressions rule). Must run before the hook block so both persist."""
+    entrypoint = _entrypoint_text()
+    assert "setup.sh" in entrypoint, "entrypoint must invoke the L1 allowlist installer"
+    assert entrypoint.index("setup.sh") < entrypoint.index("UserPromptSubmit"), (
+        "setup.sh (L1 allowlist) must run before the hook registration so the jq "
+        "hook-merge preserves .permissions.allow"
+    )

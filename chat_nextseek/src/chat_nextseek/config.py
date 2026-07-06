@@ -19,17 +19,13 @@ class ChatConfig:
         self.CATALOG_ENDPOINT_METHODS_ALL: dict[str, set[str]] = {}
         self.METHOD_PRIORITY = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 
-        self.PROJECT_NAME_TO_ID = {
-            "IMPACT": 2,
-            "SRP": 3,
-            "METNET": 4,
-            "PUBLISHED": 6,
-            "CGR": 7,
-            "CGR-ENDO": 7,
-            "BTC": 9,
-            "BREAK THROUGH CANCER": 9,
-            "CSBC": 10,
-        }
+        # Project/investigation name -> id map. Built DYNAMICALLY from the live DB
+        # in _initialize_runtime_state (_load_project_name_to_id_from_db), NOT from
+        # a hardcoded literal — the old literal held ids from a different instance
+        # (e.g. IMPACT:2) that matched neither this instance's projects nor its
+        # investigations, so name resolution silently returned wrong/nonexistent
+        # ids. Starts empty; the DB build + projects_db.json merge populate it.
+        self.PROJECT_NAME_TO_ID: dict[str, int] = {}
 
         # Apply config_map first so _get_env_config can reference self.MODEL_MODE,
         # self.GCP_API_KEY, etc. when they are provided via DB/JSON config object.
@@ -69,6 +65,9 @@ class ChatConfig:
         self.FULL_PROJECTS_MAP: dict = {
             item["name"]: item for item in self.FULL_PROJECTS if item.get("name")
         }
+        # Dynamic base map from the live DB (replaces the removed hardcoded literal),
+        # then extend with projects_db.json canonical names/aliases.
+        self.PROJECT_NAME_TO_ID = self._load_project_name_to_id_from_db(env="prod")
         self.PROJECT_NAME_TO_ID = self._merge_project_name_to_id(self.PROJECT_NAME_TO_ID, self.FULL_PROJECTS)
 
         # Published-report umbrella projects (DEV-ONLY opt-in; DEFAULT EMPTY so
@@ -858,6 +857,52 @@ class ChatConfig:
         if project_id is not None:
             keys.add(self._norm_project_key(project_id))
         return bool(keys & umbrella)
+
+    def _load_project_name_to_id_from_db(self, env: str = "prod") -> dict[str, int]:
+        """Build the name -> id map from the LIVE DB instead of a hardcoded literal.
+
+        Sources BOTH ``projects`` and ``investigations``: in production a project
+        and its investigation map ~1:1, and the resolvable names (IMPACT, SRP,
+        CSBC, ...) are investigation titles; on instances where they diverge this
+        at least yields REAL ids (never the stale literal's fictional ones). Keys
+        are UPPER-CASE to match ``_normalize_project_id`` / ``_merge_project_name_to_id``.
+        Projects are inserted first so a project id wins on a name collision (the
+        report scopes by project id). Returns ``{}`` if the DB is unreachable —
+        callers must NOT fall back to hardcoded ids.
+        """
+        mapping: dict[str, int] = {}
+        conn = self._db_conn or self._connect_db(env=env)
+        if conn is None:
+            return mapping
+        try:
+            try:
+                cursor = conn.cursor(dictionary=True)
+                dict_rows = True
+            except Exception:
+                cursor = conn.cursor()
+                dict_rows = False
+            # projects FIRST (id precedence on collision), then investigations.
+            for table in ("seek_production.projects", "seek_production.investigations"):
+                try:
+                    cursor.execute(f"SELECT id, title FROM {table}")
+                    for row in cursor.fetchall() or []:
+                        if dict_rows and isinstance(row, dict):
+                            pid, title = row.get("id"), row.get("title")
+                        elif isinstance(row, (list, tuple)) and len(row) >= 2:
+                            pid, title = row[0], row[1]
+                        else:
+                            continue
+                        if isinstance(pid, int) and isinstance(title, str) and title.strip():
+                            mapping.setdefault(title.strip().upper(), pid)
+                except Exception as e:
+                    print(f"[CONFIG][DB] name->id load skipped {table}: {e!r}")
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[CONFIG][DB] name->id load failed: {e!r}")
+        return mapping
 
     def _merge_project_name_to_id(self, base_map: dict[str, int], projects: list[dict]) -> dict[str, int]:
         """

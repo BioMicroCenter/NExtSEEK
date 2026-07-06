@@ -89,6 +89,19 @@ if [ -d "$PLUGIN_SRC_ROOT" ]; then
   done
 fi
 
+# Write-safety Layer 1 (OI / "no security regressions"): install the nextseek
+# permission allowlist into ~/.claude/settings.json so it is LOADED when the
+# headless agent runs. The plugin ships scripts/setup.sh for this, but nothing
+# invoked it at runtime (port gap) — the allowlist was silently absent, leaving
+# L1 off (writes were still blocked by L2/L3, but defense-in-depth was reduced).
+# Run it here, fail-open so a setup error never blocks startup. MUST run BEFORE
+# the hook block below so both land in the same settings.json (hook merge via jq
+# preserves .permissions.allow).
+NS_SETUP="${ENTRYPOINT_NS_SETUP:-/app/plugins/nextseek/scripts/setup.sh}"
+if [ -x "$NS_SETUP" ]; then
+  sh "$NS_SETUP" >/dev/null 2>&1 || true
+fi
+
 # Register the UserPromptSubmit hook that ALWAYS runs nextseek-entity-extract
 # before the agent acts (resolve vocabulary / expand abbreviations like GBM),
 # outside the agent's control. This is done in the user-level settings.json
