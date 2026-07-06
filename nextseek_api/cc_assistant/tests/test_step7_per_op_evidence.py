@@ -185,3 +185,51 @@ def test_bin_ops_are_the_eight_decomposed_ops():
     assert len(ev.BIN_OPS) == 8
     assert "nextseek-api-write" in ev.BIN_OPS
     assert "nextseek-query" not in ev.BIN_OPS  # disabled per-op amendment
+
+
+# --- estimate_cost_from_transcript (timeout cost recovery) ----------------
+
+def _tx(*frames) -> bytes:
+    import json
+    return ("\n".join(json.dumps(f) for f in frames)).encode("utf-8")
+
+
+def test_estimate_sums_usage_at_opus48_rates():
+    # message.usage nested shape (real CC transcript), two assistant frames.
+    raw = _tx(
+        {"type": "assistant", "message": {"usage": {
+            "input_tokens": 1000, "output_tokens": 500,
+            "cache_creation_input_tokens": 2000, "cache_read_input_tokens": 400000}}},
+        {"type": "assistant", "message": {"usage": {
+            "input_tokens": 0, "output_tokens": 100,
+            "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}},
+    )
+    # 1000*5e-6 + 600*25e-6 + 2000*6.25e-6 + 400000*0.5e-6
+    #   = 0.005 + 0.015 + 0.0125 + 0.20 = 0.2325
+    assert ev.estimate_cost_from_transcript(raw) == pytest.approx(0.2325, abs=1e-6)
+
+
+def test_estimate_reads_top_level_usage_too():
+    raw = _tx({"usage": {"input_tokens": 1_000_000}})  # $5.00 at input rate
+    assert ev.estimate_cost_from_transcript(raw) == pytest.approx(5.0, abs=1e-6)
+
+
+def test_estimate_empty_or_no_usage_is_zero():
+    assert ev.estimate_cost_from_transcript(b"") == 0.0
+    assert ev.estimate_cost_from_transcript(b'not json\n{"type":"text"}\n') == 0.0
+
+
+def test_estimate_skips_unparsable_lines_but_keeps_valid_usage():
+    raw = b'garbage\n' + _tx({"message": {"usage": {"output_tokens": 1_000_000}}})
+    assert ev.estimate_cost_from_transcript(raw) == pytest.approx(25.0, abs=1e-6)  # $25/1M out
+
+
+def test_cost_source_defaults_to_result_frame_and_is_emitted():
+    r = _row()
+    assert r.cost_source == "claude_code_result"
+    assert r.to_dict()["cost_source"] == "claude_code_result"
+
+
+def test_cost_source_estimate_is_propagated_and_emitted():
+    r = _row(cost_source="usage_estimate_on_timeout")
+    assert r.to_dict()["cost_source"] == "usage_estimate_on_timeout"

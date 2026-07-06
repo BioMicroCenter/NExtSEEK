@@ -153,11 +153,25 @@ def _run_one_op(op: str, *, bundle: Path, user_id: str, project: str,
     if raw:
         (bundle / f"transcript-{op}-{cc_run_id}.jsonl").write_bytes(raw)
 
+    # Cost recovery: a killed turn (exec_timeout -> container force-removed at the
+    # 180s hard cap) emits a query_error with NO total_cost_usd and never reaches
+    # the CC result frame, so `cost` stays at its 0.0 default even though the turn
+    # really spent Bedrock tokens. The result-frame cost is authoritative whenever
+    # present (>0); only when it is missing do we reconstruct the spend from the
+    # transcript's per-message usage and flag the source as an estimate.
+    cost_source = "claude_code_result"
+    if cost <= 0 and raw:
+        est = ev.estimate_cost_from_transcript(raw)
+        if est > 0:
+            cost = est
+            cost_source = "usage_estimate_on_timeout"
+
     invocation = ev.extract_op_invocation(steps, op)
     row = ev.evaluate_op_row(
         op=op, cc_run_id=cc_run_id, cc_session_id=cc_session_id,
         is_error=is_error, cost_usd=cost, invocation=invocation,
         answer_excerpt=reply, transport=ev_transport(op),
+        cost_source=cost_source,
     )
     if errbox:
         row.problems.append(f"raised: {errbox['err']}")

@@ -134,6 +134,58 @@ def _command_invokes_op(cmd: str, op: str) -> bool:
     return False
 
 
+import orjson
+
+# Opus 4.8 Bedrock per-token USD rates (model us.anthropic.claude-opus-4-8),
+# matching Anthropic's published Opus 4.8 pricing: $5/$25 per 1M input/output;
+# cache-write (5m) at 1.25x input = $6.25/1M; cache-read at 0.1x input = $0.50/1M.
+# Used ONLY to RECOVER a cost estimate when a turn is killed (exec_timeout) before
+# it reaches the CC result frame that carries total_cost_usd — the result frame is
+# authoritative whenever present, so this never overrides a real cost.
+_OPUS48_RATES: dict[str, float] = {
+    "input_tokens": 5.0 / 1_000_000,
+    "output_tokens": 25.0 / 1_000_000,
+    "cache_creation_input_tokens": 6.25 / 1_000_000,
+    "cache_read_input_tokens": 0.5 / 1_000_000,
+}
+
+
+def estimate_cost_from_transcript(raw: bytes) -> float:
+    """Sum per-message ``usage`` from a CC transcript and price it at Opus-4.8 rates.
+
+    A killed turn (the container is force-removed at the 180s hard cap) emits a
+    ``query_error`` with no cost and never reaches the CC ``result`` frame that
+    carries ``total_cost_usd`` — so the driver would otherwise record $0 for a turn
+    that really spent Bedrock tokens. Every assistant frame in the transcript still
+    carries a ``usage`` block, so we reconstruct the spend from those. Returns 0.0
+    when ``raw`` is empty or no ``usage`` frame parses.
+    """
+    if not raw:
+        return 0.0
+    totals: dict[str, int] = {k: 0 for k in _OPUS48_RATES}
+    for line in raw.split(b"\n"):
+        if not line.strip():
+            continue
+        try:
+            obj = orjson.loads(line)  # orjson parses bytes directly (no decode)
+        except orjson.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        msg = obj.get("message")
+        usage = msg.get("usage") if isinstance(msg, dict) else None
+        if not isinstance(usage, dict):
+            usage = obj.get("usage") if isinstance(obj.get("usage"), dict) else None
+        if not isinstance(usage, dict):
+            continue
+        for k in totals:
+            try:
+                totals[k] += int(usage.get(k) or 0)
+            except (TypeError, ValueError):
+                continue
+    return round(sum(totals[k] * _OPUS48_RATES[k] for k in totals), 6)
+
+
 @dataclass
 class OpRow:
     """One per-op matrix row for ``plugin_ops_matrix.json``."""
@@ -149,6 +201,10 @@ class OpRow:
     invocation_status: str | None
     answer_excerpt: str
     transport: str
+    # "claude_code_result" == authoritative cost from the CC result frame;
+    # "usage_estimate_on_timeout" == reconstructed from transcript usage because the
+    # turn was killed before the result frame (see estimate_cost_from_transcript).
+    cost_source: str = "claude_code_result"
     problems: list[str] = field(default_factory=list)
     # Option-1 review flag: non-red concerns the orchestrator should verify by
     # inspecting the answer (currently: the EXPECTED op was not invoked, i.e. CC
@@ -165,7 +221,7 @@ class OpRow:
             "cc_session_id": self.cc_session_id,
             "is_error": self.is_error,
             "cost_usd": self.cost_usd,
-            "cost_source": "claude_code_result",
+            "cost_source": self.cost_source,
             "invoked": self.invoked,
             "invocation_line": self.invocation_line,
             "invocation_detail": self.invocation_detail,
@@ -191,6 +247,7 @@ def evaluate_op_row(
     invocation: OpInvocation,
     answer_excerpt: str,
     transport: str,
+    cost_source: str = "claude_code_result",
 ) -> OpRow:
     """Build a per-op row. ``problems`` holds only HARD failures (a red E2E: the
     end-to-end flow itself broke) — an errored CC turn, a non-positive cost, an
@@ -238,6 +295,7 @@ def evaluate_op_row(
         invocation_status=invocation.invocation_status,
         answer_excerpt=(answer_excerpt or "")[:1000],
         transport=transport,
+        cost_source=cost_source,
         problems=problems,
         needs_review=bool(review_notes),
         review_notes=review_notes,
