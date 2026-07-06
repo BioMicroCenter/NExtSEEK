@@ -714,6 +714,12 @@ class ChatConfig:
     # ======================================================
 
 
+    # A refresh happened today iff this marker exists with a today mtime. Only a
+    # SUCCESSFUL _fetch_context_files_from_db writes it, and it is never baked
+    # into the image (runtime-only), so a stale context file baked with a today
+    # mtime can no longer masquerade as a fresh cache (2026-07-05 BUG-2).
+    _REFRESH_MARKER_NAME = ".context_db_refresh"
+
     def _is_today(self, path: Path) -> bool:
         """
         Check whether a file's mtime falls on today's UTC date.
@@ -727,10 +733,28 @@ class ChatConfig:
         return datetime.fromtimestamp(ts, timezone.utc).date() == today
 
 
+    def _write_refresh_marker(self) -> None:
+        """Record that a successful DB refresh happened now. Best-effort: if the
+        context dir is read-only the marker simply never registers as today, so
+        the gate degrades to always-refresh (safe) rather than crashing."""
+        try:
+            marker = Path(self.CONTEXT_DIR) / self._REFRESH_MARKER_NAME
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text("", encoding="utf-8")
+        except Exception as e:
+            print(f"[CONFIG][DB] Could not write refresh marker: {e!r}")
+
+
     def _ensure_context_files(self, env: str = "prod") -> dict[str, Path]:
         """
         Ensure DB-driven context JSON files exist and are fresh for today.
         Returns a dict of {label: Path}.
+
+        Freshness is tracked by ``_REFRESH_MARKER_NAME`` (written only by a
+        successful DB refresh), NOT by the context files' own mtime — a file
+        baked into the image on run-day carries a today mtime but stale content,
+        so trusting file mtime silently skipped the refresh (BUG-2). We still
+        refresh when any target file is missing.
         """
         targets = {
             "sampletypes_full": Path(self.CONTEXT_DIR) / "sampletypes_db.json",
@@ -740,17 +764,21 @@ class ChatConfig:
             "projects_full": Path(self.CONTEXT_DIR) / "projects_db.json",
         }
 
-        needs_refresh = any(not p.exists() or not self._is_today(p) for p in targets.values())
+        marker = Path(self.CONTEXT_DIR) / self._REFRESH_MARKER_NAME
+        needs_refresh = (not self._is_today(marker)) or any(not p.exists() for p in targets.values())
         if needs_refresh:
-            print("[CONFIG][DB] Context files are stale or missing; refreshing from DB.")
-            paths = self._fetch_context_files_from_db(env=env)
+            print("[CONFIG][DB] No verified DB refresh today (or a file is missing); refreshing from DB.")
+            fetched = self._fetch_context_files_from_db(env=env)
+            if fetched:  # a real DB pull produced at least one file
+                self._write_refresh_marker()
+            paths = dict(fetched)
             # Merge expected keys with returned paths for convenience
             for key, path in targets.items():
                 if path.exists():
                     paths[key] = path
             return paths
 
-        print("[CONFIG][DB] Context files are fresh for today; skipping DB export.")
+        print("[CONFIG][DB] DB refresh already verified for today; skipping DB export.")
         return {k: v for k, v in targets.items() if v.exists()}
 
     # ======================================================

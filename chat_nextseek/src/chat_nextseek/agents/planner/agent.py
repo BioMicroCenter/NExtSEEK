@@ -25,6 +25,7 @@ from ...schemas import (
 )
 from ..parser import (
     _append_coding_filter_step_if_needed,
+    _canonical_multi_parse,
     _fill_candidate_defaults,
     _finalize_plan_steps,
     _find_mixed_scope_intersection_plan,
