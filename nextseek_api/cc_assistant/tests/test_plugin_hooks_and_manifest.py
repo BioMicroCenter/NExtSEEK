@@ -67,3 +67,15 @@ def test_skill_points_to_manifest_and_auto_entity_extract():
     assert "MANIFEST.md" in skill
     assert "entity-extract" in skill
     assert "automatic" in skill.lower() or "UserPromptSubmit" in skill
+
+
+def test_entrypoint_registers_hook_in_user_settings():
+    """Headless `claude --print` does not load local-plugin hooks, so the entrypoint
+    must register the UserPromptSubmit hook in ~/.claude/settings.json at startup."""
+    entrypoint = (
+        Path(__file__).resolve().parents[3]
+        / "docker" / "cc-runtime" / "container" / "entrypoint.sh"
+    ).read_text(encoding="utf-8")
+    assert "UserPromptSubmit" in entrypoint
+    assert "entity_preamble.sh" in entrypoint
+    assert "settings.json" in entrypoint

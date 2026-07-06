@@ -89,6 +89,29 @@ if [ -d "$PLUGIN_SRC_ROOT" ]; then
   done
 fi
 
+# Register the UserPromptSubmit hook that ALWAYS runs nextseek-entity-extract
+# before the agent acts (resolve vocabulary / expand abbreviations like GBM),
+# outside the agent's control. This is done in the user-level settings.json
+# because the headless `claude --print` runtime does NOT load local-plugin
+# hooks/hooks.json — only skills/commands are auto-discovered from the plugin
+# symlink. Idempotent + fail-open: any error leaves settings untouched and never
+# blocks startup. Isolation preserved: the hook only re-invokes the existing bin.
+NS_SETTINGS="${ENTRYPOINT_CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
+NS_HOOK="${ENTRYPOINT_NS_HOOK:-/app/plugins/nextseek/hooks/entity_preamble.sh}"
+if command -v jq >/dev/null 2>&1 && [ -x "$NS_HOOK" ]; then
+  mkdir -p "$(dirname "$NS_SETTINGS")" 2>/dev/null || true
+  [ -f "$NS_SETTINGS" ] || echo '{}' > "$NS_SETTINGS"
+  _ns_tmp="$NS_SETTINGS.nshook.tmp"
+  if jq --arg cmd "$NS_HOOK" '
+        .hooks //= {} |
+        .hooks.UserPromptSubmit = [{"matcher":"*","hooks":[{"type":"command","command":$cmd,"timeout":35}]}]
+      ' "$NS_SETTINGS" > "$_ns_tmp" 2>/dev/null; then
+    mv "$_ns_tmp" "$NS_SETTINGS" 2>/dev/null || rm -f "$_ns_tmp"
+  else
+    rm -f "$_ns_tmp"
+  fi
+fi
+
 # DD-04 (LLM router): idle-mode keeps the container alive after pre-flight so
 # ws.py can issue per-turn `docker exec` for either route. The branch runs
 # AFTER all pre-flight (scrub, symlinks) — Risk #2 forbids the inverse order.
