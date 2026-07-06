@@ -186,6 +186,7 @@ def main() -> int:
             raise SystemExit(f"unknown op: {o}")
 
     rows: list[ev.OpRow] = []
+    per_op_wall: dict[str, float] = {}
     cumulative = 0.0
     aborted = False
     for op in ops:
@@ -197,8 +198,10 @@ def main() -> int:
             aborted = True
             break
         print(f"[per-op] === {op} ===", flush=True)
+        _t0 = time.perf_counter()
         row = _run_one_op(op, bundle=bundle, user_id=user_id, project=project,
                           api_user=api_user, api_pass=api_pass)
+        per_op_wall[op] = round(time.perf_counter() - _t0, 1)
         cumulative += row.cost_usd
         # RED only for hard failures (problems); a review flag stays green.
         if row.problems:
@@ -207,8 +210,8 @@ def main() -> int:
             status = f"PASS (REVIEW: {row.review_notes})"
         else:
             status = "PASS"
-        print(f"[per-op] {op}: cost=${row.cost_usd:.4f} invoked={row.invoked} "
-              f"cum=${cumulative:.4f} -> {status}", flush=True)
+        print(f"[per-op] {op}: cost=${row.cost_usd:.4f} wall={per_op_wall[op]}s "
+              f"invoked={row.invoked} cum=${cumulative:.4f} -> {status}", flush=True)
         rows.append(row)
 
     matrix = {r.op: r.to_dict() for r in rows}
@@ -229,6 +232,7 @@ def main() -> int:
         # Green-but-flagged: the orchestrator must inspect these answers for
         # correctness (expected op not invoked — CC routed via a different op).
         "needs_review_ops": {r.op: r.review_notes for r in rows if r.needs_review},
+        "per_op_wall_secs": per_op_wall,
     }
     _write_json(bundle / "per_op_summary.json", summary)
     print(f"[per-op] SUMMARY all_pass={summary['all_pass']} "
