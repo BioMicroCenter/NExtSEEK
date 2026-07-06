@@ -131,8 +131,27 @@ def _report(args, config, session, write_gate, neo4j_exec, outputs_dir):
 def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_dir):
     from chat_nextseek.portable import report_writer_agent
     from chat_nextseek.schemas.chat import ReportWriterPlan
+    from chat_nextseek.helpers import (
+        annotate_metadata_with_sampletypes,
+        fetch_reporter_metadata,
+    )
     uids = [u.strip() for u in args["uids"].split(",") if u.strip()]
-    plan = ReportWriterPlan(report_type=args["type"], reporter_context={"uids": uids})
+    # Hydrate the reporter_context with the samples' real metadata. The report
+    # writer is prompted to use ONLY what it is given ("do NOT fetch anything
+    # new"), so a bare {"uids": [...]} yields an all-null skeleton even when the
+    # UIDs have full json_metadata. Fetch it here — mirroring the combined-report
+    # path in reports.outputs.generate_report_outputs — so a standalone --uids
+    # call populates the submission fields from the samples' actual metadata.
+    metadata = (
+        fetch_reporter_metadata(config, uids)
+        if uids
+        else {"ok": False, "error": "No UID provided"}
+    )
+    metadata = annotate_metadata_with_sampletypes(config, metadata) if metadata else metadata
+    plan = ReportWriterPlan(
+        report_type=args["type"],
+        reporter_context={"uids": uids, "metadata": metadata},
+    )
     # A non-empty user query is required: some providers (Bedrock/Opus Converse)
     # reject a blank message content block. Fall back to a type-aware default when
     # the caller supplies no query, so the op is robust to query=None / "".
