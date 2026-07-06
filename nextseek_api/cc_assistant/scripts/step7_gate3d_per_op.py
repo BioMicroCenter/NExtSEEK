@@ -64,7 +64,14 @@ OP_QUERIES: dict[str, str] = {
     "nextseek-entity-extract": "What monkeys exist in the database?",
     "nextseek-parse": "Find RNA samples with a RIN score greater than 7.",
     "nextseek-api-read": "Retrieve all samples associated with: NHP-220630FLY-5-PUB.",
-    "nextseek-graph": "Find PBMC samples from the GBM study that also have sequencing data.",
+    # Updated 2026-07-06 (user-approved option 3): the prior GBM question has no
+    # matching study on dev (GBM exists only on prod), so the graph op returned 0
+    # and could not verify a real answer. Swapped to another verbatim catalog
+    # graph_query question ("graph.show_me_all_nhps_in_the_impact") that is
+    # investigation-scoped — the graph's exclusive domain — and non-zero on dev
+    # (408 NHP samples in the Impact investigation; parser routes it to graph_query
+    # with anchored IN_STUDY/IN_INVESTIGATION Cypher, verified live).
+    "nextseek-graph": "Show me all NHPs in the Impact project.",
     "nextseek-report": "How many samples were uploaded for IMPACT from 2023 to 2025?",
     "nextseek-generate-submission": (
         "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB."
