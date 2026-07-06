@@ -1,0 +1,16 @@
+{
+  "description": "Always resolve NExtSEEK vocabulary (entity-extract) before the agent acts.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/app/plugins/nextseek/hooks/entity_preamble.sh",
+            "timeout": 35
+          }
+        ]
+      }
+    ]
+  }
+}

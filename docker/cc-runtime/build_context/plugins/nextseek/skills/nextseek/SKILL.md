@@ -21,6 +21,18 @@ Every op runs **server-side** (via the sidecar or the NExtSEEK viewset) and retu
 stdout. The agent container holds only the user's NExtSEEK login (`API_USER`/`API_PASS`) — never
 database or provider credentials, and no `chat_nextseek` source. Do not attempt to reach those.
 
+## Context files — read the manifest first
+
+`context/MANIFEST.md` lists every context file with a one-line description and **when to
+consult each**. **Read `context/MANIFEST.md` before constructing any op call**, then read the
+specific file(s) it points you to. Never guess project/study/investigation names, sampletype
+codes, assays, or endpoints from memory — resolve them from these files.
+
+`nextseek-entity-extract` also runs **automatically on every query** (a UserPromptSubmit hook)
+and injects resolved NExtSEEK vocabulary into your context before you act. Use those resolved
+terms (and the manifest files) — e.g. expand abbreviations like **GBM → the Glioblastoma
+investigation** — rather than passing the user's raw phrasing straight to `graph`/`api-read`.
+
 ## Tool capability matrix (authoritative contract)
 
 Do not infer capabilities from binary names, repeated `--help` calls, or bin source. This matrix
