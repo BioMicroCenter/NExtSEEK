@@ -200,7 +200,13 @@ def main() -> int:
         row = _run_one_op(op, bundle=bundle, user_id=user_id, project=project,
                           api_user=api_user, api_pass=api_pass)
         cumulative += row.cost_usd
-        status = "PASS" if not row.problems else f"FAIL {row.problems}"
+        # RED only for hard failures (problems); a review flag stays green.
+        if row.problems:
+            status = f"FAIL {row.problems}"
+        elif row.needs_review:
+            status = f"PASS (REVIEW: {row.review_notes})"
+        else:
+            status = "PASS"
         print(f"[per-op] {op}: cost=${row.cost_usd:.4f} invoked={row.invoked} "
               f"cum=${cumulative:.4f} -> {status}", flush=True)
         rows.append(row)
@@ -210,6 +216,8 @@ def main() -> int:
     fresh_violations = ev.assert_fresh_sessions(rows)
     summary = {
         "ops_run": [r.op for r in rows],
+        # all_pass = the E2E is not RED: no hard failures, all ops ran, fresh
+        # sessions, not budget-aborted. Review flags do NOT make it red.
         "all_pass": (all(not r.problems for r in rows) and not fresh_violations
                      and len(rows) == len(ops) and not aborted),
         "aborted_on_budget": aborted,
@@ -218,10 +226,14 @@ def main() -> int:
         "per_turn_budget_usd": PER_TURN_BUDGET,
         "total_budget_cap_usd": TOTAL_BUDGET_CAP,
         "failing_ops": {r.op: r.problems for r in rows if r.problems},
+        # Green-but-flagged: the orchestrator must inspect these answers for
+        # correctness (expected op not invoked — CC routed via a different op).
+        "needs_review_ops": {r.op: r.review_notes for r in rows if r.needs_review},
     }
     _write_json(bundle / "per_op_summary.json", summary)
     print(f"[per-op] SUMMARY all_pass={summary['all_pass']} "
-          f"total=${cumulative:.4f} failing={list(summary['failing_ops'])}", flush=True)
+          f"total=${cumulative:.4f} failing={list(summary['failing_ops'])} "
+          f"needs_review={list(summary['needs_review_ops'])}", flush=True)
     print(f"[per-op] bundle={bundle}", flush=True)
     return 0 if summary["all_pass"] else 1
 

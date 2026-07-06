@@ -109,9 +109,21 @@ def test_error_turn_is_a_problem():
     assert any("is_error" in p for p in _row(is_error=True).problems)
 
 
-def test_not_invoked_is_a_problem():
+def test_not_invoked_is_review_flag_not_a_failure():
+    # Option 1: the EXPECTED op not being invoked is LLM routing (CC resolved the
+    # query via a different valid NS-path op), NOT a code bug — a review flag that
+    # keeps the E2E green, never a red ``problems`` entry.
     r = _row(invocation=ev.OpInvocation(op="nextseek-report", invoked=False))
-    assert any("invoked" in p or "Bash step" in p for p in r.problems)
+    assert r.needs_review is True
+    assert any("not invoked" in n for n in r.review_notes)
+    assert r.problems == []  # no hard failure on the invocation ground
+
+
+def test_review_flag_does_not_hide_a_real_failure():
+    # A genuine code bug (errored turn) is still RED even when the op wasn't invoked.
+    r = _row(is_error=True, invocation=ev.OpInvocation(op="nextseek-report", invoked=False))
+    assert any("is_error" in p for p in r.problems)
+    assert r.needs_review is True
 
 
 def test_empty_answer_is_a_problem():

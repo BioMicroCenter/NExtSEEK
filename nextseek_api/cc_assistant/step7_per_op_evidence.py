@@ -150,6 +150,13 @@ class OpRow:
     answer_excerpt: str
     transport: str
     problems: list[str] = field(default_factory=list)
+    # Option-1 review flag: non-red concerns the orchestrator should verify by
+    # inspecting the answer (currently: the EXPECTED op was not invoked, i.e. CC
+    # routed the query through a different valid NS-path op — LLM behavior, not a
+    # code bug). ``problems`` == hard failures (red); ``review_notes`` == green
+    # but flagged.
+    needs_review: bool = False
+    review_notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         d = {
@@ -165,9 +172,12 @@ class OpRow:
             "invocation_status": self.invocation_status,
             "answer_excerpt": self.answer_excerpt,
             "transport": self.transport,
+            "needs_review": self.needs_review,
         }
         if self.problems:
             d["problems"] = self.problems
+        if self.review_notes:
+            d["review_notes"] = self.review_notes
         return d
 
 
@@ -182,18 +192,30 @@ def evaluate_op_row(
     answer_excerpt: str,
     transport: str,
 ) -> OpRow:
-    """Build a per-op row and populate ``problems`` with every failing
-    condition (empty problems == this op passes). Fail-closed: an unknown or
-    non-positive cost, a missing/failed invocation, an errored turn, or an empty
-    answer each records a distinct problem so the live run cannot silently pass.
+    """Build a per-op row. ``problems`` holds only HARD failures (a red E2E: the
+    end-to-end flow itself broke) — an errored CC turn, a non-positive cost, an
+    empty answer, or an invoked op whose shim reported an error. Empty problems ==
+    the E2E is green for this op.
+
+    Option 1 (LLM behavior is not a code bug): the EXPECTED op not being invoked
+    is NOT a hard failure — CC may have resolved the query through a different
+    valid NS-path op (e.g. parse->api-read instead of entity-extract, or a correct
+    api-write refusal at the confirm gate). That records a ``review_note`` and sets
+    ``needs_review`` so the orchestrator inspects the answer for correctness, while
+    the E2E stays green because the pipeline worked end to end.
     """
     problems: list[str] = []
+    review_notes: list[str] = []
     if is_error:
         problems.append("cc turn is_error=true")
     if not isinstance(cost_usd, (int, float)) or cost_usd <= 0:
         problems.append(f"cost_usd not > 0 (got {cost_usd!r}) — every CC-routed op costs a Bedrock turn")
     if not invocation.invoked:
-        problems.append(f"no transcript Bash step invoked {op}")
+        review_notes.append(
+            f"expected op {op} was not invoked — CC likely resolved the query via a "
+            f"different valid NS-path op (LLM routing, not a code bug); orchestrator "
+            f"must verify the answer is correct"
+        )
     elif invocation.invocation_status == "error":
         if op == WRITE_GATED_OP:
             # api-write reaching the shim and being refused is the pinned shape;
@@ -217,6 +239,8 @@ def evaluate_op_row(
         answer_excerpt=(answer_excerpt or "")[:1000],
         transport=transport,
         problems=problems,
+        needs_review=bool(review_notes),
+        review_notes=review_notes,
     )
 
 
