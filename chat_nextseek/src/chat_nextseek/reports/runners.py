@@ -26,6 +26,141 @@ from .nfcore import top_items
 from .outputs import persist_report_file
 
 
+def _resolve_investigation(config, name) -> "tuple[int, str] | None":
+    """Resolve a name to ``(investigation_id, UPPER_title)`` via
+    ``config.INVESTIGATION_NAME_TO_ID``. Smart but not over-permissive: exact
+    UPPER match, then punctuation-insensitive exact, then whole-token containment
+    (map keys >= 3 chars, matched as a full token — never an arbitrary substring).
+    Returns ``None`` when the name matches no investigation."""
+    inv_map = getattr(config, "INVESTIGATION_NAME_TO_ID", None) or {}
+    if not inv_map or not isinstance(name, str):
+        return None
+    key = name.strip().upper()
+    if not key:
+        return None
+    if key in inv_map:                                   # 1. exact
+        return (inv_map[key], key)
+    norm = re.sub(r"[^A-Z0-9]", "", key)                 # 2. punctuation-insensitive exact
+    if norm:
+        for k, v in inv_map.items():
+            if re.sub(r"[^A-Z0-9]", "", k) == norm:
+                return (v, k)
+    tokens = set(re.findall(r"[A-Z0-9]+", key))          # 3. whole-token containment
+    for k, v in inv_map.items():
+        if len(k) >= 3 and k in tokens:
+            return (v, k)
+    return None
+
+
+def _tabulate_sample_uuids(uuids: list[str]) -> dict:
+    """Shared sample-UUID tabulation (sampletype/lab/year/month counts).
+    UID format: ``<SAMPLETYPE>-<YYMMDD><LAB>-<INCREMENT>``. Identical logic to the
+    project sample report's inline tabulation, factored out so the investigation
+    path produces a byte-identical table shape."""
+    uid_re = re.compile(r"^(?P<sampletype>[^-]+)-(?P<yymmdd>\d{6})(?P<lab>[A-Za-z]+)-(?P<inc>\d+)$")
+    st: dict[str, int] = {}
+    lab_c: dict[str, int] = {}
+    yr: dict[str, int] = {}
+    mo: dict[str, int] = {}
+    unparsable = 0
+    for uid in uuids:
+        m = uid_re.match(str(uid))
+        if not m:
+            unparsable += 1
+            continue
+        ymd = m.group("yymmdd")
+        st[m.group("sampletype")] = st.get(m.group("sampletype"), 0) + 1
+        lab_c[m.group("lab")] = lab_c.get(m.group("lab"), 0) + 1
+        yr[ymd[:2]] = yr.get(ymd[:2], 0) + 1
+        mo[ymd[:4]] = mo.get(ymd[:4], 0) + 1
+    return {
+        "sampletypes_table": dict(sorted(st.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "labs_table": dict(sorted(lab_c.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "years_table": dict(sorted(yr.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "months_table": dict(sorted(mo.items(), key=lambda kv: kv[0])),
+        "unparsable_uids": unparsable,
+    }
+
+
+def _neo4j_investigation_sample_uuids(
+    config, inv_title: str,
+    years: list[int | str] | None = None,
+    month_range: tuple[str, str] | None = None,
+    day_range: tuple[str, str] | None = None,
+) -> list[str]:
+    """Sample UUIDs under an investigation, via Neo4j — the relational DB has no
+    populated sample->study->investigation linkage on this instance. Mirrors the
+    published-report traversal, scoped by EXACT investigation title (case-insensitive)
+    plus the same UUID-substring date filters."""
+    conditions = ["toLower(inv.title) = toLower($inv_title)"]
+    params: dict = {"inv_title": inv_title}
+    if years:
+        params["yy_list"] = _normalize_years(years)
+        conditions.append("substring(split(s.uuid, '-')[1], 0, 2) IN $yy_list")
+    if month_range or day_range:
+        start6, end6 = (
+            _month_range_to_yymmdd_bounds(month_range) if month_range
+            else _day_range_to_yymmdd_bounds(day_range)
+        )
+        conditions.append(
+            "substring(split(s.uuid, '-')[1], 0, 6) >= $d6s "
+            "AND substring(split(s.uuid, '-')[1], 0, 6) <= $d6e"
+        )
+        params["d6s"], params["d6e"] = start6, end6
+    cypher = (
+        "MATCH (inv:Investigation)<-[:IN_INVESTIGATION]-(study:Study)<-[:IN_STUDY]-(s:Sample) "
+        "WHERE " + " AND ".join(conditions) + " "
+        "RETURN DISTINCT s.uuid AS uuid"
+    )
+    print("[REPORTER][NEO4J] Running investigation sample report query", {"cypher": cypher, "params": params})
+    res = tool_neo4j_query(config, cypher, params)
+    if not res.get("ok"):
+        raise RuntimeError(res.get("error", "Neo4j query failed"))
+    return [r["uuid"] for r in (res.get("data") or []) if r.get("uuid")]
+
+
+def _run_investigation_sample_report(
+    config, investigation: "tuple[int, str]", project,
+    years=None, month_range=None, day_range=None, outputs_root="outputs",
+) -> dict:
+    """Investigation-scoped sample report (Neo4j-sourced UUIDs + shared tabulation).
+    Returns the SAME result shape as run_project_sample_report so the chatter
+    formats it identically; adds ``scope``/``investigation_id``/``investigation_title``."""
+    inv_id, inv_title = investigation
+    uuids = _neo4j_investigation_sample_uuids(config, inv_title, years, month_range, day_range)
+    tables = _tabulate_sample_uuids(uuids)
+    ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+    outputs_root_p = Path(outputs_root)
+    outputs_root_p.mkdir(exist_ok=True)
+    payload = {
+        "scope": "investigation",
+        "investigation_id": inv_id,
+        "investigation_title": inv_title,
+        "generated_at": datetime.now().isoformat(),
+        "filters": {"project": project, "years": years, "month_range": month_range, "day_range": day_range},
+        "rows_returned": len(uuids),
+        "uuids": uuids,
+        **tables,
+    }
+    entry = ArtifactStore(outputs_root_p).write_json(
+        key="uuid_report_file", label="Samples report JSON",
+        filename=f"investigation_{inv_id}_{ts}.uuids.json", payload=payload, kind="report",
+    )
+    return {
+        "ok": True,
+        "project_id": None,
+        "scope": "investigation",
+        "investigation_id": inv_id,
+        "investigation_title": inv_title,
+        "rows_returned": len(uuids),
+        "uuids_saved": len(uuids),
+        "uuid_report_file": entry["path"] if entry else None,
+        "uuid_preview": uuids[:10],
+        **tables,
+        "db_diagnostic": {},
+    }
+
+
 def run_project_sample_report(
     config,
     project: int | str | None,
@@ -55,7 +190,19 @@ def run_project_sample_report(
       - years_table: counts by YY (e.g., {"24": 123, "25": 456})
       - months_table: counts by YYMM (e.g., {"2401": 50, "2402": 61, ...})
     """
-    project_id = _normalize_project_id(config, project)
+    # Scope resolution: PROJECT first (unchanged path). If the name is not a known
+    # project but IS a known investigation, take the investigation-scoped path
+    # (Neo4j — the relational DB has no sample->investigation linkage). Any name
+    # that is neither still raises the original "Unknown project" ValueError.
+    try:
+        project_id = _normalize_project_id(config, project)
+    except ValueError:
+        investigation = _resolve_investigation(config, project)
+        if investigation is None:
+            raise
+        return _run_investigation_sample_report(
+            config, investigation, project, years, month_range, day_range, outputs_root
+        )
 
     conn = config._db_conn or config._connect_db(env="prod")
     if conn is None:

@@ -19,13 +19,14 @@ class ChatConfig:
         self.CATALOG_ENDPOINT_METHODS_ALL: dict[str, set[str]] = {}
         self.METHOD_PRIORITY = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 
-        # Project/investigation name -> id map. Built DYNAMICALLY from the live DB
-        # in _initialize_runtime_state (_load_project_name_to_id_from_db), NOT from
-        # a hardcoded literal — the old literal held ids from a different instance
-        # (e.g. IMPACT:2) that matched neither this instance's projects nor its
-        # investigations, so name resolution silently returned wrong/nonexistent
-        # ids. Starts empty; the DB build + projects_db.json merge populate it.
+        # Name -> id maps, built DYNAMICALLY from the live DB in
+        # _initialize_runtime_state (NOT hardcoded — the old literal held ids from
+        # another instance). PROJECT_NAME_TO_ID = seek_production.projects only;
+        # INVESTIGATION_NAME_TO_ID = seek_production.investigations, kept SEPARATE
+        # so the report can offer an investigation-scoped path without touching the
+        # project path. Both UPPER-cased keys; both {} when the DB is unreachable.
         self.PROJECT_NAME_TO_ID: dict[str, int] = {}
+        self.INVESTIGATION_NAME_TO_ID: dict[str, int] = {}
 
         # Apply config_map first so _get_env_config can reference self.MODEL_MODE,
         # self.GCP_API_KEY, etc. when they are provided via DB/JSON config object.
@@ -65,10 +66,11 @@ class ChatConfig:
         self.FULL_PROJECTS_MAP: dict = {
             item["name"]: item for item in self.FULL_PROJECTS if item.get("name")
         }
-        # Dynamic base map from the live DB (replaces the removed hardcoded literal),
-        # then extend with projects_db.json canonical names/aliases.
-        self.PROJECT_NAME_TO_ID = self._load_project_name_to_id_from_db(env="prod")
+        # Dynamic maps from the live DB (replace the removed hardcoded literal):
+        # projects and investigations kept in SEPARATE maps.
+        self.PROJECT_NAME_TO_ID = self._load_name_to_id_from_db("seek_production.projects", env="prod")
         self.PROJECT_NAME_TO_ID = self._merge_project_name_to_id(self.PROJECT_NAME_TO_ID, self.FULL_PROJECTS)
+        self.INVESTIGATION_NAME_TO_ID = self._load_name_to_id_from_db("seek_production.investigations", env="prod")
 
         # Published-report umbrella projects (DEV-ONLY opt-in; DEFAULT EMPTY so
         # prod is unaffected). For a project listed here, run_project_published_report
@@ -858,17 +860,12 @@ class ChatConfig:
             keys.add(self._norm_project_key(project_id))
         return bool(keys & umbrella)
 
-    def _load_project_name_to_id_from_db(self, env: str = "prod") -> dict[str, int]:
-        """Build the name -> id map from the LIVE DB instead of a hardcoded literal.
-
-        Sources BOTH ``projects`` and ``investigations``: in production a project
-        and its investigation map ~1:1, and the resolvable names (IMPACT, SRP,
-        CSBC, ...) are investigation titles; on instances where they diverge this
-        at least yields REAL ids (never the stale literal's fictional ones). Keys
-        are UPPER-CASE to match ``_normalize_project_id`` / ``_merge_project_name_to_id``.
-        Projects are inserted first so a project id wins on a name collision (the
-        report scopes by project id). Returns ``{}`` if the DB is unreachable —
-        callers must NOT fall back to hardcoded ids.
+    def _load_name_to_id_from_db(self, table: str, env: str = "prod") -> dict[str, int]:
+        """Build an UPPER-cased ``title -> id`` map from one live DB table (e.g.
+        ``seek_production.projects`` or ``seek_production.investigations``) instead
+        of a hardcoded literal. ``table`` is a fixed internal constant (never user
+        input). Returns ``{}`` if the DB is unreachable — callers must NOT fall back
+        to hardcoded ids.
         """
         mapping: dict[str, int] = {}
         conn = self._db_conn or self._connect_db(env=env)
@@ -881,27 +878,22 @@ class ChatConfig:
             except Exception:
                 cursor = conn.cursor()
                 dict_rows = False
-            # projects FIRST (id precedence on collision), then investigations.
-            for table in ("seek_production.projects", "seek_production.investigations"):
-                try:
-                    cursor.execute(f"SELECT id, title FROM {table}")
-                    for row in cursor.fetchall() or []:
-                        if dict_rows and isinstance(row, dict):
-                            pid, title = row.get("id"), row.get("title")
-                        elif isinstance(row, (list, tuple)) and len(row) >= 2:
-                            pid, title = row[0], row[1]
-                        else:
-                            continue
-                        if isinstance(pid, int) and isinstance(title, str) and title.strip():
-                            mapping.setdefault(title.strip().upper(), pid)
-                except Exception as e:
-                    print(f"[CONFIG][DB] name->id load skipped {table}: {e!r}")
+            cursor.execute(f"SELECT id, title FROM {table}")
+            for row in cursor.fetchall() or []:
+                if dict_rows and isinstance(row, dict):
+                    rid, title = row.get("id"), row.get("title")
+                elif isinstance(row, (list, tuple)) and len(row) >= 2:
+                    rid, title = row[0], row[1]
+                else:
+                    continue
+                if isinstance(rid, int) and isinstance(title, str) and title.strip():
+                    mapping.setdefault(title.strip().upper(), rid)
             try:
                 cursor.close()
             except Exception:
                 pass
         except Exception as e:
-            print(f"[CONFIG][DB] name->id load failed: {e!r}")
+            print(f"[CONFIG][DB] name->id load failed for {table}: {e!r}")
         return mapping
 
     def _merge_project_name_to_id(self, base_map: dict[str, int], projects: list[dict]) -> dict[str, int]:
