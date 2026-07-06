@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 from nextseek_api.assistant.write_gate import (
     WriteBlockedError,
     build_gate,
+    load_allowlist,
     load_allowlist_from_entries,
 )
 
@@ -73,3 +74,38 @@ class WriteGateTests(SimpleTestCase):
     def test_unknown_op_blocks(self):
         with self.assertRaises(WriteBlockedError):
             self.gate("totally-unknown-op", None, None, True)
+
+
+# Read-only endpoints added by the 2026-07-06 POST-endpoint read-safety audit.
+# Each was confirmed non-mutating by source review; POST reads carry a body
+# (identifier/type list) so they cannot be GETs. Kept here so the SHIPPED
+# read_safe_endpoints.json can never silently drop them (regression guard for the
+# T6 nextseek-api-read WRITE_BLOCKED failure on /admin/samples/retrieve/).
+AUDIT_READ_ENDPOINTS = [
+    ("/nextseek_api/admin/samples/retrieve/", "POST"),
+    ("/nextseek_api/sample_types/get_parents/parents_by_child_types/", "POST"),
+    ("/nextseek_api/entity_tree/lineage/", "POST"),
+    ("/nextseek_api/batch-upload/validate/", "POST"),
+    ("/nextseek_api/data_files/download/", "POST"),
+    ("/nextseek_api/sops/download/", "POST"),
+    ("/nextseek_api/investigations/", "GET"),
+    ("/nextseek_api/people/", "GET"),
+    ("/nextseek_api/sops/", "GET"),
+]
+
+
+class ShippedAllowlistTests(SimpleTestCase):
+    """Assert the CANONICAL shipped allowlist permits every audited read endpoint.
+
+    Unlike WriteGateTests (which uses a tiny inline fixture), this loads the real
+    bundled ``read_safe_endpoints.json`` so a missing entry fails the suite.
+    """
+
+    def setUp(self):
+        self.gate = build_gate(load_allowlist())  # default = bundled canonical file
+
+    def test_audited_read_endpoints_permitted(self):
+        for endpoint, method in AUDIT_READ_ENDPOINTS:
+            with self.subTest(endpoint=endpoint, method=method):
+                # api-read gate raises WriteBlockedError when not allowlisted.
+                self.assertIsNone(self.gate("api-read", endpoint, method, False))
