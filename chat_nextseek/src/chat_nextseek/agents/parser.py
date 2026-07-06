@@ -202,6 +202,11 @@ def _build_step_from_candidate(candidate: ParserCandidate, step_id: int, user_qu
 
 
 def _normalize_plan_step(step: PlanStep, parser_plan: MultiParserPlan | None, user_query: str) -> PlanStep:
+    # Function-local import: planner.execution imports this module at top level,
+    # so a top-level `from .planner.execution import _TERMINAL_REPLY_TOOLS`
+    # would be a circular import. Import is cached after first call.
+    from .planner.execution import _TERMINAL_REPLY_TOOLS
+
     execution = step.execution
     candidate = None
     if parser_plan and execution.parser_candidate_id:
