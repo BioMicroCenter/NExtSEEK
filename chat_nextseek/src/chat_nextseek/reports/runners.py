@@ -435,7 +435,13 @@ def run_project_published_report(  # noqa: C901
     cypher_conditions: list[str] = []
     cypher_params: dict = {}
 
-    if project is not None:
+    # Umbrella projects (dev-only opt-in, default off) skip the investigation-
+    # title hint and report ALL investigations' samples: a project that contains
+    # every investigation matches no single title, so the hint would wrongly
+    # return 0 (issue #1 / option 2). Date filters below still apply.
+    is_umbrella = getattr(config, "is_umbrella_published_project", None)
+    skip_hint = bool(is_umbrella and is_umbrella(project, project_id))
+    if project is not None and not skip_hint:
         # Normalize project hint: lowercase, strip spaces for CONTAINS match
         hint = re.sub(r"\s+", "", str(project).lower())
         cypher_conditions.append(

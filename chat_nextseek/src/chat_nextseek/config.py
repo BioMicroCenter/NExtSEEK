@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 from contextlib import nullcontext, redirect_stdout
 from datetime import datetime, timezone
@@ -69,6 +70,17 @@ class ChatConfig:
             item["name"]: item for item in self.FULL_PROJECTS if item.get("name")
         }
         self.PROJECT_NAME_TO_ID = self._merge_project_name_to_id(self.PROJECT_NAME_TO_ID, self.FULL_PROJECTS)
+
+        # Published-report umbrella projects (DEV-ONLY opt-in; DEFAULT EMPTY so
+        # prod is unaffected). For a project listed here, run_project_published_report
+        # reports ALL investigations' samples instead of filtering investigation
+        # titles by the project-name hint — needed where one umbrella project
+        # (e.g. the dev "Published Data") contains every investigation and so
+        # matches no investigation title. Set via NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS
+        # (comma-separated project names and/or ids). See issue #1 / option 2.
+        self.PUBLISHED_UMBRELLA_PROJECTS = self._parse_umbrella_projects(
+            os.environ.get("NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS", "")
+        )
 
         # Min JSONs actually used by the agents
         self.MIN_SAMPLETYPES = self._load_json_list("min_sampletypes_db.json", "min sampletypes (db)")
@@ -817,6 +829,35 @@ class ChatConfig:
         if data is not None:
             print(f"[CONFIG][CONTEXT] {label}: expected list, got {type(data)}")
         return []
+
+    @staticmethod
+    def _norm_project_key(value) -> str:
+        """Case/space-insensitive key for project name or id matching."""
+        return re.sub(r"\s+", "", str(value).strip().lower())
+
+    def _parse_umbrella_projects(self, raw: str) -> set[str]:
+        """Parse NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS (comma-separated names/ids)
+        into a normalized set. Empty/blank -> empty set (prod-safe default)."""
+        return {
+            self._norm_project_key(tok)
+            for tok in (raw or "").split(",")
+            if tok and tok.strip()
+        }
+
+    def is_umbrella_published_project(self, project, project_id=None) -> bool:
+        """True when the published report should SKIP the investigation-title
+        hint (report ALL samples) for this project. Opt-in via
+        NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS; empty by default so prod is
+        unchanged. Matches on normalized project name OR id."""
+        umbrella = getattr(self, "PUBLISHED_UMBRELLA_PROJECTS", None) or set()
+        if not umbrella:
+            return False
+        keys = set()
+        if project is not None:
+            keys.add(self._norm_project_key(project))
+        if project_id is not None:
+            keys.add(self._norm_project_key(project_id))
+        return bool(keys & umbrella)
 
     def _merge_project_name_to_id(self, base_map: dict[str, int], projects: list[dict]) -> dict[str, int]:
         """
