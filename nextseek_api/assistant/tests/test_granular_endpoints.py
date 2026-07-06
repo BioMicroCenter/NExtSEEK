@@ -83,6 +83,31 @@ class GraphEndpointTests(GranularEndpointBase):
         self.assertEqual(result["plan"]["cypher"], "MATCH (s) RETURN s")
         self.assertEqual(result["result"]["data"][0]["uuid"], "MUS-1")
 
+    def test_graph_endpoint_builds_a_session_for_the_parser(self):
+        """graph now runs parser_agent, which reads results_history off the
+        session (build_recent_results_summary). The viewset must build a
+        (transient) session for graph like it does for parse — passing None
+        makes the real parser_agent crash with 'NoneType has no attribute get'."""
+        captured = {}
+
+        def fake_parser(session, config, query, entity):
+            captured["session"] = session
+            return _dumpable({"target_endpoint": "graph"})
+
+        with patch("chat_nextseek.portable.entity_agent",
+                   return_value=_dumpable({"sampletypes": []})), \
+             patch("chat_nextseek.portable.parser_agent", side_effect=fake_parser), \
+             patch("chat_nextseek.portable.graph_agent",
+                   return_value=_dumpable({"cypher": "MATCH (s) RETURN s", "parameters": {}})), \
+             patch("chat_nextseek.helpers.tool_neo4j_query",
+                   return_value={"ok": True, "data": []}):
+            resp = self.client.post(f"{self.BASE}/graph/", {"query": "lineage"}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(
+            captured.get("session"),
+            "graph endpoint must build a session for parser_agent, not pass None",
+        )
+
 
 class ApiReadEndpointTests(GranularEndpointBase):
     def test_api_read_allowlisted_returns_response(self):

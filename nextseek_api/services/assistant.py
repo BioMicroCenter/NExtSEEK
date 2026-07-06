@@ -1171,7 +1171,10 @@ class AssistantViewSet(viewsets.ViewSet):
             return _op_error_response("VALIDATION", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         chat_config = _granular_chat_config(request, req)
-        session = self._granular_session(request, req) if op == "parse" else None
+        # parse and graph both run parser_agent, which reads results_history off
+        # the session — build a (transient) session for both, else parser_agent
+        # crashes on None. Other ops don't touch the session.
+        session = self._granular_session(request, req) if op in ("parse", "graph") else None
         gate = build_gate(load_allowlist())
         args = _granular_args(op, req)
         outputs_dir = _granular_outputs_dir() if op == "report" else None
