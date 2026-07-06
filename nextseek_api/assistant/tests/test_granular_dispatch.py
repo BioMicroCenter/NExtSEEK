@@ -65,13 +65,42 @@ class DispatchTests(SimpleTestCase):
     def test_graph_returns_plan_and_executed_rows(self):
         neo4j_exec = MagicMock(return_value={"ok": True, "data": [{"uuid": "MUS-1"}]})
         with patch("chat_nextseek.portable.entity_agent") as ent, \
+             patch("chat_nextseek.portable.parser_agent") as par, \
              patch("chat_nextseek.portable.graph_agent") as gr:
             ent.return_value = _dumpable({"sampletypes": [{"code": "MUS"}]})
+            par.return_value = _dumpable({"target_endpoint": "graph"})
             gr.return_value = _dumpable({"cypher": "MATCH (s:Sample) RETURN s", "parameters": {}})
             out = self._run("graph", {"query": "lineage of mouse samples"}, neo4j_exec=neo4j_exec)
         self.assertEqual(out["plan"]["cypher"], "MATCH (s:Sample) RETURN s")
         self.assertEqual(out["result"], {"ok": True, "data": [{"uuid": "MUS-1"}]})
         neo4j_exec.assert_called_once()
+
+    def test_graph_runs_parser_and_passes_plan_to_graph_agent(self):
+        """The CC/granular path MUST run the parser and pass its plan to
+        graph_agent, mirroring the NS orchestrator (orchestrator.py:869). Without
+        the parser_plan, graph_agent gets no PARSER PLAN block and emits
+        unbounded, pathological Cypher that 504s (GitHub issue #20)."""
+        neo4j_exec = MagicMock(return_value={"ok": True, "data": []})
+        with patch("chat_nextseek.portable.entity_agent") as ent, \
+             patch("chat_nextseek.portable.parser_agent") as par, \
+             patch("chat_nextseek.portable.graph_agent") as gr:
+            ent.return_value = _dumpable({"sampletypes": [{"code": "MUS"}]})
+            par.return_value = _dumpable({"target_endpoint": "graph"})
+            gr.return_value = _dumpable({"cypher": "MATCH (s:Sample) RETURN s", "parameters": {}})
+            self._run("graph", {"query": "lineage of mouse samples"}, neo4j_exec=neo4j_exec)
+        # parser_agent(session, config, query, entity_out) — same order as _parse
+        self.assertTrue(par.called, "granular._graph must invoke parser_agent")
+        self.assertEqual(par.call_args.args[0], self.session)
+        self.assertEqual(par.call_args.args[1], self.config)
+        self.assertEqual(par.call_args.args[2], "lineage of mouse samples")
+        self.assertIs(par.call_args.args[3], ent.return_value)
+        # graph_agent(config, query, entity_out, parser_plan) — the plan is passed
+        # as the 4th positional arg and is the parser_agent output, NOT None.
+        self.assertGreaterEqual(
+            len(gr.call_args.args), 4,
+            "graph_agent must receive the parser_plan positionally",
+        )
+        self.assertIs(gr.call_args.args[3], par.return_value)
 
     # --- api-read (allowlist-gated; builds plan then gates) ---
     def test_api_read_builds_plan_then_gates_then_requests(self):

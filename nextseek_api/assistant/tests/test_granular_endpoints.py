@@ -71,6 +71,8 @@ class GraphEndpointTests(GranularEndpointBase):
     def test_graph_returns_plan_and_executed_rows(self):
         with patch("chat_nextseek.portable.entity_agent",
                    return_value=_dumpable({"sampletypes": [{"code": "MUS"}]})), \
+             patch("chat_nextseek.portable.parser_agent",
+                   return_value=_dumpable({"target_endpoint": "graph"})), \
              patch("chat_nextseek.portable.graph_agent",
                    return_value=_dumpable({"cypher": "MATCH (s) RETURN s", "parameters": {}})), \
              patch("chat_nextseek.helpers.tool_neo4j_query",

@@ -70,9 +70,14 @@ def _parse(args, config, session, write_gate, neo4j_exec, outputs_dir):
 
 
 def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir):
-    from chat_nextseek.portable import entity_agent, graph_agent
+    from chat_nextseek.portable import entity_agent, graph_agent, parser_agent
     entity_out = entity_agent(config, args["query"])
-    plan = graph_agent(config, args["query"], entity_out)
+    # Run the parser and pass its plan to graph_agent, mirroring the NS
+    # orchestrator (orchestrator.py:869 graph_agent(config, query, entity, plan)).
+    # Without the parser_plan the graph agent gets no PARSER PLAN block and emits
+    # unbounded, pathological Cypher that overruns the 60s proxy timeout (#20).
+    parser_plan = parser_agent(session, config, args["query"], entity_out)
+    plan = graph_agent(config, args["query"], entity_out, parser_plan)
     plan_dump = _dump(plan)
     cypher = plan_dump.get("cypher") if isinstance(plan_dump, dict) else getattr(plan, "cypher", None)
     params = (
