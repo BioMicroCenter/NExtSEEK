@@ -34,6 +34,20 @@ except Exception:  # pragma: no cover - optional resolver
     DBtable_sample = None  # type: ignore
 
 
+def _nest_boolean_search_terms(terms: list[str], op: str) -> str:
+    """Build a right-nested binary boolean expression for the PubMed parser.
+
+    The upstream seek/search.py parser accepts at most one boolean operator per
+    expression level (strictly binary). A flat join like ``(t1) OR (t2) OR (t3)``
+    is rejected; nesting preserves semantics while satisfying that constraint.
+    """
+    if len(terms) < 2:
+        raise ValueError("_nest_boolean_search_terms requires at least two terms")
+    if len(terms) == 2:
+        return f"({terms[0]}){op}({terms[1]})"
+    return f"({terms[0]}){op}(" + _nest_boolean_search_terms(terms[1:], op) + ")"
+
+
 def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
     """Resolve a path segment to a SEEK sample id.
     - If numeric, use as-is.
@@ -481,7 +495,7 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
                     if len(terms) >= 2:
                         st_logic = str(filters.get('searchText_logic') or 'OR').upper()
                         op = ' AND ' if st_logic == 'AND' else ' OR '
-                        filters['filter_searchText'] = op.join(f'({t})' for t in terms)
+                        filters['filter_searchText'] = _nest_boolean_search_terms(terms, op)
                     elif len(terms) == 1:
                         # Single term: pass through unchanged (no parentheses)
                         filters['filter_searchText'] = terms[0]

@@ -582,6 +582,82 @@ class TestSampleAdvancedSearch:
 
     @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
     @patch("nextseek_api.services.samples.DBtable_sample")
+    def test_multiple_search_texts_or_nests_three_terms(self, mock_dbs, _):
+        """Three+ OR terms must be right-nested for the binary-only PubMed parser."""
+        vs = self._viewset()
+        mock_dbs.return_value.searchAdvanced.return_value = _adv_search_result([])
+        terms = [
+            "D.IMG-230913ENG-1722-PUB",
+            "D.IMG-230913ENG-1723-PUB",
+            "D.IMG-230913ENG-1724-PUB",
+        ]
+        req = self._req({
+            "filter_searchText": terms,
+            "searchText_logic": "OR",
+            "filter_matchType": "EXACT",
+        })
+        vs.create(req)
+        filters = mock_dbs.return_value.searchAdvanced.call_args[0][1]
+        expected = (
+            "(D.IMG-230913ENG-1722-PUB) OR "
+            "((D.IMG-230913ENG-1723-PUB) OR (D.IMG-230913ENG-1724-PUB))"
+        )
+        assert filters["filter_searchText"] == expected
+        assert " OR (D.IMG-230913ENG-1724-PUB) OR " not in filters["filter_searchText"]
+
+    @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
+    @patch("nextseek_api.services.samples.DBtable_sample")
+    def test_multiple_search_texts_or_nests_five_terms(self, mock_dbs, _):
+        vs = self._viewset()
+        mock_dbs.return_value.searchAdvanced.return_value = _adv_search_result([])
+        terms = [f"D.IMG-230913ENG-{1722 + i}-PUB" for i in range(5)]
+        req = self._req({
+            "filter_searchText": terms,
+            "searchText_logic": "OR",
+            "filter_matchType": "EXACT",
+        })
+        vs.create(req)
+        filters = mock_dbs.return_value.searchAdvanced.call_args[0][1]
+        expected = (
+            "(D.IMG-230913ENG-1722-PUB) OR "
+            "((D.IMG-230913ENG-1723-PUB) OR "
+            "((D.IMG-230913ENG-1724-PUB) OR "
+            "((D.IMG-230913ENG-1725-PUB) OR (D.IMG-230913ENG-1726-PUB))))"
+        )
+        assert filters["filter_searchText"] == expected
+
+    @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
+    @patch("nextseek_api.services.samples.DBtable_sample")
+    def test_multiple_search_texts_and_nests_three_terms(self, mock_dbs, _):
+        vs = self._viewset()
+        mock_dbs.return_value.searchAdvanced.return_value = _adv_search_result([])
+        terms = ["alpha", "beta", "gamma"]
+        req = self._req({
+            "filter_searchText": terms,
+            "searchText_logic": "AND",
+            "filter_matchType": "EXACT",
+        })
+        vs.create(req)
+        filters = mock_dbs.return_value.searchAdvanced.call_args[0][1]
+        assert filters["filter_searchText"] == "(alpha) AND ((beta) AND (gamma))"
+
+    @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
+    @patch("nextseek_api.services.samples.DBtable_sample")
+    def test_multiple_search_texts_and_nests_five_terms(self, mock_dbs, _):
+        vs = self._viewset()
+        mock_dbs.return_value.searchAdvanced.return_value = _adv_search_result([])
+        terms = ["a", "b", "c", "d", "e"]
+        req = self._req({
+            "filter_searchText": terms,
+            "searchText_logic": "AND",
+            "filter_matchType": "EXACT",
+        })
+        vs.create(req)
+        filters = mock_dbs.return_value.searchAdvanced.call_args[0][1]
+        assert filters["filter_searchText"] == "(a) AND ((b) AND ((c) AND ((d) AND (e))))"
+
+    @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
+    @patch("nextseek_api.services.samples.DBtable_sample")
     def test_multiple_search_texts_or(self, mock_dbs, _):
         vs = self._viewset()
         mock_dbs.return_value.searchAdvanced.return_value = _adv_search_result([
