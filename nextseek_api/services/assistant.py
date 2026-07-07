@@ -1177,7 +1177,10 @@ class AssistantViewSet(viewsets.ViewSet):
         session = self._granular_session(request, req) if op in ("parse", "graph") else None
         gate = build_gate(load_allowlist())
         args = _granular_args(op, req)
-        outputs_dir = _granular_outputs_dir() if op == "report" else None
+        # report + generate-submission both persist real artifacts to disk (the
+        # reporter summary / the submission-emitter workbooks), so both need a
+        # writable run-root under an allowed artifact root.
+        outputs_dir = _granular_outputs_dir() if op in ("report", "generate-submission") else None
 
         try:
             result = run_op(
@@ -1219,9 +1222,10 @@ class AssistantViewSet(viewsets.ViewSet):
         if op == "report":
             bundle = {"id": bundle_id, "mode": "reporter",
                       "report_saved_files": saved_files or {}, "report_writer_output": {}}
-        else:  # generate-submission — the structured output drives on-the-fly table xlsx
+        else:  # generate-submission — real emitter workbooks in saved_files PLUS
+               # the on-the-fly all_tables xlsx built from the writer output.
             bundle = {"id": bundle_id, "mode": "generate-submission",
-                      "report_saved_files": {}, "report_writer_output": result}
+                      "report_saved_files": saved_files or {}, "report_writer_output": result}
         history.append(bundle)
         chat_session.results_history = history
         chat_session.save(update_fields=["results_history", "updated_at"])

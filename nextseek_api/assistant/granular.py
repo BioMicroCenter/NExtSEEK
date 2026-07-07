@@ -134,37 +134,55 @@ def _report(args, config, session, write_gate, neo4j_exec, outputs_dir):
 
 
 def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_dir):
-    from chat_nextseek.portable import report_writer_agent
-    from chat_nextseek.schemas.chat import ReportWriterPlan
-    from chat_nextseek.helpers import (
-        annotate_metadata_with_sampletypes,
-        fetch_reporter_metadata,
-    )
+    # Route through the SAME orchestration the NS run_query report_generation
+    # path uses (generate_report_outputs), rather than calling the leaf
+    # report_writer_agent directly. That gives the op, for every report type:
+    #   * the type-specific template (load_report_template) -> bounded output
+    #     (a template-less call free-forms and overruns the writer's output-token
+    #     cap, truncating the JSON -> AGENT_FAILED);
+    #   * the full reporter_context (metadata hydration, protocols, plans);
+    #   * the emitters that persist the REAL submission workbooks under
+    #     saved_files (geo_seq_workbooks / sra_* / pride_* / nfcore_* / ...),
+    #     which the bundle/download + CC staging then serve.
+    # See GitHub issue #21 (reporter port defect / drift).
+    from chat_nextseek.portable import generate_report_outputs, report_writer_agent
+    from chat_nextseek.schemas.chat import ReporterPlan
+
     uids = [u.strip() for u in args["uids"].split(",") if u.strip()]
-    # Hydrate the reporter_context with the samples' real metadata. The report
-    # writer is prompted to use ONLY what it is given ("do NOT fetch anything
-    # new"), so a bare {"uids": [...]} yields an all-null skeleton even when the
-    # UIDs have full json_metadata. Fetch it here — mirroring the combined-report
-    # path in reports.outputs.generate_report_outputs — so a standalone --uids
-    # call populates the submission fields from the samples' actual metadata.
-    metadata = (
-        fetch_reporter_metadata(config, uids)
-        if uids
-        else {"ok": False, "error": "No UID provided"}
-    )
-    metadata = annotate_metadata_with_sampletypes(config, metadata) if metadata else metadata
-    plan = ReportWriterPlan(
-        report_type=args["type"],
-        reporter_context={"uids": uids, "metadata": metadata},
-    )
+    report_type = args["type"]
     # A non-empty user query is required: some providers (Bedrock/Opus Converse)
     # reject a blank message content block. Fall back to a type-aware default when
     # the caller supplies no query, so the op is robust to query=None / "".
     user_query = (args.get("query") or "").strip() or (
-        f"Generate a {args['type']} submission report for the provided sample UIDs."
+        f"Generate a {report_type} submission report for the provided sample UIDs."
     )
-    out = report_writer_agent(config, user_query, plan)
-    return _dump(out)
+    reporter_plan = ReporterPlan(
+        report_type=report_type,
+        uids=uids,
+        reporter_mode="report_generation",
+        reporter_context={"per_sample_reports": False},
+    )
+    log_dir = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
+    _reporter_result, report_writer_output, saved_files, _reply = generate_report_outputs(
+        config=config,
+        user_query=user_query,
+        parser_plan={"report_type": report_type},
+        reporter_plan=reporter_plan,
+        uids=uids,
+        log_dir=log_dir,
+        report_writer_fn=report_writer_agent,
+        per_sample_reports=False,
+    )
+    # Combined mode wraps the writer output as {"all_samples": <writer output>}.
+    # Unwrap to the flat writer dict to preserve the op's existing result shape,
+    # and attach the real saved_files so the download bundle + CC staging serve
+    # the actual generated report file.
+    flat = report_writer_output
+    if isinstance(report_writer_output, dict) and "all_samples" in report_writer_output:
+        flat = report_writer_output["all_samples"]
+    result = dict(flat) if isinstance(flat, dict) else {"report_type": report_type, "report": flat}
+    result["saved_files"] = saved_files or {}
+    return result
 
 
 _HANDLERS: dict[str, Callable] = {

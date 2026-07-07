@@ -180,32 +180,65 @@ class DispatchTests(SimpleTestCase):
             self._run("report", {"mode": "rppr", "project": "P"}, outputs_dir="/tmp")
         self.assertEqual(captured["summary_mode"], "RPPR")
 
-    # --- generate-submission ---
-    def test_generate_submission_routes_to_report_writer(self):
+    # --- generate-submission (routes through the NS orchestration) ---
+    def test_generate_submission_routes_to_generate_report_outputs(self):
+        """generate-submission runs the same NS orchestration the run_query
+        report_generation path uses (generate_report_outputs) — NOT the leaf
+        report_writer_agent directly — so it gets the type template, full
+        context, and the emitter workbooks. It returns the flat writer output
+        plus the real saved_files."""
         captured = {}
 
-        def fake_writer(config, query, plan):
-            captured["report_type"] = plan.report_type
-            captured["uids"] = plan.reporter_context.get("uids")
-            return _dumpable({"report_type": "GEO", "report": {"samples": []}})
-        with patch("chat_nextseek.portable.report_writer_agent", side_effect=fake_writer):
-            out = self._run("generate-submission", {"type": "GEO", "uids": "MUS-1, MUS-2"})
-        self.assertEqual(captured["report_type"], "GEO")
+        def fake_gro(**kw):
+            captured.update(kw)
+            rwo = {"all_samples": {"report_type": "GEO", "report": {"study": {}},
+                                   "narrative": None, "notes": None}}
+            saved = {"geo_seq_workbooks": ["/o/geo.xlsx"], "merged_report": "/o/m.json"}
+            return {"reports": []}, rwo, saved, "done"
+        with patch("chat_nextseek.portable.generate_report_outputs", side_effect=fake_gro) as gro, \
+             patch("chat_nextseek.portable.report_writer_agent") as rwa:
+            out = self._run("generate-submission", {"type": "GEO", "uids": "MUS-1, MUS-2"},
+                            outputs_dir="/o")
+        self.assertTrue(gro.called, "generate-submission must route through generate_report_outputs")
+        self.assertEqual(captured["reporter_plan"].report_type, "GEO")
+        self.assertEqual(captured["parser_plan"]["report_type"], "GEO")
         self.assertEqual(captured["uids"], ["MUS-1", "MUS-2"])
+        self.assertFalse(captured["per_sample_reports"])       # combined mode
+        self.assertEqual(captured["log_dir"], "/o")
+        self.assertIs(captured["report_writer_fn"], rwa)        # passes the portable writer
+        # flat writer output (unwrapped from all_samples) + real saved_files
         self.assertEqual(out["report_type"], "GEO")
+        self.assertNotIn("all_samples", out)
+        self.assertEqual(out["saved_files"]["geo_seq_workbooks"], ["/o/geo.xlsx"])
+
+    def test_generate_submission_is_report_type_agnostic(self):
+        """report_type flows through for SRA / PRIDE alike — no GEO hardcoding."""
+        seen = []
+
+        def fake_gro(**kw):
+            rt = kw["reporter_plan"].report_type
+            seen.append(rt)
+            return {"reports": []}, {"all_samples": {"report_type": rt, "report": {}}}, {}, ""
+        with patch("chat_nextseek.portable.generate_report_outputs", side_effect=fake_gro), \
+             patch("chat_nextseek.portable.report_writer_agent"):
+            for t in ("SRA", "PRIDE"):
+                out = self._run("generate-submission", {"type": t, "uids": "X-1"}, outputs_dir="/o")
+                self.assertEqual(out["report_type"], t)
+        self.assertEqual(seen, ["SRA", "PRIDE"])
 
     def test_generate_submission_defaults_blank_query(self):
         # A blank/absent query must be replaced with a non-empty, type-aware default
         # (some providers reject an empty user message content block).
         captured = {}
 
-        def fake_writer(config, query, plan):
-            captured["query"] = query
-            return _dumpable({"report_type": "GEO", "report": {}})
-        with patch("chat_nextseek.portable.report_writer_agent", side_effect=fake_writer):
-            self._run("generate-submission", {"type": "GEO", "uids": "MUS-1"})  # no query key
-        self.assertTrue(captured["query"].strip(), "blank query reached report_writer")
-        self.assertIn("GEO", captured["query"])
+        def fake_gro(**kw):
+            captured.update(kw)
+            return {"reports": []}, {"all_samples": {"report_type": "GEO", "report": {}}}, {}, ""
+        with patch("chat_nextseek.portable.generate_report_outputs", side_effect=fake_gro), \
+             patch("chat_nextseek.portable.report_writer_agent"):
+            self._run("generate-submission", {"type": "GEO", "uids": "MUS-1"}, outputs_dir="/o")
+        self.assertTrue(captured["user_query"].strip(), "blank query reached generate_report_outputs")
+        self.assertIn("GEO", captured["user_query"])
 
     # --- validation / unknown op ---
     def test_api_read_invalid_json_raises_validation(self):

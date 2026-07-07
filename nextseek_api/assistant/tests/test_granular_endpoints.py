@@ -169,13 +169,25 @@ class ReportEndpointTests(GranularEndpointBase):
 
 class SubmissionEndpointTests(GranularEndpointBase):
     def test_generate_submission_returns_result(self):
-        with patch("chat_nextseek.portable.report_writer_agent",
-                   return_value=_dumpable({"report_type": "GEO", "report": {"samples": []},
-                                           "narrative": "", "notes": ""})):
+        captured = {}
+
+        def fake_gro(**kw):
+            captured.update(kw)
+            rwo = {"all_samples": {"report_type": "GEO", "report": {"samples": []},
+                                   "narrative": "", "notes": ""}}
+            return {"reports": []}, rwo, {"merged_report": "/tmp/m.json"}, ""
+        with patch("chat_nextseek.portable.generate_report_outputs", side_effect=fake_gro), \
+             patch("chat_nextseek.portable.report_writer_agent"):
             resp = self.client.post(f"{self.BASE}/generate-submission/",
                                     {"type": "GEO", "uids": "MUS-1"}, format="json")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["result"]["report_type"], "GEO")
+        self.assertIn("saved_files", resp.json()["result"])
+        # A3: the viewset hands generate-submission a writable log_dir under outputs/
+        self.assertTrue(
+            str(captured["log_dir"]).startswith(str(Path(settings.BASE_DIR) / "outputs")),
+            f"log_dir {captured.get('log_dir')!r} not under an allowed artifact root",
+        )
 
     def test_bad_type_returns_422(self):
         resp = self.client.post(f"{self.BASE}/generate-submission/",
@@ -217,24 +229,40 @@ class ArtifactBundleRegistrationTests(GranularEndpointBase):
             f.unlink(missing_ok=True)
 
     def test_generate_submission_registers_bundle_with_output(self):
-        with patch("chat_nextseek.portable.report_writer_agent",
-                   return_value=_dumpable({"report_type": "GEO",
-                                           "report": {"samples": [{"uid": "X-1"}]},
-                                           "narrative": "", "notes": ""})):
-            resp = self.client.post(f"{self.BASE}/generate-submission/",
-                                    {"type": "GEO", "uids": "X-1"}, format="json")
-        self.assertEqual(resp.status_code, 200, resp.content)
-        dl = resp.json()["download"]
-        self.assertTrue(dl["session_id"])
-        self.assertEqual(dl["bundle_id"], 1)
-        cs = ChatSession.objects.get(session_id=dl["session_id"])
-        self.assertEqual(cs.results_history[0]["report_writer_output"]["report_type"], "GEO")
-        # the submission output is downloadable as a combined xlsx
-        keys = {a["key"]: a["url"] for a in dl["artifacts"]}
-        self.assertIn("all_tables", keys)
-        resp2 = self.client.get(keys["all_tables"])
-        self.assertEqual(resp2.status_code, 200)
-        self.assertIn("spreadsheetml", resp2["Content-Type"])
+        # A4: the REAL emitter workbooks (saved_files) are registered in the
+        # bundle AND downloadable, alongside the on-the-fly all_tables xlsx.
+        out = Path(settings.BASE_DIR) / "outputs" / "gensub_bundle_test"
+        out.mkdir(parents=True, exist_ok=True)
+        wb = out / f"{uuid.uuid4().hex}.xlsx"
+        wb.write_bytes(b"PK\x03\x04 fake-xlsx-bytes")  # download streams bytes; not parsed
+
+        def fake_gro(**kw):
+            rwo = {"all_samples": {"report_type": "GEO",
+                                   "report": {"samples": [{"uid": "X-1"}]},
+                                   "narrative": "", "notes": ""}}
+            return {"reports": []}, rwo, {"geo_seq_workbooks": [str(wb)]}, ""
+        try:
+            with patch("chat_nextseek.portable.generate_report_outputs", side_effect=fake_gro), \
+                 patch("chat_nextseek.portable.report_writer_agent"):
+                resp = self.client.post(f"{self.BASE}/generate-submission/",
+                                        {"type": "GEO", "uids": "X-1"}, format="json")
+            self.assertEqual(resp.status_code, 200, resp.content)
+            dl = resp.json()["download"]
+            self.assertEqual(dl["bundle_id"], 1)
+            cs = ChatSession.objects.get(session_id=dl["session_id"])
+            # A4: real saved_files land in the bundle (no longer hardcoded {})
+            self.assertEqual(
+                cs.results_history[0]["report_saved_files"]["geo_seq_workbooks"], [str(wb)])
+            self.assertEqual(cs.results_history[0]["report_writer_output"]["report_type"], "GEO")
+            keys = {a["key"]: a["url"] for a in dl["artifacts"]}
+            # both the real workbook AND the on-the-fly all_tables are exposed
+            self.assertIn("geo_seq_workbooks", keys)
+            self.assertIn("all_tables", keys)
+            # the real workbook serves its bytes from disk
+            resp2 = self.client.get(keys["geo_seq_workbooks"])
+            self.assertEqual(resp2.status_code, 200)
+        finally:
+            wb.unlink(missing_ok=True)
 
     def test_entity_has_no_download_field(self):
         with patch("chat_nextseek.portable.entity_agent",
