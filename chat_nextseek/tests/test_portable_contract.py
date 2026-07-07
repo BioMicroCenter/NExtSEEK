@@ -20,9 +20,15 @@ PLUGIN_FACING = {
     "report_writer_agent",
     "api_agent_build_request",
     "run_reporter_summary",
+    "generate_report_outputs",
     "tool_nextseek_api_request",
     "tool_neo4j_query",
 }
+
+# Helper orchestrators return a tuple (not a Pydantic model). Enumerate them
+# explicitly rather than prefix-match, so a new orchestrator without a `run_`
+# prefix (e.g. generate_report_outputs) is classified correctly.
+HELPER_ORCHESTRATORS = {"run_reporter_summary", "generate_report_outputs"}
 
 
 def test_portable_all_complete():
@@ -75,9 +81,10 @@ def test_portable_returns_pydantic_or_dict():
         fn = getattr(portable, name)
         sig = inspect.signature(fn)
         ret = sig.return_annotation
-        if name.startswith(("tool_", "run_")):
+        if name.startswith("tool_") or name in HELPER_ORCHESTRATORS:
             # tool_neo4j_query, tool_nextseek_api_request → dict
             # run_reporter_summary → tuple[dict, dict[str, str], dict]
+            # generate_report_outputs → tuple[dict, dict|Any, dict[str, str], str]
             assert ret is dict or ret is inspect.Signature.empty or "dict" in str(ret), (
                 f"{name}: return annotation {ret!r} should contain dict"
             )

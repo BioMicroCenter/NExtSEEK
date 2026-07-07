@@ -20,6 +20,7 @@ from .agents.graph import graph_agent
 from .agents.reporter import reporter_agent, report_writer_agent
 from .agents.api import api_agent_build_request
 from .reports.runners import run_reporter_summary
+from .reports.outputs import generate_report_outputs
 from .helpers.tools.nextseek_api import tool_nextseek_api_request
 from .helpers.tools.neo4j import tool_neo4j_query
 
@@ -33,8 +34,9 @@ __all__ = [
     "reporter_agent",
     "report_writer_agent",
     "api_agent_build_request",
-    # Helper orchestrator (one tool wraps a deterministic chain)
+    # Helper orchestrators (one call wraps a deterministic chain -> tuple)
     "run_reporter_summary",
+    "generate_report_outputs",
     # Side-effect tools (REST + graph)
     "tool_nextseek_api_request",
     "tool_neo4j_query",
