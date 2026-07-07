@@ -30,7 +30,9 @@ logs/
 # Local runtime config / secrets — provided at runtime, never needed in the image:
 #   dmac/local_settings.py  is bind-mounted over /app/dmac/local_settings.py
 #   docker/db.env, docker/nextseek.env  are injected via compose env_file
+#   docker/bedrock-proxy/proxy-secret.env  is the proxy's env_file (real Bedrock token)
 # Excluding them keeps plaintext config/secrets out of the `COPY . /app/` layer.
 dmac/local_settings.py
 docker/db.env
 docker/nextseek.env
+docker/bedrock-proxy/proxy-secret.env

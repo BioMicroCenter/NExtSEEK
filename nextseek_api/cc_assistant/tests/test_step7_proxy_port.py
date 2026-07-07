@@ -255,6 +255,20 @@ def test_real_secret_filename_is_dockerignored():
     )
 
 
+def test_real_secret_filename_is_excluded_from_root_build_context():
+    """The nextseek image builds from the REPO ROOT (`COPY . /app/`), so the
+    root .dockerignore must also exclude the real secret file. The deploy
+    clone legitimately holds it on disk for compose env_file:, and without
+    this entry every nextseek image bakes the Bedrock token into /app."""
+    text = _read(REPO_ROOT / ".dockerignore")
+    assert f"docker/bedrock-proxy/{REAL_SECRET_FILENAME}" in text or (
+        f"**/{REAL_SECRET_FILENAME}" in text
+    ), (
+        "root .dockerignore must exclude docker/bedrock-proxy/"
+        f"{REAL_SECRET_FILENAME} from the nextseek image build context."
+    )
+
+
 def test_example_env_contains_only_placeholder_shape_no_real_token():
     """(d): the committed .example must carry key NAMES only -- assert the
     values area for AWS_BEARER_TOKEN_BEDROCK/AWS_REGION is empty/placeholder
