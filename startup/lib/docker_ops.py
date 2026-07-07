@@ -31,13 +31,16 @@ def compose_up(
     env: dict[str, str],
     detached: bool = True,
     build: bool = False,
+    force_recreate: bool = False,
 ) -> None:
-    """Run `docker compose up [-d] [--build] <services...>` in project_dir."""
+    """Run `docker compose up [-d] [--build] [--force-recreate] <services...>`."""
     cmd = ["docker", "compose", "up"]
     if detached:
         cmd.append("-d")
     if build:
         cmd.append("--build")
+    if force_recreate:
+        cmd.append("--force-recreate")
     cmd.extend(services)
     result = subprocess.run(
         cmd,
@@ -47,6 +50,24 @@ def compose_up(
         text=True,
     )
     _check(result, f"docker compose up {' '.join(services)}")
+
+
+def compose_build(
+    services: Sequence[str],
+    project_dir: str | Path,
+    env: dict[str, str],
+) -> None:
+    """Run `docker compose build <services...>` in project_dir."""
+    cmd = ["docker", "compose", "build"]
+    cmd.extend(services)
+    result = subprocess.run(
+        cmd,
+        cwd=str(project_dir),
+        env=_build_env(env),
+        capture_output=True,
+        text=True,
+    )
+    _check(result, f"docker compose build {' '.join(services)}")
 
 
 def compose_down(

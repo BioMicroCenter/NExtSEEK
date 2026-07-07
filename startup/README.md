@@ -75,7 +75,8 @@ Both stacks coexist; `./startup.sh reset` from `/tmp/NExtSEEK-test` nukes
 only the test data.
 
 Compose project namespacing is automatic via `COMPOSE_PROJECT_NAME`
-(set in `startup/.instance.json`).
+(set in `startup/.instance.json` and mirrored to the root `.env` for manual
+`docker compose` commands).
 
 ## Files written by startup
 
@@ -83,7 +84,9 @@ Compose project namespacing is automatic via `COMPOSE_PROJECT_NAME`
 |---|---|---|
 | `docker/db.env` | gitignored | MySQL credentials |
 | `docker/nextseek.env` | gitignored | Django/Neo4j config + API keys |
+| `docker/bedrock-proxy/proxy-secret.env` | gitignored | Bedrock proxy runtime token + region |
 | `dmac/local_settings.py` | gitignored | Django settings overlay |
+| `.env` | gitignored | Non-secret compose project + published port vars |
 | `startup/.instance.json` | gitignored | Per-instance state (name, prefix, ports) |
 | `logs/` | gitignored | Container runtime logs |
 
@@ -105,6 +108,10 @@ Compose project namespacing is automatic via `COMPOSE_PROJECT_NAME`
   placeholders (`SET_IN_LOCAL_ENV`). Fill in real values for
   `GCP_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, or `FDH_API`, then
   `./startup.sh rebuild`.
+- **CC Bedrock calls don't work**: `docker/bedrock-proxy/proxy-secret.env`
+  is generated during install. If `AWS_BEARER_TOKEN_BEDROCK` was not exported
+  before install, fill it in there and re-run `./startup.sh rebuild --service
+  bedrock-proxy`.
 
 ## Maintainer: regenerating seed dumps
 

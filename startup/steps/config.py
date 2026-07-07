@@ -1,11 +1,15 @@
-"""Render startup templates to docker/db.env, docker/nextseek.env, dmac/local_settings.py."""
+"""Render startup-managed env files and Django settings."""
 from __future__ import annotations
 
+import os
 import secrets
 import string
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from string import Template
+
+from startup.lib.env import write_env
 
 
 @dataclass
@@ -75,4 +79,44 @@ def render_local_settings(repo_root: Path, values: ConfigValues) -> Path:
     output = repo_root / "dmac" / "local_settings.py"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(_render(template, values))
+    return output
+
+
+def render_proxy_secret_env(
+    repo_root: Path,
+    source_env: Mapping[str, str] | None = None,
+) -> Path:
+    """Render the bedrock proxy env_file required by docker compose.
+
+    The institutional Bedrock token is runtime-only. If the operator exported it
+    before running startup, copy it into the proxy env_file; otherwise write an
+    empty token so compose can still create the service and paid CC calls remain
+    disabled until the file is filled in.
+    """
+    source = source_env if source_env is not None else os.environ
+    output = repo_root / "docker" / "bedrock-proxy" / "proxy-secret.env"
+    write_env(
+        output,
+        {
+            "AWS_BEARER_TOKEN_BEDROCK": source.get("AWS_BEARER_TOKEN_BEDROCK", ""),
+            "AWS_REGION": source.get("AWS_REGION")
+            or source.get("AWS_DEFAULT_REGION")
+            or "us-east-1",
+        },
+    )
+    return output
+
+
+def render_root_env(repo_root: Path, compose_env: Mapping[str, str]) -> Path:
+    """Persist non-secret compose targeting vars for manual docker compose use."""
+    ordered_keys = [
+        "COMPOSE_PROJECT_NAME",
+        "NEXTSEEK_PORT",
+        "SEEK_PORT",
+        "NEO4J_HTTP_PORT",
+        "NEO4J_BOLT_PORT",
+        "INSTANCE_PREFIX",
+    ]
+    output = repo_root / ".env"
+    write_env(output, {key: compose_env[key] for key in ordered_keys if key in compose_env})
     return output

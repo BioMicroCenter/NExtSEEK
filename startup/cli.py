@@ -132,9 +132,14 @@ def install(
     config.render_db_env(REPO_ROOT, values)
     config.render_nextseek_env(REPO_ROOT, values)
     config.render_local_settings(REPO_ROOT, values)
-    ui.ok("docker/db.env, docker/nextseek.env, dmac/local_settings.py")
 
     compose_env = state.compose_env()
+    config.render_proxy_secret_env(REPO_ROOT)
+    config.render_root_env(REPO_ROOT, compose_env)
+    ui.ok(
+        "docker/db.env, docker/nextseek.env, "
+        "docker/bedrock-proxy/proxy-secret.env, dmac/local_settings.py, .env"
+    )
 
     # [5/9] Volumes
     ui.step(5, total, "Creating docker volumes")
@@ -192,6 +197,7 @@ def install(
     with ui.spinner("building"):
         build.start_seek_side(REPO_ROOT, compose_env)
         build.build_and_start_nextseek(REPO_ROOT, compose_env)
+        build.start_cc_stack(REPO_ROOT, compose_env)
     with ui.spinner(f"waiting for NExtSEEK to respond on :{ports['nextseek']} (gunicorn ~1-2 min to boot)"):
         build.wait_for_nextseek_http(ports["nextseek"])
     ui.ok("stack up")
@@ -281,7 +287,9 @@ def reset(
         for p in [
             REPO_ROOT / "docker" / "db.env",
             REPO_ROOT / "docker" / "nextseek.env",
+            REPO_ROOT / "docker" / "bedrock-proxy" / "proxy-secret.env",
             REPO_ROOT / "dmac" / "local_settings.py",
+            REPO_ROOT / ".env",
             REPO_ROOT / "startup" / ".instance.json",
         ]:
             if p.exists():

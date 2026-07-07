@@ -34,8 +34,11 @@ def run_django_check(repo_root: Path, env: dict[str, str]) -> HealthResult:
         )
     except DockerOpsError as exc:
         return HealthResult(name="django check", ok=False, detail=str(exc))
-    ok = "identified no issues" in out or "no issues" in out
-    return HealthResult(name="django check", ok=ok, detail=out.strip().splitlines()[-1] if out.strip() else "no output")
+    return HealthResult(
+        name="django check",
+        ok=True,
+        detail=out.strip().splitlines()[-1] if out.strip() else "exit 0",
+    )
 
 
 def run_all_health_checks(

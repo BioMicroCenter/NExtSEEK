@@ -8,6 +8,7 @@ import pytest
 
 from startup.lib.docker_ops import (
     DockerOpsError,
+    compose_build,
     compose_up,
     compose_down,
     compose_exec,
@@ -28,6 +29,20 @@ def test_compose_up_invokes_compose_up_d(mock_run: MagicMock) -> None:
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_up_can_force_recreate(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    compose_up(
+        services=["nextseek_nginx"],
+        project_dir="/repo",
+        env={},
+        force_recreate=True,
+    )
+    args = mock_run.call_args.args[0]
+    assert "--force-recreate" in args
+    assert args[-1] == "nextseek_nginx"
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
 def test_compose_up_passes_env(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
     compose_up(services=["db"], project_dir="/repo", env={"INSTANCE_PREFIX": "test-"})
@@ -40,6 +55,21 @@ def test_compose_up_raises_on_nonzero_exit(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="boom")
     with pytest.raises(DockerOpsError, match="boom"):
         compose_up(services=["db"], project_dir="/repo", env={})
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_build_invokes_compose_build(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    compose_build(services=["cc-agent"], project_dir="/repo", env={})
+    args = mock_run.call_args.args[0]
+    assert args == ["docker", "compose", "build", "cc-agent"]
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_build_raises_on_nonzero_exit(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="build failed")
+    with pytest.raises(DockerOpsError, match="build failed"):
+        compose_build(services=["cc-agent"], project_dir="/repo", env={})
 
 
 @patch("startup.lib.docker_ops.subprocess.run")

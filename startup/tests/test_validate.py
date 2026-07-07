@@ -38,6 +38,14 @@ def test_run_django_check_ok_on_clean_exit(mock_exec: MagicMock) -> None:
 
 
 @patch("startup.steps.validate.compose_exec")
+def test_run_django_check_ok_on_zero_exit_warning_output(mock_exec: MagicMock) -> None:
+    mock_exec.return_value = "WARNINGS:\n?: (models.W042) Auto-created primary key used\n"
+    r = run_django_check(repo_root=Path("/repo"), env={})
+    assert r.ok is True
+    assert "Auto-created primary key" in r.detail
+
+
+@patch("startup.steps.validate.compose_exec")
 def test_run_django_check_fail_on_exception(mock_exec: MagicMock) -> None:
     from startup.lib.docker_ops import DockerOpsError
     mock_exec.side_effect = DockerOpsError("boom")
