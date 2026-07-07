@@ -182,6 +182,11 @@ embedding_models/
 setup-celery-worker.sh
 outputs 
 CLAUDE.md
+# The cc-agent image's in-container CLAUDE.md is a required Dockerfile COPY
+# input (committed-but-generated; refresh via `python -m
+# build_tools.ingest_nextseek_docs`). Carve it out of the bare rule above so
+# clean clones can build the image.
+!docker/cc-runtime/container/CLAUDE.md
 .python-version
 .serena/
 .venv_uv/data/
