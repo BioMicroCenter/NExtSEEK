@@ -389,3 +389,29 @@ def test_validate_project_rejects_traversal(bad):
 def test_validate_project_accepts_real_names():
     cc_engine._validate_project("example-project")
     cc_engine._validate_project("Published Data")  # spaces are fine
+
+
+def test_internal_base_url_preferred_for_agent_env():
+    """NEXTSEEK_INTERNAL_BASE_URL (container-internal transport) wins over the
+    public NEXTSEEK_BASE_URL when sourcing the agent's backend route, so a
+    hand-maintained public https base URL can never leak an unreachable
+    address into the network-segmented agent."""
+    env = cc_engine.build_agent_environment(
+        source={
+            "NEXTSEEK_INTERNAL_BASE_URL": "http://127.0.0.1:8000",
+            "NEXTSEEK_BASE_URL": "https://nextseek-dev.mit.edu",
+        },
+        api_user="d", api_pass="p", path_mappings={},
+    )
+    # loopback internal URL is rewritten to the in-network nginx route
+    assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx"
+    assert env["NEXTSEEK_URL"] == "http://nextseek_nginx"
+
+
+def test_bumped_host_port_loopback_still_rewritten():
+    """A port-bumped greenfield (host :8001) must converge on nginx too."""
+    env = cc_engine.build_agent_environment(
+        source={"NEXTSEEK_BASE_URL": "http://127.0.0.1:8001"},
+        api_user="d", api_pass="p", path_mappings={},
+    )
+    assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx"

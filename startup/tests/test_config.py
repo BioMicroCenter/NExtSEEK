@@ -95,3 +95,71 @@ def test_render_local_settings_writes_to_dmac(tmp_path: Path) -> None:
     render_local_settings(repo, v)
     assert (repo / "dmac" / "local_settings.py").exists()
     assert "# template content" in (repo / "dmac" / "local_settings.py").read_text()
+
+
+# --- Bug B (2026-07-07): chat_nextseek's REST self-calls run INSIDE the
+# nextseek container, which listens on :8000 regardless of the published host
+# port (gunicorn.conf.py, entrypoint.sh daphne branch). NEXTSEEK_BASE_URL keeps
+# its public meaning (derives from NEXTSEEK_HOSTNAME = host-published port);
+# the NEW NEXTSEEK_INTERNAL_BASE_URL carries the container-internal transport
+# URL, decoupled from NEXTSEEK_PORT. Deriving the self-call URL from the host
+# port broke every REST self-call on a port-bumped install (Step 7d greenfield).
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _render_real_template(tmp_path: Path, port: int) -> str:
+    """Render the REAL nextseek.env.template into a tmp repo skeleton."""
+    repo = tmp_path / "repo"
+    (repo / "docker").mkdir(parents=True)
+    (repo / "startup" / "templates").mkdir(parents=True)
+    real_template = _REPO_ROOT / "startup" / "templates" / "nextseek.env.template"
+    (repo / "startup" / "templates" / "nextseek.env.template").write_text(
+        real_template.read_text()
+    )
+    render_nextseek_env(repo, default_values(nextseek_port=port))
+    return (repo / "docker" / "nextseek.env").read_text()
+
+
+def test_real_template_renders_public_and_internal_urls(tmp_path: Path) -> None:
+    rendered = _render_real_template(tmp_path, port=8042)
+    # Public hostname tracks the published host port ...
+    assert 'NEXTSEEK_HOSTNAME="127.0.0.1:8042"' in rendered
+    # ... the public base URL still derives from it (compose interpolation) ...
+    assert 'NEXTSEEK_BASE_URL="http://$NEXTSEEK_HOSTNAME"' in rendered
+    # ... and the internal transport URL is pinned to the in-container listener.
+    assert 'NEXTSEEK_INTERNAL_BASE_URL="http://127.0.0.1:8000"' in rendered
+
+
+def test_real_template_internal_url_never_inherits_bumped_port(tmp_path: Path) -> None:
+    rendered = _render_real_template(tmp_path, port=8001)
+    internal_lines = [
+        l for l in rendered.splitlines() if l.startswith("NEXTSEEK_INTERNAL_BASE_URL=")
+    ]
+    assert internal_lines == ['NEXTSEEK_INTERNAL_BASE_URL="http://127.0.0.1:8000"']
+
+
+def test_env_example_internal_url_parity_with_template() -> None:
+    """Tripwire: the hand-maintained example must carry the same internal URL."""
+    example = (_REPO_ROOT / "docker" / "nextseek.env.example").read_text()
+    lines = [
+        l for l in example.splitlines() if l.startswith("NEXTSEEK_INTERNAL_BASE_URL=")
+    ]
+    assert lines == ['NEXTSEEK_INTERNAL_BASE_URL="http://127.0.0.1:8000"']
+    # The public base URL keeps its NEXTSEEK_HOSTNAME derivation.
+    assert 'NEXTSEEK_BASE_URL="http://${NEXTSEEK_HOSTNAME}"' in example
+
+
+def test_local_settings_template_prod_overlay_suppresses_internal_url() -> None:
+    """The PROD ChatConfig overlay must not be shadowed by the internal URL.
+
+    ChatConfig prefers NEXTSEEK_INTERNAL_BASE_URL over NEXTSEEK_BASE_URL, so
+    when _PROD_OVERRIDES sets a prod NEXTSEEK_BASE_URL the overlay block must
+    pop NEXTSEEK_INTERNAL_BASE_URL for the duration of that construction.
+    """
+    template = (
+        _REPO_ROOT / "startup" / "templates" / "local_settings.py.template"
+    ).read_text()
+    assert 'os.environ.pop("NEXTSEEK_INTERNAL_BASE_URL", None)' in template
+    # And it must restore it afterwards (tracked in the saved-env snapshot).
+    assert '"NEXTSEEK_INTERNAL_BASE_URL"' in template.split("_prev_env")[1]

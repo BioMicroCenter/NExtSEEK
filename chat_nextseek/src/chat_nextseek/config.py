@@ -12,6 +12,23 @@ from dotenv import load_dotenv
 
 from .llm_clients import BaseLLMClient, build_llm_client
 
+
+def _resolve_nextseek_base_url() -> str | None:
+    """Transport URL for NExtSEEK REST self-calls.
+
+    Prefers NEXTSEEK_INTERNAL_BASE_URL — the container-internal listener URL
+    rendered by startup, decoupled from the published host port — over the
+    public NEXTSEEK_BASE_URL (which derives from NEXTSEEK_HOSTNAME and tracks
+    the host-published port, auto-bumped when 8000 is busy on the host). The
+    self-calls execute inside the nextseek container, so a bumped host port in
+    the public URL points at nothing (Step 7d greenfield: connection refused).
+    """
+    url = os.getenv("NEXTSEEK_INTERNAL_BASE_URL") or os.getenv("NEXTSEEK_BASE_URL")
+    if url is None:
+        return None
+    return url.rstrip("/")
+
+
 class ChatConfig:
     def __init__(self, config_map={}):
         """Load configuration, provider clients, prompts, and cached context for one process."""
@@ -363,13 +380,16 @@ class ChatConfig:
         # NExtSEEK API config
         # ======================================================
 
-        env_config_map["NEXTSEEK_BASE_URL"] = os.getenv("NEXTSEEK_BASE_URL")
-        if env_config_map["NEXTSEEK_BASE_URL"] is not None:
-            env_config_map["NEXTSEEK_BASE_URL"] = env_config_map["NEXTSEEK_BASE_URL"].rstrip("/")
+        env_config_map["NEXTSEEK_BASE_URL"] = _resolve_nextseek_base_url()
         env_config_map["API_USER"] = os.getenv("API_USER")
         env_config_map["API_PASS"] = os.getenv("API_PASS")
 
-        print(f"[CONFIG] NEXTSEEK_BASE_URL={env_config_map["NEXTSEEK_BASE_URL"] or 'NOT SET'}")
+        _base_url_source = (
+            "NEXTSEEK_INTERNAL_BASE_URL"
+            if os.getenv("NEXTSEEK_INTERNAL_BASE_URL")
+            else "NEXTSEEK_BASE_URL"
+        )
+        print(f"[CONFIG] NEXTSEEK_BASE_URL={env_config_map["NEXTSEEK_BASE_URL"] or 'NOT SET'} (from {_base_url_source})")
         print(f"[CONFIG] API_USER={'SET' if env_config_map["API_USER"] else 'NOT SET'}")
         print(f"[CONFIG] API_PASS={'SET' if env_config_map["API_PASS"] else 'NOT SET'}")
         if env_config_map["AGENT_MODEL_CATALOG"]:

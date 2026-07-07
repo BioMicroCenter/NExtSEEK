@@ -274,7 +274,14 @@ def build_agent_environment(
     region = src.get("AWS_REGION") or src.get("AWS_DEFAULT_REGION")
     if region:
         env["AWS_REGION"] = region
-    base = src.get("NEXTSEEK_BASE_URL") or src.get("NEXTSEEK_URL")
+    # Prefer the container-internal transport URL (rendered by startup,
+    # decoupled from the host publish port) over the public base URL — the
+    # segmented agent can never reach a host-published or public address.
+    base = (
+        src.get("NEXTSEEK_INTERNAL_BASE_URL")
+        or src.get("NEXTSEEK_BASE_URL")
+        or src.get("NEXTSEEK_URL")
+    )
     if base:
         rewritten = _rewrite_loopback_url(base)
         env["NEXTSEEK_BASE_URL"] = rewritten
@@ -314,7 +321,11 @@ def _automode_settings_args(source: Mapping[str, str] | None = None) -> list[str
     """
     src = os.environ if source is None else source
     environment: list[str] = ["$defaults"]
-    ns_url = src.get("NEXTSEEK_BASE_URL") or src.get("NEXTSEEK_URL")
+    ns_url = (
+        src.get("NEXTSEEK_INTERNAL_BASE_URL")
+        or src.get("NEXTSEEK_BASE_URL")
+        or src.get("NEXTSEEK_URL")
+    )
     if ns_url:
         environment.append(
             "Trusted internal service: the NExtSEEK metadata REST API at "

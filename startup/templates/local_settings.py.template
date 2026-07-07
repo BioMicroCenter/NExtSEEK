@@ -45,11 +45,19 @@ _PROD_OVERRIDES: dict[str, str | None] = {
 
 NEXTSEEK_CHAT_CONFIG_PROD = None
 if any(v is not None for v in _PROD_OVERRIDES.values()):
-    _prev_env = {k: os.environ.get(k) for k in _PROD_OVERRIDES}
+    _prev_env = {
+        k: os.environ.get(k)
+        for k in (*_PROD_OVERRIDES, "NEXTSEEK_INTERNAL_BASE_URL")
+    }
     try:
         for _k, _v in _PROD_OVERRIDES.items():
             if _v is not None:
                 os.environ[_k] = _v
+        if _PROD_OVERRIDES["NEXTSEEK_BASE_URL"] is not None:
+            # ChatConfig prefers NEXTSEEK_INTERNAL_BASE_URL (the dev
+            # container's internal transport URL) over NEXTSEEK_BASE_URL, so
+            # it would shadow the PROD override — suppress it for this build.
+            os.environ.pop("NEXTSEEK_INTERNAL_BASE_URL", None)
         NEXTSEEK_CHAT_CONFIG_PROD = ChatConfig()
     finally:
         for _k, _v in _prev_env.items():
