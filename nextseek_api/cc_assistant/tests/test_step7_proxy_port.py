@@ -231,6 +231,13 @@ def test_real_secret_file_not_present_in_ported_tree():
     assert not hits, f"real secret file committed under docker/bedrock-proxy/: {hits}"
 
 
+@pytest.mark.skipif(
+    not GITIGNORE_FILE.exists(),
+    reason="source-tree check: .gitignore is excluded from the image build "
+    "context (.dockerignore), so this runs against the working checkout, not "
+    "inside a built image. The in-image secret-absence is covered by "
+    "test_real_secret_file_not_present_in_ported_tree.",
+)
 def test_real_secret_filename_is_gitignored():
     """(b): the real secret filename must be excluded from git tracking via
     an explicit .gitignore entry (root .gitignore, matching the existing
