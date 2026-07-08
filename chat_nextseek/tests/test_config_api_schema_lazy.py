@@ -204,27 +204,49 @@ class TestConcurrentAccess:
         assert len(calls) <= cfg._API_SCHEMA_MAX_ATTEMPTS
 
     def test_late_failure_does_not_clobber_earlier_success(self, monkeypatch):
+        # A late-landing FAILED fetch must never overwrite a good schema a
+        # concurrent thread already stored. That clobber only exists when BOTH
+        # threads pass the cold (`schema is None`) check before either stores —
+        # exactly the window the double-checked lock closes. The earlier version
+        # let one thread fully store before the other even checked, so the second
+        # short-circuited on the cached value and the failing fetch never ran; it
+        # passed WITH OR WITHOUT the lock (verified 2026-07-08 against the pre-fix
+        # getter). This version pins the interleave: the failing fetch is entered
+        # first (past the cold check) and released only AFTER the good schema is
+        # stored, so it lands last. Without the lock the unconditional store
+        # clobbers -> FAIL; with it the second thread re-checks under the lock and
+        # returns the good value.
         import threading
         import time
 
-        seq = [{"ep": {"ok": True}}, {}]
-        cfg, calls = _bare_config(monkeypatch, seq)
-        state = {"n": 0}
+        good = {"ep": {"ok": True}}
+        cfg, _ = _bare_config(monkeypatch, [good, {}])
+        bad_in_fetch = threading.Event()   # failing fetch has passed the cold check
+        release_bad = threading.Event()    # let the failing fetch return (last)
 
-        def staged(self):
-            i = state["n"]
-            state["n"] += 1
-            if i >= 1:
-                time.sleep(0.05)
-            return seq[min(i, len(seq) - 1)]
+        def fetch(self):
+            if threading.current_thread().name == "bad":
+                bad_in_fetch.set()
+                release_bad.wait(timeout=5)
+                return {}
+            return good
 
-        monkeypatch.setattr(ChatConfig, "_load_api_schema_from_remote", staged)
-        t1 = threading.Thread(target=lambda: cfg.API_SCHEMA)
-        t2 = threading.Thread(target=lambda: cfg.API_SCHEMA)
-        t1.start()
-        time.sleep(0.01)
-        t2.start()
-        t1.join()
-        t2.join()
-        assert cfg.API_SCHEMA == {"ep": {"ok": True}}
+        monkeypatch.setattr(ChatConfig, "_load_api_schema_from_remote", fetch)
+
+        bad = threading.Thread(target=lambda: cfg.API_SCHEMA, name="bad")
+        winner = threading.Thread(target=lambda: cfg.API_SCHEMA, name="good")
+        bad.start()
+        assert bad_in_fetch.wait(timeout=5)  # bad is past the cold check, inside fetch
+        winner.start()
+        # Release the failing fetch only once the good schema is visible (unfixed
+        # path stores it immediately) or after a short grace (fixed path: the
+        # winner is blocked on the lock the bad thread holds and cannot store
+        # until it is released — so the good store necessarily lands afterward).
+        deadline = time.monotonic() + 0.5
+        while cfg._api_schema_cell["schema"] != good and time.monotonic() < deadline:
+            time.sleep(0.005)
+        release_bad.set()
+        bad.join(timeout=5)
+        winner.join(timeout=5)
+        assert cfg.API_SCHEMA == good  # the late failure must NOT have clobbered it
 
