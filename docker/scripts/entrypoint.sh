@@ -11,6 +11,27 @@ uv run manage.py collectstatic --noinput || {
   exit 1
 }
 
+# R3: bounded DB-readiness probe. Distinguishes a transient cold-boot ordering
+# gap (db container up but mysqld not yet accepting connections) from a real
+# migration wedge, so the two don't share the [MIGRATE-FAILED] marker/triage.
+_db_ready=0
+for _i in $(seq 1 "${DB_WAIT_ATTEMPTS:-30}"); do
+  if uv run manage.py shell -c "from django.db import connection; connection.ensure_connection()" >/dev/null 2>&1; then
+    _db_ready=1
+    break
+  fi
+  echo "[entrypoint] waiting for database (attempt ${_i}/${DB_WAIT_ATTEMPTS:-30})..." >&2
+  sleep "${DB_WAIT_INTERVAL:-2}"
+done
+if [ "$_db_ready" -ne 1 ]; then
+  echo "[DB-UNREACHABLE] FATAL: database not reachable before migrate." \
+       "This is usually a transient whole-stack cold-boot ordering issue and" \
+       "self-heals under compose restart:always. A marker PERSISTING across" \
+       "many restarts indicates a real DB outage — not a migration wedge, so" \
+       "do NOT run migration surgery for this." >&2
+  exit 1
+fi
+
 # Fail-fast (user decision 2026-07-07): never serve on an unmigrated schema —
 # a silently swallowed migrate failure is what masked the wedged 0007 for a
 # week. Under compose `restart: always` this crash-loops until the wedge is
