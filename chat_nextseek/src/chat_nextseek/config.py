@@ -250,8 +250,14 @@ class ChatConfig:
     _API_SCHEMA_MAX_ATTEMPTS = 2  # first access + one retry after an empty result
 
     def _init_api_schema_state(self) -> None:
-        self._api_schema: dict | None = None
-        self._api_schema_attempts = 0
+        # A shared mutable CELL, not plain instance attributes: the
+        # orchestrator and the granular ops copy.copy() the config per
+        # request (orchestrator.py, services/assistant.py), and a per-copy
+        # cache would die with each request — the process singleton would
+        # re-fetch on every query forever (cold-review finding, 2026-07-08).
+        # Shallow copies share this dict, so the first successful fetch (and
+        # the attempt cap) benefits the whole process.
+        self._api_schema_cell: dict = {"schema": None, "attempts": 0}
 
     @property
     def API_SCHEMA(self) -> dict:
@@ -264,22 +270,34 @@ class ChatConfig:
         the process lifetime. Lazy + one-shot retry removes the boot stall
         and lets the first post-boot access recover; after the retry the
         result is cached even when empty so a dead backend isn't hammered.
+        Fail-soft: a RAISING load counts against the same cap and yields {}
+        — never an exception into the calling request handler.
         """
-        cached = self._api_schema
+        cell = self._api_schema_cell
+        cached = cell["schema"]
         if cached is not None and (
-            cached or self._api_schema_attempts >= self._API_SCHEMA_MAX_ATTEMPTS
+            cached or cell["attempts"] >= self._API_SCHEMA_MAX_ATTEMPTS
         ):
             return cached
-        self._api_schema_attempts += 1
-        self._api_schema = self._load_api_schema_from_remote()
-        return self._api_schema
+        cell["attempts"] += 1
+        try:
+            result = self._load_api_schema_from_remote()
+        except Exception as e:
+            print(f"[CONFIG][SCHEMA] Schema load raised: {e!r}")
+            result = {}
+        cell["schema"] = result
+        return result
 
     @API_SCHEMA.setter
     def API_SCHEMA(self, value: dict) -> None:
         # Explicit assignment (e.g. via config_map) wins outright — never
-        # overwritten by a later lazy fetch.
-        self._api_schema = value
-        self._api_schema_attempts = self._API_SCHEMA_MAX_ATTEMPTS
+        # overwritten by a later lazy fetch. Rebinds a FRESH cell so an
+        # override on a per-request copy stays local to that copy and can
+        # never clobber the process singleton's shared cache.
+        self._api_schema_cell = {
+            "schema": value,
+            "attempts": self._API_SCHEMA_MAX_ATTEMPTS,
+        }
 
     def _coerce_bool(self, value, default: bool = False) -> bool:
         """Coerce common truthy string forms into bool while preserving a default for None."""
@@ -1258,6 +1276,12 @@ class ChatConfig:
             spec = yaml.safe_load(resp.text)
         except Exception as e:
             print(f"[CONFIG][SCHEMA] Failed to parse remote schema YAML: {e!r}")
+            return {}
+
+        if not isinstance(spec, dict):
+            # A misrouted 200 (HTML error page, maintenance banner) parses to
+            # a YAML scalar — treat it as no schema, not an AttributeError.
+            print("[CONFIG][SCHEMA] Remote schema is not a mapping; skipping.")
             return {}
 
         api_schema: dict[str, dict] = {}

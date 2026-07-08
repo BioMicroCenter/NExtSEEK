@@ -81,6 +81,86 @@ class TestExplicitAssignment:
         assert calls == []
 
 
+class TestCacheSurvivesPerRequestCopies:
+    """Cold-review finding (2026-07-08, major): the orchestrator and granular
+    ops copy.copy() the config per request; a per-instance cache would land
+    on the copy and die with the request, so the singleton re-fetched on
+    EVERY request forever. The cache must be shared across shallow copies."""
+
+    def test_fetch_on_copy_populates_the_original(self, monkeypatch):
+        import copy
+
+        cfg, calls = _bare_config(monkeypatch, [{"ep": {}}])
+        request_copy = copy.copy(cfg)
+        assert request_copy.API_SCHEMA == {"ep": {}}
+        # ... the copy is discarded; the ORIGINAL must now be warm:
+        assert cfg.API_SCHEMA == {"ep": {}}
+        assert len(calls) == 1
+
+    def test_attempt_cap_shared_across_copies(self, monkeypatch):
+        import copy
+
+        cfg, calls = _bare_config(monkeypatch, [{}, {}, {}])
+        for _ in range(3):
+            assert copy.copy(cfg).API_SCHEMA == {}
+        assert len(calls) == 2  # cap binds across request copies
+
+    def test_explicit_assignment_on_copy_stays_local(self, monkeypatch):
+        """An explicit override on a per-request copy must not clobber the
+        process singleton."""
+        import copy
+
+        cfg, calls = _bare_config(monkeypatch, [{"remote": {}}])
+        request_copy = copy.copy(cfg)
+        request_copy.API_SCHEMA = {"pinned": {}}
+        assert request_copy.API_SCHEMA == {"pinned": {}}
+        assert cfg.API_SCHEMA == {"remote": {}}  # singleton unaffected
+
+
+class TestRaisingFetch:
+    """Cold-review finding (2026-07-08): the attempt cap must bind — and no
+    exception may propagate into a request handler — even when the loader
+    RAISES instead of returning."""
+
+    def _raising_config(self, monkeypatch):
+        cfg = ChatConfig.__new__(ChatConfig)
+        cfg._init_api_schema_state()
+        calls: list[int] = []
+
+        def raising_fetch(self):
+            calls.append(1)
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(
+            ChatConfig, "_load_api_schema_from_remote", raising_fetch
+        )
+        return cfg, calls
+
+    def test_raise_is_fail_soft_and_capped(self, monkeypatch):
+        cfg, calls = self._raising_config(monkeypatch)
+        for _ in range(4):
+            assert cfg.API_SCHEMA == {}  # never raises into the caller
+        assert len(calls) == 2  # cap still binds
+
+    def test_non_dict_yaml_spec_fail_soft(self, monkeypatch):
+        """A misrouted 200 (HTML/maintenance page parsing to a YAML scalar)
+        must yield {} — not AttributeError mid-request."""
+        pytest.importorskip("yaml")
+        import chat_nextseek.config as config_module
+
+        class _Resp:
+            status_code = 200
+            text = "just a maintenance banner"
+
+        monkeypatch.setattr(
+            config_module.requests, "get", lambda url, **kw: _Resp()
+        )
+        cfg = ChatConfig.__new__(ChatConfig)
+        cfg._init_api_schema_state()
+        cfg.NEXTSEEK_BASE_URL = "http://127.0.0.1:9"
+        assert cfg._load_api_schema_from_remote() == {}
+
+
 class TestFetchTimeout:
     def test_read_timeout_capped(self, monkeypatch):
         """Connect succeeds against gunicorn's bound-but-unserved socket, so
