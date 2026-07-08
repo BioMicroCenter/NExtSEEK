@@ -159,6 +159,43 @@ def test_prod_overlay_guard_ok_when_files_missing(tmp_path: Path) -> None:
     assert check_prod_overlay_guard(repo).ok is True
 
 
+def test_prod_overlay_guard_ignores_config_map_outside_the_overlay(
+    tmp_path: Path,
+) -> None:
+    """Cold-review finding (2026-07-08): a DEV-side ChatConfig(config_map=...)
+    ABOVE the overlay (or a mere comment mentioning config_map) must not mark
+    a guardless PROD overlay as guarded."""
+    stale_with_dev_config_map = (
+        "import os\n"
+        "from chat_nextseek.config import ChatConfig\n"
+        '# tuning note: config_map lets you pin values\n'
+        'NEXTSEEK_CHAT_CONFIG = ChatConfig(config_map={"MODEL_MODE": "gcp"})\n'
+        + _STALE_OVERLAY.split("NEXTSEEK_CHAT_CONFIG = ChatConfig()\n", 1)[1]
+    )
+    repo = _guard_repo(
+        tmp_path,
+        env_text='NEXTSEEK_INTERNAL_BASE_URL="http://127.0.0.1:8000"\n',
+        settings_text=stale_with_dev_config_map,
+    )
+    r = check_prod_overlay_guard(repo)
+    assert r.ok is False
+
+
+def test_prod_overlay_guard_accepts_single_quoted_pop(tmp_path: Path) -> None:
+    """A hand-ported pop with single quotes is a real guard — no false alarm."""
+    guarded_single_quote = _STALE_OVERLAY.replace(
+        "        NEXTSEEK_CHAT_CONFIG_PROD = ChatConfig()",
+        "        os.environ.pop('NEXTSEEK_INTERNAL_BASE_URL', None)\n"
+        "        NEXTSEEK_CHAT_CONFIG_PROD = ChatConfig()",
+    )
+    repo = _guard_repo(
+        tmp_path,
+        env_text='NEXTSEEK_INTERNAL_BASE_URL="http://127.0.0.1:8000"\n',
+        settings_text=guarded_single_quote,
+    )
+    assert check_prod_overlay_guard(repo).ok is True
+
+
 @patch("startup.steps.validate.run_django_check")
 @patch("startup.steps.validate.check_http")
 def test_prod_overlay_guard_wired_into_health_checks(

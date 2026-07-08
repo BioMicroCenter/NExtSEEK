@@ -1,6 +1,7 @@
 """Post-install health checks."""
 from __future__ import annotations
 
+import re
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,9 +81,17 @@ def check_prod_overlay_guard(repo_root: Path) -> HealthResult:
         return HealthResult(
             name=name, ok=True, detail="no PROD overlay in local_settings.py"
         )
-    guarded = (
-        'os.environ.pop("NEXTSEEK_INTERNAL_BASE_URL"' in settings_text
-        or "config_map" in settings_text
+    # Judge only the overlay block itself (everything from _PROD_OVERRIDES
+    # on): a DEV-side ChatConfig(config_map=...) above it — or a comment
+    # mentioning config_map — is not a guard. Accept either quote style for
+    # a hand-ported pop.
+    overlay_text = settings_text[settings_text.index("_PROD_OVERRIDES") :]
+    guarded = bool(
+        re.search(
+            r"os\.environ\.pop\(\s*['\"]NEXTSEEK_INTERNAL_BASE_URL['\"]",
+            overlay_text,
+        )
+        or re.search(r"ChatConfig\(\s*config_map\s*=", overlay_text)
     )
     if guarded:
         return HealthResult(
