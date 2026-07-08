@@ -15,7 +15,7 @@ Deployments where 0007 is already recorded are healed by 0008 instead.
 import django.db.models.deletion
 from django.db import migrations, models
 
-from ._cc_transcript_heal import heal
+from ._cc_transcript_heal import heal, unheal
 
 
 class Migration(migrations.Migration):
@@ -65,7 +65,10 @@ class Migration(migrations.Migration):
                 ),
             ],
             database_operations=[
-                migrations.RunPython(heal, migrations.RunPython.noop),
+                # Reverse drops the child table (original CreateModel
+                # semantics) so `migrate nextseek_api <0007` doesn't strand
+                # the FK and wedge 0001's parent DROP (errno 3730).
+                migrations.RunPython(heal, unheal),
             ],
         ),
     ]

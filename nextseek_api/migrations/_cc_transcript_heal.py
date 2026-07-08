@@ -127,6 +127,43 @@ def heal_mysql(cursor) -> list[str]:
     return actions
 
 
+def _frozen_0007_model(apps):
+    """Render CCSessionTranscript from 0007's own CreateModel (frozen shape).
+
+    Never import the live model class here: on a fresh non-MySQL chain a
+    future 0009 AddField would otherwise be baked into 0007's CREATE TABLE
+    and then collide (duplicate column) when 0009 itself applies. Rendering
+    the migration's state_operations keeps 0007's table shape frozen by
+    construction; live-model-vs-0007 drift is caught by the parity tripwire
+    in test_migration_0007_structure.py (TestLiveModelParity). The FK
+    resolves ChatSession from the passed-in historical ``apps`` (the
+    post-0006 state contains it), avoiding any live-registry conflict.
+    """
+    from importlib import import_module
+
+    from django.db.migrations.state import ProjectState
+
+    migration = import_module(
+        "nextseek_api.migrations.0007_ccsessiontranscript"
+    ).Migration
+    create_model = migration.operations[0].state_operations[0]
+    state = ProjectState.from_apps(apps)
+    create_model.state_forwards("nextseek_api", state)
+    return state.apps.get_model("nextseek_api", "CCSessionTranscript")
+
+
+def _child_model(apps):
+    """The historical CCSessionTranscript, or 0007's frozen render when the
+    passed-in state predates the model (0007's own RunPython)."""
+    try:
+        return apps.get_model("nextseek_api", "CCSessionTranscript")
+    except LookupError:
+        # Inside 0007's SeparateDatabaseAndState the RunPython receives the
+        # PRE-migration state (Django passes from_state.apps), which doesn't
+        # yet contain the model this migration creates.
+        return _frozen_0007_model(apps)
+
+
 def heal(apps, schema_editor):
     """RunPython entrypoint shared by 0007 and 0008."""
     connection = schema_editor.connection
@@ -134,22 +171,50 @@ def heal(apps, schema_editor):
         # Non-MySQL (hermetic sqlite): charset FKs aren't a thing there; just
         # make sure the table exists, mirroring the original CreateModel.
         if CHILD_TABLE not in connection.introspection.table_names():
-            try:
-                model = apps.get_model("nextseek_api", "CCSessionTranscript")
-            except LookupError:
-                # Inside 0007's SeparateDatabaseAndState the RunPython receives
-                # the PRE-migration state (Django passes from_state.apps), which
-                # doesn't yet contain the model this migration creates. The
-                # real model matches 0007's CreateModel field-for-field
-                # (guarded by test_migration_0007_structure + the app-scoped
-                # `makemigrations nextseek_api --check` gate).
-                from nextseek_api.assistant.models_db import (
-                    CCSessionTranscript as model,
-                )
-            schema_editor.create_model(model)
+            schema_editor.create_model(_child_model(apps))
         return
 
     with connection.cursor() as cursor:
         actions = heal_mysql(cursor)
     if actions:
         print(f"[migrations] {CHILD_TABLE} heal applied: {', '.join(actions)}")
+
+
+def unheal_mysql(cursor) -> list[str]:
+    """Drop the child table if present; return the DDL actions performed.
+
+    MySQL always allows dropping a CHILD table — its outgoing FK goes with
+    it, whatever the constraint's name (heal-named here, Django-named on
+    pre-rewrite native installs) — so no FK introspection is needed.
+    """
+    cursor.execute(
+        "SELECT COUNT(*) FROM information_schema.TABLES "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
+        (CHILD_TABLE,),
+    )
+    if cursor.fetchone()[0] == 0:
+        return []
+    cursor.execute(f"DROP TABLE `{CHILD_TABLE}`")
+    return ["drop_table"]
+
+
+def unheal(apps, schema_editor):
+    """Reverse for 0007 — the original CreateModel's reverse semantics.
+
+    Intentionally destructive, exactly like the pre-rewrite CreateModel
+    reverse: reversing below 0007 drops ``assistant_cc_transcript``. Without
+    this, the heal-added FK is stranded (state-only model removal) and
+    0001's reverse DROP of ``assistant_chat_session`` fails with errno 3730
+    (ER_FK_CANNOT_DROP_PARENT), wedging the reversal mid-way. 0008's reverse
+    stays a noop — it owns no schema.
+    """
+    connection = schema_editor.connection
+    if connection.vendor != "mysql":
+        if CHILD_TABLE in connection.introspection.table_names():
+            schema_editor.delete_model(_child_model(apps))
+        return
+
+    with connection.cursor() as cursor:
+        actions = unheal_mysql(cursor)
+    if actions:
+        print(f"[migrations] {CHILD_TABLE} heal reversed: {', '.join(actions)}")

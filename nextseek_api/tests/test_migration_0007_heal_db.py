@@ -94,6 +94,12 @@ def _heal(cursor):
     return heal_mysql(cursor)
 
 
+def _unheal(cursor):
+    from nextseek_api.migrations._cc_transcript_heal import unheal_mysql
+
+    return unheal_mysql(cursor)
+
+
 @pytest.fixture
 def throwaway_db():
     db_name = f"test_ccheal_{int(time.time() * 1000)}"
@@ -273,6 +279,51 @@ class TestMissingParent:
         with pytest.raises(RuntimeError, match="assistant_chat_session"):
             with conn.cursor() as c:
                 _heal(c)
+
+
+class TestReverseBelow0007:
+    """0007's reverse (unheal) must drop the child table so the reversal can
+    proceed below it — a noop reverse strands the heal-added FK and the
+    parent's own reverse DROP then fails with errno 3730
+    (ER_FK_CANNOT_DROP_PARENT). Original CreateModel reverse semantics."""
+
+    def test_unheal_drops_child_and_unblocks_parent_drop(self, throwaway_db):
+        conn, db_name = throwaway_db
+        with conn.cursor() as c:
+            c.execute(LATIN1_PARENT_SQL)
+            assert _heal(c) == ["create_table", "add_fk"]
+            actions = _unheal(c)
+        assert actions == ["drop_table"]
+        with conn.cursor() as c:
+            c.execute(
+                "SELECT COUNT(*) FROM information_schema.TABLES "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'assistant_cc_transcript'",
+                (db_name,),
+            )
+            assert c.fetchone()[0] == 0
+            # The 3730 scenario is gone: the parent drops cleanly.
+            c.execute("DROP TABLE `assistant_chat_session`")
+
+    def test_unheal_drops_django_named_fk_installs_too(self, throwaway_db):
+        """Pre-rewrite native installs carry a Django-generated FK name;
+        dropping the child table needs no FK-name introspection either way."""
+        conn, db_name = throwaway_db
+        with conn.cursor() as c:
+            c.execute(UTF8MB4_PARENT_SQL)
+            c.execute(WEDGED_CHILD_SQL)
+            c.execute(
+                "ALTER TABLE `assistant_cc_transcript` ADD CONSTRAINT "
+                "`assistant_cc_transcri_chat_session_id_deadbeef_fk_assistant` "
+                "FOREIGN KEY (`chat_session_id`) "
+                "REFERENCES `assistant_chat_session` (`session_id`)"
+            )
+            assert _unheal(c) == ["drop_table"]
+            c.execute("DROP TABLE `assistant_chat_session`")
+
+    def test_unheal_noops_when_child_absent(self, throwaway_db):
+        conn, _ = throwaway_db
+        with conn.cursor() as c:
+            assert _unheal(c) == []
 
 
 @pytest.mark.django_db
