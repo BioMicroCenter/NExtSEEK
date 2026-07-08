@@ -1,0 +1,103 @@
+"""Lazy API_SCHEMA (review follow-up FU6, 2026-07-07).
+
+The remote schema fetch is a REST self-call. Fetched eagerly at ChatConfig
+construction, it serialized every gunicorn worker's cold boot: the master
+binds :8000 pre-fork, all workers import local_settings in parallel, each
+connect lands in the accept backlog nobody can serve yet, and each worker
+burned the full read timeout (~20s) before the fail-soft branch left
+API_SCHEMA empty for the process lifetime.
+
+Now: API_SCHEMA is a lazy property — no fetch at construction, fetch on
+first access with ONE retry when the first attempt came back empty, then
+cached (even when empty) so a dead backend is never hammered. The fetch
+timeout is capped at (2, 5): connect succeeds against a bound-but-unserved
+listener, so the READ timeout is the only effective lever.
+"""
+from __future__ import annotations
+
+import pytest
+
+from chat_nextseek.config import ChatConfig
+
+
+def _bare_config(monkeypatch, fetch_results: list[dict]):
+    """A ChatConfig shell with the real lazy-property machinery and a
+    counting fake fetch (full __init__ needs DB/network)."""
+    cfg = ChatConfig.__new__(ChatConfig)
+    cfg._init_api_schema_state()
+    calls: list[int] = []
+
+    def fake_fetch(self):
+        calls.append(1)
+        return fetch_results[min(len(calls) - 1, len(fetch_results) - 1)]
+
+    monkeypatch.setattr(ChatConfig, "_load_api_schema_from_remote", fake_fetch)
+    return cfg, calls
+
+
+class TestLazyFetch:
+    def test_no_fetch_until_first_access(self, monkeypatch):
+        cfg, calls = _bare_config(monkeypatch, [{"ep": {}}])
+        assert calls == []
+        assert cfg.API_SCHEMA == {"ep": {}}
+        assert calls == [1]
+
+    def test_successful_fetch_cached_forever(self, monkeypatch):
+        cfg, calls = _bare_config(monkeypatch, [{"ep": {}}])
+        for _ in range(3):
+            assert cfg.API_SCHEMA == {"ep": {}}
+        assert len(calls) == 1
+
+    def test_empty_fetch_retried_exactly_once(self, monkeypatch):
+        cfg, calls = _bare_config(monkeypatch, [{}, {}, {"never": {}}])
+        assert cfg.API_SCHEMA == {}  # attempt 1
+        assert cfg.API_SCHEMA == {}  # attempt 2 (the one-shot retry)
+        assert cfg.API_SCHEMA == {}  # cached — no further attempts
+        assert len(calls) == 2
+
+    def test_retry_can_recover_from_cold_boot_miss(self, monkeypatch):
+        """The pre-fix defect: a failed boot-time fetch left API_SCHEMA empty
+        for the process lifetime. The retry heals it once the listener is up."""
+        cfg, calls = _bare_config(monkeypatch, [{}, {"ep": {}}])
+        assert cfg.API_SCHEMA == {}
+        assert cfg.API_SCHEMA == {"ep": {}}
+        assert cfg.API_SCHEMA == {"ep": {}}
+        assert len(calls) == 2
+
+
+class TestExplicitAssignment:
+    def test_setter_short_circuits_fetching(self, monkeypatch):
+        cfg, calls = _bare_config(monkeypatch, [{"remote": {}}])
+        cfg.API_SCHEMA = {"pinned": {}}
+        assert cfg.API_SCHEMA == {"pinned": {}}
+        assert calls == []
+
+    def test_config_map_can_still_provide_api_schema(self, monkeypatch):
+        """_load_config_map does plain setattr for arbitrary keys — the
+        property must accept assignment or config_map would break."""
+        cfg, calls = _bare_config(monkeypatch, [{"remote": {}}])
+        cfg._load_config_map({"API_SCHEMA": {"from_map": {}}})
+        assert cfg.API_SCHEMA == {"from_map": {}}
+        assert calls == []
+
+
+class TestFetchTimeout:
+    def test_read_timeout_capped(self, monkeypatch):
+        """Connect succeeds against gunicorn's bound-but-unserved socket, so
+        only the read timeout bounds the cold-boot stall — it must be short."""
+        import chat_nextseek.config as config_module
+
+        captured: dict = {}
+
+        def fake_get(url, **kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+            raise config_module.requests.exceptions.ConnectionError("boom")
+
+        monkeypatch.setattr(config_module.requests, "get", fake_get)
+        cfg = ChatConfig.__new__(ChatConfig)
+        cfg._init_api_schema_state()
+        cfg.NEXTSEEK_BASE_URL = "http://127.0.0.1:9"
+        assert cfg._load_api_schema_from_remote() == {}  # fail-soft
+        connect_read = captured["timeout"]
+        assert isinstance(connect_read, tuple)
+        assert connect_read[1] <= 5

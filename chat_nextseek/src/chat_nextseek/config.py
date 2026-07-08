@@ -45,6 +45,10 @@ class ChatConfig:
         self.PROJECT_NAME_TO_ID: dict[str, int] = {}
         self.INVESTIGATION_NAME_TO_ID: dict[str, int] = {}
 
+        # Lazy API_SCHEMA state must exist before config_map is applied (a
+        # config_map may assign API_SCHEMA, which routes through its setter).
+        self._init_api_schema_state()
+
         # Apply config_map first so _get_env_config can reference self.MODEL_MODE,
         # self.GCP_API_KEY, etc. when they are provided via DB/JSON config object.
         self._load_config_map(config_map)
@@ -183,7 +187,12 @@ class ChatConfig:
                 self.CATALOG_ENDPOINT_METHODS[path] = self._prefer_method(current, candidate)
                 self.CATALOG_ENDPOINT_METHODS_ALL.setdefault(path, set()).add(candidate)
 
-        self.API_SCHEMA = self._load_api_schema_from_remote()
+        # API_SCHEMA is deliberately NOT fetched here (review follow-up FU6,
+        # 2026-07-07): the fetch is a REST self-call, and at cold boot every
+        # gunicorn worker serialized on its own accept backlog for the full
+        # read timeout before the fail-soft branch left the schema empty for
+        # the process lifetime. It is a lazy property now — first access
+        # fetches, one retry when the first attempt came back empty.
 
         self.ENTITY_SYSTEM_PROMPT = self._load_prompt("entity_agent.txt")
         self.PARSER_CORE_ROUTING_PROMPT = self._load_prompt("parser_core_routing.txt")
@@ -233,6 +242,44 @@ class ChatConfig:
         """Assign each config_map entry directly onto the config object."""
         for key, value in config_map.items():
             setattr(self, key, value)
+
+    # ------------------------------------------------------------------
+    # Lazy API_SCHEMA (review follow-up FU6, 2026-07-07)
+    # ------------------------------------------------------------------
+
+    _API_SCHEMA_MAX_ATTEMPTS = 2  # first access + one retry after an empty result
+
+    def _init_api_schema_state(self) -> None:
+        self._api_schema: dict | None = None
+        self._api_schema_attempts = 0
+
+    @property
+    def API_SCHEMA(self) -> dict:
+        """Remote body-schema registry, fetched lazily on first access.
+
+        Eager construction-time fetching serialized every gunicorn worker's
+        cold boot (~read-timeout each: the master binds :8000 pre-fork, so
+        the self-call connects into an accept backlog no still-importing
+        worker can serve) and a failed boot fetch left the schema empty for
+        the process lifetime. Lazy + one-shot retry removes the boot stall
+        and lets the first post-boot access recover; after the retry the
+        result is cached even when empty so a dead backend isn't hammered.
+        """
+        cached = self._api_schema
+        if cached is not None and (
+            cached or self._api_schema_attempts >= self._API_SCHEMA_MAX_ATTEMPTS
+        ):
+            return cached
+        self._api_schema_attempts += 1
+        self._api_schema = self._load_api_schema_from_remote()
+        return self._api_schema
+
+    @API_SCHEMA.setter
+    def API_SCHEMA(self, value: dict) -> None:
+        # Explicit assignment (e.g. via config_map) wins outright — never
+        # overwritten by a later lazy fetch.
+        self._api_schema = value
+        self._api_schema_attempts = self._API_SCHEMA_MAX_ATTEMPTS
 
     def _coerce_bool(self, value, default: bool = False) -> bool:
         """Coerce common truthy string forms into bool while preserving a default for None."""
@@ -1194,7 +1241,11 @@ class ChatConfig:
 
         print(f"[CONFIG][SCHEMA] Fetching schema from {schema_url}")
         try:
-            resp = requests.get(schema_url, timeout=20)
+            # (2s connect, 5s read): connect SUCCEEDS against a bound-but-
+            # unserved listener (cold boot), so the read timeout is the only
+            # lever bounding the stall — keep it short; the lazy property
+            # retries once on the next access anyway.
+            resp = requests.get(schema_url, timeout=(2, 5))
         except Exception as e:
             print(f"[CONFIG][SCHEMA] Request to schema URL failed: {e!r}")
             return {}
