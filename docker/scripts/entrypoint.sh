@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 
-uv run manage.py collectstatic --noinput
+# Fail-fast (R2, mirrors the FU4 migrate guard below): a silently swallowed
+# collectstatic failure boots the site with missing/stale static (empty volume
+# -> sitewide 404s; post-rebuild -> chat-assistant bundle 404s). Under compose
+# `restart: always` this crash-loops until fixed (chosen: loud-over-up).
+uv run manage.py collectstatic --noinput || {
+  echo "[COLLECTSTATIC-FAILED] FATAL: manage.py collectstatic exited non-zero;" \
+       "refusing to start servers with missing/stale static assets." \
+       "Common cause is a full disk (ENOSPC) on the static volume." >&2
+  exit 1
+}
 
 # Fail-fast (user decision 2026-07-07): never serve on an unmigrated schema —
 # a silently swallowed migrate failure is what masked the wedged 0007 for a
