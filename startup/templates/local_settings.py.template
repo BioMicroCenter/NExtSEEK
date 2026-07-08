@@ -53,12 +53,22 @@ if any(v is not None for v in _PROD_OVERRIDES.values()):
         for _k, _v in _PROD_OVERRIDES.items():
             if _v is not None:
                 os.environ[_k] = _v
+        _prod_config_map = {}
         if _PROD_OVERRIDES["NEXTSEEK_BASE_URL"] is not None:
             # ChatConfig prefers NEXTSEEK_INTERNAL_BASE_URL (the dev
             # container's internal transport URL) over NEXTSEEK_BASE_URL, so
-            # it would shadow the PROD override — suppress it for this build.
+            # it would shadow the PROD override — suppress it for this build
+            # (defense-in-depth) ...
             os.environ.pop("NEXTSEEK_INTERNAL_BASE_URL", None)
-        NEXTSEEK_CHAT_CONFIG_PROD = ChatConfig()
+            # ... and, authoritatively, pass the prod URL via config_map:
+            # config_map wins over ALL env resolution (env fills gaps only),
+            # so even a stale copy of this file missing the pop above can
+            # never let the internal var point the PROD config at the dev
+            # backend. Trailing slash normalized like the env resolver's.
+            _prod_config_map["NEXTSEEK_BASE_URL"] = _PROD_OVERRIDES[
+                "NEXTSEEK_BASE_URL"
+            ].rstrip("/")
+        NEXTSEEK_CHAT_CONFIG_PROD = ChatConfig(config_map=_prod_config_map)
     finally:
         for _k, _v in _prev_env.items():
             if _v is None:

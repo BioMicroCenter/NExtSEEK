@@ -163,3 +163,109 @@ def test_local_settings_template_prod_overlay_suppresses_internal_url() -> None:
     assert 'os.environ.pop("NEXTSEEK_INTERNAL_BASE_URL", None)' in template
     # And it must restore it afterwards (tracked in the saved-env snapshot).
     assert '"NEXTSEEK_INTERNAL_BASE_URL"' in template.split("_prev_env")[1]
+
+
+# --- Review follow-up FU1 (2026-07-07): the pop above is template-only — a
+# stale hand-maintained local_settings.py without it lets the internal var
+# silently point the PROD ChatConfig at the dev backend. The authoritative
+# guard is passing the prod URL via config_map, which wins over ALL env
+# resolution (ChatConfig applies config_map first; env fills gaps only).
+# These tests EXECUTE the real template with a stub ChatConfig to pin that
+# behavior — they cannot be satisfied by comment tweaks.
+
+
+def _exec_real_template_with_stub(monkeypatch, *, overrides: dict, env: dict):
+    """Execute the REAL local_settings template, operator-filled, against a
+    stub ChatConfig that records (config_map, env-at-construction)."""
+    import os
+    import sys
+    import types
+
+    source = (
+        _REPO_ROOT / "startup" / "templates" / "local_settings.py.template"
+    ).read_text()
+    for key, value in overrides.items():
+        needle = f'"{key}": None,'
+        assert needle in source, f"template lost the {key} override line"
+        source = source.replace(needle, f'"{key}": {value!r},', 1)
+
+    constructions: list[dict] = []
+
+    class StubChatConfig:
+        def __init__(self, config_map={}):
+            constructions.append(
+                {
+                    "config_map": dict(config_map),
+                    "env_internal": os.environ.get("NEXTSEEK_INTERNAL_BASE_URL"),
+                    "env_base": os.environ.get("NEXTSEEK_BASE_URL"),
+                }
+            )
+
+    fake_pkg = types.ModuleType("chat_nextseek")
+    fake_config = types.ModuleType("chat_nextseek.config")
+    fake_config.ChatConfig = StubChatConfig
+    fake_pkg.config = fake_config
+    monkeypatch.setitem(sys.modules, "chat_nextseek", fake_pkg)
+    monkeypatch.setitem(sys.modules, "chat_nextseek.config", fake_config)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    exec(compile(source, "local_settings.rendered", "exec"), {})
+    return constructions
+
+
+def test_prod_overlay_passes_prod_url_via_config_map(monkeypatch) -> None:
+    constructions = _exec_real_template_with_stub(
+        monkeypatch,
+        overrides={"NEXTSEEK_BASE_URL": "https://nextseek.example.edu/"},
+        env={
+            "NEXTSEEK_INTERNAL_BASE_URL": "http://127.0.0.1:8000",
+            "NEXTSEEK_BASE_URL": "http://127.0.0.1:8000",
+        },
+    )
+    assert len(constructions) == 2  # dev config, then PROD overlay config
+    prod = constructions[1]
+    # Authoritative guard: prod URL travels via config_map (trailing slash
+    # normalized like _resolve_nextseek_base_url does).
+    assert prod["config_map"]["NEXTSEEK_BASE_URL"] == "https://nextseek.example.edu"
+    # Defense-in-depth pop still holds during the PROD construction ...
+    assert prod["env_internal"] is None
+    # ... and the overlay env was applied.
+    assert prod["env_base"] == "https://nextseek.example.edu/"
+
+
+def test_prod_overlay_restores_env_after_construction(monkeypatch) -> None:
+    import os
+
+    _exec_real_template_with_stub(
+        monkeypatch,
+        overrides={"NEXTSEEK_BASE_URL": "https://nextseek.example.edu"},
+        env={
+            "NEXTSEEK_INTERNAL_BASE_URL": "http://127.0.0.1:8000",
+            "NEXTSEEK_BASE_URL": "http://127.0.0.1:8000",
+        },
+    )
+    assert os.environ["NEXTSEEK_INTERNAL_BASE_URL"] == "http://127.0.0.1:8000"
+    assert os.environ["NEXTSEEK_BASE_URL"] == "http://127.0.0.1:8000"
+
+
+def test_dev_config_construction_carries_no_config_map(monkeypatch) -> None:
+    constructions = _exec_real_template_with_stub(
+        monkeypatch,
+        overrides={"NEXTSEEK_BASE_URL": "https://nextseek.example.edu"},
+        env={"NEXTSEEK_INTERNAL_BASE_URL": "http://127.0.0.1:8000"},
+    )
+    assert constructions[0]["config_map"] == {}
+
+
+def test_prod_overlay_without_url_override_keeps_internal_env(monkeypatch) -> None:
+    """Overriding only credentials must not suppress the internal transport
+    URL — the PROD config still self-calls this instance."""
+    constructions = _exec_real_template_with_stub(
+        monkeypatch,
+        overrides={"API_USER": "produser"},
+        env={"NEXTSEEK_INTERNAL_BASE_URL": "http://127.0.0.1:8000"},
+    )
+    assert len(constructions) == 2
+    prod = constructions[1]
+    assert "NEXTSEEK_BASE_URL" not in prod["config_map"]
+    assert prod["env_internal"] == "http://127.0.0.1:8000"
