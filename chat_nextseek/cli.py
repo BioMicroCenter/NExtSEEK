@@ -68,6 +68,36 @@ def _prod_source_name(prod_key: str, fallback_key: str) -> str:
     return fallback_key
 
 
+def _prod_base_url() -> str | None:
+    """NEXTSEEK_PROD_URL → NEXTSEEK_INTERNAL_BASE_URL → NEXTSEEK_BASE_URL.
+
+    Review follow-up FU5 (2026-07-07): the internal transport URL slots
+    between the explicit prod override and the public URL so a manual
+    in-container --prod run without NEXTSEEK_PROD_URL self-calls the working
+    internal listener instead of the host-published port (dead on
+    port-bumped installs). config_map wins over ChatConfig's env resolution,
+    so pinning the raw public URL here used to override the fixed resolver.
+    Empty internal/public values are skipped, mirroring
+    _resolve_nextseek_base_url. Deliberately duplicated in cli.py AND
+    evaluator/runner.py — keep both identical
+    (tests/evaluator/test_prod_base_url_chain.py locks the parity).
+    """
+    value = os.getenv("NEXTSEEK_PROD_URL")
+    if value is not None:
+        return value
+    return os.getenv("NEXTSEEK_INTERNAL_BASE_URL") or os.getenv("NEXTSEEK_BASE_URL")
+
+
+def _prod_base_url_source() -> str:
+    """Env var name currently supplying the base URL (keeps
+    CONFIG_SOURCE_ENV_NAMES truthful for the chain above)."""
+    if os.getenv("NEXTSEEK_PROD_URL") is not None:
+        return "NEXTSEEK_PROD_URL"
+    if os.getenv("NEXTSEEK_INTERNAL_BASE_URL"):
+        return "NEXTSEEK_INTERNAL_BASE_URL"
+    return "NEXTSEEK_BASE_URL"
+
+
 def _build_prod_source_env_names(enabled: bool) -> dict[str, object]:
     """Describe which env var names were used to source API and Neo4j settings."""
     if enabled:
@@ -78,7 +108,7 @@ def _build_prod_source_env_names(enabled: bool) -> dict[str, object]:
         )
         return {
             "api": {
-                "base_url": _prod_source_name("NEXTSEEK_PROD_URL", "NEXTSEEK_BASE_URL"),
+                "base_url": _prod_base_url_source(),
                 "api_user": _prod_source_name("API_USER_PROD", "API_USER"),
                 "api_pass": "API_PASS_PROD" if os.getenv("API_PASS_PROD") is not None else "API_PASS",
             },
@@ -92,7 +122,13 @@ def _build_prod_source_env_names(enabled: bool) -> dict[str, object]:
 
     return {
         "api": {
-            "base_url": "NEXTSEEK_BASE_URL",
+            # Non-prod runs resolve through _resolve_nextseek_base_url, which
+            # prefers the internal transport var — report the actual source.
+            "base_url": (
+                "NEXTSEEK_INTERNAL_BASE_URL"
+                if os.getenv("NEXTSEEK_INTERNAL_BASE_URL")
+                else "NEXTSEEK_BASE_URL"
+            ),
             "api_user": "API_USER",
             "api_pass": "API_PASS",
         },
@@ -117,7 +153,7 @@ def _build_prod_config_map(enabled: bool) -> dict[str, str]:
     )
 
     config_map: dict[str, str] = {}
-    nextseek_base = _prod_value("NEXTSEEK_PROD_URL", "NEXTSEEK_BASE_URL")
+    nextseek_base = _prod_base_url()
     api_user = _prod_value("API_USER_PROD", "API_USER")
     api_pass = os.getenv("API_PASS_PROD")
     if api_pass is None:
