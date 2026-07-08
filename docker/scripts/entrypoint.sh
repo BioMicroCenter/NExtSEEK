@@ -2,7 +2,19 @@
 
 uv run manage.py collectstatic --noinput
 
-uv run manage.py migrate --noinput
+# Fail-fast (user decision 2026-07-07): never serve on an unmigrated schema —
+# a silently swallowed migrate failure is what masked the wedged 0007 for a
+# week. Under compose `restart: always` this crash-loops until the wedge is
+# fixed. If the failure is the heal's orphan guard, the remediation is manual
+# row triage (inspect/delete/reparent orphaned assistant_cc_transcript rows);
+# NEVER `migrate --fake` — that is what produced the FK-less fourth state.
+uv run manage.py migrate --noinput || {
+  echo "[MIGRATE-FAILED] FATAL: manage.py migrate exited non-zero;" \
+       "refusing to start servers on an unmigrated schema." \
+       "Fix the migration wedge (for the cc-transcript orphan guard: manual" \
+       "row triage, never --fake) and let the container restart." >&2
+  exit 1
+}
 
 # Web server, selectable via NEXTSEEK_SERVER (default: daphne).
 #   daphne   — ASGI (dmac.asgi); serves the assistant WebSocket
