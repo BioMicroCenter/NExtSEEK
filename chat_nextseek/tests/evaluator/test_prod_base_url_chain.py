@@ -108,6 +108,43 @@ class TestSourceNameReporting:
         assert names["api"]["base_url"] == "NEXTSEEK_BASE_URL"
 
 
+class TestProdInjectionUsesWinningVar:
+    """R1 permanent (2026-07-08): --prod injects the prod URL into the resolver's
+    WINNING var (NEXTSEEK_INTERNAL_BASE_URL) as well as NEXTSEEK_BASE_URL, at the
+    single canonical builder _build_prod_config_map."""
+
+    def test_config_map_emits_prod_under_both_base_url_vars(self, mod, monkeypatch):
+        monkeypatch.setenv("NEXTSEEK_PROD_URL", "http://prod.example")
+        monkeypatch.setenv("NEXTSEEK_INTERNAL_BASE_URL", "http://127.0.0.1:8000")
+        monkeypatch.setenv("NEXTSEEK_BASE_URL", "http://127.0.0.1:8001")
+        cm = mod._build_prod_config_map(True)
+        assert cm["NEXTSEEK_BASE_URL"] == "http://prod.example"
+        assert cm["NEXTSEEK_INTERNAL_BASE_URL"] == "http://prod.example"
+
+    def test_naive_injection_site_without_pop_still_resolves_prod(self, monkeypatch):
+        import os
+
+        monkeypatch.setenv("NEXTSEEK_PROD_URL", "http://prod.example")
+        monkeypatch.setenv("NEXTSEEK_INTERNAL_BASE_URL", "http://127.0.0.1:8000")
+        env = os.environ.copy()
+        env.update({k: v for k, v in _cli._build_prod_config_map(True).items() if isinstance(v, str)})
+        resolved = env.get("NEXTSEEK_INTERNAL_BASE_URL") or env.get("NEXTSEEK_BASE_URL")
+        assert resolved == "http://prod.example"
+
+    def test_reported_base_url_source_matches_resolved_value(self, monkeypatch):
+        import json as _json
+        import os
+
+        monkeypatch.setenv("NEXTSEEK_PROD_URL", "http://prod.example")
+        monkeypatch.setenv("NEXTSEEK_INTERNAL_BASE_URL", "http://127.0.0.1:8000")
+        env = _cli._build_prod_subprocess_env(True)
+        resolved = env.get("NEXTSEEK_INTERNAL_BASE_URL") or env.get("NEXTSEEK_BASE_URL")
+        assert resolved == "http://prod.example"
+        reported = _json.loads(env["CHAT_NEXTSEEK_CONFIG_SOURCE_ENV_NAMES"])
+        assert reported["api"]["base_url"] == "NEXTSEEK_PROD_URL"
+        assert os.environ[reported["api"]["base_url"]].rstrip("/") == resolved
+
+
 class TestHelperParity:
     def test_cli_and_runner_base_url_helpers_stay_identical(self):
         """The helpers are deliberately duplicated in cli.py and runner.py;

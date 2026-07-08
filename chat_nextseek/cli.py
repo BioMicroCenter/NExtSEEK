@@ -164,6 +164,7 @@ def _build_prod_config_map(enabled: bool) -> dict[str, str]:
 
     if nextseek_base is not None:
         config_map["NEXTSEEK_BASE_URL"] = nextseek_base.rstrip("/")
+        config_map["NEXTSEEK_INTERNAL_BASE_URL"] = nextseek_base.rstrip("/")
     if api_user is not None:
         config_map["API_USER"] = api_user
     if api_pass is not None:
