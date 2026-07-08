@@ -22,6 +22,8 @@ COLUMN = "extra_state"
 
 def add_extra_state_if_missing(apps, schema_editor):
     connection = schema_editor.connection
+    if connection.vendor != "mysql":
+        return
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT COUNT(*) FROM information_schema.COLUMNS "
