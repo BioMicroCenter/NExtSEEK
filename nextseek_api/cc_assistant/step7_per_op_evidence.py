@@ -16,6 +16,7 @@ Bash step whose command names ``nextseek-<op>`` — with the tool_result
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -37,6 +38,16 @@ BIN_OPS: tuple[str, ...] = (
 # and does NOT execute an unconfirmed write (CLAUDE.md write-safety + shim exit
 # 5 WRITE_BLOCKED). It still costs a real Bedrock turn (decide-and-refuse).
 WRITE_GATED_OP = "nextseek-api-write"
+
+_BACKEND_ERROR_PATTERNS = re.compile(
+    r"unable to reach|could not reach|couldn't reach|cannot reach|"
+    r"connection refused|connection reset|failed to connect|could not connect|"
+    r"bad gateway|gateway timeout|service unavailable|service is unavailable|internal server error|"
+    r"\bhttp\s*50[0-9]\b|\b50[234]\s+(?:bad gateway|error|response|status)\b|"
+    r"backend (?:error|is down|unreachable|not reachable|did not respond)|"
+    r"request timed out|read timed out|timed out (?:reaching|connecting|waiting)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -273,16 +284,22 @@ def evaluate_op_row(
             f"different valid NS-path op (LLM routing, not a code bug); orchestrator "
             f"must verify the answer is correct"
         )
+    elif op == WRITE_GATED_OP:
+        pass
     elif invocation.invocation_status == "error":
-        if op == WRITE_GATED_OP:
-            # api-write reaching the shim and being refused is the pinned shape;
-            # the write-blocked exit surfaces as a tool_result error but is the
-            # intended, non-mutating outcome. Accept only for this op.
-            pass
-        else:
-            problems.append(f"{op} invocation tool_result status=error")
+        problems.append(f"{op} invocation tool_result status=error")
+    elif invocation.invocation_status != "ok":
+        problems.append(
+            f"{op} invocation tool_result status={invocation.invocation_status!r} "
+            f"is not 'ok' (no positive evidence of a successful backend call)"
+        )
     if not (answer_excerpt or "").strip():
         problems.append("empty answer")
+    elif _BACKEND_ERROR_PATTERNS.search(answer_excerpt):
+        problems.append(
+            "answer reports a backend/transport error "
+            "(unreachable/5xx backend must score as failure, not PASS)"
+        )
     return OpRow(
         op=op,
         cc_run_id=cc_run_id,

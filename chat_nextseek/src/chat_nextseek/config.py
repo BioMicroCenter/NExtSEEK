@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import threading
 from contextlib import nullcontext, redirect_stdout
 from datetime import datetime, timezone
 from io import StringIO
@@ -257,7 +258,7 @@ class ChatConfig:
         # re-fetch on every query forever (cold-review finding, 2026-07-08).
         # Shallow copies share this dict, so the first successful fetch (and
         # the attempt cap) benefits the whole process.
-        self._api_schema_cell: dict = {"schema": None, "attempts": 0}
+        self._api_schema_cell: dict = {"schema": None, "attempts": 0, "lock": threading.Lock()}
 
     @property
     def API_SCHEMA(self) -> dict:
@@ -279,14 +280,21 @@ class ChatConfig:
             cached or cell["attempts"] >= self._API_SCHEMA_MAX_ATTEMPTS
         ):
             return cached
-        cell["attempts"] += 1
-        try:
-            result = self._load_api_schema_from_remote()
-        except Exception as e:
-            print(f"[CONFIG][SCHEMA] Schema load raised: {e!r}")
-            result = {}
-        cell["schema"] = result
-        return result
+        with cell["lock"]:
+            cached = cell["schema"]
+            if cached is not None and (
+                cached or cell["attempts"] >= self._API_SCHEMA_MAX_ATTEMPTS
+            ):
+                return cached
+            cell["attempts"] += 1
+            try:
+                result = self._load_api_schema_from_remote()
+            except Exception as e:
+                print(f"[CONFIG][SCHEMA] Schema load raised: {e!r}")
+                result = {}
+            if result or cell["schema"] is None:
+                cell["schema"] = result
+            return cell["schema"]
 
     @API_SCHEMA.setter
     def API_SCHEMA(self, value: dict) -> None:
@@ -297,6 +305,7 @@ class ChatConfig:
         self._api_schema_cell = {
             "schema": value,
             "attempts": self._API_SCHEMA_MAX_ATTEMPTS,
+            "lock": threading.Lock(),
         }
 
     def _coerce_bool(self, value, default: bool = False) -> bool:

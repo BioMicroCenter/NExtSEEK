@@ -181,3 +181,50 @@ class TestFetchTimeout:
         connect_read = captured["timeout"]
         assert isinstance(connect_read, tuple)
         assert connect_read[1] <= 5
+
+
+class TestConcurrentAccess:
+    def test_cold_burst_fetches_at_most_twice(self, monkeypatch):
+        import threading
+        import time
+
+        cfg, calls = _bare_config(monkeypatch, [{"ep": {}}])
+        orig = ChatConfig._load_api_schema_from_remote
+
+        def slow(self):
+            time.sleep(0.05)
+            return orig(self)
+
+        monkeypatch.setattr(ChatConfig, "_load_api_schema_from_remote", slow)
+        threads = [threading.Thread(target=lambda: cfg.API_SCHEMA) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert len(calls) <= cfg._API_SCHEMA_MAX_ATTEMPTS
+
+    def test_late_failure_does_not_clobber_earlier_success(self, monkeypatch):
+        import threading
+        import time
+
+        seq = [{"ep": {"ok": True}}, {}]
+        cfg, calls = _bare_config(monkeypatch, seq)
+        state = {"n": 0}
+
+        def staged(self):
+            i = state["n"]
+            state["n"] += 1
+            if i >= 1:
+                time.sleep(0.05)
+            return seq[min(i, len(seq) - 1)]
+
+        monkeypatch.setattr(ChatConfig, "_load_api_schema_from_remote", staged)
+        t1 = threading.Thread(target=lambda: cfg.API_SCHEMA)
+        t2 = threading.Thread(target=lambda: cfg.API_SCHEMA)
+        t1.start()
+        time.sleep(0.01)
+        t2.start()
+        t1.join()
+        t2.join()
+        assert cfg.API_SCHEMA == {"ep": {"ok": True}}
+

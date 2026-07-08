@@ -7,8 +7,10 @@ services:
       - ./docker/db.env
       - ./docker/nextseek.env
     depends_on:
-      - seek
-      - db
+      seek:
+        condition: service_started
+      db:
+        condition: service_healthy
     volumes:
       - nextseek-static-files:/static
       # :z relabels the host path for SELinux-enforcing hosts (Fedora/RHEL).
@@ -168,6 +170,12 @@ services:
     image: mysql:8.0
     container_name: seek-mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --log-error-verbosity=1
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
     restart: always
     stop_grace_period: 1m30s
     ports:

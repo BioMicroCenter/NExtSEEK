@@ -233,3 +233,52 @@ def test_cost_source_defaults_to_result_frame_and_is_emitted():
 def test_cost_source_estimate_is_propagated_and_emitted():
     r = _row(cost_source="usage_estimate_on_timeout")
     assert r.to_dict()["cost_source"] == "usage_estimate_on_timeout"
+
+
+# --- R6: positive-evidence + backend-error pattern net (folded in 2026-07-08) ---
+
+def test_backend_unreachable_reply_is_a_hard_failure():
+    r = _row(answer_excerpt="I was unable to reach the NExtSEEK backend (Connection refused).")
+    assert r.problems
+
+
+def test_http_5xx_reply_is_a_hard_failure():
+    r = _row(answer_excerpt="The API returned a 502 Bad Gateway and I could not complete the request.")
+    assert r.problems
+
+
+def test_normal_answer_is_not_flagged():
+    r = _row(answer_excerpt="There are 42 samples of type M.Mice in study S-Demo.")
+    assert r.problems == []
+
+
+def test_invoked_non_ok_status_fails_positive_evidence():
+    r = _row(op="nextseek-report", invocation=_good_inv("nextseek-report", status=None))
+    assert any("not 'ok'" in p or "positive evidence" in p for p in r.problems)
+
+
+def test_answer_with_incidental_number_is_not_a_backend_error():
+    r = _row(answer_excerpt="Found 502 samples of M.Mice across 3 studies.")
+    assert r.problems == []
+
+
+def test_diverse_backend_error_phrasings_all_fail():
+    for phrasing in (
+        "The service is unavailable right now.",
+        "I couldn't reach the NExtSEEK API (read timed out).",
+        "The backend did not respond.",
+        "Received an internal server error from the API.",
+    ):
+        assert _row(answer_excerpt=phrasing).problems, phrasing
+
+
+def test_real_transcript_success_propagates_ok_and_passes():
+    steps = [_bash(1, "/app/plugins/nextseek/bin/nextseek-report --mode published", status="ok")]
+    inv = ev.extract_op_invocation(steps, "nextseek-report")
+    assert inv.invocation_status == "ok"
+    row = ev.evaluate_op_row(
+        op="nextseek-report", cc_run_id="r", cc_session_id="s", is_error=False,
+        cost_usd=0.10, invocation=inv, answer_excerpt="here is your report",
+        transport="sidecar",
+    )
+    assert row.problems == []

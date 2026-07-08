@@ -70,12 +70,21 @@ ALTER TABLE samples
 """
 
 
+def _forward(apps, schema_editor):
+    if schema_editor.connection.vendor != "mysql":
+        return
+    schema_editor.execute(FORWARD_SQL)
+
+
+def _reverse(apps, schema_editor):
+    if schema_editor.connection.vendor != "mysql":
+        return
+    schema_editor.execute(REVERSE_SQL)
+
+
 class Migration(migrations.Migration):
     dependencies = [("seek", "0001_initial")]
 
     operations = [
-        migrations.RunSQL(
-            sql=FORWARD_SQL,
-            reverse_sql=REVERSE_SQL,
-        ),
+        migrations.RunPython(_forward, _reverse),
     ]

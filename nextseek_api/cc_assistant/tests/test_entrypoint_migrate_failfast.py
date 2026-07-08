@@ -22,19 +22,24 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ENTRYPOINT = REPO_ROOT / "docker" / "scripts" / "entrypoint.sh"
 
-# Stub `uv`: logs every invocation; exit code for the migrate call comes from
-# MIGRATE_EXIT; every other call (collectstatic, gunicorn, celery) succeeds
-# immediately.
 _UV_STUB = """#!/usr/bin/env bash
 echo "uv $*" >> "$CALL_LOG"
 case "$*" in
+  *"ensure_connection"*) exit "${DB_PROBE_EXIT:-0}" ;;
+  *"manage.py collectstatic"*) exit "${COLLECTSTATIC_EXIT:-0}" ;;
   *"manage.py migrate"*) exit "${MIGRATE_EXIT:-0}" ;;
   *) exit 0 ;;
 esac
 """
 
 
-def _run_entrypoint(tmp_path, migrate_exit: int):
+def _run_entrypoint(
+    tmp_path,
+    migrate_exit: int = 0,
+    collectstatic_exit: int = 0,
+    db_probe_exit: int = 0,
+    db_wait_attempts: int = 2,
+):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     stub = bindir / "uv"
@@ -47,6 +52,10 @@ def _run_entrypoint(tmp_path, migrate_exit: int):
         "PATH": f"{bindir}:{os.environ['PATH']}",
         "CALL_LOG": str(call_log),
         "MIGRATE_EXIT": str(migrate_exit),
+        "COLLECTSTATIC_EXIT": str(collectstatic_exit),
+        "DB_PROBE_EXIT": str(db_probe_exit),
+        "DB_WAIT_ATTEMPTS": str(db_wait_attempts),
+        "DB_WAIT_INTERVAL": "0",
         "NEXTSEEK_SERVER": "gunicorn",
     }
     proc = subprocess.run(
@@ -70,9 +79,6 @@ class TestMigrateFailFast:
         assert "celery" not in calls
 
     def test_migrate_failure_message_forbids_fake(self, tmp_path):
-        """The remediation pointer must steer operators away from the exact
-        footgun that produced the live DB's fourth state (a fake-recorded
-        0007 with the FK absent)."""
         proc, _ = _run_entrypoint(tmp_path, migrate_exit=1)
         assert "--fake" in proc.stderr
 
@@ -82,3 +88,48 @@ class TestMigrateFailFast:
         assert "manage.py migrate" in calls
         assert "gunicorn" in calls
         assert "celery" in calls
+
+
+class TestCollectstaticFailFast:
+    def test_collectstatic_failure_exits_without_migrate_or_servers(self, tmp_path):
+        proc, calls = _run_entrypoint(tmp_path, collectstatic_exit=1)
+        assert proc.returncode != 0
+        assert "[COLLECTSTATIC-FAILED]" in proc.stderr
+        assert "manage.py migrate" not in calls
+        assert "gunicorn" not in calls
+        assert "celery" not in calls
+
+    def test_collectstatic_success_proceeds_to_migrate(self, tmp_path):
+        proc, calls = _run_entrypoint(tmp_path, collectstatic_exit=0, migrate_exit=0)
+        assert proc.returncode == 0
+        assert "manage.py collectstatic" in calls
+        assert "manage.py migrate" in calls
+
+
+class TestDbReadinessProbe:
+    def test_db_unreachable_exits_with_distinct_marker_no_migrate(self, tmp_path):
+        proc, calls = _run_entrypoint(tmp_path, db_probe_exit=1)
+        assert proc.returncode != 0
+        assert "[DB-UNREACHABLE]" in proc.stderr
+        assert "[MIGRATE-FAILED]" not in proc.stderr
+        assert "manage.py migrate" not in calls
+        assert "gunicorn" not in calls
+
+    def test_db_ready_then_migrate_runs(self, tmp_path):
+        proc, calls = _run_entrypoint(tmp_path, db_probe_exit=0, migrate_exit=0)
+        assert proc.returncode == 0
+        assert "ensure_connection" in calls
+        assert "manage.py migrate" in calls
+        assert "gunicorn" in calls
+
+    def test_migrate_failure_with_db_up_still_reports_migrate_failed(self, tmp_path):
+        proc, _ = _run_entrypoint(tmp_path, db_probe_exit=0, migrate_exit=1)
+        assert proc.returncode != 0
+        assert "[MIGRATE-FAILED]" in proc.stderr
+        assert "[DB-UNREACHABLE]" not in proc.stderr
+
+    def test_probe_retries_configured_attempts_before_giving_up(self, tmp_path):
+        proc, calls = _run_entrypoint(tmp_path, db_probe_exit=1, db_wait_attempts=3)
+        assert proc.returncode != 0
+        assert "[DB-UNREACHABLE]" in proc.stderr
+        assert calls.count("ensure_connection") == 3
