@@ -6,7 +6,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from startup.lib.docker_ops import compose_exec, DockerOpsError
+from startup.lib.docker_ops import compose_exec, compose_ps_running, DockerOpsError
+from startup.lib.env import read_env
 
 
 @dataclass
@@ -14,6 +15,7 @@ class HealthResult:
     name: str
     ok: bool
     detail: str
+    warn: bool = False
 
 
 def check_http(name: str, url: str, timeout: float = 5.0) -> HealthResult:
@@ -111,6 +113,39 @@ def check_prod_overlay_guard(repo_root: Path) -> HealthResult:
     )
 
 
+def check_proxy_token(repo_root: Path) -> HealthResult:
+    secret = repo_root / "docker" / "bedrock-proxy" / "proxy-secret.env"
+    token = read_env(secret).get("AWS_BEARER_TOKEN_BEDROCK", "")
+    if token:
+        return HealthResult(name="bedrock proxy token", ok=True, detail="token present")
+    return HealthResult(
+        name="bedrock proxy token",
+        ok=True,
+        warn=True,
+        detail=(
+            "EMPTY — CC model calls are disabled. Fill "
+            "docker/bedrock-proxy/proxy-secret.env, then "
+            "`docker compose up -d --force-recreate bedrock-proxy`"
+        ),
+    )
+
+
+def check_cc_services(repo_root: Path, env: dict[str, str]) -> HealthResult:
+    wanted = ["bedrock-proxy", "nextseek-sidecar"]
+    try:
+        running = compose_ps_running(wanted, repo_root, env)
+    except DockerOpsError as exc:
+        return HealthResult(name="cc services", ok=False, detail=str(exc))
+    missing = [s for s in wanted if s not in running]
+    if missing:
+        return HealthResult(
+            name="cc services", ok=False, detail=f"not running: {', '.join(missing)}"
+        )
+    return HealthResult(
+        name="cc services", ok=True, detail="bedrock-proxy + nextseek-sidecar running"
+    )
+
+
 def run_all_health_checks(
     ports: dict[str, int], repo_root: Path, env: dict[str, str]
 ) -> list[HealthResult]:
@@ -120,5 +155,7 @@ def run_all_health_checks(
         check_http("Neo4j", f"http://localhost:{ports.get('neo4j_http', 7474)}"),
         run_django_check(repo_root, env),
         check_prod_overlay_guard(repo_root),
+        check_proxy_token(repo_root),
+        check_cc_services(repo_root, env),
     ]
     return results

@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from startup.lib import ui
+from startup.lib.env import read_env
 from startup.lib.instance import (
     InstanceState,
     resolve_instance_name,
@@ -25,6 +26,20 @@ app = typer.Typer(
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_PORTS = {"nextseek": 8000, "seek": 3000, "neo4j_http": 7474, "neo4j_bolt": 7687}
+
+
+def _warn_if_proxy_token_empty(proxy_env_path: Path) -> None:
+    if not read_env(proxy_env_path).get("AWS_BEARER_TOKEN_BEDROCK"):
+        ui.warn(
+            "AWS_BEARER_TOKEN_BEDROCK is EMPTY — CC model calls disabled until "
+            "docker/bedrock-proxy/proxy-secret.env is filled and bedrock-proxy recreated"
+        )
+
+
+def _print_health_results(results: list[validate.HealthResult]) -> None:
+    for r in results:
+        printer = ui.warn if getattr(r, "warn", False) else (ui.ok if r.ok else ui.fail)
+        printer(f"{r.name}: {r.detail}")
 
 
 @app.command()
@@ -134,7 +149,8 @@ def install(
     config.render_local_settings(REPO_ROOT, values)
 
     compose_env = state.compose_env()
-    config.render_proxy_secret_env(REPO_ROOT)
+    proxy_env_path = config.render_proxy_secret_env(REPO_ROOT)
+    _warn_if_proxy_token_empty(proxy_env_path)
     config.render_root_env(REPO_ROOT, compose_env)
     ui.ok(
         "docker/db.env, docker/nextseek.env, "
@@ -227,8 +243,7 @@ def install(
     ui.step(9, total, "Health checks")
     results = validate.run_all_health_checks(ports, REPO_ROOT, compose_env)
     failed_checks = [r for r in results if not r.ok]
-    for r in results:
-        (ui.ok if r.ok else ui.fail)(f"{r.name}: {r.detail}")
+    _print_health_results(results)
     if failed_checks:
         raise typer.Exit(code=1)
 

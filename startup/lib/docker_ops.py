@@ -152,6 +152,24 @@ def compose_port(
     return int(lines[-1].rsplit(":", 1)[-1])
 
 
+def compose_ps_running(
+    services: Sequence[str],
+    project_dir: str | Path,
+    env: dict[str, str],
+) -> list[str]:
+    """Return the subset of `services` that have a running container."""
+    result = subprocess.run(
+        ["docker", "compose", "ps", "--services", "--status=running", *services],
+        cwd=str(project_dir),
+        env=_build_env(env),
+        capture_output=True,
+        text=True,
+    )
+    _check(result, f"docker compose ps {' '.join(services)}")
+    running = set(result.stdout.split())
+    return [s for s in services if s in running]
+
+
 def volume_exists(name: str) -> bool:
     """True if `docker volume inspect <name>` succeeds."""
     result = subprocess.run(

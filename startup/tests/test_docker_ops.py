@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from startup.lib import docker_ops
 from startup.lib.docker_ops import (
     DockerOpsError,
     compose_build,
@@ -135,3 +136,19 @@ def test_compose_exec_passes_service_and_command(mock_run: MagicMock) -> None:
     assert args[:3] == ["docker", "compose", "exec"]
     assert "db" in args
     assert "SHOW DATABASES;" in args
+
+
+def test_compose_ps_running_filters_to_requested_services(monkeypatch):
+    calls = {}
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="bedrock-proxy\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    running = docker_ops.compose_ps_running(
+        ["bedrock-proxy", "nextseek-sidecar"], "/tmp", {}
+    )
+    assert running == ["bedrock-proxy"]
+    assert calls["cmd"][:4] == ["docker", "compose", "ps", "--services"]
+    assert "--status=running" in calls["cmd"]
