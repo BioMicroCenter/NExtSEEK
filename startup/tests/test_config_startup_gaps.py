@@ -47,6 +47,41 @@ def test_render_proxy_secret_env_accepts_default_region(tmp_path: Path) -> None:
     assert rendered["AWS_REGION"] == "us-east-2"
 
 
+def test_render_proxy_secret_env_preserves_hand_filled_token(tmp_path: Path) -> None:
+    out = tmp_path / "docker" / "bedrock-proxy" / "proxy-secret.env"
+    out.parent.mkdir(parents=True)
+    out.write_text('AWS_BEARER_TOKEN_BEDROCK="ABSK-hand-filled"\nAWS_REGION="us-east-2"\n')
+    render_proxy_secret_env(tmp_path, source_env={})
+    kept = read_env(out)
+    assert kept["AWS_BEARER_TOKEN_BEDROCK"] == "ABSK-hand-filled"
+    assert kept["AWS_REGION"] == "us-east-2"
+
+
+def test_render_proxy_secret_env_operator_env_beats_existing_file(tmp_path: Path) -> None:
+    out = tmp_path / "docker" / "bedrock-proxy" / "proxy-secret.env"
+    out.parent.mkdir(parents=True)
+    out.write_text('AWS_BEARER_TOKEN_BEDROCK="ABSK-old"\n')
+    render_proxy_secret_env(
+        tmp_path, source_env={"AWS_BEARER_TOKEN_BEDROCK": "ABSK-new"}
+    )
+    assert read_env(out)["AWS_BEARER_TOKEN_BEDROCK"] == "ABSK-new"
+
+
+def test_render_proxy_secret_env_writes_mode_600(tmp_path: Path) -> None:
+    path = render_proxy_secret_env(tmp_path, source_env={})
+    assert (path.stat().st_mode & 0o777) == 0o600
+
+
+def test_render_proxy_secret_env_repairs_existing_file_mode(tmp_path: Path) -> None:
+    out = tmp_path / "docker" / "bedrock-proxy" / "proxy-secret.env"
+    out.parent.mkdir(parents=True)
+    out.write_text('AWS_BEARER_TOKEN_BEDROCK="ABSK-hand-filled"\n')
+    out.chmod(0o644)
+    render_proxy_secret_env(tmp_path, source_env={})
+    assert read_env(out)["AWS_BEARER_TOKEN_BEDROCK"] == "ABSK-hand-filled"
+    assert (out.stat().st_mode & 0o777) == 0o600
+
+
 def test_render_root_env_writes_compose_targeting_vars_only(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
 

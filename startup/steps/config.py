@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from string import Template
 
-from startup.lib.env import write_env
+from startup.lib.env import read_env, write_env
 
 
 @dataclass
@@ -89,21 +89,29 @@ def render_proxy_secret_env(
     """Render the bedrock proxy env_file required by docker compose.
 
     The institutional Bedrock token is runtime-only. If the operator exported it
-    before running startup, copy it into the proxy env_file; otherwise write an
-    empty token so compose can still create the service and paid CC calls remain
-    disabled until the file is filled in.
+    before running startup, copy it into the proxy env_file; otherwise preserve
+    whatever token is already on disk (a hand-filled value must never be
+    clobbered back to empty by a re-run of install); otherwise write an empty
+    token so compose can still create the service and paid CC calls remain
+    disabled until the file is filled in. The file is written mode 0600 since
+    it holds an institutional Bedrock token.
     """
     source = source_env if source_env is not None else os.environ
     output = repo_root / "docker" / "bedrock-proxy" / "proxy-secret.env"
-    write_env(
-        output,
-        {
-            "AWS_BEARER_TOKEN_BEDROCK": source.get("AWS_BEARER_TOKEN_BEDROCK", ""),
-            "AWS_REGION": source.get("AWS_REGION")
-            or source.get("AWS_DEFAULT_REGION")
-            or "us-east-1",
-        },
+    existing = read_env(output)
+    # Precedence: operator env > existing hand-filled file > empty.
+    # Re-running install must never clobber a filled token back to empty (D2).
+    token = source.get("AWS_BEARER_TOKEN_BEDROCK", "") or existing.get(
+        "AWS_BEARER_TOKEN_BEDROCK", ""
     )
+    region = (
+        source.get("AWS_REGION")
+        or source.get("AWS_DEFAULT_REGION")
+        or existing.get("AWS_REGION")
+        or "us-east-1"
+    )
+    write_env(output, {"AWS_BEARER_TOKEN_BEDROCK": token, "AWS_REGION": region})
+    output.chmod(0o600)  # institutional Bedrock token (D3)
     return output
 
 
