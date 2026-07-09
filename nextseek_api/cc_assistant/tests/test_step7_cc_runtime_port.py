@@ -29,6 +29,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.host_only
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CC_RUNTIME = REPO_ROOT / "docker" / "cc-runtime"
 CC_RUNNER = REPO_ROOT / "docker" / "cc-runner"

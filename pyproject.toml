@@ -145,6 +145,7 @@ torch = [
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "dmac.settings"
+markers = ["host_only: source-tree/host-lane test; excluded from in-container runs"]
 
 [dependency-groups]
 dev = [

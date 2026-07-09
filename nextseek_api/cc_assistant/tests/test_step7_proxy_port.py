@@ -31,6 +31,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.host_only
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROXY_DIR = REPO_ROOT / "docker" / "bedrock-proxy"
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"

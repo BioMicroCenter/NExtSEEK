@@ -1711,16 +1711,19 @@ def _expected_cc_image_default() -> str:
     return os.environ.get("NEXTSEEK_CC_IMAGE", "dmac-assistant:poc")
 
 
+@pytest.mark.host_only
 def test_compose_config_includes_bedrock_proxy_service(tmp_path):
     cfg = _real_compose_config(tmp_path)
     assert "bedrock-proxy" in cfg["services"]
 
 
+@pytest.mark.host_only
 def test_compose_config_bedrock_proxy_container_name_pinned(tmp_path):
     cfg = _real_compose_config(tmp_path)
     assert cfg["services"]["bedrock-proxy"]["container_name"] == "dmac-bedrock-proxy"
 
 
+@pytest.mark.host_only
 def test_compose_config_bedrock_proxy_has_no_host_ports_key(tmp_path):
     """R-8/gate G5: the proxy's :8080 must be reachable only on dmac-cc-net,
     never published to the host."""
@@ -1728,6 +1731,7 @@ def test_compose_config_bedrock_proxy_has_no_host_ports_key(tmp_path):
     assert "ports" not in cfg["services"]["bedrock-proxy"]
 
 
+@pytest.mark.host_only
 def test_compose_config_bedrock_proxy_build_context_is_docker_bedrock_proxy(tmp_path):
     cfg = _real_compose_config(tmp_path)
     ctx = cfg["services"]["bedrock-proxy"]["build"]["context"]
@@ -1736,6 +1740,7 @@ def test_compose_config_bedrock_proxy_build_context_is_docker_bedrock_proxy(tmp_
     assert "cc-runtime" not in ctx
 
 
+@pytest.mark.host_only
 def test_compose_config_bedrock_proxy_attached_only_to_dmac_cc_net(tmp_path):
     """The proxy must be reachable only on dmac-cc-net -- never the default
     stack network (db/seek/solr/neo4j must not be able to reach it either)."""
@@ -1744,11 +1749,13 @@ def test_compose_config_bedrock_proxy_attached_only_to_dmac_cc_net(tmp_path):
     assert nets == {"dmac-cc-net"}
 
 
+@pytest.mark.host_only
 def test_compose_config_includes_cc_image_build_target(tmp_path):
     cfg = _real_compose_config(tmp_path)
     assert "cc-agent" in cfg["services"]
 
 
+@pytest.mark.host_only
 def test_compose_config_cc_image_build_context_is_docker_cc_runtime_not_cc_runner(tmp_path):
     """G7-3: the compose CC image build target must point at the canonical
     ``docker/cc-runtime/`` -- never the lean, explicitly non-production
@@ -1759,6 +1766,7 @@ def test_compose_config_cc_image_build_context_is_docker_cc_runtime_not_cc_runne
     assert "cc-runner" not in ctx
 
 
+@pytest.mark.host_only
 def test_compose_config_cc_image_tag_matches_nextseek_cc_image_default(tmp_path):
     """Required for ``cc_runner_available()``: a fresh ``docker compose
     build`` must tag the image under the exact name ``NEXTSEEK_CC_IMAGE``
@@ -1767,6 +1775,7 @@ def test_compose_config_cc_image_tag_matches_nextseek_cc_image_default(tmp_path)
     assert cfg["services"]["cc-agent"]["image"] == _expected_cc_image_default()
 
 
+@pytest.mark.host_only
 def test_compose_config_cc_agent_has_no_network_attachment(tmp_path):
     """The compose-declared build stanza is never meant to run as a reachable
     service -- it carries no network attachment at all (the real per-turn
@@ -1776,6 +1785,7 @@ def test_compose_config_cc_agent_has_no_network_attachment(tmp_path):
     assert not (cfg["services"]["cc-agent"].get("networks") or {})
 
 
+@pytest.mark.host_only
 def test_compose_config_dmac_cc_net_network_present_with_pinned_literal_name(tmp_path):
     """cc_engine.DEFAULT_NETWORK expects the literal (unprefixed) name
     ``dmac-cc-net`` -- compose's default project-prefixing behavior must be
@@ -1785,6 +1795,7 @@ def test_compose_config_dmac_cc_net_network_present_with_pinned_literal_name(tmp
     assert cfg["networks"]["dmac-cc-net"]["name"] == "dmac-cc-net"
 
 
+@pytest.mark.host_only
 def test_compose_config_dmac_cc_net_is_compose_managed_not_external(tmp_path):
     """An ``external: true`` network requires a pre-existing manual ``docker
     network create`` before ``up`` -- the primary deploy path must not
@@ -1793,12 +1804,14 @@ def test_compose_config_dmac_cc_net_is_compose_managed_not_external(tmp_path):
     assert not cfg["networks"]["dmac-cc-net"].get("external")
 
 
+@pytest.mark.host_only
 def test_compose_config_nginx_dual_homed_default_and_dmac_cc_net(tmp_path):
     cfg = _real_compose_config(tmp_path)
     nets = set(cfg["services"]["nextseek_nginx"].get("networks") or {})
     assert nets == {"default", "dmac-cc-net"}
 
 
+@pytest.mark.host_only
 def test_compose_config_nextseek_itself_not_on_dmac_cc_net(tmp_path):
     """OI-3 segmentation: only ``nextseek_nginx`` is dual-homed. ``nextseek``
     (which holds the Docker socket mount used to spawn CC siblings) must
@@ -1808,6 +1821,7 @@ def test_compose_config_nextseek_itself_not_on_dmac_cc_net(tmp_path):
     assert "dmac-cc-net" not in nets
 
 
+@pytest.mark.host_only
 def test_compose_config_nextseek_container_name_pinned(tmp_path):
     """Task 16: hermetic pin for ``container_name: nextseek`` on the
     ``nextseek`` service itself. This is load-bearing for
@@ -1821,6 +1835,7 @@ def test_compose_config_nextseek_container_name_pinned(tmp_path):
 
 
 @pytest.mark.parametrize("backend_service", ["db", "seek", "seek_workers", "solr", "neo4j"])
+@pytest.mark.host_only
 def test_compose_config_backend_services_not_on_dmac_cc_net(tmp_path, backend_service):
     cfg = _real_compose_config(tmp_path)
     nets = set(cfg["services"][backend_service].get("networks") or {})
@@ -1837,6 +1852,7 @@ def _nextseek_volume_mounts(cfg: dict) -> list[dict]:
     return cfg["services"]["nextseek"].get("volumes") or []
 
 
+@pytest.mark.host_only
 def test_compose_config_nextseek_mounts_dmac_cc_users_volume_at_dmac_users(tmp_path):
     cfg = _real_compose_config(tmp_path)
     cc_mounts = [v for v in _nextseek_volume_mounts(cfg)
@@ -1847,6 +1863,7 @@ def test_compose_config_nextseek_mounts_dmac_cc_users_volume_at_dmac_users(tmp_p
     assert v["source"] == "dmac-cc-users"
 
 
+@pytest.mark.host_only
 def test_compose_config_nextseek_has_no_srv_dmac_users_host_bind(tmp_path):
     """Negative guard: the pre-G7-10 host bind `/srv/dmac/users:/dmac/users`
     must never be reintroduced as the primary CC store."""
@@ -1856,6 +1873,7 @@ def test_compose_config_nextseek_has_no_srv_dmac_users_host_bind(tmp_path):
         assert not (v.get("type") == "bind" and v.get("target") == "/dmac/users"), v
 
 
+@pytest.mark.host_only
 def test_compose_config_declares_dmac_cc_users_external_like_seek_filestore(tmp_path):
     cfg = _real_compose_config(tmp_path)
     vols = cfg.get("volumes") or {}
@@ -1899,17 +1917,20 @@ def _duration_to_seconds(value) -> float:
     return total
 
 
+@pytest.mark.host_only
 def test_compose_config_includes_nextseek_sidecar_service(tmp_path):
     cfg = _real_compose_config(tmp_path)
     assert "nextseek-sidecar" in cfg["services"]
 
 
+@pytest.mark.host_only
 def test_compose_config_sidecar_build_context_is_docker_ns_sidecar(tmp_path):
     cfg = _real_compose_config(tmp_path)
     ctx = cfg["services"]["nextseek-sidecar"]["build"]["context"]
     assert ctx.rstrip("/").endswith("docker/ns-sidecar")
 
 
+@pytest.mark.host_only
 def test_compose_config_sidecar_container_name_pinned(tmp_path):
     cfg = _real_compose_config(tmp_path)
     assert cfg["services"]["nextseek-sidecar"]["container_name"] == "nextseek-sidecar"
@@ -1927,12 +1948,14 @@ def test_compose_config_sidecar_service_name_matches_agent_client_default():
     assert m.group(1) == "nextseek-sidecar"
 
 
+@pytest.mark.host_only
 def test_compose_config_sidecar_attached_only_to_dmac_cc_net(tmp_path):
     cfg = _real_compose_config(tmp_path)
     nets = set(cfg["services"]["nextseek-sidecar"].get("networks") or {})
     assert nets == {"dmac-cc-net"}
 
 
+@pytest.mark.host_only
 def test_compose_config_sidecar_has_no_host_ports_key(tmp_path):
     """The WS port must be reachable only inside dmac-cc-net, never published
     to the host."""
@@ -1940,6 +1963,7 @@ def test_compose_config_sidecar_has_no_host_ports_key(tmp_path):
     assert "ports" not in cfg["services"]["nextseek-sidecar"]
 
 
+@pytest.mark.host_only
 def test_compose_config_sidecar_healthcheck_present_with_cold_start_tolerance(tmp_path):
     """The sidecar's healthcheck GETs through nginx -> Django, so it is
     legitimately unhealthy until the whole stack finishes booting --
@@ -1955,12 +1979,14 @@ def test_compose_config_sidecar_healthcheck_present_with_cold_start_tolerance(tm
     assert _duration_to_seconds(hc.get("start_period")) >= 20
 
 
+@pytest.mark.host_only
 def test_compose_config_sidecar_env_carries_only_three_nonsecret_keys(tmp_path):
     cfg = _real_compose_config(tmp_path)
     env = cfg["services"]["nextseek-sidecar"].get("environment") or {}
     assert set(env) == {"NEXTSEEK_BASE_URL", "SIDECAR_STAGING_DIR", "SIDECAR_WS_PORT"}
 
 
+@pytest.mark.host_only
 def test_compose_config_sidecar_base_url_pinned_to_nginx_literal(tmp_path):
     """Do NOT assert equality with the agent's rewritten URL --
     `_rewrite_loopback_url` passes non-loopback URLs through unchanged, so
@@ -1971,6 +1997,7 @@ def test_compose_config_sidecar_base_url_pinned_to_nginx_literal(tmp_path):
     assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx"
 
 
+@pytest.mark.host_only
 def test_compose_config_sidecar_mounts_staging_subpath_of_dmac_cc_users(tmp_path):
     """Task 14 (G7-11) FLIP of the Task 13 no-mount two-state: the sidecar now
     mounts EXACTLY the reserved `_staging` subpath of `dmac-cc-users` at its
@@ -2045,6 +2072,7 @@ def test_realstack_host_side_inspection_uses_container_name_not_service_name():
     assert 'os.environ.get("DMAC_PROXY_CONTAINER", "dmac-bedrock-proxy")' in text
 
 
+@pytest.mark.host_only
 def test_compose_bedrock_proxy_container_name_matches_realstack_default(tmp_path):
     """Cross-file lock: whatever literal ``container_name`` root compose pins
     for ``bedrock-proxy`` must be the exact default
