@@ -14,6 +14,7 @@ from ..helpers import (
     log_usage,
     safe_parse_json,
 )
+from ..helpers.lab_code import lab_code
 from ..schemas.schema_helper import StructuredOutputError, call_llm_structured
 from ..schemas import (
     EntityAgentOutput,
@@ -146,6 +147,15 @@ def entity_agent(
             except Exception as e_fallback:
                 print("[DEBUG][ENTITY] Fallback exception:", repr(e_fallback))
                 result = EntityAgentOutput()
+
+    seen: set[str] = set()
+    codes: list[str] = []
+    for name in result.labs:
+        code = lab_code(name)
+        if code and code not in seen:
+            seen.add(code)
+            codes.append(code)
+    result.lab_codes = codes
 
     print("[DEBUG][ENTITY] Parsed entity result:", json.dumps(result.model_dump(), indent=2))
     return result

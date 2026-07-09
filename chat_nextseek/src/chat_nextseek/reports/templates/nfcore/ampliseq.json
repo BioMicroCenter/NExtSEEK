@@ -1,6 +1,11 @@
 {
   "report_type": "NFCORE_AMPLISEQ_SAMPLESHEET",
   "description": "nf-core/ampliseq samplesheet context for 16S/ITS/amplicon microbial profiling.",
+  "params": {
+    "FW_primer": {"type": "string", "default": null, "steerable": true},
+    "RV_primer": {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": [],
   "pipeline": {
     "name": "nf-core/ampliseq",
     "repository": "https://github.com/nf-core/ampliseq",

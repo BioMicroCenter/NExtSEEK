@@ -72,6 +72,17 @@ class ReportWriterOutputGEO(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class ReportCoderOutput(BaseModel):
+    extraction_code: str = Field(
+        description="Python that reads pre-bound `data` (full reporter metadata) and assigns the full report body dict to `result`."
+    )
+    result_description: str = Field(default="", description="Brief description of the generated report body.")
+    fields_used: list[str] = Field(default_factory=list, description="Metadata field names/paths the code relies on.")
+    notes: str = ""
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class PipelineCohort(BaseModel):
     """One nf-core run cohort: a pipeline + the metadata criterion that scopes
     samples into it. A study with mixed library types (e.g. RNA-seq + amplicon)

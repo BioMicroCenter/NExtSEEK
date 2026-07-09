@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 
 from .artifacts import ArtifactStore, build_metadata_bundle, build_saved_report_file_manifest
 from .chat_memory import append_turn, build_tool_summary_for_mode, resolve_bundle_for_recall
-from .pipeline import wizard as nfcore_wizard
 from .pipeline import agent as pipeline_agent
 from .agents import (
     chatter_agent_answer,
@@ -34,6 +33,7 @@ from .agents import (
     _materialize_intersection_result,
     _step_signature,
 )
+from .agents.reporter import report_coder_agent
 from .config import ChatConfig
 from .llm_clients import LLMFatalError
 from .helpers import (
@@ -145,136 +145,141 @@ def _write_graph_debug(log_dir: str, ts: str, payload: dict) -> str | None:
         return None
 
 
-# DEPRECATED: superseded by pipeline_agent. Left in place for now;
-# safe to delete once a release cycle has passed with no rollback.
-def _execute_nfcore_wizard(
-    session: SessionState | SessionStateProxy,
+def _build_graph_refine_context(last_bundle: dict) -> str:
+    """Prior graph-query context for a refine, mirroring the REST refine block
+    in api_agent_build_request (prior user query + prior plan)."""
+    graph_plan = last_bundle.get("graph_plan") or {}
+    prior_cypher = graph_plan.get("cypher") or ""
+    prior_query = last_bundle.get("user_query") or ""
+    return (
+        "Previous graph query context (you are refining it):\n"
+        f"Prior user query: {prior_query or '[none]'}\n"
+        f"Prior Cypher:\n{prior_cypher or '[none]'}"
+    )
+
+
+def _execute_graph_turn(
+    *,
     config: ChatConfig,
+    session,
     user_text: str,
-    wizard_params: dict[str, Any],
-    log_dir: str,
-    send_event: SendEvent,
-    artifact_store: ArtifactStore,
-    confirmation_reply: str,
-) -> dict[str, Any]:
-    """Run generate_report_outputs with the wizard's collected pre_supplied_cohorts.
+    entity_result,
+    plan,
+    log_dir,
+    artifact_store,
+    send_event,
+    debug_payload: dict,
+    t_total_start: float,
+    refine_context: str | None = None,
+):
+    send_event("agent_started", {"agent": "graph", "mode": "graph_query"})
+    _t0 = time.perf_counter()
+    print("\n[GRAPH] Running graph agent...")
+    graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=refine_context)
+    print(f"[DEBUG][GRAPH] Explanation: {graph_plan.explanation}")
+    print(f"[DEBUG][GRAPH] Cypher:\n{graph_plan.cypher}")
 
-    Synthesizes a minimal ParserPlan + ReporterPlan so we can reuse the existing
-    report-generation execution path without going through the parser/reporter
-    LLM agents (we already have explicit user answers).
-    """
-    from .agents import report_writer_agent
-    from .schemas import ParserFilters, ParserPlan
-    from .schemas.chat import ReporterPlan
-
-    # Empty-uids guard: nothing to build. Bounce the user back to the builder
-    # step so they can pick samples, rather than crashing generate_report_outputs.
-    uids: list[str] = list(wizard_params.get("uids") or [])
-    if not uids:
-        state = session.get(nfcore_wizard.WIZARD_KEY) or {}
-        state["step"] = nfcore_wizard.STEP_BUILDER
-        nfcore_wizard._save_state(session, state)
-        reply = (
-            "I don't have any samples selected yet — pick samples first "
-            "(start with your last search, paste UIDs, or run a new search), "
-            "then we can build."
-        )
-        debug_payload = {"nfcore_wizard": {"empty_uids_bounce": True}}
+    if not graph_plan.cypher:
+        reply = f"Graph agent could not generate a query.\n\nReason: {graph_plan.explanation}"
         session["last_debug"] = debug_payload
+        send_event("agent_complete", {"agent": "graph", "summary": None})
+        print(f"[TIMING][GRAPH] {time.perf_counter() - _t0:.2f}s")
+        print(f"[TIMING][TOTAL] {time.perf_counter() - t_total_start:.2f}s")
         return _emit_query_complete(send_event, reply, debug_payload, None)
-    report_type: str = wizard_params.get("report_type") or "NFCORE_RNASEQ"
-    cohorts: list[dict[str, Any]] = wizard_params.get("pre_supplied_cohorts") or []
-    selector_rationale: str = wizard_params.get("selector_rationale") or ""
 
-    synthetic_parser_plan = ParserPlan(
-        mode="reporter",
-        report_mode="report_generation",
-        report_type=report_type,
-        intent_summary=f"Wizard-driven nf-core export ({report_type}).",
-        filters=ParserFilters(uids=uids),
-    )
-    synthetic_reporter_plan = ReporterPlan(
-        reporter_mode="report_generation",
-        report_type=report_type,
-        uids=uids,
-        reporter_context={"per_sample_reports": False},
-        notes=selector_rationale,
+    send_event(
+        "agent_complete",
+        {"agent": "graph", "summary": {"cypher": graph_plan.cypher, "explanation": graph_plan.explanation}},
     )
 
-    send_event("agent_started", {"agent": "report_writer", "mode": "report_generation"})
-    reporter_result, report_writer_output, saved_files, reply_body = generate_report_outputs(
-        config=config,
-        user_query=user_text,
-        parser_plan=synthetic_parser_plan,
-        reporter_plan=synthetic_reporter_plan,
-        uids=uids,
-        log_dir=log_dir,
-        report_writer_fn=report_writer_agent,
-        per_sample_reports=False,
-        pre_supplied_cohorts=cohorts,
+    send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
+    graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
+    if not graph_result.get("ok"):
+        neo4j_error = graph_result.get("error", "Unknown error")
+        print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
+        retry_ctx = (
+            f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
+            "Revisit the schema carefully - check property types, relationship directions, "
+            "and graph_topology - then generate a corrected query."
+        )
+        graph_plan_retry = graph_agent(
+            config, user_text, entity_result, plan,
+            retry_context=retry_ctx, refine_context=refine_context,
+        )
+        if graph_plan_retry.cypher:
+            graph_plan = graph_plan_retry
+            graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
+    send_event(
+        "search_complete",
+        {"source": "neo4j", "ok": graph_result.get("ok"), "count": graph_result.get("count")},
     )
-    send_event("agent_complete", {"agent": "report_writer", "summary": None})
-
-    reply = confirmation_reply + "\n\n" + (reply_body or "")
-    debug_payload: dict[str, Any] = {
-        "wizard_params": wizard_params,
-        "reporter_plan": synthetic_reporter_plan.model_dump(),
-        "reporter_result": reporter_result,
-        "report_writer_output": (
-            report_writer_output.model_dump()
-            if hasattr(report_writer_output, "model_dump")
-            else report_writer_output
-        ),
-    }
-    if saved_files:
-        debug_payload["report_saved_files"] = saved_files
 
     history = session.get("results_history", [])
     bundle_id = len(history) + 1
-    result_files = build_saved_report_file_manifest(saved_files)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    graph_debug_path = _write_graph_debug(
+        log_dir, ts,
+        {
+            "timestamp": ts,
+            "user_query": user_text,
+            "model": config.MODEL_MODE,
+            "entity_output": entity_result.model_dump(),
+            "parser_output": plan.model_dump(),
+            "graph_output": graph_plan.model_dump(),
+            "neo4j_output": {
+                "ok": graph_result.get("ok"),
+                "count": graph_result.get("count"),
+                "error": graph_result.get("error"),
+                "counters": graph_result.get("counters"),
+                "data_preview": (graph_result.get("data") or [])[:20],
+            },
+        },
+    )
+    print(f"[TIMING][GRAPH] {time.perf_counter() - _t0:.2f}s")
+
+    result_files: list[dict[str, Any]] = []
+    entry = artifact_store.register_path(
+        key="graph_debug", label="Graph query debug JSON", path=graph_debug_path,
+        kind="graph", bundle_id=bundle_id,
+    )
+    if entry:
+        result_files.append(entry)
     bundle = build_metadata_bundle(
-        bundle_id=bundle_id,
-        mode="reporter",
-        user_query=user_text,
-        parser_plan=synthetic_parser_plan.model_dump(),
-        reporter_plan=synthetic_reporter_plan.model_dump(),
-        reporter_result=reporter_result,
-        report_writer_output=(
-            report_writer_output.model_dump()
-            if hasattr(report_writer_output, "model_dump")
-            else report_writer_output
-        ),
-        report_saved_files=saved_files,
-        terminal_reply=reply,
-        files=result_files,
+        bundle_id=bundle_id, mode="graph_query", user_query=user_text,
+        parser_plan=plan.model_dump(), graph_plan=graph_plan.model_dump(),
+        graph_result=graph_result, terminal_reply=None,
+        search_context={"endpoint": "neo4j"}, files=result_files,
+        paths={"graph_debug_path": graph_debug_path},
     )
     history.append(bundle)
     session["results_history"] = history
-    session["last_debug"] = debug_payload
-    session["last_files"] = result_files
 
+    debug_payload["graph_plan"] = graph_plan.model_dump()
+    debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
+
+    send_event("agent_started", {"agent": "chatter", "mode": "graph_query"})
+    _t1 = time.perf_counter()
+    reply = chatter_agent_answer(
+        config, user_text, entity_result.model_dump(), plan.model_dump(),
+        graph_plan=graph_plan.model_dump(), graph_result=graph_result,
+        log_dir=log_dir, session=session,
+    )
+    print(f"[TIMING][CHATTER] {time.perf_counter() - _t1:.2f}s")
+    send_event("agent_complete", {"agent": "chatter", "summary": None})
+    bundle["terminal_reply"] = reply
+    bundle["reply"] = reply
+    bundle.setdefault("model_outputs", {})["terminal_reply"] = reply
+    session["last_debug"] = debug_payload
+
+    session["last_files"] = result_files
     append_turn(
-        session,
-        user_query=user_text,
-        mode="reporter",
-        intent_summary=synthetic_parser_plan.intent_summary,
-        tool_summary=build_tool_summary_for_mode(
-            "reporter",
-            reporter_plan=synthetic_reporter_plan.model_dump(),
-        ),
-        assistant_reply=reply,
-        bundle_id=bundle_id,
-        wizard_state={"step": "executed", "pipeline": (cohorts[0].get("pipeline") if cohorts else None)},
+        session, user_query=user_text, mode="graph_query",
+        intent_summary=plan.intent_summary, entity_result=entity_result,
+        tool_summary=build_tool_summary_for_mode("graph_query", graph_plan=graph_plan.model_dump()),
+        result_payload=graph_result, assistant_reply=reply, bundle_id=bundle_id,
     )
-    # Wizard state cleared after we persist the run.
-    nfcore_wizard.clear(session)
-    return _emit_query_complete(
-        send_event,
-        reply,
-        debug_payload,
-        bundle_id,
-        files=result_files or None,
-    )
+    print(f"[TIMING][TOTAL] {time.perf_counter() - t_total_start:.2f}s")
+    return _emit_query_complete(send_event, reply, debug_payload, bundle_id, files=result_files or None)
 
 
 def _handle_pipeline_agent_turn(
@@ -289,8 +294,8 @@ def _handle_pipeline_agent_turn(
     orchestrator payload, or None if the agent requested passthrough
     (caller should run normal parser).
 
-    This gate runs BEFORE the legacy wizard interceptor so pipeline_agent
-    always wins for in-progress NFCORE flows.
+    This gate runs before the normal parser path so pipeline_agent always
+    wins for in-progress NFCORE flows.
     """
     if not pipeline_agent.is_active(session):
         return None
@@ -323,71 +328,11 @@ def _handle_pipeline_agent_turn(
         user_query=user_text,
         mode="pipeline_agent",
         intent_summary="pipeline_agent turn",
-        tool_summary={"phase": snapshot.get("phase")},
+        tool_summary={"pipeline_key": snapshot.get("pipeline_key"), "cohorts": snapshot.get("cohort_count")},
         assistant_reply=reply,
         wizard_state=snapshot,
     )
     return _emit_query_complete(send_event, reply, debug_payload, None)
-
-
-def _handle_wizard_turn(
-    session: SessionState | SessionStateProxy,
-    config: ChatConfig,
-    user_text: str,
-    log_dir: str,
-    send_event: SendEvent,
-    artifact_store: ArtifactStore,
-) -> dict[str, Any] | None:
-    """If a wizard is active, advance it. Returns the orchestrator payload, or
-    None if the wizard requested passthrough (caller should run normal parser).
-    """
-    if not nfcore_wizard.is_active(session):
-        return None
-    result = nfcore_wizard.handle_turn(session, config, user_text, log_dir=log_dir)
-    action = result.get("action")
-    if action == "passthrough":
-        nfcore_wizard.clear(session)
-        return None
-    if action == "ask":
-        reply = result.get("reply") or ""
-        debug_payload = {"nfcore_wizard": nfcore_wizard.snapshot_for_chat_log(session)}
-        session["last_debug"] = debug_payload
-        append_turn(
-            session,
-            user_query=user_text,
-            mode="nfcore_wizard",
-            intent_summary="nf-core wizard Q&A",
-            tool_summary={"step": (session.get(nfcore_wizard.WIZARD_KEY) or {}).get("step")},
-            assistant_reply=reply,
-            wizard_state=nfcore_wizard.snapshot_for_chat_log(session),
-        )
-        return _emit_query_complete(send_event, reply, debug_payload, None)
-    if action == "cancel":
-        reply = result.get("reply") or ""
-        debug_payload = {"nfcore_wizard": {"cancelled": True}}
-        session["last_debug"] = debug_payload
-        append_turn(
-            session,
-            user_query=user_text,
-            mode="nfcore_wizard",
-            intent_summary="nf-core wizard cancelled",
-            assistant_reply=reply,
-        )
-        return _emit_query_complete(send_event, reply, debug_payload, None)
-    if action == "execute":
-        params = result.get("params") or {}
-        return _execute_nfcore_wizard(
-            session,
-            config,
-            user_text,
-            params,
-            log_dir,
-            send_event,
-            artifact_store,
-            confirmation_reply=result.get("reply") or "Building artifacts now…",
-        )
-    nfcore_wizard.clear(session)
-    return None
 
 
 def run_query(
@@ -426,20 +371,14 @@ def run_query(
             _raw_send_event(event_name, payload)
 
     try:
-        # pipeline_agent gates BEFORE the legacy wizard so an in-progress
-        # samplesheet build always advances even if a stale wizard state
-        # also looks active.
+        # An in-progress samplesheet build always advances through the
+        # pipeline_agent before the normal parser path.
         pipeline_payload = _handle_pipeline_agent_turn(
             session, config, user_text, log_dir, send_event, artifact_store,
         )
         if pipeline_payload is not None:
             print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
             return pipeline_payload
-
-        wizard_payload = _handle_wizard_turn(session, config, user_text, log_dir, send_event, artifact_store)
-        if wizard_payload is not None:
-            print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
-            return wizard_payload
 
         send_event("agent_started", {"agent": "catalog", "mode": ""})
         sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(
@@ -641,7 +580,7 @@ def run_query(
                         mode="pipeline_agent",
                         intent_summary="pipeline_agent launched",
                         entity_result=entity_result,
-                        tool_summary={"phase": snapshot.get("phase")},
+                        tool_summary={"pipeline_key": snapshot.get("pipeline_key"), "cohorts": snapshot.get("cohort_count")},
                         assistant_reply=reply,
                         wizard_state=snapshot,
                     )
@@ -668,6 +607,7 @@ def run_query(
                     uids=uids,
                     log_dir=log_dir,
                     report_writer_fn=report_writer_agent,
+                    report_coder_fn=report_coder_agent,
                     per_sample_reports=per_sample_reports,
                 )
                 send_event("agent_complete", {"agent": "report_writer", "summary": None})
@@ -863,140 +803,27 @@ def run_query(
 
         if mode == "graph_query":
             current_agent = "graph"
-            send_event("agent_started", {"agent": "graph", "mode": mode})
-            _t0 = time.perf_counter()
-            print("\n[GRAPH] Running graph agent...")
-            graph_plan = graph_agent(config, user_text, entity_result, plan)
-            print(f"[DEBUG][GRAPH] Explanation: {graph_plan.explanation}")
-            print(f"[DEBUG][GRAPH] Cypher:\n{graph_plan.cypher}")
-
-            if not graph_plan.cypher:
-                reply = f"Graph agent could not generate a query.\n\nReason: {graph_plan.explanation}"
-                session["last_debug"] = debug_payload
-                send_event("agent_complete", {"agent": "graph", "summary": None})
-                print(f"[TIMING][GRAPH] {time.perf_counter() - _t0:.2f}s")
-                print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
-                return _emit_query_complete(send_event, reply, debug_payload, None)
-
-            send_event(
-                "agent_complete",
-                {
-                    "agent": "graph",
-                    "summary": {"cypher": graph_plan.cypher, "explanation": graph_plan.explanation},
-                },
+            return _execute_graph_turn(
+                config=config, session=session, user_text=user_text,
+                entity_result=entity_result, plan=plan, log_dir=log_dir,
+                artifact_store=artifact_store, send_event=send_event,
+                debug_payload=debug_payload, t_total_start=_t_total_start,
             )
-
-            send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
-            graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
-            if not graph_result.get("ok"):
-                neo4j_error = graph_result.get("error", "Unknown error")
-                print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
-                retry_ctx = (
-                    f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
-                    "Revisit the schema carefully - check property types, relationship directions, "
-                    "and graph_topology - then generate a corrected query."
-                )
-                graph_plan_retry = graph_agent(config, user_text, entity_result, plan, retry_context=retry_ctx)
-                if graph_plan_retry.cypher:
-                    graph_plan = graph_plan_retry
-                    graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
-            send_event(
-                "search_complete",
-                {
-                    "source": "neo4j",
-                    "ok": graph_result.get("ok"),
-                    "count": graph_result.get("count"),
-                },
-            )
-
-            history = session.get("results_history", [])
-            bundle_id = len(history) + 1
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            graph_debug_path = _write_graph_debug(
-                log_dir,
-                ts,
-                {
-                    "timestamp": ts,
-                    "user_query": user_text,
-                    "model": config.MODEL_MODE,
-                    "entity_output": entity_result.model_dump(),
-                    "parser_output": plan.model_dump(),
-                    "graph_output": graph_plan.model_dump(),
-                    "neo4j_output": {
-                        "ok": graph_result.get("ok"),
-                        "count": graph_result.get("count"),
-                        "error": graph_result.get("error"),
-                        "counters": graph_result.get("counters"),
-                        "data_preview": (graph_result.get("data") or [])[:20],
-                    },
-                },
-            )
-            print(f"[TIMING][GRAPH] {time.perf_counter() - _t0:.2f}s")
-
-            result_files: list[dict[str, Any]] = []
-            entry = artifact_store.register_path(
-                key="graph_debug",
-                label="Graph query debug JSON",
-                path=graph_debug_path,
-                kind="graph",
-                bundle_id=bundle_id,
-            )
-            if entry:
-                result_files.append(entry)
-            bundle = build_metadata_bundle(
-                bundle_id=bundle_id,
-                mode="graph_query",
-                user_query=user_text,
-                parser_plan=plan.model_dump(),
-                graph_plan=graph_plan.model_dump(),
-                graph_result=graph_result,
-                terminal_reply=None,
-                search_context={"endpoint": "neo4j"},
-                files=result_files,
-                paths={"graph_debug_path": graph_debug_path},
-            )
-            history.append(bundle)
-            session["results_history"] = history
-
-            debug_payload["graph_plan"] = graph_plan.model_dump()
-            debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
-
-            current_agent = "chatter"
-            send_event("agent_started", {"agent": "chatter", "mode": "graph_query"})
-            _t1 = time.perf_counter()
-            reply = chatter_agent_answer(
-                config,
-                user_text,
-                entity_result.model_dump(),
-                plan.model_dump(),
-                graph_plan=graph_plan.model_dump(),
-                graph_result=graph_result,
-                log_dir=log_dir,
-                session=session,
-            )
-            print(f"[TIMING][CHATTER] {time.perf_counter() - _t1:.2f}s")
-            send_event("agent_complete", {"agent": "chatter", "summary": None})
-            bundle["terminal_reply"] = reply
-            bundle["reply"] = reply
-            bundle.setdefault("model_outputs", {})["terminal_reply"] = reply
-            session["last_debug"] = debug_payload
-
-            session["last_files"] = result_files
-            append_turn(
-                session,
-                user_query=user_text,
-                mode=mode,
-                intent_summary=plan.intent_summary,
-                entity_result=entity_result,
-                tool_summary=build_tool_summary_for_mode("graph_query", graph_plan=graph_plan.model_dump()),
-                result_payload=graph_result,
-                assistant_reply=reply,
-                bundle_id=bundle_id,
-            )
-            print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
-            return _emit_query_complete(send_event, reply, debug_payload, bundle_id, files=result_files or None)
 
         if mode in ("new_search", "refine_last_search"):
+            # Graph-origin refines re-run the graph path (with prior Cypher as context);
+            # everything below this is REST refine prep.
+            if mode == "refine_last_search":
+                _history = session.get("results_history", []) or []
+                if _history and (_history[-1] or {}).get("mode") == "graph_query":
+                    current_agent = "graph"
+                    return _execute_graph_turn(
+                        config=config, session=session, user_text=user_text,
+                        entity_result=entity_result, plan=plan,
+                        log_dir=log_dir, artifact_store=artifact_store, send_event=send_event,
+                        debug_payload=debug_payload, t_total_start=_t_total_start,
+                        refine_context=_build_graph_refine_context(_history[-1]),
+                    )
             if mode == "refine_last_search":
                 plan_data = plan.model_dump()
                 history = session.get("results_history", [])
@@ -1311,11 +1138,6 @@ def run_query_plan(
             _raw_send_event(event_name, payload)
 
     try:
-        wizard_payload = _handle_wizard_turn(session, config, user_text, log_dir, send_event, artifact_store)
-        if wizard_payload is not None:
-            print(f"[TIMING][TOTAL][PLAN] {time.perf_counter() - _t_total_start:.2f}s")
-            return wizard_payload
-
         send_event("agent_started", {"agent": "catalog", "mode": "plan"})
         sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(
             user_text,

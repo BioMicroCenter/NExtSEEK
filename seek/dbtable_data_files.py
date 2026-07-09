@@ -242,7 +242,7 @@ class DBtable_data_files(DBtable):
         return dfrecord
     
     def __getSeeklink(self, originalfilename, datafile_id):
-        seek_url = settings.SEEK_URL + "/data_files/" + str(datafile_id)
+        seek_url = settings.SEEK_PUBLIC_URL + "/data_files/" + str(datafile_id)
         seeklink = '<a href="' + seek_url + '" target="_blank">' + originalfilename + '</a>'
         return seeklink
     

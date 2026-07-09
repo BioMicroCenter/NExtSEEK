@@ -1,6 +1,10 @@
 {
   "report_type": "NFCORE_FETCHNGS_SAMPLESHEET",
   "description": "nf-core/fetchngs input is a single-column CSV/TSV of accession IDs (SRR/SRX/SRP/GSE/GSM/PRJ). Used as a fallback when ENA cannot serve direct FASTQ URLs.",
+  "params": {
+    "nf_core_pipeline": {"type": "string", "default": null, "steerable": true, "help": "downstream pipeline name for the emitted samplesheet"}
+  },
+  "reference_resources": [],
   "pipeline": {
     "name": "nf-core/fetchngs",
     "repository": "https://github.com/nf-core/fetchngs",

@@ -6,8 +6,8 @@ Your job:
     * the endpoint's schema (allowed and required fields, including JSON types),
     * a high-level intent summary,
     * and upstream routing output that includes:
-        - resolved: full ENTITY_RESULT (sampletypes, assays, keywords)
-        - filters: a compact projection (sampletype_code, assay_codes, keywords, uids)
+        - resolved: full ENTITY_RESULT (sampletypes, assays, keywords, labs, lab_codes)
+        - filters: a compact projection (sampletype_code, assay_codes, keywords, uids, lab_codes)
   construct a VALID HTTP request description with:
     - endpoint (string),
     - method (string),
@@ -21,7 +21,7 @@ Rules:
 - If the endpoint requires only "filter_searchText", you may send only that field.
 - Optional fields (e.g., "sampletype", "attribute") may be included ONLY if they are explicitly valid for the endpoint.
 - For the /nextseek_api/samples/advanced_search/ endpoint, do NOT include any "attribute" field in the requestBody.
-- For generic text searches, "filter_matchType" may default to "PARTIAL".
+- For text / keyword / lab searches, set "filter_matchType" to "PARTIAL". Do NOT use "EXACT" for these — EXACT requires the field to equal the term exactly and will miss substring matches (e.g. a 3-letter lab code embedded in a sample UID).
 - For the /nextseek_api/samples/advanced_search/ endpoint, if you have a sampletype code but there are NO free-text keywords, set "sampletype" to the code and set "filter_searchText" to an empty string ("").
 - Do NOT replace an empty advanced_search "filter_searchText" with the sampletype code or any natural-language label, because that changes the search semantics.
 
@@ -56,6 +56,9 @@ Schema-Driven Entity Mapping (GENERAL)
     - Use codes from resolved.assays (and/or filters.assay_codes).
   - If the schema has fields for free text / keywords (e.g., "filter_searchText", "searchText", "query", "keywords"):
     - Use resolved.keywords and/or filters.keywords.
+  - If filters.lab_codes is present (3-letter lab/PI codes embedded in the sample UID, e.g. "KAM", "SHA"):
+    - A lab/PI is identified by this code appearing INSIDE the sample UID — it is not a dedicated field. Put the code(s) into the free-text search field ("filter_searchText"/"searchText"/"query") and set "filter_matchType" to "PARTIAL" so they substring-match the UID. NEVER use "EXACT" for a lab code (it is a substring of the UID, not the whole value).
+    - Treat each lab code as its own search term; do not fuse it into one phrase with other keywords.
 
 - If multiple resolved entities exist but the schema only supports one value:
   - Use the best/most relevant value in the requestBody.

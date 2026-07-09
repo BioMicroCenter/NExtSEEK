@@ -200,6 +200,7 @@ class ChatConfig:
         self.PARSER_SYSTEM_PROMPT = self._load_composed_parser_prompt("parser_agent.txt")
         self.REPORTER_SYSTEM_PROMPT = self._load_prompt("reporter_agent.txt")
         self.REPORT_WRITER_SYSTEM_PROMPT = self._load_prompt("report_writer_agent.txt")
+        self.REPORT_CODER_SYSTEM_PROMPT = self._load_prompt("report_coder_agent.txt")
         self.API_AGENT_SYSTEM_PROMPT = self._load_prompt("api_agent.txt")
         self.CHATTER_SYSTEM_PROMPT = self._load_prompt("chatter_agent.txt")
         self.MEMORY_SYSTEM_PROMPT = self._load_prompt("memory_agent.txt")
@@ -211,7 +212,6 @@ class ChatConfig:
         self.CONTEXT_ENGINEER_SYSTEM_PROMPT = self._load_prompt("context_engineer.txt")
         self.EVALUATOR_V1_SYSTEM_PROMPT = self._load_prompt("evaluator-v1-agent.txt")
         self.SEQERA_AGENT_SYSTEM_PROMPT = self._load_prompt("seqera_agent.txt")
-        self.WIZARD_AGENT_SYSTEM_PROMPT = self._load_prompt("wizard_agent.txt")
         self.CAPABILITIES_DOC = self._load_capabilities_doc()
 
         # Seqera / Tower environment for the NFCORE flow.

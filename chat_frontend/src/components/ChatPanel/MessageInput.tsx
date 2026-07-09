@@ -29,7 +29,10 @@ function readInitialQuery(): string {
 
 export function MessageInput({ onSend, disabled, isAdmin = false, apiService }: MessageInputProps) {
   const [value, setValue] = useState<string>(() => readInitialQuery());
-  const [pipeline, setPipeline] = useState<"standard" | "plan">("standard");
+  // Pipeline mode is fixed to "standard" — the Standard/Planner selector was
+  // removed from the UI, but the field is still sent so the backend contract
+  // (SendOptions.pipeline) is unchanged.
+  const [pipeline] = useState<"standard" | "plan">("standard");
   const [useProd, setUseProd] = useState<boolean>(false);
   const { textareaRef, handleInput, resetHeight } = useAutoResize();
 
@@ -47,11 +50,6 @@ export function MessageInput({ onSend, disabled, isAdmin = false, apiService }: 
       handleSend();
     }
   };
-
-  const pillBase =
-    "rounded-md border px-2 py-1 text-xs cursor-pointer transition-colors";
-  const pillActive = "bg-primary text-primary-foreground border-primary";
-  const pillInactive = "bg-background hover:bg-accent";
 
   return (
     <div data-testid="message-input" className="border-t bg-background px-4 py-3">
@@ -72,26 +70,6 @@ export function MessageInput({ onSend, disabled, isAdmin = false, apiService }: 
           rows={1}
         />
         <div className="flex flex-col items-end gap-1">
-          <div role="group" aria-label="Pipeline mode" className="flex gap-1">
-            <button
-              type="button"
-              aria-pressed={pipeline === "standard"}
-              className={`${pillBase} ${pipeline === "standard" ? pillActive : pillInactive}`}
-              onClick={() => setPipeline("standard")}
-              disabled={disabled}
-            >
-              Standard
-            </button>
-            <button
-              type="button"
-              aria-pressed={pipeline === "plan"}
-              className={`${pillBase} ${pipeline === "plan" ? pillActive : pillInactive}`}
-              onClick={() => setPipeline("plan")}
-              disabled={disabled}
-            >
-              Planner
-            </button>
-          </div>
           {isAdmin && (
             <label className="flex items-center gap-1 text-xs cursor-pointer select-none">
               <input

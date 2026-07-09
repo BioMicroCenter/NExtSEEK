@@ -203,6 +203,7 @@ def build_recent_results_summary(session: SessionState, max_results: int = 8) ->
                 )
         lines.append(
             f"- id={bundle.get('id')}, "
+            f"mode={bundle.get('mode')}, "
             f"query={bundle.get('user_query')!r}, "
             f"endpoint={bundle.get('endpoint')}, "
             f"total={total}"
@@ -263,21 +264,40 @@ def _extract_total_and_rows(api_result_full: dict) -> tuple[int | None, int]:
     return None, 0
 
 
+def _retry_terms(plan: dict, api_plan: dict) -> list[str]:
+    """Terms to try in isolation when advanced_search returns empty: the tokens of
+    the search that was actually SENT, plus filters.keywords and filters.lab_codes,
+    deduped in order. Sourcing from the sent filter_searchText (and lab_codes) — not
+    filters.keywords alone — lets a lab-scoped search whose 3-letter code the api_agent
+    fused with other terms (e.g. "KAM MetNet") fall back to the code alone ("KAM")."""
+    filters = plan.get("filters") or {}
+    sent = ((api_plan.get("requestBody") or {}).get("filter_searchText") or "")
+    candidates = list(_split_retry_keyword(sent)) if sent else []
+    candidates += [k for k in (filters.get("keywords") or []) if isinstance(k, str)]
+    candidates += [c for c in (filters.get("lab_codes") or []) if isinstance(c, str)]
+    out: list[str] = []
+    for term in candidates:
+        term = term.strip()
+        if term and term not in out:
+            out.append(term)
+    return out
+
+
 def _should_retry_advanced_search(plan: dict, api_plan: dict, api_result_full: dict) -> bool:
     """
     Determine whether an advanced_search POST should be retried after an empty or failed result.
-    Verifies endpoint/method, requires keywords, and checks for zero results or API errors.
+    Verifies endpoint/method, requires multiple fallback terms (from the sent search +
+    keywords + lab_codes), and checks for zero results or API errors.
     """
     if api_plan.get("endpoint") != "/nextseek_api/samples/advanced_search/":
         return False
 
-    keywords = (plan.get("filters") or {}).get("keywords") or []
-    if not isinstance(keywords, list) or len(keywords) < 2:
-        # Still retry on errors (timeout etc.) even with fewer keywords
+    terms = _retry_terms(plan, api_plan)
+    if len(terms) < 2 and not _has_expandable_keyword(terms):
+        # Still retry on errors (timeout etc.) when there is anything to re-send.
         if isinstance(api_result_full, dict) and api_result_full.get("ok") is False:
-            return bool(keywords)
-        if not keywords or not _has_expandable_keyword(keywords):
-            return False
+            return bool(terms)
+        return False
 
     total, row_count = _extract_total_and_rows(api_result_full)
     # Retry on empty results or API errors (timeout, connection issues)
@@ -335,10 +355,10 @@ def _retry_advanced_search_if_empty(config: ChatConfig, plan: dict, api_plan: di
     if not _should_retry_advanced_search(plan, api_plan, api_result_full):
         return api_plan, api_result_full
 
-    keywords = (plan.get("filters") or {}).get("keywords") or []
+    terms = _retry_terms(plan, api_plan)
     base_body = dict(api_plan.get("requestBody") or {})
 
-    for label, search_text in _advanced_search_retry_attempts(keywords):
+    for label, search_text in _advanced_search_retry_attempts(terms):
         retry_body = dict(base_body)
         retry_body["filter_searchText"] = search_text
 

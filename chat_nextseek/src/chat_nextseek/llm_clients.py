@@ -67,6 +67,7 @@ class LLMResponse:
     usage: dict | None
     model: str
     provider: str
+    metadata: dict | None = None
 
 class BaseLLMClient:
     provider: str = "unknown"
@@ -449,7 +450,13 @@ class BedrockClient(BaseLLMClient):
                 continue
             if role not in ("user", "assistant"):
                 continue
-            converted.append({"role": role, "content": [{"text": str(content)}]})
+            text = str(content)
+            if not text.strip():
+                # Bedrock rejects blank text blocks (ValidationException). An empty
+                # turn can arise from the structured-output repair loop appending a
+                # prior empty response; substitute a placeholder so the block is valid.
+                text = "(no content)"
+            converted.append({"role": role, "content": [{"text": text}]})
         system_blocks = [{"text": "\n\n".join(system_parts)}] if system_parts else []
         return system_blocks, converted
 
@@ -487,6 +494,13 @@ class BedrockClient(BaseLLMClient):
                     "thinking": {"type": "adaptive"},
                     "output_config": {"effort": effort},
                 }
+                # Adaptive thinking tokens count against maxTokens. Without headroom
+                # the model can spend the entire budget thinking and return empty text
+                # (stop_reason=max_tokens) — which then breaks structured parsing. Leave
+                # room for the actual output on top of the thinking budget.
+                kwargs["inferenceConfig"]["maxTokens"] = max(
+                    self.max_output_tokens, thinking_budget + 4096
+                )
             else:
                 kwargs["additionalModelRequestFields"] = {
                     "thinking": {"type": "enabled", "budget_tokens": thinking_budget}
@@ -536,12 +550,26 @@ class BedrockClient(BaseLLMClient):
         except Exception:
             pass
 
+        metadata = None
+        try:
+            rmeta = resp.get("ResponseMetadata") or {}
+            metadata = {
+                "request_id": rmeta.get("RequestId"),
+                "http_status": rmeta.get("HTTPStatusCode"),
+                "retry_attempts": rmeta.get("RetryAttempts"),
+                "bedrock_latency_ms": (resp.get("metrics") or {}).get("latencyMs"),
+                "stop_reason": resp.get("stopReason"),
+            }
+        except Exception:
+            pass
+
         return LLMResponse(
             content=text or "",
             raw=resp,
             usage=usage,
             model=model,
             provider=self.provider,
+            metadata=metadata,
         )
 
     @staticmethod

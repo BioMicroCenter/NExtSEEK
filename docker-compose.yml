@@ -1,7 +1,7 @@
 services:
   nextseek:
     build: .
-    container_name: nextseek
+    container_name: ${INSTANCE_PREFIX:-}nextseek
     restart: always
     env_file:
       - ./docker/db.env
@@ -168,7 +168,7 @@ services:
 
   db: # Database implementation, in this case MySQL
     image: mysql:8.0
-    container_name: seek-mysql
+    container_name: ${INSTANCE_PREFIX:-}seek-mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --log-error-verbosity=1
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
@@ -188,7 +188,7 @@ services:
 
   neo4j:
     image: neo4j
-    container_name: neo4j
+    container_name: ${INSTANCE_PREFIX:-}neo4j
     restart: always
     volumes:
       - neo4j-data:/data
@@ -201,7 +201,7 @@ services:
   seek:
     image: fairdom/seek:1.15.1
 
-    container_name: seek
+    container_name: ${INSTANCE_PREFIX:-}seek
     command: docker/entrypoint.sh
     restart: always
     environment:
@@ -228,7 +228,7 @@ services:
       #build: .
 
       image: fairdom/seek:1.15.1
-      container_name: seek-workers
+      container_name: ${INSTANCE_PREFIX:-}seek-workers
       command: docker/start_workers.sh
       restart: always
       environment:
@@ -251,7 +251,7 @@ services:
 
   solr:
     image: fairdom/seek-solr:8.11
-    container_name: seek-solr
+    container_name: ${INSTANCE_PREFIX:-}seek-solr
     restart: always
     environment:
       SOLR_JAVA_MEM: -Xms512m -Xmx1024m
@@ -278,16 +278,22 @@ networks:
 volumes:
   seek-filestore:
     external: true
+    name: ${INSTANCE_PREFIX:-}seek-filestore
   seek-mysql-db:
     external: true
+    name: ${INSTANCE_PREFIX:-}seek-mysql-db
   seek-solr-data:
     external: true
+    name: ${INSTANCE_PREFIX:-}seek-solr-data
   seek-cache:
     external: true
+    name: ${INSTANCE_PREFIX:-}seek-cache
   nextseek-static-files:
     external: true
+    name: ${INSTANCE_PREFIX:-}nextseek-static-files
   neo4j-data:
     external: true
+    name: ${INSTANCE_PREFIX:-}neo4j-data
   # Container-CC per-project/per-user trees (G7-10). Created by
   # `./startup.sh install` (startup/steps/volumes.py REQUIRED_VOLUMES), same as
   # the six SEEK/NExtSEEK volumes above.

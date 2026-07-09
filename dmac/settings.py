@@ -440,6 +440,11 @@ BATCH_UPLOAD_MAX_TOTAL_BYTES = int(os.getenv("BATCH_UPLOAD_MAX_TOTAL_BYTES", 200
 # No behavior change under Docker (all the env vars are set there).
 NEXTSEEK_DATABASE = "default"
 SEEK_DATABASE = "seek"
+# Public, browser-reachable SEEK base URL (dev). Unconditional module-level default
+# so the attribute always exists on native/env-less hosts (dev's unguarded consumers
+# seek/views.py + seek/dbtable_sample.py read it bare); reassigned to the real value
+# inside the SEEK_HOST guard below, where SEEK_URL is defined.
+SEEK_PUBLIC_URL = os.getenv("SEEK_PUBLIC_URL", "")
 ACCOUNTS_PROFILE_MODEL = "seek.User_profile"
 
 if os.getenv("NEXTSEEK_NEO4J_HOST"):
@@ -455,6 +460,11 @@ if os.getenv("SEEK_HOST"):
     SEEK_HOSTNAME = os.getenv("SEEK_HOSTNAME")
     SEEK_SERVER = os.getenv("SEEK_HOST")
     SEEK_URL = "http://" + SEEK_SERVER + ":3000"
+    # dev's SEEK_PUBLIC_URL intent, guard-safe (SEEK_URL exists here). Distinct from
+    # SEEK_URL, the *internal* docker hostname for server-to-server SEEK API calls
+    # (stays http://seek:3000); set SEEK_PUBLIC_URL in docker/nextseek.env to the
+    # browser-facing URL (http://localhost:<SEEK_PORT> local; real hostname in prod).
+    SEEK_PUBLIC_URL = os.getenv("SEEK_PUBLIC_URL", SEEK_URL)
     SEEK_JS_URL = SEEK_SERVER
 
     VIRTUOSO_URL = "http://" + SEEK_SERVER + ":8890/sparql/"

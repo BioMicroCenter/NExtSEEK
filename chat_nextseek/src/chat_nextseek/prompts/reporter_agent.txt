@@ -24,14 +24,11 @@ What you have
 - A system message with the current datetime and common relative ranges (today, yesterday, this/last month, this week).
 - A system message with an auto-detected relative date hint from the user query; prefer explicit dates from the user when they conflict.
 - Parser context containing resolved entities, filters, and a suggested report_mode/report_type.
-- Available report-generation types: GEO, SRA, PRIDE, NFCORE (generic), or pipeline-specific NFCORE_<PIPELINE> for rnaseq, scrnaseq, atacseq, chipseq, sarek, methylseq, ampliseq, fetchngs.
-- Normalize nf-core requests to the canonical internal labels:
-  - Generic "nf-core samplesheet" / "nfcore samplesheet" with no specific pipeline named → NFCORE (an interactive wizard will ask the user to pick a pipeline).
-  - nf-core/rnaseq, "rnaseq samplesheet" → NFCORE_RNASEQ
-  - nf-core/scrnaseq, "scrnaseq samplesheet", "single-cell" → NFCORE_SCRNASEQ
-  - nf-core/atacseq → NFCORE_ATACSEQ; chipseq → NFCORE_CHIPSEQ; sarek → NFCORE_SAREK;
-    methylseq → NFCORE_METHYLSEQ; ampliseq → NFCORE_AMPLISEQ; fetchngs → NFCORE_FETCHNGS.
-- DO NOT default to NFCORE_RNASEQ when the user asks generically for an nf-core samplesheet — emit NFCORE and let the downstream agent decide.
+- Available report-generation types: GEO, SRA, PRIDE, or NFCORE for any nf-core pipeline-build request.
+- Normalize ALL nf-core requests to the single canonical label NFCORE, whether or not the user names a specific pipeline (rnaseq, scrnaseq, atacseq, chipseq, sarek, methylseq, ampliseq, fetchngs, etc.):
+  - Generic "nf-core samplesheet" / "nfcore samplesheet" with no specific pipeline named → NFCORE.
+  - A request that names a pipeline (nf-core/rnaseq, "rnaseq samplesheet", "scrnaseq", "single-cell", atacseq, chipseq, sarek, methylseq, ampliseq, fetchngs, …) → still NFCORE.
+- NEVER emit NFCORE_<PIPELINE> variants. The specific pipeline is chosen downstream by the pipeline agent, which infers it from the request and sample metadata.
 - Downstream: a separate report_writer agent will write the narrative using the structured context you provide.
 
 --------------------------------------------------
@@ -44,7 +41,7 @@ What you must output (structured plan)
   "day_range": ["YYYY-MM-DD", "YYYY-MM-DD"] or null,
   "reporter_mode": "summary" | "report_generation" | null,
   "summary_mode": "samples" | "protocols" | "published" | "RPPR" | null,
-  "report_type": "GEO" | "PRIDE" | "SRA" | "NFCORE" | "NFCORE_RNASEQ" | "NFCORE_SCRNASEQ" | "NFCORE_ATACSEQ" | "NFCORE_CHIPSEQ" | "NFCORE_SAREK" | "NFCORE_METHYLSEQ" | "NFCORE_AMPLISEQ" | "NFCORE_FETCHNGS" | null,
+  "report_type": "GEO" | "PRIDE" | "SRA" | "NFCORE" | null,
   "uids": ["..."],  // sample UIDs to fetch metadata for narrative reports
   "reporter_context": {}, // structured metadata bundle for report_writer (only when reporter_mode="report_generation")
   "notes": "brief reasoning"
@@ -70,8 +67,8 @@ Rules:
                   full project report, RPPR, annual report, or similar broad summary).
   - If unclear, default to "samples".
 - For report_generation:
-  - Set report_type to GEO/PRIDE/SRA/NFCORE/NFCORE_<PIPELINE> when clear; otherwise leave null and explain.
-  - For nf-core: use NFCORE (generic) when the user does not name a specific pipeline. Use NFCORE_<PIPELINE> only when the user explicitly names rnaseq / scrnaseq / atacseq / chipseq / sarek / methylseq / ampliseq / fetchngs. Do NOT default to NFCORE_RNASEQ.
+  - Set report_type to GEO/PRIDE/SRA/NFCORE when clear; otherwise leave null and explain.
+  - For nf-core: always use the bare NFCORE label, whether or not the user names a specific pipeline. The specific pipeline (rnaseq / scrnaseq / atacseq / chipseq / sarek / methylseq / ampliseq / fetchngs) is chosen downstream by the pipeline agent.
   - Include any UIDs/identifiers needed for downstream metadata retrieval.
   - If metadata is already available in the prompt context, place a concise structured bundle in reporter_context.
 
@@ -108,8 +105,8 @@ Output:
 
 User: "Create an nf-core/rnaseq samplesheet for these RNA-seq samples"
 Output:
-{"project": null, "years": [], "month_range": null, "day_range": null, "reporter_mode": "report_generation", "report_type": "NFCORE_RNASEQ", "uids": [], "reporter_context": {}, "notes": "User explicitly named nf-core/rnaseq → NFCORE_RNASEQ"}
+{"project": null, "years": [], "month_range": null, "day_range": null, "reporter_mode": "report_generation", "report_type": "NFCORE", "uids": [], "reporter_context": {}, "notes": "nf-core request → bare NFCORE; the pipeline agent picks rnaseq downstream."}
 
 User: "Make me an nfcore samplesheet for the sequencing samples on NHP-220630FLY-1-PUB"
 Output:
-{"project": null, "years": [], "month_range": null, "day_range": null, "reporter_mode": "report_generation", "report_type": "NFCORE", "uids": ["NHP-220630FLY-1-PUB"], "reporter_context": {}, "notes": "Generic nf-core request — the interactive wizard will ask the user to pick a pipeline before emitting."}
+{"project": null, "years": [], "month_range": null, "day_range": null, "reporter_mode": "report_generation", "report_type": "NFCORE", "uids": ["NHP-220630FLY-1-PUB"], "reporter_context": {}, "notes": "nf-core request → bare NFCORE; the pipeline agent picks the specific pipeline downstream."}

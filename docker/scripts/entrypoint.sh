@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+# NExtSEEK writes Excel exports + upload/dropbox staging under MEDIA_ROOT
+# (/media), which is not a docker volume, so the subdirs don't exist on a fresh
+# container. Without them, export/retrieve/delete/publish all 500 with
+# "Cannot save file into a non-existent directory: '/media/download'".
+mkdir -p /media/download /media/uploads /media/uploads/production /media/dropbox /media/reserved
+
 # Fail-fast (R2, mirrors the FU4 migrate guard below): a silently swallowed
 # collectstatic failure boots the site with missing/stale static (empty volume
 # -> sitewide 404s; post-rebuild -> chat-assistant bundle 404s). Under compose

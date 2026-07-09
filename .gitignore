@@ -180,7 +180,7 @@ duckdb/
 embedding_models/
 *.swp
 setup-celery-worker.sh
-outputs 
+outputs
 CLAUDE.md
 # The cc-agent image's in-container CLAUDE.md is a required Dockerfile COPY
 # input (committed-but-generated; refresh via `python -m
@@ -205,3 +205,9 @@ dmac_assistant/src/dmac_assistant/router/baml_client/
 
 # Local design specs + plans (working docs, not part of the public repo)
 docs/superpowers/
+
+# SEEK filestore — too large for git (raw dir ~500MB; snapshot ~215MB, over
+# GitHub's 100MB/file limit, and forks can't host LFS). The snapshot is hosted
+# on S3 and downloaded on demand by the startup CLI. See startup/seed/README.md.
+/filestore/
+startup/seed/filestore.tar.gz

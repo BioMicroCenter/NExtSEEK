@@ -16,7 +16,7 @@ from startup.steps.config import (
 
 
 def test_default_values_has_demo_creds() -> None:
-    v = default_values(nextseek_port=8000)
+    v = default_values(nextseek_port=8000, seek_port=3000)
     assert v.mysql_root_password == "seek_root"
     assert v.mysql_password == "seek_db_password"
     assert v.neo4j_password == "demopassword"
@@ -24,7 +24,7 @@ def test_default_values_has_demo_creds() -> None:
 
 
 def test_default_values_csrf_origins_match_port() -> None:
-    v = default_values(nextseek_port=8042)
+    v = default_values(nextseek_port=8042, seek_port=3042)
     assert "127.0.0.1:8042" in v.django_csrf_trusted_origins
     assert "localhost:8042" in v.django_csrf_trusted_origins
 
@@ -50,6 +50,7 @@ def test_render_db_env_substitutes(tmp_path: Path) -> None:
         django_secret_key="dsk",
         django_csrf_trusted_origins="origins",
         nextseek_port=8000,
+        seek_port=3000,
     )
     render_db_env(repo, v)
     rendered = (repo / "docker" / "db.env").read_text()
@@ -68,11 +69,12 @@ def test_render_nextseek_env_substitutes(tmp_path: Path) -> None:
         'NEXTSEEK_NEO4J_PASSWORD="${NEO4J_PASSWORD}"\n'
         'DJANGO_SECRET_KEY="${DJANGO_SECRET_KEY}"\n'
         'DJANGO_CSRF_TRUSTED_ORIGINS="${DJANGO_CSRF_TRUSTED_ORIGINS}"\n'
+        'SEEK_PUBLIC_URL="http://localhost:${SEEK_PORT}"\n'
     )
     v = ConfigValues(
         mysql_root_password="r", mysql_password="p", neo4j_password="np",
         django_secret_key="dsk", django_csrf_trusted_origins="csrforigins",
-        nextseek_port=8042,
+        nextseek_port=8042, seek_port=3042,
     )
     render_nextseek_env(repo, v)
     rendered = (repo / "docker" / "nextseek.env").read_text()
@@ -80,6 +82,7 @@ def test_render_nextseek_env_substitutes(tmp_path: Path) -> None:
     assert 'NEO4J_PASSWORD="np"' in rendered
     assert 'DJANGO_SECRET_KEY="dsk"' in rendered
     assert 'DJANGO_CSRF_TRUSTED_ORIGINS="csrforigins"' in rendered
+    assert 'SEEK_PUBLIC_URL="http://localhost:3042"' in rendered
 
 
 def test_render_local_settings_writes_to_dmac(tmp_path: Path) -> None:
@@ -91,6 +94,7 @@ def test_render_local_settings_writes_to_dmac(tmp_path: Path) -> None:
     v = ConfigValues(
         mysql_root_password="r", mysql_password="p", neo4j_password="np",
         django_secret_key="dsk", django_csrf_trusted_origins="o", nextseek_port=8000,
+        seek_port=3000,
     )
     render_local_settings(repo, v)
     assert (repo / "dmac" / "local_settings.py").exists()

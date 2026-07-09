@@ -15,7 +15,7 @@ from startup.lib.instance import (
     save_instance,
 )
 from startup.lib.ports import allocate_ports
-from startup.steps import prereqs, config, volumes, seed, build, users, validate, schema_fixups, seed_cleanup
+from startup.steps import prereqs, config, volumes, seed, seed_filestore, build, users, validate, schema_fixups, seed_cleanup
 
 app = typer.Typer(
     name="startup",
@@ -143,7 +143,7 @@ def install(
 
     # [4/9] Config templates
     ui.step(4, total, "Writing config templates")
-    values = config.default_values(nextseek_port=ports["nextseek"])
+    values = config.default_values(nextseek_port=ports["nextseek"], seek_port=ports["seek"])
     config.render_db_env(REPO_ROOT, values)
     config.render_nextseek_env(REPO_ROOT, values)
     config.render_local_settings(REPO_ROOT, values)
@@ -194,10 +194,10 @@ def install(
         if seed.neo4j_is_populated(values.neo4j_password, REPO_ROOT, compose_env):
             ui.ok("neo4j already populated; skipping")
         else:
-            ui.info("neo4j.cypher.gz is ~674k CREATE statements — this takes 30-60 min on first install")
+            ui.info("neo4j.cypher.gz — bulk-loaded via UNWIND batches (~1-2 min)")
             ui.info(f"watch progress in the Neo4j browser at http://localhost:{ports['neo4j_http']}/")
             ui.info(f"  log in as neo4j / {values.neo4j_password}, then run:  MATCH (n) RETURN count(n);")
-            with ui.spinner("loading neo4j.cypher.gz (long-running; safe to leave unattended)"):
+            with ui.spinner("loading neo4j.cypher.gz via UNWIND batches"):
                 seed.load_neo4j_dump(REPO_ROOT / "startup" / "seed" / "neo4j.cypher.gz", values.neo4j_password, REPO_ROOT, compose_env)
             ui.ok("neo4j loaded")
 
@@ -217,6 +217,29 @@ def install(
     with ui.spinner(f"waiting for NExtSEEK to respond on :{ports['nextseek']} (gunicorn ~1-2 min to boot)"):
         build.wait_for_nextseek_http(ports["nextseek"])
     ui.ok("stack up")
+
+    # Seed the SEEK filestore: the content blobs that seek_production.sql.gz's
+    # metadata points at. Runs here (not in the [6/9] DB block) because it needs
+    # the seek container up with its filestore dirs initialized — which happens
+    # in start_seek_side() above. Gated like the DB seeds: skipped with
+    # --no-seed, skipped if assets already exist. The ~215MB archive isn't in
+    # git; if it's absent locally we download it from S3, and only warn-and-skip
+    # if that download fails (so install still completes offline).
+    if not no_seed:
+        if seed_filestore.filestore_is_populated(REPO_ROOT, compose_env):
+            ui.ok("SEEK filestore already populated; skipping")
+        else:
+            if not seed_filestore.archive_present(REPO_ROOT):
+                try:
+                    with ui.spinner("downloading filestore.tar.gz (~215MB) from S3"):
+                        seed_filestore.download_archive(REPO_ROOT)
+                    ui.ok("filestore.tar.gz downloaded")
+                except Exception as exc:  # network/checksum — non-fatal, keep installing
+                    ui.warn(f"could not download filestore archive ({exc}); skipping filestore seed")
+            if seed_filestore.archive_present(REPO_ROOT):
+                with ui.spinner("loading filestore.tar.gz into the seek volume"):
+                    seed_filestore.load_filestore(REPO_ROOT, compose_env)
+                ui.ok("SEEK filestore loaded")
 
     # Data cleanup: the dev seed brings along the dev user's chat history
     # which mostly shows up as untitled "New chat" placeholders. Clear those
@@ -339,6 +362,41 @@ def rebuild(
             build=True,
         )
     ui.ok(f"{service} rebuilt and restarted")
+
+
+@app.command(name="seed-filestore")
+def seed_filestore_cmd(
+    instance: str | None = typer.Option(None, "--instance"),
+    force: bool = typer.Option(False, "--force", help="Re-seed even if the filestore already has assets."),
+) -> None:
+    """Load startup/seed/filestore.tar.gz into the running seek container's filestore volume.
+
+    Standalone counterpart to the filestore seeding that `install` does in phase
+    7 — use it to (re)seed an already-running stack without a full reinstall.
+    Downloads the archive from S3 if it isn't already present locally.
+    """
+    state = load_instance(REPO_ROOT)
+    if state is None:
+        ui.fail("no instance found — run 'startup install' first")
+        raise typer.Exit(code=1)
+    compose_env = state.compose_env()
+
+    ui.banner("Seeding SEEK filestore")
+    if not seed_filestore.archive_present(REPO_ROOT):
+        try:
+            with ui.spinner("downloading filestore.tar.gz (~215MB) from S3"):
+                seed_filestore.download_archive(REPO_ROOT)
+            ui.ok("filestore.tar.gz downloaded")
+        except Exception as exc:
+            ui.fail(f"could not download {seed_filestore.FILESTORE_ARCHIVE}: {exc}")
+            ui.remediation(f"Fetch it manually:  curl -o {seed_filestore.FILESTORE_ARCHIVE} {seed_filestore.FILESTORE_URL}")
+            raise typer.Exit(code=1)
+    if not force and seed_filestore.filestore_is_populated(REPO_ROOT, compose_env):
+        ui.ok("filestore already populated; nothing to do (pass --force to re-seed)")
+        return
+    with ui.spinner("loading filestore.tar.gz into the seek volume"):
+        seed_filestore.load_filestore(REPO_ROOT, compose_env)
+    ui.ok("SEEK filestore loaded")
 
 
 @app.command(name="dump-db")

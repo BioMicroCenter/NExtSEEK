@@ -49,6 +49,21 @@ is `nextseek`.
 ./startup.sh rebuild --service nextseek_nginx
 ```
 
+### `seed-filestore`
+
+Loads `startup/seed/filestore.tar.gz` into the running `seek` container's
+`/seek/filestore` volume — the content blobs (data files, SOPs, avatars, ...)
+that the `seek_production` metadata points at. The ~215MB archive isn't in git;
+if it's not already in `startup/seed/` it's downloaded from S3 (sha256-verified)
+first. `install` does this automatically in phase 7; use this command to
+(re)seed an already-running stack without a full reinstall. Skips if the
+filestore already holds assets unless `--force` is given.
+
+```
+./startup.sh seed-filestore
+./startup.sh seed-filestore --force
+```
+
 ### `dump-db`
 
 **Maintainer-only.** Regenerates the gzipped seed dumps from a source DB.

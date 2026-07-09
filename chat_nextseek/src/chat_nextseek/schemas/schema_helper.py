@@ -7,7 +7,7 @@ from typing import Any, Type
 from pydantic import BaseModel, ValidationError
 
 from ..config import ChatConfig
-from ..helpers import log_prompt, log_usage, safe_parse_json
+from ..helpers import log_prompt, log_usage, log_llm_call, safe_parse_json
 from ..llm_clients import LLMError, LLMRateLimitError, LLMTimeoutError, LLMServiceUnavailableError, LLMFatalError
 
 # Default timeout for LLM calls (5 minutes)
@@ -152,6 +152,47 @@ def _call_llm_with_timeout(
             pass
 
 
+def _ledger_entry(
+    agent,
+    model_name,
+    client,
+    attempt,
+    outcome,
+    t0,
+    *,
+    timeout_seconds=None,
+    thinking_budget=None,
+    resp=None,
+    err=None,
+):
+    """Build one LLM-ledger record (latency, provider metadata, outcome). Never raises."""
+    entry: dict[str, Any] = {
+        "agent": agent,
+        "provider": getattr(client, "provider", None),
+        "model": model_name,
+        "attempt": attempt + 1,
+        "outcome": outcome,
+        "elapsed_ms": round((time.perf_counter() - t0) * 1000),
+        "timeout_seconds": timeout_seconds,
+        "thinking_budget": thinking_budget,
+    }
+    try:
+        if resp is not None:
+            usage = getattr(resp, "usage", None) or {}
+            entry["prompt_tokens"] = usage.get("prompt_tokens")
+            entry["completion_tokens"] = usage.get("completion_tokens")
+            meta = getattr(resp, "metadata", None) or {}
+            entry["retry_attempts"] = meta.get("retry_attempts")
+            entry["bedrock_latency_ms"] = meta.get("bedrock_latency_ms")
+            entry["request_id"] = meta.get("request_id")
+            entry["stop_reason"] = meta.get("stop_reason")
+        if err is not None:
+            entry["error"] = f"{type(err).__name__}: {err}"
+    except Exception:
+        pass
+    return entry
+
+
 def call_llm_structured(
     config: ChatConfig,
     prompt: str,
@@ -200,6 +241,7 @@ def call_llm_structured(
     timeout_attempts = 0
 
     for attempt in range(retries + 1):
+        _t0 = time.perf_counter()
         try:
             resp = _call_llm_with_timeout(
                 client=target_client,
@@ -216,6 +258,11 @@ def call_llm_structured(
                 f"[STRUCTURED_PARSE][{model.__name__}] 503 from provider='{failed_provider}' "
                 f"model='{target_model_name}' attempt {attempt+1}/{retries+1}: {sue}"
             )
+            log_llm_call(config.LOG_DIR, _ledger_entry(
+                _effective_agent_label, target_model_name, target_client, attempt,
+                "service_unavailable", _t0, timeout_seconds=timeout_seconds,
+                thinking_budget=target_thinking_budget, err=sue,
+            ))
             # Build fallback list on first 503
             if not _fallback_iter and _effective_agent_label:
                 _fallback_iter = _get_fallback_agent_configs(config, _effective_agent_label, failed_provider or "")
@@ -240,6 +287,11 @@ def call_llm_structured(
                 f"[STRUCTURED_PARSE][{model.__name__}] timeout on attempt {attempt+1}/{retries+1} "
                 f"(timeout retry {timeout_attempts}/{timeout_retries+1}): {te}"
             )
+            log_llm_call(config.LOG_DIR, _ledger_entry(
+                _effective_agent_label, target_model_name, target_client, attempt,
+                "timeout", _t0, timeout_seconds=timeout_seconds,
+                thinking_budget=target_thinking_budget, err=te,
+            ))
             if timeout_attempts > timeout_retries:
                 raise
             # Retry the same attempt after timeout
@@ -248,6 +300,11 @@ def call_llm_structured(
             print(
                 f"[STRUCTURED_PARSE][{model.__name__}] rate limit on attempt {attempt+1}/{retries+1}: {rle}"
             )
+            log_llm_call(config.LOG_DIR, _ledger_entry(
+                _effective_agent_label, target_model_name, target_client, attempt,
+                "throttle", _t0, timeout_seconds=timeout_seconds,
+                thinking_budget=target_thinking_budget, err=rle,
+            ))
             if attempt >= retries:
                 raise LLMFatalError(
                     f"Rate limited (429) — agent '{_effective_agent_label}', model '{target_model_name}': {rle}",
@@ -260,6 +317,11 @@ def call_llm_structured(
                 pass
             continue
         except LLMError as le:
+            log_llm_call(config.LOG_DIR, _ledger_entry(
+                _effective_agent_label, target_model_name, target_client, attempt,
+                "error", _t0, timeout_seconds=timeout_seconds,
+                thinking_budget=target_thinking_budget, err=le,
+            ))
             # Bare LLMError only (subclasses are already handled above).
             # Unclassified errors are treated as unrecoverable — kill the run.
             if type(le) is not LLMError:
@@ -268,6 +330,11 @@ def call_llm_structured(
                 f"Unrecoverable LLM error — agent '{_effective_agent_label}', model '{target_model_name}': {le}",
                 agent=_effective_agent_label,
             ) from le
+        log_llm_call(config.LOG_DIR, _ledger_entry(
+            _effective_agent_label, target_model_name, target_client, attempt,
+            "ok", _t0, timeout_seconds=timeout_seconds,
+            thinking_budget=target_thinking_budget, resp=resp,
+        ))
         if usage_label:
             log_usage(resp, usage_label)
         raw_output = resp.content or ""

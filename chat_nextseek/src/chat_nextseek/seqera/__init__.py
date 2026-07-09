@@ -8,7 +8,7 @@ from .ena import (
     resolve_accessions,
     resolve_accession_to_fastqs,
 )
-from .emitter import EmissionResult, emit_nfcore_artifacts, write_combined_launch_yml
+from .emitter import EmissionResult, emit_launch_artifacts, emit_nfcore_artifacts, write_combined_launch_yml
 from .submitter import submit_launch
 from .tower_client import TowerAPIError, TowerClient
 from .tower_datasets import upload_samplesheet_as_dataset
@@ -17,6 +17,7 @@ __all__ = [
     "ENAResolution",
     "EmissionResult",
     "NFCORE_PIPELINE_CATALOG",
+    "emit_launch_artifacts",
     "emit_nfcore_artifacts",
     "extract_accessions_from_metadata",
     "get_pipeline_entry",

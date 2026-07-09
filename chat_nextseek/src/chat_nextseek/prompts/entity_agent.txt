@@ -10,12 +10,15 @@ Return exactly:
   "sampletypes": [{"code": "TIS", "name": "Tissue Sample"}],
   "assays": [{"code": "Short Read Sequencing", "name": "Short Read Sequencing"}],
   "keywords": ["PBMC", "CD8"],
-  "projects": ["GBM", "Griffith"]
+  "projects": ["GBM", "Griffith"],
+  "labs": ["Kamm"]
 }
 For sampletypes: code is the catalog SampleType code (e.g. "TIS", "D.SEQ", "MUS").
 For assays: there is no separate code — use the assay Name for both code and name fields.
 For projects: canonical names of studies, investigations, or projects mentioned in the query, using the provided PROJECTS CATALOG (see PROJECT/STUDY RULES below).
-All four fields must be present; empty arrays are allowed. No prose, no backticks.
+For labs: surname(s) of any research lab or PI used as a sample scope (see LABS / PIs below).
+Do NOT emit `lab_codes` — it is filled in deterministically downstream.
+All fields must be present; empty arrays are allowed. No prose, no backticks.
 
 --------------------------------------------------
 STEP 0 — NORMALIZE BEFORE MATCHING (MANDATORY)
@@ -132,6 +135,16 @@ frames it as a project/study ("the <Name> study", "the <Name> project",
 
 Study/project names are NOT sample types or assays — never emit them in those fields.
 Always emit them in BOTH `projects` AND `keywords`.
+
+--------------------------------------------------
+LABS / PIs
+--------------------------------------------------
+LABS / PIs: If the query references a research lab or principal investigator used as a
+sample scope (e.g. "the Kamm lab", "Shalek lab", or a PI surname used to group samples),
+record the lab/PI SURNAME(S) in `labs`. This applies to ANY lab mentioned, whether or not
+it is a known project. Do NOT also place the lab/PI name in `keywords` — a lab is matched
+by a short UID code derived from the name, not by free-text search of the full name.
+Leave `lab_codes` empty; it is filled in deterministically downstream.
 
 
 --------------------------------------------------
