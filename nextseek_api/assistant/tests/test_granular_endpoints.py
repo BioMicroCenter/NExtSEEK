@@ -251,8 +251,13 @@ class ArtifactBundleRegistrationTests(GranularEndpointBase):
             self.assertEqual(dl["bundle_id"], 1)
             cs = ChatSession.objects.get(session_id=dl["session_id"])
             # A4: real saved_files land in the bundle (no longer hardcoded {})
-            self.assertEqual(
-                cs.results_history[0]["report_saved_files"]["geo_seq_workbooks"], [str(wb)])
+            result_saved_files = cs.results_history[0]["report_saved_files"]["geo_seq_workbooks"]
+            self.assertEqual(result_saved_files, [str(wb)])
+            # Smoke: the registered workbook is a real, nonzero-byte file on disk
+            # (not a hardcoded {} / empty placeholder). Shape here is a list of
+            # path strings (not dicts with "bytes"/"path" keys), so stat() directly.
+            assert any(Path(p).stat().st_size > 0 for p in result_saved_files), \
+                "submission produced no nonzero workbook"
             self.assertEqual(cs.results_history[0]["report_writer_output"]["report_type"], "GEO")
             keys = {a["key"]: a["url"] for a in dl["artifacts"]}
             # both the real workbook AND the on-the-fly all_tables are exposed
@@ -284,3 +289,8 @@ class AuthTests(GranularEndpointBase):
         ):
             resp = self.client.post(f"{self.BASE}/entity/", {"query": "x"}, format="json")
         self.assertEqual(resp.status_code, 403)
+
+
+def test_chat_nextseek_resolves_to_merged_tree():
+    import chat_nextseek
+    assert "chat_nextseek/src" in chat_nextseek.__file__.replace("\\", "/")
