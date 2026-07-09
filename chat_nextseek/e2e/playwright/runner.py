@@ -213,6 +213,14 @@ def run_variant_browser(
             except Exception:
                 pass
 
+    # Persist the captured NExtSEEK chat session_id to a raw artifact (not just
+    # the return value) so a --validate-only replay pass can recover it from
+    # disk alone, without trusting the live caller's in-memory result (Task 12
+    # F4a / 2026-07-08: this dict previously dropped captured_session_id on
+    # the floor even though it was already captured above for MySQL fetches).
+    if captured_session_id:
+        (out_dir / "session_id.txt").write_text(captured_session_id, encoding="utf-8")
+
     return {
         "id": variant.id,
         "family": variant.family,
@@ -220,6 +228,7 @@ def run_variant_browser(
         "elapsed_s": round(elapsed_total, 2),
         "failed_criteria": overall_failed_criteria,
         "turn_results": turn_results,
+        "session_id": captured_session_id,
     }
 
 
