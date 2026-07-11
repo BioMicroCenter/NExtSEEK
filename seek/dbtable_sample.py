@@ -3799,7 +3799,7 @@ class DBtable_sample(DBtable):
         filtersdic['filter_valueTo'] = filter_valueTo
         return msg, status, filtersdic
     
-    def searchAdvanced(self, user_seek, filters, searchType, project_id=0):
+    def searchAdvanced(self, user_seek, filters, searchType, project_id=0, skip_tree=False):
         logger.debug('searchAdvanced')
         msg, status, filtersdic = self.__parseSearchFilters(filters, searchType, project_id)
         if status==0:
@@ -3811,7 +3811,11 @@ class DBtable_sample(DBtable):
         
         if searchType=="UIDs":
             msg = 'ignore filtering'
-            data['tree'] = self.__getAttributeTree(data['rows'])
+            # Building the sample lineage tree does per-row DB lookups (~0.7s/row) and is
+            # unused by the advanced_search API; callers that need the tree (e.g. the SEEK
+            # sample-tree UI) leave skip_tree False.
+            if not skip_tree:
+                data['tree'] = self.__getAttributeTree(data['rows'])
         elif searchType=="FILTERING":
             attribute = filtersdic['attribute']
             if attribute!='none':

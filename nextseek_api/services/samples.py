@@ -2,6 +2,8 @@ from typing import Optional, Any
 
 import json
 import logging
+
+import orjson
 from django.http import HttpResponse
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -11,6 +13,7 @@ from django.conf import settings
 
 from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id
 from nextseek_api.helpers import paginate_rows_in_envelope
+from nextseek_api.batch_upload.helpers import UID_RE
 from nextseek_api.endpoint_descriptions import (
     SAMPLE_FETCH_DESC,
     SAMPLE_CREATE_DESC,
@@ -483,36 +486,84 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
 
         # Execute DB search
         try:
-            searchType = "Advanced"
             user_seek = getattr(request, "user", None)
             if DBtable_sample is None:
                 raise RuntimeError("DBtable_sample unavailable")
-            # Normalize multiple search texts into a PubMed-style boolean expression for upstream
-            try:
-                raw_st = req.filter_searchText
-                if isinstance(raw_st, list):
-                    terms = [str(t or '').strip() for t in raw_st if str(t or '').strip()]
-                    if len(terms) >= 2:
-                        st_logic = str(filters.get('searchText_logic') or 'OR').upper()
-                        op = ' AND ' if st_logic == 'AND' else ' OR '
-                        filters['filter_searchText'] = _nest_boolean_search_terms(terms, op)
-                    elif len(terms) == 1:
-                        # Single term: pass through unchanged (no parentheses)
-                        filters['filter_searchText'] = terms[0]
-                    else:
-                        filters['filter_searchText'] = ''
-                # If it's already a string, leave it as-is
-            except Exception:
-                # Best-effort normalization; fall back to existing value
-                pass
-            report = DBtable_sample().searchAdvanced(user_seek, filters, searchType)
+
+            # Split the search terms: exact UIDs take the fast path -- one indexed
+            # `WHERE uuid IN (...)` query (searchType="UIDs") with skip_tree (the sample
+            # lineage tree is ~0.7s/row and unused by this API). Any non-UID terms keep the
+            # PubMed text-search path. This turns a batch UID lookup from a full-text scan
+            # into a single indexed query. UID detection reuses the shared batch_upload
+            # UID_RE (no bespoke pattern).
+            raw_st = req.filter_searchText
+            if isinstance(raw_st, list):
+                _terms = [str(t or '').strip() for t in raw_st if str(t or '').strip()]
+            else:
+                _s = str(raw_st or '').strip()
+                _terms = [_s] if _s else []
+            uid_terms = [t for t in _terms if UID_RE.match(t)]
+            other_terms = [t for t in _terms if not UID_RE.match(t)]
+
+            def _run_search(search_type, sub_filters):
+                raw = DBtable_sample().searchAdvanced(user_seek, sub_filters, search_type, skip_tree=True)
+                return orjson.loads(raw) if raw else {}
+
+            partials = []
+            if uid_terms:
+                fu = dict(filters)
+                fu['filter_searchUIDs'] = "\n".join(uid_terms)
+                partials.append(_run_search("UIDs", fu))
+            if other_terms:
+                fo = dict(filters)
+                if len(other_terms) >= 2:
+                    op = ' AND ' if str(filters.get('searchText_logic') or 'OR').upper() == 'AND' else ' OR '
+                    fo['filter_searchText'] = _nest_boolean_search_terms(other_terms, op)
+                else:
+                    fo['filter_searchText'] = other_terms[0]
+                partials.append(_run_search("Advanced", fo))
+            if not partials:
+                fo = dict(filters)
+                fo['filter_searchText'] = ''
+                partials.append(_run_search("Advanced", fo))
+
+            if len(partials) == 1:
+                merged = partials[0]
+            else:
+                # Mixed UID + text search: union the rows, de-duplicated by sample id.
+                seen, rows_merged = set(), []
+                for part in partials:
+                    for row in (part.get('rows') or []):
+                        rid = row.get('id')
+                        if rid is not None and rid in seen:
+                            continue
+                        if rid is not None:
+                            seen.add(rid)
+                        rows_merged.append(row)
+                merged = {'total': len(rows_merged), 'rows': rows_merged, 'msg': 'okay', 'status': 1}
+
+            # Normalize row shape: the fast UIDs path returns json_metadata as a JSON
+            # string and no attributeValue, whereas the Advanced path (and the response
+            # schema + downstream consumers) expect a dict plus an attributeValue string.
+            # attributeValue is empty for a UID lookup (a UID is not free-text to
+            # highlight). No-op for Advanced-path rows, which are already shaped.
+            for _row in merged.get('rows') or []:
+                _jm = _row.get('json_metadata')
+                if isinstance(_jm, (str, bytes)):
+                    try:
+                        _row['json_metadata'] = orjson.loads(_jm)
+                    except Exception:
+                        _row['json_metadata'] = {}
+                if _row.get('attributeValue') is None:
+                    _row['attributeValue'] = ''
+            report = orjson.dumps(merged)
         except Exception as e:
             log.warning("samples_advanced.exec_exception action=create error=%s", str(e))
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
         # Validate output schema
         try:
-            data = json.loads(report or "{}")
+            data = orjson.loads(report or b"{}")
             SampleAdvancedSearchResult.model_validate(data)
         except ValidationError as ve:
             try:
