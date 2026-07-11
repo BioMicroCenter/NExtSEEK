@@ -219,7 +219,12 @@ class BatchUploadClient:
         items: list[dict[str, Any]] = []
         page = 1
         while True:
-            response = self._client.get(path, params={"page": page, "page_size": _PAGE_SIZE})
+            # /assays, /projects, /sample_types proxy to SEEK, which honors
+            # `per_page`, not DRF's `page_size`; send both so one request returns
+            # the whole page instead of ~7 rows/page (dozens of round-trips).
+            response = self._client.get(
+                path, params={"page": page, "page_size": _PAGE_SIZE, "per_page": _PAGE_SIZE}
+            )
             response.raise_for_status()
             body = _json(response)
             data = body.get("data", [])
@@ -239,7 +244,10 @@ class BatchUploadClient:
         items: list[dict[str, Any]] = []
         page = 1
         while True:
-            response = self._client.get(path, params={"page": page, "page_size": _PAGE_SIZE})
+            # SEEK-proxied endpoint: honors `per_page`, not `page_size` (see _paged_get).
+            response = self._client.get(
+                path, params={"page": page, "page_size": _PAGE_SIZE, "per_page": _PAGE_SIZE}
+            )
             response.raise_for_status()
             body = _json(response)
             rel_body = body["data"]["relationships"][relationship]
