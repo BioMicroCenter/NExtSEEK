@@ -1,0 +1,36 @@
+#!/bin/sh
+# nextseek-validate-upload: read-only batch-upload validation. Calls the
+# NExtSEEK batch-upload/validate/ endpoint (no INSERT). Cannot upload.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=build_context/plugins/nextseek/bin/_nextseek_common.sh
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+ROWS=""; PROJECT_ID=""; CONFIRM=""; CHECKS="structure,name_check,dag"; OUT="${NEXTSEEK_OUTPUTS_DIR}"
+CLEAR=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rows) ROWS="$2"; shift 2 ;;
+    --project-id) PROJECT_ID="$2"; shift 2 ;;
+    --project-confirmation) CONFIRM="$2"; shift 2 ;;
+    --checks) CHECKS="$2"; shift 2 ;;
+    --confirm-clear-assays) CLEAR="$2"; shift 2 ;;
+    --out) OUT="$2"; shift 2 ;;
+    --confirmed-write|--start|--upload)
+      nextseek_die 3 "$1 is forbidden: this tool validates only and cannot write" ;;
+    --help)
+      echo "Usage: nextseek-validate-upload --rows <file.json> --project-id <int>"
+      echo "       --project-confirmation <token.json> [--checks c1,c2,...]"
+      echo "       [--confirm-clear-assays <UID>] [--out <dir>]"
+      echo ""
+      echo "Build, validate, hard-gate, and promote the delivered workbook on pass."
+      exit 0 ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$ROWS" ] || nextseek_die 3 "--rows is required"
+[ -n "$PROJECT_ID" ] || nextseek_die 3 "--project-id is required"
+[ -n "$CONFIRM" ] || nextseek_die 3 "--project-confirmation is required"
+set -- build-validate --rows "$ROWS" --project-id "$PROJECT_ID" --project-confirmation "$CONFIRM" --checks "$CHECKS" --out "$OUT"
+if [ -n "$CLEAR" ]; then set -- "$@" --confirm-clear-assays "$CLEAR"; fi
+exec python "$SCRIPT_DIR/_batch_upload_runner.py" "$@"

@@ -49,9 +49,9 @@
     },
     {
       "route_name": "container_cc",
-      "description": "Container Claude Code: full agentic environment with file I/O, code execution, and arbitrary plugins / skills.",
-      "tools": ["nextseek-api", "bash", "filesystem", "skill-runner"],
-      "best_for": "Open-ended reasoning, file I/O, code, multi-tool workflows.",
+      "description": "Container Claude Code: full agentic environment with file I/O, code execution, and arbitrary plugins / skills (including the nextseek-batch-upload skill).",
+      "tools": ["nextseek-api", "nextseek-batch-upload", "bash", "filesystem", "skill-runner"],
+      "best_for": "Open-ended reasoning, file I/O, code, multi-tool workflows, and building/validating NExtSEEK batch-upload create/update sheets.",
       "not_for": "Pure NExtSEEK lookups that chat_nextseek answers deterministically.",
       "task_families": [
         {
@@ -68,6 +68,16 @@
           "example_queries": [
             "Write a Python script that plots age distribution by sex.",
             "Refactor this function to use pathlib."
+          ]
+        },
+        {
+          "name": "batch_upload_preparation",
+          "description": "Build and validate (never upload) a NExtSEEK batch-upload workbook to create or update sample metadata via the nextseek-batch-upload skill — including normalizing or fixing attribute values and preparing an update / re-ingestion sheet for existing samples. Any request to create, update, modify, normalize, or re-ingest samples — even one that also asks to find the samples first — belongs here.",
+          "example_queries": [
+            "Can you create an update sheet for re-ingestion?",
+            "Build me an update sheet to normalize the genotypes in the database.",
+            "Prepare a batch-upload workbook that sets Scientist to Jane Doe on these UIDs.",
+            "Make an upload spreadsheet to create new samples from this protocol text."
           ]
         }
       ]

@@ -65,6 +65,12 @@ def noop_reverse(apps, schema_editor):
 
 class Migration(migrations.Migration):
 
+    # The conditional ADD COLUMN issues DDL, and MySQL cannot run DDL inside a
+    # transaction: without this, Migration.apply force-wraps the RunPython in a
+    # transaction and the raw-cursor DDL silently implicit-commits it mid-flight
+    # (same precedent as 0005_ensure_chatsession_extra_state_column).
+    atomic = False
+
     dependencies = [
         ("nextseek_api", "0004_chatsession_extra_state_state_only"),
     ]

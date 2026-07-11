@@ -24,6 +24,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import orjson
 from django.http import StreamingHttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -33,6 +34,7 @@ from drf_spectacular.utils import extend_schema, OpenApiExample
 from pydantic import ValidationError
 
 from django.conf import settings
+from django.core.cache import cache
 
 ASSISTANT_PARTICIPATING_PROJECTS = settings.ASSISTANT_PARTICIPATING_PROJECTS
 TEST_CASES = settings.TEST_CASES
@@ -103,19 +105,32 @@ logger = logging.getLogger(__name__)
 
 class UserInParticipatingProject(BasePermission):
     message = "User needs to be in a participating project to use assistant"
+    # SEEK project membership changes rarely; cache the positive result briefly so
+    # the assistant does not re-fetch the ~16 KB /people/current on every request
+    # (the batch-upload flow alone makes dozens of assistant calls per turn).
+    _CACHE_TTL_SECONDS = 60
+
     def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+        cache_key = None
+        if user is not None and getattr(user, "is_authenticated", False):
+            cache_key = f"assistant_participating:{user.pk}"
+            if cache.get(cache_key):
+                return True
         try:
             client = SeekAPIClient()
-            person = json.loads(client.get_current_person(request)[0])
+            person = orjson.loads(client.get_current_person(request)[0])
             projects = person['data']['relationships']['projects']['data']
             project_ids = set(map(lambda project: project['id'], projects))
-            if project_ids & ASSISTANT_PARTICIPATING_PROJECTS != set():
-                return True
-            else:
-                return False
+            allowed = project_ids & ASSISTANT_PARTICIPATING_PROJECTS != set()
         except Exception:
             return False
-        
+        # Cache only positive results: a transient SEEK failure must re-check, and a
+        # newly-added member should not be blocked for the TTL.
+        if allowed and cache_key is not None:
+            cache.set(cache_key, True, self._CACHE_TTL_SECONDS)
+        return allowed
+
     def has_object_permission(self, request, view):
         return self.has_permissions(request, view)
 
