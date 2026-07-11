@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import pathlib
 import os
 import shutil
@@ -37,7 +36,7 @@ def _emit_gate(exc: GateError) -> None:
     payload = {"gate": exc.gate}
     if exc.detail:
         payload["detail"] = exc.detail
-    print(json.dumps(payload, separators=(",", ":")))
+    print(orjson.dumps(payload).decode())
 
 
 def _emit_runner_error(exc: BaseException) -> None:
@@ -56,7 +55,7 @@ def _client(transport=None) -> BatchUploadClient:
 
 
 def _load_rows(path: str | pathlib.Path) -> list[dict[str, Any]]:
-    rows = json.loads(pathlib.Path(path).read_text())
+    rows = orjson.loads(pathlib.Path(path).read_bytes())
     if not isinstance(rows, list):
         raise GateError("rows")
     return rows
@@ -65,7 +64,7 @@ def _load_rows(path: str | pathlib.Path) -> list[dict[str, Any]]:
 def _read_confirmation(path: str | pathlib.Path | None, project_id: int) -> dict[str, Any]:
     if path is None:
         raise GateError("project_unconfirmed")
-    token = json.loads(pathlib.Path(path).read_text())
+    token = orjson.loads(pathlib.Path(path).read_bytes())
     accessible = {int(item) for item in token.get("accessible_project_ids", [])}
     if not token.get("confirmed") or int(token.get("project_id", -1)) != project_id:
         raise GateError("project_unconfirmed")
@@ -209,15 +208,21 @@ def _verified_current(manifest: dict[str, dict[str, Any]]) -> dict[str, set[int]
 
 
 def _write_manifest(path: pathlib.Path, manifest: dict[str, dict[str, Any]]) -> None:
-    path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    path.write_bytes(orjson.dumps(manifest, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS))
+
+
+def _manifest_summary(manifest: dict[str, dict[str, Any]]) -> dict[str, int]:
+    counts = {"verified": 0, "absent": 0, "degraded": 0}
+    for entry in manifest.values():
+        status = str(entry.get("retrieve_status") or "")
+        if status in counts:
+            counts[status] += 1
+    return counts
 
 
 def _read_rows_from_xlsx(path: pathlib.Path) -> list[dict[str, Any]]:
     df = pl.read_excel(str(path), sheet_name="Samples", engine="calamine")
-    rows: list[dict[str, Any]] = []
-    for idx in range(df.height):
-        rows.append({column: df[column][idx] for column in df.columns})
-    return rows
+    return df.to_dicts()
 
 
 def _artifact_gate(
@@ -308,7 +313,7 @@ def _cmd_attrs(argv: list[str], *, transport=None) -> int:
     group.add_argument("--list", action="store_true")
     args = parser.parse_args(argv)
     client = _client(transport)
-    print(json.dumps(client.list_sample_types() if args.list else client.sample_type_attributes(args.type)))
+    print(orjson.dumps(client.list_sample_types() if args.list else client.sample_type_attributes(args.type)).decode())
     return 0
 
 
@@ -341,8 +346,8 @@ def _cmd_project_resolve(argv: list[str], *, transport=None) -> int:
     accessible_ids = [item["id"] for item in accessible]
 
     def _emit(token: dict[str, Any]) -> int:
-        pathlib.Path(args.out).write_text(json.dumps(token, indent=2))
-        print(json.dumps(token))
+        pathlib.Path(args.out).write_bytes(orjson.dumps(token, option=orjson.OPT_INDENT_2))
+        print(orjson.dumps(token).decode())
         return 0 if token["confirmed"] else 1
 
     base = {"accessible_project_ids": accessible_ids, "accessible_projects": accessible}
@@ -384,7 +389,7 @@ def _cmd_assay_resolve(argv: list[str], *, transport=None) -> int:
             result[title] = client.resolve_assay_title(title, title_map, project_ids)
         except ValueError as exc:
             raise GateError("assay_resolution", title) from exc
-    print(json.dumps(result, sort_keys=True))
+    print(orjson.dumps(result, option=orjson.OPT_SORT_KEYS).decode())
     return 0
 
 
@@ -392,7 +397,7 @@ def _cmd_sample_search(argv: list[str], *, transport=None) -> int:
     parser = argparse.ArgumentParser(prog="nextseek-sample-search")
     parser.add_argument("--uid", action="append", required=True, dest="uids")
     args = parser.parse_args(argv)
-    print(json.dumps(_client(transport).search_samples_by_uid(args.uids)))
+    print(orjson.dumps(_client(transport).search_samples_by_uid(args.uids)).decode())
     return 0
 
 
@@ -425,7 +430,7 @@ def _cmd_build_payload(argv: list[str], *, transport=None) -> int:
     )
     id_to_title = {
         int(k): v
-        for k, v in json.loads(pathlib.Path(args.id_to_title).read_text()).items()
+        for k, v in orjson.loads(pathlib.Path(args.id_to_title).read_bytes()).items()
     }
     for path in build_payload(
         rows,
@@ -478,7 +483,21 @@ def _cmd_build_validate(argv: list[str], *, transport=None) -> int:
                 confirm_clear_assays=set(args.confirm_clear_assays),
             )
             promoted = _promote(artifact, pathlib.Path(args.out))
-            print(json.dumps({"artifact": str(promoted), "manifest": manifest}, sort_keys=True))
+            # On success every update UID is 'verified' (the gate above refuses any
+            # other status), so the full per-UID manifest is redundant in stdout and
+            # at tens of thousands of rows would blow the turn's token budget. Persist
+            # it beside the workbook and return only its path plus status counts.
+            manifest_path = pathlib.Path(args.out) / "assay_manifest.json"
+            _write_manifest(manifest_path, manifest)
+            print(orjson.dumps(
+                {
+                    "artifact": str(promoted),
+                    "manifest_path": str(manifest_path),
+                    "manifest_entries": len(manifest),
+                    "retrieve_status_counts": _manifest_summary(manifest),
+                },
+                option=orjson.OPT_SORT_KEYS,
+            ).decode())
             return 0
     except GateError as exc:
         _emit_gate(exc)

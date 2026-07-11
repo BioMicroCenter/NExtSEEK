@@ -166,6 +166,11 @@ class BatchUploadClient:
     ) -> list[dict[str, Any]]:
         wanted = {uid for uid in uids if uid}
         known_titles = list(known_assay_titles or [])
+        # Sort the known titles longest-first ONCE for the whole result set;
+        # _parse_assay_titles previously re-sorted this for every row.
+        sorted_titles = (
+            sorted({t for t in known_titles if t}, key=len, reverse=True) or None
+        )
         by_uid: dict[str, dict[str, Any]] = {}
         for chunk in _chunks(sorted(wanted), _UID_CHUNK_SIZE):
             page = 1
@@ -192,7 +197,7 @@ class BatchUploadClient:
                     if uid in wanted:
                         by_uid[uid] = _normalize_sample_row(
                             row,
-                            known_assay_titles=known_titles,
+                            sorted_titles=sorted_titles,
                         )
                 total = int(body.get("total") or len(rows))
                 if page * _PAGE_SIZE >= total or not rows:
@@ -218,6 +223,10 @@ class BatchUploadClient:
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     )
                 },
+                # Validation is the one O(N) request: a large batch's pre-insert pipeline
+                # can exceed the client's default 60s. The server does not abort
+                # (gunicorn 1200s / nginx 3600s); only the client would. Give it room.
+                timeout=httpx.Timeout(600.0, connect=10.0),
             )
         response.raise_for_status()
         return _json(response)
@@ -294,14 +303,14 @@ def _metadata_uid(row: dict[str, Any]) -> str:
 def _normalize_sample_row(
     row: dict[str, Any],
     *,
-    known_assay_titles: Iterable[str] | None = None,
+    sorted_titles: list[str] | None = None,
 ) -> dict[str, Any]:
     metadata = row.get("json_metadata")
     if isinstance(metadata, str):
         metadata = orjson.loads(metadata)
     titles = _parse_assay_titles(
         row.get("assays") or "",
-        known_assay_titles=known_assay_titles,
+        sorted_titles=sorted_titles,
     )
     return {
         **row,
@@ -314,12 +323,11 @@ def _normalize_sample_row(
 def _parse_assay_titles(
     raw: str,
     *,
-    known_assay_titles: Iterable[str] | None = None,
+    sorted_titles: list[str] | None = None,
 ) -> list[str]:
-    if not known_assay_titles:
+    if not sorted_titles:
         return [part.strip() for part in raw.split(",") if part.strip()]
 
-    titles = sorted({title for title in known_assay_titles if title}, key=len, reverse=True)
     parsed: list[str] = []
     pos = 0
     while pos < len(raw):
@@ -327,7 +335,7 @@ def _parse_assay_titles(
             pos += 1
         if pos >= len(raw):
             break
-        match = next((title for title in titles if raw.startswith(title, pos)), None)
+        match = next((title for title in sorted_titles if raw.startswith(title, pos)), None)
         if match is None:
             raise ValueError(f"could not parse assay titles: {raw}")
         end = pos + len(match)
