@@ -30,6 +30,10 @@ class BatchUploadClient:
             timeout=timeout,
             transport=transport,
         )
+        # An assay's member set is identical no matter which UID asks; memoize it for
+        # the lifetime of this client so update-path disambiguation fetches each assay
+        # once instead of once per referencing UID.
+        self._assay_samples_cache: dict[int, set[str]] = {}
 
     @classmethod
     def from_env(
@@ -111,9 +115,12 @@ class BatchUploadClient:
     def assay_samples(self, assay_ids: Iterable[int]) -> dict[int, set[str]]:
         out: dict[int, set[str]] = {}
         for assay_id in sorted({int(item) for item in assay_ids}):
-            samples: set[str] = set()
-            for item in self._paged_relationship_get(f"{_API}/assays/{assay_id}/", "samples"):
-                samples.add(str(item["id"]))
+            samples = self._assay_samples_cache.get(assay_id)
+            if samples is None:
+                samples = set()
+                for item in self._paged_relationship_get(f"{_API}/assays/{assay_id}/", "samples"):
+                    samples.add(str(item["id"]))
+                self._assay_samples_cache[assay_id] = samples
             out[assay_id] = samples
         return out
 
