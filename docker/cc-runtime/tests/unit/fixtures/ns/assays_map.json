@@ -1,0 +1,3258 @@
+{
+  "data": [
+    {
+      "attributes": {
+        "title": "Comet Chip Analysis - Data Attached"
+      },
+      "id": "351",
+      "links": {
+        "self": "/assays/351"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "350",
+      "links": {
+        "self": "/assays/350"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "349",
+      "links": {
+        "self": "/assays/349"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "RNA Extraction - Metadata"
+      },
+      "id": "348",
+      "links": {
+        "self": "/assays/348"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Luminex - Data Linked"
+      },
+      "id": "347",
+      "links": {
+        "self": "/assays/347"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Imaging Analysis - Data Linked"
+      },
+      "id": "346",
+      "links": {
+        "self": "/assays/346"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Imaging - Data Linked"
+      },
+      "id": "345",
+      "links": {
+        "self": "/assays/345"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "ELISA - Data Linked"
+      },
+      "id": "344",
+      "links": {
+        "self": "/assays/344"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "343",
+      "links": {
+        "self": "/assays/343"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "342",
+      "links": {
+        "self": "/assays/342"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mass Cytometry Analysis - Data Linked"
+      },
+      "id": "341",
+      "links": {
+        "self": "/assays/341"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mass Cytometry - Data Linked"
+      },
+      "id": "340",
+      "links": {
+        "self": "/assays/340"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry Analysis - Data Linked"
+      },
+      "id": "339",
+      "links": {
+        "self": "/assays/339"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry - Data Linked"
+      },
+      "id": "338",
+      "links": {
+        "self": "/assays/338"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "PCR - Data Linked"
+      },
+      "id": "306",
+      "links": {
+        "self": "/assays/306"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "RNA Extraction - Metadata"
+      },
+      "id": "327",
+      "links": {
+        "self": "/assays/327"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mass Spectrometry - Data Linked"
+      },
+      "id": "303",
+      "links": {
+        "self": "/assays/303"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mutational Spectra Analysis - Data Linked"
+      },
+      "id": "307",
+      "links": {
+        "self": "/assays/307"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Prep - Metadata"
+      },
+      "id": "323",
+      "links": {
+        "self": "/assays/323"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "324",
+      "links": {
+        "self": "/assays/324"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "DNA Extraction - Metadata"
+      },
+      "id": "326",
+      "links": {
+        "self": "/assays/326"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "ELISA - Data Linked"
+      },
+      "id": "328",
+      "links": {
+        "self": "/assays/328"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Expression Analysis - Data Linked"
+      },
+      "id": "145",
+      "links": {
+        "self": "/assays/145"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Gene Expression Analysis - Data Linked"
+      },
+      "id": "146",
+      "links": {
+        "self": "/assays/146"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Chemical Challenge - Metadata"
+      },
+      "id": "329",
+      "links": {
+        "self": "/assays/329"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "331",
+      "links": {
+        "self": "/assays/331"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Prep - Metadata"
+      },
+      "id": "334",
+      "links": {
+        "self": "/assays/334"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "PET/CT Scan - Data Linked"
+      },
+      "id": "50",
+      "links": {
+        "self": "/assays/50"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "PET-CT Scan - Data Linked"
+      },
+      "id": "89",
+      "links": {
+        "self": "/assays/89"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "PET/CT Scan - Data Linked"
+      },
+      "id": "99",
+      "links": {
+        "self": "/assays/99"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "PET-CT Scan - Data Linked"
+      },
+      "id": "333",
+      "links": {
+        "self": "/assays/333"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mass Spectrometry Proteomics - Data Linked"
+      },
+      "id": "316",
+      "links": {
+        "self": "/assays/316"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Proteomics Analysis - Data Linked"
+      },
+      "id": "319",
+      "links": {
+        "self": "/assays/319"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "325",
+      "links": {
+        "self": "/assays/325"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Bacterial Extraction - Metadata"
+      },
+      "id": "337",
+      "links": {
+        "self": "/assays/337"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Prep - Metadata"
+      },
+      "id": "314",
+      "links": {
+        "self": "/assays/314"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Gene Expression Analysis - Data Linked"
+      },
+      "id": "315",
+      "links": {
+        "self": "/assays/315"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "317",
+      "links": {
+        "self": "/assays/317"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "RNA Extraction - Metadata"
+      },
+      "id": "318",
+      "links": {
+        "self": "/assays/318"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Extraction - Metadata"
+      },
+      "id": "321",
+      "links": {
+        "self": "/assays/321"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "336",
+      "links": {
+        "self": "/assays/336"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "335",
+      "links": {
+        "self": "/assays/335"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry Analysis - Data Linked"
+      },
+      "id": "332",
+      "links": {
+        "self": "/assays/332"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry - Data Linked"
+      },
+      "id": "330",
+      "links": {
+        "self": "/assays/330"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "All Metadata"
+      },
+      "id": "322",
+      "links": {
+        "self": "/assays/322"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "All Metadata"
+      },
+      "id": "320",
+      "links": {
+        "self": "/assays/320"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Comet Chip Analysis - Data Attached"
+      },
+      "id": "260",
+      "links": {
+        "self": "/assays/260"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Fluorescence-Activated Cell Sorting - Data Linked"
+      },
+      "id": "194",
+      "links": {
+        "self": "/assays/194"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry Analysis - Data Linked"
+      },
+      "id": "110",
+      "links": {
+        "self": "/assays/110"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Culture and Tumor Spheroid Creation - Metadata"
+      },
+      "id": "179",
+      "links": {
+        "self": "/assays/179"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry - Data Linked"
+      },
+      "id": "47",
+      "links": {
+        "self": "/assays/47"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry - Data Linked"
+      },
+      "id": "107",
+      "links": {
+        "self": "/assays/107"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody Titer - Data Linked"
+      },
+      "id": "100",
+      "links": {
+        "self": "/assays/100"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody Titer Analysis - Data Linked"
+      },
+      "id": "102",
+      "links": {
+        "self": "/assays/102"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "42",
+      "links": {
+        "self": "/assays/42"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "51",
+      "links": {
+        "self": "/assays/51"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Comet Chip - Data Linked"
+      },
+      "id": "252",
+      "links": {
+        "self": "/assays/252"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "93",
+      "links": {
+        "self": "/assays/93"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Expression Analysis - Data Linked"
+      },
+      "id": "95",
+      "links": {
+        "self": "/assays/95"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "RaDR - Data Linked"
+      },
+      "id": "305",
+      "links": {
+        "self": "/assays/305"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Sample Processing - Metadata"
+      },
+      "id": "1",
+      "links": {
+        "self": "/assays/1"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Microfluidic Network Imaging - Data Linked"
+      },
+      "id": "309",
+      "links": {
+        "self": "/assays/309"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Microfluidic Network Formation - Metadata"
+      },
+      "id": "312",
+      "links": {
+        "self": "/assays/312"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "MVN Imaging Analysis - Data Linked"
+      },
+      "id": "310",
+      "links": {
+        "self": "/assays/310"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "iPSC Culture and Chondronoid Formation - Metadata"
+      },
+      "id": "218",
+      "links": {
+        "self": "/assays/218"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Extraction - Metadata"
+      },
+      "id": "157",
+      "links": {
+        "self": "/assays/157"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Sorting \u2013 Data Linked"
+      },
+      "id": "158",
+      "links": {
+        "self": "/assays/158"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody Dependent Functional Profiling - Data Linked"
+      },
+      "id": "160",
+      "links": {
+        "self": "/assays/160"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Chemical Synthesis - Metadata"
+      },
+      "id": "261",
+      "links": {
+        "self": "/assays/261"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Imaging - Data Linked"
+      },
+      "id": "262",
+      "links": {
+        "self": "/assays/262"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Nuclear Magnetic Resonance - Data Linked"
+      },
+      "id": "263",
+      "links": {
+        "self": "/assays/263"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single-crystal X-ray Crystallography - Data Linked"
+      },
+      "id": "264",
+      "links": {
+        "self": "/assays/264"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "UV-Vis Spectroscopy - Data Linked"
+      },
+      "id": "265",
+      "links": {
+        "self": "/assays/265"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Nuclear Magnetic Resonance Analysis - Data Linked"
+      },
+      "id": "266",
+      "links": {
+        "self": "/assays/266"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "UV-Vis Spectroscopy Analysis - Data Linked"
+      },
+      "id": "267",
+      "links": {
+        "self": "/assays/267"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Bacterial Survivability Restriction Assay - Data Linked"
+      },
+      "id": "161",
+      "links": {
+        "self": "/assays/161"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "GPT Assay - Data Linked"
+      },
+      "id": "304",
+      "links": {
+        "self": "/assays/304"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Real Time RT-PCR - Data Linked"
+      },
+      "id": "313",
+      "links": {
+        "self": "/assays/313"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cytokine Luminex - Data Linked"
+      },
+      "id": "311",
+      "links": {
+        "self": "/assays/311"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Microfluidic Network Formation - Metadata"
+      },
+      "id": "308",
+      "links": {
+        "self": "/assays/308"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "All Metadata"
+      },
+      "id": "302",
+      "links": {
+        "self": "/assays/302"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Digitally Barcoded Mtb Matrix Analysis - Data Linked"
+      },
+      "id": "301",
+      "links": {
+        "self": "/assays/301"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "All Metadata"
+      },
+      "id": "300",
+      "links": {
+        "self": "/assays/300"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "ELISA Assay - Data Linked"
+      },
+      "id": "162",
+      "links": {
+        "self": "/assays/162"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Pathogen Challenge and Antibody Depletion - Metadata"
+      },
+      "id": "105",
+      "links": {
+        "self": "/assays/105"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "106",
+      "links": {
+        "self": "/assays/106"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody-Dependent Cellular Phagocytosis - Data Linked"
+      },
+      "id": "55",
+      "links": {
+        "self": "/assays/55"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry - Data Linked"
+      },
+      "id": "101",
+      "links": {
+        "self": "/assays/101"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry Analysis - Data Linked"
+      },
+      "id": "103",
+      "links": {
+        "self": "/assays/103"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "DNA Extraction - Metadata"
+      },
+      "id": "7",
+      "links": {
+        "self": "/assays/7"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "15",
+      "links": {
+        "self": "/assays/15"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Device Imaging - Data Linked"
+      },
+      "id": "186",
+      "links": {
+        "self": "/assays/186"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Fourier Transform Infrared Spectroscopy - Data Linked"
+      },
+      "id": "255",
+      "links": {
+        "self": "/assays/255"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody-dependent Complement Deposition - Data Linked"
+      },
+      "id": "76",
+      "links": {
+        "self": "/assays/76"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "53",
+      "links": {
+        "self": "/assays/53"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "54",
+      "links": {
+        "self": "/assays/54"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Microvascular Network Formation - Metadata"
+      },
+      "id": "195",
+      "links": {
+        "self": "/assays/195"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody-Dependent NK Cell Activation - Data Linked"
+      },
+      "id": "64",
+      "links": {
+        "self": "/assays/64"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Creation \u2013 Metadata"
+      },
+      "id": "27",
+      "links": {
+        "self": "/assays/27"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "88",
+      "links": {
+        "self": "/assays/88"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Device Imaging - Data Linked"
+      },
+      "id": "182",
+      "links": {
+        "self": "/assays/182"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Luminex - Data Linked"
+      },
+      "id": "83",
+      "links": {
+        "self": "/assays/83"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Pendant Drop Tensiometry - Data Linked"
+      },
+      "id": "258",
+      "links": {
+        "self": "/assays/258"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "FC Receptor Binding - Data Linked"
+      },
+      "id": "62",
+      "links": {
+        "self": "/assays/62"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "ELISA - Data Linked"
+      },
+      "id": "81",
+      "links": {
+        "self": "/assays/81"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Culture - Metadata"
+      },
+      "id": "205",
+      "links": {
+        "self": "/assays/205"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Imaging Analysis - Data Linked"
+      },
+      "id": "213",
+      "links": {
+        "self": "/assays/213"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Clustering Analysis - Data Linked"
+      },
+      "id": "84",
+      "links": {
+        "self": "/assays/84"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Prep - Metadata"
+      },
+      "id": "85",
+      "links": {
+        "self": "/assays/85"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Expression Analysis - Data Linked"
+      },
+      "id": "86",
+      "links": {
+        "self": "/assays/86"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry - Data Linked"
+      },
+      "id": "180",
+      "links": {
+        "self": "/assays/180"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Titer Assay - Data Linked"
+      },
+      "id": "63",
+      "links": {
+        "self": "/assays/63"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "97",
+      "links": {
+        "self": "/assays/97"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Migration Assay Analysis - Data Linked"
+      },
+      "id": "201",
+      "links": {
+        "self": "/assays/201"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Culture - Metadata"
+      },
+      "id": "192",
+      "links": {
+        "self": "/assays/192"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "FC-Receptor Binding Assay - Data Linked"
+      },
+      "id": "165",
+      "links": {
+        "self": "/assays/165"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit \u2013 Metadata"
+      },
+      "id": "25",
+      "links": {
+        "self": "/assays/25"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "PET-CT Scan \u2013 Data Linked"
+      },
+      "id": "31",
+      "links": {
+        "self": "/assays/31"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "PET-CT Scan Analysis \u2013 Data Linked"
+      },
+      "id": "32",
+      "links": {
+        "self": "/assays/32"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "PET-CT Scan - Data Linked"
+      },
+      "id": "122",
+      "links": {
+        "self": "/assays/122"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Chemical Challenge - Metadata"
+      },
+      "id": "250",
+      "links": {
+        "self": "/assays/250"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tumoroid Formation - Metadata"
+      },
+      "id": "188",
+      "links": {
+        "self": "/assays/188"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry - Data Linked"
+      },
+      "id": "91",
+      "links": {
+        "self": "/assays/91"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Sequencing \u2013 Data Linked"
+      },
+      "id": "28",
+      "links": {
+        "self": "/assays/28"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "DNA Extraction - Metadata"
+      },
+      "id": "43",
+      "links": {
+        "self": "/assays/43"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "44",
+      "links": {
+        "self": "/assays/44"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Prep - Metadata"
+      },
+      "id": "92",
+      "links": {
+        "self": "/assays/92"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Creation - Metadata"
+      },
+      "id": "117",
+      "links": {
+        "self": "/assays/117"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "118",
+      "links": {
+        "self": "/assays/118"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody-dependent NK Cell Activation - Data Linked"
+      },
+      "id": "77",
+      "links": {
+        "self": "/assays/77"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody-Dependent Neutrophil Phagocytosis - Data Linked"
+      },
+      "id": "65",
+      "links": {
+        "self": "/assays/65"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "ImmunoPeptideomics - Data Linked"
+      },
+      "id": "2",
+      "links": {
+        "self": "/assays/2"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "SureQuant Analysis - Data Linked"
+      },
+      "id": "3",
+      "links": {
+        "self": "/assays/3"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Device Creation - Metadata"
+      },
+      "id": "189",
+      "links": {
+        "self": "/assays/189"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Device Imaging - Metadata"
+      },
+      "id": "190",
+      "links": {
+        "self": "/assays/190"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Real-time RT-PCR - Data Linked"
+      },
+      "id": "200",
+      "links": {
+        "self": "/assays/200"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Creation - Metadata"
+      },
+      "id": "207",
+      "links": {
+        "self": "/assays/207"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "209",
+      "links": {
+        "self": "/assays/209"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Chromatin Sequencing Analysis - Data Linked"
+      },
+      "id": "210",
+      "links": {
+        "self": "/assays/210"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Clustering - Data Linked"
+      },
+      "id": "170",
+      "links": {
+        "self": "/assays/170"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Prep - Metadata"
+      },
+      "id": "111",
+      "links": {
+        "self": "/assays/111"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "112",
+      "links": {
+        "self": "/assays/112"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "CITESEQ Analysis - Data Linked"
+      },
+      "id": "113",
+      "links": {
+        "self": "/assays/113"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody-Dependent Cellular Phagocytosis - Data Linked"
+      },
+      "id": "61",
+      "links": {
+        "self": "/assays/61"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody Challenge - Metadata"
+      },
+      "id": "74",
+      "links": {
+        "self": "/assays/74"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "141",
+      "links": {
+        "self": "/assays/141"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Isolation - Metadata"
+      },
+      "id": "142",
+      "links": {
+        "self": "/assays/142"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Creation - Metadata"
+      },
+      "id": "143",
+      "links": {
+        "self": "/assays/143"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "144",
+      "links": {
+        "self": "/assays/144"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mouse Challenge \u2013 Metadata"
+      },
+      "id": "155",
+      "links": {
+        "self": "/assays/155"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Microfluidic Device Imaging - Data Linked"
+      },
+      "id": "203",
+      "links": {
+        "self": "/assays/203"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cancer Cell Extravasation Analysis - Data Linked"
+      },
+      "id": "204",
+      "links": {
+        "self": "/assays/204"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Gene Expression Analysis - Data Linked"
+      },
+      "id": "17",
+      "links": {
+        "self": "/assays/17"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Culture and Organoid Generation - Metadata"
+      },
+      "id": "6",
+      "links": {
+        "self": "/assays/6"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Culture Imaging - Data Linked"
+      },
+      "id": "193",
+      "links": {
+        "self": "/assays/193"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Culture Imaging Analysis - Data Linked"
+      },
+      "id": "202",
+      "links": {
+        "self": "/assays/202"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody-Dependent Neutrophil Phagocytosis - Data Linked"
+      },
+      "id": "58",
+      "links": {
+        "self": "/assays/58"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Gene Expression Analysis: Validation Data - Data Linked"
+      },
+      "id": "139",
+      "links": {
+        "self": "/assays/139"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "59",
+      "links": {
+        "self": "/assays/59"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Histology - Data Linked"
+      },
+      "id": "108",
+      "links": {
+        "self": "/assays/108"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Immunohistochemistry - Data Linked"
+      },
+      "id": "49",
+      "links": {
+        "self": "/assays/49"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Chemical Synthesis - Metadata"
+      },
+      "id": "253",
+      "links": {
+        "self": "/assays/253"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "87",
+      "links": {
+        "self": "/assays/87"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Modeling - Data Linked"
+      },
+      "id": "211",
+      "links": {
+        "self": "/assays/211"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Imaging - Data Linked"
+      },
+      "id": "206",
+      "links": {
+        "self": "/assays/206"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Imaging Analysis - Data Linked"
+      },
+      "id": "208",
+      "links": {
+        "self": "/assays/208"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "115",
+      "links": {
+        "self": "/assays/115"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "116",
+      "links": {
+        "self": "/assays/116"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "RNA Extraction - Metadata"
+      },
+      "id": "220",
+      "links": {
+        "self": "/assays/220"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Creation - Metadata"
+      },
+      "id": "222",
+      "links": {
+        "self": "/assays/222"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "223",
+      "links": {
+        "self": "/assays/223"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Gene Expression Analysis - Data Linked"
+      },
+      "id": "224",
+      "links": {
+        "self": "/assays/224"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Extraction - Metadata"
+      },
+      "id": "73",
+      "links": {
+        "self": "/assays/73"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Bacterial Survivability Restriction Assay - Data Linked"
+      },
+      "id": "79",
+      "links": {
+        "self": "/assays/79"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Dendritic Cell Preparation - Metadata"
+      },
+      "id": "214",
+      "links": {
+        "self": "/assays/214"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Expression Matrix Analysis - Data Linked"
+      },
+      "id": "16",
+      "links": {
+        "self": "/assays/16"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Glycosylation Assay - Data Linked"
+      },
+      "id": "80",
+      "links": {
+        "self": "/assays/80"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Agglutination Assay - Data Linked"
+      },
+      "id": "254",
+      "links": {
+        "self": "/assays/254"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Extraction: Validation Data - Metadata"
+      },
+      "id": "133",
+      "links": {
+        "self": "/assays/133"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "FC Receptor Binding Assay - Data Linked"
+      },
+      "id": "57",
+      "links": {
+        "self": "/assays/57"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Titer Assay - Data Linked"
+      },
+      "id": "56",
+      "links": {
+        "self": "/assays/56"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "RNA Extraction - Metadata"
+      },
+      "id": "196",
+      "links": {
+        "self": "/assays/196"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Prep - Metadata"
+      },
+      "id": "197",
+      "links": {
+        "self": "/assays/197"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "198",
+      "links": {
+        "self": "/assays/198"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Gene Expression Analysis - Data Linked"
+      },
+      "id": "199",
+      "links": {
+        "self": "/assays/199"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry - Data Linked"
+      },
+      "id": "164",
+      "links": {
+        "self": "/assays/164"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry Analysis - Data Linked"
+      },
+      "id": "167",
+      "links": {
+        "self": "/assays/167"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "251",
+      "links": {
+        "self": "/assays/251"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Nuclear Magnetic Resonance Spectroscopy - Data Linked"
+      },
+      "id": "257",
+      "links": {
+        "self": "/assays/257"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Elisa - Data Linked"
+      },
+      "id": "11",
+      "links": {
+        "self": "/assays/11"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody-dependent Neutrophil Phagocytosis - Data Linked"
+      },
+      "id": "78",
+      "links": {
+        "self": "/assays/78"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Bacterial Survivability Restriction Assay: Validation Data - Data Attached"
+      },
+      "id": "134",
+      "links": {
+        "self": "/assays/134"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Gel Permeation Chromatography - Data Linked"
+      },
+      "id": "256",
+      "links": {
+        "self": "/assays/256"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "166",
+      "links": {
+        "self": "/assays/166"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody Dependent Complement Deposition - Data Linked"
+      },
+      "id": "159",
+      "links": {
+        "self": "/assays/159"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "ADCD Analysis - Data Linked"
+      },
+      "id": "171",
+      "links": {
+        "self": "/assays/171"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody-dependent Cellular Phagocytosis - Data Linked"
+      },
+      "id": "75",
+      "links": {
+        "self": "/assays/75"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Immunohistochemistry - Data Linked"
+      },
+      "id": "18",
+      "links": {
+        "self": "/assays/18"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "140",
+      "links": {
+        "self": "/assays/140"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mass Spectrometry Proteomics - Data Linked"
+      },
+      "id": "19",
+      "links": {
+        "self": "/assays/19"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mass Spectrometry Proteomics Analysis - Data Linked"
+      },
+      "id": "20",
+      "links": {
+        "self": "/assays/20"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Culture Imaging - Data Linked"
+      },
+      "id": "12",
+      "links": {
+        "self": "/assays/12"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "DNA Extraction - Metadata"
+      },
+      "id": "13",
+      "links": {
+        "self": "/assays/13"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Sequencing - Data Linked"
+      },
+      "id": "14",
+      "links": {
+        "self": "/assays/14"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Model Validation"
+      },
+      "id": "104",
+      "links": {
+        "self": "/assays/104"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "98",
+      "links": {
+        "self": "/assays/98"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Culture and Tumor Spheroid Creation - Metadata"
+      },
+      "id": "184",
+      "links": {
+        "self": "/assays/184"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Device Creation - Metadata"
+      },
+      "id": "185",
+      "links": {
+        "self": "/assays/185"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "60",
+      "links": {
+        "self": "/assays/60"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "LC - MS/MS (Proteomics) - Data Linked"
+      },
+      "id": "221",
+      "links": {
+        "self": "/assays/221"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Proteomics Analysis - Data Linked"
+      },
+      "id": "225",
+      "links": {
+        "self": "/assays/225"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Model Validation - Data Linked"
+      },
+      "id": "114",
+      "links": {
+        "self": "/assays/114"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Expression Matrix Analysis \u2013 Data Linked"
+      },
+      "id": "29",
+      "links": {
+        "self": "/assays/29"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Expression Analysis - Data Linked"
+      },
+      "id": "45",
+      "links": {
+        "self": "/assays/45"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Expression Analysis - Data Linked"
+      },
+      "id": "119",
+      "links": {
+        "self": "/assays/119"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Intravital Microscopy"
+      },
+      "id": "212",
+      "links": {
+        "self": "/assays/212"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Imaging - Data Linked"
+      },
+      "id": "219",
+      "links": {
+        "self": "/assays/219"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "PCR: Validation Data - Data Attached"
+      },
+      "id": "137",
+      "links": {
+        "self": "/assays/137"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Microfluidic Device Creation - Metadata"
+      },
+      "id": "181",
+      "links": {
+        "self": "/assays/181"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "RNA Extraction: Validation Data - Metadata"
+      },
+      "id": "135",
+      "links": {
+        "self": "/assays/135"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Prep: Validation Data - Metadata"
+      },
+      "id": "136",
+      "links": {
+        "self": "/assays/136"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing: Validation Data - Data Linked"
+      },
+      "id": "138",
+      "links": {
+        "self": "/assays/138"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cell Isolation - Metadata"
+      },
+      "id": "109",
+      "links": {
+        "self": "/assays/109"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Atomic Force Microscopy - Data Linked"
+      },
+      "id": "272",
+      "links": {
+        "self": "/assays/272"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Electrochemical Sensor Testing - Data Linked"
+      },
+      "id": "271",
+      "links": {
+        "self": "/assays/271"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Chemical Simulations - Data Linked"
+      },
+      "id": "270",
+      "links": {
+        "self": "/assays/270"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Sensor Creation - Metadata"
+      },
+      "id": "269",
+      "links": {
+        "self": "/assays/269"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Chemical Synthesis - Metadata"
+      },
+      "id": "268",
+      "links": {
+        "self": "/assays/268"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Nuclear Magnetic Resonance Spectroscopy Analysis - Data Linked"
+      },
+      "id": "259",
+      "links": {
+        "self": "/assays/259"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Genome Alignment - Data Linked"
+      },
+      "id": "249",
+      "links": {
+        "self": "/assays/249"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "High Resolution Mass Spectra Analysis - Data Linked"
+      },
+      "id": "248",
+      "links": {
+        "self": "/assays/248"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Nuclear Magnetic Resonance Spectroscopy Analysis - Data Linked"
+      },
+      "id": "247",
+      "links": {
+        "self": "/assays/247"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Absorption and Emission Spectroscopy Analysis - Data Linked"
+      },
+      "id": "246",
+      "links": {
+        "self": "/assays/246"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "X-ray Photoelectron Spectroscopy - Data Linked"
+      },
+      "id": "245",
+      "links": {
+        "self": "/assays/245"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Nuclear Magnetic Resonance Spectroscopy - Data Linked"
+      },
+      "id": "244",
+      "links": {
+        "self": "/assays/244"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "High Resolution Mass Spectra - Data Linked"
+      },
+      "id": "243",
+      "links": {
+        "self": "/assays/243"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Electron Paramagnetic Resonance - Data Linked"
+      },
+      "id": "242",
+      "links": {
+        "self": "/assays/242"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Crystallography - Data Linked"
+      },
+      "id": "241",
+      "links": {
+        "self": "/assays/241"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Absorption and Emission Spectroscopy - Data Linked"
+      },
+      "id": "240",
+      "links": {
+        "self": "/assays/240"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Chemical Synthesis - Metadata"
+      },
+      "id": "239",
+      "links": {
+        "self": "/assays/239"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mutational Spectral Analysis - Data Attached"
+      },
+      "id": "238",
+      "links": {
+        "self": "/assays/238"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Illumina Sequencing - Data Linked"
+      },
+      "id": "237",
+      "links": {
+        "self": "/assays/237"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "GPT Assay - Data Attached"
+      },
+      "id": "236",
+      "links": {
+        "self": "/assays/236"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Necropsy - Metadata"
+      },
+      "id": "235",
+      "links": {
+        "self": "/assays/235"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Extraction and Library Creation - Metadata"
+      },
+      "id": "234",
+      "links": {
+        "self": "/assays/234"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Field Water Sensor Run"
+      },
+      "id": "233",
+      "links": {
+        "self": "/assays/233"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "GPT Assay \u2013 Data Attached"
+      },
+      "id": "232",
+      "links": {
+        "self": "/assays/232"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mouse Necropsy \u2013 Metadata"
+      },
+      "id": "231",
+      "links": {
+        "self": "/assays/231"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Lysis \u2013 Metadata"
+      },
+      "id": "230",
+      "links": {
+        "self": "/assays/230"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "RaDR Image Machine Learning Analysis \u2013 Data Attached"
+      },
+      "id": "229",
+      "links": {
+        "self": "/assays/229"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Imaging \u2013 Metadata"
+      },
+      "id": "228",
+      "links": {
+        "self": "/assays/228"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mass Spectrometry \u2013 Data Linked"
+      },
+      "id": "227",
+      "links": {
+        "self": "/assays/227"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mass Spectrometry Processing \u2013 Data Linked"
+      },
+      "id": "226",
+      "links": {
+        "self": "/assays/226"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Modeling - Data Linked"
+      },
+      "id": "217",
+      "links": {
+        "self": "/assays/217"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Imaging Analysis - Data Linked"
+      },
+      "id": "216",
+      "links": {
+        "self": "/assays/216"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Live Cell Imaging - Data Linked"
+      },
+      "id": "215",
+      "links": {
+        "self": "/assays/215"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Imaging Analysis - Data Attached"
+      },
+      "id": "191",
+      "links": {
+        "self": "/assays/191"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Convolutional Neural Network - Data Linked"
+      },
+      "id": "187",
+      "links": {
+        "self": "/assays/187"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry Analysis - Data Linked"
+      },
+      "id": "183",
+      "links": {
+        "self": "/assays/183"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Permeability Analysis - Data Linked"
+      },
+      "id": "178",
+      "links": {
+        "self": "/assays/178"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Clot Modeling Analysis - Data Linked"
+      },
+      "id": "177",
+      "links": {
+        "self": "/assays/177"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Cancer Cell Extravasation Analysis - Data Linked"
+      },
+      "id": "176",
+      "links": {
+        "self": "/assays/176"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry Analysis - Data Linked"
+      },
+      "id": "175",
+      "links": {
+        "self": "/assays/175"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Device Imaging - Data Linked"
+      },
+      "id": "174",
+      "links": {
+        "self": "/assays/174"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry - Data Linked"
+      },
+      "id": "173",
+      "links": {
+        "self": "/assays/173"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Microfluidic Device Creation - Metadata"
+      },
+      "id": "172",
+      "links": {
+        "self": "/assays/172"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "ADFP Analysis - Data Linked"
+      },
+      "id": "169",
+      "links": {
+        "self": "/assays/169"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Expression Analysis - Data Linked"
+      },
+      "id": "168",
+      "links": {
+        "self": "/assays/168"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Western Blot - Data Linked"
+      },
+      "id": "163",
+      "links": {
+        "self": "/assays/163"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection \u2013 Metadata"
+      },
+      "id": "156",
+      "links": {
+        "self": "/assays/156"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mass Cytometry Analysis - Data Linked"
+      },
+      "id": "154",
+      "links": {
+        "self": "/assays/154"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry Analysis - Data Linked"
+      },
+      "id": "153",
+      "links": {
+        "self": "/assays/153"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "152",
+      "links": {
+        "self": "/assays/152"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mass Cytometry - Data Linked"
+      },
+      "id": "151",
+      "links": {
+        "self": "/assays/151"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry - Data Linked"
+      },
+      "id": "150",
+      "links": {
+        "self": "/assays/150"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Creation - Metadata"
+      },
+      "id": "149",
+      "links": {
+        "self": "/assays/149"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "148",
+      "links": {
+        "self": "/assays/148"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "147",
+      "links": {
+        "self": "/assays/147"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "TransCompR Cross Species Modeling - Data Linked"
+      },
+      "id": "132",
+      "links": {
+        "self": "/assays/132"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Gene Expression Analysis: Training Data - Data Linked"
+      },
+      "id": "131",
+      "links": {
+        "self": "/assays/131"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing: Training Data - Data Linked"
+      },
+      "id": "130",
+      "links": {
+        "self": "/assays/130"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Prep: Training Data - Metadata"
+      },
+      "id": "129",
+      "links": {
+        "self": "/assays/129"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection: Training Data - Metadata"
+      },
+      "id": "128",
+      "links": {
+        "self": "/assays/128"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Digitally Barcoded Mtb Matrix Analysis - Data Attached"
+      },
+      "id": "127",
+      "links": {
+        "self": "/assays/127"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Short Read Sequencing - Data Linked"
+      },
+      "id": "126",
+      "links": {
+        "self": "/assays/126"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Library Prep - Metadata"
+      },
+      "id": "125",
+      "links": {
+        "self": "/assays/125"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Bacterial Extraction - Metadata"
+      },
+      "id": "124",
+      "links": {
+        "self": "/assays/124"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry - Data Linked"
+      },
+      "id": "123",
+      "links": {
+        "self": "/assays/123"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "121",
+      "links": {
+        "self": "/assays/121"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "120",
+      "links": {
+        "self": "/assays/120"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry Analysis - Data Linked"
+      },
+      "id": "96",
+      "links": {
+        "self": "/assays/96"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Digitally Barcoded Mtb Matrix Analysis - Data Attached"
+      },
+      "id": "94",
+      "links": {
+        "self": "/assays/94"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Bacterial Extraction - Metadata"
+      },
+      "id": "90",
+      "links": {
+        "self": "/assays/90"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Bacterial Challenge - Metadata"
+      },
+      "id": "82",
+      "links": {
+        "self": "/assays/82"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "72",
+      "links": {
+        "self": "/assays/72"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody-Dependent Cellular Phagocytosis Analysis - Data Linked"
+      },
+      "id": "71",
+      "links": {
+        "self": "/assays/71"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody-Dependent NK Cell Activation Analysis - Data Linked"
+      },
+      "id": "70",
+      "links": {
+        "self": "/assays/70"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Antibody-Dependent Neutrophil Phagocytosis Analysis - Data Linked"
+      },
+      "id": "69",
+      "links": {
+        "self": "/assays/69"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "FC Receptor Binding Analysis - Data Linked"
+      },
+      "id": "68",
+      "links": {
+        "self": "/assays/68"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Titer Assay Analysis - Data Linked"
+      },
+      "id": "67",
+      "links": {
+        "self": "/assays/67"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Linear Mixed Model - Data Linked"
+      },
+      "id": "66",
+      "links": {
+        "self": "/assays/66"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Bacterial Extraction - Metadata"
+      },
+      "id": "52",
+      "links": {
+        "self": "/assays/52"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry Analysis - Data Attached"
+      },
+      "id": "48",
+      "links": {
+        "self": "/assays/48"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Digitally Barcoded Mtb Matrix Analysis - Data Attached"
+      },
+      "id": "46",
+      "links": {
+        "self": "/assays/46"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry Analysis - Data Linked"
+      },
+      "id": "41",
+      "links": {
+        "self": "/assays/41"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry - Data Linked"
+      },
+      "id": "40",
+      "links": {
+        "self": "/assays/40"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "39",
+      "links": {
+        "self": "/assays/39"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "38",
+      "links": {
+        "self": "/assays/38"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry Processing \u2013 Data Attached"
+      },
+      "id": "37",
+      "links": {
+        "self": "/assays/37"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Flow Cytometry \u2013 Data Linked"
+      },
+      "id": "36",
+      "links": {
+        "self": "/assays/36"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "35",
+      "links": {
+        "self": "/assays/35"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit \u2013 Metadata"
+      },
+      "id": "34",
+      "links": {
+        "self": "/assays/34"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Immunohistochemistry \u2013 Data Linked"
+      },
+      "id": "33",
+      "links": {
+        "self": "/assays/33"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Single Cell Clustering Analysis \u2013 Data Linked"
+      },
+      "id": "30",
+      "links": {
+        "self": "/assays/30"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "NHP Necropsy \u2013 Metadata"
+      },
+      "id": "26",
+      "links": {
+        "self": "/assays/26"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Luminex Data Processing \u2013 Data Attached"
+      },
+      "id": "24",
+      "links": {
+        "self": "/assays/24"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Luminex Assay \u2013 Metadata"
+      },
+      "id": "23",
+      "links": {
+        "self": "/assays/23"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "NHP Tissue Collection \u2013 Metadata"
+      },
+      "id": "22",
+      "links": {
+        "self": "/assays/22"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Linear Mixed Model - Data Linked"
+      },
+      "id": "21",
+      "links": {
+        "self": "/assays/21"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Luminex - Data Linked"
+      },
+      "id": "10",
+      "links": {
+        "self": "/assays/10"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Mass Spectrometry Proteomics - Data Linked"
+      },
+      "id": "9",
+      "links": {
+        "self": "/assays/9"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Immunohistochemistry - Data Linked"
+      },
+      "id": "8",
+      "links": {
+        "self": "/assays/8"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Tissue Collection - Metadata"
+      },
+      "id": "5",
+      "links": {
+        "self": "/assays/5"
+      },
+      "type": "assays"
+    },
+    {
+      "attributes": {
+        "title": "Patient Visit - Metadata"
+      },
+      "id": "4",
+      "links": {
+        "self": "/assays/4"
+      },
+      "type": "assays"
+    }
+  ],
+  "jsonapi": {
+    "version": "1.0"
+  },
+  "links": {
+    "first": "/assays?page%5Bnumber%5D=1&page%5Bsize%5D=1000000&page_size=1000",
+    "last": "/assays?page%5Bnumber%5D=1&page%5Bsize%5D=1000000&page_size=1000",
+    "next": null,
+    "prev": null,
+    "self": "/assays?page%5Bnumber%5D=1&page%5Bsize%5D=1000000&page_size=1000"
+  },
+  "meta": {
+    "api_version": "0.3",
+    "base_url": "http://localhost:3000"
+  }
+}

@@ -1,0 +1,22 @@
+#!/bin/sh
+# nextseek-sampletype-attrs: fetch sample-type attribute definitions. Read-only.
+# Cannot upload, write, or start a batch upload.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=build_context/plugins/nextseek/bin/_nextseek_common.sh
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+for arg in "$@"; do
+  case "$arg" in
+    --confirmed-write|--start|--upload)
+      nextseek_die 3 "$arg is forbidden: this tool is read-only and cannot write" ;;
+    --help)
+      echo "Usage: nextseek-sampletype-attrs --type <ref>"
+      echo "       nextseek-sampletype-attrs --list"
+      echo ""
+      echo "Fetch attribute definitions for a NExtSEEK sample type."
+      echo "Prints a JSON object: {sample_type, attributes: [{title, required, ...}]}."
+      exit 0 ;;
+  esac
+done
+exec python "$SCRIPT_DIR/_batch_upload_runner.py" attrs "$@"

@@ -1,0 +1,34 @@
+#!/bin/sh
+# nextseek-assay-resolve: read-only assay title resolver using project tie-breaks.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=build_context/plugins/nextseek/bin/_nextseek_common.sh
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+PROJECT_ID=""; TITLES=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --project-id) PROJECT_ID="$2"; shift 2 ;;
+    --title)
+      TITLES="${TITLES}${TITLES:+
+}$2"
+      shift 2 ;;
+    --confirmed-write|--start|--upload)
+      nextseek_die 3 "$1 is forbidden: this tool resolves assay titles only and cannot write" ;;
+    --help)
+      echo "Usage: nextseek-assay-resolve --project-id <id> --title <title> [--title <title> ...]"
+      echo ""
+      echo "Resolve curator assay titles through the accessible assay map and project tie-break."
+      exit 0 ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$PROJECT_ID" ] || nextseek_die 3 "--project-id is required"
+[ -n "$TITLES" ] || nextseek_die 3 "--title is required"
+set -- assay-resolve --project-id "$PROJECT_ID"
+while IFS= read -r title; do
+  set -- "$@" --title "$title"
+done <<EOF
+$TITLES
+EOF
+exec python "$SCRIPT_DIR/_batch_upload_runner.py" "$@"

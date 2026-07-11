@@ -1,0 +1,21 @@
+#!/bin/sh
+# nextseek-extract-text: extract text from a user-supplied file (PDF, docx, xlsx, ...).
+# Read-only; cannot upload, write, or start a batch upload.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=build_context/plugins/nextseek/bin/_nextseek_common.sh
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+for arg in "$@"; do
+  case "$arg" in
+    --confirmed-write|--start|--upload)
+      nextseek_die 3 "$arg is forbidden: this tool is read-only and cannot write" ;;
+    --help)
+      echo "Usage: nextseek-extract-text --file <path>"
+      echo ""
+      echo "Extract readable text from a local file (PDF, docx, xlsx, html, ...)."
+      echo "Prints extracted text to stdout."
+      exit 0 ;;
+  esac
+done
+exec python "$SCRIPT_DIR/_batch_upload_runner.py" extract "$@"

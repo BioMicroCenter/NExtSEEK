@@ -9,14 +9,30 @@ dependencies = [
     "docker>=7.1.0",
     "fastapi>=0.116",
     "httpx>=0.28.1",
-    # Plan A · Amendment 7 v2 to T7 (2026-04-30), followed by the
-    # 2026-05-04 docs-ingest stabilization: generated NExtSEEK docs are built
-    # by the sibling `build_tools/` uv project, while the bridge runtime and
-    # image keep zero markitdown imports or dependencies.
+    # nextseek-batch-upload runtime stack (ported from dmac-assistant): the
+    # batch-upload runner/payload/client/models import these at module load.
+    # polars = sheet model + read; fastexcel = the calamine read engine;
+    # xlsxwriter = polars' Excel write backend; orjson = fast JSON I/O.
+    "orjson>=3.11.0",
+    "polars>=1.42.0",
+    "fastexcel>=0.20.2",
+    "xlsxwriter>=3.2.9",
     "pydantic>=2.13.0",
     "python-dotenv>=1.2.2",
     "uvicorn[standard]>=0.35",
     "websockets~=16.0",
+]
+
+[project.optional-dependencies]
+# Image-only extra (installed via `uv sync --extra container` in the Dockerfile).
+# markitdown backs nextseek-extract-text's document→text extraction; it is
+# lazy-imported, so the plugin loads without it, but nextseek-extract-text
+# fails closed unless this extra is installed. onnxruntime floor: markitdown
+# -> magika pulls onnxruntime; the floor keeps uv on a version that ships
+# wheels for the image's Python. Kept out of the host/build tree deliberately.
+container = [
+    "markitdown==0.1.6",
+    "onnxruntime>=1.24.1",
 ]
 
 [dependency-groups]

@@ -16,6 +16,17 @@ The image ships one plugin, discoverable at fixed paths:
 
 When a user asks about NExtSEEK data, read the SKILL.md first. The plugin's CLI tools are in `/app/plugins/nextseek/bin/` and read credentials from `NEXTSEEK_USERNAME` / `NEXTSEEK_PASSWORD` (translated to `API_USER` / `API_PASS` by the container entrypoint).
 
+## Skills in this image
+
+The `nextseek` plugin ships two skills. Both are read-only toward NExtSEEK: the `nextseek` skill's query path only reads, and the `nextseek-batch-upload` skill only builds and validates a payload for the user to inspect — it never uploads or writes. Choose the right one up front, because the choice governs the whole turn, not just its first step. Read the chosen skill's SKILL.md before acting.
+
+- **`nextseek`** — `skills/nextseek/SKILL.md`. Answer questions about existing NExtSEEK data: query, find, list, count, or look up samples, projects, and studies.
+- **`nextseek-batch-upload`** — `skills/nextseek-batch-upload/SKILL.md`. Prepare a workbook to create or update samples. It builds and validates the payload for the user to inspect and never uploads.
+
+Routing rule (load-bearing): if the request is to create, update, or modify samples — even when it also asks you to find those samples first — it is a `nextseek-batch-upload` task from its first action. Do the sample discovery inside that skill, following its own first step; do not hand discovery to the `nextseek` skill. Use the `nextseek` skill when the user only wants to see existing data.
+
+Examples: "List the unique genotypes of mice treated with NDMA, then build me an update sheet to normalize the genotypes in the database" is a `nextseek-batch-upload` task — listing the genotypes is part of preparing the update, so that skill does both. "Use the info in this protocol text to create new cell line samples for the Impact project, one sample per biological replicate" is also a `nextseek-batch-upload` task. "Which studies contain RNA-seq assays?" is a `nextseek` task.
+
 ## NExtSEEK reference catalogs
 
 The image ships static reference catalogs at `/app/plugins/nextseek/context/`. Read them directly with the `Read` tool — no plugin call, no network, no credentials — to ground answers about NExtSEEK vocabulary (sample types, assays, projects, endpoints, graph schema). These are baked into the image from the `nextseek` plugin; `chat_nextseek` is no longer installed in this container, so do not look for them under any `site-packages/chat_nextseek/` path.

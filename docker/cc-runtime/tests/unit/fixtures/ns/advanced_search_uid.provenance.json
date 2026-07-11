@@ -1,0 +1,537 @@
+{
+  "capture_date": "20260706T173555Z",
+  "endpoint": "/nextseek_api/samples/advanced_search/",
+  "host": "https://nextseek-dev.mit.edu",
+  "live_probed": true,
+  "probe_sample": {
+    "assays_str_len": 60,
+    "breadth_probe_uids": [
+      "D.IMG-230913ENG-1722-PUB",
+      "D.IMG-230913ENG-1723-PUB",
+      "D.IMG-230913ENG-1724-PUB",
+      "D.IMG-230913ENG-1725-PUB",
+      "D.IMG-230913ENG-1726-PUB",
+      "D.IMG-230913ENG-1727-PUB",
+      "D.IMG-230913ENG-1728-PUB",
+      "D.IMG-230913ENG-1729-PUB",
+      "D.IMG-230913ENG-1730-PUB",
+      "D.IMG-230913ENG-1731-PUB"
+    ],
+    "collision_ids": [
+      260,
+      351
+    ],
+    "collision_title": "Comet Chip Analysis - Data Attached",
+    "confirmed_project_id": 1,
+    "membership_assay_id": 351,
+    "numeric_seek_id": 324503,
+    "uid": "D.IMG-230913ENG-1757-PUB"
+  },
+  "requested_uids": [
+    "D.IMG-230913ENG-1757-PUB",
+    "CEL-230912ENG-2-PUB"
+  ],
+  "rows": [
+    {
+      "role": "true_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1757-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1758-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1759-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1760-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1761-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1762-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1763-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1764-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1765-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1766-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1767-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1768-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1769-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1770-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1771-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1772-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1773-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1774-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1775-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1776-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1777-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1778-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1779-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1780-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1781-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1782-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1783-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1784-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1785-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1786-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1787-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1788-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1789-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1790-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1791-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1792-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1793-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1794-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1795-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1796-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1797-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1798-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1799-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1800-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1801-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1802-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1803-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1804-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1805-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1806-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1807-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1808-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1809-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1810-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1811-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1812-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1813-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1814-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1815-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1816-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1817-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1818-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1819-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1820-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1722-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1723-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1724-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1725-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1726-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1727-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1728-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1729-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1730-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1731-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1732-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1733-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1734-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1735-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1736-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1737-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1738-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1739-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1740-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1741-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1742-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1743-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1744-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1745-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1746-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1747-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1748-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1749-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1750-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1751-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1752-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1753-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1754-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1755-PUB"
+    },
+    {
+      "role": "false_positive",
+      "synthesized": false,
+      "uid": "D.IMG-230913ENG-1756-PUB"
+    },
+    {
+      "role": "true_positive",
+      "synthesized": false,
+      "uid": "CEL-230912ENG-2-PUB"
+    }
+  ],
+  "sha256": "ded580e7f6bd785304fb5f9d936cfb245cde54645a6c2b2f614243c50dec2ba8"
+}
