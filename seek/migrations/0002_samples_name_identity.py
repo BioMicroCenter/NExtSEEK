@@ -73,16 +73,27 @@ ALTER TABLE samples
 def _forward(apps, schema_editor):
     if schema_editor.connection.vendor != "mysql":
         return
-    schema_editor.execute(FORWARD_SQL)
+    # params=None is load-bearing: the default params=() makes the mysqlclient
+    # driver interpolate `%` (the LIKE 'D.%'/'A.%' wildcards) and crash with
+    # "not enough arguments for format string". RunSQL, which this RunPython
+    # replaced in 1241c35, passed params=None implicitly.
+    schema_editor.execute(FORWARD_SQL, params=None)
 
 
 def _reverse(apps, schema_editor):
     if schema_editor.connection.vendor != "mysql":
         return
-    schema_editor.execute(REVERSE_SQL)
+    schema_editor.execute(REVERSE_SQL, params=None)
 
 
 class Migration(migrations.Migration):
+    # The RunPython issues DDL, and MySQL cannot roll back DDL: without this,
+    # Migration.apply force-wraps the operation in a transaction on
+    # non-transactional-DDL backends and schema_editor.execute raises
+    # TransactionManagementError, wedging every cold clean-seed install
+    # (same precedent as nextseek_api.0005_ensure_chatsession_extra_state_column).
+    atomic = False
+
     dependencies = [("seek", "0001_initial")]
 
     operations = [

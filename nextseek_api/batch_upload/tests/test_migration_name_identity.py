@@ -337,6 +337,72 @@ class TestMigrationBehavior:
         assert "generated column" in str(exc_info.value).lower() or "1906" in str(exc_info.value)
 
 
+class TestMigrationExecutorAtomicity:
+    """Clean-seed regression (ESCALATION 2026-07-10): applying seek.0002 through
+    Django's migration executor on MySQL must not wedge.
+
+    The raw-SQL tests above bypass the executor, so they cannot catch the
+    TransactionManagementError raised when Migration.apply force-wraps an
+    atomic RunPython in a transaction on a backend without transactional DDL
+    (MySQL). This test drives the real path: executor -> Migration.apply ->
+    RunPython -> schema_editor.execute(FORWARD_SQL).
+    """
+
+    def test_seek_0002_applies_via_migration_executor(self, throwaway_db, django_db_blocker):
+        os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmac.settings")
+        import django
+
+        django.setup()
+        from django.db import connections
+        from django.db.migrations.executor import MigrationExecutor
+        from django.db.migrations.loader import MigrationLoader
+        from django.db.migrations.recorder import MigrationRecorder
+
+        conn, db_name = throwaway_db
+        alias = f"namei_exec_{db_name}"
+        connections.databases[alias] = {
+            "ENGINE": "django.db.backends.mysql",
+            "NAME": db_name,
+            "HOST": _HOST,
+            "USER": _USER,
+            "PASSWORD": _PASS,
+            "PORT": _PORT,
+            "ATOMIC_REQUESTS": False,
+            "AUTOCOMMIT": True,
+            "CONN_MAX_AGE": 0,
+            "CONN_HEALTH_CHECKS": False,
+            "OPTIONS": {},
+            "TIME_ZONE": None,
+            "TEST": {},
+        }
+        try:
+            with django_db_blocker.unblock():
+                # The fixture already created the samples table; record 0001 as
+                # applied BEFORE building the executor (its loader snapshots the
+                # applied set at construction) so the plan is exactly [seek.0002].
+                # auth/contenttypes are recorded too so the base project state
+                # can resolve seek.0001's lazy auth.user reference (state-only;
+                # their operations never execute against the throwaway DB).
+                recorder = MigrationRecorder(connections[alias])
+                for app, name in MigrationLoader(connections[alias]).graph.nodes:
+                    if app in ("contenttypes", "auth"):
+                        recorder.record_applied(app, name)
+                recorder.record_applied("seek", "0001_initial")
+                executor = MigrationExecutor(connections[alias])
+                executor.migrate([("seek", "0002_samples_name_identity")])
+        finally:
+            connections[alias].close()
+            connections.databases.pop(alias, None)
+
+        with conn.cursor() as c:
+            c.execute(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'samples' AND COLUMN_NAME = 'name_identity'",
+                (db_name,),
+            )
+            assert c.fetchone()[0] == 1
+
+
 class TestMigrationReversibility:
     def test_reverse_drops_index_and_column(self, throwaway_db):
         conn, db_name = throwaway_db
