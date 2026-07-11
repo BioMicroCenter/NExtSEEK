@@ -108,4 +108,16 @@ check("S11", "docker_ops.py retains feat superset (compose_ps_running/compose_po
       and has(dops, r"def compose_build\(")
       and has(dops, r"def bootstrap_staging_dir\("))
 
+# S12 (2026-07-11 alignment amendment): the merged tree must retain BOTH migration atomicity
+# fixes (922db48 + dbbec1e — the seek.0002 cold clean-seed wedge, ESCALATION 2026-07-10).
+# NOTE: has() is NOT sufficient here — seek.0002 mentions `params=None` in comments (lines
+# 76/79) before the code (80/86), so matches must be counted and anchored to the actual
+# call/attribute lines; `^\s*` excludes `#`-prefixed comment lines.
+seek0002 = (ROOT / "seek/migrations/0002_samples_name_identity.py").read_text()
+chat0005 = (ROOT / "nextseek_api/migrations/0005_chatsession_extra_state_column.py").read_text()
+check("S12", "migration atomicity fixes retained (seek.0002 atomic=False + 2x params=None; 0005_chatsession atomic=False)",
+      len(re.findall(r"^\s*schema_editor\.execute\((?:FORWARD|REVERSE)_SQL, params=None\)", seek0002, re.M)) == 2
+      and re.search(r"^\s*atomic = False", seek0002, re.M) is not None
+      and re.search(r"^\s*atomic = False", chat0005, re.M) is not None)
+
 sys.exit(1 if failures else 0)
