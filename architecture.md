@@ -200,7 +200,7 @@ sequenceDiagram
     E->>DB: progress += query_complete with reply, artifacts, cost_usd
     E->>A: stop + force-remove container (always, in finally)
     B->>V: WS or HTTP poll
-    V-->>B: query_complete; CCActivityPanel renders the trace
+    V-->>B: query_complete — CCActivityPanel renders the trace
 ```
 
 Phase by phase:
