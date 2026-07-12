@@ -2,7 +2,7 @@
 
 **Nessie** is the chat assistant embedded in NExtSEEK: a chat page inside the NExtSEEK web app, a query router, and two execution paths — an in-process pipeline ("NS") built on NExtSEEK's assistant engine `chat_nextseek`, and a per-turn sandboxed Claude Code container ("CC") — plus the deployment and security topology those paths need.
 
-> **Provenance.** Generated from the NExtSEEK codebase on branch `merge/dev-into-feat`, 2026-07-12, by direct code inspection. All file paths are relative to the repository root. Where a runtime value depends on a deployment env file that is not committed, the code default is stated.
+> **Provenance.** Generated from the NExtSEEK codebase on branch `merge/dev-into-feat`, 2026-07-12, by direct code inspection. All file paths are relative to the repository root. Where a runtime value depends on a deployment env file that is not committed, the code default is stated. Two deployment-dependent values are additionally quoted from the running dev instance (verified 2026-07-12 via `docker inspect`): the web server runs **gunicorn**, and the CC per-turn budget is **$0.50**.
 
 > **Naming decoder.** Identifiers beginning with `dmac-`/`dmac_` — the agent image `dmac-assistant:poc`, the network `dmac-cc-net`, the volume `dmac-cc-users`, the `dmac_assistant/` Python package — all name parts of NExtSEEK's Container-CC assistant subsystem: `nextseek_api/cc_assistant/` and the `CCAssistantViewSet` are its application layer, `dmac_assistant/` is its router package, and `docker/cc-runtime`, `docker/ns-sidecar`, `docker/bedrock-proxy` are its runtime images. It is all NExtSEEK code.
 
@@ -10,10 +10,10 @@
 
 ## TL;DR
 
-- The chat UI lives at **`/seek/assistant/`** inside NExtSEEK (login is SEEK-credential based). A React app posts each message to a Django endpoint and watches progress over a WebSocket (with HTTP-polling fallback).
+- The chat UI lives at **`/seek/assistant/`** inside NExtSEEK (login is SEEK-credential based). A React app posts each message to a Django endpoint and reads progress by **HTTP-polling** a task endpoint. (A WebSocket progress channel exists in code, but it needs the ASGI server — the deployed instance runs gunicorn/WSGI, so the WS handshake never succeeds and every turn rides the poll.)
 - Every message goes through a **router** (`nextseek_api/cc_assistant/router.py`): an LLM classifier (Gemini, via BAML) with a regex-heuristic fallback picks one of three routes — **NS**, **CC**, or **Unrelated** (canned reply, nothing executes).
 - **NS path**: NExtSEEK's assistant engine `chat_nextseek/` runs *in-process* in a Django worker thread — REST self-calls back into NExtSEEK's API, read-only Neo4j queries, and read-only MySQL reads.
-- **CC path**: one **ephemeral Docker container per turn** (image `dmac-assistant:poc`) runs Claude Code in auto-permission mode on a **segmented network** (`dmac-cc-net`). The agent holds **zero AWS credentials** — model calls go through a credential-holding `bedrock-proxy` that only allows one Opus model. Per-turn caps: $2 budget, 50 turns, 180 s hard wall-clock.
+- **CC path**: one **ephemeral Docker container per turn** (image `dmac-assistant:poc`) runs Claude Code in auto-permission mode on a **segmented network** (`dmac-cc-net`). The agent holds **zero AWS credentials** — model calls go through a credential-holding `bedrock-proxy` that only allows one Opus model. Per-turn caps: spend budget **$0.50 on the deployed instance** (code default $2.00), 50 turns, 180 s hard wall-clock.
 - The CC agent's NExtSEEK "ops" are **chat_nextseek functions exposed as standalone server-side operations** — the agent container ships only thin shims; the intelligence executes inside Django.
 
 ---
@@ -35,7 +35,7 @@ flowchart LR
     end
     AWS["AWS Bedrock"]
     VOL[("volume dmac-cc-users")]
-    B -->|"HTTP + WS"| NG
+    B -->|"HTTP"| NG
     NG --> DJ
     DJ --> DS
     DJ -->|"docker.sock - spawn per turn"| AG
@@ -61,7 +61,7 @@ flowchart LR
 
 **Auth.** The Django session comes from SEEK-credential login (`dmac/views.py` `login_seek`): credentials are checked via `SeekDB.getSeekLogin`, stored in the session, then Django `authenticate()` + `login()` run. Login is SEEK, not MIT SSO. The embedded frontend is same-origin cookie-based: `chat_frontend/src/lib/services/sessionAuth.ts` uses relative URLs, derives `ws://`/`wss://` from `window.location`, and sends `X-CSRFToken` only if a `csrftoken` cookie exists.
 
-**Submit.** `chat_frontend/src/lib/services/chatApi.ts` POSTs `{query, mode, use_prod, session_id | force_new}` to **`/nextseek_api/cc-assistant/query/async/`** (`mode` may be a string or `{pipeline: 'standard' | 'plan', useProd}`).
+**Submit.** `chat_frontend/src/lib/services/chatApi.ts` POSTs `{query, mode, use_prod, session_id | force_new}` to **`/nextseek_api/cc-assistant/query/async/`** (`mode` may be a string or `{pipeline: 'standard' | 'plan', useProd}`). `use_prod` selects the alternate `NEXTSEEK_CHAT_CONFIG_PROD` ChatConfig and, on the **NS path only**, swaps the pipeline's outbound API credentials for that config's baked-in `API_USER`/`API_PASS` (`services/cc_assistant.py:216-224`); the CC path always keeps the requesting user's own credentials, captured before the swap.
 
 **Server dispatch.** Both viewsets are DRF-router-registered under `/nextseek_api/` (`nextseek_api/urls.py:31-34`): `assistant/` → `AssistantViewSet`, `cc-assistant/` → `CCAssistantViewSet` (additive — the new one does not replace the old). `CCAssistantViewSet.query_async` (`nextseek_api/services/cc_assistant.py`) validates the request and calls `_start_task(force_cc=False)`; a second endpoint `cc/query/async/` forces the CC route. Auth: DRF Token, CSRF-exempt session, and Basic, all requiring an authenticated user.
 
@@ -72,9 +72,9 @@ flowchart LR
 3. Wraps the `ChatSession` in a `DictSessionAdapter`, resolves the user's SEEK credentials, and spawns a **plain daemon thread** (`threading.Thread(daemon=True).start()`). This is *not* Celery — Celery (`batch_upload` queue) serves only the file-upload endpoint.
 4. Returns **HTTP 202 `{task_id, session_id}`** immediately.
 
-**Progress transport.** The client opens a WebSocket at `ws/assistant/progress/{task_id}/`. Server-side, `TaskProgressConsumer` (`nextseek_api/assistant/consumers.py`) does not use a channel-layer broadcast — it **polls the `QueryTask` row every 300 ms**, streams newly appended events, then sends a final `{event: 'done', status, result}` frame and closes. WS auth: the task UUID acts as a capability token, ownership is enforced when a session cookie authenticates the user, and the `Origin` header is validated. Only if the WS **fails to open** does the client fall back to HTTP polling of `/nextseek_api/assistant/tasks/{taskId}/progress/` (`chatApi.ts:177` — note: the *assistant* endpoint, not cc-assistant).
+**Progress transport — HTTP polling in practice.** The client first *attempts* a WebSocket at `ws/assistant/progress/{task_id}/` and, only if it fails to open, falls back to HTTP polling (2 s interval) of `/nextseek_api/assistant/tasks/{taskId}/progress/` (`chatApi.ts:177` — note: the *assistant* endpoint, not cc-assistant). Which channel actually runs is decided by the web-server toggle in `docker/scripts/entrypoint.sh`: `NEXTSEEK_SERVER=daphne` (ASGI) serves WS; `gunicorn` (WSGI) cannot complete a WS handshake. **The deployed instance runs gunicorn** (verified on the running container), so browser↔backend WS is dead code in practice and every turn's progress rides the HTTP poll. The only live WebSocket in the whole system is the agent-container↔sidecar channel (see op catalog).
 
-The ASGI stack (`dmac/asgi.py`) registers exactly one WS route. Whether WS is actually served depends on the web-server toggle in `docker/scripts/entrypoint.sh`: `NEXTSEEK_SERVER=daphne` (ASGI, code default, serves WS) or `gunicorn` (WSGI, no WS — clients use the polling fallback). The deployed value lives in the gitignored `docker/nextseek.env`.
+Under daphne, the WS leg would be served by `TaskProgressConsumer` (`nextseek_api/assistant/consumers.py`; `dmac/asgi.py` registers exactly this one WS route) — no channel-layer broadcast: it polls the `QueryTask` row every 300 ms, streams newly appended events, then sends a final `{event: 'done', status, result}` frame and closes; the task UUID acts as a capability token, ownership is enforced when a session cookie authenticates the user, and the `Origin` header is validated. Separately, a **legacy synchronous SSE endpoint** survives: `POST /nextseek_api/assistant/query/` runs the NS pipeline and streams progress as `text/event-stream` (`services/assistant.py:652-761`) — SSE works fine under WSGI, but the embedded UI never calls it (its only submit target is `cc-assistant/query/async/`).
 
 **Session management** (list / rename / delete / hydrate turns) uses the pre-existing `AssistantViewSet` routes: `GET|PATCH|DELETE /nextseek_api/assistant/sessions/...` (`chatApi.ts:308-363`).
 
@@ -108,20 +108,20 @@ On `ROUTE_NS`, the worker thread calls `chat_nextseek.orchestrator.run_query` (o
 sequenceDiagram
     participant B as Browser
     participant V as CCAssistantViewSet
-    participant W as WS consumer
+    participant P as progress endpoint
     participant T as Worker thread
     participant E as chat_nextseek
     B->>V: POST cc-assistant/query/async
     V->>V: resolve ChatSession, create QueryTask
     V->>T: spawn daemon thread
     V-->>B: 202 task_id + session_id
-    B->>W: open WS progress channel
+    B->>P: HTTP poll for progress (2 s, repeats)
     T->>T: router decides ROUTE_NS (route_decided event)
     T->>E: run_query(session adapter, user creds, send_event)
     E->>E: REST self-call, read-only Neo4j, read-only MySQL
     E-->>T: progress events, then final reply
     T->>T: events appended to QueryTask.progress
-    W-->>B: streams new events (300 ms DB poll), then done frame
+    P-->>B: newly appended events, then final done
     T->>T: adapter.save() persists session state, auto-title
 ```
 
@@ -170,7 +170,7 @@ Step by step (all in `cc_engine.py` / `services/cc_assistant.py` unless noted):
 4. **Validation first** — `user_id`, `run_id`, `project_dirname`, and the cc-state key are charset/traversal-validated *before* any path interpolation, mkdir, or mount. The container name is deterministic: `dmac-cc-agent-<run_id>`.
 5. **Mounts** — all CC user trees are subpaths of the **single external named volume `dmac-cc-users`** (never a host bind). Layout from `cc_provision.build_user_dirs`: per user and project, `input` (RO → `/data/input`), project-wide `shared` (RO → `/data/shared`), `scratch` (RW → `/data/scratch`), per-session `cc-state` (RW → `/home/user/.claude`), and memory `transcripts` (RO → `/home/user/.cc-memory/transcripts`). Django pre-creates each backing dir and a preflight fails closed if any is missing.
 6. **Environment** — `build_agent_environment` is the single source of the agent env and injects **zero AWS or backend credentials**: Bedrock is pointed at `http://bedrock-proxy:8080` with auth skipped (the proxy holds the token), auto mode is enabled, and the only secrets are the *requesting user's own* NExtSEEK login (`NEXTSEEK_USERNAME`/`API_USER` etc.). The NExtSEEK base URL is loopback-rewritten to `nextseek_nginx` because the sibling container cannot reach Django's loopback.
-7. **Command** — `claude --print --input-format stream-json --output-format stream-json --verbose --permission-mode auto` (a classifier gates each tool call — explicitly *not* `--dangerously-skip-permissions`), plus `--model <opus id>`, `--max-turns` (default 50), `--max-budget-usd` (code default 2.00, 0 disables), a settings-file allowlist of trusted-infra *descriptors* (never secret values), and `--resume <session_id>` when continuing a prior CC session.
+7. **Command** — `claude --print --input-format stream-json --output-format stream-json --verbose --permission-mode auto` (a classifier gates each tool call — explicitly *not* `--dangerously-skip-permissions`), plus `--model <opus id>`, `--max-turns` (default 50), `--max-budget-usd` (code default 2.00, 0 disables; the deployed instance sets **0.50** via `NEXTSEEK_CC_MAX_BUDGET_USD`), a settings-file allowlist of trusted-infra *descriptors* (never secret values), and `--resume <session_id>` when continuing a prior CC session.
 8. **Caps** — per-turn budget and turn limits as above, and a wall-clock timeout of `min(NEXTSEEK_CC_TIMEOUT_SECONDS, 180)` — **180 s is a hard cap that cannot be raised**; a watchdog thread force-stops and removes the container on overrun (`query_error` reason `exec_timeout`).
 9. **Spawn & input** — docker-py `containers.run` on `dmac-cc-net`, detached, no TTY; a stale same-name container from a crashed run is force-removed and the spawn retried once. The user query is written to stdin as **one** stream-json envelope, then stdin closes.
 10. **Streaming out** — the container's stdout is demuxed line-by-line; `CCStreamTranslator` (`nextseek_api/cc_assistant/translate.py`) maps Claude's stream-json to the frontend vocabulary — it emits `agent_started`, `search_started`, `search_complete`, `query_complete`, `query_error`. Non-terminal frames forward immediately; terminal frames are deferred until after artifact publishing. There is **no token streaming** — the final answer arrives as one Markdown reply (with `total_cost_usd`, `num_turns`, `duration_ms`). Claude's in-container session UUID is surfaced as `cc_session_id`, kept distinct from Nessie's `session_id`.
@@ -197,7 +197,7 @@ The agent image does **not** contain `chat_nextseek` (`docker/cc-runtime/Dockerf
 | `nextseek-report` | WS → sidecar → REST | `granular._report` | Django | `run_reporter_summary` (sidecar then fetches and stages the produced artifacts) |
 | `nextseek-generate-submission` | WS → sidecar → REST | `granular._generate_submission` | Django | `generate_report_outputs` + `report_writer_agent` (sidecar stages artifacts) |
 
-**Family B — batch-upload ops** (7): shim → `_batch_upload_runner.py` → `BatchUploadClient` (`_batch_upload_client.py`: httpx, Basic auth from env) calling **plain NExtSEEK DRF REST directly** — no sidecar, no chat_nextseek. Endpoints used across the family: `/nextseek_api/sample_types/`, `/projects/`, `/assays/`, `/samples/advanced_search/`, `/batch-upload/validate/`.
+**Family B — batch-upload ops** (7): shim → `_batch_upload_runner.py` → `BatchUploadClient` (`_batch_upload_client.py`: httpx, Basic auth from env) calling **plain NExtSEEK DRF REST directly** — no sidecar, no chat_nextseek. Endpoints used across the family: `/nextseek_api/sample_types/`, `/projects/`, `/assays/`, `/samples/advanced_search/`, `/batch-upload/validate/`. One member is the exception: `nextseek-extract-text` makes **no server call at all** (see table).
 
 | Op shim | Transport | Server-side handler | Logic executes in | Implementing function |
 |---|---|---|---|---|
@@ -207,14 +207,14 @@ The agent image does **not** contain `chat_nextseek` (`docker/cc-runtime/Dockerf
 | `nextseek-assay-resolve` | direct REST | plain DRF endpoints | agent shim + Django REST | `_cmd_assay_resolve` |
 | `nextseek-build-payload` | direct REST (schema lookups) | plain DRF endpoints | mostly agent shim | `_cmd_build_payload` |
 | `nextseek-validate-upload` | direct REST | `POST /nextseek_api/batch-upload/validate/` | Django — pipeline runs through TRANSFORM only, **stops before INSERT** | `_cmd_build_validate` |
-| `nextseek-extract-text` | direct REST as needed | plain DRF endpoints | mostly agent shim | `_cmd_extract` |
+| `nextseek-extract-text` | **none — fully local** | — (no server call) | agent container only (MarkItDown; explicit pdfplumber / python-docx fallbacks) | `_cmd_extract` → `extract_text` |
 
 **Family C — viewset-direct** (1): `nextseek-plan` bypasses the sidecar entirely — `_nextseek_runner._run_viewset` POSTs `/nextseek_api/assistant/query/async/` and polls `tasks/{task_id}/progress/`; server-side, a daemon thread runs `chat_nextseek.orchestrator.run_query_plan` (i.e. the same async machinery as a chat turn).
 
 ### Write safety — layered gates
 
 1. **Claude Code permission allowlist (L1)** — the plugin's `scripts/setup.sh` merges an allowlist into the agent's `~/.claude/settings.json`: read-class ops and the batch-upload shims are permitted (api-read only with a `--parser-plan` prefix), but **`nextseek-api-write` is not listed** — invoking it (or any `--confirmed-write`) trips an auto-mode permission prompt.
-2. **Shim-local guards** — `nextseek-api-read` refuses `--confirmed-write` outright (exit 3); `nextseek-api-write` requires *both* `--parser-plan` and `--confirmed-write` (else exit 5) before dispatching.
+2. **Shim-local guards** — `nextseek-api-read` refuses `--confirmed-write` outright (exit 3); `nextseek-api-write` requires *both* `--parser-plan` and `--confirmed-write` (else exit 3) before dispatching; one layer down, the runner independently re-checks and exits 5 (`WRITE_BLOCKED`, `_nextseek_runner.py:163-165`).
 3. **Sidecar gate** — `docker/ns-sidecar/app/write_gate.py` enforces that api-write's `confirmed_write` is strictly boolean `True`; other ops pass through.
 4. **Django gate (authoritative)** — `nextseek_api/assistant/write_gate.py` `build_gate`: api-write requires `confirmed_write is True`; api-read requires `(endpoint, METHOD)` in `read_safe_endpoints.json`; the five read-class ops pass; **unknown op labels are default-denied**. Violations map to `WRITE_BLOCKED` / HTTP 403.
 
@@ -234,7 +234,7 @@ Additionally, the CC-runtime `container/entrypoint.sh` maps env credentials, scr
 | `nextseek-sidecar` | `dmac-cc-net` only | none | Stateless op forwarder; mounts only the reserved `_staging` subpath of `dmac-cc-users`. |
 | `cc-agent` | `network_mode: none` | none | **Build-target only** (`image: dmac-assistant:poc`, `command: ["true"]`) — real agents are spawned per turn by `cc_engine.py` via docker-py onto `dmac-cc-net`. |
 
-The network `dmac-cc-net` is pinned to that literal name (matching `cc_engine.DEFAULT_NETWORK`); the volume `dmac-cc-users` is `external: true`.
+The five remaining stack services — `db` (MySQL, `127.0.0.1:3306`), `neo4j` (`127.0.0.1:7474`/`7687`), `seek` (`127.0.0.1:3000`), `seek_workers`, `solr` — sit on the default network only; the last two publish no host port. The network `dmac-cc-net` is pinned to that literal name (matching `cc_engine.DEFAULT_NETWORK`); the volume `dmac-cc-users` is `external: true`.
 
 ### Credential placement
 
@@ -242,7 +242,7 @@ The network `dmac-cc-net` is pinned to that literal name (matching `cc_engine.DE
 |---|---|---|
 | CC agent container | the requesting user's own NExtSEEK login, proxy/sidecar URLs, path mappings | any AWS credential, GCP key, DB password, or other backend secret |
 | `bedrock-proxy` | the institutional `AWS_BEARER_TOKEN_BEDROCK` | user credentials |
-| `nextseek` (Django) | `GCP_API_KEY` (router + summarizer LLMs), DB/Neo4j/SEEK secrets | — |
+| `nextseek` (Django) | `GCP_API_KEY` (router + summarizer LLMs), `AWS_BEARER_TOKEN_BEDROCK` (for chat_nextseek's own Bedrock LLM mode, shipped via `docker/nextseek.env`), DB/Neo4j/SEEK secrets | — |
 | `nextseek-sidecar` | nothing of its own — forwards the per-request user login it receives | ambient credentials |
 
 ### The bedrock-proxy (`docker/bedrock-proxy/app/proxy.py`)
@@ -251,18 +251,18 @@ A FastAPI relay that **strips any inbound `Authorization` header** and attaches 
 
 ### API auth notes
 
-Both assistant viewsets accept Token, session, and Basic auth with `IsAuthenticated`. The session class is `CsrfExemptSessionAuthentication` (`nextseek_api/services/assistant.py:137-150`) — CSRF enforcement is a no-op for these endpoints because no middleware in this project sets the `csrftoken` cookie (so the frontend's `X-CSRFToken` header is typically absent). WebSocket access uses the task UUID as a capability token, with ownership checks when a session cookie is present and Origin validation.
+Both assistant viewsets accept Token, session, and Basic auth. `CCAssistantViewSet` requires only `IsAuthenticated` (`services/cc_assistant.py:168`); `AssistantViewSet` — the surface the agent's granular ops and `nextseek-plan` terminate in — additionally enforces `UserInParticipatingProject`, a cached SEEK-project-membership check (`services/assistant.py:357-358`). The session class is `CsrfExemptSessionAuthentication` (`services/assistant.py:137-150`), whose `enforce_csrf` is an unconditional no-op — that skip is the entire mechanism: `CsrfViewMiddleware` *is* enabled (`dmac/settings.py:191`) and login sets the `csrftoken` cookie, so the frontend typically does send `X-CSRFToken`; it simply is not checked on these endpoints. WebSocket access (when served under daphne) uses the task UUID as a capability token, with ownership checks when a session cookie is present and Origin validation.
 
 ### Caps & limits
 
 | Limit | Value | Where |
 |---|---|---|
-| CC per-turn budget | `NEXTSEEK_CC_MAX_BUDGET_USD`, code default **$2.00** (0 disables) | `cc_engine.py` |
+| CC per-turn budget | `NEXTSEEK_CC_MAX_BUDGET_USD`, code default **$2.00** (0 disables); **$0.50** on the deployed instance | `cc_engine.py` |
 | CC per-turn agent turns | `NEXTSEEK_CC_MAX_TURNS`, default **50** | `cc_engine.py` |
 | CC wall clock | `min(NEXTSEEK_CC_TIMEOUT_SECONDS, 180)` — **180 s hard max** | `cc_engine.py` |
-| WS progress poll | 300 ms DB poll | `consumers.py` |
+| WS progress poll (daphne only — inert on the deployed gunicorn) | 300 ms DB poll | `consumers.py` |
 | Sidecar WS frame | 16 MiB | `_sidecar_client.py` |
-| Sidecar → Django HTTP | 60 s | `ns-sidecar/app/ops.py` |
+| Sidecar → Django HTTP | 60 s | `ns-sidecar/app/ns_client.py` |
 | NS REST tool | 90 s (120 s advanced search) | `nextseek_api.py` tool |
 | Proxy request body | 10 MiB | `bedrock-proxy` |
 | Upload total size | `BATCH_UPLOAD_MAX_TOTAL_BYTES`, default 200 MiB | `services/cc_assistant.py` |
@@ -325,7 +325,7 @@ pyproject.toml               chat_nextseek + dmac_assistant installed as editabl
 - **dmac-cc-net** — the segmented Docker network holding the agent, sidecar, and bedrock-proxy; nginx is its only bridge to NExtSEEK.
 - **dmac-cc-users** — the single external named volume holding all per-user/per-project CC trees (input, shared, scratch, output, cc-state, memory).
 - **sidecar** (`nextseek-sidecar`) — stateless WS-to-REST forwarder for the agent's chat_nextseek-backed ops; can write only to `_staging`.
-- **bedrock-proxy** — the only component holding AWS credentials; Opus-only, path-allowlisted model relay.
+- **bedrock-proxy** — the only component **in the CC subsystem** holding AWS credentials (the Django container separately holds a Bedrock token for chat_nextseek's own LLM calls); Opus-only, path-allowlisted model relay.
 - **staging sweep** — the trusted Django-side move of agent-produced artifacts from `_staging/sha256(user)/` into the user's own scratch tree.
 - **cc-state** — the per-session `.claude` directory mounted RW into the agent, enabling `--resume` and providing the raw turn transcript.
 - **QueryTask** — the DB row that doubles as the progress event log; both the WS consumer and the HTTP polling endpoint read from it.
