@@ -286,6 +286,66 @@ def _session_id_from_artifacts(q_dir: Path) -> str | None:
     return None
 
 
+# ── Route awareness (2026-07-13): the merged chat UI routes each turn via the
+# BAML router (nextseek_api/cc_assistant/router.py) to either the deterministic
+# NS pipeline or the Container-CC agent. They persist DIFFERENT shapes and cost
+# is persisted ONLY on the CC route:
+#   - NS  (pipeline_adapter): query_complete.data has `debug` (+ `files`); the NS
+#         branch of services/cc_assistant.py runs run_query() with no
+#         cc_engine/on_turn_complete, so NO cc_traces / cost row exists.
+#   - CC  (cc_engine.run_cc_turn): query_complete.data has `total_cost_usd` +
+#         `cc_session_id` (no `debug`); cost is persisted to extra_state.cc_traces.
+# So cost is gated on the CC route only; NS questions pass on criteria + session
+# + no-forbidden without a cost row. `route` is inlined here (not imported from
+# e2e.playwright.poll) to keep this orchestrator's hermetic-test import surface
+# to e2e.catalog/criteria/mysql/runner + stdlib.
+
+
+def _detect_route_from_data(data: dict) -> str:
+    """Classify a persisted query_complete.data dict: `ns` | `cc` | `unknown`."""
+    if not isinstance(data, dict):
+        return "unknown"
+    if "debug" in data:
+        return "ns"
+    if "total_cost_usd" in data or "cc_session_id" in data:
+        return "cc"
+    return "unknown"
+
+
+def _route_from_artifacts(q_dir: Path) -> str:
+    """Recompute a question's route from its persisted per-turn complete.json
+    (query_complete.data). Returns the last non-unknown turn's route, matching
+    run_variant_browser's `variant_route`."""
+    turns_dir = q_dir / "turns"
+    if not turns_dir.is_dir():
+        return "unknown"
+    route = "unknown"
+    for complete_path in sorted(turns_dir.glob("*/complete.json")):
+        try:
+            data = json.loads(complete_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        r = _detect_route_from_data(data)
+        if r != "unknown":
+            route = r
+    return route
+
+
+def _downloaded_keys_from_artifacts(q_dir: Path) -> set[str]:
+    """Reconstruct the set of downloaded artifact identifiers persisted by
+    run_variant_browser (`out_dir/downloaded_keys.json`) so a --validate-only
+    replay resolves ui_text.artifacts.<id>.downloaded from disk alone."""
+    p = q_dir / "downloaded_keys.json"
+    if p.exists():
+        try:
+            keys = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(keys, list):
+                return {str(k) for k in keys}
+        except (json.JSONDecodeError, OSError):
+            pass
+    return set()
+
+
 # ── F2: cost readout, summed from real cc_traces DB rows ─────────────────
 
 
@@ -380,27 +440,46 @@ def main() -> int:
             for t in q["turns"]
         ])
         q_dir = run_dir / q["id"]
+        declared_route = q.get("route")  # optional expected route ("ns"|"cc")
         out = run_variant_browser(variant, config, q_dir)
 
         hits = [h for tr in out.get("turn_results", [])
                 for h in forbidden_hits(_turn_reply_from_artifacts(q_dir, tr), approval["forbidden_phrases"])]
 
         session_id = out.get("session_id") or _session_id_from_artifacts(q_dir)
-        cost = _session_cost_usd(config, session_id, env=args.db_env)
+        route = out.get("route") or _route_from_artifacts(q_dir)
+
+        # A question that declares an expected route but returns the other shape
+        # is itself a routing regression this E2E exists to catch.
+        route_mismatch = bool(declared_route) and route != "unknown" and route != declared_route
+
+        # Cost is persisted ONLY on the CC route (see the route-awareness note
+        # above). Gate cost on CC; for NS record the runner's cc_cost_usd (None)
+        # without failing on its absence.
+        if route == "cc":
+            cost = _session_cost_usd(config, session_id, env=args.db_env)
+            cost_required = True
+        else:
+            cost = out.get("cc_cost_usd")
+            cost_required = False
         total_cost += cost or 0.0
 
         manifest_sha256 = _write_manifest(q_dir)  # written LAST so it covers every other artifact
 
         passed = (out.get("status") == "passed" and not hits
-                  and session_id is not None and cost is not None)
+                  and session_id is not None
+                  and (not cost_required or cost is not None)
+                  and not route_mismatch)
         results.append({
             "id": q["id"], "passed": passed, "forbidden_hits": hits,
-            "session_id": session_id, "cost_usd": cost,
+            "session_id": session_id, "route": route,
+            "declared_route": declared_route, "route_mismatch": route_mismatch,
+            "cost_usd": cost,
             "failed_criteria": out.get("failed_criteria", []),
             "trace_path": str(q_dir / "trace.zip"),
             "manifest_sha256": manifest_sha256,
         })
-        print(("PASS" if passed else "FAIL"), q["id"], f"${cost}")
+        print(("PASS" if passed else "FAIL"), q["id"], f"[{route}]", f"${cost}")
 
     all_passed = all(r["passed"] for r in results) and total_cost <= approval["max_total_usd"]
     summary_path.write_text(json.dumps({
@@ -531,24 +610,47 @@ def recompute_run_dir(run_dir: Path, approval: dict, *, db_env: str = "dev") -> 
             all_ok = False
             continue
 
-        # 3. Cost: FRESH DB read (external ground truth), cross-checked
-        #    against the recorded value.
-        cost = _session_cost_usd(config, session_id, env=db_env)
-        if cost is None:
-            print(f"VALIDATE: {qid}: no real cc_traces cost row for session {session_id}")
+        # 3. Route: recomputed from persisted complete.json, cross-checked
+        #    against the recorded route + the (optional) declared route.
+        route = _route_from_artifacts(q_dir)
+        if recorded.get("route") is not None and route != recorded.get("route"):
+            print(f"VALIDATE: {qid}: route mutated "
+                  f"(summary={recorded.get('route')!r} artifact={route!r})")
             all_ok = False
             continue
-        if round(cost, 4) != round(float(recorded.get("cost_usd") if recorded.get("cost_usd") is not None else -1), 4):
-            print(f"VALIDATE: {qid}: cost_usd mutated (summary={recorded.get('cost_usd')!r} recomputed={cost!r})")
+        declared_route = q.get("route")
+        route_mismatch = bool(declared_route) and route != "unknown" and route != declared_route
+        if route_mismatch != bool(recorded.get("route_mismatch")):
+            print(f"VALIDATE: {qid}: route_mismatch drift "
+                  f"(summary={recorded.get('route_mismatch')!r} recomputed={route_mismatch!r})")
             all_ok = False
             continue
-        total_cost += cost
 
-        # 4. Per-turn: query text unmutated, forbidden-phrase recompute, and a
+        # 4. Cost: gated on the CC route only (NS persists none — see the
+        #    route-awareness note). CC: FRESH DB read (external ground truth)
+        #    cross-checked against the recorded value. NS: no cost row required,
+        #    and the recorded cost must not claim a spend that never existed.
+        if route == "cc":
+            cost = _session_cost_usd(config, session_id, env=db_env)
+            if cost is None:
+                print(f"VALIDATE: {qid}: no real cc_traces cost row for CC session {session_id}")
+                all_ok = False
+                continue
+            if round(cost, 4) != round(float(recorded.get("cost_usd") if recorded.get("cost_usd") is not None else -1), 4):
+                print(f"VALIDATE: {qid}: cost_usd mutated (summary={recorded.get('cost_usd')!r} recomputed={cost!r})")
+                all_ok = False
+                continue
+            total_cost += cost
+        else:
+            if recorded.get("cost_usd"):
+                print(f"VALIDATE: {qid}: NS route recorded a nonzero cost_usd={recorded.get('cost_usd')!r}")
+                all_ok = False
+                continue
+
+        # 5. Per-turn: query text unmutated, forbidden-phrase recompute, and a
         #    best-effort DSL criteria recompute against artifact-backed context.
-        q_passed = True
-        downloaded = {p.name for p in (q_dir / "artifacts").glob("*") if p.is_file()} \
-            if (q_dir / "artifacts").is_dir() else set()
+        q_passed = not route_mismatch
+        downloaded = _downloaded_keys_from_artifacts(q_dir)
         mysql_log = fetch_chat_session_row(config, session_id, env=db_env)
 
         for turn in q["turns"]:
@@ -594,7 +696,7 @@ def recompute_run_dir(run_dir: Path, approval: dict, *, db_env: str = "dev") -> 
             browser_ctx = {"chat_page": _ArtifactChatPage(reply), "downloaded_artifacts": downloaded}
             turn_passed, _crit_results = check_pass(
                 debug, [PassCriterion(**c) for c in turn.get("pass_criteria", [])],
-                browser_ctx=browser_ctx, console_text=console_text,
+                last_reply=console_text, browser_ctx=browser_ctx, console_text=console_text,
                 mysql_chat_log=mysql_log if mysql_log else None, run_root=q_dir,
             )
             if not turn_passed:

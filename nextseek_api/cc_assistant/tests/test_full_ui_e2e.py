@@ -182,13 +182,25 @@ def _approval(*, base_url="http://localhost:18000", require_non_8000=True, max_t
 
 
 def _fake_run_variant_browser_factory(*, reply_text="NDMA mice found here", session_id="sess-abc123",
-                                       write_session_file=True, return_session_id=True, status="passed"):
+                                       write_session_file=True, return_session_id=True, status="passed",
+                                       route="cc"):
     """Stand-in for chat_nextseek/e2e/playwright/runner.py::run_variant_browser.
-    Writes exactly the artifacts the real (F4a-extended) runner writes
+    Writes exactly the artifacts the real (poll-transport) runner writes
     (turns/<label>/query.txt, complete.json, ui_text.json; trace.zip;
     session_id.txt) and returns turn_results entries shaped EXACTLY like the
-    real ones: {label, passed, elapsed_s, criteria_results} — NO "last_reply"
-    key (see test_fake_runner_turn_results_shape_has_no_last_reply_key)."""
+    real ones: {label, passed, elapsed_s, route, criteria_results} — NO
+    "last_reply" key (see test_fake_runner_turn_results_shape_has_no_last_reply_key).
+
+    ``route`` shapes the persisted complete.json (query_complete.data) so
+    --validate-only's route recompute agrees with the recorded route: the CC
+    route carries total_cost_usd/cc_session_id (cost gated on the DB cc_traces
+    read), the NS route carries a debug dict and no cost. Defaults to "cc" so
+    the pre-existing cost-gating tests keep exercising the cost path."""
+
+    def _complete_data():
+        if route == "cc":
+            return {"reply": reply_text, "total_cost_usd": 0.0, "cc_session_id": f"cc-{session_id}"}
+        return {"reply": reply_text, "debug": {}}
 
     def _fake(variant, config, out_dir, **kwargs):
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -197,15 +209,18 @@ def _fake_run_variant_browser_factory(*, reply_text="NDMA mice found here", sess
             turn_dir = out_dir / "turns" / turn.label
             turn_dir.mkdir(parents=True, exist_ok=True)
             (turn_dir / "query.txt").write_text(turn.query, encoding="utf-8")
-            (turn_dir / "complete.json").write_text(json.dumps({"reply": reply_text}), encoding="utf-8")
+            (turn_dir / "complete.json").write_text(json.dumps(_complete_data()), encoding="utf-8")
             (turn_dir / "ui_text.json").write_text(
                 json.dumps({"latest_assistant_reply": reply_text}), encoding="utf-8")
-            turn_results.append({"label": turn.label, "passed": True, "elapsed_s": 0.1, "criteria_results": []})
+            turn_results.append({"label": turn.label, "passed": True, "elapsed_s": 0.1,
+                                 "route": route, "criteria_results": []})
         (out_dir / "trace.zip").write_bytes(b"PK\x03\x04fake-trace-bytes")
+        (out_dir / "downloaded_keys.json").write_text(json.dumps([]), encoding="utf-8")
         if write_session_file and session_id:
             (out_dir / "session_id.txt").write_text(session_id, encoding="utf-8")
         result = {"id": variant.id, "family": variant.family, "status": status,
-                  "elapsed_s": 0.1, "failed_criteria": [], "turn_results": turn_results}
+                  "elapsed_s": 0.1, "failed_criteria": [], "turn_results": turn_results,
+                  "route": route, "cc_cost_usd": None}
         if return_session_id:
             result["session_id"] = session_id
         return result
@@ -288,7 +303,7 @@ def test_fake_runner_turn_results_shape_has_no_last_reply_key(tmp_path):
     result = fake(variant, object(), tmp_path / "out")
     assert result["turn_results"], "fixture produced no turns"
     for tr in result["turn_results"]:
-        assert set(tr.keys()) == {"label", "passed", "elapsed_s", "criteria_results"}
+        assert set(tr.keys()) == {"label", "passed", "elapsed_s", "route", "criteria_results"}
         assert "last_reply" not in tr
 
 
@@ -457,6 +472,61 @@ def test_total_cost_over_cap_fails(monkeypatch, tmp_path):
     summary = json.loads((run_dir / "summary.json").read_text())
     assert summary["results"][0]["passed"] is True  # the per-question gate passed...
     assert summary["all_passed"] is False           # ...but the cap gate still fails the whole run
+
+
+# ── main(): route awareness (NS persists no per-turn cost) ──────────────────
+
+
+def test_ns_route_passes_without_any_cost_row(monkeypatch, tmp_path):
+    """The deterministic NS pipeline persists no cc_traces (see the NS branch of
+    services/cc_assistant.py). An NS-routed question must pass on criteria +
+    session + no-forbidden WITHOUT a cost row — the CC-only cost gate must not
+    fail it."""
+    approval = _approval()
+    fake_runner = _fake_run_variant_browser_factory(route="ns")
+
+    def _fetch_no_traces(config, session_id, *, env="dev"):
+        return [{"user_query": "q", "assistant_reply": "a", "cc_traces": []}]  # NS: no cc_traces
+
+    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner,
+                                    fake_fetch=_fetch_no_traces)
+    summary = json.loads((run_dir / "summary.json").read_text())
+    assert summary["results"][0]["route"] == "ns"
+    assert summary["results"][0]["cost_usd"] is None      # no cost persisted on NS
+    assert summary["results"][0]["passed"] is True        # but the question still passes
+    assert exit_code == 0
+
+
+def test_ns_route_validate_only_roundtrips(monkeypatch, tmp_path):
+    """An NS run replays clean through --validate-only: route recomputed from
+    complete.json == recorded, and the NS branch requires no cost row."""
+    approval = _approval()
+    fake_runner = _fake_run_variant_browser_factory(route="ns")
+    fake_fetch = _fake_fetch_chat_session_row_factory(present=True, cost_usd=0.05)  # cc_traces ignored on NS
+
+    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner, fake_fetch=fake_fetch)
+    assert exit_code == 0
+    exit_code2, _ = _validate(monkeypatch, tmp_path, approval, fake_fetch)
+    assert exit_code2 == 0
+
+
+def test_declared_route_mismatch_fails(monkeypatch, tmp_path):
+    """A question that declares an expected route but the runner returns the
+    other shape is a routing regression -> the question fails."""
+    approval = _approval(questions=[
+        {"id": "q1", "family": "search_advanced", "name": "basic", "route": "cc",
+         "turns": [{"label": "main", "query": "Find me mice treated with NDMA",
+                    "pass_criteria": [{"field": "ui_text.assistant_reply", "op": "mentions", "value": "NDMA"}]}]},
+    ])
+    fake_runner = _fake_run_variant_browser_factory(route="ns")  # declared cc, got ns
+    fake_fetch = _fake_fetch_chat_session_row_factory(cost_usd=0.05)
+    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner, fake_fetch=fake_fetch)
+    assert exit_code == 1
+    summary = json.loads((run_dir / "summary.json").read_text())
+    assert summary["results"][0]["route"] == "ns"
+    assert summary["results"][0]["declared_route"] == "cc"
+    assert summary["results"][0]["route_mismatch"] is True
+    assert summary["results"][0]["passed"] is False
 
 
 # ── --validate-only: drifted approval hash ─────────────────────────────────

@@ -2,12 +2,25 @@
 
 Mirrors e2e/runner.py::run_variant — same return shape, same per-turn try/except.
 The Playwright stack is hoisted to module-level imports so tests can patch it.
+
+Transport: HTTP polling, not WebSocket (2026-07-13 rework)
+----------------------------------------------------------
+The merged NExtSEEK stack serves the assistant over Django/gunicorn (WSGI) with
+an in-memory channel layer and no ASGI websocket worker, so the frontend's
+``query_complete`` websocket frame never arrives. This runner therefore captures
+the ``task_id`` from the ``.../query/async`` POST response and polls
+``GET /nextseek_api/cc-assistant/tasks/{task_id}/progress/`` until terminal — see
+``e2e.playwright.poll`` for the capture + payload adapters and the NS/CC route
+rationale. (The old ``WSCapture`` path lives on in ``ws.py`` + its own test for
+reference, but is no longer wired here.)
 """
 from __future__ import annotations
 
+import base64
 import json
 import time
 import traceback
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +30,14 @@ from e2e.catalog import Variant
 from e2e.criteria import check_pass
 from e2e.playwright.mysql import fetch_chat_session_row
 from e2e.playwright.pages import ChatPage
-from e2e.playwright.ws import WSCapture, wait_for_query_complete
+from e2e.playwright.poll import (
+    PollCapture,
+    artifact_files,
+    build_debug,
+    cc_cost_from_data,
+    detect_route_from_data,
+    query_complete_data,
+)
 
 
 def _ui_url(config: Any) -> str:
@@ -27,8 +47,9 @@ def _ui_url(config: Any) -> str:
     docker compose network — what reachable when the runner executes inside
     the `nextseek` container via `docker exec`. nginx serves /static/ assets
     directly (no Django APPEND_SLASH redirect) and proxies the rest to
-    gunicorn. For host-based usage, set NEXTSEEK_UI_URL=http://localhost:8000
-    in chat_nextseek/.env.
+    gunicorn. For host-based usage (the Task-17 live run — the Django login
+    CSRF trusts only the host-published origin), set
+    NEXTSEEK_UI_URL=http://localhost:8100 on `config`.
     """
     return getattr(config, "NEXTSEEK_UI_URL", None) or "http://nextseek_nginx"
 
@@ -36,6 +57,29 @@ def _ui_url(config: Any) -> str:
 def _chat_url(config: Any) -> str:
     """The Django page that embeds the chat React app (smartSearch view)."""
     return f"{_ui_url(config).rstrip('/')}/seek/assistant/"
+
+
+def _auth_header(config: Any) -> str:
+    user = getattr(config, "API_USER", "demo")
+    password = getattr(config, "API_PASS", "demopassword")
+    return "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+
+
+def _make_get_progress(config: Any):
+    """Build a ``get_progress(task_id) -> payload`` closure that polls the
+    CCAssistantViewSet progress endpoint with Basic auth (same user that owns
+    the task — the poll endpoint enforces ``user=request.user``). Independent of
+    the frontend's dead websocket / poll-fallback logic."""
+    base = _ui_url(config).rstrip("/")
+    auth = _auth_header(config)
+
+    def get_progress(task_id: str) -> dict:
+        url = f"{base}/nextseek_api/cc-assistant/tasks/{task_id}/progress/"
+        req = urllib.request.Request(url, headers={"Authorization": auth})
+        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 (operator-supplied base_url)
+            return json.loads(r.read().decode())
+
+    return get_progress
 
 
 def _login_django_session(page: Any, ui_url: str, user: str, password: str, *, timeout_ms: int = 15_000) -> None:
@@ -61,17 +105,26 @@ def run_variant_browser(
     pace_seconds: int = 15,
     headed: bool = False,
     video: bool = False,
-    timeout_s: float = 90.0,
+    timeout_s: float = 180.0,
+    interval_s: float = 2.0,
+    submit_timeout_ms: int = 60_000,
 ) -> dict:
     """Execute one variant in a real browser. Returns dict matching run_variant().
 
     out_dir = outputs/e2e_<ts>/playwright/<vid>/ (per-variant subdir; caller mkdirs).
+
+    Return dict adds two fields over the classic shape so an approval-driven
+    orchestrator can gate cost route-aware (NS persists no per-turn cost):
+    ``route`` (``ns``|``cc``|``unknown`` — the last non-unknown turn) and
+    ``cc_cost_usd`` (sum of CC-turn ``total_cost_usd``, or None if no CC turn).
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    artifacts_dir = out_dir / "artifacts"
-    artifacts_dir.mkdir(exist_ok=True)
+    files_dir = out_dir / "files"
+    files_dir.mkdir(exist_ok=True)
 
     ui_url = _ui_url(config)
+    get_progress = _make_get_progress(config)
+    poll = PollCapture()
 
     turn_results: list[dict] = []
     overall_passed = True
@@ -80,42 +133,28 @@ def run_variant_browser(
 
     captured_session_id: str | None = None
     downloaded_artifacts: set[str] = set()
+    variant_route = "unknown"
+    cc_cost_total: float | None = None
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=not headed)
-        # No Basic Auth header injection: the smartSearch view uses Django
-        # session auth (established via the login form below), and the React
-        # app's REST calls go through SessionAuthService which uses cookies.
-        # Adding an Authorization header here causes browsers to send it on
-        # third-party CDN font requests (CORS blocked) and triggers Django's
-        # APPEND_SLASH redirect on /static/ which breaks the React bundle.
-        context_kwargs: dict[str, Any] = {}
+        # No Basic Auth header injection on the browser context: the smartSearch
+        # view uses Django session auth (established via the login form below),
+        # and the React app's REST calls go through SessionAuthService cookies.
+        # An Authorization header here leaks onto third-party CDN font requests
+        # (CORS blocked) and triggers Django's APPEND_SLASH redirect on /static/
+        # which breaks the React bundle. (The progress poll uses its own Basic
+        # auth via urllib, outside the browser — see _make_get_progress.)
+        context_kwargs: dict[str, Any] = {"accept_downloads": True}
         if video:
             context_kwargs["record_video_dir"] = str(out_dir)
         ctx = browser.new_context(**context_kwargs)
         ctx.tracing.start(screenshots=True, snapshots=True, sources=False)
         page = ctx.new_page()
 
-        cap = WSCapture()
-        cap.attach(page)
-
-        # Capture session_id from the async-query POST response
-        def _on_resp(resp):
-            nonlocal captured_session_id
-            try:
-                if "/assistant/query/async" in resp.url and resp.status == 200:
-                    body = resp.json()
-                    if body.get("session_id"):
-                        captured_session_id = body["session_id"]
-            except Exception:
-                pass
-        page.on("response", _on_resp)
-
         try:
             # Establish Django session via form login, THEN navigate to the
-            # smartSearch page that embeds the chat React app. Basic Auth
-            # header (set on the context above) continues to serve REST
-            # calls the React app makes to `/nextseek_api/*`.
+            # smartSearch page that embeds the chat React app.
             _login_django_session(
                 page, ui_url,
                 getattr(config, "API_USER", "demo"),
@@ -129,25 +168,54 @@ def run_variant_browser(
                 if pace_seconds > 0 and i > 0:
                     time.sleep(pace_seconds)
 
-                cap.reset_for_next_turn()
                 t0 = time.perf_counter()
                 turn_dir = out_dir / "turns" / turn.label
                 turn_dir.mkdir(parents=True, exist_ok=True)
                 (turn_dir / "query.txt").write_text(turn.query, encoding="utf-8")
 
                 try:
-                    chat.send_query(turn.query)
-                    payload = wait_for_query_complete(cap, timeout_s=timeout_s)
+                    # Submit the query and capture task_id + session_id from the
+                    # 202 response body synchronously (both routes POST to a URL
+                    # matching "query/async"), then poll to a terminal payload.
+                    with page.expect_response(
+                        lambda r: "query/async" in r.url, timeout=submit_timeout_ms,
+                    ) as resp_info:
+                        chat.send_query(turn.query)
+                    resp = resp_info.value
+                    try:
+                        body = resp.json()
+                    except Exception:
+                        body = {}
+                    task_id = body.get("task_id")
+                    if body.get("session_id"):
+                        captured_session_id = body["session_id"]
+                    if not task_id:
+                        raise RuntimeError(
+                            f"no task_id in query/async response "
+                            f"(status={resp.status}, url={resp.url}, body={str(body)[:200]})"
+                        )
+                    payload = poll.poll_until_complete(
+                        get_progress, task_id, timeout_s=timeout_s, interval_s=interval_s,
+                    )
                     elapsed = time.perf_counter() - t0
-                    (turn_dir / "complete.json").write_text(
+                    # Persist BOTH the full poll payload (route detection +
+                    # evidence) and the query_complete.data (complete.json keeps
+                    # the same top-level {reply, debug[, files, artifacts]} shape
+                    # the orchestrator's _turn_reply_from_artifacts / recompute
+                    # read).
+                    qc_data = query_complete_data(payload)
+                    (turn_dir / "progress.json").write_text(
                         json.dumps(payload, indent=2, default=str), encoding="utf-8"
+                    )
+                    (turn_dir / "complete.json").write_text(
+                        json.dumps(qc_data, indent=2, default=str), encoding="utf-8"
                     )
                 except Exception as exc:
                     elapsed = time.perf_counter() - t0
                     (turn_dir / "error.txt").write_text(traceback.format_exc(), encoding="utf-8")
                     turn_results.append({
                         "label": turn.label, "passed": False, "elapsed_s": round(elapsed, 2),
-                        "error": str(exc), "criteria_results": [],
+                        "route": "unknown", "error": str(exc), "criteria_results": [],
                     })
                     overall_passed = False
                     overall_failed_criteria.append(f"{turn.label}: {type(exc).__name__} {exc}")
@@ -156,12 +224,23 @@ def run_variant_browser(
 
                 elapsed_total += elapsed
 
-                # Eager click of any artifact-download required by criteria
-                _maybe_download_artifacts(chat, turn.pass_criteria, artifacts_dir, downloaded_artifacts)
+                route = detect_route_from_data(qc_data)
+                if route != "unknown":
+                    variant_route = route
+                turn_cc_cost = cc_cost_from_data(qc_data)
+                if turn_cc_cost is not None:
+                    cc_cost_total = (cc_cost_total or 0.0) + turn_cc_cost
+
+                # Download artifacts by KEY (data.artifacts) — see poll.artifact_files
+                # for why the un-suffixed key (not the flat data.files manifest) is
+                # the button/endpoint identifier. Saves bytes to files/ for
+                # api_artifact.* checks and records the identifier for
+                # ui_text.artifacts.<id>.downloaded checks.
+                _download_artifacts(chat, payload, turn.pass_criteria, files_dir, downloaded_artifacts)
 
                 # Fetch MySQL chat_log if any criterion needs it
                 mysql_log: list[dict] = []
-                console_text: str | None = payload.get("reply") if isinstance(payload, dict) else None
+                reply_text: str | None = qc_data.get("reply")
                 if _needs_mysql(turn.pass_criteria) and captured_session_id:
                     mysql_log = _fetch_with_retry(config, captured_session_id)
                     (turn_dir / "mysql_chat_log.json").write_text(
@@ -172,11 +251,16 @@ def run_variant_browser(
                     "chat_page": chat,
                     "downloaded_artifacts": downloaded_artifacts,
                 }
+                debug = build_debug(payload) if route == "ns" else {}
                 passed, crit_results = check_pass(
-                    payload.get("debug", {}) if isinstance(payload, dict) else {},
+                    debug,
                     turn.pass_criteria,
+                    last_reply=reply_text,
+                    # api_artifact.* reads <run_root>/files/; downloads are saved
+                    # to the variant-level out_dir/files, so run_root is out_dir.
+                    run_root=out_dir,
                     browser_ctx=browser_ctx,
-                    console_text=console_text,
+                    console_text=reply_text,
                     mysql_chat_log=mysql_log if mysql_log else None,
                 )
 
@@ -184,7 +268,7 @@ def run_variant_browser(
 
                 turn_results.append({
                     "label": turn.label, "passed": passed, "elapsed_s": round(elapsed, 2),
-                    "criteria_results": crit_results,
+                    "route": route, "criteria_results": crit_results,
                 })
                 if not passed:
                     overall_passed = False
@@ -204,22 +288,20 @@ def run_variant_browser(
             except Exception:
                 pass
             try:
-                cap.dump(out_dir / "ws_frames.jsonl")
-            except Exception:
-                pass
-            try:
                 ctx.close()
                 browser.close()
             except Exception:
                 pass
 
-    # Persist the captured NExtSEEK chat session_id to a raw artifact (not just
-    # the return value) so a --validate-only replay pass can recover it from
-    # disk alone, without trusting the live caller's in-memory result (Task 12
-    # F4a / 2026-07-08: this dict previously dropped captured_session_id on
-    # the floor even though it was already captured above for MySQL fetches).
+    # Persist the captured NExtSEEK chat session_id + the downloaded artifact
+    # keys to raw artifacts (not just the return value) so a --validate-only
+    # replay pass can recover them from disk alone, without trusting the live
+    # caller's in-memory result.
     if captured_session_id:
         (out_dir / "session_id.txt").write_text(captured_session_id, encoding="utf-8")
+    (out_dir / "downloaded_keys.json").write_text(
+        json.dumps(sorted(downloaded_artifacts)), encoding="utf-8"
+    )
 
     return {
         "id": variant.id,
@@ -229,6 +311,8 @@ def run_variant_browser(
         "failed_criteria": overall_failed_criteria,
         "turn_results": turn_results,
         "session_id": captured_session_id,
+        "route": variant_route,
+        "cc_cost_usd": cc_cost_total,
     }
 
 
@@ -242,26 +326,64 @@ def _needs_mysql(criteria: list) -> bool:
     )
 
 
-def _maybe_download_artifacts(chat: ChatPage, criteria: list, out_dir: Path, downloaded: set[str]) -> None:
-    """Click any artifact-download buttons named by a *.downloaded criterion."""
+def _download_one(chat: ChatPage, candidates: list[str | None], files_dir: Path) -> str | None:
+    """Click the first artifact button matching any candidate data-filename and
+    save the download bytes under the server's suggested filename in files_dir.
+    Returns the server filename on success, else None."""
     page = chat.page
+    for candidate in candidates:
+        if not candidate or not chat.has_artifact(candidate):
+            continue
+        try:
+            with page.expect_download(timeout=30_000) as dl_info:
+                chat.click_artifact(candidate)
+            download = dl_info.value
+            files_dir.mkdir(parents=True, exist_ok=True)
+            save_name = download.suggested_filename or candidate
+            dest = files_dir / save_name
+            download.save_as(str(dest))
+            if dest.exists() and dest.stat().st_size > 0:
+                return save_name
+        except Exception:
+            continue
+    return None
+
+
+def _download_artifacts(chat: ChatPage, payload: dict, criteria: list,
+                        files_dir: Path, downloaded: set[str]) -> None:
+    """Download this turn's artifacts, recording every identifier a criterion
+    might reference so ``ui_text.artifacts.<id>.downloaded`` resolves.
+
+    Pass 1 (payload-driven): every ``query_complete.data.artifacts`` file/table
+    entry is downloaded by its KEY (with a ``<key>.csv`` fallback for table
+    artifacts, whose button data-filename is the csv name) and the key +
+    filename recorded. This is the evidence + api_artifact source.
+
+    Pass 2 (criteria-driven safety net): any ``ui_text.artifacts.<name>.downloaded``
+    whose ``<name>`` is not yet recorded is attempted by name directly, so an
+    approval that names a filename rather than a key still resolves.
+    """
+    for f in artifact_files(payload):
+        key = f.get("key")
+        if not key:
+            continue
+        filename = f.get("filename")
+        if _download_one(chat, [key, f"{key}.csv", filename], files_dir):
+            downloaded.add(key)
+            if filename:
+                downloaded.add(filename)
+
     for c in criteria:
         if not c.field.startswith("ui_text.artifacts."):
             continue
         sub = c.field[len("ui_text.artifacts."):]
         if not sub.endswith(".downloaded"):
             continue
-        filename = sub[:-len(".downloaded")]
-        try:
-            with page.expect_download(timeout=30_000) as dl_info:
-                chat.click_artifact(filename)
-            download = dl_info.value
-            dest = out_dir / filename
-            download.save_as(str(dest))
-            if dest.exists():
-                downloaded.add(filename)
-        except Exception:
-            pass
+        name = sub[:-len(".downloaded")]
+        if name in downloaded:
+            continue
+        if _download_one(chat, [name, f"{name}.csv"], files_dir):
+            downloaded.add(name)
 
 
 def _fetch_with_retry(config: Any, session_id: str, *, retry_after_ms: int = 500) -> list[dict]:
