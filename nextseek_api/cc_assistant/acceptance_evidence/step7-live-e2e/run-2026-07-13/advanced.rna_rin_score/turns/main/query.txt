@@ -1,0 +1,1 @@
+Find RNA samples with a RIN score greater than 7.

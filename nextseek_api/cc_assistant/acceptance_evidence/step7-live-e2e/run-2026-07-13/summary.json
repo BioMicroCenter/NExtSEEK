@@ -1,0 +1,147 @@
+{
+  "all_passed": false,
+  "approval_sha256": "ecc01a55727791e5291fc09746f9592aad40e73068ac5ad1812ae25537f6be69",
+  "base_url": "http://localhost:8100",
+  "db_identity": {
+    "env": "dev",
+    "host": null,
+    "port": 3306,
+    "user": null
+  },
+  "geo_note": "report.geo_submission result is from a targeted retry; the initial full-run GEO hit a harness download-timing race (report+artifact were generated; the download click preceded the React button render). See EVIDENCE.md.",
+  "identity_sha256": "f9e2e00cb557d40010c1490541faac091a5bf6489d92ea41d40912df92e58260",
+  "instance_identity": {
+    "compose_project": "nextseek-devmerge",
+    "installed_at": "2026-07-11T15:50:39-04:00",
+    "nextseek_image_id": "sha256:aa0f33eb2a296c4af6975e3adaca5807f43ebc6857a368221d927c4e8101b323",
+    "worktree_head": "01a1d1f6ab0a7c2fb675321436ccc8c30c6ab031"
+  },
+  "results": [
+    {
+      "cost_usd": null,
+      "declared_route": "ns",
+      "failed_criteria": [],
+      "forbidden_hits": [],
+      "id": "graph.how_many_monkeys",
+      "manifest_sha256": "b26b5d3ce8aaac53cac83b355a153a932825b9175cacdeb0ac3049b2abb64226",
+      "passed": true,
+      "route": "ns",
+      "route_mismatch": false,
+      "session_id": "218a7790-5bac-498c-9684-be68984f4814",
+      "trace_path": "nextseek_api/cc_assistant/acceptance_evidence/step7-live-e2e/run-2026-07-13/graph.how_many_monkeys/trace.zip"
+    },
+    {
+      "cost_usd": null,
+      "declared_route": "ns",
+      "failed_criteria": [],
+      "forbidden_hits": [],
+      "id": "advanced.rna_rin_score",
+      "manifest_sha256": "f367f069f5d40202cc5e2caa89dc6a4d013b736c465d4e7a819b966e0cdb4377",
+      "passed": true,
+      "route": "ns",
+      "route_mismatch": false,
+      "session_id": "61706ad4-4270-41ab-86b0-6a1fae0d880d",
+      "trace_path": "nextseek_api/cc_assistant/acceptance_evidence/step7-live-e2e/run-2026-07-13/advanced.rna_rin_score/trace.zip"
+    },
+    {
+      "cost_usd": null,
+      "declared_route": "ns",
+      "failed_criteria": [],
+      "forbidden_hits": [],
+      "id": "retrieve.single_nhp",
+      "manifest_sha256": "25681f9054e6afa704b004fe88367ff7f46055e32fe8b0a492d3cb043436c0aa",
+      "passed": true,
+      "route": "ns",
+      "route_mismatch": false,
+      "session_id": "b4b0d09e-8e14-491e-a227-d92191b3d473",
+      "trace_path": "nextseek_api/cc_assistant/acceptance_evidence/step7-live-e2e/run-2026-07-13/retrieve.single_nhp/trace.zip"
+    },
+    {
+      "cost_usd": null,
+      "declared_route": "ns",
+      "failed_criteria": [],
+      "forbidden_hits": [],
+      "id": "graph.show_me_all_nhps_in_the_impact",
+      "manifest_sha256": "871e08e2d08cbad6be5d1850fc505683fa02e97a80d4b9156d70ea865e6c4497",
+      "passed": true,
+      "route": "ns",
+      "route_mismatch": false,
+      "session_id": "7198131e-71c3-4f3b-8cfa-6260bb02e213",
+      "trace_path": "nextseek_api/cc_assistant/acceptance_evidence/step7-live-e2e/run-2026-07-13/graph.show_me_all_nhps_in_the_impact/trace.zip"
+    },
+    {
+      "cost_usd": null,
+      "declared_route": "ns",
+      "failed_criteria": [
+        "main: reporter_plan.summary_mode (eq='samples')",
+        "main: reporter_plan.project (eq='IMPACT')"
+      ],
+      "forbidden_hits": [],
+      "id": "report.samples_uploaded_impact",
+      "manifest_sha256": "95fcf7ec0dc4d3112408f5901b91f66b183bc716c4900d9a94bda207f26314bf",
+      "passed": false,
+      "route": "ns",
+      "route_mismatch": false,
+      "session_id": "34432d73-2ddd-4831-825a-70697c0c2947",
+      "trace_path": "nextseek_api/cc_assistant/acceptance_evidence/step7-live-e2e/run-2026-07-13/report.samples_uploaded_impact/trace.zip"
+    },
+    {
+      "cost_usd": null,
+      "declared_route": "ns",
+      "failed_criteria": [],
+      "forbidden_hits": [],
+      "id": "report.geo_submission",
+      "manifest_sha256": "8d71c0edc2c587d93091863b4b52322e18415e0a8aa77879ef12bbed982e4cd4",
+      "passed": true,
+      "route": "ns",
+      "route_mismatch": false,
+      "session_id": "84169d3c-8998-4943-ab60-4ed9d1f32de6",
+      "trace_path": "/private/tmp/claude-501/-Users-taishajoseph-Documents-Projects-work-BMC/2757c1f9-6ff6-47ae-964f-c8e6888431dd/scratchpad/geo-retry-run/report.geo_submission/trace.zip"
+    },
+    {
+      "cost_usd": 0.178047,
+      "declared_route": "cc",
+      "failed_criteria": [],
+      "forbidden_hits": [],
+      "id": "write.create_investigation_bprc",
+      "manifest_sha256": "1e220c4c9b8e851d63c14178990d131bc6377e98bf789591123a010f78468a30",
+      "passed": true,
+      "route": "cc",
+      "route_mismatch": false,
+      "session_id": "e5d8870b-f183-4366-8d8b-bc56ff411f20",
+      "trace_path": "nextseek_api/cc_assistant/acceptance_evidence/step7-live-e2e/run-2026-07-13/write.create_investigation_bprc/trace.zip"
+    },
+    {
+      "cost_usd": null,
+      "declared_route": "ns",
+      "failed_criteria": [],
+      "forbidden_hits": [],
+      "id": "refrec.refine_after_2023",
+      "manifest_sha256": "eb7ebde7ba8deb0d233f5440c514a824d56f353c7edb9755347f11ac66573492",
+      "passed": true,
+      "route": "ns",
+      "route_mismatch": false,
+      "session_id": "7298c0b4-ad12-469c-bc3f-5a68f772284f",
+      "trace_path": "nextseek_api/cc_assistant/acceptance_evidence/step7-live-e2e/run-2026-07-13/refrec.refine_after_2023/trace.zip"
+    },
+    {
+      "cost_usd": 0.099197,
+      "declared_route": "ns",
+      "failed_criteria": [
+        "run: pipeline_agent.active (true=None)",
+        "submit: pipeline_agent.active (true=None)",
+        "submit: api_artifact.samplesheet.csv (true=None)"
+      ],
+      "forbidden_hits": [],
+      "id": "pipeline.happy_path_nhp_rnaseq",
+      "manifest_sha256": "6be93074b0b76f9ae0ceaa0fbbff83af651c186379f15ac78d063b0146101210",
+      "passed": false,
+      "route": "cc",
+      "route_mismatch": true,
+      "session_id": "8191b56c-8983-4da2-8ef3-0f06268e3a7c",
+      "trace_path": "nextseek_api/cc_assistant/acceptance_evidence/step7-live-e2e/run-2026-07-13/pipeline.happy_path_nhp_rnaseq/trace.zip"
+    }
+  ],
+  "runner_module": "e2e.playwright.runner",
+  "total_cost_usd": 0.2772
+}

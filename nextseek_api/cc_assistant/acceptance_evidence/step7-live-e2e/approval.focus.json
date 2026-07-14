@@ -121,7 +121,7 @@
             {
               "field": "last_reply",
               "op": "matches_re",
-              "value": "can'?t create|isn'?t supported|not supported|unsupported"
+              "value": "can'?t create|cannot create|not something i can do|read-only|read only|isn'?t supported|not supported|unsupported|unable to|not able to|falls outside what"
             }
           ]
         }

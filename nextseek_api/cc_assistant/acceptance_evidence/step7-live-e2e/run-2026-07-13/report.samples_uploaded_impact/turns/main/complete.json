@@ -1,0 +1,509 @@
+{
+  "reply": "A total of 50,887 samples were returned in the project report. \n\nThe top sample types recorded are CHM (1,071 counts), CEL (239 counts), and LOC (50 counts), with the BMC laboratory contributing the majority of the categorized samples (1,414 counts). Although the query targeted 2023 to 2025, the provided summary lists 1,417 samples under the year code '26', primarily distributed across April (1,163) and March (240).\n\n**Debug info**\n\n```json\n{\n  \"entity\": {\n    \"sampletypes\": [],\n    \"assays\": [],\n    \"projects\": [\n      \"IMPACT\"\n    ]\n  },\n  \"parser\": {\n    \"mode\": \"reporter\",\n    \"report_mode\": \"summary\",\n    \"report_type\": null\n  }\n}\n```\n\n- **Rows returned:** 50887\n- **Download report:** `/app/outputs/260713_221616_demo/files/report/project_all_20260713T221636.uuids.json`\n\n_Detailed tables and downloads are available in the **Reporter result** panel._",
+  "debug": {
+    "entity_result": {
+      "sampletypes": [],
+      "assays": [],
+      "keywords": [
+        "IMPACT",
+        "2023",
+        "2025"
+      ],
+      "projects": [
+        "IMPACT"
+      ],
+      "labs": [],
+      "lab_codes": []
+    },
+    "parser_plan": {
+      "mode": "reporter",
+      "target_endpoint": null,
+      "intent_summary": "User wants an aggregate count of samples uploaded for the IMPACT project across the time window 2023 to 2025.",
+      "filters": {
+        "sampletype_code": null,
+        "assay_codes": [],
+        "keywords": [
+          "IMPACT",
+          "2023",
+          "2025"
+        ],
+        "uids": [],
+        "lab_codes": []
+      },
+      "resolved": {
+        "sampletypes": [],
+        "assays": [],
+        "keywords": [
+          "IMPACT",
+          "2023",
+          "2025"
+        ],
+        "projects": [
+          "IMPACT"
+        ],
+        "labs": [],
+        "lab_codes": []
+      },
+      "target_result_id": null,
+      "endpoint_candidates": [],
+      "notes": "Time-scoped aggregate upload count for a named project (IMPACT, 2023-2025) \u2014 this is a reporter summary intent, not a graph structural query or an advanced_search.",
+      "previous_api_plan": null,
+      "previous_user_query": null,
+      "report_mode": "summary",
+      "report_type": null,
+      "metadata": {}
+    },
+    "shortlist_sampletype_codes": [
+      "A.FLOW",
+      "A.GEX",
+      "A.CYTOF",
+      "A.MUSP",
+      "A.IMP",
+      "A.MSP",
+      "A.LMX",
+      "A.DBMM",
+      "NHP",
+      "LOC",
+      "A.FPCL",
+      "PAV",
+      "D.ONC",
+      "A.VCF",
+      "MUS",
+      "A.SPTX",
+      "M.CNN",
+      "MDL",
+      "A.LUM",
+      "A.SCCL",
+      "A.SPC",
+      "A.CCE",
+      "A.PERM",
+      "A.COMC",
+      "A.FCRB",
+      "A.ADCP",
+      "A.ADNP",
+      "A.ADNKA",
+      "A.TITR",
+      "M.LMM",
+      "A.PHP",
+      "A.ADMP",
+      "A.ADCD",
+      "A.CHRM",
+      "CEL",
+      "AB",
+      "D.FCS",
+      "RNA",
+      "DNA",
+      "PAT",
+      "A.ELSA",
+      "CEX",
+      "VIR",
+      "D.FILE",
+      "GAS",
+      "BAC",
+      "TIS",
+      "D.VIA",
+      "A.CNV",
+      "A.ALN"
+    ],
+    "shortlist_assay_codes": [
+      "RNA Extraction",
+      "DNA Extraction",
+      "Mass Spectrometry Analysis",
+      "Tissue Sectioning",
+      "Illumina Next-Generation Sequencing",
+      "Imaging Analysis",
+      "Protein Extraction",
+      "Alanine Aminotransferase (ALT/GPT) Activity Assay",
+      "Solid Phase Extraction (SPE)",
+      "Cell Imaging",
+      "Library Creation",
+      "Environmental sample collection",
+      "Agglutination Assay",
+      "Chemical challenge",
+      "Nuclear Magnetic Resonance Spectroscopy Analysis",
+      "Cell Isolation",
+      "Bacterial Extraction",
+      "Antibody Titer Assay Analysis",
+      "Single Cell Sequencing",
+      "Single-Nucleus RNA Sequencing (snRNA-seq)",
+      "Antibody Functional Profiling (Systems Serology)",
+      "Real-time RT-PCR",
+      "Tensiometry Assay",
+      "Antibody-Dependent Functional Profiling (ADFP)",
+      "Targeted Cancer Gene Panel Sequencing (Oncopanel)",
+      "SureQuant Analysis",
+      "CyTOF",
+      "Patient Visit",
+      "Slide Imaging",
+      "Spatial Metabolomics",
+      "Cell Extraction",
+      "Gene Expression Analysis",
+      "UV-Vis Spectroscopy",
+      "Absorption and Emission Spectroscopy",
+      "Cell Lysate Preparation",
+      "Gel Permeation Chromatography (GPC)",
+      "Electron Paramagnetic Resonance (EPR) Spectroscopy",
+      "Luminex Data Processing",
+      "Western Blot Analysis",
+      "Tissue Collection",
+      "Cell Extraction",
+      "Long-Read Sequencing",
+      "Digitally barcoded Mycobacterium tuberculosis barcode amplicon sequencing (barcode-by-sample count matrix)",
+      "FC Receptor Binding Analysis",
+      "Antibody Titer Analysis",
+      "Crystallography",
+      "Cell Line Creation",
+      "Linear Mixed Model",
+      "Luminex Analysis",
+      "PET/CT Scan Analysis",
+      "Protein Extraction",
+      "Organ-on-a-Chip Device Fabrication",
+      "Immunopeptidomics",
+      "Flow Cytometry",
+      "Antibody Treatment",
+      "Bacterial Challenge",
+      "Comet Chip",
+      "ELISA",
+      "FC Receptor Binding Assay Analysis",
+      "Flow Cytometry Analysis",
+      "Glycosylation Assay",
+      "Histopathology Analysis",
+      "Mutational Spectra Analysis",
+      "Spectroscopy Analysis",
+      "Western Blot",
+      "Magnetic Resonance Imaging (MRI)",
+      "Single Cell Clustering Analysis",
+      "Single Cell Expression Analysis",
+      "Electrochemical Sensor Assay",
+      "Mass Spectrometry",
+      "CometChip Assay",
+      "Immunohistochemistry",
+      "Field Water Quality Sensor Measurement",
+      "Antibody-Dependent Cellular Phagocytosis (ADCP)",
+      "Antibody-Dependent Neutrophil Phagocytosis Analysis"
+    ],
+    "shortlist_diagnostics": {
+      "sampletype_codes": [
+        "A.FLOW",
+        "A.GEX",
+        "A.CYTOF",
+        "A.MUSP",
+        "A.IMP",
+        "A.MSP",
+        "A.LMX",
+        "A.DBMM",
+        "NHP",
+        "LOC",
+        "A.FPCL",
+        "PAV",
+        "D.ONC",
+        "A.VCF",
+        "MUS",
+        "A.SPTX",
+        "M.CNN",
+        "MDL",
+        "A.LUM",
+        "A.SCCL",
+        "A.SPC",
+        "A.CCE",
+        "A.PERM",
+        "A.COMC",
+        "A.FCRB",
+        "A.ADCP",
+        "A.ADNP",
+        "A.ADNKA",
+        "A.TITR",
+        "M.LMM",
+        "A.PHP",
+        "A.ADMP",
+        "A.ADCD",
+        "A.CHRM",
+        "CEL",
+        "AB",
+        "D.FCS",
+        "RNA",
+        "DNA",
+        "PAT",
+        "A.ELSA",
+        "CEX",
+        "VIR",
+        "D.FILE",
+        "GAS",
+        "BAC",
+        "TIS",
+        "D.VIA",
+        "A.CNV",
+        "A.ALN"
+      ],
+      "sampletype_ranks": {},
+      "assay_codes": [
+        "RNA Extraction",
+        "DNA Extraction",
+        "Mass Spectrometry Analysis",
+        "Tissue Sectioning",
+        "Illumina Next-Generation Sequencing",
+        "Imaging Analysis",
+        "Protein Extraction",
+        "Alanine Aminotransferase (ALT/GPT) Activity Assay",
+        "Solid Phase Extraction (SPE)",
+        "Cell Imaging",
+        "Library Creation",
+        "Environmental sample collection",
+        "Agglutination Assay",
+        "Chemical challenge",
+        "Nuclear Magnetic Resonance Spectroscopy Analysis",
+        "Cell Isolation",
+        "Bacterial Extraction",
+        "Antibody Titer Assay Analysis",
+        "Single Cell Sequencing",
+        "Single-Nucleus RNA Sequencing (snRNA-seq)",
+        "Antibody Functional Profiling (Systems Serology)",
+        "Real-time RT-PCR",
+        "Tensiometry Assay",
+        "Antibody-Dependent Functional Profiling (ADFP)",
+        "Targeted Cancer Gene Panel Sequencing (Oncopanel)",
+        "SureQuant Analysis",
+        "CyTOF",
+        "Patient Visit",
+        "Slide Imaging",
+        "Spatial Metabolomics",
+        "Cell Extraction",
+        "Gene Expression Analysis",
+        "UV-Vis Spectroscopy",
+        "Absorption and Emission Spectroscopy",
+        "Cell Lysate Preparation",
+        "Gel Permeation Chromatography (GPC)",
+        "Electron Paramagnetic Resonance (EPR) Spectroscopy",
+        "Luminex Data Processing",
+        "Western Blot Analysis",
+        "Tissue Collection",
+        "Cell Extraction",
+        "Long-Read Sequencing",
+        "Digitally barcoded Mycobacterium tuberculosis barcode amplicon sequencing (barcode-by-sample count matrix)",
+        "FC Receptor Binding Analysis",
+        "Antibody Titer Analysis",
+        "Crystallography",
+        "Cell Line Creation",
+        "Linear Mixed Model",
+        "Luminex Analysis",
+        "PET/CT Scan Analysis",
+        "Protein Extraction",
+        "Organ-on-a-Chip Device Fabrication",
+        "Immunopeptidomics",
+        "Flow Cytometry",
+        "Antibody Treatment",
+        "Bacterial Challenge",
+        "Comet Chip",
+        "ELISA",
+        "FC Receptor Binding Assay Analysis",
+        "Flow Cytometry Analysis",
+        "Glycosylation Assay",
+        "Histopathology Analysis",
+        "Mutational Spectra Analysis",
+        "Spectroscopy Analysis",
+        "Western Blot",
+        "Magnetic Resonance Imaging (MRI)",
+        "Single Cell Clustering Analysis",
+        "Single Cell Expression Analysis",
+        "Electrochemical Sensor Assay",
+        "Mass Spectrometry",
+        "CometChip Assay",
+        "Immunohistochemistry",
+        "Field Water Quality Sensor Measurement",
+        "Antibody-Dependent Cellular Phagocytosis (ADCP)",
+        "Antibody-Dependent Neutrophil Phagocytosis Analysis"
+      ],
+      "assay_ranks": {},
+      "enabled": false,
+      "fallback_reason": null
+    },
+    "api_plan": null,
+    "reporter_plan": {
+      "project": null,
+      "years": [],
+      "month_range": null,
+      "day_range": null,
+      "reporter_mode": "summary",
+      "summary_mode": null,
+      "report_type": null,
+      "uids": [],
+      "reporter_context": {},
+      "notes": "Reporter could not produce a structured plan."
+    },
+    "reporter_result": {
+      "ok": true,
+      "project_id": null,
+      "rows_returned": 50887,
+      "uuids_saved": 50887,
+      "uuid_report_file": "/app/outputs/260713_221616_demo/files/report/project_all_20260713T221636.uuids.json",
+      "uuid_preview": [
+        "A.ADCD-250312ALT-1-PUB",
+        "A.ADCP-230914ALT-1-PUB",
+        "A.ADCP-230914ALT-2-PUB",
+        "A.ADDCP-250312ALT-1-PUB",
+        "NHP-220913SED-15-PUB1",
+        "NHP-220913SED-16-PUB",
+        "NHP-220913SED-16-PUB1",
+        "NHP-220913SED-17-PUB",
+        "NHP-220913SED-17-PUB1",
+        "NHP-220913SED-18-PUB"
+      ],
+      "sampletypes_table": {
+        "CHM": 1071,
+        "CEL": 239,
+        "LOC": 50,
+        "A.SPC": 23,
+        "D.SPC": 18,
+        "A.ADCD": 15,
+        "MDL": 1
+      },
+      "labs_table": {
+        "BMC": 1414,
+        "NA": 3
+      },
+      "years_table": {
+        "26": 1417
+      },
+      "months_table": {
+        "2602": 14,
+        "2603": 240,
+        "2604": 1163
+      },
+      "unparsable_uids": 49470,
+      "db_diagnostic": {}
+    },
+    "report_writer_output": null,
+    "reporter_metadata": null,
+    "api_result_meta": null,
+    "api_result_slim": null,
+    "api_result_full": null,
+    "raw_json_path": null,
+    "error_context": null,
+    "report_saved_files": {
+      "samples_report": "/app/outputs/260713_221616_demo/files/report/project_all_20260713T221636.uuids.json",
+      "reporter_result": "/app/outputs/260713_221616_demo/files/report/reporter_result.json"
+    }
+  },
+  "bundle_id": 1,
+  "artifacts": [
+    {
+      "artifact_type": "table",
+      "key": "sampletypes_table",
+      "label": "SampleType Summary",
+      "columns": [
+        "key",
+        "count"
+      ],
+      "data": [
+        {
+          "key": "CHM",
+          "count": 1071
+        },
+        {
+          "key": "CEL",
+          "count": 239
+        },
+        {
+          "key": "LOC",
+          "count": 50
+        },
+        {
+          "key": "A.SPC",
+          "count": 23
+        },
+        {
+          "key": "D.SPC",
+          "count": 18
+        },
+        {
+          "key": "A.ADCD",
+          "count": 15
+        },
+        {
+          "key": "MDL",
+          "count": 1
+        }
+      ],
+      "rows_returned": 50887
+    },
+    {
+      "artifact_type": "table",
+      "key": "labs_table",
+      "label": "Lab Summary",
+      "columns": [
+        "key",
+        "count"
+      ],
+      "data": [
+        {
+          "key": "BMC",
+          "count": 1414
+        },
+        {
+          "key": "NA",
+          "count": 3
+        }
+      ],
+      "rows_returned": 50887
+    },
+    {
+      "artifact_type": "table",
+      "key": "years_table",
+      "label": "Year Summary",
+      "columns": [
+        "key",
+        "count"
+      ],
+      "data": [
+        {
+          "key": "26",
+          "count": 1417
+        }
+      ],
+      "rows_returned": 50887
+    },
+    {
+      "artifact_type": "table",
+      "key": "months_table",
+      "label": "Month Summary",
+      "columns": [
+        "key",
+        "count"
+      ],
+      "data": [
+        {
+          "key": "2602",
+          "count": 14
+        },
+        {
+          "key": "2603",
+          "count": 240
+        },
+        {
+          "key": "2604",
+          "count": 1163
+        }
+      ],
+      "rows_returned": 50887
+    }
+  ],
+  "files": [
+    {
+      "key": "samples_report",
+      "label": "Samples report JSON",
+      "path": "/app/outputs/260713_221616_demo/files/report/project_all_20260713T221636.uuids.json",
+      "filename": "project_all_20260713T221636.uuids.json",
+      "mime": "application/json",
+      "kind": "report"
+    },
+    {
+      "key": "reporter_result",
+      "label": "Reporter result JSON",
+      "path": "/app/outputs/260713_221616_demo/files/report/reporter_result.json",
+      "filename": "reporter_result.json",
+      "mime": "application/json",
+      "kind": "report"
+    }
+  ],
+  "session_id": "34432d73-2ddd-4831-825a-70697c0c2947"
+}

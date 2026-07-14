@@ -183,7 +183,7 @@ def _approval(*, base_url="http://localhost:18000", require_non_8000=True, max_t
 
 def _fake_run_variant_browser_factory(*, reply_text="NDMA mice found here", session_id="sess-abc123",
                                        write_session_file=True, return_session_id=True, status="passed",
-                                       route="cc"):
+                                       route="cc", frame_cost=0.05):
     """Stand-in for chat_nextseek/e2e/playwright/runner.py::run_variant_browser.
     Writes exactly the artifacts the real (poll-transport) runner writes
     (turns/<label>/query.txt, complete.json, ui_text.json; trace.zip;
@@ -199,7 +199,10 @@ def _fake_run_variant_browser_factory(*, reply_text="NDMA mice found here", sess
 
     def _complete_data():
         if route == "cc":
-            return {"reply": reply_text, "total_cost_usd": 0.0, "cc_session_id": f"cc-{session_id}"}
+            d = {"reply": reply_text, "cc_session_id": f"cc-{session_id}"}
+            if frame_cost is not None:  # None -> simulate a CC turn with no cost signal at all
+                d["total_cost_usd"] = frame_cost
+            return d
         return {"reply": reply_text, "debug": {}}
 
     def _fake(variant, config, out_dir, **kwargs):
@@ -220,7 +223,7 @@ def _fake_run_variant_browser_factory(*, reply_text="NDMA mice found here", sess
             (out_dir / "session_id.txt").write_text(session_id, encoding="utf-8")
         result = {"id": variant.id, "family": variant.family, "status": status,
                   "elapsed_s": 0.1, "failed_criteria": [], "turn_results": turn_results,
-                  "route": route, "cc_cost_usd": None}
+                  "route": route, "cc_cost_usd": (frame_cost if route == "cc" else None)}
         if return_session_id:
             result["session_id"] = session_id
         return result
@@ -256,7 +259,11 @@ def _run_main(monkeypatch, tmp_path, approval, *, fake_runner=None, fake_fetch=N
 def _happy_run(monkeypatch, tmp_path, *, reply_text="NDMA mice found here", cost_usd=0.05,
                session_id="sess-abc123", instance_identity=None):
     approval = _approval(instance_identity=instance_identity)
-    fake_runner = _fake_run_variant_browser_factory(reply_text=reply_text, session_id=session_id)
+    # CC cost now comes from the runner's result-frame total_cost_usd (frame_cost),
+    # not the DB. fake_fetch is kept only for recompute's mysql_log call (trio/
+    # mysql_chat_log criteria), which the happy questions don't exercise.
+    fake_runner = _fake_run_variant_browser_factory(
+        reply_text=reply_text, session_id=session_id, frame_cost=cost_usd)
     fake_fetch = _fake_fetch_chat_session_row_factory(cost_usd=cost_usd)
     exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner, fake_fetch=fake_fetch)
     assert exit_code == 0, "happy-path fixture must itself pass before it's useful for mutation-detection tests"
@@ -307,41 +314,30 @@ def test_fake_runner_turn_results_shape_has_no_last_reply_key(tmp_path):
         assert "last_reply" not in tr
 
 
-# ── F2/F3 pure-helper unit tests ───────────────────────────────────────────
+# ── reply-text / session-id / cost pure-helper unit tests ──────────────────
+# (The old _session_cost_usd cc_traces-summing helper was removed 2026-07-13 —
+# CC cost is now the exact result-frame total_cost_usd; see the frame-cost tests
+# under main()/validate below and _cc_frame_cost_from_artifacts.)
 
 
-def test_session_cost_usd_sums_across_chat_log_and_cc_traces(monkeypatch):
-    def fetch(_config, _session_id, *, env="dev"):
-        return [
-            {"cc_traces": [{"cost_usd": 0.10}, {"cost_usd": 0.05}]},
-            {"cc_traces": [{"cost_usd": 0.02}]},
-        ]
-    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
-    assert full_ui_e2e._session_cost_usd(object(), "sess-1") == pytest.approx(0.17)
+def test_cc_frame_cost_sums_total_cost_usd_across_turns(tmp_path):
+    """_cc_frame_cost_from_artifacts sums the per-turn complete.json
+    total_cost_usd (the exact result-frame value), and returns None when no turn
+    carries one."""
+    q_dir = tmp_path / "q1"
+    for label, tc in (("t0", 0.10), ("t1", 0.05)):
+        d = q_dir / "turns" / label
+        d.mkdir(parents=True)
+        (d / "complete.json").write_text(json.dumps({"reply": "r", "total_cost_usd": tc}), encoding="utf-8")
+    assert full_ui_e2e._cc_frame_cost_from_artifacts(q_dir) == pytest.approx(0.15)
 
 
-def test_session_cost_usd_none_when_no_session_id():
-    assert full_ui_e2e._session_cost_usd(object(), None) is None
-
-
-def test_session_cost_usd_none_when_session_row_missing(monkeypatch):
-    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", lambda *a, **k: [])
-    assert full_ui_e2e._session_cost_usd(object(), "sess-1") is None
-
-
-def test_session_cost_usd_none_when_cc_traces_absent_f2(monkeypatch):
-    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row",
-                         lambda *a, **k: [{"user_query": "q", "cc_traces": []}])
-    assert full_ui_e2e._session_cost_usd(object(), "sess-1") is None
-
-
-def test_session_cost_usd_real_zero_is_not_treated_as_missing(monkeypatch):
-    """A genuinely-recorded $0.00 cc_traces entry must be distinguished from
-    an absent one — the F2 fix is "None on absence", not "always fail on
-    falsy cost"."""
-    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row",
-                         lambda *a, **k: [{"cc_traces": [{"cost_usd": 0.0}]}])
-    assert full_ui_e2e._session_cost_usd(object(), "sess-1") == 0.0
+def test_cc_frame_cost_none_when_no_total_cost_usd(tmp_path):
+    q_dir = tmp_path / "q1"
+    d = q_dir / "turns" / "main"
+    d.mkdir(parents=True)
+    (d / "complete.json").write_text(json.dumps({"reply": "r", "debug": {}}), encoding="utf-8")
+    assert full_ui_e2e._cc_frame_cost_from_artifacts(q_dir) is None
 
 
 def test_turn_reply_from_artifacts_prefers_ui_text_json(tmp_path):
@@ -405,69 +401,71 @@ def test_port_8000_with_require_non_8000_exits_1(monkeypatch, tmp_path):
     assert not run_dir.exists()
 
 
-def test_missing_cost_row_fails(monkeypatch, tmp_path):
+def test_cc_missing_frame_cost_fails(monkeypatch, tmp_path):
+    """A CC turn whose result frame carries no total_cost_usd fails the
+    fail-closed cost gate (every CC-routed turn costs a real Bedrock turn)."""
     approval = _approval()
-    fake_runner = _fake_run_variant_browser_factory()
-    fake_fetch = _fake_fetch_chat_session_row_factory(present=False)
-    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner, fake_fetch=fake_fetch)
+    fake_runner = _fake_run_variant_browser_factory(frame_cost=None)  # no result-frame cost
+    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner)
     assert exit_code == 1
     summary = json.loads((run_dir / "summary.json").read_text())
     assert summary["results"][0]["cost_usd"] is None
     assert summary["results"][0]["passed"] is False
+
+
+def test_cc_cost_comes_from_result_frame_no_db_read(monkeypatch, tmp_path):
+    """The CC cost is the EXACT result-frame total_cost_usd the poll payload
+    already carries (== the value later persisted to cc_traces; see
+    translate.py:155 / cc_engine.py:792). It must be read from the frame, with
+    NO MySQL cc_traces round-trip — matching the step7 harness
+    (cost_source=claude_code_result) and the off-box poll_e2e.cc_cost."""
+    approval = _approval()
+    fake_runner = _fake_run_variant_browser_factory(frame_cost=0.31)
+
+    def _fetch_must_not_be_called(config, session_id, *, env="dev"):
+        raise AssertionError("the CC cost path must not read the DB (cost comes from the result frame)")
+
+    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner,
+                                    fake_fetch=_fetch_must_not_be_called)
+    summary = json.loads((run_dir / "summary.json").read_text())
+    assert summary["results"][0]["route"] == "cc"
+    assert summary["results"][0]["cost_usd"] == pytest.approx(0.31)
+    assert summary["results"][0]["passed"] is True
+    assert exit_code == 0
 
 
 def test_missing_session_id_fails(monkeypatch, tmp_path):
     approval = _approval()
     fake_runner = _fake_run_variant_browser_factory(write_session_file=False, return_session_id=False)
-    fetch_calls = []
 
-    def _fetch(config, session_id, *, env="dev"):
-        fetch_calls.append(session_id)
-        return [{"cc_traces": [{"cost_usd": 0.05}]}]
+    def _fetch_must_not_be_called(config, session_id, *, env="dev"):
+        raise AssertionError("main() must not read the DB (cost comes from the result frame)")
 
-    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner, fake_fetch=_fetch)
+    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner,
+                                    fake_fetch=_fetch_must_not_be_called)
     assert exit_code == 1
     summary = json.loads((run_dir / "summary.json").read_text())
     assert summary["results"][0]["session_id"] is None
-    assert summary["results"][0]["cost_usd"] is None
-    assert fetch_calls == [], "cost lookup must short-circuit on a missing session id, never query with None"
+    assert summary["results"][0]["passed"] is False  # a missing session id fails the question outright
 
 
-def test_absent_cc_traces_cost_fails_f2(monkeypatch, tmp_path):
+def test_cc_zero_cost_fails_fail_closed(monkeypatch, tmp_path):
+    """A CC turn reporting exactly $0 is fail-closed: every CC-routed turn costs
+    a real Bedrock turn, so $0 means the true spend was not captured (matches
+    step7_per_op_evidence's cost_usd > 0 rule)."""
     approval = _approval()
-    fake_runner = _fake_run_variant_browser_factory()
-
-    def _fetch_no_traces(config, session_id, *, env="dev"):
-        return [{"user_query": "q", "assistant_reply": "a", "cc_traces": []}]
-
-    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner,
-                                    fake_fetch=_fetch_no_traces)
+    fake_runner = _fake_run_variant_browser_factory(frame_cost=0.0)
+    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner)
     assert exit_code == 1
     summary = json.loads((run_dir / "summary.json").read_text())
-    assert summary["results"][0]["cost_usd"] is None
-    assert summary["results"][0]["passed"] is False
-
-
-def test_real_zero_cost_passes_f2(monkeypatch, tmp_path):
-    approval = _approval()
-    fake_runner = _fake_run_variant_browser_factory()
-
-    def _fetch_zero_cost(config, session_id, *, env="dev"):
-        return [{"cc_traces": [{"cost_usd": 0.0}]}]
-
-    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner,
-                                    fake_fetch=_fetch_zero_cost)
-    summary = json.loads((run_dir / "summary.json").read_text())
     assert summary["results"][0]["cost_usd"] == 0.0
-    assert summary["results"][0]["passed"] is True
-    assert exit_code == 0
+    assert summary["results"][0]["passed"] is False
 
 
 def test_total_cost_over_cap_fails(monkeypatch, tmp_path):
     approval = _approval(max_total_usd=0.01)
-    fake_runner = _fake_run_variant_browser_factory()
-    fake_fetch = _fake_fetch_chat_session_row_factory(cost_usd=5.00)
-    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner, fake_fetch=fake_fetch)
+    fake_runner = _fake_run_variant_browser_factory(frame_cost=5.00)  # exact result-frame cost
+    exit_code, run_dir = _run_main(monkeypatch, tmp_path, approval, fake_runner=fake_runner)
     assert exit_code == 1
     summary = json.loads((run_dir / "summary.json").read_text())
     assert summary["results"][0]["passed"] is True  # the per-question gate passed...

@@ -134,7 +134,9 @@ def run_variant_browser(
     captured_session_id: str | None = None
     downloaded_artifacts: set[str] = set()
     variant_route = "unknown"
-    cc_cost_total: float | None = None
+    cc_turns = 0
+    cc_turns_costed = 0
+    cc_cost_sum = 0.0
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=not headed)
@@ -227,9 +229,12 @@ def run_variant_browser(
                 route = detect_route_from_data(qc_data)
                 if route != "unknown":
                     variant_route = route
-                turn_cc_cost = cc_cost_from_data(qc_data)
-                if turn_cc_cost is not None:
-                    cc_cost_total = (cc_cost_total or 0.0) + turn_cc_cost
+                if route == "cc":
+                    cc_turns += 1
+                    turn_cc_cost = cc_cost_from_data(qc_data)
+                    if turn_cc_cost is not None:
+                        cc_turns_costed += 1
+                        cc_cost_sum += turn_cc_cost
 
                 # Download artifacts by KEY (data.artifacts) — see poll.artifact_files
                 # for why the un-suffixed key (not the flat data.files manifest) is
@@ -303,6 +308,18 @@ def run_variant_browser(
         json.dumps(sorted(downloaded_artifacts)), encoding="utf-8"
     )
 
+    # CC cost is the EXACT per-turn result-frame total_cost_usd (== the value the
+    # server persists to extra_state.cc_traces; see translate.py / cc_engine.py),
+    # summed across the CC turns. Fail-closed: None when there were no CC turns,
+    # or when any CC turn completed without a numeric total_cost_usd frame —
+    # never silently undercount a real spend. NS turns carry no cost.
+    if cc_turns == 0:
+        cc_cost_usd = None
+    elif cc_turns_costed == cc_turns:
+        cc_cost_usd = round(cc_cost_sum, 6)
+    else:
+        cc_cost_usd = None
+
     return {
         "id": variant.id,
         "family": variant.family,
@@ -312,7 +329,7 @@ def run_variant_browser(
         "turn_results": turn_results,
         "session_id": captured_session_id,
         "route": variant_route,
-        "cc_cost_usd": cc_cost_total,
+        "cc_cost_usd": cc_cost_usd,
     }
 
 

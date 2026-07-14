@@ -1,0 +1,15 @@
+{
+  "base_url": "http://localhost:8100",
+  "db_identity": {
+    "env": "dev",
+    "host": null,
+    "port": 3306,
+    "user": null
+  },
+  "instance_identity": {
+    "compose_project": "nextseek-devmerge",
+    "installed_at": "2026-07-11T15:50:39-04:00",
+    "nextseek_image_id": "sha256:aa0f33eb2a296c4af6975e3adaca5807f43ebc6857a368221d927c4e8101b323",
+    "worktree_head": "01a1d1f6ab0a7c2fb675321436ccc8c30c6ab031"
+  }
+}

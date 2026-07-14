@@ -34,18 +34,19 @@
   },
   "questions": [
     {
-      "id": "advanced.what_monkeys_exist",
-      "family": "search_advanced",
-      "name": "entity-extract: bare sampletype enumeration (NHP)",
+      "id": "graph.how_many_monkeys",
+      "family": "graph_query",
+      "name": "how many monkeys (count)",
+      "route": "ns",
       "turns": [
         {
           "label": "main",
-          "query": "What monkeys exist in the database?",
+          "query": "How many monkeys exist in the database?",
           "pass_criteria": [
             {
               "field": "parser_plan.mode",
               "op": "eq",
-              "value": "new_search"
+              "value": "graph_query"
             },
             {
               "field": "entity_sampletype_codes",
@@ -53,18 +54,23 @@
               "value": "NHP"
             },
             {
-              "field": "api_plan.endpoint",
-              "op": "contains",
-              "value": "advanced_search"
+              "field": "graph_cypher",
+              "op": "matches_re",
+              "value": "count"
             },
             {
-              "field": "api_ok",
-              "op": "true"
+              "field": "neo4j_ok",
+              "op": "true",
+              "value": null
+            },
+            {
+              "field": "last_reply",
+              "op": "matches_re",
+              "value": "\\b408\\b"
             }
           ]
         }
-      ],
-      "route": "ns"
+      ]
     },
     {
       "id": "advanced.rna_rin_score",
@@ -243,7 +249,7 @@
             {
               "field": "last_reply",
               "op": "matches_re",
-              "value": "can'?t create|isn'?t supported|not supported|unsupported"
+              "value": "can'?t create|cannot create|not something i can do|read-only|read only|isn'?t supported|not supported|unsupported|unable to|not able to|falls outside what"
             }
           ]
         }

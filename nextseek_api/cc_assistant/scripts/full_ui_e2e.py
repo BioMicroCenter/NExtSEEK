@@ -32,14 +32,13 @@ guessed; grep -rn "cost_usd" nextseek_api/ chat_nextseek/src | grep -v test):
       writes it to BOTH stores in extra_state: (a) nested inside the appended
       `chat_log` entry (`es["chat_log"][-1]["cc_traces"]`) and (b) a flat
       FIFO-capped top-level mirror `es["cc_traces"]` (SPEC-3 E5/§6.5).
-  chat_nextseek/e2e/playwright/mysql.py:fetch_chat_session_row(config,
-      session_id, env) queries `assistant_chat_session.extra_state` and returns
-      ONLY `extra_state.get("chat_log")` (never the top-level cc_traces mirror),
-      so this script sums `cost_usd` across `chat_log[*].cc_traces[*]` -- there is
-      NO persisted `cost_source` field anywhere on the chat session row (that key
-      lives only in the standalone step7 gate harness, e.g.
-      scripts/step7_gate3d_per_op.py; it is NOT part of this schema and MUST NOT
-      be gated on here). See `_session_cost_usd` below.
+  cc_engine.py:792 writes that SAME `data.get("total_cost_usd")` into the
+      cc_traces row -- so the cc_traces `cost_usd` and the query_complete result
+      frame's `total_cost_usd` are the identical value. This script reads the
+      frame value directly (see the F2 note below), NOT via a MySQL cc_traces
+      read; the block above is retained only as the origin trace of that value.
+      (There is NO persisted `cost_source` field on the chat session row; that
+      key lives only in the standalone step7 gate harness and is NOT gated here.)
 ============================================================================
 
 Task 12 fixes (F2/F3/F4), verified against the real merged-tree shapes below
@@ -69,12 +68,22 @@ exists for them, and `_turn_reply_from_artifacts` below returns "" in that case
 (forbidden_hits("") is always empty, which is correct: an error turn cannot
 contain a forbidden UI phrase because no UI text was ever rendered).
 
-F2 (cost) -- implemented per the Step-1 pin above: `_session_cost_usd` sums
-`cost_usd` across every `chat_log[i]["cc_traces"][j]["cost_usd"]` returned by
-`e2e.playwright.mysql.fetch_chat_session_row` for the captured session id, and
-returns None (not 0.0) when the session has no chat_log rows, no cc_traces
-entries, or no cc_traces entry carrying a non-None cost_usd -- i.e. "no real
-cost row" is a hard FAILURE, never silently treated as free.
+F2 (cost) -- SUPERSEDED 2026-07-13. Cost is now read from the EXACT CC result
+frame the poll payload already carries -- `query_complete.data.total_cost_usd`
+-- captured by run_variant_browser as `cc_cost_usd` and persisted per-turn in
+`complete.json`. This is the identical value the server also persists to
+`extra_state.cc_traces[*].cost_usd` (translate.py:155 puts the terminal result
+frame's `total_cost_usd` on the query_complete event; cc_engine.py:792 writes
+that SAME `data.get("total_cost_usd")` into the cc_traces row), so reading the
+frame is exactly as precise as a cc_traces DB read -- one hop earlier, with no
+MySQL credential / schema-qualification dependency. This matches both prior
+live harnesses: step7_per_op_evidence (cost_source="claude_code_result", the
+result frame is authoritative) and the off-box poll_e2e.cc_cost. Fail-closed:
+every CC-routed turn costs a real Bedrock turn, so a missing or non-positive
+`total_cost_usd` is a hard FAILURE, never silently treated as free (the earlier
+MySQL `_session_cost_usd` / cc_traces read is removed). NS turns carry no cost.
+The Task-12 "Step 1 pinned cost readout" block above is retained as the origin
+trace of the SAME value; it no longer describes the runtime cost path.
 
 F4a (session_id) -- run_variant_browser DOES capture the NExtSEEK chat
 session_id internally (`captured_session_id`, set at :102-112 from the
@@ -331,6 +340,31 @@ def _route_from_artifacts(q_dir: Path) -> str:
     return route
 
 
+def _cc_frame_cost_from_artifacts(q_dir: Path) -> float | None:
+    """Sum the CC result frame's total_cost_usd across a question's persisted
+    per-turn complete.json (query_complete.data). This frame value IS the exact
+    per-turn cost (the identical number the server also persists to
+    extra_state.cc_traces — translate.py:155 / cc_engine.py:792), so it is the
+    authoritative cost source for --validate-only; no DB round-trip. The files
+    are manifest-covered, so a tampered cost is still caught by the run-dir
+    integrity check."""
+    turns_dir = q_dir / "turns"
+    if not turns_dir.is_dir():
+        return None
+    total = 0.0
+    found = False
+    for complete_path in sorted(turns_dir.glob("*/complete.json")):
+        try:
+            data = json.loads(complete_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        v = data.get("total_cost_usd") if isinstance(data, dict) else None
+        if isinstance(v, (int, float)):
+            found = True
+            total += float(v)
+    return round(total, 6) if found else None
+
+
 def _downloaded_keys_from_artifacts(q_dir: Path) -> set[str]:
     """Reconstruct the set of downloaded artifact identifiers persisted by
     run_variant_browser (`out_dir/downloaded_keys.json`) so a --validate-only
@@ -344,31 +378,6 @@ def _downloaded_keys_from_artifacts(q_dir: Path) -> set[str]:
         except (json.JSONDecodeError, OSError):
             pass
     return set()
-
-
-# ── F2: cost readout, summed from real cc_traces DB rows ─────────────────
-
-
-def _session_cost_usd(config: _OrchestratorConfig, session_id: str | None, *, env: str = "dev") -> float | None:
-    """Sum cost_usd across extra_state.chat_log[*].cc_traces[*] for session_id
-    (Step-1 pinned source). Returns None — a FAILURE, never 0.0 — when the
-    session id is missing, the DB row/chat_log is missing, or no chat_log
-    entry carries a cc_traces item with a real (non-None) cost_usd. A
-    genuinely-recorded $0.00 cost (cost_usd == 0.0 present in a real cc_traces
-    entry) is NOT the same as an absent record and correctly returns 0.0."""
-    if not session_id:
-        return None
-    chat_log = fetch_chat_session_row(config, session_id, env=env)
-    total = 0.0
-    found = False
-    for entry in chat_log or []:
-        for trace in (entry.get("cc_traces") or []):
-            cost = trace.get("cost_usd")
-            if cost is None:
-                continue
-            found = True
-            total += float(cost)
-    return round(total, 6) if found else None
 
 
 # ── Artifact integrity manifest (used by --validate-only) ────────────────
@@ -453,22 +462,23 @@ def main() -> int:
         # is itself a routing regression this E2E exists to catch.
         route_mismatch = bool(declared_route) and route != "unknown" and route != declared_route
 
-        # Cost is persisted ONLY on the CC route (see the route-awareness note
-        # above). Gate cost on CC; for NS record the runner's cc_cost_usd (None)
-        # without failing on its absence.
-        if route == "cc":
-            cost = _session_cost_usd(config, session_id, env=args.db_env)
-            cost_required = True
-        else:
-            cost = out.get("cc_cost_usd")
-            cost_required = False
+        # Cost is the EXACT CC result-frame total_cost_usd the runner captured
+        # from the poll payload (== the value the server persists to
+        # extra_state.cc_traces; translate.py:155 / cc_engine.py:792). No MySQL
+        # round-trip. It exists ONLY on the CC route; NS carries no cost.
+        cost = out.get("cc_cost_usd")
+        cost_required = route == "cc"
         total_cost += cost or 0.0
 
         manifest_sha256 = _write_manifest(q_dir)  # written LAST so it covers every other artifact
 
+        # Fail-closed CC cost gate: every CC-routed turn costs a real Bedrock
+        # turn, so a missing or non-positive cost means the true spend was not
+        # captured (matching step7_per_op_evidence cost_usd > 0).
+        cost_ok = (cost is not None and cost > 0) if cost_required else True
         passed = (out.get("status") == "passed" and not hits
                   and session_id is not None
-                  and (not cost_required or cost is not None)
+                  and cost_ok
                   and not route_mismatch)
         results.append({
             "id": q["id"], "passed": passed, "forbidden_hits": hits,
@@ -626,14 +636,17 @@ def recompute_run_dir(run_dir: Path, approval: dict, *, db_env: str = "dev") -> 
             all_ok = False
             continue
 
-        # 4. Cost: gated on the CC route only (NS persists none — see the
-        #    route-awareness note). CC: FRESH DB read (external ground truth)
-        #    cross-checked against the recorded value. NS: no cost row required,
-        #    and the recorded cost must not claim a spend that never existed.
+        # 4. Cost: gated on the CC route only (NS persists none). CC cost is the
+        #    EXACT result-frame total_cost_usd recomputed from the persisted
+        #    complete.json (manifest-hash-covered, so a tampered cost breaks the
+        #    integrity check) — no DB round-trip. Fail-closed: a CC turn always
+        #    costs a real Bedrock turn, so a missing/non-positive cost fails. NS:
+        #    no cost row required, and the recorded cost must not claim a spend
+        #    that never existed.
         if route == "cc":
-            cost = _session_cost_usd(config, session_id, env=db_env)
-            if cost is None:
-                print(f"VALIDATE: {qid}: no real cc_traces cost row for CC session {session_id}")
+            cost = _cc_frame_cost_from_artifacts(q_dir)
+            if cost is None or cost <= 0:
+                print(f"VALIDATE: {qid}: no positive CC result-frame cost for session {session_id}")
                 all_ok = False
                 continue
             if round(cost, 4) != round(float(recorded.get("cost_usd") if recorded.get("cost_usd") is not None else -1), 4):
