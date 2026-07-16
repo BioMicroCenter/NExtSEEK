@@ -14,10 +14,31 @@ volumes, seeds, build, users, validate.
 ./startup.sh install --instance test       # named instance with auto-assigned ports
 ./startup.sh install --port-offset 1       # +1 on every port (8001/3001/7475/7688)
 ./startup.sh install --yes                 # skip confirmation prompts
+./startup.sh install --seek-public-url https://seek.example.com   # real SEEK hostname
 ```
 
 Idempotent for prereqs / config / volumes / users / validate. Seed import
 is skipped if the target DB already has tables.
+
+**`--seek-public-url`** — the browser-reachable SEEK base URL (host only, no
+path). Omit it on a laptop and it defaults to `http://localhost:<seek port>`.
+It is stored per-instance in `startup/.instance.json` and drives **both** layers
+that need it, so they cannot drift apart:
+
+- `SEEK_PUBLIC_URL` in `docker/nextseek.env` — how NExtSEEK builds links **to** SEEK
+- SEEK's own DB-backed `site_base_host` — how SEEK identifies **itself** (its
+  "SEEK ID", JSON-LD `@id`, sitemap). Applied after the seed and **before SEEK's
+  first boot**, so the boot-time sitemap is correct and no restart is needed.
+
+Resolution order (a hand-set value is never clobbered):
+
+```
+--seek-public-url  >  existing docker/nextseek.env  >  .instance.json  >  http://localhost:<seek port>
+```
+
+An existing `site_base_host` row in SEEK is treated as an admin decision:
+startup reports a mismatch and **never overwrites it**. `./startup.sh doctor`
+reports drift between the three ("SEEK public URL"). See `NExtSTEPS.md` §1d.
 
 ### `doctor`
 

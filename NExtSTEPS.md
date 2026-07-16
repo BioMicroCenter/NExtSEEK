@@ -61,6 +61,38 @@ DJANGO_CSRF_TRUSTED_ORIGINS="https://nextseek.example.com"
 
 Apply: `docker compose up -d --force-recreate nextseek`
 
+### 1d. Set the browser-reachable SEEK URL (`--seek-public-url`)
+
+SEEK is served on its own hostname in a real deployment (NExtSEEK and SEEK are
+two different sites). Two settings must name that hostname, and a localhost
+default is wrong for both:
+
+| Setting | Owner | What it breaks if wrong |
+|---|---|---|
+| `SEEK_PUBLIC_URL` (`docker/nextseek.env`) | NExtSEEK | SOP / data-file / sample / project links point somewhere unreachable |
+| `site_base_host` (SEEK's own DB setting) | SEEK | the displayed "SEEK ID", JSON-LD `@id` identifiers, the sitemap — and SEEK **rejects** pasted SEEK IDs that don't match it |
+
+Set both from one place, at install time:
+
+```bash
+./startup.sh install --seek-public-url https://seek.example.com
+```
+
+Startup stores it in `startup/.instance.json`, renders `SEEK_PUBLIC_URL` from it,
+and applies SEEK's `site_base_host` before SEEK first boots (so the sitemap is
+built correctly and no restart is needed). `reset` carries the value across.
+
+Notes:
+
+- **Host only, no path** (`https://seek.example.com`, not `.../seek`).
+- **Omit it on a laptop** — it defaults to `http://localhost:<seek port>`.
+- **A hand-edited `SEEK_PUBLIC_URL` in `docker/nextseek.env` is preserved**: a
+  re-run of `install` reads it back rather than resetting it to the default.
+- **An existing `site_base_host` is never overwritten** by startup — if SEEK
+  already has one (e.g. an admin set it in *Server admin → Settings → Site base
+  Hostname*), startup reports the mismatch and leaves SEEK's value alone.
+- Check both agree at any time with `./startup.sh doctor` ("SEEK public URL").
+
 ---
 
 ## 2. MySQL + Neo4j credentials
