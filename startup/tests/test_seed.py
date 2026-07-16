@@ -1,10 +1,13 @@
 """Tests for startup.steps.seed."""
 from __future__ import annotations
 
+import gzip
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 from startup.steps.seed import (
     SEED_FILES,
@@ -128,3 +131,31 @@ def test_cypher_map_value_types() -> None:
         '{`i`: 3, `f`: 1.5, `s`: "txt", `b`: true, `n`: null, `lst`: [1, 2]}'
     )
     assert parsed == {"i": 3, "f": 1.5, "s": "txt", "b": True, "n": None, "lst": [1, 2]}
+
+
+def test_committed_seed_carries_no_site_base_host_row() -> None:
+    """site_base_host is per-instance deployment config, not seed data.
+
+    The committed seed is universal (laptop / dev / prod). A baked hostname would
+    silently repoint every identifier a fresh install publishes -- and dev's DB now
+    HAS such a row, so an unfiltered `dump-db` would capture it. dump_mysql.sh
+    filters it out; this locks that guarantee against the artifact itself.
+    """
+    seed = _REPO_ROOT / "startup" / "seed" / "seek_production.sql.gz"
+    assert seed.exists(), seed
+    with gzip.open(seed, "rt", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            assert "site_base_host" not in line, (
+                "committed seed contains a site_base_host row -- a dump-db run has "
+                "baked one instance's hostname into the universal seed"
+            )
+
+
+def test_dump_script_filters_site_base_host_out_of_settings() -> None:
+    """The maintainer dump must not be able to re-introduce the row."""
+    script = _REPO_ROOT / "startup" / "seed" / "regenerate" / "dump_mysql.sh"
+    body = script.read_text()
+    assert "site_base_host" in body, "dump_mysql.sh must explicitly exclude site_base_host"
+    assert "--ignore-table" in body or "--where" in body, (
+        "dump_mysql.sh must filter the settings table rather than dump it wholesale"
+    )
