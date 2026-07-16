@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import string
 from collections.abc import Mapping
@@ -21,6 +22,83 @@ class ConfigValues:
     django_csrf_trusted_origins: str
     nextseek_port: int
     seek_port: int
+    # Browser-reachable SEEK base URL. Per-instance: dev and prod front SEEK on
+    # real hostnames; a laptop install reaches it on the published port. Defaults
+    # via default_values(); resolve_seek_public_url() decides the actual value.
+    seek_public_url: str = ""
+
+
+DEFAULT_SEEK_PUBLIC_URL_HOST = "http://localhost"
+
+# A bare origin: scheme://host[:port]. No path -- SEEK's admin controller strips
+# paths from this setting, and both consumers append their own ("/projects/1").
+_SEEK_PUBLIC_URL_RE = re.compile(
+    r"^https?://[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?(?::\d+)?$"
+)
+
+
+class InvalidSeekPublicUrl(ValueError):
+    """An operator-supplied SEEK public URL is not a bare scheme://host[:port]."""
+
+
+def _valid_seek_public_url(value: str | None) -> bool:
+    return bool(value) and bool(_SEEK_PUBLIC_URL_RE.match(value))
+
+
+def read_rendered_seek_public_url(repo_root: Path) -> str | None:
+    """Read SEEK_PUBLIC_URL back out of an already-rendered docker/nextseek.env.
+
+    This is what makes a re-run of `install` non-destructive: an operator's
+    hand-set value is read back and re-rendered as-is instead of being reset to
+    the localhost default. Mirrors the render_proxy_secret_env precedent (D2).
+    """
+    env_path = repo_root / "docker" / "nextseek.env"
+    if not env_path.exists():
+        return None
+    for line in env_path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("SEEK_PUBLIC_URL="):
+            continue
+        raw = stripped.split("=", 1)[1].strip().strip('"').strip("'")
+        # A half-rendered file still carrying ${SEEK_PORT} is not a real value.
+        if not raw or "${" in raw:
+            return None
+        return raw
+    return None
+
+
+def resolve_seek_public_url(
+    repo_root: Path,
+    explicit: str | None,
+    instance_value: str | None,
+    seek_port: int,
+) -> str:
+    """Resolve the browser-reachable SEEK base URL for this instance.
+
+    Precedence (never-clobber):
+      1. explicit --seek-public-url flag
+      2. an existing rendered docker/nextseek.env  <- preserves hand-set values
+      3. the value stored in startup/.instance.json
+      4. http://localhost:<seek_port>              <- correct for a laptop only
+
+    Only the explicit flag is validated strictly; a malformed value already on
+    disk falls through rather than aborting an install.
+    """
+    if explicit is not None:
+        if not _valid_seek_public_url(explicit):
+            raise InvalidSeekPublicUrl(
+                f"--seek-public-url must be scheme://host[:port] with no path; got {explicit!r}"
+            )
+        return explicit
+
+    rendered = read_rendered_seek_public_url(repo_root)
+    if _valid_seek_public_url(rendered):
+        return rendered  # type: ignore[return-value]
+
+    if _valid_seek_public_url(instance_value):
+        return instance_value  # type: ignore[return-value]
+
+    return f"{DEFAULT_SEEK_PUBLIC_URL_HOST}:{seek_port}"
 
 
 def _generate_secret_key(length: int = 64) -> str:
@@ -35,7 +113,9 @@ def csrf_origins_for_port(port: int) -> str:
     return f"http://127.0.0.1:{port} http://localhost:{port}"
 
 
-def default_values(nextseek_port: int, seek_port: int) -> ConfigValues:
+def default_values(
+    nextseek_port: int, seek_port: int, seek_public_url: str | None = None
+) -> ConfigValues:
     return ConfigValues(
         mysql_root_password="seek_root",
         mysql_password="seek_db_password",
@@ -44,6 +124,10 @@ def default_values(nextseek_port: int, seek_port: int) -> ConfigValues:
         django_csrf_trusted_origins=csrf_origins_for_port(nextseek_port),
         nextseek_port=nextseek_port,
         seek_port=seek_port,
+        # Callers that resolve a per-instance value pass it in; the fallback keeps
+        # a laptop install correct (and tracks a port-offset install, which SEEK's
+        # own hardcoded :3000 default does not).
+        seek_public_url=seek_public_url or f"{DEFAULT_SEEK_PUBLIC_URL_HOST}:{seek_port}",
     )
 
 
@@ -57,6 +141,7 @@ def _render(template_path: Path, values: ConfigValues) -> str:
         "DJANGO_CSRF_TRUSTED_ORIGINS": values.django_csrf_trusted_origins,
         "NEXTSEEK_PORT": str(values.nextseek_port),
         "SEEK_PORT": str(values.seek_port),
+        "SEEK_PUBLIC_URL": values.seek_public_url,
     }
     return Template(text).safe_substitute(substitutions)
 

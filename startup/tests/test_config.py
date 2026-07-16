@@ -112,7 +112,9 @@ def test_render_local_settings_writes_to_dmac(tmp_path: Path) -> None:
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _render_real_template(tmp_path: Path, port: int, seek_port: int = 3000) -> str:
+def _render_real_template(
+    tmp_path: Path, port: int, seek_port: int = 3000, seek_public_url: str | None = None
+) -> str:
     """Render the REAL nextseek.env.template into a tmp repo skeleton."""
     repo = tmp_path / "repo"
     (repo / "docker").mkdir(parents=True)
@@ -121,8 +123,26 @@ def _render_real_template(tmp_path: Path, port: int, seek_port: int = 3000) -> s
     (repo / "startup" / "templates" / "nextseek.env.template").write_text(
         real_template.read_text()
     )
-    render_nextseek_env(repo, default_values(nextseek_port=port, seek_port=seek_port))
+    render_nextseek_env(
+        repo,
+        default_values(nextseek_port=port, seek_port=seek_port, seek_public_url=seek_public_url),
+    )
     return (repo / "docker" / "nextseek.env").read_text()
+
+
+def test_real_template_renders_configured_seek_public_url(tmp_path: Path) -> None:
+    """The public SEEK URL comes from instance config, not a hardcoded default."""
+    rendered = _render_real_template(
+        tmp_path, port=8042, seek_port=3042, seek_public_url="https://fairdata-dev.mit.edu"
+    )
+    assert 'SEEK_PUBLIC_URL="https://fairdata-dev.mit.edu"' in rendered
+    assert "localhost:3042" not in rendered.split("SEEK_PUBLIC_URL=")[1].splitlines()[0]
+
+
+def test_real_template_seek_public_url_defaults_to_published_seek_port(tmp_path: Path) -> None:
+    """With nothing configured, a laptop install still gets a working value."""
+    rendered = _render_real_template(tmp_path, port=8042, seek_port=3042)
+    assert 'SEEK_PUBLIC_URL="http://localhost:3042"' in rendered
 
 
 def test_real_template_renders_public_and_internal_urls(tmp_path: Path) -> None:
