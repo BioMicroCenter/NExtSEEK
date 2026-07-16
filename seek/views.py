@@ -1326,7 +1326,7 @@ def projects(request):
                
         return render(request, 'projectsList.html', {'projects': projects,
                                                      'clade_data': clade_data,
-                                                     'seek_hostname': SEEK_HOSTNAME})
+                                                     'seek_public_url': settings.SEEK_PUBLIC_URL})
 
 def project_page(request, project_id):
     seekdb = SeekDB(None, None, None)
@@ -1385,7 +1385,7 @@ def project_page(request, project_id):
         return render(request, 'projectPage.html', {'id': project.id,
                                                     'title': re.sub("-|_", " ", project.title),
                                                     'description': project.description.replace("\r", "\n"),
-                                                    'seek_hostname': SEEK_HOSTNAME,
+                                                    'seek_public_url': settings.SEEK_PUBLIC_URL,
                                                     'avatar_id': project.avatar_id,
                                                     'clade_data': clade_data,})
 
@@ -1546,10 +1546,10 @@ def cladeSampleTypesSave(request):
     return HttpResponse({}, headers={"Refresh": 1})
 
 def editSample(request, id):
-    return HttpResponseRedirect(f"https://{SEEK_HOSTNAME}/samples/{id}/edit")
+    return HttpResponseRedirect(f"{settings.SEEK_PUBLIC_URL}/samples/{id}/edit")
 
 def manageSample(request, id):
-    return HttpResponseRedirect(f"https://{SEEK_HOSTNAME}/samples/{id}/manage")
+    return HttpResponseRedirect(f"{settings.SEEK_PUBLIC_URL}/samples/{id}/manage")
 
 def smartSearch(request):
     if not request.user.is_authenticated:
