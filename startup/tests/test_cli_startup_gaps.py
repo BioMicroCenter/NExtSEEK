@@ -107,6 +107,10 @@ def test_install_calls_render_start_health_in_order(monkeypatch) -> None:
     # real path, and schema fixups query the live DB -- stub both.
     monkeypatch.setattr(cli.build, "start_databases", lambda root, env: None)
     monkeypatch.setattr(cli.schema_fixups, "apply_all", lambda root, env: [])
+    # Same reason: the site_base_host apply queries the live SEEK DB.
+    monkeypatch.setattr(
+        cli.seek_settings, "apply_site_base_host", lambda root, env, url: "applied"
+    )
 
     # --- [7/9] Build + start: the phase under test for start_cc_stack, plus
     # its neighboring real-docker/network calls.
@@ -130,9 +134,57 @@ def test_install_calls_render_start_health_in_order(monkeypatch) -> None:
         lambda ports, root, env: calls.append("health") or [],
     )
 
-    cli.install(instance=None, port_offset=None, no_seed=True, yes=True)
+    cli.install(instance=None, port_offset=None, no_seed=True, seek_public_url=None, yes=True)
 
     assert calls.index("proxy") < calls.index("root") < calls.index("start") < calls.index("health")
+
+
+def test_install_applies_site_base_host_before_seek_first_boot(monkeypatch) -> None:
+    """SEEK's site_base_host must be set BEFORE seek ever boots.
+
+    SEEK builds its sitemap at container start from this value and caches the
+    config on first read. Applying it beforehand is what makes a fresh install
+    correct from minute one and removes any need to restart seek afterwards --
+    a restart being a real outage on a long-lived instance. If the apply ever
+    drifts after start_seek_side, this test fails.
+    """
+    calls: list[str] = []
+
+    monkeypatch.setattr(cli.prereqs, "run_all", lambda: [])
+    monkeypatch.setattr(cli, "load_instance", lambda root: None)
+    monkeypatch.setattr(cli, "save_instance", lambda root, state: None)
+    monkeypatch.setattr(cli, "allocate_ports", lambda desired: dict(desired))
+    for name in ("render_db_env", "render_nextseek_env", "render_local_settings"):
+        monkeypatch.setattr(cli.config, name, lambda root, values: None)
+    monkeypatch.setattr(cli.config, "render_proxy_secret_env", lambda root: root / "p.env")
+    monkeypatch.setattr(cli.config, "render_root_env", lambda root, env: root / ".env")
+    monkeypatch.setattr(cli.volumes, "ensure_volumes", lambda prefix: [])
+    monkeypatch.setattr(cli.volumes, "ensure_cc_staging_dir", lambda prefix: None)
+    monkeypatch.setattr(cli.build, "start_databases", lambda root, env: None)
+    monkeypatch.setattr(cli.schema_fixups, "apply_all", lambda root, env: [])
+    monkeypatch.setattr(
+        cli.seek_settings,
+        "apply_site_base_host",
+        lambda root, env, url: calls.append("site_base_host") or "applied",
+    )
+    monkeypatch.setattr(
+        cli.build, "start_seek_side", lambda root, env: calls.append("seek_boot")
+    )
+    monkeypatch.setattr(cli.build, "build_and_start_nextseek", lambda root, env: None)
+    monkeypatch.setattr(cli.build, "start_cc_stack", lambda root, env: None)
+    monkeypatch.setattr(cli.build, "wait_for_nextseek_http", lambda port: None)
+    monkeypatch.setattr(cli.seed_cleanup, "clear_stale_chat_sessions", lambda root, env: 0)
+    monkeypatch.setattr(cli.users, "verify_users_present", lambda root, env: [])
+    monkeypatch.setattr(cli.validate, "run_all_health_checks", lambda ports, root, env: [])
+
+    cli.install(instance=None, port_offset=None, no_seed=True, seek_public_url=None, yes=True)
+
+    assert "site_base_host" in calls, "install must apply SEEK's site_base_host"
+    assert "seek_boot" in calls
+    assert calls.index("site_base_host") < calls.index("seek_boot"), (
+        "site_base_host must be applied before seek's first boot, or the boot-time "
+        "sitemap is built from the wrong value and a restart becomes necessary"
+    )
 
 
 def test_health_checks_include_cc_checks() -> None:
@@ -141,3 +193,35 @@ def test_health_checks_include_cc_checks() -> None:
     run_all = _find_function(tree, "run_all_health_checks")
     calls = _called_names(run_all)
     assert "check_proxy_token" in calls and "check_cc_services" in calls
+
+
+def test_reset_carries_seek_public_url_into_the_reinstall(monkeypatch) -> None:
+    """reset() deletes .instance.json, so it must hand the URL to the re-install.
+
+    Without this, `reset` silently regresses a dev/prod instance's SEEK URL to the
+    localhost default -- the value would be destroyed with the instance state and
+    nothing would put it back.
+    """
+    from startup.lib.instance import InstanceState
+
+    captured: dict = {}
+    monkeypatch.setattr(
+        cli,
+        "load_instance",
+        lambda root: InstanceState(
+            name="dev",
+            prefix="",
+            ports={"nextseek": 8000, "seek": 3000},
+            compose_project_name="nextseek",
+            created="2026-07-16T00:00:00Z",
+            seek_public_url="https://fairdata-dev.mit.edu",
+        ),
+    )
+    monkeypatch.setattr("startup.lib.docker_ops.compose_down", lambda **kw: None)
+    monkeypatch.setattr(cli, "install", lambda **kw: captured.update(kw))
+
+    cli.reset(instance=None, keep_config=True, yes=True)
+
+    assert captured.get("seek_public_url") == "https://fairdata-dev.mit.edu", (
+        "reset must carry the instance's SEEK public URL into the re-install"
+    )

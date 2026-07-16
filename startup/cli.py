@@ -15,7 +15,7 @@ from startup.lib.instance import (
     save_instance,
 )
 from startup.lib.ports import allocate_ports
-from startup.steps import prereqs, config, volumes, seed, seed_filestore, build, users, validate, schema_fixups, seed_cleanup
+from startup.steps import prereqs, config, volumes, seed, seed_filestore, build, users, validate, schema_fixups, seed_cleanup, seek_settings
 
 app = typer.Typer(
     name="startup",
@@ -47,6 +47,17 @@ def install(
     instance: str | None = typer.Option(None, "--instance", help="Named instance for multi-install."),
     port_offset: int | None = typer.Option(None, "--port-offset", help="Add N to every default port."),
     no_seed: bool = typer.Option(False, "--no-seed", help="Skip seed import entirely (databases will start empty)."),
+    seek_public_url: str | None = typer.Option(
+        None,
+        "--seek-public-url",
+        help=(
+            "Browser-reachable SEEK base URL for this instance, e.g. "
+            "https://seek.your-domain.org (no path). Defaults to the value already "
+            "in docker/nextseek.env, else this instance's stored value, else "
+            "http://localhost:<seek port>. Feeds both NExtSEEK's SEEK_PUBLIC_URL "
+            "and SEEK's own site_base_host."
+        ),
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts."),
 ) -> None:
     """First-time install: prereqs, config, volumes, seeds, build, users, validate."""
@@ -85,12 +96,29 @@ def install(
         desired = dict(DEFAULT_PORTS)
     ports = allocate_ports(desired)
     prefix = "" if name == REPO_ROOT.name else f"{name}-"
+    # The browser-reachable SEEK URL is per-instance and must never be silently
+    # reset by a re-run: resolution reads an operator's hand-set value back out of
+    # the rendered env before falling back. One resolved value feeds both
+    # docker/nextseek.env (Layer A) and SEEK's site_base_host (Layer B), so the
+    # two cannot drift apart.
+    try:
+        resolved_seek_public_url = config.resolve_seek_public_url(
+            REPO_ROOT,
+            explicit=seek_public_url,
+            instance_value=existing.seek_public_url if existing else None,
+            seek_port=ports["seek"],
+        )
+    except config.InvalidSeekPublicUrl as exc:
+        ui.fail(str(exc))
+        raise typer.Exit(code=2)
+
     state = InstanceState(
         name=name,
         prefix=prefix,
         ports=ports,
         compose_project_name=f"nextseek{('-' + name) if prefix else ''}",
         created=datetime.datetime.now().astimezone().isoformat(),
+        seek_public_url=resolved_seek_public_url,
     )
 
     # Show the install summary before any destructive action (config writes,
@@ -143,7 +171,11 @@ def install(
 
     # [4/9] Config templates
     ui.step(4, total, "Writing config templates")
-    values = config.default_values(nextseek_port=ports["nextseek"], seek_port=ports["seek"])
+    values = config.default_values(
+        nextseek_port=ports["nextseek"],
+        seek_port=ports["seek"],
+        seek_public_url=state.seek_public_url,
+    )
     config.render_db_env(REPO_ROOT, values)
     config.render_nextseek_env(REPO_ROOT, values)
     config.render_local_settings(REPO_ROOT, values)
@@ -207,6 +239,20 @@ def install(
     # fresh volume — there's nothing to fix up yet).
     for fqn, status in schema_fixups.apply_all(REPO_ROOT, compose_env):
         (ui.ok if status != "applied" else ui.warn)(f"schema fixup {fqn}: {status}")
+
+    # SEEK's public identity (its "SEEK ID", JSON-LD @id, and the sitemap it builds
+    # at boot) comes from a DB-backed setting with no env-var lever, and the seed
+    # carries no such row -- so without this a fresh install publishes SEEK's
+    # shipped http://localhost:3000 default. Applied here, after the seed and
+    # BEFORE seek's first boot ([7/9]), so the boot-time sitemap is already right
+    # and no restart is ever needed. Set-if-absent: an existing row is an admin
+    # decision and is reported, never overwritten.
+    site_status = seek_settings.apply_site_base_host(
+        REPO_ROOT, compose_env, state.seek_public_url
+    )
+    (ui.warn if site_status.startswith("differs") else ui.ok)(
+        f"SEEK site_base_host: {site_status}"
+    )
 
     # [7/9] Build + start
     ui.step(7, total, "Building NExtSEEK image and starting the stack")
@@ -337,7 +383,16 @@ def reset(
         ui.step(2, 3, "Keeping config files (--keep-config)")
 
     ui.step(3, 3, "Re-running install")
-    install(instance=instance, port_offset=None, yes=True)
+    # Carry the instance's SEEK public URL across the wipe: .instance.json (and,
+    # without --keep-config, docker/nextseek.env) have just been deleted, so both
+    # of the resolver's fallback sources are gone and reset would otherwise
+    # silently regress a dev/prod instance to the localhost default.
+    install(
+        instance=instance,
+        port_offset=None,
+        seek_public_url=state.seek_public_url or None,
+        yes=True,
+    )
 
 
 @app.command()

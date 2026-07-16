@@ -44,7 +44,7 @@ def encode_setting_value(url: str) -> str:
     """Encode a scalar the way SEEK's RailsSettings rows store it.
 
     Verified against the 93 rows in the committed seed: a YAML document with a
-    plain scalar, e.g. ``--- https://fairdata.mit.edu\\n``.
+    plain scalar, e.g. ``--- https://seek.example.org\\n``.
     """
     return f"--- {url}\n"
 
