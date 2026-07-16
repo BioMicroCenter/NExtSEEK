@@ -112,7 +112,7 @@ def test_render_local_settings_writes_to_dmac(tmp_path: Path) -> None:
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _render_real_template(tmp_path: Path, port: int) -> str:
+def _render_real_template(tmp_path: Path, port: int, seek_port: int = 3000) -> str:
     """Render the REAL nextseek.env.template into a tmp repo skeleton."""
     repo = tmp_path / "repo"
     (repo / "docker").mkdir(parents=True)
@@ -121,7 +121,7 @@ def _render_real_template(tmp_path: Path, port: int) -> str:
     (repo / "startup" / "templates" / "nextseek.env.template").write_text(
         real_template.read_text()
     )
-    render_nextseek_env(repo, default_values(nextseek_port=port))
+    render_nextseek_env(repo, default_values(nextseek_port=port, seek_port=seek_port))
     return (repo / "docker" / "nextseek.env").read_text()
 
 
