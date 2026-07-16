@@ -6,6 +6,9 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from startup.lib.instance import load_instance
+from startup.steps import seek_settings
+from startup.steps.config import read_rendered_seek_public_url
 from startup.lib.docker_ops import compose_exec, compose_ps_running, DockerOpsError
 from startup.lib.env import read_env
 
@@ -146,6 +149,65 @@ def check_cc_services(repo_root: Path, env: dict[str, str]) -> HealthResult:
     )
 
 
+def check_seek_url_consistency(
+    repo_root: Path, state, env: dict[str, str]
+) -> HealthResult:
+    """Flag drift between the two SEEK-URL layers.
+
+    Layer A -- docker/nextseek.env SEEK_PUBLIC_URL -- is how NExtSEEK builds
+    browser-facing links TO SEEK. Layer B -- SEEK's DB-backed site_base_host --
+    is how SEEK identifies ITSELF (its "SEEK ID", JSON-LD @id, sitemap). install()
+    renders both from one stored per-instance value, but they can still diverge
+    out of band: an admin changes SEEK's setting in its UI, or someone hand-edits
+    the env. That divergence is exactly what produced the original bug -- correct
+    links next to localhost identifiers -- so surface it here rather than let it
+    be found in a browser.
+    """
+    name = "SEEK public URL"
+    configured = getattr(state, "seek_public_url", "") or None
+    rendered = read_rendered_seek_public_url(repo_root)
+
+    try:
+        in_seek = seek_settings.read_site_base_host(repo_root, env)
+    except Exception as exc:  # DB down / stack not up: doctor still runs
+        return HealthResult(
+            name=name,
+            ok=True,
+            warn=True,
+            detail=(
+                f"could not read SEEK's site_base_host ({exc.__class__.__name__}); "
+                f"configured={configured!r}, rendered={rendered!r}. Is the stack up?"
+            ),
+        )
+
+    if in_seek is None:
+        return HealthResult(
+            name=name,
+            ok=False,
+            detail=(
+                f"SEEK's site_base_host is not set -- SEEK is publishing identifiers on its "
+                f"default http://localhost:3000, while NExtSEEK links to {rendered!r}. "
+                "Re-run `./startup.sh install` to apply it."
+            ),
+        )
+
+    values = {v for v in (configured, rendered, in_seek) if v}
+    if len(values) > 1:
+        return HealthResult(
+            name=name,
+            ok=False,
+            detail=(
+                f"drift: instance={configured!r}, docker/nextseek.env={rendered!r}, "
+                f"SEEK site_base_host={in_seek!r}. NExtSEEK's links and SEEK's own "
+                "identifiers disagree. Reconcile with "
+                "`./startup.sh install --seek-public-url <url>` (SEEK's row is never "
+                "overwritten by tooling -- change it in SEEK's admin UI if that is the wrong one)."
+            ),
+        )
+
+    return HealthResult(name=name, ok=True, detail=f"{in_seek} (env, instance and SEEK agree)")
+
+
 def run_all_health_checks(
     ports: dict[str, int], repo_root: Path, env: dict[str, str]
 ) -> list[HealthResult]:
@@ -155,6 +217,7 @@ def run_all_health_checks(
         check_http("Neo4j", f"http://localhost:{ports.get('neo4j_http', 7474)}"),
         run_django_check(repo_root, env),
         check_prod_overlay_guard(repo_root),
+        check_seek_url_consistency(repo_root, load_instance(repo_root), env),
         check_proxy_token(repo_root),
         check_cc_services(repo_root, env),
     ]

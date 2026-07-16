@@ -113,6 +113,19 @@ def _insert(repo_root: Path, env: dict[str, str], url: str) -> None:
     )
 
 
+def read_site_base_host(repo_root: Path, env: dict[str, str]) -> str | None:
+    """Return SEEK's effective site_base_host, or None when no row exists.
+
+    None means SEEK is running on its shipped http://localhost:3000 default.
+    Raises on an unreachable/absent DB so callers can distinguish "not
+    configured" from "could not look it up".
+    """
+    if not _table_exists(repo_root, env):
+        return None
+    raw = _current_value(repo_root, env)
+    return _decode_setting_value(raw) if raw is not None else None
+
+
 def apply_site_base_host(repo_root: Path, env: dict[str, str], url: str) -> str:
     """Ensure SEEK's site_base_host is set, without ever clobbering an existing row.
 
