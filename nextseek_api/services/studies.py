@@ -234,3 +234,5 @@ class StudyProxyViewSet(viewsets.ViewSet):
 
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
+
+
