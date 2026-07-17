@@ -198,3 +198,286 @@ class TestSeekClientStudyMethods:
             c.update_study(req, "746", {"data": {}})
             m.assert_called_once_with('PATCH', '/studies/746', req, json={"data": {}})
         assert c.session.headers['Content-Type'] == JSONAPI_ACCEPT
+
+
+# ===========================================================================
+# ViewSet fixtures/helpers (mirror of the investigation test module)
+# ===========================================================================
+@pytest.fixture
+def rf():
+    return APIRequestFactory()
+
+
+@pytest.fixture
+def user():
+    u = MagicMock()
+    u.is_authenticated = True
+    return u
+
+
+@pytest.fixture
+def mock_client():
+    from nextseek_api.services.studies import StudyProxyViewSet
+    with patch.object(StudyProxyViewSet, "client") as mc:
+        yield mc
+
+
+def _drf(raw):
+    return Request(raw, parsers=[JSONParser(), FormParser(), MultiPartParser()])
+
+
+def _call(action, rf, user, method="get", url="/", data=None, **kwargs):
+    from nextseek_api.services.studies import StudyProxyViewSet
+    fn = getattr(rf, method)
+    raw = fn(url, data=data, format="json") if data is not None else fn(url)
+    req = _drf(raw)
+    req.user = user
+    vs = StudyProxyViewSet()
+    return getattr(vs, action)(req, **kwargs)
+
+
+# ===========================================================================
+# _resolve_uid_to_seek_id
+# ===========================================================================
+class TestResolveUidToSeekId:
+    def test_numeric(self):
+        from nextseek_api.services.studies import _resolve_uid_to_seek_id
+        assert _resolve_uid_to_seek_id("746") == "746"
+
+    def test_non_numeric(self):
+        from nextseek_api.services.studies import _resolve_uid_to_seek_id
+        assert _resolve_uid_to_seek_id("my-study") is None
+
+    def test_empty(self):
+        from nextseek_api.services.studies import _resolve_uid_to_seek_id
+        assert _resolve_uid_to_seek_id("") is None
+
+
+# ===========================================================================
+# list()
+# ===========================================================================
+class TestStudyList:
+    def test_success(self, rf, user, mock_client):
+        mock_client.list_studies.return_value = (_list_body(), 200, JSON_H, MagicMock())
+        resp = _call("list", rf, user)
+        assert resp.status_code == 200
+        assert b'"data"' in resp.content
+        mock_client.list_studies.assert_called_once()
+
+    def test_auth_failure(self, rf, user, mock_client):
+        mock_client.list_studies.return_value = (b'', 401, {}, MagicMock())
+        resp = _call("list", rf, user)
+        assert resp.status_code == 401
+        assert b"Authentication required" in resp.content
+
+    def test_html_upstream_via_content_type(self, rf, user, mock_client):
+        mock_client.list_studies.return_value = (b'<html>login</html>', 200, HTML_H, MagicMock())
+        resp = _call("list", rf, user)
+        assert resp.status_code == 502
+        assert b"Upstream returned HTML" in resp.content
+
+    def test_html_in_body(self, rf, user, mock_client):
+        mock_client.list_studies.return_value = (b'<html>x</html>', 200, JSON_H, MagicMock())
+        resp = _call("list", rf, user)
+        assert resp.status_code == 502
+
+    def test_invalid_json(self, rf, user, mock_client):
+        mock_client.list_studies.return_value = (b'not-json', 200, JSON_H, MagicMock())
+        resp = _call("list", rf, user)
+        assert resp.status_code == 502
+        assert b"Invalid upstream response" in resp.content
+
+    def test_validation_failure(self, rf, user, mock_client):
+        mock_client.list_studies.return_value = (b'{"data":"x"}', 200, JSON_H, MagicMock())
+        resp = _call("list", rf, user)
+        assert resp.status_code == 502
+
+
+# ===========================================================================
+# retrieve()
+# ===========================================================================
+class TestStudyRetrieve:
+    def test_success(self, rf, user, mock_client):
+        mock_client.get_study.return_value = (_single_body(), 200, JSON_H, MagicMock())
+        resp = _call("retrieve", rf, user, uid="746")
+        assert resp.status_code == 200
+        assert json.loads(resp.content)["data"]["id"] == "746"
+        mock_client.get_study.assert_called_once()
+        assert mock_client.get_study.call_args.args[1] == "746"
+
+    def test_non_numeric_uid(self, rf, user, mock_client):
+        resp = _call("retrieve", rf, user, uid="abc")
+        assert resp.status_code == 404
+        assert b"Study not found" in resp.content
+
+    def test_pk_fallback(self, rf, user, mock_client):
+        mock_client.get_study.return_value = (_single_body(), 200, JSON_H, MagicMock())
+        resp = _call("retrieve", rf, user, pk="746")
+        assert resp.status_code == 200
+
+    def test_auth_failure(self, rf, user, mock_client):
+        mock_client.get_study.return_value = (b'', 401, {}, MagicMock())
+        resp = _call("retrieve", rf, user, uid="746")
+        assert resp.status_code == 401
+
+    def test_html_upstream(self, rf, user, mock_client):
+        mock_client.get_study.return_value = (b'<html>', 200, HTML_H, MagicMock())
+        resp = _call("retrieve", rf, user, uid="746")
+        assert resp.status_code == 502
+
+    def test_invalid_upstream(self, rf, user, mock_client):
+        mock_client.get_study.return_value = (b'{"bad":1}', 200, JSON_H, MagicMock())
+        resp = _call("retrieve", rf, user, uid="746")
+        assert resp.status_code == 502
+
+
+# ===========================================================================
+# create()
+# ===========================================================================
+class TestStudyCreate:
+    def test_success(self, rf, user, mock_client):
+        mock_client.create_study.return_value = (_single_body(), 201, JSON_H, MagicMock())
+        resp = _call("create", rf, user, method="post", data=VALID_CREATE_PAYLOAD)
+        assert resp.status_code == 201
+        sent = mock_client.create_study.call_args.args[1]
+        assert sent["data"]["type"] == "studies"
+        assert sent["data"]["attributes"]["experimentalists"] == "Wet lab team"
+
+    def test_validation_error(self, rf, user, mock_client):
+        resp = _call("create", rf, user, method="post",
+                      data={"data": {"type": "studies"}})
+        assert resp.status_code == 422
+        assert b"Invalid request" in resp.content
+        mock_client.create_study.assert_not_called()
+
+    def test_missing_investigation_422(self, rf, user, mock_client):
+        resp = _call("create", rf, user, method="post",
+                      data={"data": {"type": "studies",
+                                     "attributes": {"title": "T"},
+                                     "relationships": {}}})
+        assert resp.status_code == 422
+
+    def test_investigation_list_422(self, rf, user, mock_client):
+        resp = _call("create", rf, user, method="post",
+                      data={"data": {"type": "studies",
+                                     "attributes": {"title": "T"},
+                                     "relationships": {"investigation": {"data": [
+                                         {"id": "763", "type": "investigations"}]}}}})
+        assert resp.status_code == 422
+
+    def test_wrong_type_422(self, rf, user, mock_client):
+        bad = json.loads(json.dumps(VALID_CREATE_PAYLOAD))
+        bad["data"]["type"] = "investigations"
+        resp = _call("create", rf, user, method="post", data=bad)
+        assert resp.status_code == 422
+
+    def test_auth_failure(self, rf, user, mock_client):
+        mock_client.create_study.return_value = (b'', 401, {}, MagicMock())
+        resp = _call("create", rf, user, method="post", data=VALID_CREATE_PAYLOAD)
+        assert resp.status_code == 401
+
+    def test_invalid_upstream(self, rf, user, mock_client):
+        mock_client.create_study.return_value = (b'{}', 201, JSON_H, MagicMock())
+        resp = _call("create", rf, user, method="post", data=VALID_CREATE_PAYLOAD)
+        assert resp.status_code == 502
+
+    def test_empty_body(self, rf, user, mock_client):
+        mock_client.create_study.return_value = (None, 201, JSON_H, MagicMock())
+        resp = _call("create", rf, user, method="post", data=VALID_CREATE_PAYLOAD)
+        assert resp.status_code == 502
+
+
+# ===========================================================================
+# partial_update()
+# ===========================================================================
+class TestStudyPartialUpdate:
+    def test_success_numeric_path(self, rf, user, mock_client):
+        mock_client.update_study.return_value = (_single_body(), 200, JSON_H, MagicMock())
+        resp = _call("partial_update", rf, user, method="patch",
+                      data=VALID_UPDATE_PAYLOAD, uid="746")
+        assert resp.status_code == 200
+        assert mock_client.update_study.call_args.args[1] == "746"
+
+    def test_body_id_present_matching(self, rf, user, mock_client):
+        mock_client.update_study.return_value = (_single_body(), 200, JSON_H, MagicMock())
+        payload = {"data": {"type": "studies", "id": "746"}}
+        resp = _call("partial_update", rf, user, method="patch", data=payload, uid="746")
+        assert resp.status_code == 200
+
+    def test_id_mismatch(self, rf, user, mock_client):
+        payload = {"data": {"type": "studies", "id": "999",
+                            "attributes": {"title": "x"}}}
+        resp = _call("partial_update", rf, user, method="patch", data=payload, uid="746")
+        assert resp.status_code == 422
+        assert b"does not match" in resp.content
+        mock_client.update_study.assert_not_called()
+
+    def test_non_numeric_path_body_id_fallback(self, rf, user, mock_client):
+        mock_client.update_study.return_value = (_single_body(), 200, JSON_H, MagicMock())
+        payload = {"data": {"type": "studies", "id": "746"}}
+        resp = _call("partial_update", rf, user, method="patch", data=payload, uid="abc")
+        assert resp.status_code == 200
+
+    def test_non_numeric_no_usable_id(self, rf, user, mock_client):
+        payload = {"data": {"type": "studies", "id": "abc"}}
+        resp = _call("partial_update", rf, user, method="patch", data=payload, uid="abc")
+        assert resp.status_code == 404
+        assert b"Study not found" in resp.content
+
+    def test_validation_error(self, rf, user, mock_client):
+        resp = _call("partial_update", rf, user, method="patch",
+                      data={"data": {"nope": True}}, uid="746")
+        assert resp.status_code == 422
+
+    def test_missing_id_422(self, rf, user, mock_client):
+        resp = _call("partial_update", rf, user, method="patch",
+                      data={"data": {"type": "studies",
+                                     "attributes": {"title": "x"}}}, uid="746")
+        assert resp.status_code == 422
+
+    def test_auth_failure(self, rf, user, mock_client):
+        mock_client.update_study.return_value = (b'', 401, {}, MagicMock())
+        resp = _call("partial_update", rf, user, method="patch",
+                      data=VALID_UPDATE_PAYLOAD, uid="746")
+        assert resp.status_code == 401
+
+    def test_html_upstream(self, rf, user, mock_client):
+        mock_client.update_study.return_value = (b'<html>', 200, HTML_H, MagicMock())
+        resp = _call("partial_update", rf, user, method="patch",
+                      data=VALID_UPDATE_PAYLOAD, uid="746")
+        assert resp.status_code == 502
+
+    def test_invalid_upstream(self, rf, user, mock_client):
+        mock_client.update_study.return_value = (b'not-json', 200, JSON_H, MagicMock())
+        resp = _call("partial_update", rf, user, method="patch",
+                      data=VALID_UPDATE_PAYLOAD, uid="746")
+        assert resp.status_code == 502
+
+    def test_pk_fallback(self, rf, user, mock_client):
+        mock_client.update_study.return_value = (_single_body(), 200, JSON_H, MagicMock())
+        resp = _call("partial_update", rf, user, method="patch",
+                      data=VALID_UPDATE_PAYLOAD, pk="746")
+        assert resp.status_code == 200
+
+
+# ===========================================================================
+# Routing + OpenAPI schema generation
+# ===========================================================================
+class TestStudyRoutingAndSchema:
+    def test_routes_registered(self):
+        from django.urls import reverse
+        assert reverse("studies-list").endswith("/studies/")
+        assert reverse("studies-detail", kwargs={"uid": "746"}).endswith("/studies/746/")
+
+    def test_schema_generation_includes_studies(self):
+        from drf_spectacular.generators import SchemaGenerator
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        paths = list(schema["paths"].keys())
+        assert any(p.endswith("/studies/") for p in paths)
+        assert any(p.endswith("/studies/{uid}/") for p in paths)
+        list_path = next(p for p in paths if p.endswith("/studies/"))
+        detail_path = next(p for p in paths if p.endswith("/studies/{uid}/"))
+        assert set(schema["paths"][list_path].keys()) >= {"get", "post"}
+        assert set(schema["paths"][detail_path].keys()) >= {"get", "patch"}
+        assert "put" not in schema["paths"][detail_path]
+        assert "delete" not in schema["paths"][detail_path]

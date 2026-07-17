@@ -344,6 +344,58 @@ INVESTIGATION_UPDATE_DESC = (
 )
 
 # =============================================================================
+# StudyProxyViewSet (4 endpoints)
+# =============================================================================
+
+STUDY_LIST_DESC = (
+    "**SUMMARY:** List all studies (experimental studies within investigations) accessible to the current user.\n\n"
+    "**USE WHEN:** The user wants to browse all studies.\n\n"
+    "**ACCEPTS:** No required parameters; supports pagination query params.\n\n"
+    "**RETURNS:** Paginated list of study records with titles and self links.\n\n"
+    "**TRIGGER PHRASES:** list studies, show studies, all studies, browse studies\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Show me all ongoing studies'\n"
+    "- 'What studies exist under the vaccine investigation?'\n"
+    "- 'List all studies'\n"
+)
+
+STUDY_FETCH_DESC = (
+    "**SUMMARY:** Fetch details for a specific study by its numeric SEEK ID.\n\n"
+    "**USE WHEN:** The user wants to view full metadata for ONE specific study.\n\n"
+    "**ACCEPTS:** Study SEEK ID (numeric) as path parameter.\n\n"
+    "**RETURNS:** Full study metadata including title, description, experimentalists, parent investigation, and associated assays.\n\n"
+    "**TRIGGER PHRASES:** get study, fetch study, study details, show study\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Show me the details of the dose response study'\n"
+    "- 'What assays are part of this study?'\n"
+    "- 'Get study 746'\n"
+)
+
+STUDY_CREATE_DESC = (
+    "**SUMMARY:** Create a new study within an investigation.\n\n"
+    "**USE WHEN:** The user wants to define a new study under an investigation.\n\n"
+    "**ACCEPTS:** Study data including title, description, experimentalists, and the required parent investigation relationship.\n\n"
+    "**RETURNS:** The created study with its assigned ID and metadata.\n\n"
+    "**TRIGGER PHRASES:** create study, new study, add study, set up study\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Create a new study for the vaccine dose response'\n"
+    "- 'Add a study under investigation 763'\n"
+    "- 'Set up a dose comparison study'\n"
+)
+
+STUDY_UPDATE_DESC = (
+    "**SUMMARY:** Update an existing study by its numeric SEEK ID.\n\n"
+    "**USE WHEN:** The user wants to modify a study's title, description, experimentalists, or investigation association.\n\n"
+    "**ACCEPTS:** Study SEEK ID as path parameter; partial update payload with fields to change.\n\n"
+    "**RETURNS:** The updated study with all current metadata.\n\n"
+    "**TRIGGER PHRASES:** update study, edit study, modify study, rename study\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Rename the dose response study'\n"
+    "- 'Update the experimentalists for study 746'\n"
+    "- 'Change the description for study 746'\n"
+)
+
+# =============================================================================
 # AssayProxyViewSet (4 endpoints)
 # =============================================================================
 
