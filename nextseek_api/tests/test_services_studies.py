@@ -157,3 +157,44 @@ class TestStudyModels:
 
     def test_single_response_validates(self):
         StudySingleResponse.model_validate(json.loads(_single_body()))
+
+
+# ===========================================================================
+# SeekAPIClient study methods
+# ===========================================================================
+class TestSeekClientStudyMethods:
+    def _client(self):
+        from nextseek_api.helpers import SeekAPIClient
+        return SeekAPIClient()
+
+    def test_list_studies_path(self):
+        c = self._client()
+        with patch.object(c, "_request") as m:
+            req = MagicMock()
+            c.list_studies(req, params={"page[number]": "1"})
+            m.assert_called_once_with('GET', '/studies', req, params={"page[number]": "1"})
+
+    def test_get_study_path(self):
+        c = self._client()
+        with patch.object(c, "_request") as m:
+            req = MagicMock()
+            c.get_study(req, "746")
+            m.assert_called_once_with('GET', '/studies/746', req)
+
+    def test_create_study_path_and_content_type(self):
+        from nextseek_api.helpers import JSONAPI_ACCEPT
+        c = self._client()
+        with patch.object(c, "_request") as m:
+            req = MagicMock()
+            c.create_study(req, {"data": {}})
+            m.assert_called_once_with('POST', '/studies', req, json={"data": {}})
+        assert c.session.headers['Content-Type'] == JSONAPI_ACCEPT
+
+    def test_update_study_path_and_content_type(self):
+        from nextseek_api.helpers import JSONAPI_ACCEPT
+        c = self._client()
+        with patch.object(c, "_request") as m:
+            req = MagicMock()
+            c.update_study(req, "746", {"data": {}})
+            m.assert_called_once_with('PATCH', '/studies/746', req, json={"data": {}})
+        assert c.session.headers['Content-Type'] == JSONAPI_ACCEPT
