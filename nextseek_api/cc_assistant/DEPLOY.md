@@ -79,7 +79,7 @@ Append to `docker/nextseek.env` (the CC route config):
 NEXTSEEK_CC_IMAGE=dmac-assistant:poc
 NEXTSEEK_CC_NETWORK=dmac-cc-net
 DMAC_BEDROCK_PROXY_URL=http://bedrock-proxy:8080
-NEXTSEEK_CC_MAX_BUDGET_USD=2.00
+NEXTSEEK_CC_MAX_BUDGET_USD=0.50
 DMAC_ROUTER_ENABLED=1
 DMAC_ROUTE_CAPABILITIES_FILE=/app/dmac_assistant/build_context/route_capabilities.json
 DMAC_ROUTER_MODEL_CLASS_MAP_FILE=/app/dmac_assistant/build_context/router_model_class_map.json

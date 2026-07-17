@@ -349,15 +349,13 @@ def test_automode_settings_carry_no_secret_values():
 
 def test_default_budget_and_timeout(monkeypatch):
     # _DEFAULT_MAX_BUDGET_USD is computed at import time from
-    # NEXTSEEK_CC_MAX_BUDGET_USD (default "2.00"). Deployments set that env var
-    # (e.g. 0.50), so this test must clear it and reload to assert the code's
-    # OWN fallback default deterministically — otherwise it fails inside any
-    # configured environment (the container, CI) rather than testing the code.
+    # NEXTSEEK_CC_MAX_BUDGET_USD (default "0.50"). This test clears the env var
+    # and reloads to assert the code's OWN fallback default deterministically.
     import importlib
     monkeypatch.delenv("NEXTSEEK_CC_MAX_BUDGET_USD", raising=False)
     reloaded = importlib.reload(cc_engine)
     try:
-        assert reloaded._DEFAULT_MAX_BUDGET_USD == 2.00
+        assert reloaded._DEFAULT_MAX_BUDGET_USD == 0.50
         assert reloaded._TIMEOUT_HARD_MAX == 180
         assert reloaded._DEFAULT_TURN_TIMEOUT <= reloaded._TIMEOUT_HARD_MAX
     finally:

@@ -65,7 +65,7 @@ _DEFAULT_BEDROCK_PROXY_URL = os.environ.get(
 # --max-budget-usd`` (Claude Code stops the turn when cost hits it; 0 disables),
 # a turn cap via ``--max-turns``, and a wall-clock timeout (hard-capped 180s)
 # that stops + force-removes the container if the turn overruns. All overridable.
-_DEFAULT_MAX_BUDGET_USD = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "2.00"))
+_DEFAULT_MAX_BUDGET_USD = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "0.50"))
 _DEFAULT_MAX_TURNS = os.environ.get("NEXTSEEK_CC_MAX_TURNS", "50")
 _TIMEOUT_HARD_MAX = 180  # seconds; project rule (run_headless._TIMEOUT_HARD_MAX)
 _DEFAULT_TURN_TIMEOUT = min(
