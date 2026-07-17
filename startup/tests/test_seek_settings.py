@@ -21,13 +21,50 @@ from startup.steps.seek_settings import (
     SITE_BASE_HOST_VAR,
     apply_site_base_host,
     encode_setting_value,
+    read_site_base_host,
 )
+
+# Ground truth, captured read-only from the live dev DB (2026-07-17):
+#
+#   $ docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N \
+#       -e "SELECT value FROM seek_production.settings WHERE var=..."' | cat -A
+#   --- https://fairdata-dev.mit.edu\n$
+#
+# `cat -A` marks the real end-of-line with `$`, so the trailing `\n` is a LITERAL
+# backslash-n: mysql's batch mode (non-tty) escapes newlines, tabs and backslashes
+# on the way out. encode_setting_value writes a REAL newline, so any decode that
+# does not un-escape will never round-trip. Tests must mock what mysql actually
+# emits, not what we wrote in.
+LIVE_MYSQL_ROW = r"--- https://fairdata-dev.mit.edu\n"
 
 
 class TestEncoding:
     def test_encodes_as_seek_yaml_scalar(self) -> None:
         """SEEK stores settings YAML-encoded; the 93 seeded rows use '--- <v>\\n'."""
         assert encode_setting_value("https://fairdata.mit.edu") == "--- https://fairdata.mit.edu\n"
+
+
+@patch("startup.steps.seek_settings.compose_exec")
+class TestDecodingRealMysqlOutput:
+    """Decoding must round-trip what mysql BATCH MODE emits, not what we encoded.
+
+    Regression: the decode stripped whitespace only, so mysql's escaped `\\n`
+    survived into the compared value and no correctly-set row ever matched.
+    """
+
+    def _env(self) -> dict[str, str]:
+        return {"MYSQL_ROOT_PASSWORD": "rootpw"}
+
+    def test_reads_back_the_url_from_batch_escaped_output(self, mock_exec: MagicMock) -> None:
+        mock_exec.side_effect = ["1\n", LIVE_MYSQL_ROW]
+        assert read_site_base_host(Path("/repo"), self._env()) == "https://fairdata-dev.mit.edu"
+
+    def test_round_trips_what_we_encoded_after_batch_escaping(self, mock_exec: MagicMock) -> None:
+        """encode -> (mysql escapes it) -> decode must return the original URL."""
+        url = "https://seek.example.org"
+        as_mysql_emits_it = encode_setting_value(url).replace("\\", "\\\\").replace("\n", "\\n")
+        mock_exec.side_effect = ["1\n", as_mysql_emits_it]
+        assert read_site_base_host(Path("/repo"), self._env()) == url
 
 
 @patch("startup.steps.seek_settings.compose_exec")
@@ -48,6 +85,23 @@ class TestApply:
 
     def test_existing_equal_value_is_a_noop(self, mock_exec: MagicMock) -> None:
         mock_exec.side_effect = ["1\n", "--- https://fairdata-dev.mit.edu\n"]
+        status = apply_site_base_host(
+            Path("/repo"), self._env(), "https://fairdata-dev.mit.edu"
+        )
+        assert status == "already set"
+        sql = " ".join(str(c) for c in mock_exec.call_args_list)
+        assert "INSERT INTO" not in sql
+        assert "UPDATE" not in sql
+
+    def test_equal_value_as_real_mysql_emits_it_is_a_noop(self, mock_exec: MagicMock) -> None:
+        """The live-DB shape, not the hand-written one.
+
+        With mysql's batch escaping the row reads back as `--- <url>\\n` with a
+        LITERAL backslash-n. Before the decode un-escaped it, this returned
+        "differs" on an instance that was already correct -- and, via
+        read_site_base_host, made doctor hard-FAIL on a healthy stack.
+        """
+        mock_exec.side_effect = ["1\n", LIVE_MYSQL_ROW]
         status = apply_site_base_host(
             Path("/repo"), self._env(), "https://fairdata-dev.mit.edu"
         )

@@ -88,9 +88,51 @@ def _current_value(repo_root: Path, env: dict[str, str]) -> str | None:
     return raw or None
 
 
+# mysql's batch mode (what we get running non-tty) escapes these on the way out.
+# Order is irrelevant here because we scan left-to-right, consuming both chars of
+# each escape, so a literal backslash can never be re-read as an escape prefix.
+_MYSQL_BATCH_ESCAPES = {
+    "0": "\0",
+    "b": "\b",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "Z": "\x1a",
+    "\\": "\\",
+}
+
+
+def _unescape_mysql_batch(raw: str) -> str:
+    """Reverse mysql's batch-mode escaping.
+
+    Reading a row back non-tty yields `--- https://host\\n` where the trailing
+    `\\n` is a LITERAL backslash-n, not a newline (verified against the live DB
+    with `cat -A`). encode_setting_value writes a REAL newline, so without this
+    the value never round-trips and a correctly-set row reads as a mismatch.
+    An unrecognised escape is left verbatim rather than silently dropped.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(raw):
+        char = raw[i]
+        if char == "\\" and i + 1 < len(raw):
+            replacement = _MYSQL_BATCH_ESCAPES.get(raw[i + 1])
+            if replacement is not None:
+                out.append(replacement)
+                i += 2
+                continue
+        out.append(char)
+        i += 1
+    return "".join(out)
+
+
 def _decode_setting_value(raw: str) -> str:
-    """Pull the scalar back out of SEEK's YAML encoding for comparison."""
-    text = raw.strip()
+    """Pull the scalar back out of SEEK's YAML encoding for comparison.
+
+    Un-escapes mysql's batch output FIRST, so the trailing newline this module
+    encodes is a real newline again and `.strip()` can remove it.
+    """
+    text = _unescape_mysql_batch(raw).strip()
     if text.startswith("---"):
         text = text[3:]
     return text.strip()
