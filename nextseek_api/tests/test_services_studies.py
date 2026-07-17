@@ -466,8 +466,8 @@ class TestStudyPartialUpdate:
 class TestStudyRoutingAndSchema:
     def test_routes_registered(self):
         from django.urls import reverse
-        assert reverse("studies-list").endswith("/studies/")
-        assert reverse("studies-detail", kwargs={"uid": "746"}).endswith("/studies/746/")
+        assert reverse("nextseek_api:studies-list").endswith("/studies/")
+        assert reverse("nextseek_api:studies-detail", kwargs={"uid": "746"}).endswith("/studies/746/")
 
     def test_schema_generation_includes_studies(self):
         from drf_spectacular.generators import SchemaGenerator
