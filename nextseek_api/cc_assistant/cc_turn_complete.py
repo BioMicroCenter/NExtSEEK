@@ -4,6 +4,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+# First-party in-tree package; importable here because the running app already
+# hard-depends on chat_nextseek (no circular import: chat_memory pulls in only
+# stdlib, never nextseek_api). The chat_log ENTRY turn_id is derived through the
+# SAME helper the NS writer uses, so both paths share one derivation + schema.
+from chat_nextseek.chat_memory import next_turn_id
+
 
 @dataclass
 class TurnCompletePayload:
@@ -13,12 +19,20 @@ class TurnCompletePayload:
     ts: str
     artifacts: list[dict] | None
     cc_traces: list[dict]
-    turn_id: str
+    turn_id: str  # the Celery run UUID (str(run_id)) — load-bearing for the
+    # transcript (CCSessionTranscript.turn_id) and artifact keys; NOT the
+    # chat_log entry's turn_id (that is a sequential int, see below).
     cc_session_id: str | None
     raw_jsonl: bytes
 
 
-def serialize_cc_chat_log_entry(payload: TurnCompletePayload) -> dict:
+def serialize_cc_chat_log_entry(payload: TurnCompletePayload, *, turn_id: int) -> dict:
+    """Serialize a CC turn into a chat_log entry.
+
+    ``turn_id`` is the entry's *sequential int* id (shared schema); the run UUID
+    (``payload.turn_id``) is preserved on the entry as ``cc_run_id`` so the
+    transcript/artifact linkage is still recoverable from the chat_log.
+    """
     return {
         "user_query": payload.user_query,
         "assistant_reply": payload.assistant_reply,
@@ -26,7 +40,8 @@ def serialize_cc_chat_log_entry(payload: TurnCompletePayload) -> dict:
         "ts": payload.ts,
         "artifacts": payload.artifacts,
         "cc_traces": payload.cc_traces,
-        "turn_id": payload.turn_id,
+        "turn_id": turn_id,
+        "cc_run_id": payload.turn_id,
     }
 
 
@@ -53,8 +68,9 @@ def apply_turn_to_extra_state(extra_state: dict | None, payload: TurnCompletePay
     ``test_apply_turn_writes_chat_log_and_cc_traces_mirror``. The mirror is FIFO-capped
     (same ``cap``) to stay small per §6.5 (loaded on every session read)."""
     es = dict(extra_state or {})
-    es["chat_log"] = append_capped(
-        list(es.get("chat_log") or []), serialize_cc_chat_log_entry(payload), cap=cap)
+    existing_log = list(es.get("chat_log") or [])
+    entry = serialize_cc_chat_log_entry(payload, turn_id=next_turn_id(existing_log))
+    es["chat_log"] = append_capped(existing_log, entry, cap=cap)
     cc_traces = list(es.get("cc_traces") or [])
     for tr in payload.cc_traces:
         cc_traces = append_capped(cc_traces, tr, cap=cap)

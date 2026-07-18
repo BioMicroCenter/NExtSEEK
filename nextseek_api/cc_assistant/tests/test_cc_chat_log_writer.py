@@ -41,14 +41,17 @@ def test_serialize_cc_chat_log_entry_keys():
         chat_session=None, user_query="q", assistant_reply="a", ts="t",
         artifacts=[{"key": "k"}], cc_traces=[{"steps": []}], turn_id="T1",
         cc_session_id="s", raw_jsonl=b"")
-    entry = serialize_cc_chat_log_entry(payload)
+    entry = serialize_cc_chat_log_entry(payload, turn_id=1)
     assert entry["mode"] == "cc"
     assert entry["assistant_reply"] == "a"
     assert entry["user_query"] == "q"
     assert entry["ts"] == "t"
     assert entry["artifacts"] == [{"key": "k"}]
     assert entry["cc_traces"] == [{"steps": []}]
-    assert entry["turn_id"] == "T1"
+    # The chat_log entry's turn_id is a sequential int; the run UUID moves to
+    # cc_run_id (transcript/artifact linkage stays recoverable).
+    assert entry["turn_id"] == 1
+    assert entry["cc_run_id"] == "T1"
 
 
 def test_chat_log_entries_use_assistant_reply_key():
