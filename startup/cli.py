@@ -42,25 +42,42 @@ def _print_health_results(results: list[validate.HealthResult]) -> None:
         printer(f"{r.name}: {r.detail}")
 
 
-@app.command()
-def install(
-    instance: str | None = typer.Option(None, "--instance", help="Named instance for multi-install."),
-    port_offset: int | None = typer.Option(None, "--port-offset", help="Add N to every default port."),
-    no_seed: bool = typer.Option(False, "--no-seed", help="Skip seed import entirely (databases will start empty)."),
-    seek_public_url: str | None = typer.Option(
-        None,
-        "--seek-public-url",
-        help=(
-            "Browser-reachable SEEK base URL for this instance, e.g. "
-            "https://seek.your-domain.org (no path). Defaults to the value already "
-            "in docker/nextseek.env, else this instance's stored value, else "
-            "http://localhost:<seek port>. Feeds both NExtSEEK's SEEK_PUBLIC_URL "
-            "and SEEK's own site_base_host."
-        ),
-    ),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts."),
+def _reject_leaked_option_defaults(received: dict[str, object]) -> None:
+    """Crash loudly if a direct Python call leaked a typer sentinel through.
+
+    Calling an @app.command() function directly bypasses typer's CLI parsing,
+    so any parameter the caller forgets arrives as its typer.Option(...)
+    default -- a typer.models.OptionInfo instance, which is TRUTHY (it defines
+    no __bool__/__len__ anywhere in its MRO). Exactly that leak once made
+    reset()'s reinstall treat no_seed as set and silently skip every seed
+    over freshly-wiped volumes. Raise at entry instead of misbehaving.
+    """
+    leaked = sorted(
+        name for name, value in received.items()
+        if isinstance(value, typer.models.OptionInfo)
+    )
+    if leaked:
+        raise TypeError(
+            "received raw typer OptionInfo sentinel(s) for: "
+            + ", ".join(leaked)
+            + " -- pass real values for every parameter (or invoke via the CLI)"
+        )
+
+
+def _install_impl(
+    instance: str | None = None,
+    port_offset: int | None = None,
+    no_seed: bool = False,
+    seek_public_url: str | None = None,
+    yes: bool = False,
 ) -> None:
-    """First-time install: prereqs, config, volumes, seeds, build, users, validate."""
+    """Install body as plain Python with real defaults.
+
+    The @app.command() install wrapper below is nothing but a delegate to this
+    function; in-repo callers (reset's reinstall) and tests target it directly
+    so no typer.Option sentinel can ever stand in for an unpassed argument.
+    """
+    _reject_leaked_option_defaults(dict(locals()))
     ui.banner("NExtSEEK Startup")
     total = 9
 
@@ -325,6 +342,38 @@ def install(
 
 
 @app.command()
+def install(
+    instance: str | None = typer.Option(None, "--instance", help="Named instance for multi-install."),
+    port_offset: int | None = typer.Option(None, "--port-offset", help="Add N to every default port."),
+    no_seed: bool = typer.Option(False, "--no-seed", help="Skip seed import entirely (databases will start empty)."),
+    seek_public_url: str | None = typer.Option(
+        None,
+        "--seek-public-url",
+        help=(
+            "Browser-reachable SEEK base URL for this instance, e.g. "
+            "https://seek.your-domain.org (no path). Defaults to the value already "
+            "in docker/nextseek.env, else this instance's stored value, else "
+            "http://localhost:<seek port>. Feeds both NExtSEEK's SEEK_PUBLIC_URL "
+            "and SEEK's own site_base_host."
+        ),
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts."),
+) -> None:
+    """First-time install: prereqs, config, volumes, seeds, build, users, validate."""
+    # Thin CLI shim: NO logic here. Anything beyond this delegate would run
+    # with truthy OptionInfo defaults if install() were ever again called
+    # directly as a Python function (test_install_command_body_is_only_the_
+    # impl_delegate enforces this).
+    _install_impl(
+        instance=instance,
+        port_offset=port_offset,
+        no_seed=no_seed,
+        seek_public_url=seek_public_url,
+        yes=yes,
+    )
+
+
+@app.command()
 def doctor(
     instance: str | None = typer.Option(None, "--instance"),
 ) -> None:
@@ -387,9 +436,15 @@ def reset(
     # without --keep-config, docker/nextseek.env) have just been deleted, so both
     # of the resolver's fallback sources are gone and reset would otherwise
     # silently regress a dev/prod instance to the localhost default.
+    # Every install parameter is passed explicitly (parity enforced by
+    # test_reset_call_passes_every_install_parameter): an omitted one would
+    # arrive as its truthy typer.Option sentinel -- which once made this very
+    # call skip every seed. no_seed=False is the point of reset: freshly
+    # dropped volumes MUST be reseeded.
     install(
         instance=instance,
         port_offset=None,
+        no_seed=False,
         seek_public_url=state.seek_public_url or None,
         yes=True,
     )

@@ -1,13 +1,14 @@
 """AST-based tests for startup CLI wiring of generated deploy files.
 
 Replaces source-substring greps (`"config.render_proxy_secret_env(REPO_ROOT)"
-in text`) with assertions on the real parsed AST of `install()`'s body — a
+in text`) with assertions on the real parsed AST of `_install_impl()`'s body
+(the plain-Python install body; `install` itself is a bare typer delegate) — a
 substring grep still passes if the call is dead/commented-out differently
 (e.g. reformatted, or `# config.render_proxy_secret_env(REPO_ROOT)`), an AST
 walk does not.
 
 Two properties are checked:
-  1. Presence — install() (and validate.run_all_health_checks()) still
+  1. Presence — _install_impl() (and validate.run_all_health_checks()) still
      contain Call nodes for the required helpers (test_install_calls_all_
      render_and_cc_phases, test_health_checks_include_cc_checks).
   2. Order — the calls that matter (render proxy secret -> render root .env
@@ -29,9 +30,10 @@ from startup import cli
 
 CLI_PATH = Path(__file__).resolve().parents[1] / "cli.py"
 
-# Calls install() must make directly (walked from its own AST). Verified via
+# Calls _install_impl() must make directly (walked from its own AST; the
+# @app.command() install is a bare delegate to it). Verified via
 # test_install_calls_all_render_and_cc_phases below. check_proxy_token /
-# check_cc_services are NOT install()-level calls -- they're made inside
+# check_cc_services are NOT _install_impl()-level calls -- they're made inside
 # validate.run_all_health_checks (a different function, different file) and
 # are covered separately by test_health_checks_include_cc_checks.
 REQUIRED_INSTALL_CALLS = {
@@ -59,10 +61,10 @@ def _find_function(tree: ast.AST, name: str) -> ast.FunctionDef:
 
 def test_install_calls_all_render_and_cc_phases() -> None:
     tree = ast.parse(CLI_PATH.read_text())
-    install = _find_function(tree, "install")
-    calls = _called_names(install)
+    impl = _find_function(tree, "_install_impl")
+    calls = _called_names(impl)
     for required in REQUIRED_INSTALL_CALLS:
-        assert required in calls, f"install() no longer calls {required}"
+        assert required in calls, f"_install_impl() no longer calls {required}"
 
 
 def test_install_calls_render_start_health_in_order(monkeypatch) -> None:
