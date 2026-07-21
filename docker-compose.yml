@@ -19,6 +19,14 @@ services:
       - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
       - ./outputs:/app/outputs:z
       - ./logs:/app/logs:z
+      # Luria SLURM launch backend. LURIAKEY is the host path to the operator's
+      # private key, bind-mounted read-only at the SAME path inside so the value
+      # of LURIA_KEY needs no translation. Defaults to /dev/null so the stack
+      # still comes up when the Luria backend is unused.
+      - ${LURIAKEY:-/dev/null}:${LURIAKEY:-/dev/null}:ro
+      # Writable ssh dir: ssh.py copies the key here and chmods 0600, which it
+      # cannot do on the read-only bind above.
+      - nextseek-luria-ssh:/app/.ssh
       # Additive (Container-CC route): lets the assistant worker spawn sibling
       # `claude` containers on the host Docker daemon. Used only by the new
       # cc-assistant endpoints; the existing assistant never touches it.
@@ -297,6 +305,12 @@ volumes:
   # Container-CC per-project/per-user trees (G7-10). Created by
   # `./startup.sh install` (startup/steps/volumes.py REQUIRED_VOLUMES), same as
   # the six SEEK/NExtSEEK volumes above.
+  # Writable ssh dir for the Luria launch backend. Compose-managed (not external
+  # like the six above) because startup/steps/volumes.py does not create it and
+  # it holds no seeded data — only a 0600 copy of the operator's key.
+  nextseek-luria-ssh:
+    name: ${INSTANCE_PREFIX:-}nextseek-luria-ssh
+
   dmac-cc-users:
     external: true
     # Must carry INSTANCE_PREFIX like the six volumes above: volumes.py builds

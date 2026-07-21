@@ -30,6 +30,35 @@ def _resolve_nextseek_base_url() -> str | None:
     return url.rstrip("/")
 
 
+_VALID_LAUNCH_MODES = {"tower", "luria"}
+
+
+def detect_pipeline_launch_mode(env: dict | None = None) -> str:
+    """Return the default launch backend ('tower' | 'luria'). Invalid -> 'tower'."""
+    env = env if env is not None else os.environ
+    mode = (env.get("PIPELINE_LAUNCH_MODE") or "tower").strip().lower()
+    if mode not in _VALID_LAUNCH_MODES:
+        print(f"[CONFIG] Invalid PIPELINE_LAUNCH_MODE {mode!r}; defaulting to 'tower'.")
+        return "tower"
+    return mode
+
+
+def build_luria_env(env: dict | None = None) -> dict:
+    """Assemble the Luria SSH/SLURM env dict from process env (host hardcoded)."""
+    env = env if env is not None else os.environ
+    return {
+        "user": env.get("LURIA_USER"),
+        "key": env.get("LURIAKEY"),
+        "working_path": env.get("LURIA_WORKING_PATH"),
+        "host": "luria.mit.edu",
+    }
+
+
+def luria_env_complete(luria_env: dict) -> bool:
+    """True when the required Luria fields are all present."""
+    return all(luria_env.get(k) for k in ("user", "key", "working_path"))
+
+
 class ChatConfig:
     def __init__(self, config_map={}):
         """Load configuration, provider clients, prompts, and cached context for one process."""
@@ -233,6 +262,19 @@ class ChatConfig:
             print(
                 f"[ChatConfig] SEQERA tower env complete: {self.TOWER_ENV_COMPLETE} "
                 f"(auto_launch={self.SEQERA_AUTO_LAUNCH})"
+            )
+
+        # Pipeline launch backend selector + Luria SSH/SLURM env. Sibling of the
+        # TOWER_ENV block above: Tower and Luria are the two launch backends,
+        # selected by PIPELINE_LAUNCH_MODE (default 'tower', so this is inert
+        # until an operator opts in).
+        self.PIPELINE_LAUNCH_MODE = detect_pipeline_launch_mode()
+        self.LURIA_ENV = build_luria_env()
+        self.LURIA_ENV_COMPLETE = luria_env_complete(self.LURIA_ENV)
+        if self.CONFIG_VERBOSE:
+            print(
+                f"[ChatConfig] pipeline launch mode: {self.PIPELINE_LAUNCH_MODE} "
+                f"(luria env complete: {self.LURIA_ENV_COMPLETE})"
             )
 
         self.NEO4J_SCHEMA = self._ensure_neo4j_schema()
