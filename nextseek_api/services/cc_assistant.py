@@ -73,8 +73,33 @@ from nextseek_api.assistant.models_db import CCSessionTranscript
 MAX_CC_CHAT_LOG_TURNS = 50  # match chat_nextseek/chat_memory.py MAX_TURNS
 
 
+def _merge_extra_state(session, **updates) -> None:
+    """Merge single keys onto the LATEST extra_state, never clobbering siblings.
+
+    Every write here rewrites the whole ``extra_state`` JSON column, so a
+    read-modify-write against a stale in-memory copy silently drops keys another
+    writer added in the meantime. The ChatSession object held during a CC turn is
+    loaded at turn start, while a nested query/async request on the SAME session
+    (a different ORM object) can seed keys mid-turn. Reload the column first so
+    this write merges onto it instead of overwriting it.
+
+    The ``or {}`` is belt-and-braces only: the column is ``JSONField(default=dict)``
+    with no ``null=True``, so a row loaded from the DB always has a dict here.
+    """
+    session.refresh_from_db(fields=["extra_state"])
+    es = dict(session.extra_state or {})
+    es.update(updates)
+    session.extra_state = es
+    session.save(update_fields=["extra_state", "updated_at"])
+
+
 def _append_cc_turn_complete(payload: TurnCompletePayload) -> None:
     session = payload.chat_session
+    # Same staleness hazard as _merge_extra_state: this is a whole-column
+    # read-modify-write on an object loaded at CC-turn start, so reload
+    # extra_state first or a concurrently-seeded key (e.g. pipeline_agent, which
+    # the router gate reads next turn) is lost when the chat_log is appended.
+    session.refresh_from_db(fields=["extra_state"])
     session.extra_state = apply_turn_to_extra_state(
         session.extra_state, payload, cap=MAX_CC_CHAT_LOG_TURNS)
     session.save(update_fields=["extra_state", "updated_at"])
@@ -278,8 +303,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         # extra_state keys. Re-captured every turn (robust if the
                         # claude id rotates under -p --resume).
                         try:
-                            chat_session.extra_state["cc_session_id"] = cc_sid
-                            chat_session.save(update_fields=["extra_state", "updated_at"])
+                            _merge_extra_state(chat_session, cc_session_id=cc_sid)
                         except Exception:
                             logger.exception(
                                 "cc: failed to persist cc_session_id=%r; resume unavailable this turn",
@@ -326,8 +350,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                     project_dirname = stored_project_dirname or project.dirname
                     try:
                         if not (chat_session.extra_state or {}).get("cc_project_dirname"):
-                            chat_session.extra_state["cc_project_dirname"] = project_dirname
-                            chat_session.save(update_fields=["extra_state", "updated_at"])
+                            _merge_extra_state(chat_session, cc_project_dirname=project_dirname)
                     except Exception:
                         logger.exception("cc-step2: failed to persist project dirname")
 
