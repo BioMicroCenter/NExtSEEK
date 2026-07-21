@@ -31,6 +31,7 @@ class InstanceState:
             "seek": "SEEK_PORT",
             "neo4j_http": "NEO4J_HTTP_PORT",
             "neo4j_bolt": "NEO4J_BOLT_PORT",
+            "db": "DB_PORT",
         }
         for service_key, env_key in port_env_map.items():
             if service_key in self.ports:

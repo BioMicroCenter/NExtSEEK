@@ -179,7 +179,7 @@ services:
     restart: always
     stop_grace_period: 1m30s
     ports:
-      - "127.0.0.1:3306:3306"
+      - "127.0.0.1:${DB_PORT:-3306}:3306"
     env_file:
       - ./docker/db.env
     volumes:

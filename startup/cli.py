@@ -25,7 +25,16 @@ app = typer.Typer(
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-DEFAULT_PORTS = {"nextseek": 8000, "seek": 3000, "neo4j_http": 7474, "neo4j_bolt": 7687}
+DEFAULT_PORTS = {
+    "nextseek": 8000,
+    "seek": 3000,
+    "neo4j_http": 7474,
+    "neo4j_bolt": 7687,
+    # db is published to the host too, so it must be allocated per instance like
+    # the rest. Without it every instance hardcodes 3306 and the second one's db
+    # container fails to bind, defeating --instance/--port-offset.
+    "db": 3306,
+}
 
 
 def _warn_if_proxy_token_empty(proxy_env_path: Path) -> None:
