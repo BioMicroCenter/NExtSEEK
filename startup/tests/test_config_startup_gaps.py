@@ -107,3 +107,29 @@ def test_render_root_env_writes_compose_targeting_vars_only(tmp_path: Path) -> N
         "NEO4J_BOLT_PORT": "7688",
         "INSTANCE_PREFIX": "test-",
     }
+
+
+def test_render_root_env_persists_db_port(tmp_path: Path) -> None:
+    """.env is what a bare `docker compose` reads, so DB_PORT must land there.
+
+    startup passes compose_env directly during install, so the port is correct
+    then. But the documented dev workflow (`docker compose up -d --build
+    nextseek`) reads .env instead -- without DB_PORT it falls back to the
+    compose default 3306 and collides with any other instance on this host.
+    """
+    repo = tmp_path / "repo"
+
+    render_root_env(
+        repo,
+        {
+            "INSTANCE_PREFIX": "test-",
+            "COMPOSE_PROJECT_NAME": "nextseek-test",
+            "NEXTSEEK_PORT": "8001",
+            "SEEK_PORT": "3001",
+            "NEO4J_HTTP_PORT": "7475",
+            "NEO4J_BOLT_PORT": "7688",
+            "DB_PORT": "3307",
+        },
+    )
+
+    assert read_env(repo / ".env")["DB_PORT"] == "3307"
