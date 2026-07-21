@@ -299,3 +299,8 @@ volumes:
   # the six SEEK/NExtSEEK volumes above.
   dmac-cc-users:
     external: true
+    # Must carry INSTANCE_PREFIX like the six volumes above: volumes.py builds
+    # every REQUIRED_VOLUMES entry as f"{prefix}{name}", so without this an
+    # --instance install creates `{prefix}dmac-cc-users` while compose looks up
+    # the bare name and silently attaches ANOTHER instance's CC user tree.
+    name: ${INSTANCE_PREFIX:-}dmac-cc-users
