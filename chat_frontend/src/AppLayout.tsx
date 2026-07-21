@@ -5,6 +5,7 @@ import { useSessions } from "@/hooks/useSessions";
 import { ChatPanel } from "@/components/ChatPanel";
 import { HeaderBar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
+import { getForceRoute } from "@/lib/forceRoute";
 import type {
   ProgressEvent,
   AgentStartedData,
@@ -157,13 +158,14 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
       addUserMessage(text);
       pendingDebugRef.current = [];
       setDebugData({ entries: [], bundleId: null, query: text });
-      const opts =
+      const base =
         sessions.activeSessionId ? { sessionId: sessions.activeSessionId } :
         sessions.pendingNewChat   ? { forceNew: true } :
         {};
+      const opts = { ...base, forceRoute: isAdmin ? getForceRoute() : ("auto" as const) };
       submitQuery(text, mode, opts, handleProgress, handleQueryError);
     },
-    [addUserMessage, submitQuery, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat],
+    [addUserMessage, submitQuery, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
   );
 
   const handleArtifactDownload = useCallback(
@@ -235,6 +237,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         onOpenChange={setRightOpen}
         debugData={debugData}
         onDownload={handleDownload}
+        isAdmin={isAdmin}
       />
     </div>
   );

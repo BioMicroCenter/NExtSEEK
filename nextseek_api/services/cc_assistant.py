@@ -67,6 +67,7 @@ from nextseek_api.cc_assistant.cc_turn_complete import (
     TurnCompletePayload,
     apply_turn_to_extra_state,
 )
+from chat_nextseek.pipeline import agent as pipeline_agent
 from nextseek_api.cc_assistant import cc_transcript_store
 from nextseek_api.assistant.models_db import CCSessionTranscript
 
@@ -186,6 +187,50 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     return metas
 
 
+def _decide_route(user, req, *, force_cc: bool, session=None) -> cc_router.RouteDecision:
+    """Pick the route for a query, honoring the admin-only ``force_route`` override.
+
+    Precedence: an explicit force (``force_cc`` or an admin's ``force_route``)
+    wins first, THEN an active ``pipeline_agent`` wizard forces the NS route,
+    THEN the BAML router (:func:`cc_router.decide`) decides. A non-admin's
+    ``force_route`` is ignored and falls back to the router (mirrors
+    ``use_prod``'s server-side admin gate). Forced decisions are
+    ``ROUTE_NS``/``ROUTE_CC`` (never ``ROUTE_UNRELATED``), so a forced query
+    always runs on the chosen path instead of hitting the out-of-scope canned
+    reply.
+    """
+    forced = getattr(req, "force_route", None)
+    if forced in ("ns", "cc"):
+        is_admin = bool(
+            getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)
+        )
+        if not is_admin:
+            forced = None  # non-admins can never force a route
+
+    if force_cc or forced == "cc":
+        # CC always runs Opus (the only proxy-allowlisted model); hardcoding
+        # sonnet here would 403 at the Bedrock proxy.
+        return cc_router.RouteDecision(
+            route=cc_router.ROUTE_CC, model_class="opus",
+            model_id=cc_router._resolve_cc_model_id(),
+            reasoning="forced", source="forced",
+        )
+    if forced == "ns":
+        return cc_router.RouteDecision(
+            route=cc_router.ROUTE_NS, model_class=None,
+            model_id=None, reasoning="forced", source="forced",
+        )
+    if session is not None and pipeline_agent.is_active(session):
+        # A pipeline wizard is mid-flow: keep confirm/tweak/launch turns on the NS
+        # route so they reach pipeline_agent.handle_turn (the wizard's 'cancel'
+        # verb remains the escape hatch). Shared-state fix for the stateless router.
+        return cc_router.RouteDecision(
+            route=cc_router.ROUTE_NS, model_class=None,
+            model_id=None, reasoning="pipeline_active", source="pipeline",
+        )
+    return cc_router.decide(req.query)
+
+
 class CCAssistantViewSet(viewsets.ViewSet):
     """Router + Container-Claude-Code assistant (additive to AssistantViewSet)."""
 
@@ -254,16 +299,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
         def _run() -> None:
             ran_ns = False
             try:
-                if force_cc:
-                    # CC always runs Opus (the only proxy-allowlisted model);
-                    # hardcoding sonnet here would 403 at the Bedrock proxy.
-                    decision = cc_router.RouteDecision(
-                        route=cc_router.ROUTE_CC, model_class="opus",
-                        model_id=cc_router._resolve_cc_model_id(),
-                        reasoning="forced", source="forced",
-                    )
-                else:
-                    decision = cc_router.decide(req.query)
+                decision = _decide_route(request.user, req, force_cc=force_cc, session=adapter)
 
                 send_event("route_decided", {
                     "route": decision.route, "model_class": decision.model_class,

@@ -7,6 +7,7 @@ import { SessionAuthService } from "@/lib/services/sessionAuth";
 import { ChatPanel } from "@/components/ChatPanel";
 import { CompactToolbar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
+import { getForceRoute } from "@/lib/forceRoute";
 import type {
   ProgressEvent,
   AgentStartedData,
@@ -160,10 +161,11 @@ export function EmbeddedApp() {
       pendingDebugRef.current = [];
       setDebugData({ entries: [], bundleId: null, query: text });
       setIsQuerying(true);
-      const opts =
+      const base =
         sessions.activeSessionId ? { sessionId: sessions.activeSessionId } :
         sessions.pendingNewChat   ? { forceNew: true } :
         {};
+      const opts = { ...base, forceRoute: isAdmin ? getForceRoute() : ("auto" as const) };
       serviceRef.current
         .submitQuery(text, mode, opts, handleProgress, handleQueryError)
         .finally(() => {
@@ -171,7 +173,7 @@ export function EmbeddedApp() {
           setIsQuerying(false);
         });
     },
-    [addUserMessage, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat],
+    [addUserMessage, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
   );
 
   const handleArtifactDownload = useCallback(
@@ -244,6 +246,7 @@ export function EmbeddedApp() {
         onOpenChange={setRightOpen}
         debugData={debugData}
         onDownload={handleDownload}
+        isAdmin={isAdmin}
       />
     </div>
   );

@@ -39,7 +39,7 @@ export class NextseekApiService {
   async submitQuery(
     query: string,
     mode: string | { pipeline: "standard" | "plan"; useProd?: boolean },
-    opts: { sessionId?: string | null; forceNew?: boolean },
+    opts: { sessionId?: string | null; forceNew?: boolean; forceRoute?: "auto" | "ns" | "cc" },
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
   ): Promise<void> {
@@ -60,6 +60,10 @@ export class NextseekApiService {
       body.session_id = opts.sessionId;
     } else if (opts.forceNew) {
       body.force_new = true;
+    }
+    // Admin-only route override (server re-checks admin + ignores for non-admins).
+    if (opts.forceRoute && opts.forceRoute !== "auto") {
+      body.force_route = opts.forceRoute;
     }
 
     // 1. POST async query

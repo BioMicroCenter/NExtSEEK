@@ -96,7 +96,7 @@ from rest_framework.authentication import (
 
 from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
 
-from chat_nextseek.orchestrator import run_query, run_query_plan
+from chat_nextseek.orchestrator import run_query, run_query_plan, run_pipeline_launch
 from chat_nextseek.config import ChatConfig
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
@@ -858,6 +858,8 @@ class AssistantViewSet(viewsets.ViewSet):
                 match getattr(req, "mode", "standard"):
                     case "plan":
                         run_query_plan(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                    case "pipeline":
+                        run_pipeline_launch(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
                     case _:
                         run_query(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
             except Exception:
