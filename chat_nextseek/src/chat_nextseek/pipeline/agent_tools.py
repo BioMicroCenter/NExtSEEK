@@ -1,10 +1,11 @@
 """Tools + dispatch for the full-agentic nf-core pipeline agent.
 
-Five anthropic-style tools driven by BedrockClient.chat_with_tools:
+Anthropic-style tools driven by BedrockClient.chat_with_tools (submit tools exposed per config):
   - resolve_samples:   UIDs/last-search -> compact leaf table (+ caches refs)
   - write_samplesheet: agent-built cohorts -> validated samplesheet CSV (CSV only)
   - configure_run:     curated params + species references -> params.yml + launch.yml
   - submit_to_tower:   submit the built launch artifacts
+  - submit_to_luria:   submit the built launch artifacts to the Luria SLURM cluster
   - conclude:          terminate the conversation (control tool, intercepted by the loop)
 """
 from __future__ import annotations
@@ -33,11 +34,14 @@ from ..seqera.emitter import emit_launch_artifacts, emit_nfcore_artifacts
 from ..seqera.ena import extract_accessions_from_metadata, resolve_accessions
 from ..seqera.pipeline_params import (
     build_run_params,
+    gencode_for_genome_key,
     load_pipeline_context,
     load_reference_bundles,
+    process_args_for,
     resolve_bundle_for_species,
 )
 from ..seqera.submitter import submit_launch
+from ..luria.submitter import submit_luria
 
 PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
@@ -149,6 +153,51 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
 ]
 
+SUBMIT_TO_LURIA_SCHEMA: dict[str, Any] = {
+    "name": "submit_to_luria",
+    "description": (
+        "Submit the most recently built launch artifacts to MIT's Luria SLURM "
+        "cluster (ssh + sbatch a generated run.sh wrapping `nextflow run`). Only "
+        "call this AFTER the user has confirmed they want to submit. You may set "
+        "SLURM resources when the user asks for them; otherwise defaults are used. "
+        "If Luria is not configured this returns the samplesheet path instead."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "job_name": {"type": "string", "description": "optional SLURM job name."},
+            "resources": {
+                "type": "object",
+                "description": "optional SLURM overrides; invalid values fall back to defaults.",
+                "properties": {
+                    "partition": {"type": "string"},
+                    "time": {"type": "string", "description": "HH:MM:SS"},
+                    "cpus": {"type": "integer"},
+                    "mem": {"type": "string", "description": "e.g. 8G"},
+                },
+            },
+        },
+        "required": [],
+    },
+}
+
+_SCHEMA_BY_NAME = {t["name"]: t for t in PIPELINE_TOOL_SCHEMAS}
+
+
+def build_pipeline_tool_schemas(config) -> list[dict[str, Any]]:
+    """Expose only the submit tools whose backend env is complete (core + conclude always)."""
+    tools = [
+        _SCHEMA_BY_NAME["resolve_samples"],
+        _SCHEMA_BY_NAME["write_samplesheet"],
+        _SCHEMA_BY_NAME["configure_run"],
+    ]
+    if getattr(config, "TOWER_ENV_COMPLETE", False):
+        tools.append(_SCHEMA_BY_NAME["submit_to_tower"])
+    if getattr(config, "LURIA_ENV_COMPLETE", False):
+        tools.append(SUBMIT_TO_LURIA_SCHEMA)
+    tools.append(_SCHEMA_BY_NAME["conclude"])
+    return tools
+
 
 def _accepted_types_for(pipeline_key: str) -> list[str]:
     return list(NFCORE_PIPELINE_CATALOG.get(pipeline_key, {}).get("accepted_leaf_sample_types") or [])
@@ -247,11 +296,19 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     all_uids: set[str] = set()
     all_accs: set[str] = set()
     species_votes: Counter = Counter()
+    file_paths_by_acc: dict[str, dict] = {}
     for leaf in leaves:
         accs = extract_accessions_from_metadata(leaf.get("metadata") or {})
         all_uids.add(leaf["uid"])
         all_accs.update(accs)
         flat = _flatten_lineage(leaf["uid"], uid_index) if uid_index else (leaf.get("metadata") or {})
+        # Stash the leaf's FULL metadata per accession (the emitter's lookup key) so the emitter
+        # can find the fastq paths in whatever fields hold them (Link_PrimaryData / File_* / etc.)
+        # by value, not a hardcoded field name. ENA URL stays the fallback when none is found.
+        _meta = {**(flat if isinstance(flat, dict) else {}), **(leaf.get("metadata") or {})}
+        if _meta and accs:
+            for _a in accs:
+                file_paths_by_acc[str(_a).strip()] = dict(_meta)
         # Generically detect species: any flattened value that maps to a reference
         # bundle is a species vote (no hardcoded field name).
         for val in flat.values():
@@ -275,6 +332,8 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
         "uids": sorted(set(prev.get("uids") or []) | all_uids),
         "accessions": sorted(set(prev.get("accessions") or []) | all_accs),
     }
+    # Merge curated fastq paths across resolve_samples calls; the emitter reads this in write_samplesheet.
+    state["accession_file_paths"] = {**(state.get("accession_file_paths") or {}), **file_paths_by_acc}
     detected_species = species_votes.most_common(1)[0][0] if species_votes else None
     bundle_key = resolve_bundle_for_species(detected_species)
     # Write unconditionally so this resolution's detection (incl. None) replaces any
@@ -380,6 +439,7 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
         pipeline=pipeline_key,
         samplesheet_rows=merged_rows,
         resolutions=resolutions,
+        accession_metadata=state.get("accession_file_paths") or {},
         launch_plan=None,  # configure_run now owns params.yml + launch.yml
         tower_env=tower_env,
         selector_rationale="full-agentic pipeline_agent build",
@@ -493,6 +553,49 @@ def tool_submit_to_tower(config: "ChatConfig", state: dict) -> str:
     return json.dumps({"ok": True, "run_urls": run_urls})
 
 
+
+def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | None = None) -> str:
+    artifacts = state.get("artifacts") or {}
+    launch = artifacts.get("launch")
+    if not launch:
+        return json.dumps({"ok": False, "message": "No launch artifact to submit — build a samplesheet first."})
+    if not getattr(config, "LURIA_ENV_COMPLETE", False):
+        return json.dumps({"ok": False, "message": f"Luria not configured. Samplesheet/launch is at {launch}. "
+                                                   "Set LURIA_USER / LURIAKEY / LURIA_WORKING_PATH."})
+    luria_env = dict(getattr(config, "LURIA_ENV", {}) or {})
+    samplesheet = artifacts.get("samplesheet")
+    # Thread the species-resolved iGenomes key (mouse->GRCm39, human->GRCh38) that configure_run
+    # computed, so run.sh aligns to the right genome instead of a hardcoded GRCh38. The full
+    # merged param set feeds params.yml (per-pipeline curated params); the submitter strips the
+    # CLI-owned keys (input/outdir/genome) from it.
+    launch_params = dict((state.get("launch_plan") or {}).get("params") or {})
+    genome = launch_params.get("genome")
+    # Luria runs on local luria.config refs, which are GENCODE for human/mouse (Ensembl for the
+    # macaques). Set --gencode from the genome when the pipeline curates a gencode param — the
+    # shared build_run_params leaves it at the curated default because that value is Tower-correct
+    # (iGenomes, non-GENCODE) but wrong for our local GENCODE refs.
+    if "gencode" in launch_params and gencode_for_genome_key(genome):
+        launch_params["gencode"] = True
+    # Per-protocol process ext.args the curated pipeline JSON declares (e.g. scrnaseq dropseq ->
+    # SIMPLEAF_QUANT --knee); the submitter renders these into the run's -c config.
+    process_args = process_args_for(state.get("pipeline_key") or "", launch_params.get("protocol"))
+    tool_input = tool_input or {}
+    try:
+        runs = submit_luria(launch, luria_env=luria_env,
+                            resources=tool_input.get("resources"),
+                            job_name=tool_input.get("job_name"),
+                            samplesheet_local=samplesheet,
+                            genome=genome,
+                            launch_params=launch_params,
+                            process_args=process_args)
+    except Exception as exc:
+        return json.dumps({"ok": False, "message": f"Luria submit failed: {exc!r}"})
+    if not runs:
+        return json.dumps({"ok": False, "message": "No runs submitted — check Luria logs."})
+    state.setdefault("artifacts", {})["luria_runs"] = runs
+    return json.dumps({"ok": True, "luria_runs": runs})
+
+
 def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool_input: dict, log_dir: str) -> str:
     """Route a non-control tool to its implementation. 'conclude' is intercepted by the loop."""
     if name == "resolve_samples":
@@ -506,6 +609,8 @@ def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool
         return tool_configure_run(config, state, tool_input, log_dir)
     if name == "submit_to_tower":
         return tool_submit_to_tower(config, state)
+    if name == "submit_to_luria":
+        return tool_submit_to_luria(config, state, tool_input)
     if name == "conclude":
         raise ValueError("dispatch_pipeline_tool_call must not be called for 'conclude'; the loop intercepts it.")
     raise ValueError(f"Unknown pipeline tool: {name!r}")

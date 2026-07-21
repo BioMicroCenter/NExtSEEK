@@ -79,6 +79,50 @@ def _emit_query_complete(
     return payload
 
 
+def run_pipeline_launch(
+    session: SessionState | SessionStateProxy,
+    config: ChatConfig,
+    user_text: str,
+    send_event: SendEvent | None = None,
+    *,
+    credentials: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Deterministic CC → pipeline_agent bridge entry (query/async mode='pipeline').
+
+    Starts the pipeline wizard directly from a CC-composed summary message — no
+    parser/reporter classification. Runs on the async task path, so pipeline_agent's
+    real first reply is surfaced (no canned turn) and there is no 30 s bin ReadTimeout.
+    Follow-up turns continue via the F9 router gate → _handle_pipeline_agent_turn.
+    """
+    if credentials:
+        config = copy.copy(config)
+        if credentials.get("api_user"):
+            config.API_USER = credentials["api_user"]
+        if credentials.get("api_pass"):
+            config.API_PASS = credentials["api_pass"]
+
+    log_dir = _ensure_query_log_dir(session, config)
+    if send_event:
+        send_event("agent_started", {"agent": "pipeline_agent", "mode": "pipeline"})
+
+    pa_start = pipeline_agent.start(session, config, user_query=user_text, log_dir=log_dir)
+    reply = pa_start.get("reply") or ""
+    snapshot = pipeline_agent.snapshot_for_chat_log(session)
+    debug_payload = {"pipeline_agent": snapshot}
+    session["last_debug"] = debug_payload
+    append_turn(
+        session,
+        user_query=user_text,
+        mode="pipeline_agent",
+        intent_summary="pipeline_agent launched (cc bridge)",
+        tool_summary={"pipeline_key": snapshot.get("pipeline_key"),
+                      "cohorts": snapshot.get("cohort_count")},
+        assistant_reply=reply,
+        wizard_state=snapshot,
+    )
+    return _emit_query_complete(send_event, reply, debug_payload, None)
+
+
 def _sanitize_output_component(value: str | None, default: str = "unknown") -> str:
     """Return a filesystem-safe path component for per-run output directories."""
     text = (value or "").strip()

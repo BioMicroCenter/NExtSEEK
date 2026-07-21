@@ -220,10 +220,46 @@ def _coerce_csv(value: Any) -> str:
     return str(value)
 
 
+_R1_NAME = ("primary", "_r1", "read1"); _R1_FILE = ("_1.", "_r1")
+_R2_NAME = ("secondary", "_r2", "read2"); _R2_FILE = ("_2.", "_r2")
+
+
+def _fastq_from_meta(meta: Mapping[str, Any], read_hint: str) -> str:
+    """Pick a read's fastq path from the sample metadata, field-name-agnostically.
+
+    `read_hint` is 'primary' (R1) or 'secondary' (R2). Scans EVERY field for a VALUE that
+    is actually a fastq path/URL (has a '/', ends in .fastq.gz/.fq.gz), then assigns it to
+    this read by either the field NAME (…primary…/…secondary…, r1/r2) or the _1/_2 marker in
+    the filename. So it finds the path wherever it lives (Link_PrimaryData / File_* / any
+    name), skips bare-accession (File_PrimaryData='SRR…') and checksum fields, and prefers a
+    local absolute path over a remote URL. '' when nothing usable is found.
+    """
+    name_hints, file_hints = (_R1_NAME, _R1_FILE) if read_hint == "primary" else (_R2_NAME, _R2_FILE)
+    by_name: list[str] = []
+    by_file: list[str] = []
+    for key, val in (meta or {}).items():
+        kl = str(key).lower()
+        for part in str(val or "").split(";"):  # some fields pack R1;R2 or checksum pairs
+            p = part.strip()
+            pl = p.lower()
+            if not ("/" in p and (pl.endswith(".fastq.gz") or pl.endswith(".fq.gz"))):
+                continue
+            base = pl.rsplit("/", 1)[-1]
+            if any(h in kl for h in name_hints):
+                by_name.append(p)
+            if any(h in base for h in file_hints):
+                by_file.append(p)
+    pool = by_name or by_file            # trust the field name first, else the filename marker
+    local = [c for c in pool if c.startswith("/")]
+    return (local or pool or [""])[0]
+
+
 def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequence[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(columns), extrasaction="ignore")
+        # lineterminator="\n": csv defaults to CRLF, which leaves a stray \r on the last
+        # column; nf-core samplesheets want plain LF.
+        writer = csv.DictWriter(fh, fieldnames=list(columns), extrasaction="ignore", lineterminator="\n")
         writer.writeheader()
         for row in rows:
             writer.writerow({c: _coerce_csv(row.get(c)) for c in columns})
@@ -541,12 +577,19 @@ def emit_nfcore_artifacts(
             if not runs:
                 continue
             sample_meta = accession_metadata.get(acc_str) or {}
+            # Curated local fastq paths win over the synthesized ENA URL — but ONLY when
+            # the accession maps to a single run. sample_meta is per-accession, so applying
+            # it across a multi-run accession would stamp the same pair onto every row and
+            # throw away each run's own URL. Computed once, outside the loop, because it
+            # cannot vary per run by construction.
+            curated_1 = _fastq_from_meta(sample_meta, "primary") if len(runs) == 1 else ""
+            curated_2 = _fastq_from_meta(sample_meta, "secondary") if len(runs) == 1 else ""
             for run in runs:
                 rewritten = dict(row)
                 rewritten["accession"] = acc_str
                 rewritten["run_accession"] = run.run_accession
-                rewritten["fastq_1"] = run.fastq_1 or ""
-                rewritten["fastq_2"] = run.fastq_2 or ""
+                rewritten["fastq_1"] = curated_1 or run.fastq_1 or ""
+                rewritten["fastq_2"] = curated_2 or run.fastq_2 or ""
                 if run.layout and "library_layout" not in rewritten:
                     rewritten["library_layout"] = run.layout
                 # Stamp enrichment columns from the source metadata. The LLM is

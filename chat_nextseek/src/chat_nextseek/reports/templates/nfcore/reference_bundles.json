@@ -4,6 +4,7 @@
     "homo sapiens": "GRCh38", "human": "GRCh38",
     "mus musculus": "GRCm39", "mouse": "GRCm39",
     "macaca mulatta": "Mmul_10", "rhesus macaque": "Mmul_10", "rhesus": "Mmul_10", "nhp": "Mmul_10",
+    "macaca fascicularis": "Mfas6.0", "cynomolgus macaque": "Mfas6.0", "cynomolgus": "Mfas6.0", "crab-eating macaque": "Mfas6.0", "cyno": "Mfas6.0",
     "human+mouse": "hg38_mm39"
   },
   "bundles": {
@@ -43,6 +44,16 @@
         "rsem_index": "{store_root}/Mmul_10/rsem/",
         "salmon_index": "{store_root}/Mmul_10/index/salmon/",
         "bed12": "{store_root}/Mmul_10/genome.bed"
+      }
+    },
+    "Mfas6.0": {
+      "igenomes_key": "Mfas6.0",
+      "gencode": false,
+      "resources": {
+        "fasta": "{store_root}/Mfas6.0/genome.fa",
+        "gtf": "{store_root}/Mfas6.0/genes.gtf",
+        "star_index": "{store_root}/Mfas6.0/index/star/",
+        "salmon_index": "{store_root}/Mfas6.0/index/salmon/"
       }
     },
     "hg38_mm39": {

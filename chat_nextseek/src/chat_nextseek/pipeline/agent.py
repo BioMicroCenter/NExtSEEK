@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from ..config import ChatConfig
     from ..session import SessionState
 
-from .agent_tools import PIPELINE_TOOL_SCHEMAS, dispatch_pipeline_tool_call
+from .agent_tools import build_pipeline_tool_schemas, dispatch_pipeline_tool_call
 from ..helpers import summarize_pinned_bundle
 from ..seqera.catalog import catalog_for_prompt
 
@@ -71,9 +71,14 @@ def _text_of(content: list) -> str:
     return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text").strip()
 
 
-def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any, reporter_plan: Any,
-          log_dir: str | None = None) -> dict[str, Any]:
-    """Launch a fresh pipeline conversation."""
+def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = None,
+          reporter_plan: Any = None, log_dir: str | None = None) -> dict[str, Any]:
+    """Launch a fresh pipeline conversation.
+
+    ``parser_plan``/``reporter_plan`` are accepted for the reporter-branch caller
+    (orchestrator.py) but are unused — the wizard seeds from ``user_query`` + pinned
+    context only. The CC bridge (run_pipeline_launch) calls this with neither.
+    """
     pinned = summarize_pinned_bundle(session)
     seed = user_query if not pinned else f"{user_query}\n\n[context] {pinned}"
     state = {
@@ -108,12 +113,14 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None) -> dict[str
                 "reply": "The pipeline agent needs a tool-capable (Bedrock) model. "
                          "It isn't configured in this profile — set AWS_BEARER_TOKEN_BEDROCK or use an anth/aws profile."}
 
-    system_prompt = config._load_prompt("pipeline_agent.txt").replace("{catalog}", catalog_for_prompt())
+    system_prompt = (config._load_prompt("pipeline_agent.txt")
+                     .replace("{catalog}", catalog_for_prompt())
+                     .replace("{launch_mode}", str(getattr(config, "PIPELINE_LAUNCH_MODE", "tower"))))
     messages = state["messages"]
     log_resolved_dir = log_dir or getattr(config, "LOG_DIR", ".")
 
     for _ in range(MAX_ITER):
-        resp = client.chat_with_tools(messages=messages, tools=PIPELINE_TOOL_SCHEMAS,
+        resp = client.chat_with_tools(messages=messages, tools=build_pipeline_tool_schemas(config),
                                       system=system_prompt, model=model_name)
         content = resp.get("content", []) or []
         tool_use_blocks = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]

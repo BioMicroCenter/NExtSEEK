@@ -52,3 +52,76 @@ def test_emit_launch_does_not_inject_default_genome(tmp_path):
         tower_env=TOWER, excluded=[])
     params_text = (tmp_path / "params.yml").read_text()
     assert "genome" not in params_text  # no default genome injected; configure_run is the only source
+
+
+def test_emit_prefers_local_fastq_paths_over_ena_and_writes_lf(tmp_path):
+    # Option A: curated local paths (File_PrimaryData=R1, File_SecondaryData=R2) win over the
+    # synthesized ENA URL; ENA is the fallback only when they're absent. Plus: LF line endings.
+    rows = [{"sample": "S1", "accession": "SRR1", "strandedness": "auto"},
+            {"sample": "S2", "accession": "SRR2", "strandedness": "auto"}]
+    resolutions = [
+        ENAResolution(accession="SRR1", missing=False, reason="", runs=[ENARun(
+            run_accession="SRR1", fastq_1="ftp://ena1_1.fq.gz", fastq_2="ftp://ena1_2.fq.gz", layout="PAIRED")]),
+        ENAResolution(accession="SRR2", missing=False, reason="", runs=[ENARun(
+            run_accession="SRR2", fastq_1="ftp://ena2_1.fq.gz", fastq_2="ftp://ena2_2.fq.gz", layout="PAIRED")]),
+    ]
+    # Messy real-world metadata: the fastq PATH lives in Link_*, File_* holds the bare accession,
+    # Checksum_* holds hashes. The emitter must pick by value (a fastq path), field-name-agnostic.
+    acc_meta = {"SRR1": {
+        "Link_PrimaryData": "/net/luria/S1_1.fastq.gz",     # R1 path -> should win
+        "Link_SecondaryData": "/net/luria/S1_2.fastq.gz",   # R2 path
+        "File_PrimaryData": "SRR1",                         # bare accession -> must be skipped
+        "Checksum_PrimaryData": "abc123;def456",            # hashes -> must be skipped
+    }}  # SRR2 has no usable path anywhere -> ENA fallback
+    emit_nfcore_artifacts(tmp_path, pipeline="rnaseq", samplesheet_rows=rows,
+                          resolutions=resolutions, accession_metadata=acc_meta,
+                          launch_plan=None, tower_env={})
+    lines = (tmp_path / "samplesheet.csv").read_text().splitlines()
+    srr1 = next(l for l in lines if l.startswith("S1,"))
+    # SRR1: picked the Link_* paths by value; the accession/checksum fields were skipped
+    assert srr1.split(",")[1] == "/net/luria/S1_1.fastq.gz"
+    assert srr1.split(",")[2] == "/net/luria/S1_2.fastq.gz"
+    assert "ftp://ena1_1.fq.gz" not in "\n".join(lines)
+    # SRR2: nothing usable -> ENA fallback
+    assert any(l.startswith("S2,") and "ftp://ena2_1.fq.gz" in l for l in lines)
+    # CRLF fix: plain LF
+    assert b"\r" not in (tmp_path / "samplesheet.csv").read_bytes()
+
+def test_fastq_from_meta_picks_path_skips_accession_and_checksum():
+    from chat_nextseek.seqera.emitter import _fastq_from_meta
+    meta = {"File_PrimaryData": "SRR9", "Checksum_PrimaryData": "a;b",
+            "Link_PrimaryData": "/net/x/SRR9_1.fastq.gz",
+            "Link_SecondaryData": "https://ebi/SRR9_2.fastq.gz"}
+    assert _fastq_from_meta(meta, "primary") == "/net/x/SRR9_1.fastq.gz"   # path, not accession/hash
+    assert _fastq_from_meta(meta, "secondary") == "https://ebi/SRR9_2.fastq.gz"  # url ok when no local
+    assert _fastq_from_meta({"File_PrimaryData": "SRR9"}, "primary") == ""  # bare accession -> nothing
+    # prefer a local path over a URL when both are present under the same hint
+    meta2 = {"Link_PrimaryData": "https://ebi/x_1.fastq.gz", "File_PrimaryData": "/net/x_1.fastq.gz"}
+    assert _fastq_from_meta(meta2, "primary") == "/net/x_1.fastq.gz"
+
+
+def test_multi_run_accession_keeps_per_run_ena_urls(tmp_path):
+    """A curated path must NOT be stamped across every run of a multi-run accession.
+
+    accession_metadata is keyed per ACCESSION, so it cannot distinguish the runs
+    beneath it. Applying it to each run emitted N identical fastq rows and threw
+    away every run's own ENA URL. Guard for that: when an accession fans out to
+    more than one run, the per-run URLs win.
+    """
+    rows = [{"sample": "S1", "accession": "SRR1", "strandedness": "auto"}]
+    resolutions = [ENAResolution(accession="SRR1", missing=False, reason="", runs=[
+        ENARun(run_accession="RUN1", fastq_1="ftp://r1_1.fq.gz", fastq_2="ftp://r1_2.fq.gz", layout="PAIRED"),
+        ENARun(run_accession="RUN2", fastq_1="ftp://r2_1.fq.gz", fastq_2="ftp://r2_2.fq.gz", layout="PAIRED"),
+    ])]
+    acc_meta = {"SRR1": {"Link_PrimaryData": "/net/luria/S1_1.fastq.gz",
+                         "Link_SecondaryData": "/net/luria/S1_2.fastq.gz"}}
+    emit_nfcore_artifacts(tmp_path, pipeline="rnaseq", samplesheet_rows=rows,
+                          resolutions=resolutions, accession_metadata=acc_meta,
+                          launch_plan=None, tower_env={})
+    lines = (tmp_path / "samplesheet.csv").read_text().splitlines()
+    body = [l for l in lines if l.startswith("S1,")]
+    assert len(body) == 2, body
+    assert body[0].split(",")[1] == "ftp://r1_1.fq.gz"
+    assert body[1].split(",")[1] == "ftp://r2_1.fq.gz"
+    # the curated path must not have clobbered either run
+    assert "/net/luria/S1_1.fastq.gz" not in "\n".join(lines)

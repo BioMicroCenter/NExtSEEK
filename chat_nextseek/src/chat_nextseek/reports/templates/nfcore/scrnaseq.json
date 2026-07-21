@@ -2,14 +2,25 @@
   "report_type": "NFCORE_SCRNASEQ_SAMPLESHEET",
   "description": "nf-core/scrnaseq samplesheet context JSON template aligned to the current nf-core/scrnaseq usage documentation. Designed for LLM-friendly parsing and conversion into the main pipeline CSV and any required companion CSVs.",
   "params": {
-    "aligner":        {"type": "enum", "allowed": ["alevin", "kallisto", "star", "cellranger", "cellrangermulti"], "default": "alevin", "steerable": true},
-    "protocol":       {"type": "enum", "allowed": ["auto", "10XV2", "10XV3"], "default": "auto", "steerable": true, "help": "10x chemistry; auto-detect by default"},
-    "save_reference": {"type": "bool", "default": true, "steerable": true},
+    "aligner":        {"type": "enum", "allowed": ["alevin", "kallisto", "star", "cellranger", "universc", "cellrangerarc", "cellrangermulti"], "default": "alevin", "steerable": true, "help": "quantifier/aligner for the PINNED nf-core/scrnaseq revision (catalog.py default_revision=2.7.1). alevin (salmon alevin, default) handles 10x + custom bead protocols; star=STARsolo. NOTE: this backend was RENAMED to 'simpleaf' in scrnaseq 3.x — keep this enum matched to the pinned revision or runs fail param validation."},
+    "protocol":       {"type": "enum", "allowed": ["auto", "10XV1", "10XV2", "10XV3", "10XV4", "dropseq"], "default": "auto", "steerable": true, "help": "Chemistry, passed to the aligner (2.7.1 has no fixed enum; we list the common ones). Default 'auto' = 10x auto-detect (cellranger only). For Seq-Well / Drop-seq bead data (12bp cell barcode + 8bp UMI on R1, cDNA on R2) use 'dropseq'. See protocol_presets."},
+    "barcode_whitelist": {"type": "string", "default": null, "steerable": true, "help": "Leave unset for bead-based Seq-Well/Drop-seq — barcodes are discovered by the knee method. Supply a whitelist file path only for platforms with a fixed barcode list."},
+    "save_reference": {"type": "bool", "default": true, "steerable": true, "help": "save built alevin/STAR/kallisto indices to results for reuse"},
     "skip_emptydrops":{"type": "bool", "default": false, "steerable": true},
     "skip_fastqc":    {"type": "bool", "default": false, "steerable": true},
     "multiqc_title":  {"type": "string", "default": null, "steerable": true}
   },
   "reference_resources": ["fasta", "gtf", "salmon_index", "star_index", "txp2gene"],
+  "protocol_presets": {
+    "description": "How to set --protocol/--aligner for common single-cell chemistries on the PINNED nf-core/scrnaseq 2.7.1 (aligner 'alevin'). NOTE: 3.x renames the backend to 'simpleaf' and accepts simpleaf geometry strings like '1{b[12]u[8]x:}2{r:}' (b=cell barcode, u=UMI, x=discard rest, r=cDNA) — use those only after bumping the pinned revision in catalog.py.",
+    "10x": {"protocol": "auto", "aligner": "alevin", "note": "auto-detects 10X chemistry; or set 10XV2/10XV3 explicitly."},
+    "seqwell": {"protocol": "dropseq", "aligner": "alevin", "barcode_whitelist": null, "note": "Seq-Well (and Drop-seq) = 12bp cell barcode + 8bp UMI on R1, cDNA on R2, no fixed whitelist (knee-method cell calling). Use protocol 'dropseq' with the alevin aligner. 3.x/simpleaf equivalent geometry: 1{b[12]u[8]x:}2{r:}."},
+    "dropseq": {"protocol": "dropseq", "aligner": "alevin", "barcode_whitelist": null}
+  },
+  "protocol_process_args": {
+    "_comment": "Per-protocol Nextflow process ext.args, applied via a -c config at submit time (luria.submitter). Keyed by the --protocol value; value is {PROCESS: ext_args}. A -c override REPLACES the process's ext.args (Nextflow can't append), so the value must INCLUDE the pipeline's base ext.args for that process plus your additions. For pinned scrnaseq 2.7.1, SIMPLEAF_QUANT's base is '-r cr-like' (the --resolution). Seq-Well/Drop-seq has no barcode whitelist, so the alevin quantifier also needs a cell-calling mode (--knee, whitelist-free knee-point) -> '-r cr-like --knee'. 10x needs no entry (base '-r cr-like' + the whitelist path apply by default). aligner=star: do NOT add STAR_ALIGN here (non-empty ext.args default it would clobber) — STARsolo tunes cell-calling via the samplesheet expected_cells column and defaults to a knee-based --soloCellFilter.",
+    "dropseq": {"SIMPLEAF_QUANT": "-r cr-like --knee"}
+  },
   "pipeline": {
     "name": "nf-core/scrnaseq",
     "repository": "https://github.com/nf-core/scrnaseq",

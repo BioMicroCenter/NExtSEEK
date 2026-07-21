@@ -6,6 +6,7 @@
     "pseudo_aligner":    {"type": "enum", "allowed": ["salmon", "kallisto", null], "default": "salmon", "steerable": true, "help": "transcriptome pseudo-aligner. Default salmon is an intentional curated default (matches the lab's standard rnaseq run); the upstream nf-core/rnaseq default is none (null)."},
     "gencode":           {"type": "bool", "default": false, "steerable": true, "help": "set true when the GTF is GENCODE-formatted"},
     "save_reference":    {"type": "bool", "default": true, "steerable": true, "help": "save built genome indices for reuse"},
+    "save_trimmed":      {"type": "bool", "default": true, "steerable": true, "help": "save adapter-trimmed FastQ (preserves the prior Luria run.sh default)"},
     "trimmer":           {"type": "enum", "allowed": ["trimgalore", "fastp"], "default": "trimgalore", "steerable": true},
     "skip_trimming":     {"type": "bool", "default": false, "steerable": true},
     "remove_ribo_rna":   {"type": "bool", "default": false, "steerable": true, "help": "sortmerna rRNA removal"},

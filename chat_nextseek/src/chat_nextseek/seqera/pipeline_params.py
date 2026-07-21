@@ -25,6 +25,24 @@ def load_pipeline_context(pipeline_key: str) -> dict[str, Any]:
     return {"params": doc.get("params") or {}, "reference_resources": list(doc.get("reference_resources") or [])}
 
 
+@lru_cache(maxsize=None)
+def _load_pipeline_doc(pipeline_key: str) -> dict[str, Any]:
+    """Full curated JSON for a pipeline ({} if absent)."""
+    path = _NFCORE_DIR / f"{(pipeline_key or '').strip().lower()}.json"
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def process_args_for(pipeline_key: str, protocol: str | None) -> dict[str, str]:
+    """{process_name: ext_args} the curated JSON declares a protocol needs — e.g. scrnaseq
+    'dropseq' -> {'SIMPLEAF_QUANT': '--knee'}. Read from <key>.json 'protocol_process_args'.
+    Data-driven (the JSON owns which protocol needs which process args); {} when none."""
+    if not protocol:
+        return {}
+    table = _load_pipeline_doc(pipeline_key).get("protocol_process_args") or {}
+    entry = table.get(str(protocol).strip()) or {}
+    return {k: v for k, v in entry.items() if not str(k).startswith("_")}
+
+
 @lru_cache(maxsize=1)
 def load_reference_bundles() -> dict[str, Any]:
     """Load the species->bundle reference registry; empty registry if the file is absent."""
@@ -40,6 +58,22 @@ def resolve_bundle_for_species(species: str | None) -> str | None:
         return None
     table = {k.lower(): v for k, v in (load_reference_bundles().get("species_to_bundle") or {}).items()}
     return table.get(str(species).strip().lower())
+
+
+def gencode_for_genome_key(genome_key: str | None) -> bool:
+    """True if the bundle whose igenomes_key == genome_key is GENCODE-formatted.
+
+    Used by the Luria backend: its local reference genomes (luria.config) are
+    GENCODE GTFs for human/mouse but Ensembl for the macaques, so `--gencode`
+    must follow the genome. This is deliberately NOT applied on the Tower path,
+    where the same key resolves to (non-GENCODE) AWS iGenomes references.
+    """
+    if not genome_key:
+        return False
+    for bundle in (load_reference_bundles().get("bundles") or {}).values():
+        if bundle.get("igenomes_key") == genome_key:
+            return bool(bundle.get("gencode"))
+    return False
 
 
 def build_reference_params(pipeline_key: str, bundle_key: str | None) -> tuple[dict[str, Any], str]:
