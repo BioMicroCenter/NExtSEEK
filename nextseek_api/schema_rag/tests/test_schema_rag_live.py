@@ -1,26 +1,31 @@
 """
-Integration tests for Schema RAG feature.
+Live-network acceptance tests for Schema RAG.
 
-Tests the full HTTP endpoint flow hermetically: the FAIRDOM SEEK OpenAPI
-schema is served from the vendored fixture
-``nextseek_api/tests/fixtures/fairdomhub_openapi_v3_resolved.yaml`` (the
-``requests.get`` at the schema-processor import site is patched — the ONLY
-patch in this module). Embeddings are REAL: the tests load the actual
-``BAAI/bge-small-en-v1.5`` model from the per-checkout cache at
-``schema_rag/embedding_models`` (provision it once per checkout with
-``startup/dev/provision_embedding_model.sh``). No network access is needed.
+These are the ORIGINAL live-network versions of the schema_rag integration
+tests: they fetch the REAL FAIRDOM SEEK OpenAPI schema from fairdomhub.org
+(no mocks), catching upstream schema drift before it surprises the hermetic
+suite in ``nextseek_api/tests/test_schema_rag_integration.py`` (which serves
+the vendored fixture instead).
 
-Mark tests with @tag('slow', 'integration') for easy filtering.
-Use --exclude-tag=slow to skip these tests in CI/quick test runs.
+GATED: only runs when ``RUN_SCHEMA_RAG_LIVE=1`` (precedent:
+``nextseek_api/cc_assistant/tests/test_cc_realstack.py`` and its
+``RUN_REALSTACK`` gate). The live fetch needs real internet egress to
+**fairdomhub.org**; the embedding model is already provisioned locally by
+``startup/dev/provision_embedding_model.sh`` (per checkout), so
+huggingface.co is NOT required when the cache is provisioned. This module
+lives outside the frozen ``nextseek_api/tests`` + ``startup/tests`` lane
+selection and is skip-silent by default.
+
+Run:
+  RUN_SCHEMA_RAG_LIVE=1 uv run python manage.py test \
+    nextseek_api.schema_rag.tests.test_schema_rag_live \
+    --settings=dmac.test_settings --noinput
 """
 
 import os
 import shutil
 import tempfile
-from pathlib import Path
-from unittest.mock import patch, Mock
-
-import yaml
+import unittest
 
 from django.test import tag
 from django.conf import settings
@@ -33,79 +38,17 @@ from rest_framework import status
 # FAIRDOM SEEK OpenAPI schema URL
 SEEK_OPENAPI_URL = "https://fairdomhub.org/api/definitions/openapi-v3-resolved.yaml"
 
-# Vendored copy of the schema the URL above serves (fetched 2026-07-22).
-FIXTURE_PATH = Path(__file__).parent / "fixtures" / "fairdomhub_openapi_v3_resolved.yaml"
-
-_HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
-
-_fixture_cache = {}
+RUN = os.environ.get("RUN_SCHEMA_RAG_LIVE") == "1"
+SKIP_MSG = "live schema_rag acceptance; set RUN_SCHEMA_RAG_LIVE=1 to run (needs fairdomhub.org egress)"
 
 
-def _load_fixture_text() -> str:
-    """Load (and memoize) the vendored fairdomhub OpenAPI schema text."""
-    if "text" not in _fixture_cache:
-        _fixture_cache["text"] = FIXTURE_PATH.read_text()
-    return _fixture_cache["text"]
-
-
-def _mock_get_response(text: str) -> Mock:
-    """Mock of the requests.get response the schema processor consumes."""
-    return Mock(text=text, headers={}, raise_for_status=Mock())
-
-
-def _contains_ref(node) -> bool:
-    """True if a '$ref' key appears anywhere inside a parsed schema node."""
-    if isinstance(node, dict):
-        if "$ref" in node:
-            return True
-        return any(_contains_ref(v) for v in node.values())
-    if isinstance(node, list):
-        return any(_contains_ref(item) for item in node)
-    return False
-
-
-def _assert_fixture_sanity() -> None:
-    """
-    Fail loudly (once per process) if the vendored fixture has drifted from
-    the shape these tests depend on: >= 100 operations overall, and at least
-    one POST operation whose request body uses a $ref.
-    """
-    if _fixture_cache.get("sanity_ok"):
-        return
-    doc = yaml.safe_load(_load_fixture_text())
-    paths = doc.get("paths") or {}
-    num_operations = sum(
-        1
-        for path_item in paths.values()
-        if isinstance(path_item, dict)
-        for method in path_item
-        if method.lower() in _HTTP_METHODS
-    )
-    assert num_operations >= 100, (
-        f"fixture drift: expected >= 100 operations in {FIXTURE_PATH}, "
-        f"found {num_operations} — re-vendor from {SEEK_OPENAPI_URL}"
-    )
-    has_post_with_ref = any(
-        _contains_ref(path_item[method].get("requestBody", {}))
-        for path_item in paths.values()
-        if isinstance(path_item, dict)
-        for method in path_item
-        if method.lower() == "post" and isinstance(path_item[method], dict)
-    )
-    assert has_post_with_ref, (
-        f"fixture drift: no POST operation with a $ref-based request body in "
-        f"{FIXTURE_PATH} — re-vendor from {SEEK_OPENAPI_URL}"
-    )
-    _fixture_cache["sanity_ok"] = True
-
-
+@unittest.skipUnless(RUN, SKIP_MSG)
 @tag('slow', 'integration')
-class SchemaRAGIntegrationTests(APITestCase):
+class SchemaRAGLiveIntegrationTests(APITestCase):
     """
-    Integration tests for Schema RAG HTTP endpoints.
+    Live integration tests for Schema RAG HTTP endpoints.
 
-    The FAIRDOM SEEK OpenAPI schema is served from the vendored fixture;
-    embeddings use the real per-checkout model (no network).
+    These tests make real network calls to the FAIRDOM SEEK OpenAPI schema.
     They are marked as 'slow' and 'integration' for easy filtering.
     """
 
@@ -113,8 +56,6 @@ class SchemaRAGIntegrationTests(APITestCase):
     def setUpClass(cls):
         """Set up test fixtures that are shared across all tests in this class."""
         super().setUpClass()
-        # Fail loudly if the vendored schema fixture has drifted in shape
-        _assert_fixture_sanity()
         # Create temp directory for DuckDB files
         cls.temp_dir = tempfile.mkdtemp()
         # Store original settings value
@@ -141,14 +82,6 @@ class SchemaRAGIntegrationTests(APITestCase):
         )
         self.token = Token.objects.create(user=self.user)
         self.client = APIClient()
-        # Serve the vendored schema instead of hitting fairdomhub.org — the
-        # ONLY patch in this module (embeddings run the real model).
-        patcher = patch(
-            'nextseek_api.schema_rag.schema_processor.requests.get',
-            return_value=_mock_get_response(_load_fixture_text()),
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         """Clean up after each test."""
@@ -327,53 +260,18 @@ class SchemaRAGIntegrationTests(APITestCase):
         # Should have reused the same session
         self.assertEqual(data['session_id'], original_session_id)
 
-    def test_ingest_unauthenticated(self):
-        """
-        Test that ingest endpoint requires authentication.
 
-        Verifies 401 Unauthorized when no auth token is provided.
-        """
-        # Do NOT authenticate
-        response = self.client.post(
-            '/nextseek_api/schema_rag/ingest/',
-            data={'schema_url': 'https://example.com/api.json'},
-            format='json'
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_retrieve_unauthenticated(self):
-        """
-        Test that retrieve endpoint requires authentication.
-
-        Verifies 401 Unauthorized when no auth token is provided.
-        """
-        # Do NOT authenticate
-        response = self.client.post(
-            '/nextseek_api/schema_rag/retrieve/',
-            data={
-                'session_id': 'some-session-id',
-                'query': 'test query',
-                'mode': 'minimal'
-            },
-            format='json'
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-
+@unittest.skipUnless(RUN, SKIP_MSG)
 @tag('slow', 'integration')
-class SchemaRAGFullModeIntegrationTests(APITestCase):
+class SchemaRAGLiveFullModeIntegrationTests(APITestCase):
     """
-    Additional integration tests focusing on full mode retrieval.
+    Additional live integration tests focusing on full mode retrieval.
     """
 
     @classmethod
     def setUpClass(cls):
         """Set up shared test fixtures."""
         super().setUpClass()
-        # Fail loudly if the vendored schema fixture has drifted in shape
-        _assert_fixture_sanity()
         cls.temp_dir = tempfile.mkdtemp()
         cls._original_duckdb_dir = settings.SCHEMA_RAG_DUCKDB_DIR
         settings.SCHEMA_RAG_DUCKDB_DIR = cls.temp_dir
@@ -395,14 +293,6 @@ class SchemaRAGFullModeIntegrationTests(APITestCase):
         )
         self.token = Token.objects.create(user=self.user)
         self.client = APIClient()
-        # Serve the vendored schema instead of hitting fairdomhub.org — the
-        # ONLY patch in this module (embeddings run the real model).
-        patcher = patch(
-            'nextseek_api.schema_rag.schema_processor.requests.get',
-            return_value=_mock_get_response(_load_fixture_text()),
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         """Clean up DuckDB files."""
@@ -465,4 +355,3 @@ class SchemaRAGFullModeIntegrationTests(APITestCase):
                 # Verify NO unresolved $ref placeholders
                 self.assertNotIn('$ref:', schema_str,
                     "request_schema should have resolved $ref references")
-
