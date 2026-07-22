@@ -451,6 +451,15 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         if staged:
                             transcripts_subpath = dirs.transcripts_subpath
 
+                    # Surface the CC turn's parameters in the Debug panel (#4):
+                    # model, resume session, budget cap, and the resolved
+                    # wall-clock — previously all backend-only.
+                    send_event("cc_turn_meta", {
+                        "model_id": decision.model_id,
+                        "cc_session_id": prior_id or None,
+                        "budget_usd": cc_engine._DEFAULT_MAX_BUDGET_USD,
+                        "turn_timeout_s": resolved_turn_timeout,
+                    })
                     cc_engine.run_cc_turn(
                         query=req.query, model_id=decision.model_id,
                         send_event=cc_send,

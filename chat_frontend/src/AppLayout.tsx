@@ -16,8 +16,11 @@ import type {
   SearchCompleteData,
   QueryCompleteData,
   QueryErrorData,
+  RouteDecidedData,
+  CcTurnMetaData,
 } from "@/lib/types/api";
 import type { DebugData, DebugEntry } from "@/lib/types/chat";
+import { makeDebugEntry, routeDecidedSummary, ccTurnMetaSummary, queryErrorSummary } from "@/lib/debugEntries";
 
 interface AppLayoutProps {
   credentialError: string | null;
@@ -105,6 +108,18 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           }));
           break;
         }
+        case "route_decided": {
+          const entry = makeDebugEntry("router", routeDecidedSummary(event.data as RouteDecidedData));
+          pendingDebugRef.current.push(entry);
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
+          break;
+        }
+        case "cc_turn_meta": {
+          const entry = makeDebugEntry("container_cc", ccTurnMetaSummary(event.data as CcTurnMetaData));
+          pendingDebugRef.current.push(entry);
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
+          break;
+        }
         case "search_started": {
           handleSearchStarted(event.data as SearchStartedData);
           break;
@@ -142,6 +157,9 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         case "query_error": {
           const d = event.data as QueryErrorData;
           addSystemMessage(`Error: ${d.error}`);
+          const errEntry = makeDebugEntry(d.agent || "error", queryErrorSummary(d));
+          pendingDebugRef.current.push(errEntry);
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, errEntry] }));
           resetProcessing();
           break;
         }

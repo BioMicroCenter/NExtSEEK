@@ -14,7 +14,25 @@ export interface ProgressEvent {
     | SearchCompleteData
     | QueryCompleteData
     | QueryErrorData
+    | RouteDecidedData
+    | CcTurnMetaData
     | Record<string, unknown>;
+}
+
+/** Top-level router decision (emitted before NS/CC executes). */
+export interface RouteDecidedData {
+  route: string;
+  model_class?: string;
+  source?: string;
+  reasoning?: string;
+}
+
+/** Container-CC turn parameters, emitted just before the CC turn starts. */
+export interface CcTurnMetaData {
+  model_id?: string;
+  cc_session_id?: string | null;
+  budget_usd?: number;
+  turn_timeout_s?: number;
 }
 
 export interface AgentStartedData {
@@ -75,6 +93,7 @@ export interface QueryErrorData {
   error: string;
   agent?: string;
   session_id?: string;
+  reason?: string;
 }
 
 // GET /assistant/me/ response
