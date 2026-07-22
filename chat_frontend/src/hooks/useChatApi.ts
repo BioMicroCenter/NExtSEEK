@@ -8,6 +8,7 @@ interface SubmitQueryOpts {
   forceNew?: boolean;
   forceRoute?: "auto" | "ns" | "cc";
   useProd?: boolean;
+  maxTurnLengthS?: number | null;
 }
 
 type SubmitMode = string | { pipeline: "standard" | "plan"; useProd?: boolean };

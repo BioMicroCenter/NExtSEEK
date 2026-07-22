@@ -11,6 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { DebugPanel } from "@/components/DebugPanel/DebugPanel";
 import { RouteOverrideSelect } from "./RouteOverrideSelect";
 import { ProdToggle } from "./ProdToggle";
+import { MaxTurnLengthInput } from "./MaxTurnLengthInput";
 import { Download } from "lucide-react";
 import type { DebugData } from "@/lib/types/chat";
 
@@ -41,6 +42,7 @@ export function RightSidebar({
 
         <RouteOverrideSelect isAdmin={isAdmin} />
         <ProdToggle isAdmin={isAdmin} />
+        <MaxTurnLengthInput isAdmin={isAdmin} />
 
         <ScrollArea className="flex-1 px-4">
           <DebugPanel debugData={debugData} />

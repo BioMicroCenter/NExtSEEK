@@ -67,11 +67,31 @@ _DEFAULT_BEDROCK_PROXY_URL = os.environ.get(
 # that stops + force-removes the container if the turn overruns. All overridable.
 _DEFAULT_MAX_BUDGET_USD = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "0.50"))
 _DEFAULT_MAX_TURNS = os.environ.get("NEXTSEEK_CC_MAX_TURNS", "50")
-_TIMEOUT_HARD_MAX = 180  # seconds; project rule (run_headless._TIMEOUT_HARD_MAX)
+# Hard ceiling on a single turn's wall-clock. Historically a fixed 180s project
+# rule; now env-configurable (default 180) so a deployment can raise it for heavy
+# ops (e.g. reingest) while keeping a bounded default. Per-request overrides —
+# the Debug panel's max-turn-length control — are clamped to this ceiling
+# server-side (see clamp_turn_timeout), so the UI can never exceed what the
+# deployment allows.
+_TIMEOUT_HARD_MAX = int(os.environ.get("NEXTSEEK_CC_TIMEOUT_HARD_MAX", "180"))
+_TIMEOUT_FLOOR = 30  # never allow a turn shorter than this
 _DEFAULT_TURN_TIMEOUT = min(
     int(os.environ.get("NEXTSEEK_CC_TIMEOUT_SECONDS", str(_TIMEOUT_HARD_MAX))),
     _TIMEOUT_HARD_MAX,
 )
+
+
+def clamp_turn_timeout(seconds: int | None) -> int:
+    """Clamp a requested per-turn wall-clock (seconds) to
+    ``[_TIMEOUT_FLOOR, _TIMEOUT_HARD_MAX]``.
+
+    ``None`` / non-positive returns the configured default. The hard ceiling is
+    env-bounded (``NEXTSEEK_CC_TIMEOUT_HARD_MAX``), so a UI override can never
+    exceed what the deployment allows.
+    """
+    if not seconds or seconds <= 0:
+        return _DEFAULT_TURN_TIMEOUT
+    return max(_TIMEOUT_FLOOR, min(int(seconds), _TIMEOUT_HARD_MAX))
 
 # I-4 (audit B2): user_id / project flow into bind-mount SOURCES, so they must be
 # validated before any path interpolation or a ``..`` user_id is a host-dir escape.

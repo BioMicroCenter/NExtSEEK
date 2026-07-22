@@ -296,6 +296,16 @@ class CCAssistantViewSet(viewsets.ViewSet):
         cc_user_id = request.user.username
         cc_run_id = str(query_task.task_id)
 
+        # Admin-only per-turn wall-clock override (Debug panel max-turn-length),
+        # clamped to the env-bounded hard ceiling. Non-admins -> configured
+        # default. Mirrors the force_route / use_prod server-side admin gate.
+        _is_admin = bool(
+            getattr(request.user, "is_staff", False)
+            or getattr(request.user, "is_superuser", False)
+        )
+        _requested_timeout = getattr(req, "max_turn_length_s", None) if _is_admin else None
+        resolved_turn_timeout = cc_engine.clamp_turn_timeout(_requested_timeout)
+
         def _run() -> None:
             ran_ns = False
             try:
@@ -456,6 +466,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         chat_session=chat_session,
                         user_query=req.query or "",
                         on_turn_complete=_append_cc_turn_complete,
+                        turn_timeout=resolved_turn_timeout,
                     )
             except Exception:
                 logger.exception("cc-assistant pipeline error")

@@ -7,6 +7,7 @@ import { HeaderBar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
 import { getForceRoute } from "@/lib/forceRoute";
 import { getUseProd } from "@/lib/useProd";
+import { getMaxTurnLength } from "@/lib/maxTurnLength";
 import type {
   ProgressEvent,
   AgentStartedData,
@@ -167,6 +168,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         ...base,
         forceRoute: isAdmin ? getForceRoute() : ("auto" as const),
         useProd: isAdmin ? getUseProd() : false,
+        maxTurnLengthS: isAdmin ? getMaxTurnLength() : null,
       };
       submitQuery(text, mode, opts, handleProgress, handleQueryError);
     },

@@ -39,7 +39,7 @@ export class NextseekApiService {
   async submitQuery(
     query: string,
     mode: string | { pipeline: "standard" | "plan"; useProd?: boolean },
-    opts: { sessionId?: string | null; forceNew?: boolean; forceRoute?: "auto" | "ns" | "cc"; useProd?: boolean },
+    opts: { sessionId?: string | null; forceNew?: boolean; forceRoute?: "auto" | "ns" | "cc"; useProd?: boolean; maxTurnLengthS?: number | null },
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
   ): Promise<void> {
@@ -59,6 +59,11 @@ export class NextseekApiService {
     // Admin-only route override (server re-checks admin + ignores for non-admins).
     if (opts.forceRoute && opts.forceRoute !== "auto") {
       body.force_route = opts.forceRoute;
+    }
+    // Admin-only per-turn timeout override (server admin-gates + clamps to the
+    // env-bounded hard ceiling). Omitted when unset -> server uses its default.
+    if (opts.maxTurnLengthS && opts.maxTurnLengthS > 0) {
+      body.max_turn_length_s = opts.maxTurnLengthS;
     }
 
     // 1. POST async query
