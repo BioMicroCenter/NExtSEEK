@@ -310,3 +310,47 @@ class AutoTitleTests(SessionEndpointsTestBase):
         self._call_helper(cs)
         cs.refresh_from_db()
         self.assertEqual(cs.title, "real first query")
+
+    # --- fallback_query: Container-CC / out-of-scope turns (#3) ----------------
+    # CC and unrelated turns persist to extra_state / the transcript, not
+    # results_history, so the helper must title from the turn's own query.
+
+    def test_falls_back_to_query_when_history_empty(self):
+        from nextseek_api.services.assistant import _auto_title_if_unset
+        cs = ChatSession.objects.create(user=self.user)  # CC turn: no results_history
+        _auto_title_if_unset(cs, fallback_query="Reingest the outputs of my run")
+        cs.refresh_from_db()
+        self.assertEqual(cs.title, "Reingest the outputs of my run")
+
+    def test_results_history_takes_precedence_over_fallback(self):
+        from nextseek_api.services.assistant import _auto_title_if_unset
+        cs = ChatSession.objects.create(
+            user=self.user,
+            results_history=[{"id": 1, "user_query": "from history", "reply": "x", "mode": "x"}],
+        )
+        _auto_title_if_unset(cs, fallback_query="from fallback")
+        cs.refresh_from_db()
+        self.assertEqual(cs.title, "from history")
+
+    def test_fallback_ignored_when_title_already_set(self):
+        from nextseek_api.services.assistant import _auto_title_if_unset
+        cs = ChatSession.objects.create(user=self.user, title="Manual name")
+        _auto_title_if_unset(cs, fallback_query="should be ignored")
+        cs.refresh_from_db()
+        self.assertEqual(cs.title, "Manual name")
+
+    def test_fallback_collapses_whitespace_and_truncates(self):
+        from nextseek_api.services.assistant import _auto_title_if_unset
+        long_q = "Reingest  the\toutputs\nof the finished scrnaseq run into a NExtSEEK sheet"
+        cs = ChatSession.objects.create(user=self.user)
+        _auto_title_if_unset(cs, fallback_query=long_q)
+        cs.refresh_from_db()
+        self.assertEqual(cs.title, " ".join(long_q.split())[:60])
+        self.assertLessEqual(len(cs.title), 60)
+
+    def test_no_title_when_empty_history_and_blank_fallback(self):
+        from nextseek_api.services.assistant import _auto_title_if_unset
+        cs = ChatSession.objects.create(user=self.user)
+        _auto_title_if_unset(cs, fallback_query="   ")
+        cs.refresh_from_db()
+        self.assertIsNone(cs.title)

@@ -160,8 +160,14 @@ def _error_response(title: str, detail: str, http_status: int) -> Response:
     )
 
 
-def _auto_title_if_unset(chat_session: ChatSession) -> None:
+def _auto_title_if_unset(chat_session: ChatSession, fallback_query: str = "") -> None:
     """Populate ChatSession.title from the first user query if currently NULL.
+
+    Titles from the first ``user_query`` in ``results_history`` (the NS path).
+    Container-CC and out-of-scope turns persist to ``extra_state`` / the
+    transcript rather than ``results_history``, so they carry no ``user_query``
+    here — for those, fall back to ``fallback_query`` (this turn's query) so
+    their chats title too instead of being stuck on "New chat".
 
     Idempotent: subsequent calls on a session with a title set are a no-op.
     A manually-set title is therefore never overwritten — frontend rename
@@ -176,6 +182,8 @@ def _auto_title_if_unset(chat_session: ChatSession) -> None:
         if uq:
             first_user_query = uq
             break
+    if not first_user_query:
+        first_user_query = (fallback_query or "").strip()
     if not first_user_query:
         return
     title = " ".join(first_user_query.split())[:60]

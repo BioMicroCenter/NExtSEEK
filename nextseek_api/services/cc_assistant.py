@@ -466,7 +466,11 @@ class CCAssistantViewSet(viewsets.ViewSet):
             finally:
                 if ran_ns:
                     adapter.save()
-                    _auto_title_if_unset(chat_session)
+                # Title the chat for every route that reached here, not just NS
+                # (#3: chats stuck on "New chat" because only the NS path titled).
+                # CC / out-of-scope turns don't populate results_history, so pass
+                # this turn's query as the fallback title source.
+                _auto_title_if_unset(chat_session, fallback_query=req.query)
 
         threading.Thread(target=_run, daemon=True).start()
 
