@@ -172,9 +172,31 @@ def _baml_decision(query: str) -> RouteDecision | None:
     )
 
 
-def decide(query: str) -> RouteDecision:
-    """Return the route decision for a user query (BAML-first, heuristic fallback)."""
-    decision = _baml_decision(query)
+def _with_history(query: str, history: str) -> str:
+    """Augment the query the router sees with the conversation history + a steer
+    toward CC for follow-ups (#8). The router is otherwise stateless."""
+    return (
+        f"{query}\n\n"
+        "--- Conversation so far (earlier turns and their NExtSEEK results) ---\n"
+        f"{history}\n"
+        "--- End conversation ---\n"
+        "If the request above is a follow-up that refers to those earlier results "
+        '(e.g. "those", "them", "these", "of those"), route it to container_cc, '
+        "which carries the conversation memory to resolve the reference."
+    )
+
+
+def decide(query: str, history: str | None = None) -> RouteDecision:
+    """Return the route decision for a user query (BAML-first, heuristic fallback).
+
+    When ``history`` (a compact conversation block, see cc_history) is present,
+    the query handed to the BAML router is augmented with it so the otherwise
+    stateless router can recognise a follow-up and route it to CC, where the
+    conversation memory now lives (#8). The keyword heuristic fallback still
+    sees the raw query.
+    """
+    routed_query = _with_history(query, history) if history else query
+    decision = _baml_decision(routed_query)
     if decision is not None:
         return decision
     return _heuristic(query)

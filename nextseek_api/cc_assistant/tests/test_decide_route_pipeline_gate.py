@@ -26,10 +26,13 @@ def test_active_pipeline_forces_ns(monkeypatch):
 def test_inactive_pipeline_falls_through(monkeypatch):
     sentinel = cc_router.RouteDecision(route=cc_router.ROUTE_CC, model_class="opus",
                                        model_id=None, reasoning="x", source="baml")
-    monkeypatch.setattr(cc_router, "decide", lambda q: sentinel)
+    seen = {}
+    monkeypatch.setattr(cc_router, "decide",
+                        lambda q, history=None: (seen.update(q=q, history=history), sentinel)[1])
     d = cc_svc._decide_route(_User(), _Req("write me code"), force_cc=False,
-                             session={"pipeline_agent": {}})
+                             session={"pipeline_agent": {}}, history="prior turns")
     assert d is sentinel
+    assert seen == {"q": "write me code", "history": "prior turns"}  # history threaded through
 
 
 def test_force_cc_beats_active_pipeline():

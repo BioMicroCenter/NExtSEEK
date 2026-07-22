@@ -61,6 +61,7 @@ from nextseek_api.cc_assistant import cc_session
 from nextseek_api.cc_assistant import cc_summary
 from nextseek_api.cc_assistant import cc_memory
 from nextseek_api.cc_assistant import cc_memory_io
+from nextseek_api.cc_assistant import cc_history
 from nextseek_api.cc_assistant.cc_provision import ProjectResolutionError
 
 from nextseek_api.cc_assistant.cc_turn_complete import (
@@ -187,7 +188,7 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     return metas
 
 
-def _decide_route(user, req, *, force_cc: bool, session=None) -> cc_router.RouteDecision:
+def _decide_route(user, req, *, force_cc: bool, session=None, history: str | None = None) -> cc_router.RouteDecision:
     """Pick the route for a query, honoring the admin-only ``force_route`` override.
 
     Precedence: an explicit force (``force_cc`` or an admin's ``force_route``)
@@ -228,7 +229,7 @@ def _decide_route(user, req, *, force_cc: bool, session=None) -> cc_router.Route
             route=cc_router.ROUTE_NS, model_class=None,
             model_id=None, reasoning="pipeline_active", source="pipeline",
         )
-    return cc_router.decide(req.query)
+    return cc_router.decide(req.query, history=history)
 
 
 class CCAssistantViewSet(viewsets.ViewSet):
@@ -306,10 +307,17 @@ class CCAssistantViewSet(viewsets.ViewSet):
         _requested_timeout = getattr(req, "max_turn_length_s", None) if _is_admin else None
         resolved_turn_timeout = cc_engine.clamp_turn_timeout(_requested_timeout)
 
+        # Cross-route shared memory (#8): a compact block of prior turns (NS + CC,
+        # from the unified chat_log) that steers the stateless router toward CC
+        # for follow-ups AND lets the CC agent resolve references like "those".
+        conversation_history = cc_history.build_conversation_history(
+            (chat_session.extra_state or {}).get("chat_log")
+        )
+
         def _run() -> None:
             ran_ns = False
             try:
-                decision = _decide_route(request.user, req, force_cc=force_cc, session=adapter)
+                decision = _decide_route(request.user, req, force_cc=force_cc, session=adapter, history=conversation_history)
 
                 send_event("route_decided", {
                     "route": decision.route, "model_class": decision.model_class,
@@ -461,7 +469,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         "turn_timeout_s": resolved_turn_timeout,
                     })
                     cc_engine.run_cc_turn(
-                        query=req.query, model_id=decision.model_id,
+                        query=cc_history.cc_prompt_with_history(req.query, conversation_history),
+                        model_id=decision.model_id,
                         send_event=cc_send,
                         user_id=cc_user_id,
                         project_dirname=project_dirname,
