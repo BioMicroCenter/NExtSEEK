@@ -134,3 +134,43 @@ def test_finalize_noop_after_result():
     t = CCStreamTranslator()
     t.handle({"type": "result", "subtype": "success", "result": "done"})
     assert t.finalize() == []
+
+
+# --- #4 event-stepper trace: tool detail, narration/thinking, error status ----
+
+def test_tool_use_carries_detail_for_bash_and_read():
+    t = CCStreamTranslator()
+    (bash,) = t.handle({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Bash", "input": {"command": "nextseek-run-ls --run-dir /x"}, "id": "a"}]}})
+    assert bash == ("search_started", {"source": "Bash", "detail": "nextseek-run-ls --run-dir /x"})
+    (read,) = t.handle({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Read", "input": {"file_path": "/app/SKILL.md"}, "id": "b"}]}})
+    assert read == ("search_started", {"source": "Read", "detail": "/app/SKILL.md"})
+
+
+def test_narration_text_alongside_tool_becomes_thinking_not_reply():
+    t = CCStreamTranslator()
+    frames = t.handle({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "Let me list the run directory."},
+        {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}, "id": "a"}]}})
+    assert ("search_started", {"source": "thinking", "detail": "Let me list the run directory."}) in frames
+    assert ("search_complete", {"source": "thinking"}) in frames
+    assert ("search_started", {"source": "Bash", "detail": "ls"}) in frames
+    assert "Let me list" not in t.accumulated_reply  # narration is not the answer
+
+
+def test_thinking_block_becomes_thinking_step():
+    t = CCStreamTranslator()
+    frames = t.handle({"type": "assistant", "message": {"content": [
+        {"type": "thinking", "thinking": "The user wants X."}]}})
+    assert frames == [("search_started", {"source": "thinking", "detail": "The user wants X."}),
+                      ("search_complete", {"source": "thinking"})]
+
+
+def test_tool_result_error_marks_not_ok():
+    t = CCStreamTranslator()
+    t.handle({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Bash", "input": {"command": "boom"}, "id": "a"}]}})
+    done = t.handle({"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "a", "content": "err", "is_error": True}]}})
+    assert done == [("search_complete", {"source": "Bash", "ok": False})]

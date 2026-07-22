@@ -38,6 +38,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
   const pendingDebugRef = useRef<DebugEntry[]>([]);
   const {
     processingState,
+    handleRouteDecided,
     handleAgentStarted,
     handleAgentComplete,
     handleSearchStarted,
@@ -109,6 +110,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           break;
         }
         case "route_decided": {
+          handleRouteDecided(event.data as RouteDecidedData);
           const entry = makeDebugEntry("router", routeDecidedSummary(event.data as RouteDecidedData));
           pendingDebugRef.current.push(entry);
           setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
@@ -165,7 +167,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         }
       }
     },
-    [handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, getAuthoritativeSessionId, sessions],
+    [handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, getAuthoritativeSessionId, sessions],
   );
 
   const handleQueryError = useCallback(

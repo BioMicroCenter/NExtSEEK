@@ -322,6 +322,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                 send_event("route_decided", {
                     "route": decision.route, "model_class": decision.model_class,
                     "source": decision.source,
+                    "reasoning": getattr(decision, "reasoning", None),
                 })
 
                 if decision.route == cc_router.ROUTE_UNRELATED:

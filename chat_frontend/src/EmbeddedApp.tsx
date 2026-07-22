@@ -41,6 +41,7 @@ export function EmbeddedApp() {
   const pendingDebugRef = useRef<DebugEntry[]>([]);
   const {
     processingState,
+    handleRouteDecided,
     handleAgentStarted,
     handleAgentComplete,
     handleSearchStarted,
@@ -111,6 +112,7 @@ export function EmbeddedApp() {
           break;
         }
         case "route_decided": {
+          handleRouteDecided(event.data as RouteDecidedData);
           const entry = makeDebugEntry("router", routeDecidedSummary(event.data as RouteDecidedData));
           pendingDebugRef.current.push(entry);
           setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
@@ -167,7 +169,7 @@ export function EmbeddedApp() {
         }
       }
     },
-    [handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
+    [handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
   );
 
   const handleQueryError = useCallback(

@@ -60,6 +60,8 @@ export interface SearchStartedData {
   method?: string;
   project?: string | number;
   summary_mode?: string;
+  /** Container-CC: a one-line summary of the tool input (command / file / thought). */
+  detail?: string;
   [extra: string]: unknown;
 }
 
@@ -74,6 +76,7 @@ export interface SearchCompleteData {
   error?: string | null;
   endpoint?: string;
   status?: number;
+  detail?: string;
   [extra: string]: unknown;
 }
 
