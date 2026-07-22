@@ -293,7 +293,8 @@ class TestSeekAPIClient:
         assert content == b'{"data": []}'
         # Verify session.request was called with correct args
         call_kwargs = client.session.request.call_args
-        assert call_kwargs.kwargs["auth"] == ("user", "pass")
+        assert "auth" not in call_kwargs.kwargs
+        assert call_kwargs.kwargs["headers"]["Authorization"] == "Basic " + base64.b64encode(b"user:pass").decode("ascii")
         assert call_kwargs.kwargs["url"] == "https://seek.example.com/samples"
 
     @patch("nextseek_api.helpers.resolve_seek_auth")
@@ -310,7 +311,7 @@ class TestSeekAPIClient:
         assert status == 200
         call_kwargs = client.session.request.call_args
         assert call_kwargs.kwargs["headers"]["Authorization"] == "Token tok123"
-        assert call_kwargs.kwargs["auth"] is None
+        assert "auth" not in call_kwargs.kwargs
 
     @patch("nextseek_api.helpers.resolve_seek_auth")
     def test_request_with_params_and_json(self, mock_resolve):
