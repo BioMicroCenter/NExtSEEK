@@ -93,8 +93,8 @@ def _dispatch_parse(args):
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
 
 
-def _run_viewset(query: str, mode: str) -> dict:  # pragma: no cover  # Minor-8
-    """Shared helper: drive the NExtSEEK assistant viewset for query and plan ops.
+def _run_viewset(query: str, mode: str, *, session_id: str | None = None) -> dict:  # pragma: no cover  # Minor-8
+    """Shared helper: drive the NExtSEEK assistant viewset for query/plan/pipeline ops.
 
     Handles 401/HTTP/transport errors uniformly and returns the shaped terminal
     dict {"reply": str, "debug": {...}, "bundle_id": int|None}.
@@ -107,7 +107,7 @@ def _run_viewset(query: str, mode: str) -> dict:  # pragma: no cover  # Minor-8
         auth=(_api_user(), _api_pass()),  # pragma: no cover
     )  # pragma: no cover
     try:  # pragma: no cover
-        terminal, _ = client.run_query(query, mode=mode)  # pragma: no cover
+        terminal, _ = client.run_query(query, mode=mode, session_id=session_id)  # pragma: no cover
     except httpx.HTTPStatusError as e:  # pragma: no cover
         if e.response.status_code == 401:  # pragma: no cover
             _err("AUTH_FAILED", "authentication failed (check NS credentials)", 8)  # pragma: no cover
@@ -227,6 +227,23 @@ def _dispatch_generate_submission(args):
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
 
 
+def _dispatch_pipeline(args):
+    """Hand a CC-composed summary message to NS pipeline_agent (deterministic bridge).
+
+    Posts the message to the async query path with mode='pipeline' + the injected
+    chat session id; the server calls pipeline_agent.start directly (no parser) and
+    the poll loop surfaces the wizard's real first reply. No 30 s ReadTimeout.
+    """
+    session_id = os.environ.get("NEXTSEEK_CHAT_SESSION_ID")
+    if not session_id:
+        _err("CONFIG_MISSING", "NEXTSEEK_CHAT_SESSION_ID not set (need a chat session to seed)", 2)
+    if not getattr(args, "message", None):
+        _err("VALIDATION", "missing --message", 3)
+    if _dry_run():
+        return {"reply": "[dry-run]", "debug": {}, "bundle_id": None}
+    return _run_viewset(args.message, mode="pipeline", session_id=session_id)
+
+
 def _dispatch_query(args):
     """Single-shot orchestrator via the NExtSEEK assistant viewset.
 
@@ -249,6 +266,39 @@ def _api_pass() -> str:  # pragma: no cover
     return os.environ.get("API_PASS", "")  # pragma: no cover
 
 
+def _dispatch_run_ls(args):
+    """Recursive read-only listing of a finished Luria run dir (reingest input)."""
+    if _dry_run():  # pragma: no branch
+        return {"run_dir": args.run_dir, "truncated": False, "tree": "[dry-run]"}  # pragma: no cover
+    if not args.run_dir:  # pragma: no cover
+        _err("VALIDATION", "missing --run-dir", 3)  # pragma: no cover
+    import _sidecar_client as sc  # pragma: no cover
+    try:  # pragma: no cover
+        return sc.call_op("run-ls", {"run_dir": args.run_dir},  # pragma: no cover
+                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
+    except sc.SidecarCallError as e:  # pragma: no cover
+        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+
+
+def _dispatch_build_upload_xlsx(args):
+    """Render NExtSEEK 4-sheet upload workbook(s) from CC-composed reingest rows."""
+    if _dry_run():  # pragma: no branch
+        return {"saved_files": {}, "qa": {}}  # pragma: no cover
+    if not args.rows:  # pragma: no cover
+        _err("VALIDATION", "missing --rows", 3)  # pragma: no cover
+    import _sidecar_client as sc  # pragma: no cover
+    body = {"rows": args.rows}  # pragma: no cover
+    if getattr(args, "existing_parent_uids", None):  # pragma: no cover
+        body["existing_parent_uids"] = args.existing_parent_uids  # pragma: no cover
+    try:  # pragma: no cover
+        return sc.call_op("build-upload-xlsx", body,  # pragma: no cover
+                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
+    except sc.SidecarCallError as e:  # pragma: no cover
+        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+
+
 _DISPATCH = {
     "query": _dispatch_query,
     "entity": _dispatch_entity,
@@ -259,6 +309,9 @@ _DISPATCH = {
     "graph": _dispatch_graph,
     "report": _dispatch_report,
     "generate-submission": _dispatch_generate_submission,
+    "pipeline": _dispatch_pipeline,
+    "run-ls": _dispatch_run_ls,
+    "build-upload-xlsx": _dispatch_build_upload_xlsx,
 }
 
 
@@ -272,6 +325,11 @@ def main() -> None:
     p.add_argument("--project")  # for report
     p.add_argument("--type")  # for generate-submission
     p.add_argument("--uids")  # for generate-submission
+    p.add_argument("--pipeline")  # for pipeline (nf-core key)
+    p.add_argument("--message")  # for pipeline (CC-composed summary)
+    p.add_argument("--run-dir")  # for run-ls (finished Luria run dir)
+    p.add_argument("--rows")  # for build-upload-xlsx (JSON rows)
+    p.add_argument("--existing-parent-uids")  # for build-upload-xlsx (Parent QA)
     p.add_argument("--planner", action="store_true",  # for query
                    help="Use run_query_plan instead of run_query (multi-step capable)")
     args = p.parse_args()

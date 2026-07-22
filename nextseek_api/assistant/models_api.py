@@ -292,6 +292,23 @@ class ReportOpRequest(BaseModel):
         return v
 
 
+class RunLsRequest(BaseModel):
+    """POST /assistant/run-ls/ body — recursive read-only listing of a Luria run dir."""
+    run_dir: str = Field(..., description="Absolute path under <LURIA working_path>/runs.")
+    use_prod: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
+class BuildUploadXlsxRequest(BaseModel):
+    """POST /assistant/build-upload-xlsx/ body — render 4-sheet upload workbook(s)."""
+    rows: str = Field(..., description="JSON array of {SampleType, json_metadata, assay_ids} rows.")
+    existing_parent_uids: str = Field("", description="Comma-separated existing parent UIDs (for Parent QA).")
+    use_prod: bool = False
+    session_id: Optional[UUID] = Field(
+        None, description="Optional chat session to attach the workbook bundle to.")
+    model_config = ConfigDict(extra="forbid")
+
+
 class SubmissionRequest(BaseModel):
     """POST /assistant/generate-submission/ body."""
     type: str = Field(..., description="One of: GEO | SRA | NFCORE_RNASEQ | NFCORE_SCRNASEQ | PRIDE")

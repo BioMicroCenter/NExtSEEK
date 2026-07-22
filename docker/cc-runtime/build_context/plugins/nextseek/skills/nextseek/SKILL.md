@@ -4,8 +4,9 @@ description: >
   This skill should be used when the user asks to query NExtSEEK — "find/list/show/count
   samples", "retrieve a sample by UID", "show the sample tree / lineage", "run a graph
   query", "refine that search", "what sampletypes/assays exist", "build a project report
-  (samples/protocols/published/rppr)", "generate a GEO/SRA/nf-core/PRIDE submission", "plan
-  a multi-step lookup", or "create/update/delete NExtSEEK data". Do NOT trigger on general
+  (samples/protocols/published/rppr)", "generate a GEO/SRA/nf-core/PRIDE submission workbook",
+  "launch/run/submit an nf-core pipeline (rnaseq/scrnaseq) on the cluster for these samples",
+  "plan a multi-step lookup", or "create/update/delete NExtSEEK data". Do NOT trigger on general
   bioinformatics questions, code/file edits, non-NExtSEEK data sources, or file-system tasks.
 disable-model-invocation: false
 ---
@@ -46,8 +47,11 @@ is the complete contract; there are no hidden flags.
 | `nextseek-api-write` | Execute a write (POST/PUT/DELETE) from a parser plan. | `--parser-plan '<json>' --confirmed-write` | API response |
 | `nextseek-graph` | Run a Neo4j lineage/graph query from NL. | `--query "<text>"` | `{cypher, result}` |
 | `nextseek-report` | Project summary report. | `--mode {samples,protocols,published,rppr} --project <name>` | report `{summary, saved_files, rows}` |
-| `nextseek-generate-submission` | Build a submission workbook for a UID set. | `--type {GEO,SRA,NFCORE_RNASEQ,NFCORE_SCRNASEQ,PRIDE} --uids <csv>` | `{report, type}` |
+| `nextseek-generate-submission` | Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline. | `--type {GEO,SRA,NFCORE_RNASEQ,NFCORE_SCRNASEQ,PRIDE} --uids <csv>` | `{report, type}` |
+| `nextseek-pipeline` | **Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard. | `--message "<summary: explicit UIDs + species/genome + metadata + pipeline>"` | `{reply, debug, bundle_id}` |
 | `nextseek-plan` | Multi-step planner advisor (read-only). | `--query "<text>"` | `{plan, recommended_next_actions, ...}` |
+| `nextseek-run-ls` | **Reingest step 1** — recursive read-only listing (`ls -laR`) of a finished Luria run directory. | `--run-dir <abs path under the Luria runs root>` | `{tree, truncated, run_dir}` |
+| `nextseek-build-upload-xlsx` | **Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from composed rows (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK. | `--rows '<json array>' [--existing-parent-uids <csv>]` | `{saved_files, qa}` |
 
 ## Choosing the op for a task
 
@@ -94,7 +98,8 @@ nextseek-report --mode protocols --project "CGR"
 Derive the mode from the phrasing (`samples`, `protocols`, `published`, `rppr`); default to
 `samples`.
 
-**Submission — `nextseek-generate-submission`.** GEO / SRA / nf-core / PRIDE for a UID set:
+**Submission workbook — `nextseek-generate-submission`.** Builds a GEO / SRA / nf-core / PRIDE
+**workbook** (a samplesheet/metadata *file*) for a UID set. It does NOT run anything:
 
 ```bash
 nextseek-generate-submission --type SRA --uids "D.SEQ-230512FOR-288-PUB,D.SEQ-230512FOR-289-PUB"
@@ -102,6 +107,48 @@ nextseek-generate-submission --type SRA --uids "D.SEQ-230512FOR-288-PUB,D.SEQ-23
 
 Map the phrasing to `--type` ("nf-core rnaseq" → `NFCORE_RNASEQ`) and read `--uids` from the
 sample IDs named.
+
+**Pipeline launch — `nextseek-pipeline`.** When the user wants to **run / launch / submit a
+pipeline** on the cluster (Luria/Tower) for samples you've already resolved — not merely produce a
+workbook — compose ONE comprehensive summary of the chat and hand it to the pipeline agent:
+
+```bash
+nextseek-pipeline --message "Launch the nf-core scRNA-seq pipeline on these 6 NExtSEEK Sequencing Data samples (species: rhesus macaque; study: Gideon 4wk): D.SEQ-220823SHA-1, -2, -3, -4, -5, -6. Resolve them, then propose genome + params before launching."
+```
+
+Do your best to summarize everything relevant: the **explicit sample UIDs**, the **species/genome**,
+any pertinent **metadata/provenance**, and the **nf-core pipeline** the user asked for. The pipeline
+agent reasons over your message (it picks the pipeline, resolves the cohort, and proposes
+genome/params), so include what it needs. After you call this op, relay its reply — the wizard's
+real first proposal — and let the user confirm in chat; **those follow-up turns continue on the
+NExtSEEK side, not here.** **Decision rule:** intent is to *run/launch/submit/execute* a pipeline →
+`nextseek-pipeline`; intent is to *build/generate a submission or samplesheet file* →
+`nextseek-generate-submission`. **On a `nextseek-pipeline` error, do NOT fall back to
+`nextseek-generate-submission`** — report the error and let the user retry.
+
+**Reingest pipeline outputs — `nextseek-run-ls` + `nextseek-build-upload-xlsx`.** After an nf-core
+run finishes on Luria, register its outputs as new NExtSEEK analysis samples. This produces an
+upload sheet for the user to REVIEW and upload — it does **not** write to NExtSEEK. Workflow:
+
+1. `nextseek-run-ls --run-dir <finished run dir>` → the recursive `ls -laR` tree of the outputs.
+2. Reason over the tree + the sample-type catalog. Decide, per output, which `A.*` analysis type it
+   is (BAM → `A.ALN`; count/expression matrix → `A.SCXP`/`A.GEX`; VCF → `A.VCF`). Get the input
+   cohort's `Scientist`, project, and how existing `A.*` rows cite `Parent` with **`nextseek-api-read`
+   on a `D.SEQ` sample** — these are sample *attributes*, so use `api-read` (a REST fetch), NOT
+   `nextseek-graph`. Graph is for lineage traversal only; asked for metadata it returns empty Cypher.
+   Only if a value genuinely can't be fetched, mark it `*** PLACEHOLDER ***` — do not block on it.
+3. Compose one row per output sample: `{"SampleType": "A.SCXP", "json_metadata": {"Parent": "<input
+   D.SEQ UID>", "Scientist": "<carried from the input D.SEQ>", "Pipeline": "...", "ReferenceGenome":
+   "...", "Aligner": "...", "File_PrimaryData": "...", ...}, "assay_ids": [<int>...]}`. `Parent` is the
+   input `D.SEQ` UID(s) the output derives from (`;`-delimited for a merged/aggregate output). Use
+   `*** PLACEHOLDER: <what> ***` for any required value you cannot derive — never leave it blank.
+4. `nextseek-build-upload-xlsx --rows '<json array>' --existing-parent-uids "<input D.SEQ UIDs, csv>"`
+   → renders one 4-sheet workbook per sample type as a downloadable artifact, with a per-type QA
+   verdict `{disposition, hard, soft}`. Relay the workbook(s) + QA to the user. If QA HARD_REJECTs a
+   type, fix the flagged rows and re-run.
+
+The user reviews the workbook(s) and uploads them via the normal batch-upload UI — **you do not
+upload**; producing the reviewable sheet is the final step.
 
 **Multi-step "do X, then Y" — `nextseek-plan`.** See the planner section below.
 
