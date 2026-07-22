@@ -5,7 +5,7 @@
       "description": "Deterministic NExtSEEK pipeline via chat_nextseek (no Claude reasoning loop).",
       "tools": [
         "entity_agent", "parser_agent", "api_agent", "graph_agent",
-        "reporter_agent", "memory_agent", "system_agent"
+        "reporter_agent", "memory_agent", "system_agent", "pipeline_agent"
       ],
       "best_for": "Structured biomedical sample / project / study queries that map onto chat_nextseek's pipeline.",
       "not_for": "File I/O, code execution, free-form reasoning, multi-tool work outside chat_nextseek.",
@@ -44,6 +44,15 @@
           "name": "reporter_summary",
           "description": "Project / RPPR-style summaries.",
           "example_queries": ["Give me an RPPR summary for SRP."]
+        },
+        {
+          "name": "pipeline_build_and_launch",
+          "description": "Build and launch an nf-core / Seqera pipeline run: resolve samples, group into cohorts, write the samplesheet, configure run params (species + reference bundles), and submit to Seqera/Tower. Handled by chat_nextseek's full-agentic pipeline_agent on the NS path.",
+          "example_queries": [
+            "Run rnaseq on these mice, group by exposure, and submit to Tower.",
+            "Launch the sarek pipeline for the D.SEQ samples in the Impact study.",
+            "Build an nf-core scrnaseq samplesheet for these samples and configure the run."
+          ]
         }
       ]
     },
@@ -52,7 +61,7 @@
       "description": "Container Claude Code: full agentic environment with file I/O, code execution, and arbitrary plugins / skills (including the nextseek-batch-upload skill).",
       "tools": ["nextseek-api", "nextseek-batch-upload", "bash", "filesystem", "skill-runner"],
       "best_for": "Open-ended reasoning, file I/O, code, multi-tool workflows, and building/validating NExtSEEK batch-upload create/update sheets.",
-      "not_for": "Pure NExtSEEK lookups that chat_nextseek answers deterministically.",
+      "not_for": "Pure NExtSEEK lookups that chat_nextseek answers deterministically, or building/launching nf-core pipelines (those go to the nextseek_query pipeline_build_and_launch route).",
       "task_families": [
         {
           "name": "file_io_and_summarization",
@@ -72,12 +81,20 @@
         },
         {
           "name": "batch_upload_preparation",
-          "description": "Build and validate (never upload) a NExtSEEK batch-upload workbook to create or update sample metadata via the nextseek-batch-upload skill — including normalizing or fixing attribute values and preparing an update / re-ingestion sheet for existing samples. Any request to create, update, modify, normalize, or re-ingest samples — even one that also asks to find the samples first — belongs here.",
+          "description": "Build and validate (never upload) a NExtSEEK batch-upload workbook to create or update sample metadata from user-supplied material (protocol text, a description, or an existing cohort to normalize) via the nextseek-batch-upload skill — including normalizing or fixing attribute values on existing samples. Any request to create, update, modify, or normalize samples from user-supplied material — even one that also asks to find the samples first — belongs here. (Registering finished pipeline-run OUTPUTS as new analysis samples is NOT this family — see pipeline_output_reingest.)",
           "example_queries": [
-            "Can you create an update sheet for re-ingestion?",
             "Build me an update sheet to normalize the genotypes in the database.",
             "Prepare a batch-upload workbook that sets Scientist to Jane Doe on these UIDs.",
             "Make an upload spreadsheet to create new samples from this protocol text."
+          ]
+        },
+        {
+          "name": "pipeline_output_reingest",
+          "description": "Register the OUTPUTS of a FINISHED nf-core / Luria pipeline run as new A.* analysis samples, by listing the run directory and building a reviewable upload workbook for the user to inspect (never uploads). Handled by the nextseek skill's nextseek-run-ls + nextseek-build-upload-xlsx ops — NOT nextseek-batch-upload. The tell: the user points at a finished run, a run directory, or 'the outputs of the run I just launched'.",
+          "example_queries": [
+            "Reingest the outputs of my finished scrnaseq run into a NExtSEEK upload sheet.",
+            "Register the outputs of run nfcore_gideon-4wk_260711 as new A.SCXP analysis samples.",
+            "My pipeline at /net/bmc-pub10/.../runs/<run> just finished — build the reingest upload sheet."
           ]
         }
       ]
