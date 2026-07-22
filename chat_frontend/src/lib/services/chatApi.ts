@@ -39,23 +39,18 @@ export class NextseekApiService {
   async submitQuery(
     query: string,
     mode: string | { pipeline: "standard" | "plan"; useProd?: boolean },
-    opts: { sessionId?: string | null; forceNew?: boolean; forceRoute?: "auto" | "ns" | "cc" },
+    opts: { sessionId?: string | null; forceNew?: boolean; forceRoute?: "auto" | "ns" | "cc"; useProd?: boolean },
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
   ): Promise<void> {
     const baseUrl = this.auth.getApiBaseUrl();
 
-    // Build body — accept either the legacy plain-string mode or the new
-    // {pipeline, useProd} shape coming from MessageInput.
-    let modeStr: string;
-    let useProd = false;
-    if (typeof mode === "string") {
-      modeStr = mode;
-    } else {
-      modeStr = mode.pipeline;
-      useProd = Boolean(mode.useProd);
-    }
-    const body: Record<string, unknown> = { query, mode: modeStr, use_prod: useProd };
+    // Build body — accept either the legacy plain-string mode or the {pipeline}
+    // object from MessageInput. The PROD toggle is a sticky admin control now in
+    // the Debug panel, read from opts at send time (mirrors force_route); the
+    // server re-checks admin and ignores it for non-admins.
+    const modeStr: string = typeof mode === "string" ? mode : mode.pipeline;
+    const body: Record<string, unknown> = { query, mode: modeStr, use_prod: Boolean(opts.useProd) };
     if (opts.sessionId) {
       body.session_id = opts.sessionId;
     } else if (opts.forceNew) {

@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DebugPanel } from "@/components/DebugPanel/DebugPanel";
 import { RouteOverrideSelect } from "./RouteOverrideSelect";
+import { ProdToggle } from "./ProdToggle";
 import { Download } from "lucide-react";
 import type { DebugData } from "@/lib/types/chat";
 
@@ -39,6 +40,7 @@ export function RightSidebar({
         </SheetHeader>
 
         <RouteOverrideSelect isAdmin={isAdmin} />
+        <ProdToggle isAdmin={isAdmin} />
 
         <ScrollArea className="flex-1 px-4">
           <DebugPanel debugData={debugData} />

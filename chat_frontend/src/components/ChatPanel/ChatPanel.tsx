@@ -13,7 +13,6 @@ interface ChatPanelProps {
   onArtifactDownload?: (bundleId: number, artifactKey: string) => void;
   onCcArtifactDownload?: (artifactKey: string) => void;
   apiService?: NextseekApiService;
-  isAdmin?: boolean;
 }
 
 export function ChatPanel({
@@ -24,7 +23,6 @@ export function ChatPanel({
   onArtifactDownload,
   onCcArtifactDownload,
   apiService,
-  isAdmin = false,
 }: ChatPanelProps) {
   const { scrollRef } = useAutoScroll([messages, processingState.steps]);
 
@@ -42,7 +40,6 @@ export function ChatPanel({
       <MessageInput
         onSend={onSendMessage}
         disabled={isDisabled}
-        isAdmin={isAdmin}
         apiService={apiService}
       />
     </div>

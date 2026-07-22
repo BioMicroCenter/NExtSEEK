@@ -8,6 +8,7 @@ import { ChatPanel } from "@/components/ChatPanel";
 import { CompactToolbar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
 import { getForceRoute } from "@/lib/forceRoute";
+import { getUseProd } from "@/lib/useProd";
 import type {
   ProgressEvent,
   AgentStartedData,
@@ -165,7 +166,11 @@ export function EmbeddedApp() {
         sessions.activeSessionId ? { sessionId: sessions.activeSessionId } :
         sessions.pendingNewChat   ? { forceNew: true } :
         {};
-      const opts = { ...base, forceRoute: isAdmin ? getForceRoute() : ("auto" as const) };
+      const opts = {
+        ...base,
+        forceRoute: isAdmin ? getForceRoute() : ("auto" as const),
+        useProd: isAdmin ? getUseProd() : false,
+      };
       serviceRef.current
         .submitQuery(text, mode, opts, handleProgress, handleQueryError)
         .finally(() => {
@@ -238,7 +243,6 @@ export function EmbeddedApp() {
           onArtifactDownload={handleArtifactDownload}
           onCcArtifactDownload={handleCcArtifactDownload}
           apiService={serviceRef.current}
-          isAdmin={isAdmin}
         />
       </div>
       <RightSidebar

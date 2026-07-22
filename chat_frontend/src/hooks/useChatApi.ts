@@ -7,6 +7,7 @@ interface SubmitQueryOpts {
   sessionId?: string | null;
   forceNew?: boolean;
   forceRoute?: "auto" | "ns" | "cc";
+  useProd?: boolean;
 }
 
 type SubmitMode = string | { pipeline: "standard" | "plan"; useProd?: boolean };
