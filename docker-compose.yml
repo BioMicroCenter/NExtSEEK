@@ -3,6 +3,14 @@ services:
     build: .
     container_name: ${INSTANCE_PREFIX:-}nextseek
     restart: always
+    environment:
+      # cc_engine spawns the per-turn CC agent container via docker-py and mounts
+      # subpaths of this volume BY NAME. The compose `name:` indirection only
+      # covers this service's own /dmac/users mount, not the sibling container's
+      # docker-py Mount, so the prefixed volume name must reach cc_config here or
+      # cc_engine falls back to the bare `dmac-cc-users` and the mount 404s on a
+      # --instance install. Same INSTANCE_PREFIX the volume itself carries.
+      DMAC_CC_USERS_VOLUME: ${INSTANCE_PREFIX:-}dmac-cc-users
     env_file:
       - ./docker/db.env
       - ./docker/nextseek.env
