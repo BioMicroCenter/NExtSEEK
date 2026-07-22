@@ -365,7 +365,7 @@ class QuerySSEPipelineErrorTests(TestCase):
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/",
-            {"session_id": str(session.session_id), "query": "Find mice"},
+            {"session_id": str(session.session_id), "query": "Find mice", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 200)
@@ -384,7 +384,7 @@ class QuerySSEPipelineErrorTests(TestCase):
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/",
-            {"session_id": str(session.session_id), "query": "test"},
+            {"session_id": str(session.session_id), "query": "test", "mode": "standard"},
             format="json",
         )
         content = b"".join(resp.streaming_content).decode()
@@ -394,14 +394,14 @@ class QuerySSEPipelineErrorTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_sse_cache_control_headers(self, mock_run_query, mock_adapter_cls):
         """SSE response has Cache-Control: no-cache and X-Accel-Buffering: no."""
-        def fake_run(adapter, config, query, send_event):
+        def fake_run(adapter, config, query, send_event, credentials=None):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/",
-            {"session_id": str(session.session_id), "query": "test"},
+            {"session_id": str(session.session_id), "query": "test", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp["Cache-Control"], "no-cache")
@@ -411,7 +411,7 @@ class QuerySSEPipelineErrorTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_multiple_events_stream(self, mock_run_query, mock_adapter_cls):
         """Multiple SSE events are streamed in order."""
-        def fake_run(adapter, config, query, send_event):
+        def fake_run(adapter, config, query, send_event, credentials=None):
             send_event("agent_started", {"agent": "parser", "mode": "search"})
             send_event("agent_complete", {"agent": "parser", "summary": {}})
             send_event("agent_started", {"agent": "api_caller", "mode": ""})
@@ -421,7 +421,7 @@ class QuerySSEPipelineErrorTests(TestCase):
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/",
-            {"session_id": str(session.session_id), "query": "find mice"},
+            {"session_id": str(session.session_id), "query": "find mice", "mode": "standard"},
             format="json",
         )
         content = b"".join(resp.streaming_content).decode()
@@ -438,7 +438,7 @@ class QuerySSEPipelineErrorTests(TestCase):
         session = ChatSession.objects.create(user=other)
         resp = self.client.post(
             "/nextseek_api/assistant/query/",
-            {"session_id": str(session.session_id), "query": "test"},
+            {"session_id": str(session.session_id), "query": "test", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 404)
@@ -488,7 +488,7 @@ class QueryAsyncExtraTests(TestCase):
         session = ChatSession.objects.create(user=other)
         resp = self.client.post(
             "/nextseek_api/assistant/query/async/",
-            {"session_id": str(session.session_id), "query": "test"},
+            {"session_id": str(session.session_id), "query": "test", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 404)
@@ -500,7 +500,7 @@ class QueryAsyncExtraTests(TestCase):
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/async/",
-            {"session_id": str(session.session_id), "query": "Find mice"},
+            {"session_id": str(session.session_id), "query": "Find mice", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 202)
@@ -515,7 +515,7 @@ class QueryAsyncExtraTests(TestCase):
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/async/",
-            {"session_id": str(session.session_id), "query": "test"},
+            {"session_id": str(session.session_id), "query": "test", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 202)
@@ -759,12 +759,15 @@ class DownloadArtifactTests(TestCase):
 
     def test_artifact_geo_seq_workbooks_file_missing_on_disk(self):
         """geo_seq_workbooks with file path that doesn't exist returns 404."""
+        import os
+        from django.conf import settings
+        missing_path = os.path.join(settings.BASE_DIR, "outputs", "nonexistent_workbook.xlsx")
         session = ChatSession.objects.create(
             user=self.user,
             results_history=[{
                 "id": 1,
                 "report_saved_files": {
-                    "geo_seq_workbooks": ["/opt/NExtSEEK/nonexistent_workbook.xlsx"],
+                    "geo_seq_workbooks": [missing_path],
                 },
             }],
         )
@@ -794,9 +797,12 @@ class DownloadArtifactTests(TestCase):
         """geo_seq_workbooks with valid file on disk returns FileResponse."""
         import tempfile
         import os
+        from django.conf import settings
         # Create a temp file within the project directory
+        outputs_dir = os.path.join(settings.BASE_DIR, "outputs")
+        os.makedirs(outputs_dir, exist_ok=True)
         tmp = tempfile.NamedTemporaryFile(
-            suffix=".xlsx", dir="/opt/NExtSEEK", delete=False
+            suffix=".xlsx", dir=outputs_dir, delete=False
         )
         tmp.write(b"PK\x03\x04fake xlsx")
         tmp.close()
