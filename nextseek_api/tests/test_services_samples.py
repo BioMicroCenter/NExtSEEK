@@ -583,7 +583,7 @@ class TestSampleAdvancedSearch:
     @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
     @patch("nextseek_api.services.samples.DBtable_sample")
     def test_multiple_search_texts_or_nests_three_terms(self, mock_dbs, _):
-        """Three+ OR terms must be right-nested for the binary-only PubMed parser."""
+        """All-UID-shaped OR terms route to the indexed UIDs search path (b2640b7)."""
         vs = self._viewset()
         mock_dbs.return_value.searchAdvanced.return_value = _adv_search_result([])
         terms = [
@@ -597,17 +597,17 @@ class TestSampleAdvancedSearch:
             "filter_matchType": "EXACT",
         })
         vs.create(req)
-        filters = mock_dbs.return_value.searchAdvanced.call_args[0][1]
-        expected = (
-            "(D.IMG-230913ENG-1722-PUB) OR "
-            "((D.IMG-230913ENG-1723-PUB) OR (D.IMG-230913ENG-1724-PUB))"
-        )
-        assert filters["filter_searchText"] == expected
-        assert " OR (D.IMG-230913ENG-1724-PUB) OR " not in filters["filter_searchText"]
+        call_args = mock_dbs.return_value.searchAdvanced.call_args
+        search_type = call_args[0][2]
+        sub_filters = call_args[0][1]
+        assert search_type == "UIDs"
+        assert sub_filters["filter_searchUIDs"] == "\n".join(terms)
+        assert call_args[1].get("skip_tree") is True
 
     @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
     @patch("nextseek_api.services.samples.DBtable_sample")
     def test_multiple_search_texts_or_nests_five_terms(self, mock_dbs, _):
+        """All-UID-shaped OR terms route to the indexed UIDs search path (b2640b7)."""
         vs = self._viewset()
         mock_dbs.return_value.searchAdvanced.return_value = _adv_search_result([])
         terms = [f"D.IMG-230913ENG-{1722 + i}-PUB" for i in range(5)]
@@ -617,14 +617,12 @@ class TestSampleAdvancedSearch:
             "filter_matchType": "EXACT",
         })
         vs.create(req)
-        filters = mock_dbs.return_value.searchAdvanced.call_args[0][1]
-        expected = (
-            "(D.IMG-230913ENG-1722-PUB) OR "
-            "((D.IMG-230913ENG-1723-PUB) OR "
-            "((D.IMG-230913ENG-1724-PUB) OR "
-            "((D.IMG-230913ENG-1725-PUB) OR (D.IMG-230913ENG-1726-PUB))))"
-        )
-        assert filters["filter_searchText"] == expected
+        call_args = mock_dbs.return_value.searchAdvanced.call_args
+        search_type = call_args[0][2]
+        sub_filters = call_args[0][1]
+        assert search_type == "UIDs"
+        assert sub_filters["filter_searchUIDs"] == "\n".join(terms)
+        assert call_args[1].get("skip_tree") is True
 
     @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
     @patch("nextseek_api.services.samples.DBtable_sample")
