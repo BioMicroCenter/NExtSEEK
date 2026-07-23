@@ -80,12 +80,13 @@ $(document).ready(function(){
 });
 
 $(function(){
-    var dg = $('#advanced_dgtable').datagrid();
-    dg.datagrid('enableFilter', [{
-		field:'id',
-		type:'label'
-    }]);
-	
+    var dg = $('#advanced_dgtable');
+    nsEnableColumnFilters(
+        dg,
+        ['uuid', 'sample_type', 'attributeValue'],
+        ['ck', 'idurl']
+    );
+
     var dg = $('#retrieval_dgtable').datagrid();
 		dg.datagrid('enableFilter', [{
 		field:'id',
