@@ -491,8 +491,13 @@ function nsEscapeHtml(value) {
 // EasyUI column formatter: render a single-line, ellipsis-truncated cell whose
 // full (escaped) value is exposed via the native title tooltip on hover.
 function nsEllipsisFormatter(value, row, index) {
-	var s = nsEscapeHtml(value);
-	return '<span class="ns-ellip" title="' + s + '">' + s + '</span>';
+	var raw = value == null ? '' : String(value);
+	// The cell body renders the value as-is so app-generated markup keeps
+	// working — sample links in the UID column, key/value highlight spans in
+	// the Attribute:Value column. The tooltip uses the plain-text form (tags
+	// stripped), HTML-escaped for safe use in the title attribute.
+	var text = raw.replace(/<[^>]*>/g, '');
+	return '<span class="ns-ellip" title="' + nsEscapeHtml(text) + '">' + raw + '</span>';
 }
 
 // Enable an always-visible filter row: a 'contains' text filter on each field
