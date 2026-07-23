@@ -125,7 +125,7 @@
 		{% csrf_token %}
 		<div class="well">
 			<div class="row show-grid">
-				<table class="table" align="center" style="width:80%">
+				<table class="table" style="width:100%">
 					<thead>
 						<tr>
 							<th>Sample Type:</th>
@@ -133,6 +133,7 @@
 							<th>Operator:</th>
 							<th>From:</th>
 							<th>To:</th>
+								<th></th>
 						</tr>
 					</thead>
 					<tbody>
@@ -156,17 +157,15 @@
 							<td><input id="filter_rule" class="easyui-combobox" name="filter_rule" style="width:100%;" data-options="showItemIcon: true, valueField:'name', textField:'operator', editable: false, panelHeight:'auto', label: '', labelPosition: 'top', onSelect: function(rec){ }"></td>
 							<td><input id="input_valueFrom" label="" labelposition="left" value="" placeholder="start value" style="width:150px;height:30px"></td>
 							<td><input id="input_valueTo" label="" labelposition="left" value="" placeholder="end value" style="width:150px;height:30px"></td>
+							<td style="vertical-align:middle; white-space:nowrap; text-align:right;">
+								<span class="ns-search-actions">
+									<a href="javascript:void(0)" class="ns-btn-reset" onclick="nsResetSearch($('#simple_dgtable'), ['#simple_sample_type','#simple_sample_attribute','#filter_rule','#input_valueFrom','#input_valueTo'])">Reset</a>
+									<a href="javascript:void(0)" class="ns-btn-search" onclick="simple_searchSamples()"><span class="glyphicon glyphicon-search"></span> Search</a>
+								</span>
+							</td>
 						</tr>
 					</tbody>
 				</table>
-			</div>
-			<div class="row show-grid">
-				<div class="col-xs-12" style="text-align:center;">
-					<span class="ns-search-actions">
-						<a href="javascript:void(0)" class="ns-btn-reset" onclick="nsResetSearch($('#simple_dgtable'), ['#simple_sample_type','#simple_sample_attribute','#filter_rule','#input_valueFrom','#input_valueTo'])">Reset</a>
-						<a href="javascript:void(0)" class="ns-btn-search" onclick="simple_searchSamples()"><span class="glyphicon glyphicon-search"></span> Search</a>
-					</span>
-				</div>
 			</div>
 		</div>
 	</form>
