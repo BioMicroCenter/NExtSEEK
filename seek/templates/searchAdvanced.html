@@ -95,22 +95,20 @@ $(function(){
 });
 </script>
 <div class="d-only">
-<div id="search_tab" class="easyui-tabs" style="width:auto;height:1400px;">
+<div id="search_tab" class="easyui-tabs" style="width:auto;height:800px;">
     <div title="Sample Search" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
-	<div class="easyui-layout" style="width:auto;height:900px;">
-	    <div id="north_div" data-options="region:'north',border:false" style="height: 200px;">
+	<div class="easyui-layout" style="width:auto;height:600px;">
+	    <div id="north_div" data-options="region:'north',border:false" style="height: 150px;">
 		{% include "pages/samples_search.embed.html" %}
 	    </div>
             <div id="center_div" data-options="region:'center',border:false" style="height: 300px;">
                 {% include "pages/samples_stable.embed.html" %}
 	    </div>
-            <div id="center_div" data-options="region:'south',border:false" style="height: 300px;">
-	    </div>
 	</div>
    </div>
     <div title="Advanced Sample Search" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
-	<div class="easyui-layout" style="width:auto;height:1100px;">
-	    <div id="north_div" data-options="region:'north',border:false" style="width:auto; height: 330px;">
+	<div class="easyui-layout" style="width:auto;height:800px;">
+	    <div id="north_div" data-options="region:'north',border:false" style="width:auto; height: 280px;">
 			{% include "pages/searchAdvanced_search.embed.html" %}
 	    </div>
         <div id="center_div" data-options="region:'center',border:false,split:true" style="width:auto; height: 800px;">
