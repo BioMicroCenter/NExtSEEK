@@ -80,8 +80,8 @@ def test_service_composes_via_pure_function_ast():
     digest_assigns = [n for n in ast.walk(tree) if isinstance(n, ast.Assign)
                       and isinstance(n.value, ast.Call)
                       and isinstance(n.value.func, ast.Attribute)
-                      and n.value.func.attr == "render_digest"]
-    assert digest_assigns, "render_digest never called"
+                      and n.value.func.attr in ("render_within_chat_digest", "render_digest")]
+    assert digest_assigns, "render_within_chat_digest / render_digest never called"
 
 
 from nextseek_api.cc_assistant.ns_digest import render_cc_digest, render_within_chat_digest

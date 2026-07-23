@@ -64,6 +64,7 @@ from nextseek_api.cc_assistant import cc_memory
 from nextseek_api.cc_assistant import cc_memory_io
 from nextseek_api.cc_assistant import ns_digest
 from nextseek_api.cc_assistant import ns_turn_context
+from nextseek_api.cc_assistant import cc_turn_context
 from nextseek_api.cc_assistant.cc_provision import ProjectResolutionError
 
 from nextseek_api.cc_assistant.cc_turn_complete import (
@@ -467,11 +468,14 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         staged = cc_memory_io.stage_transcripts(window, mem_root / "transcripts")
                         if staged:
                             transcripts_subpath = dirs.transcripts_subpath
-                    digest_md = ns_digest.render_digest(ns_turn_context.build_contexts(
-                        (chat_session.extra_state or {}).get("chat_log") or [],
-                        chat_session.results_history or [],
-                        session_id=str(chat_session.session_id)))
-                    combined = ns_digest.compose_turn_claude_md(digest_md, memory_md)
+                    within_chat_md = ns_digest.render_within_chat_digest(
+                        ns_turn_context.build_contexts(
+                            (chat_session.extra_state or {}).get("chat_log") or [],
+                            chat_session.results_history or [],
+                            session_id=str(chat_session.session_id)),
+                        cc_turn_context.build_cc_contexts(
+                            (chat_session.extra_state or {}).get("chat_log") or []))
+                    combined = ns_digest.compose_turn_claude_md(within_chat_md, memory_md)
                     written = cc_memory_io.write_memory_file(mem_root / "CLAUDE.md", combined)
                     if written:
                         memory_claude_md = str(written)
