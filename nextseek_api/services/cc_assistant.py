@@ -62,6 +62,8 @@ from nextseek_api.cc_assistant import cc_session
 from nextseek_api.cc_assistant import cc_summary
 from nextseek_api.cc_assistant import cc_memory
 from nextseek_api.cc_assistant import cc_memory_io
+from nextseek_api.cc_assistant import ns_digest
+from nextseek_api.cc_assistant import ns_turn_context
 from nextseek_api.cc_assistant.cc_provision import ProjectResolutionError
 
 from nextseek_api.cc_assistant.cc_turn_complete import (
@@ -350,8 +352,12 @@ class CCAssistantViewSet(viewsets.ViewSet):
                     fresh = bool(getattr(req, "fresh_session", False))
                     memory_claude_md = None
                     transcripts_subpath = None
+                    dirs = build_user_dirs(
+                        paths, project_dirname, request.user.username,
+                        session_id=cc_state_key)
+                    mem_root = Path(dirs.memory_mnt)
+                    memory_md = ""
                     if not fresh:
-                        from pathlib import Path
                         from django.utils import timezone
 
                         metas = _session_metas(
@@ -380,22 +386,20 @@ class CCAssistantViewSet(viewsets.ViewSet):
 
                         window = cc_memory.select_window(
                             metas, current_id=cc_state_key, window_size=mem_cfg.window_size)
-                        dirs = build_user_dirs(
-                            paths, project_dirname, request.user.username,
-                            session_id=cc_state_key)
-                        mem_root = Path(dirs.memory_mnt)
-                        md = cc_memory.render_memory(
+                        memory_md = cc_memory.render_memory(
                             window, fresh_session=False,
                             transcripts_mount=cc_engine._CONTAINER_MEMORY_TRANSCRIPTS)
-                        written = cc_memory_io.write_memory_file(mem_root / "CLAUDE.md", md)
                         staged = cc_memory_io.stage_transcripts(window, mem_root / "transcripts")
-                        # G7-10: pass the merged CLAUDE.md's MOUNT path (run_cc_turn
-                        # byte-copies it into the cc-state subpath before spawn) and
-                        # the transcripts volume subpath (RO-mounted) — no host xlate.
-                        if written:
-                            memory_claude_md = str(written)
                         if staged:
                             transcripts_subpath = dirs.transcripts_subpath
+                    digest_md = ns_digest.render_digest(ns_turn_context.build_contexts(
+                        (chat_session.extra_state or {}).get("chat_log") or [],
+                        chat_session.results_history or [],
+                        session_id=str(chat_session.session_id)))
+                    combined = ns_digest.compose_turn_claude_md(digest_md, memory_md)
+                    written = cc_memory_io.write_memory_file(mem_root / "CLAUDE.md", combined)
+                    if written:
+                        memory_claude_md = str(written)
 
                     cc_engine.run_cc_turn(
                         query=req.query, model_id=decision.model_id,
