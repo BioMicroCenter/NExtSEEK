@@ -282,7 +282,7 @@ def _build_notes_md(
     if selector_rationale:
         lines.append(f"**Pipeline selection rationale:** {selector_rationale}")
         lines.append("")
-    lines.append("## Accession resolution (ENA filereport)")
+    lines.append("## Samples")
     lines.append("")
     if not resolutions:
         lines.append("- No accessions discovered in NExtSEEK metadata.")
@@ -302,20 +302,14 @@ def _build_notes_md(
         for acc in excluded_accessions:
             lines.append(f"- `{acc}` — see fetchngs_samplesheet.csv to backfill via nf-core/fetchngs")
         lines.append("")
-    lines.append("## Tower / Seqera")
+    lines.append("## Luria run")
     lines.append("")
-    if not tower_env_complete:
-        lines.append(
-            "- Tower env not configured — only `samplesheet.csv` was emitted. "
-            "Set `TOWER_ACCESS_TOKEN`, `TOWER_WORKSPACE_ID`, `SEQERA_COMPUTE_ENV`, "
-            "and `SEQERA_WORK_BUCKET` to also emit `params.yml` + `launch.yml`."
-        )
-    elif submitted:
-        lines.append("- Submitted via seqerakit. Run URLs:")
+    if submitted:
+        lines.append("- Submitted to Luria (ssh + sbatch). Run refs:")
         for url in run_urls:
             lines.append(f"  - {url}")
     else:
-        lines.append("- Run manually: `seqerakit launch.yml`")
+        lines.append("- Built for Luria submission (submit_to_luria stages run.sh + sbatch).")
     if extra_notes:
         lines.append("")
         lines.append("## Other notes")

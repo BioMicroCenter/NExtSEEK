@@ -13,10 +13,11 @@ def _names(schemas):
     return [t["name"] for t in schemas]
 
 
-def test_exposure_tower_only():
+def test_tower_never_exposed_even_when_env_complete():
     names = _names(at.build_pipeline_tool_schemas(_Cfg(tower=True, luria=False)))
-    assert "submit_to_tower" in names and "submit_to_luria" not in names
-    assert names[-1] == "conclude"
+    assert "submit_to_tower" not in names          # Tower retired
+    assert "submit_to_luria" not in names           # luria env absent here
+    assert names == ["resolve_samples", "write_samplesheet", "configure_run", "conclude"]
 
 
 def test_exposure_luria_only():
@@ -24,9 +25,9 @@ def test_exposure_luria_only():
     assert "submit_to_luria" in names and "submit_to_tower" not in names
 
 
-def test_exposure_both():
+def test_exposure_luria_only_when_both_env_complete():
     names = _names(at.build_pipeline_tool_schemas(_Cfg(tower=True, luria=True)))
-    assert "submit_to_tower" in names and "submit_to_luria" in names
+    assert "submit_to_luria" in names and "submit_to_tower" not in names
 
 
 def test_exposure_neither_still_has_core_and_conclude():

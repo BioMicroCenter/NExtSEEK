@@ -192,8 +192,8 @@ def build_pipeline_tool_schemas(config) -> list[dict[str, Any]]:
         _SCHEMA_BY_NAME["write_samplesheet"],
         _SCHEMA_BY_NAME["configure_run"],
     ]
-    if getattr(config, "TOWER_ENV_COMPLETE", False):
-        tools.append(_SCHEMA_BY_NAME["submit_to_tower"])
+    # Tower/Seqera retired: Luria is the only exposed launch target. tool_submit_to_tower
+    # and its schema stay in place (dormant) for a future re-enable.
     if getattr(config, "LURIA_ENV_COMPLETE", False):
         tools.append(SUBMIT_TO_LURIA_SCHEMA)
     tools.append(_SCHEMA_BY_NAME["conclude"])

@@ -5,8 +5,8 @@ from chat_nextseek.config import (
 )
 
 
-def test_detect_mode_defaults_to_tower_when_unset():
-    assert detect_pipeline_launch_mode({}) == "tower"
+def test_detect_mode_defaults_to_luria_when_unset():
+    assert detect_pipeline_launch_mode({}) == "luria"
 
 
 def test_detect_mode_reads_and_lowercases_env():
@@ -14,7 +14,7 @@ def test_detect_mode_reads_and_lowercases_env():
 
 
 def test_detect_mode_rejects_unknown_and_falls_back():
-    assert detect_pipeline_launch_mode({"PIPELINE_LAUNCH_MODE": "slurmish"}) == "tower"
+    assert detect_pipeline_launch_mode({"PIPELINE_LAUNCH_MODE": "slurmish"}) == "luria"
 
 
 def test_build_luria_env_maps_the_four_fields():
