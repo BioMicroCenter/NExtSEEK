@@ -192,7 +192,7 @@ def test_emit_luria_launch_artifacts_writes_params_and_minimal_launch(tmp_path):
                      "params": {"aligner": "star_salmon", "genome": "GRCm39"}})
     launch = yaml.safe_load(Path(res.saved_files["launch"]).read_text())
     assert launch["launch"][0]["name"] == "myrun"
-    assert launch["launch"][0]["pipeline"] == "nf-core/rnaseq"
+    assert launch["launch"][0]["pipeline"].endswith("nf-core/rnaseq")  # catalog repo is the full github URL; the submitter normalizes it
     assert launch["launch"][0]["revision"] == "3.18.0"
     params = yaml.safe_load(Path(res.saved_files["params"]).read_text())
     assert params["aligner"] == "star_salmon" and params["genome"] == "GRCm39"
@@ -395,12 +395,30 @@ def test_write_samplesheet_does_not_resolve_ena(monkeypatch, tmp_path):
     assert out["ok"] is True
     assert calls["n"] == 0                      # ENA route is off
     assert out["total_rows"] == 1               # SRR row kept, not dropped
+
+
+def test_write_samplesheet_keeps_path_only_row_without_accession(tmp_path):
+    # Design Thread 1, bullet 3: a pure-local sample with a /net/bmc-* path and NO accession
+    # must survive _validate_rows_against_resolved AND reach the emitter (kept, not dropped).
+    # Its uid IS a resolved uid, and the uid-keyed accession_file_paths carries the local path.
+    # Today the emitter drops any row without a resolved ENA run (acc_to_runs.get("") is None),
+    # so this fails pre-change (total_rows == 0) and passes once Task 3's row loop is rewritten.
+    state = {"resolved": {"uids": ["D.SEQ-1"], "accessions": []},
+             "accession_file_paths": {
+                 "D.SEQ-1": {"Link_PrimaryData": "/net/bmc-x/1_1.fastq.gz",
+                             "Link_SecondaryData": "/net/bmc-x/1_2.fastq.gz"}}}
+    tool_input = {"pipeline_key": "rnaseq",
+                  "cohorts": [{"label": "c", "rows": [
+                      {"sample": "D.SEQ-1", "strandedness": "auto"}]}]}   # no accession key
+    out = json.loads(at.tool_write_samplesheet(_WSCfg(tmp_path), state, tool_input, str(tmp_path)))
+    assert out["ok"] is True
+    assert out["total_rows"] == 1   # path-only, accession-less row is NOT dropped
 ```
 
 - [ ] **Step 6: Run to verify it fails**
 
-Run: `uv run pytest tests/test_pipeline_agent_tools.py -k does_not_resolve_ena -v`
-Expected: FAIL — `resolve_accessions` is still called (`calls["n"] == 1`).
+Run: `uv run pytest tests/test_pipeline_agent_tools.py -k "does_not_resolve_ena or path_only_row" -v`
+Expected: FAIL — the ENA test fails because `resolve_accessions` is still called (`calls["n"] == 1`); the path-only test fails because today an accession-less row is dropped by the emitter (`total_rows == 0`).
 
 - [ ] **Step 7a: Stop calling ENA** in `pipeline/agent_tools.py`. Replace lines 430-431:
 
@@ -442,7 +460,7 @@ with:
 
 - [ ] **Step 8: Run the ENA-off test + the emitter suite**
 
-Run: `uv run pytest tests/test_pipeline_agent_tools.py -k does_not_resolve_ena tests/test_emitter_launch_split.py -q`
+Run: `uv run pytest tests/test_pipeline_agent_tools.py -k "does_not_resolve_ena or path_only_row" tests/test_emitter_launch_split.py -q`
 Expected: PASS
 
 - [ ] **Step 9: Commit**

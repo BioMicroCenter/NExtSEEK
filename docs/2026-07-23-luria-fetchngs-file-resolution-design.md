@@ -171,8 +171,9 @@ Changes:
   `local_luria` -> `configured` -> `igenomes_fallback` -> `unconfigured_no_fallback`
   -> `no_bundle`.
 - Surface the resolved fasta / gtf filenames in `tool_configure_run`'s JSON
-  result (currently only `genome` + `status`, `agent_tools.py:526-535`) so the
-  LLM can name them.
+  result (today it returns `resolved_params` / `reference_status` / `bundle_key` /
+  `params_yml` / `launch_yml` / `tower_configured`, `agent_tools.py:526-535`; add
+  `reference_files`) so the LLM can name them.
 - Preserve the existing gencode threading. GENCODE-ness lives in
   `reference_bundles.json.gencode` and is applied at submit time via
   `gencode_for_genome_key` (`pipeline_params.py:63-76`, applied at
@@ -194,6 +195,13 @@ data surface, and a prompt rewrite.
 ## 8. Thread 5: fetchngs pre-stage on Luria (run.sh / run_script / submitter)
 
 ### 8.1 run.sh structure
+
+> **Note (supersedes the shell sketch below):** the inline `python3 - <<'PYIDS'` /
+> `<<'PYFILL'` heredocs shown in this subsection are illustrative pseudocode. The
+> implementation plan (Tasks 6-7) instead stages a real, unit-tested
+> `luria/fetchngs_helpers.py` beside `run.sh` and invokes it as
+> `python3 fetchngs_helpers.py ids` / `fill <cache>`. Follow the plan's
+> staged-helper contract, not the heredocs.
 
 The template `luria/templates/run.sh.tmpl` gains one new slot,
 `{{FETCHNGS_BLOCK}}`, inserted after `cd {{RUN_DIR}}` (`run.sh.tmpl:29`) and before
