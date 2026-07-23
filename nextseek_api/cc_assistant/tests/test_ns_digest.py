@@ -82,3 +82,47 @@ def test_service_composes_via_pure_function_ast():
                       and isinstance(n.value.func, ast.Attribute)
                       and n.value.func.attr == "render_digest"]
     assert digest_assigns, "render_digest never called"
+
+
+from nextseek_api.cc_assistant.ns_digest import render_cc_digest, render_within_chat_digest
+from nextseek_api.cc_assistant.cc_turn_context import CCTurnContext
+from nextseek_api.cc_assistant.ns_turn_context import NSTurnContext, NSResultSummary
+
+
+def _cc(turn_id, q, reply):
+    return CCTurnContext(turn_id=turn_id, user_query=q, reply=reply)
+
+
+def _ns(turn_id, q, total, uids):
+    return NSTurnContext(session_id="s", turn_id=turn_id, bundle_id=turn_id, ts="t",
+                         mode="nextseek_query", user_query=q, reply="",
+                         result=NSResultSummary(total=total, row_count=len(uids), sample_uids=uids),
+                         full_result_available=bool(uids))
+
+
+def test_render_cc_digest_lists_cc_turns():
+    md = render_cc_digest([_cc(2, "count those", "42 samples")])
+    assert "Prior Container-CC turns in this chat" in md
+    assert "turn 2 (CC): count those" in md
+    assert "42 samples" in md
+
+
+def test_render_cc_digest_empty_when_none():
+    assert render_cc_digest([]) == ""
+
+
+def test_render_within_chat_digest_has_both_sections():
+    md = render_within_chat_digest([_ns(1, "find NHP", 139, ["D.SEQ-1"])],
+                                   [_cc(2, "count those", "42 samples")])
+    # NS section (with recall affordance) AND CC section both present
+    assert "Prior NExtSEEK results in this chat" in md
+    assert "nextseek-recall --turn 1" in md
+    assert "Prior Container-CC turns in this chat" in md
+    assert "turn 2 (CC): count those" in md
+    # NS section renders before the CC section
+    assert md.index("NExtSEEK results") < md.index("Container-CC turns")
+
+
+def test_render_within_chat_digest_ns_only_when_no_cc():
+    md = render_within_chat_digest([_ns(1, "find NHP", 139, ["D.SEQ-1"])], [])
+    assert "Prior NExtSEEK results" in md and "Container-CC turns" not in md
