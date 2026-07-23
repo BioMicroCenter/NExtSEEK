@@ -509,6 +509,11 @@ function nsEnableColumnFilters(dg, textFields, labelFields) {
 	(labelFields || []).forEach(function (f) { specs.push({ field: f, type: 'label' }); });
 	(textFields || []).forEach(function (f) { specs.push({ field: f, type: 'text' }); });
 	dg.datagrid('enableFilter', specs);
+	// EasyUI renders the filter inputs with no placeholder, which is a big part
+	// of why the row is easy to miss — add a "filter" cue to each one.
+	try {
+		dg.datagrid('getPanel').find('.datagrid-filter-row input').attr('placeholder', 'filter');
+	} catch (e) {}
 }
 
 // Reset a search tab: clear each input (handles easyui combobox, easyui
