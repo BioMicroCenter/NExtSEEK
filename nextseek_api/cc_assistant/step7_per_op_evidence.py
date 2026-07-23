@@ -20,24 +20,15 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-# The 8 decomposed bin ops the agent invokes. nextseek-query is DISABLED
-# (2026-07-05 per-op amendment: it was a redundant router-level shortcut) and is
-# not part of the per-op proof set.
-BIN_OPS: tuple[str, ...] = (
-    "nextseek-entity-extract",
-    "nextseek-parse",
-    "nextseek-api-read",
-    "nextseek-api-write",
-    "nextseek-graph",
-    "nextseek-report",
-    "nextseek-generate-submission",
-    "nextseek-plan",
-)
+from nextseek_api.cc_assistant.bin_inventory import discover_ops, op_suffix, write_gated_op
+
+# Inventory-derived query-family ops (BIN-2): includes re-enabled query/recall.
+BIN_OPS: tuple[str, ...] = discover_ops("query")
 
 # api-write's only permitted live shape: the agent reaches the write-safety gate
 # and does NOT execute an unconfirmed write (CLAUDE.md write-safety + shim exit
 # 5 WRITE_BLOCKED). It still costs a real Bedrock turn (decide-and-refuse).
-WRITE_GATED_OP = "nextseek-api-write"
+WRITE_GATED_OP = write_gated_op(BIN_OPS)
 
 _BACKEND_ERROR_PATTERNS = re.compile(
     r"unable to reach|could not reach|couldn't reach|cannot reach|"
@@ -284,7 +275,7 @@ def evaluate_op_row(
             f"different valid NS-path op (LLM routing, not a code bug); orchestrator "
             f"must verify the answer is correct"
         )
-    elif op == WRITE_GATED_OP:
+    elif op_suffix(op) == "api-write":
         pass
     elif invocation.invocation_status == "error":
         problems.append(f"{op} invocation tool_result status=error")

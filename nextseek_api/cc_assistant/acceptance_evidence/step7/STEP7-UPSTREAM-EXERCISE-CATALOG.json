@@ -90,6 +90,14 @@
       "task_family": "Write-Create",
       "inputs": {"query": "What steps would you recommend to summarize samples treated with NDMA in this project?"},
       "expected_exit_code": 0
+    },
+    {
+      "exercise_id": "WITHIN-CHAT-recall-1",
+      "bin_op": "nextseek-recall",
+      "proof_paradigm": "forced_cc_direct",
+      "upstream_ref": "spec-001@plan010:nextseek-recall op (§4.C)",
+      "inputs": {"turn": 1},
+      "expected_exit_code": 0
     }
   ]
 }

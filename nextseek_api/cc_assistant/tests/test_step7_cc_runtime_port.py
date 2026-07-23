@@ -135,9 +135,8 @@ def test_cc_runtime_plugin_skill_md_present():
     assert skill.is_file()
     text = _read(skill)
     assert text.startswith("---")
-    # Per-op amendment (2026-07-05): nextseek-query is disabled and must be
-    # absent. Detailed SKILL.md content contract lives in test_plugin_skill_md.py.
-    assert "nextseek-query" not in text
+    assert "nextseek-query" in text
+    assert "nextseek-recall" in text
 
 
 def test_cc_runtime_plugin_command_present():

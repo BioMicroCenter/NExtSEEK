@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from nextseek_api.cc_assistant.bin_inventory import discover_ops, op_suffix
+
 UPSTREAM_SHA = "a429f1372a075e5db586a1b6efc8c3b1663e211a"
 
 _CATALOG_DIR = Path(__file__).resolve().parent / "acceptance_evidence" / "step7"
@@ -20,17 +22,7 @@ PROVENANCE_PATH = _CATALOG_DIR / "catalog_provenance.json"
 COVERAGE_PATH = _CATALOG_DIR / "catalog_coverage_report.json"
 COST_SOURCE_MAP_PATH = _CATALOG_DIR / "cost_source_map.json"
 
-BIN_OPS = (
-    "nextseek-entity-extract",
-    "nextseek-parse",
-    "nextseek-graph",
-    "nextseek-plan",
-    "nextseek-query",
-    "nextseek-api-read",
-    "nextseek-api-write",
-    "nextseek-report",
-    "nextseek-generate-submission",
-)
+BIN_OPS = discover_ops("query")
 
 
 @dataclass
@@ -106,15 +98,18 @@ def build_op_kwargs_from_catalog(
         if not isinstance(op, str):
             continue
         inputs = dict(ex.get("inputs") or {})
-        if op == "nextseek-api-write":
+        suf = op_suffix(op)
+        if suf == "api-write":
             inputs.setdefault("confirmed_write", False)
             if allow_confirmed_write and ex.get("allow_confirmed_write"):
                 inputs["confirmed_write"] = True
-        if op == "nextseek-generate-submission" and binding.reference_uids:
+        if suf == "generate-submission" and binding.reference_uids:
             inputs.setdefault("uids", binding.reference_uids[0])
             if "type" not in inputs and "submission_type" not in inputs:
                 inputs["type"] = "GEO"
-        if op == "nextseek-report":
+        if suf == "recall":
+            inputs.setdefault("turn", 1)
+        if suf == "report":
             inputs.setdefault("project", binding.project_title)
         by_op[op] = inputs
     missing = set(BIN_OPS) - set(by_op)
@@ -151,8 +146,8 @@ def build_cost_ledger_from_matrix(
     total = 0.0
     for op in BIN_OPS:
         row = matrix.get(op) or {}
-        if op == "nextseek-api-write" or op not in charged:
-            if op == "nextseek-api-write":
+        if op_suffix(op) == "api-write" or op not in charged:
+            if op_suffix(op) == "api-write":
                 entries.append({
                     "op": op,
                     "source_system": "none",

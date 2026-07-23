@@ -1,10 +1,10 @@
 """/nextseek slash command content contract (per-op design).
 
 Ported from dmac-assistant tests/unit/test_nextseek_command.py and adapted:
-the single-shot nextseek-query default + D14 "always-first" preamble were
-retired; the command now routes per-op via the skill. The load-bearing
-invariants (allowed-tools == {Bash, Read}, no AskUserQuestion, $ARGUMENTS,
-skill reference) are preserved. Markdown-only; no chat_nextseek import.
+the command routes per-op via the skill, including query/recall roles (spec-001
+T11). The load-bearing invariants (allowed-tools == {Bash, Read}, no
+AskUserQuestion, $ARGUMENTS, skill reference) are preserved. Markdown-only; no
+chat_nextseek import.
 """
 from __future__ import annotations
 
@@ -56,17 +56,14 @@ def test_body_references_nextseek_skill_by_name():
     )
 
 
-def test_body_routes_per_op_not_single_shot_query():
-    """Per-op amendment: the command must NOT prescribe the retired single-shot
-    `nextseek-query` default, and must route per-op (name at least the search
-    recipe) so a future edit can't silently reintroduce the disabled op."""
+def test_body_routes_per_op_including_query_and_recall():
     body = _body()
-    assert "nextseek-query" not in body, (
-        "command must not prescribe the disabled `nextseek-query` op"
-    )
     assert "nextseek-parse" in body, (
         "command body must route per-op (e.g. name the parse -> api-read search recipe)"
     )
+    assert "nextseek-query" in body
+    assert "nextseek-recall" in body
+    assert "--turn" in body
 
 
 def test_body_contains_arguments_placeholder():
@@ -77,8 +74,6 @@ def test_body_contains_arguments_placeholder():
 
 
 def test_body_does_not_invoke_askuserquestion():
-    """L3 boundary defense: command file MUST NOT reference AskUserQuestion.
-    The L3 plain-text confirmation lives in SKILL.md."""
     text = _read_command()
     assert "AskUserQuestion" not in text, (
         "/nextseek command must not invoke AskUserQuestion; L3 lives in SKILL.md."

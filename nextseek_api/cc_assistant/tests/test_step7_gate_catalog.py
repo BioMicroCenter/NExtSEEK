@@ -12,10 +12,10 @@ from nextseek_api.cc_assistant import step7_gate_catalog as catalog
 from nextseek_api.cc_assistant.tests import cc_matrix_gate_harness as gate
 
 
-def test_committed_catalog_covers_all_nine_ops():
+def test_committed_catalog_covers_all_query_ops():
     exercises = catalog.load_exercise_catalog()
     assert catalog.catalog_covers_all_ops(exercises)
-    assert len(exercises) == 9
+    assert len(exercises) == len(catalog.BIN_OPS)
 
 
 def test_build_op_kwargs_from_catalog_one_per_op():
@@ -47,12 +47,15 @@ def test_create_seeded_fixture_blocked_under_instance_binding_mode():
 
 def test_realstack_harness_has_no_op_kwargs_method():
     """Live matrix must use catalog builder, not integration-invented _op_kwargs."""
-    import inspect
-    from nextseek_api.cc_assistant.tests import test_cc_realstack as mod
+    import ast
+    from pathlib import Path
 
-    cls = mod.CCCapabilityGateMatrix
-    assert not hasattr(cls, "_op_kwargs") or "_op_kwargs" not in cls.__dict__
-    assert "_catalog_op_kwargs" in cls.__dict__
+    src = Path(__file__).resolve().parent / "test_cc_realstack.py"
+    tree = ast.parse(src.read_text(encoding="utf-8"))
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "CCCapabilityGateMatrix")
+    method_names = {n.name for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    assert "_catalog_op_kwargs" in method_names
+    assert "_op_kwargs" not in method_names
 
 
 def test_binding_fixture_record_shape():
@@ -76,7 +79,7 @@ def test_cost_ledger_from_matrix_schema():
     ledger = catalog.build_cost_ledger_from_matrix(
         matrix, run_id="dry-run", timestamp="2026-07-04T12:00:00Z",
     )
-    assert len(ledger["entries"]) == 9
+    assert len(ledger["entries"]) == len(catalog.BIN_OPS)
     write_row = next(e for e in ledger["entries"] if e["op"] == "nextseek-api-write")
     assert write_row["source_system"] == "none"
     assert write_row["usd"] == 0.0

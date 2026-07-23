@@ -181,10 +181,13 @@ def test_shared_run_id_is_a_violation():
     assert v and "cc_run_id" in v[0]
 
 
-def test_bin_ops_are_the_eight_decomposed_ops():
-    assert len(ev.BIN_OPS) == 8
+def test_bin_ops_match_query_inventory():
+    import bin_inventory
+
+    assert tuple(ev.BIN_OPS) == bin_inventory.discover_ops("query")
     assert "nextseek-api-write" in ev.BIN_OPS
-    assert "nextseek-query" not in ev.BIN_OPS  # disabled per-op amendment
+    assert "nextseek-query" in ev.BIN_OPS
+    assert "nextseek-recall" in ev.BIN_OPS
 
 
 # --- estimate_cost_from_transcript (timeout cost recovery) ----------------

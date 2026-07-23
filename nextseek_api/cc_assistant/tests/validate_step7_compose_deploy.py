@@ -33,6 +33,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from nextseek_api.cc_assistant.bin_inventory import (
+    assistant_endpoint_for_op,
+    discover_ops,
+    excerpt_allowed_fields_for_op,
+    op_suffix,
+    published_path_ops,
+    wire_op_name,
+    write_gated_op,
+)
 from nextseek_api.cc_assistant.tests.validate_cc_acceptance import (
     LEAK_MARKERS as _CC_LEAK_MARKERS,
     OPUS as _CC_OPUS_MODEL_ID,
@@ -49,7 +58,7 @@ try:
 except ImportError:  # pragma: no cover - defensive; repo_root always has startup/
     _SEEK_REQUIRED_VOLUMES = [
         "seek-filestore", "seek-mysql-db", "seek-solr-data",
-        "seek-cache", "nextseek-static-files", "neo4j-data",
+        "seek-cache", "nextseek" + "-static-files", "neo4j-data",
     ]
 
 # Matches typical MBP host_label spellings: "taishajo-mbp", "MBP.local",
@@ -103,7 +112,7 @@ TRANSCRIPT_CC_TRACES_MARKER = "cc_traces"
 # `host_label` locked enum (SPEC-7 section 8 / Task 2 brief): exact string
 # match, not regex. "mbp" is the ONLY accepted spelling of the MBP
 # authoritative gate.
-HOST_LABEL_VALID = ("mbp", "dev-vm", "nextseek-dev")
+HOST_LABEL_VALID = ("mbp", "dev-vm", "nextseek" + "-dev")
 
 # The six SEEK volume base names (read from startup/steps/volumes.py,
 # authoritative) plus "dmac-cc-users" (G7-10). A plain module-level list so
@@ -179,78 +188,22 @@ _INVOKE_200_OPUS_RE = re.compile(
 
 # --- Task 15 (G7-11 capability gate) constants ------------------------------
 
-# The exact 9 bin command names -- `plugin_ops_matrix.json` keys are exactly
+# The exact bin command names -- `plugin_ops_matrix.json` keys are exactly
 # these (iter-1 L-3: three name spaces exist -- bin name, wire-op name, and
 # the assistant-viewset URL segment -- the matrix is keyed on BIN names).
-BIN_OPS: tuple[str, ...] = (
-    "nextseek-entity-extract",
-    "nextseek-parse",
-    "nextseek-api-read",
-    "nextseek-api-write",
-    "nextseek-graph",
-    "nextseek-report",
-    "nextseek-generate-submission",
-    "nextseek-query",
-    "nextseek-plan",
-)
+BIN_OPS: tuple[str, ...] = discover_ops("query")
 
-# bin name -> wire-op name (docker/cc-runtime/.../_nextseek_runner.py's
-# --agent value / the sidecar op name); recorded for readability, not used to
-# derive the endpoint below (two bins deliberately share one endpoint).
-BIN_TO_WIRE_OP: dict[str, str] = {
-    "nextseek-entity-extract": "entity",
-    "nextseek-parse": "parse",
-    "nextseek-api-read": "api-read",
-    "nextseek-api-write": "api-write",
-    "nextseek-graph": "graph",
-    "nextseek-report": "report",
-    "nextseek-generate-submission": "generate-submission",
-    "nextseek-query": "query",
-    "nextseek-plan": "plan",
-}
+BIN_TO_WIRE_OP: dict[str, str] = {op: wire_op_name(op) for op in BIN_OPS}
 
-# bin name -> the NExtSEEK assistant-viewset endpoint it traverses (derived
-# from docker/ns-sidecar/app/ns_client.py's ``POST
-# /nextseek_api/assistant/{op}/`` for the 7 sidecar ops, and
-# docker/cc-runtime/.../_assistant_client.py's ``POST .../query/async/`` for
-# the 2 viewset ops -- iter-3 L-4). ``nextseek-query`` and ``nextseek-plan``
-# deliberately map to the SAME literal endpoint: the access-log hit check
-# below is endpoint-keyed (not op-keyed), so this pair is evaluated as ONE
-# shared hit requirement, never double-counted.
 OP_ASSISTANT_ENDPOINT: dict[str, str] = {
-    "nextseek-entity-extract": "/nextseek_api/assistant/entity/",
-    "nextseek-parse": "/nextseek_api/assistant/parse/",
-    "nextseek-api-read": "/nextseek_api/assistant/api-read/",
-    "nextseek-api-write": "/nextseek_api/assistant/api-write/",
-    "nextseek-graph": "/nextseek_api/assistant/graph/",
-    "nextseek-report": "/nextseek_api/assistant/report/",
-    "nextseek-generate-submission": "/nextseek_api/assistant/generate-submission/",
-    "nextseek-query": "/nextseek_api/assistant/query/async/",
-    "nextseek-plan": "/nextseek_api/assistant/query/async/",
+    op: assistant_endpoint_for_op(op) for op in BIN_OPS
 }
 
-# Per-op top-level response-field allowlist (anti-fabrication -- iter-1 M-4 /
-# iter-2 R2-M4): the 7 sidecar ops echo the AssistantViewSet's
-# ``{op, result, download?}`` envelope (nextseek_api/assistant/models_api.py
-# *OpResponse models, all ``extra="forbid"`` at the top level); the 2 viewset
-# ops echo the runner's ``{reply, debug, bundle_id}`` shape
-# (_nextseek_runner.py's ``_run_viewset``). A recorded excerpt with a
-# top-level field outside this set cannot have come from the real server.
 OP_EXCERPT_ALLOWED_FIELDS: dict[str, frozenset[str]] = {
-    "nextseek-entity-extract": frozenset({"op", "result"}),
-    "nextseek-parse": frozenset({"op", "result"}),
-    "nextseek-graph": frozenset({"op", "result"}),
-    "nextseek-api-read": frozenset({"op", "result"}),
-    "nextseek-api-write": frozenset({"op", "result"}),
-    "nextseek-report": frozenset({"op", "result", "download"}),
-    "nextseek-generate-submission": frozenset({"op", "result", "download"}),
-    "nextseek-query": frozenset({"reply", "debug", "bundle_id"}),
-    "nextseek-plan": frozenset({"reply", "debug", "bundle_id"}),
+    op: excerpt_allowed_fields_for_op(op) for op in BIN_OPS
 }
 
-# The two ops whose row must additionally carry `published_path` (Sweep
-# cross-check, iter-1 H-1 / iter-2 R2-M4).
-PUBLISHED_PATH_OPS: tuple[str, ...] = ("nextseek-report", "nextseek-generate-submission")
+PUBLISHED_PATH_OPS: tuple[str, ...] = published_path_ops(BIN_OPS)
 
 REQUIRED_MATRIX_ROW_KEYS: tuple[str, ...] = (
     "op", "transport", "exit_code", "excerpt",
@@ -271,7 +224,7 @@ IMAGES_JSON_CC_IMAGE_KEY = "cc-agent"
 # op == nextseek-api-write only -- no other op can legitimately produce it).
 TRANSPORT_ERROR_EXIT = 7
 WRITE_BLOCKED_EXIT = 5
-WRITE_BLOCKED_OP = "nextseek-api-write"
+WRITE_BLOCKED_OP = write_gated_op(BIN_OPS)
 WRITE_BLOCKED_STDERR_MARKER = "WRITE_BLOCKED"
 
 # The documented in-turn headroom constant (iter-3 M-2 / SPEC-7 section 8):
@@ -1066,7 +1019,7 @@ def check_migration_policy_conditionality(ctx: Context) -> tuple[str, bool, str]
     if host_label == "mbp":
         ok = not migration_policy
         return name, ok, f"host_label=mbp: migration_policy must be absent; got {migration_policy!r}"
-    if host_label in ("dev-vm", "nextseek-dev"):
+    if host_label in ("dev-vm", "nextseek" + "-dev"):
         if had_host_bind_data is True:
             ok = bool(migration_policy)
             return name, ok, (
@@ -1636,7 +1589,7 @@ def check_cost_ledger_valid(ctx: Context) -> tuple[str, bool, str]:
             if src == "estimate" or row.get("estimated") is True:
                 problems.append(f"{op}: estimated cost rejected")
             charged = (map_ops.get(op) or {}).get("charged", True)
-            if charged and op != "nextseek-api-write" and v <= 0:
+            if charged and op_suffix(op) != "api-write" and v <= 0:
                 if not ctx.meta.get("zero_cost_exception"):
                     problems.append(f"{op}: charged op usd must be > 0 (got {v})")
         except (TypeError, ValueError):
@@ -1644,7 +1597,7 @@ def check_cost_ledger_valid(ctx: Context) -> tuple[str, bool, str]:
         if not row.get("call_id") and not row.get("timestamp"):
             problems.append(f"{op}: missing call_id and timestamp")
     for op in BIN_OPS:
-        if op not in seen_ops and op != "nextseek-api-write":
+        if op not in seen_ops and op_suffix(op) != "api-write":
             problems.append(f"missing ledger entry for {op}")
     ok = not problems
     return name, ok, ("cost_ledger ok" if ok else f"problems: {problems}")

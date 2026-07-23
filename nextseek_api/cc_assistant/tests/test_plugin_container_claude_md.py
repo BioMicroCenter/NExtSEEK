@@ -83,6 +83,14 @@ def test_container_claude_md_is_git_tracked_not_ignored():
     )
 
 
+def test_container_claude_md_documents_query_and_recall_ops():
+    text = CLAUDE_MD.read_text()
+    assert "nextseek-query" in text
+    assert "nextseek-recall" in text
+    assert "live chat session" in text.lower()
+    assert "--turn" in text
+
+
 def test_auto_gen_sentinel_block_intact():
     """The auto-gen sentinel block must remain present + structurally sound.
     BEGIN must precede END; content between them may be empty or non-empty."""
