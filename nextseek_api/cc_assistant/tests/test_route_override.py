@@ -44,7 +44,7 @@ def _stub_router(monkeypatch):
         route=cc_router.ROUTE_NS, model_class=None, model_id=None,
         reasoning="baml-sentinel", source="baml",
     )
-    monkeypatch.setattr(cc_router, "decide", lambda q: sentinel)
+    monkeypatch.setattr(cc_router, "decide", lambda q, history=None: sentinel)
     monkeypatch.setattr(cc_router, "_resolve_cc_model_id", lambda: "model-x")
 
 

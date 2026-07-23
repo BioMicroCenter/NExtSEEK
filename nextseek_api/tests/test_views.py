@@ -28,7 +28,13 @@ MOCK_DB = {
         "USER": "testuser",
         "PASSWORD": "testpass",
         "NAME": "testdb",
-    }
+    },
+    "seek": {
+        "HOST": "localhost",
+        "USER": "testuser",
+        "PASSWORD": "testpass",
+        "NAME": "testdb",
+    },
 }
 
 NEO4J_DB = {

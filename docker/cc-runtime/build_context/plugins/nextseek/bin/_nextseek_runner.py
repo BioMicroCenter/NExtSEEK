@@ -93,19 +93,48 @@ def _dispatch_parse(args):
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
 
 
+def _make_client():  # pragma: no cover
+    import _assistant_client as ac  # pragma: no cover
+    return ac.AssistantClient(  # pragma: no cover
+        base_url=os.environ["NEXTSEEK_URL"],  # pragma: no cover
+        assistant_prefix=os.environ.get("NEXTSEEK_ASSISTANT_PREFIX", "nextseek_api/assistant"),  # pragma: no cover
+        auth=(_api_user(), _api_pass()),  # pragma: no cover
+    )  # pragma: no cover
+
+
+def _scratch_dir() -> str:
+    return os.environ.get("NEXTSEEK_SCRATCH_DIR", "/data/scratch")
+
+
+def _total_and_rows(api_result_full: dict) -> tuple[int | None, int, list]:
+    """(total, row_count, rows) — parity with ns_turn_context._total_and_rows."""
+    data = api_result_full.get("data") if isinstance(api_result_full, dict) else None
+    for container in (data, api_result_full):
+        if not isinstance(container, dict):
+            continue
+        total = (container.get("total") or container.get("total_samples")
+                 or container.get("total_nodes"))
+        rows = None
+        for key in ("rows", "nodes", "data"):
+            cand = container.get(key)
+            if isinstance(cand, list):
+                rows = cand
+                break
+        if rows is not None:
+            return total, len(rows), rows
+        if container is data:
+            return total, 0, []
+    return None, 0, []
+
+
 def _run_viewset(query: str, mode: str, *, session_id: str | None = None) -> dict:  # pragma: no cover  # Minor-8
     """Shared helper: drive the NExtSEEK assistant viewset for query/plan/pipeline ops.
 
     Handles 401/HTTP/transport errors uniformly and returns the shaped terminal
     dict {"reply": str, "debug": {...}, "bundle_id": int|None}.
     """
-    import _assistant_client as ac  # pragma: no cover
     import httpx  # pragma: no cover
-    client = ac.AssistantClient(  # pragma: no cover
-        base_url=os.environ["NEXTSEEK_URL"],  # pragma: no cover
-        assistant_prefix=os.environ.get("NEXTSEEK_ASSISTANT_PREFIX", "nextseek_api/assistant"),  # pragma: no cover
-        auth=(_api_user(), _api_pass()),  # pragma: no cover
-    )  # pragma: no cover
+    client = _make_client()  # pragma: no cover
     try:  # pragma: no cover
         terminal, _ = client.run_query(query, mode=mode, session_id=session_id)  # pragma: no cover
     except httpx.HTTPStatusError as e:  # pragma: no cover
@@ -227,6 +256,175 @@ def _dispatch_generate_submission(args):
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
 
 
+def _dispatch_query(args):
+    """Single-shot orchestrator via the NExtSEEK assistant viewset (PD-5).
+
+    Runs in the LIVE chat session (NEXTSEEK_CHAT_SESSION_ID). On a terminal
+    with bundle_id, downloads the bundle and materializes rows to
+    scratch/query/result-{bundle_id}.json; returns a unified manifest + reply.
+    Without bundle_id, returns a reply-only manifest and writes nothing.
+    """
+    session_id = os.environ.get("NEXTSEEK_CHAT_SESSION_ID")
+    if not session_id:
+        _err("CONFIG_MISSING", "NEXTSEEK_CHAT_SESSION_ID not set", 2)
+
+    if _dry_run():  # pragma: no branch
+        return {"reply": "[dry-run]", "debug": {}, "bundle_id": None}  # pragma: no cover
+
+    mode = "plan" if args.planner else "standard"
+    client = _make_client()
+    try:
+        terminal, _ = client.run_query(
+            args.query,
+            mode=mode,
+            session_id=session_id,
+            force_new=False,
+        )
+    except Exception as e:
+        import httpx  # pragma: no cover
+        if isinstance(e, httpx.HTTPStatusError):
+            if e.response.status_code == 401:
+                _err("AUTH_FAILED", "authentication failed (check NS credentials)", 8)
+            _err("AGENT_FAILED", f"HTTP {e.response.status_code}", 4)
+        if isinstance(e, httpx.TransportError):
+            _err("TRANSPORT_ERROR", f"viewset unreachable: {type(e).__name__}", 7)
+        raise
+
+    if "__error__" in terminal:
+        _err("AGENT_FAILED", terminal["__error__"], 4)
+
+    reply = terminal.get("reply", "")
+    bundle_id = terminal.get("bundle_id")
+    if not isinstance(bundle_id, int) or isinstance(bundle_id, bool):
+        return {
+            "turn_id": None,
+            "bundle_id": None,
+            "total": None,
+            "row_count": None,
+            "columns": None,
+            "path": None,
+            "reply": reply,
+        }
+
+    dl_session = terminal.get("session_id") or session_id
+    try:
+        bundle = client.download_bundle(dl_session, bundle_id)
+    except Exception as e:
+        import httpx  # pragma: no cover
+        if isinstance(e, httpx.HTTPStatusError):
+            if e.response.status_code == 401:
+                _err("AUTH_FAILED", "authentication failed (check NS credentials)", 8)
+            _err("AGENT_FAILED", f"HTTP {e.response.status_code}", 4)
+        if isinstance(e, httpx.TransportError):
+            _err("TRANSPORT_ERROR", f"viewset unreachable: {type(e).__name__}", 7)
+        raise
+
+    api_full = bundle.get("api_result_full") or {}
+    total, row_count, rows = _total_and_rows(api_full)
+    first = rows[0] if rows and isinstance(rows[0], dict) else {}
+    columns = [str(k) for k in first.keys()]
+
+    dest_dir = os.path.join(_scratch_dir(), "query")
+    dest = os.path.join(dest_dir, f"result-{bundle_id}.json")
+    import orjson  # pragma: no cover
+    os.makedirs(dest_dir, exist_ok=True)
+    with open(dest, "wb") as fh:
+        fh.write(orjson.dumps(rows))
+
+    return {
+        "turn_id": None,
+        "bundle_id": bundle_id,
+        "total": total,
+        "row_count": row_count,
+        "columns": columns,
+        "path": dest,
+        "reply": reply,
+    }
+
+
+def _dispatch_recall(args):
+    """Fetch a prior NS turn's raw rows by explicit turn_id (§4.C).
+
+    Resolves turn_id → bundle_id via session detail, downloads the bundle,
+    materializes rows to scratch/recall/turn-<N>.json, returns manifest.
+    No latest-bundle fallback; errors before any scratch write.
+    """
+    session_id = os.environ.get("NEXTSEEK_CHAT_SESSION_ID")
+    if not session_id:
+        _err("CONFIG_MISSING", "NEXTSEEK_CHAT_SESSION_ID not set", 2)
+
+    turn_id = args.turn
+    if turn_id is None:
+        _err("VALIDATION", "--turn required", 3)
+
+    client = _make_client()
+    try:
+        detail = client.session_detail(session_id, include_turns=True)
+    except Exception as e:
+        import httpx  # pragma: no cover
+        if isinstance(e, httpx.HTTPStatusError):
+            if e.response.status_code == 401:
+                _err("AUTH_FAILED", "authentication failed (check NS credentials)", 8)
+            _err("AGENT_FAILED", f"HTTP {e.response.status_code}", 4)
+        if isinstance(e, httpx.TransportError):
+            _err("TRANSPORT_ERROR", f"viewset unreachable: {type(e).__name__}", 7)
+        raise
+
+    turns = detail.get("turns") or []
+    match = next(
+        (t for t in turns
+         if isinstance(t, dict) and t.get("turn_id") == turn_id),
+        None,
+    )
+    if match is None:
+        _err("RECALL_FAILED", f"turn {turn_id} not found", 5)
+
+    bundle_id = match.get("bundle_id")
+    if not isinstance(bundle_id, int) or isinstance(bundle_id, bool):
+        _err("RECALL_FAILED", f"turn {turn_id} has no bundle_id", 5)
+
+    try:
+        bundle = client.download_bundle(session_id, bundle_id)
+    except Exception as e:
+        import httpx  # pragma: no cover
+        if isinstance(e, httpx.HTTPStatusError):
+            if e.response.status_code == 401:
+                _err("AUTH_FAILED", "authentication failed (check NS credentials)", 8)
+            _err("AGENT_FAILED", f"HTTP {e.response.status_code}", 4)
+        if isinstance(e, httpx.TransportError):
+            _err("TRANSPORT_ERROR", f"viewset unreachable: {type(e).__name__}", 7)
+        raise
+
+    api_full = bundle.get("api_result_full") or {}
+    total, row_count, rows = _total_and_rows(api_full)
+    first = rows[0] if rows and isinstance(rows[0], dict) else {}
+    columns = [str(k) for k in first.keys()]
+
+    dest_dir = os.path.join(_scratch_dir(), "recall")
+    dest = os.path.join(dest_dir, f"turn-{turn_id}.json")
+    import orjson  # pragma: no cover
+    os.makedirs(dest_dir, exist_ok=True)
+    with open(dest, "wb") as fh:
+        fh.write(orjson.dumps(rows))
+
+    return {
+        "turn_id": turn_id,
+        "bundle_id": bundle_id,
+        "total": total,
+        "row_count": row_count,
+        "columns": columns,
+        "path": dest,
+    }
+
+
+def _api_user() -> str:  # pragma: no cover
+    return os.environ.get("API_USER", "")  # pragma: no cover
+
+
+def _api_pass() -> str:  # pragma: no cover
+    return os.environ.get("API_PASS", "")  # pragma: no cover
+
+
 def _dispatch_pipeline(args):
     """Hand a CC-composed summary message to NS pipeline_agent (deterministic bridge).
 
@@ -242,28 +440,6 @@ def _dispatch_pipeline(args):
     if _dry_run():
         return {"reply": "[dry-run]", "debug": {}, "bundle_id": None}
     return _run_viewset(args.message, mode="pipeline", session_id=session_id)
-
-
-def _dispatch_query(args):
-    """Single-shot orchestrator via the NExtSEEK assistant viewset.
-
-    Routes to run_query (standard) or run_query_plan (--planner flag).
-    Returns the terminal payload shaped as {"reply": str, "debug": {...},
-    "bundle_id": int|None}. Preserves the .reply extraction contract used
-    by the nextseek-query shim (recon:runner §2b).
-    """
-    if _dry_run():  # pragma: no branch
-        return {"reply": "[dry-run]", "debug": {}, "bundle_id": None}  # pragma: no cover
-    mode = "plan" if args.planner else "standard"  # pragma: no cover
-    return _run_viewset(args.query, mode=mode)  # pragma: no cover
-
-
-def _api_user() -> str:  # pragma: no cover
-    return os.environ.get("API_USER", "")  # pragma: no cover
-
-
-def _api_pass() -> str:  # pragma: no cover
-    return os.environ.get("API_PASS", "")  # pragma: no cover
 
 
 def _dispatch_run_ls(args):
@@ -301,6 +477,7 @@ def _dispatch_build_upload_xlsx(args):
 
 _DISPATCH = {
     "query": _dispatch_query,
+    "recall": _dispatch_recall,
     "entity": _dispatch_entity,
     "parse": _dispatch_parse,
     "plan": _dispatch_plan,
@@ -332,6 +509,7 @@ def main() -> None:
     p.add_argument("--existing-parent-uids")  # for build-upload-xlsx (Parent QA)
     p.add_argument("--planner", action="store_true",  # for query
                    help="Use run_query_plan instead of run_query (multi-step capable)")
+    p.add_argument("--turn", type=int)  # for recall
     args = p.parse_args()
 
     # Normalise env once, before any downstream read.

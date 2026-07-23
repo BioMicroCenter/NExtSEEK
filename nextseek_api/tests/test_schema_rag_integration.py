@@ -1,8 +1,14 @@
 """
 Integration tests for Schema RAG feature.
 
-Tests the full HTTP endpoint flow with real network calls to the FAIRDOM SEEK
-OpenAPI schema. These tests require network access and may be slow.
+Tests the full HTTP endpoint flow hermetically: the FAIRDOM SEEK OpenAPI
+schema is served from the vendored fixture
+``nextseek_api/tests/fixtures/fairdomhub_openapi_v3_resolved.yaml`` (the
+``requests.get`` at the schema-processor import site is patched — the ONLY
+patch in this module). Embeddings are REAL: the tests load the actual
+``BAAI/bge-small-en-v1.5`` model from the per-checkout cache at
+``schema_rag/embedding_models`` (provision it once per checkout with
+``startup/dev/provision_embedding_model.sh``). No network access is needed.
 
 Mark tests with @tag('slow', 'integration') for easy filtering.
 Use --exclude-tag=slow to skip these tests in CI/quick test runs.
@@ -10,9 +16,11 @@ Use --exclude-tag=slow to skip these tests in CI/quick test runs.
 
 import os
 import shutil
-import socket
 import tempfile
-from unittest import skipIf
+from pathlib import Path
+from unittest.mock import patch, Mock
+
+import yaml
 
 from django.test import tag
 from django.conf import settings
@@ -25,18 +33,70 @@ from rest_framework import status
 # FAIRDOM SEEK OpenAPI schema URL
 SEEK_OPENAPI_URL = "https://fairdomhub.org/api/definitions/openapi-v3-resolved.yaml"
 
+# Vendored copy of the schema the URL above serves (fetched 2026-07-22).
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "fairdomhub_openapi_v3_resolved.yaml"
 
-def is_network_available() -> bool:
-    """Check if network is available by trying to connect to fairdomhub.org."""
-    try:
-        socket.create_connection(("fairdomhub.org", 443), timeout=5)
-        return True
-    except (socket.timeout, socket.error, OSError):
-        return False
+_HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
+
+_fixture_cache = {}
 
 
-NETWORK_AVAILABLE = is_network_available()
-SKIP_NETWORK_MSG = "Network unavailable or fairdomhub.org unreachable"
+def _load_fixture_text() -> str:
+    """Load (and memoize) the vendored fairdomhub OpenAPI schema text."""
+    if "text" not in _fixture_cache:
+        _fixture_cache["text"] = FIXTURE_PATH.read_text()
+    return _fixture_cache["text"]
+
+
+def _mock_get_response(text: str) -> Mock:
+    """Mock of the requests.get response the schema processor consumes."""
+    return Mock(text=text, headers={}, raise_for_status=Mock())
+
+
+def _contains_ref(node) -> bool:
+    """True if a '$ref' key appears anywhere inside a parsed schema node."""
+    if isinstance(node, dict):
+        if "$ref" in node:
+            return True
+        return any(_contains_ref(v) for v in node.values())
+    if isinstance(node, list):
+        return any(_contains_ref(item) for item in node)
+    return False
+
+
+def _assert_fixture_sanity() -> None:
+    """
+    Fail loudly (once per process) if the vendored fixture has drifted from
+    the shape these tests depend on: >= 100 operations overall, and at least
+    one POST operation whose request body uses a $ref.
+    """
+    if _fixture_cache.get("sanity_ok"):
+        return
+    doc = yaml.safe_load(_load_fixture_text())
+    paths = doc.get("paths") or {}
+    num_operations = sum(
+        1
+        for path_item in paths.values()
+        if isinstance(path_item, dict)
+        for method in path_item
+        if method.lower() in _HTTP_METHODS
+    )
+    assert num_operations >= 100, (
+        f"fixture drift: expected >= 100 operations in {FIXTURE_PATH}, "
+        f"found {num_operations} — re-vendor from {SEEK_OPENAPI_URL}"
+    )
+    has_post_with_ref = any(
+        _contains_ref(path_item[method].get("requestBody", {}))
+        for path_item in paths.values()
+        if isinstance(path_item, dict)
+        for method in path_item
+        if method.lower() == "post" and isinstance(path_item[method], dict)
+    )
+    assert has_post_with_ref, (
+        f"fixture drift: no POST operation with a $ref-based request body in "
+        f"{FIXTURE_PATH} — re-vendor from {SEEK_OPENAPI_URL}"
+    )
+    _fixture_cache["sanity_ok"] = True
 
 
 @tag('slow', 'integration')
@@ -44,7 +104,8 @@ class SchemaRAGIntegrationTests(APITestCase):
     """
     Integration tests for Schema RAG HTTP endpoints.
 
-    These tests make real network calls to the FAIRDOM SEEK OpenAPI schema.
+    The FAIRDOM SEEK OpenAPI schema is served from the vendored fixture;
+    embeddings use the real per-checkout model (no network).
     They are marked as 'slow' and 'integration' for easy filtering.
     """
 
@@ -52,6 +113,8 @@ class SchemaRAGIntegrationTests(APITestCase):
     def setUpClass(cls):
         """Set up test fixtures that are shared across all tests in this class."""
         super().setUpClass()
+        # Fail loudly if the vendored schema fixture has drifted in shape
+        _assert_fixture_sanity()
         # Create temp directory for DuckDB files
         cls.temp_dir = tempfile.mkdtemp()
         # Store original settings value
@@ -78,6 +141,14 @@ class SchemaRAGIntegrationTests(APITestCase):
         )
         self.token = Token.objects.create(user=self.user)
         self.client = APIClient()
+        # Serve the vendored schema instead of hitting fairdomhub.org — the
+        # ONLY patch in this module (embeddings run the real model).
+        patcher = patch(
+            'nextseek_api.schema_rag.schema_processor.requests.get',
+            return_value=_mock_get_response(_load_fixture_text()),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         """Clean up after each test."""
@@ -91,7 +162,6 @@ class SchemaRAGIntegrationTests(APITestCase):
         """Set up authentication credentials."""
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
 
-    @skipIf(not NETWORK_AVAILABLE, SKIP_NETWORK_MSG)
     def test_ingest_seek_openapi(self):
         """
         Test ingesting the real FAIRDOM SEEK OpenAPI schema.
@@ -129,7 +199,6 @@ class SchemaRAGIntegrationTests(APITestCase):
         # Store session_id for subsequent tests
         self.__class__.session_id = data['session_id']
 
-    @skipIf(not NETWORK_AVAILABLE, SKIP_NETWORK_MSG)
     def test_retrieve_after_ingest(self):
         """
         Test retrieving endpoints after ingesting the schema.
@@ -187,7 +256,6 @@ class SchemaRAGIntegrationTests(APITestCase):
             self.assertIn('operationId', endpoint)
             self.assertIn('method', endpoint)
 
-    @skipIf(not NETWORK_AVAILABLE, SKIP_NETWORK_MSG)
     def test_retrieve_with_session_id(self):
         """
         Test retrieval using session_id from prior ingest.
@@ -223,7 +291,6 @@ class SchemaRAGIntegrationTests(APITestCase):
         self.assertEqual(data['session_id'], session_id)
         self.assertEqual(data['mode'], 'full')
 
-    @skipIf(not NETWORK_AVAILABLE, SKIP_NETWORK_MSG)
     def test_retrieve_with_schema_url(self):
         """
         Test retrieval using schema_url to find existing session.
@@ -305,6 +372,8 @@ class SchemaRAGFullModeIntegrationTests(APITestCase):
     def setUpClass(cls):
         """Set up shared test fixtures."""
         super().setUpClass()
+        # Fail loudly if the vendored schema fixture has drifted in shape
+        _assert_fixture_sanity()
         cls.temp_dir = tempfile.mkdtemp()
         cls._original_duckdb_dir = settings.SCHEMA_RAG_DUCKDB_DIR
         settings.SCHEMA_RAG_DUCKDB_DIR = cls.temp_dir
@@ -326,6 +395,14 @@ class SchemaRAGFullModeIntegrationTests(APITestCase):
         )
         self.token = Token.objects.create(user=self.user)
         self.client = APIClient()
+        # Serve the vendored schema instead of hitting fairdomhub.org — the
+        # ONLY patch in this module (embeddings run the real model).
+        patcher = patch(
+            'nextseek_api.schema_rag.schema_processor.requests.get',
+            return_value=_mock_get_response(_load_fixture_text()),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         """Clean up DuckDB files."""
@@ -338,7 +415,6 @@ class SchemaRAGFullModeIntegrationTests(APITestCase):
         """Set up authentication credentials."""
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
 
-    @skipIf(not NETWORK_AVAILABLE, SKIP_NETWORK_MSG)
     def test_retrieve_full_mode_includes_resolved_schema(self):
         """
         Test that full mode returns RESOLVED request_schema, not $ref placeholders.

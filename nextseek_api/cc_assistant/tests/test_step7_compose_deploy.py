@@ -198,16 +198,27 @@ def _matrix_row(op: str, *, run_id: str, cc_image: str, container_id: str,
                  exit_code: int = 0, excerpt: str | None = None,
                  transport: str | None = None, wall_secs: float = 4.2,
                  published_path: str | None = None) -> dict:
+    from nextseek_api.cc_assistant.bin_inventory import is_viewset_op, op_suffix
     from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import (
         OP_EXCERPT_ALLOWED_FIELDS,
     )
     if transport is None:
-        transport = "viewset" if op in ("nextseek-query", "nextseek-plan") else "sidecar"
+        transport = "viewset" if is_viewset_op(op) else "sidecar"
     if excerpt is None:
-        if op in ("nextseek-query", "nextseek-plan"):
+        suf = op_suffix(op)
+        if suf in ("query", "plan"):
             excerpt = json.dumps({"reply": f"[{op} ok]", "debug": {}, "bundle_id": None})
+        elif suf == "recall":
+            excerpt = json.dumps({
+                "turn_id": 1,
+                "bundle_id": 42,
+                "total": 1,
+                "row_count": 1,
+                "columns": ["uid"],
+                "path": "/data/scratch/recall/turn-1.json",
+            })
         else:
-            wire_op = op.removeprefix("nextseek-")
+            wire_op = suf if suf != "entity-extract" else "entity"
             allowed = OP_EXCERPT_ALLOWED_FIELDS.get(op, frozenset({"op", "result"}))
             body: dict = {"op": wire_op, "result": {}}
             if "download" in allowed:
@@ -224,9 +235,9 @@ def _matrix_row(op: str, *, run_id: str, cc_image: str, container_id: str,
         "wall_secs": wall_secs,
         "exercise_id": f"T18-{op.removeprefix('nextseek-')}-1",
         "upstream_ref": f"dmac-assistant@a429f13:fixture:{op}",
-        "cost_usd": 0.0 if op == "nextseek-api-write" else 0.01,
+        "cost_usd": 0.0 if op_suffix(op) == "api-write" else 0.01,
         "call_id": f"{run_id}-{op}-1",
-        "cost_source": "none" if op == "nextseek-api-write" else "llm_client_ledger",
+        "cost_source": "none" if op_suffix(op) == "api-write" else "llm_client_ledger",
     }
     if published_path is not None:
         row["published_path"] = published_path
@@ -247,6 +258,8 @@ def _write_matrix_artifacts(bundle_dir: Path, *, run_id: str = RUN_ID,
     to omit entirely (for negative "bundle missing X" tests)."""
     from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import BIN_OPS
 
+    from nextseek_api.cc_assistant.bin_inventory import op_suffix
+
     skip = skip or set()
     matrix_executor_id = "matrixcid" + "0" * 55
     matrix_executor_id = matrix_executor_id[:64]
@@ -261,13 +274,13 @@ def _write_matrix_artifacts(bundle_dir: Path, *, run_id: str = RUN_ID,
         if omit_matrix_ops and op in omit_matrix_ops:
             continue
         kwargs = {"run_id": run_id, "cc_image": cc_image, "container_id": matrix_executor_id}
-        if op == "nextseek-api-write":
+        if op_suffix(op) == "api-write":
             kwargs.update(exit_code=5, excerpt=json.dumps(
                 {"error": {"code": "WRITE_BLOCKED", "message": "nextseek-api-write requires --confirmed-write"}}
             ))
-        elif op == "nextseek-report":
+        elif op_suffix(op) == "report":
             kwargs["published_path"] = report_path
-        elif op == "nextseek-generate-submission":
+        elif op_suffix(op) == "generate-submission":
             kwargs["published_path"] = submission_path
         row = _matrix_row(op, **kwargs)
         if matrix_overrides and op in matrix_overrides:

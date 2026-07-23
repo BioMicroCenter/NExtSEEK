@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any
 
 from nextseek_api.cc_assistant import cc_engine
+from nextseek_api.cc_assistant.bin_inventory import discover_ops, op_suffix, transport_for_op
 from nextseek_api.cc_assistant.tests.validate_cc_acceptance import matrix_executor_name
 from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import (
     BIN_OPS,
@@ -77,30 +78,35 @@ def build_op_argv(
     project: str | None = None,
     submission_type: str | None = None,
     uids: str | None = None,
+    turn: int | None = None,
 ) -> list[str]:
     """The exact CLI argv for one bin op, matching each shim's own argument
     contract (docker/cc-runtime/build_context/plugins/nextseek/bin/*).
-    ``nextseek-query`` always passes ``--json`` -- its DEFAULT (no --json)
-    form prints only the extracted ``.reply`` string, which is not the
-    excerpt shape the validator's per-op allowlist expects."""
+    Query-family viewset ops that emit JSON excerpts pass ``--json`` where
+    the shim default would print human text only."""
     if op not in BIN_OPS:
         raise ValueError(f"unknown bin op: {op!r}")
-    if op in ("nextseek-entity-extract", "nextseek-parse", "nextseek-graph", "nextseek-plan"):
+    suf = op_suffix(op)
+    if suf in ("entity-extract", "parse", "graph", "plan"):
         if not query:
             raise ValueError(f"{op} requires query")
         return [op, "--query", query]
-    if op == "nextseek-query":
+    if suf == "query":
         if not query:
             raise ValueError(f"{op} requires query")
         return [op, "--query", query, "--json"]
-    if op == "nextseek-api-read":
+    if suf == "recall":
+        if turn is None:
+            raise ValueError(f"{op} requires turn")
+        return [op, "--turn", str(turn)]
+    if suf == "api-read":
         if not parser_plan:
             raise ValueError(f"{op} requires parser_plan")
         argv = [op, "--parser-plan", parser_plan]
         if query:
             argv += ["--query", query]
         return argv
-    if op == "nextseek-api-write":
+    if suf == "api-write":
         if not parser_plan:
             raise ValueError(f"{op} requires parser_plan")
         argv = [op, "--parser-plan", parser_plan]
@@ -109,11 +115,11 @@ def build_op_argv(
         if query:
             argv += ["--query", query]
         return argv
-    if op == "nextseek-report":
+    if suf == "report":
         if not mode or not project:
             raise ValueError(f"{op} requires mode and project")
         return [op, "--mode", mode, "--project", project]
-    if op == "nextseek-generate-submission":
+    if suf == "generate-submission":
         if not submission_type or not uids:
             raise ValueError(f"{op} requires submission_type and uids")
         return [op, "--type", submission_type, "--uids", uids]
@@ -297,7 +303,7 @@ def make_matrix_row(
     return row
 
 
-TRANSPORT_FOR_OP = {op: ("viewset" if op in ("nextseek-query", "nextseek-plan") else "sidecar") for op in BIN_OPS}
+TRANSPORT_FOR_OP = {op: transport_for_op(op) for op in BIN_OPS}
 
 
 # --------------------------------------------------------------------------

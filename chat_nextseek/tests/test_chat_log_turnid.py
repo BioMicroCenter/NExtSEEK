@@ -93,7 +93,7 @@ def test_append_turn_after_fifo_eviction_no_collision():
 
 def test_validate_accepts_ns_writer_output():
     session = {"chat_log": []}
-    append_turn(session, user_query="q", mode="new_search")
+    append_turn(session, user_query="q", mode="new_search", assistant_reply="answer")
     validate_chat_log_entry(session["chat_log"][-1])  # must not raise
 
 
@@ -106,10 +106,9 @@ def test_validate_rejects_str_turn_id():
         validate_chat_log_entry(entry)
 
 
-def test_validate_rejects_missing_required_field():
+def test_validate_accepts_absent_assistant_reply():
     entry = {"turn_id": 1, "ts": "t", "mode": "cc", "user_query": "q"}
-    with pytest.raises(ChatLogEntryError):
-        validate_chat_log_entry(entry)
+    validate_chat_log_entry(entry)  # assistant_reply optional per F §12.2
 
 
 def test_validate_rejects_bool_turn_id():

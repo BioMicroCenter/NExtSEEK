@@ -1,0 +1,31 @@
+#!/bin/sh
+# nextseek-query — single-shot deterministic NS run in the live chat session (PD-5).
+# Materializes bundle rows to scratch when the terminal carries a bundle_id.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+QUERY=""
+PLANNER=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --query) QUERY="$2"; shift 2 ;;
+    --query=*) QUERY="${1#--query=}"; shift ;;
+    --planner) PLANNER="--planner"; shift ;;
+    --help)
+      echo "Usage: nextseek-query --query \"<text>\" [--planner]"
+      echo ""
+      echo "Run the deterministic NS path in the live chat session."
+      echo "When the terminal includes a bundle_id, raw rows are materialized"
+      echo "to /data/scratch/query/result-<bundle_id>.json and a manifest JSON"
+      echo "line is printed to stdout."
+      echo ""
+      echo "  --planner: use run_query_plan instead of run_query (multi-step)"
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$QUERY" ] || nextseek_die 3 "missing --query"
+
+exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent query --query "$QUERY" $PLANNER

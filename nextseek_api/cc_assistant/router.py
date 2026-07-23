@@ -24,6 +24,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+try:
+    from .router_context import HistoryTurn
+except ImportError:
+    from router_context import HistoryTurn
+
 logger = logging.getLogger(__name__)
 
 ROUTE_NS = "nextseek_query"
@@ -130,12 +135,21 @@ def _heuristic(query: str) -> RouteDecision:
     )
 
 
-def _baml_decision(query: str) -> RouteDecision | None:
+def _load_router_deps():
+    """Import dmac router deps — seam for hermetic tests."""
+    from dmac_assistant.router.agent import RouterAgent
+    from dmac_assistant.router.capabilities import load_capabilities
+    from dmac_assistant.router.baml_client.types import Route
+
+    return RouterAgent, load_capabilities, Route
+
+
+def _baml_decision(
+    query: str, history: list[HistoryTurn] | None = None
+) -> RouteDecision | None:
     """Try dmac's BAML router. Return None to signal 'use the heuristic'."""
     try:
-        from dmac_assistant.router.agent import RouterAgent
-        from dmac_assistant.router.capabilities import load_capabilities
-        from dmac_assistant.router.baml_client.types import Route
+        RouterAgent, load_capabilities, Route = _load_router_deps()
     except Exception as exc:  # noqa: BLE001
         logger.info("CC router: dmac BAML router unavailable (%s); using heuristic", type(exc).__name__)
         return None
@@ -144,7 +158,7 @@ def _baml_decision(query: str) -> RouteDecision | None:
     try:
         caps = load_capabilities(path=(ctx / "route_capabilities.json") if ctx else None)
         agent = RouterAgent(capabilities=caps)
-        decision = asyncio.run(agent.route(query))
+        decision = asyncio.run(agent.route(query, history=history or []))
     except Exception as exc:  # noqa: BLE001
         logger.warning("CC router: BAML route() failed (%s); using heuristic", type(exc).__name__)
         return None
@@ -167,36 +181,16 @@ def _baml_decision(query: str) -> RouteDecision | None:
         # pick the CC model id (OI-5).
         model_class="opus" if route == ROUTE_CC else None,
         model_id=_resolve_cc_model_id() if route == ROUTE_CC else None,
-        reasoning="baml",
+        reasoning=decision.reasoning or "baml",
         source="baml",
     )
 
 
-def _with_history(query: str, history: str) -> str:
-    """Augment the query the router sees with the conversation history + a steer
-    toward CC for follow-ups (#8). The router is otherwise stateless."""
-    return (
-        f"{query}\n\n"
-        "--- Conversation so far (earlier turns and their NExtSEEK results) ---\n"
-        f"{history}\n"
-        "--- End conversation ---\n"
-        "If the request above is a follow-up that refers to those earlier results "
-        '(e.g. "those", "them", "these", "of those"), route it to container_cc, '
-        "which carries the conversation memory to resolve the reference."
-    )
-
-
-def decide(query: str, history: str | None = None) -> RouteDecision:
-    """Return the route decision for a user query (BAML-first, heuristic fallback).
-
-    When ``history`` (a compact conversation block, see cc_history) is present,
-    the query handed to the BAML router is augmented with it so the otherwise
-    stateless router can recognise a follow-up and route it to CC, where the
-    conversation memory now lives (#8). The keyword heuristic fallback still
-    sees the raw query.
-    """
-    routed_query = _with_history(query, history) if history else query
-    decision = _baml_decision(routed_query)
+def decide(
+    query: str, history: list[HistoryTurn] | None = None
+) -> RouteDecision:
+    """Return the route decision for a user query (BAML-first, heuristic fallback)."""
+    decision = _baml_decision(query, history)
     if decision is not None:
         return decision
     return _heuristic(query)

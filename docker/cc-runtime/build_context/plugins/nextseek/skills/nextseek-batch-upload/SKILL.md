@@ -35,7 +35,7 @@ plus optional inspection.
 ## Step 0: Identify the target samples
 
 Before the Required Flow you must know which samples to build rows for. Discover
-them with the granular, deterministic ops below — not with `nextseek-query`. The
+them with the granular, deterministic ops below — not with `nextseek-query` (available for query workflows, wrong for upload preparation). The
 granular ops return a plan and rows you can inspect directly; use them for target
 discovery.
 

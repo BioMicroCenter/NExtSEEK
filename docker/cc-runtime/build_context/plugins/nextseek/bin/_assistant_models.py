@@ -107,6 +107,12 @@ class Turn(BaseModel):
     # gets) since the item shape is a file/table manifest, not a fixed schema.
     ts: str | None = None
     artifacts: list[dict[str, Any]] | None = None
+    # plan-010 / spec-001: server Turn (models_api.py) now emits turn_id (unified
+    # chat_log int) and cc_traces (CC cost/trace mirror). Without these optional
+    # fields, session_detail(include_turns=True) raises extra_forbidden and
+    # nextseek-recall cannot resolve turn_id → bundle_id.
+    turn_id: int | None = None
+    cc_traces: list[dict[str, Any]] | None = None
 
 
 class SessionDetailResponse(BaseModel):

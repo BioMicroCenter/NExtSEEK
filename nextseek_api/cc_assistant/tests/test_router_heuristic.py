@@ -53,7 +53,7 @@ def test_decide_falls_back_to_heuristic_when_baml_unavailable(monkeypatch):
     # returning source="baml" and failing this assertion.)
     consulted = []
 
-    def _unavailable(query):
+    def _unavailable(query, history=None):
         consulted.append(query)
         return None  # signal "BAML router unavailable" -> decide() uses heuristic
 

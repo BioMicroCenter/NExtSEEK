@@ -55,13 +55,15 @@ from nextseek_api.services.assistant import (
 from chat_nextseek.orchestrator import run_query, run_query_plan
 
 from nextseek_api.cc_assistant import router as cc_router
+from nextseek_api.cc_assistant import router_context
 from nextseek_api.cc_assistant import cc_engine
 from nextseek_api.cc_assistant import cc_config
 from nextseek_api.cc_assistant import cc_session
 from nextseek_api.cc_assistant import cc_summary
 from nextseek_api.cc_assistant import cc_memory
 from nextseek_api.cc_assistant import cc_memory_io
-from nextseek_api.cc_assistant import cc_history
+from nextseek_api.cc_assistant import ns_digest
+from nextseek_api.cc_assistant import ns_turn_context
 from nextseek_api.cc_assistant.cc_provision import ProjectResolutionError
 
 from nextseek_api.cc_assistant.cc_turn_complete import (
@@ -69,6 +71,8 @@ from nextseek_api.cc_assistant.cc_turn_complete import (
     apply_turn_to_extra_state,
 )
 from chat_nextseek.pipeline import agent as pipeline_agent
+from nextseek_api.cc_assistant import cc_turn_complete
+from chat_nextseek.chat_memory import next_turn_id
 from nextseek_api.cc_assistant import cc_transcript_store
 from nextseek_api.assistant.models_db import CCSessionTranscript
 
@@ -157,7 +161,14 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     from nextseek_api.cc_assistant.cc_provision import build_user_dirs
 
     metas = []
-    qs = ChatSession.objects.filter(user=user).order_by("-updated_at")
+    # results_history can be multi-MB JSON; including it in ORDER BY filesort
+    # trips MySQL "Out of sort memory" (errno 1038) after large NS turns.
+    # This helper only needs session_id / extra_state / updated_at.
+    qs = (
+        ChatSession.objects.filter(user=user)
+        .defer("results_history")
+        .order_by("-updated_at")
+    )
     for s in qs:
         sid = str(s.session_id)
         es = s.extra_state or {}
@@ -188,7 +199,7 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     return metas
 
 
-def _decide_route(user, req, *, force_cc: bool, session=None, history: str | None = None) -> cc_router.RouteDecision:
+def _decide_route(user, req, *, force_cc: bool, session=None, history: list[router_context.HistoryTurn] | None = None) -> cc_router.RouteDecision:
     """Pick the route for a query, honoring the admin-only ``force_route`` override.
 
     Precedence: an explicit force (``force_cc`` or an admin's ``force_route``)
@@ -280,6 +291,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
         )
         resolved_session_id = str(chat_session.session_id)
         send_event = make_db_event_callback(str(query_task.task_id), resolved_session_id)
+        terminal_seen = cc_turn_complete.new_terminal_tracker()
+        send_event = cc_turn_complete.wrap_send_event(send_event, terminal_seen)
         adapter = DictSessionAdapter(chat_session)
         api_user, api_pass = self._resolve_credentials(request)
         user_api_user, user_api_pass = api_user, api_pass
@@ -307,27 +320,28 @@ class CCAssistantViewSet(viewsets.ViewSet):
         _requested_timeout = getattr(req, "max_turn_length_s", None) if _is_admin else None
         resolved_turn_timeout = cc_engine.clamp_turn_timeout(_requested_timeout)
 
-        # Cross-route shared memory (#8): a compact block of prior turns (NS + CC,
-        # from the unified chat_log) that steers the stateless router toward CC
-        # for follow-ups AND lets the CC agent resolve references like "those".
-        conversation_history = cc_history.build_conversation_history(
-            (chat_session.extra_state or {}).get("chat_log")
-        )
-
         def _run() -> None:
             ran_ns = False
+            decision = None
             try:
-                decision = _decide_route(request.user, req, force_cc=force_cc, session=adapter, history=conversation_history)
+                history = router_context.build_history(
+                    (chat_session.extra_state or {}).get("chat_log") or []
+                )
+                decision = _decide_route(request.user, req, force_cc=force_cc, session=adapter, history=history)
 
                 send_event("route_decided", {
                     "route": decision.route, "model_class": decision.model_class,
-                    "source": decision.source,
-                    "reasoning": getattr(decision, "reasoning", None),
+                    "source": decision.source, "reasoning": decision.reasoning,
                 })
 
                 if decision.route == cc_router.ROUTE_UNRELATED:
-                    # OI-4: out-of-scope query — never runs NS or CC; emit the
-                    # canned out-of-scope reply and finish (mirrors dmac ws.py).
+                    from django.utils import timezone
+                    chat_session.extra_state = cc_turn_complete.apply_non_answer_to_extra_state(
+                        chat_session.extra_state, user_query=req.query,
+                        router_choice=cc_router.ROUTE_UNRELATED, status="completed",
+                        error=None, ts=timezone.now().isoformat(timespec="seconds"),
+                        cap=MAX_CC_CHAT_LOG_TURNS)
+                    chat_session.save(update_fields=["extra_state", "updated_at"])
                     send_event("query_complete", {
                         "reply": cc_router.UNRELATED_CANNED_TEXT,
                         "bundle_id": None,
@@ -413,8 +427,12 @@ class CCAssistantViewSet(viewsets.ViewSet):
                     fresh = bool(getattr(req, "fresh_session", False))
                     memory_claude_md = None
                     transcripts_subpath = None
+                    dirs = build_user_dirs(
+                        paths, project_dirname, request.user.username,
+                        session_id=cc_state_key)
+                    mem_root = Path(dirs.memory_mnt)
+                    memory_md = ""
                     if not fresh:
-                        from pathlib import Path
                         from django.utils import timezone
 
                         metas = _session_metas(
@@ -443,22 +461,20 @@ class CCAssistantViewSet(viewsets.ViewSet):
 
                         window = cc_memory.select_window(
                             metas, current_id=cc_state_key, window_size=mem_cfg.window_size)
-                        dirs = build_user_dirs(
-                            paths, project_dirname, request.user.username,
-                            session_id=cc_state_key)
-                        mem_root = Path(dirs.memory_mnt)
-                        md = cc_memory.render_memory(
+                        memory_md = cc_memory.render_memory(
                             window, fresh_session=False,
                             transcripts_mount=cc_engine._CONTAINER_MEMORY_TRANSCRIPTS)
-                        written = cc_memory_io.write_memory_file(mem_root / "CLAUDE.md", md)
                         staged = cc_memory_io.stage_transcripts(window, mem_root / "transcripts")
-                        # G7-10: pass the merged CLAUDE.md's MOUNT path (run_cc_turn
-                        # byte-copies it into the cc-state subpath before spawn) and
-                        # the transcripts volume subpath (RO-mounted) — no host xlate.
-                        if written:
-                            memory_claude_md = str(written)
                         if staged:
                             transcripts_subpath = dirs.transcripts_subpath
+                    digest_md = ns_digest.render_digest(ns_turn_context.build_contexts(
+                        (chat_session.extra_state or {}).get("chat_log") or [],
+                        chat_session.results_history or [],
+                        session_id=str(chat_session.session_id)))
+                    combined = ns_digest.compose_turn_claude_md(digest_md, memory_md)
+                    written = cc_memory_io.write_memory_file(mem_root / "CLAUDE.md", combined)
+                    if written:
+                        memory_claude_md = str(written)
 
                     # Surface the CC turn's parameters in the Debug panel (#4):
                     # model, resume session, budget cap, and the resolved
@@ -470,7 +486,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         "turn_timeout_s": resolved_turn_timeout,
                     })
                     cc_engine.run_cc_turn(
-                        query=cc_history.cc_prompt_with_history(req.query, conversation_history),
+                        query=req.query,
                         model_id=decision.model_id,
                         send_event=cc_send,
                         user_id=cc_user_id,
@@ -486,6 +502,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         user_query=req.query or "",
                         on_turn_complete=_append_cc_turn_complete,
                         turn_timeout=resolved_turn_timeout,
+                        chat_session_id=cc_state_key,
                     )
             except Exception:
                 logger.exception("cc-assistant pipeline error")
@@ -494,6 +511,26 @@ class CCAssistantViewSet(viewsets.ViewSet):
                     "session_id": resolved_session_id,
                 })
             finally:
+                unrelated = decision is not None and decision.route == cc_router.ROUTE_UNRELATED
+                if cc_turn_complete.should_append_non_answer(terminal_seen, unrelated=unrelated):
+                    from django.utils import timezone
+                    ts = timezone.now().isoformat(timespec="seconds")
+                    rc = decision.route if decision is not None else None
+                    err = terminal_seen["error"]
+                    if ran_ns:
+                        log = list(adapter.get("chat_log") or [])
+                        entry = cc_turn_complete.serialize_non_answer_entry(
+                            user_query=req.query, router_choice=rc, status="error",
+                            error=err, ts=ts, turn_id=next_turn_id(log))
+                        adapter["chat_log"] = cc_turn_complete.append_capped(
+                            log, entry, cap=MAX_CC_CHAT_LOG_TURNS)
+                    else:
+                        chat_session.refresh_from_db(fields=["extra_state"])
+                        chat_session.extra_state = cc_turn_complete.apply_non_answer_to_extra_state(
+                            chat_session.extra_state, user_query=req.query,
+                            router_choice=rc, status="error", error=err, ts=ts,
+                            cap=MAX_CC_CHAT_LOG_TURNS)
+                        chat_session.save(update_fields=["extra_state", "updated_at"])
                 if ran_ns:
                     adapter.save()
                 # Title the chat for every route that reached here, not just NS

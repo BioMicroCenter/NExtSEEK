@@ -42,7 +42,59 @@ def serialize_cc_chat_log_entry(payload: TurnCompletePayload, *, turn_id: int) -
         "cc_traces": payload.cc_traces,
         "turn_id": turn_id,
         "cc_run_id": payload.turn_id,
+        "router_choice": "container_cc",
+        "status": "completed",
     }
+
+
+def serialize_non_answer_entry(*, user_query: str, router_choice: str | None,
+                               status: str, error: str | None, ts: str,
+                               turn_id: int) -> dict:
+    """A chat_log entry for a turn that produced no real assistant reply."""
+    entry: dict = {
+        "turn_id": turn_id,
+        "ts": ts,
+        "mode": "cc" if router_choice == "container_cc" else (router_choice or "unknown"),
+        "user_query": user_query,
+        "router_choice": router_choice,
+        "status": status,
+    }
+    if error:
+        entry["error"] = error
+    return entry
+
+
+def apply_non_answer_to_extra_state(extra_state: dict | None, *, user_query: str,
+                                    router_choice: str | None, status: str,
+                                    error: str | None, ts: str,
+                                    cap: int = 50) -> dict:
+    """Pure RMW: NEW extra_state with the non-answer turn appended to chat_log."""
+    es = dict(extra_state or {})
+    existing_log = list(es.get("chat_log") or [])
+    entry = serialize_non_answer_entry(
+        user_query=user_query, router_choice=router_choice, status=status,
+        error=error, ts=ts, turn_id=next_turn_id(existing_log))
+    es["chat_log"] = append_capped(existing_log, entry, cap=cap)
+    return es
+
+
+def new_terminal_tracker() -> dict:
+    return {"error": None, "completed": False}
+
+
+def wrap_send_event(cb, tracker):
+    """Wrap send_event to record terminal state; FIRST query_error wins (AR-16)."""
+    def _wrapped(event_type, data):
+        if event_type == "query_error" and tracker["error"] is None:
+            tracker["error"] = str((data or {}).get("error") or "") or "unknown error"
+        elif event_type == "query_complete":
+            tracker["completed"] = True
+        cb(event_type, data)
+    return _wrapped
+
+
+def should_append_non_answer(tracker: dict, *, unrelated: bool) -> bool:
+    return bool(tracker["error"]) and not tracker["completed"] and not unrelated
 
 
 def append_capped(chat_log: list, entry: dict, *, cap: int = 50) -> list:

@@ -1132,6 +1132,8 @@ def run_query(
                 intent_summary=f"Fatal LLM error in {agent or 'unknown'} agent.",
                 tool_summary={"fatal": True, "agent": agent, "error": msg[:240]},
                 assistant_reply=reply,
+                status="error",
+                error=msg,
             )
         except Exception as log_err:  # pragma: no cover
             print(f"[FATAL] failed to log chat_log turn: {log_err!r}")
@@ -1617,6 +1619,8 @@ def run_query_plan(
                 intent_summary=f"Fatal LLM error in planner pipeline (agent={agent}).",
                 tool_summary={"fatal": True, "agent": agent, "error": msg[:240]},
                 assistant_reply=reply,
+                status="error",
+                error=msg,
             )
         except Exception as log_err:
             print(f"[FATAL][PLAN] failed to log chat_log turn: {log_err!r}")
@@ -1628,6 +1632,11 @@ def run_query_plan(
         print(f"[ERROR][PLAN] run_query_plan unhandled exception: {e!r}")
         traceback.print_exc()
         reply = f"An unexpected error occurred in the planner pipeline: {e}"
+        try:
+            append_turn(session, user_query=user_text, mode="error_plan_pipeline",
+                        assistant_reply=reply, status="error", error=repr(e))
+        except Exception:
+            print("[FATAL] failed to log chat_log turn for plan pipeline error")
         return _emit_query_complete(send_event, reply, {"error": repr(e)}, None)
 
 

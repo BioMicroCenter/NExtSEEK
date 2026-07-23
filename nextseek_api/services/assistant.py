@@ -538,6 +538,12 @@ class AssistantViewSet(viewsets.ViewSet):
                         continue
                     bid = entry.get("bundle_id")
                     bundle = bundles_by_id.get(bid) if bid is not None else None
+                    if not (entry.get("assistant_reply")
+                            or entry.get("assistant_reply_preview")
+                            or bundle):
+                        # PD-6: hide ONLY true non-answer entries (unrelated/error,
+                        # F §12.3). Legacy preview-only turns keep rendering.
+                        continue
                     # Prefer the full reply stored directly on the chat_log entry
                     # (wizard turns don't produce bundles, so this is the only
                     # full-text source for them). Fall back to the bundle's
@@ -552,6 +558,7 @@ class AssistantViewSet(viewsets.ViewSet):
                     turns.append(
                         Turn(
                             bundle_id=bid if bid is not None else 0,
+                            turn_id=entry.get("turn_id") if isinstance(entry.get("turn_id"), int) else None,
                             user_query=entry.get("user_query", ""),
                             reply=reply,
                             mode=entry.get("mode", ""),

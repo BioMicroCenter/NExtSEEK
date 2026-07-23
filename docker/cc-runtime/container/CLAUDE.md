@@ -16,6 +16,13 @@ The image ships one plugin, discoverable at fixed paths:
 
 When a user asks about NExtSEEK data, read the SKILL.md first. The plugin's CLI tools are in `/app/plugins/nextseek/bin/` and read credentials from `NEXTSEEK_USERNAME` / `NEXTSEEK_PASSWORD` (translated to `API_USER` / `API_PASS` by the container entrypoint).
 
+Query-path bin ops (hand-authored; see SKILL.md for the full matrix):
+
+| Op | Role |
+|---|---|
+| `nextseek-query` | Single-shot deterministic NS run in the live chat session; writes a scratch manifest when a bundle is present. |
+| `nextseek-recall` | Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned. |
+
 ## Skills in this image
 
 The `nextseek` plugin ships two skills. Both are read-only toward NExtSEEK: the `nextseek` skill's query path only reads, and the `nextseek-batch-upload` skill only builds and validates a payload for the user to inspect — it never uploads or writes. Choose the right one up front, because the choice governs the whole turn, not just its first step. Read the chosen skill's SKILL.md before acting.

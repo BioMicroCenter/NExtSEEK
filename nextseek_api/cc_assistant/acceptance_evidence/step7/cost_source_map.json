@@ -67,6 +67,14 @@
       "usd_field": "computed_from_tokens",
       "correlation_field": "call_id"
     },
+    "nextseek-recall": {
+      "charged": true,
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id",
+      "notes": "Viewset session/bundle path; no Bedrock on happy path but charged when CC-routed"
+    },
     "forced_cc_turn": {
       "charged": true,
       "source_system": "claude_code_result",

@@ -211,6 +211,71 @@ def test_agent_env_has_no_shared_cred_keys_or_values():
     assert env["NEXTSEEK_URL"] == "http://nextseek_nginx"
 
 
+def test_chat_session_id_env_present_when_passed():
+    env = cc_engine.build_agent_environment(
+        source={}, api_user="u", api_pass="p", path_mappings={},
+        chat_session_id="abc-123")
+    assert env["NEXTSEEK_CHAT_SESSION_ID"] == "abc-123"
+
+
+def test_chat_session_id_absent_when_not_passed():
+    env = cc_engine.build_agent_environment(
+        source={}, api_user="u", api_pass="p", path_mappings={})
+    assert "NEXTSEEK_CHAT_SESSION_ID" not in env
+
+
+def test_agent_env_exact_key_set():
+    """OI-3: pin the COMPLETE env key set (no such exact-set test exists today —
+    claim-verified). Any future key addition must consciously edit this list."""
+    env = cc_engine.build_agent_environment(
+        source={"AWS_REGION": "us-east-1", "NEXTSEEK_INTERNAL_BASE_URL": "http://x:8000"},
+        api_user="u", api_pass="p", path_mappings={"a": 1},
+        chat_session_id="abc")
+    assert set(env) == {
+        "CLAUDE_CODE_USE_BEDROCK", "ANTHROPIC_BEDROCK_BASE_URL",
+        "CLAUDE_CODE_SKIP_BEDROCK_AUTH", "CLAUDE_CODE_ENABLE_AUTO_MODE",
+        "NEXTSEEK_USERNAME", "API_USER", "NEXTSEEK_PASSWORD", "API_PASS",
+        "AWS_REGION", "NEXTSEEK_BASE_URL", "NEXTSEEK_URL",
+        "NEXTSEEK_SIDECAR_HOST", "NEXTSEEK_SIDECAR_PORT", "DMAC_PATH_MAPPINGS",
+        "NEXTSEEK_CHAT_SESSION_ID",
+    }
+
+
+def test_run_cc_turn_threads_session_id_into_container_env(tmp_path, monkeypatch):
+    """G-11a: the kwarg actually reaches the spawned container's env."""
+    import docker as docker_mod
+    from docker.errors import APIError
+
+    from nextseek_api.cc_assistant.cc_config import CCPaths
+
+    class _SpyContainers:
+        def __init__(self):
+            self.run_kwargs = None
+
+        def run(self, **kwargs):
+            self.run_kwargs = kwargs
+            raise APIError("spawn intercepted by test")
+
+    class _SpyClient:
+        def __init__(self):
+            self.containers = _SpyContainers()
+
+    client = _SpyClient()
+    monkeypatch.setattr(docker_mod, "from_env", lambda: client)
+
+    paths = CCPaths(users_volume="dmac-cc-users", user_root_mount=str(tmp_path))
+    cc_engine.run_cc_turn(
+        query="q", model_id="m", api_user="u", api_pass="p",
+        send_event=lambda *a, **k: None,
+        user_id="alice", project_dirname="proj",
+        run_id="a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        paths=paths, cc_state_key="abc-123",
+        chat_session_id="abc-123",
+    )
+    assert client.containers.run_kwargs is not None
+    assert client.containers.run_kwargs["environment"]["NEXTSEEK_CHAT_SESSION_ID"] == "abc-123"
+
+
 def test_agent_env_points_at_proxy_and_is_unsigned():
     env = cc_engine.build_agent_environment(
         source={}, api_user="demo", api_pass="pw", path_mappings={},

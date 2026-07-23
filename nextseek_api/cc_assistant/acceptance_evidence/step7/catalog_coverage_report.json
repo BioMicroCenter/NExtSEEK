@@ -8,6 +8,7 @@
     "nextseek-graph",
     "nextseek-plan",
     "nextseek-query",
+    "nextseek-recall",
     "nextseek-api-read",
     "nextseek-api-write",
     "nextseek-report",
