@@ -257,17 +257,89 @@ def _dispatch_generate_submission(args):
 
 
 def _dispatch_query(args):
-    """Single-shot orchestrator via the NExtSEEK assistant viewset.
+    """Single-shot orchestrator via the NExtSEEK assistant viewset (PD-5).
 
-    Routes to run_query (standard) or run_query_plan (--planner flag).
-    Returns the terminal payload shaped as {"reply": str, "debug": {...},
-    "bundle_id": int|None}. Preserves the .reply extraction contract used
-    by the nextseek-query shim (recon:runner §2b).
+    Runs in the LIVE chat session (NEXTSEEK_CHAT_SESSION_ID). On a terminal
+    with bundle_id, downloads the bundle and materializes rows to
+    scratch/query/result-{bundle_id}.json; returns a unified manifest + reply.
+    Without bundle_id, returns a reply-only manifest and writes nothing.
     """
+    session_id = os.environ.get("NEXTSEEK_CHAT_SESSION_ID")
+    if not session_id:
+        _err("CONFIG_MISSING", "NEXTSEEK_CHAT_SESSION_ID not set", 2)
+
     if _dry_run():  # pragma: no branch
         return {"reply": "[dry-run]", "debug": {}, "bundle_id": None}  # pragma: no cover
-    mode = "plan" if args.planner else "standard"  # pragma: no cover
-    return _run_viewset(args.query, mode=mode)  # pragma: no cover
+
+    mode = "plan" if args.planner else "standard"
+    client = _make_client()
+    try:
+        terminal, _ = client.run_query(
+            args.query,
+            mode=mode,
+            session_id=session_id,
+            force_new=False,
+        )
+    except Exception as e:
+        import httpx  # pragma: no cover
+        if isinstance(e, httpx.HTTPStatusError):
+            if e.response.status_code == 401:
+                _err("AUTH_FAILED", "authentication failed (check NS credentials)", 8)
+            _err("AGENT_FAILED", f"HTTP {e.response.status_code}", 4)
+        if isinstance(e, httpx.TransportError):
+            _err("TRANSPORT_ERROR", f"viewset unreachable: {type(e).__name__}", 7)
+        raise
+
+    if "__error__" in terminal:
+        _err("AGENT_FAILED", terminal["__error__"], 4)
+
+    reply = terminal.get("reply", "")
+    bundle_id = terminal.get("bundle_id")
+    if not isinstance(bundle_id, int) or isinstance(bundle_id, bool):
+        return {
+            "turn_id": None,
+            "bundle_id": None,
+            "total": None,
+            "row_count": None,
+            "columns": None,
+            "path": None,
+            "reply": reply,
+        }
+
+    dl_session = terminal.get("session_id") or session_id
+    try:
+        bundle = client.download_bundle(dl_session, bundle_id)
+    except Exception as e:
+        import httpx  # pragma: no cover
+        if isinstance(e, httpx.HTTPStatusError):
+            if e.response.status_code == 401:
+                _err("AUTH_FAILED", "authentication failed (check NS credentials)", 8)
+            _err("AGENT_FAILED", f"HTTP {e.response.status_code}", 4)
+        if isinstance(e, httpx.TransportError):
+            _err("TRANSPORT_ERROR", f"viewset unreachable: {type(e).__name__}", 7)
+        raise
+
+    api_full = bundle.get("api_result_full") or {}
+    total, row_count, rows = _total_and_rows(api_full)
+    first = rows[0] if rows and isinstance(rows[0], dict) else {}
+    columns = [str(k) for k in first.keys()]
+
+    dest_dir = os.path.join(_scratch_dir(), "query")
+    dest = os.path.join(dest_dir, f"result-{bundle_id}.json")
+    import orjson  # pragma: no cover
+    os.makedirs(dest_dir, exist_ok=True)
+    with open(dest, "wb") as fh:
+        fh.write(orjson.dumps(rows))
+
+    return {
+        "turn_id": None,
+        "bundle_id": bundle_id,
+        "total": total,
+        "row_count": row_count,
+        "columns": columns,
+        "path": dest,
+        "reply": reply,
+    }
 
 
 def _dispatch_recall(args):
