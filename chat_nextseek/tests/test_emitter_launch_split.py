@@ -125,3 +125,23 @@ def test_multi_run_accession_keeps_per_run_ena_urls(tmp_path):
     assert body[1].split(",")[1] == "ftp://r2_1.fq.gz"
     # the curated path must not have clobbered either run
     assert "/net/luria/S1_1.fastq.gz" not in "\n".join(lines)
+
+
+import yaml
+from pathlib import Path
+from chat_nextseek.seqera.emitter import emit_luria_launch_artifacts
+
+
+def test_emit_luria_launch_artifacts_writes_params_and_minimal_launch(tmp_path):
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("sample,fastq_1\nD.SEQ-1,/net/bmc-x/1.fastq.gz\n")
+    res = emit_luria_launch_artifacts(
+        tmp_path, pipeline="rnaseq", samplesheet_path=sheet,
+        launch_plan={"run_name": "myrun", "pipeline_revision": "3.18.0",
+                     "params": {"aligner": "star_salmon", "genome": "GRCm39"}})
+    launch = yaml.safe_load(Path(res.saved_files["launch"]).read_text())
+    assert launch["launch"][0]["name"] == "myrun"
+    assert launch["launch"][0]["pipeline"].endswith("nf-core/rnaseq")  # catalog repo is the full github URL; the submitter normalizes it
+    assert launch["launch"][0]["revision"] == "3.18.0"
+    params = yaml.safe_load(Path(res.saved_files["params"]).read_text())
+    assert params["aligner"] == "star_salmon" and params["genome"] == "GRCm39"

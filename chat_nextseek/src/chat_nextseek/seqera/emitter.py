@@ -519,6 +519,41 @@ def emit_launch_artifacts(
     return result
 
 
+def emit_luria_launch_artifacts(
+    out_dir: str | Path, *, pipeline: str, samplesheet_path: str | Path,
+    launch_plan: Mapping[str, Any],
+) -> EmissionResult:
+    """Write params.yml + a minimal launch.yml for a Luria run, with NO Tower env.
+
+    The Luria submitter consumes only name/pipeline/revision from each launch entry
+    and rebuilds params.yml on-cluster, so this deliberately does not stage to any
+    bucket or upload to Tower. This is the Luria path that severs the Tower-
+    completeness gate emit_launch_artifacts imposes (that function is left intact
+    for a future Tower re-enable).
+    """
+    out_path = Path(out_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    result = EmissionResult(out_dir=str(out_path))
+    entry = get_pipeline_entry(pipeline)
+    params: dict[str, Any] = dict(launch_plan.get("params") or {})
+    params.setdefault("input", "./samplesheet.csv")
+    params.setdefault("outdir", ".")
+    params_path = out_path / "params.yml"
+    params_path.write_text(_yaml_dump(params), encoding="utf-8")
+    result.saved_files["params"] = str(params_path)
+    run_name = (launch_plan.get("run_name") or f"{pipeline}-run").strip() or f"{pipeline}-run"
+    launch_entry = {
+        "name": run_name,
+        "pipeline": entry["repo"],
+        "revision": launch_plan.get("pipeline_revision") or entry.get("default_revision"),
+    }
+    result.launch_entry = launch_entry
+    launch_path = out_path / "launch.yml"
+    launch_path.write_text(_yaml_dump({"launch": [launch_entry]}), encoding="utf-8")
+    result.saved_files["launch"] = str(launch_path)
+    return result
+
+
 def emit_nfcore_artifacts(
     out_dir: str | Path,
     *,
