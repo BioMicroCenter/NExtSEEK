@@ -306,7 +306,11 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
         # can find the fastq paths in whatever fields hold them (Link_PrimaryData / File_* / etc.)
         # by value, not a hardcoded field name. ENA URL stays the fallback when none is found.
         _meta = {**(flat if isinstance(flat, dict) else {}), **(leaf.get("metadata") or {})}
-        if _meta and accs:
+        if _meta:
+            # Key by leaf UID so a sample with a local /net/bmc-* path but NO accession
+            # still reaches the emitter (the samplesheet 'sample' column is the leaf UID),
+            # and also by accession for the (dormant) ENA path.
+            file_paths_by_acc[str(leaf["uid"])] = dict(_meta)
             for _a in accs:
                 file_paths_by_acc[str(_a).strip()] = dict(_meta)
         # Generically detect species: any flattened value that maps to a reference
@@ -427,8 +431,10 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
             merged_rows.append(r)
         cohort_summaries.append({"label": label, "row_count": len(rows)})
 
-    accs = [r[k] for r in merged_rows for k in _ACC_KEYS if r.get(k)]
-    resolutions = resolve_accessions(accs) if accs else []
+    # ENA route retired: Luria resolves fastqs from a local /net/bmc-* path (filled here)
+    # or fetches SRR accessions on-cluster (run.sh fetchngs pre-stage). No ENA URL synthesis.
+    # resolve_accessions is left imported but unused for a future ENA re-enable.
+    resolutions: list = []
 
     slug = _slugify_label(cohorts[0].get("label", "") if not grouped else pipeline_key, pipeline_key)
     base = Path(log_dir or getattr(config, "LOG_DIR", ".")) / f"nfcore_{slug}"

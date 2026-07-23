@@ -412,3 +412,47 @@ def test_write_samplesheet_invalidates_stale_configure_run_output(monkeypatch, t
     assert "params" not in state["artifacts"]
     assert "launch" not in state["artifacts"]
     assert "launch_plan" not in state
+
+
+import json
+from pathlib import Path
+from chat_nextseek.pipeline import agent_tools as at
+
+
+class _WSCfg:
+    def __init__(self, log_dir):
+        self.LOG_DIR = str(log_dir)
+        self.TOWER_ENV = {}
+
+
+def test_write_samplesheet_does_not_resolve_ena(monkeypatch, tmp_path):
+    calls = {"n": 0}
+    monkeypatch.setattr(at, "resolve_accessions",
+                        lambda *a, **k: calls.__setitem__("n", calls["n"] + 1) or [])
+    state = {"resolved": {"uids": ["D.SEQ-2"], "accessions": ["SRR300"]},
+             "accession_file_paths": {}}
+    tool_input = {"pipeline_key": "rnaseq",
+                  "cohorts": [{"label": "c", "rows": [
+                      {"sample": "D.SEQ-2", "accession": "SRR300", "strandedness": "auto"}]}]}
+    out = json.loads(at.tool_write_samplesheet(_WSCfg(tmp_path), state, tool_input, str(tmp_path)))
+    assert out["ok"] is True
+    assert calls["n"] == 0                      # ENA route is off
+    assert out["total_rows"] == 1               # SRR row kept, not dropped
+
+
+def test_write_samplesheet_keeps_path_only_row_without_accession(tmp_path):
+    # Design Thread 1, bullet 3: a pure-local sample with a /net/bmc-* path and NO accession
+    # must survive _validate_rows_against_resolved AND reach the emitter (kept, not dropped).
+    # Its uid IS a resolved uid, and the uid-keyed accession_file_paths carries the local path.
+    # Today the emitter drops any row without a resolved ENA run (acc_to_runs.get("") is None),
+    # so this fails pre-change (total_rows == 0) and passes once Task 3's row loop is rewritten.
+    state = {"resolved": {"uids": ["D.SEQ-1"], "accessions": []},
+             "accession_file_paths": {
+                 "D.SEQ-1": {"Link_PrimaryData": "/net/bmc-x/1_1.fastq.gz",
+                             "Link_SecondaryData": "/net/bmc-x/1_2.fastq.gz"}}}
+    tool_input = {"pipeline_key": "rnaseq",
+                  "cohorts": [{"label": "c", "rows": [
+                      {"sample": "D.SEQ-1", "strandedness": "auto"}]}]}   # no accession key
+    out = json.loads(at.tool_write_samplesheet(_WSCfg(tmp_path), state, tool_input, str(tmp_path)))
+    assert out["ok"] is True
+    assert out["total_rows"] == 1   # path-only, accession-less row is NOT dropped

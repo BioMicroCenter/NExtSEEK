@@ -605,18 +605,16 @@ def emit_nfcore_artifacts(
     accession_metadata = dict(accession_metadata or {})
     keep_rows: list[dict[str, Any]] = []
     for row in samplesheet_rows or []:
+        uid = str(row.get("sample") or row.get("Sample") or "")
         acc = row.get("accession") or row.get("Accession") or row.get("ena_accession")
-        if acc:
-            acc_str = str(acc).strip()
-            runs = acc_to_runs.get(acc_str)
-            if not runs:
-                continue
-            sample_meta = accession_metadata.get(acc_str) or {}
-            # Curated local fastq paths win over the synthesized ENA URL — but ONLY when
-            # the accession maps to a single run. sample_meta is per-accession, so applying
-            # it across a multi-run accession would stamp the same pair onto every row and
-            # throw away each run's own URL. Computed once, outside the loop, because it
-            # cannot vary per run by construction.
+        acc_str = str(acc).strip() if acc else ""
+        # Curated local fastq metadata: keyed by leaf UID (path-only samples) or accession.
+        sample_meta = (accession_metadata.get(uid)
+                       or (accession_metadata.get(acc_str) if acc_str else None) or {})
+        runs = acc_to_runs.get(acc_str) if acc_str else None
+        if runs:
+            # Legacy ENA fan-out — dormant on the Luria path (resolutions=[] -> acc_to_runs empty),
+            # kept intact for a future ENA re-enable.
             curated_1 = _fastq_from_meta(sample_meta, "primary") if len(runs) == 1 else ""
             curated_2 = _fastq_from_meta(sample_meta, "secondary") if len(runs) == 1 else ""
             for run in runs:
@@ -627,14 +625,23 @@ def emit_nfcore_artifacts(
                 rewritten["fastq_2"] = curated_2 or run.fastq_2 or ""
                 if run.layout and "library_layout" not in rewritten:
                     rewritten["library_layout"] = run.layout
-                # Stamp enrichment columns from the source metadata. The LLM is
-                # not trusted for these — we look them up authoritatively.
                 for field in enrichment:
                     value = sample_meta.get(field)
                     rewritten[field] = "" if value is None else value
                 keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
-        else:
-            keep_rows.append(_remap_row_for_pipeline(row, pipeline))
+            continue
+        # Luria path (default): fill fastq from a local /net/bmc-* path when the sample's
+        # metadata carries one; otherwise leave fastq_1/fastq_2 empty and keep the accession
+        # as a fetch target for the run.sh fetchngs pre-stage. Never drop the row.
+        rewritten = dict(row)
+        if acc_str:
+            rewritten["accession"] = acc_str
+        rewritten["fastq_1"] = _fastq_from_meta(sample_meta, "primary")
+        rewritten["fastq_2"] = _fastq_from_meta(sample_meta, "secondary")
+        for field in enrichment:
+            value = sample_meta.get(field)
+            rewritten[field] = "" if value is None else value
+        keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
 
     columns = _ensure_columns(keep_rows, required, enrichment)
     samplesheet_path = out_path / "samplesheet.csv"

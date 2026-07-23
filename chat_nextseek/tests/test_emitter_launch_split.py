@@ -145,3 +145,49 @@ def test_emit_luria_launch_artifacts_writes_params_and_minimal_launch(tmp_path):
     assert launch["launch"][0]["revision"] == "3.18.0"
     params = yaml.safe_load(Path(res.saved_files["params"]).read_text())
     assert params["aligner"] == "star_salmon" and params["genome"] == "GRCm39"
+
+
+import csv as _csv
+from chat_nextseek.seqera.emitter import emit_nfcore_artifacts
+
+
+def _read(path):
+    with open(path, newline="") as fh:
+        return {r["sample"]: r for r in _csv.DictReader(fh)}
+
+
+def test_luria_local_path_fills_row_without_accession(tmp_path):
+    rows = [{"sample": "D.SEQ-1", "strandedness": "auto"}]
+    meta = {"D.SEQ-1": {"Link_PrimaryData": "/net/bmc-lab/D.SEQ-1_R1.fastq.gz",
+                        "Link_SecondaryData": "/net/bmc-lab/D.SEQ-1_R2.fastq.gz"}}
+    res = emit_nfcore_artifacts(tmp_path, pipeline="rnaseq", samplesheet_rows=rows,
+                                resolutions=[], accession_metadata=meta, launch_plan=None,
+                                tower_env={}, selector_rationale="t")
+    out = _read(res.saved_files["samplesheet"])
+    assert out["D.SEQ-1"]["fastq_1"] == "/net/bmc-lab/D.SEQ-1_R1.fastq.gz"
+    assert out["D.SEQ-1"]["fastq_2"] == "/net/bmc-lab/D.SEQ-1_R2.fastq.gz"
+    assert res.samplesheet_row_count == 1
+
+
+def test_luria_srr_row_kept_blank_and_tagged(tmp_path):
+    rows = [{"sample": "D.SEQ-2", "accession": "SRR100", "strandedness": "auto"}]
+    res = emit_nfcore_artifacts(tmp_path, pipeline="rnaseq", samplesheet_rows=rows,
+                                resolutions=[], accession_metadata={}, launch_plan=None,
+                                tower_env={}, selector_rationale="t")
+    out = _read(res.saved_files["samplesheet"])
+    assert res.samplesheet_row_count == 1              # NOT dropped
+    assert out["D.SEQ-2"]["accession"] == "SRR100"
+    assert out["D.SEQ-2"]["fastq_1"] == "" and out["D.SEQ-2"]["fastq_2"] == ""
+
+
+def test_luria_mixed_cohort_local_and_srr(tmp_path):
+    rows = [{"sample": "D.SEQ-1", "strandedness": "auto"},
+            {"sample": "D.SEQ-2", "accession": "SRR200", "strandedness": "auto"}]
+    meta = {"D.SEQ-1": {"Link_PrimaryData": "/net/bmc-x/1_1.fastq.gz",
+                        "Link_SecondaryData": "/net/bmc-x/1_2.fastq.gz"}}
+    res = emit_nfcore_artifacts(tmp_path, pipeline="rnaseq", samplesheet_rows=rows,
+                                resolutions=[], accession_metadata=meta, launch_plan=None,
+                                tower_env={}, selector_rationale="t")
+    out = _read(res.saved_files["samplesheet"])
+    assert out["D.SEQ-1"]["fastq_1"] == "/net/bmc-x/1_1.fastq.gz"
+    assert out["D.SEQ-2"]["fastq_1"] == "" and out["D.SEQ-2"]["accession"] == "SRR200"
