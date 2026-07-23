@@ -67,6 +67,8 @@ from nextseek_api.cc_assistant.cc_turn_complete import (
     TurnCompletePayload,
     apply_turn_to_extra_state,
 )
+from nextseek_api.cc_assistant import cc_turn_complete
+from chat_nextseek.chat_memory import next_turn_id
 from nextseek_api.cc_assistant import cc_transcript_store
 from nextseek_api.assistant.models_db import CCSessionTranscript
 
@@ -75,6 +77,7 @@ MAX_CC_CHAT_LOG_TURNS = 50  # match chat_nextseek/chat_memory.py MAX_TURNS
 
 def _append_cc_turn_complete(payload: TurnCompletePayload) -> None:
     session = payload.chat_session
+    session.refresh_from_db(fields=["extra_state"])
     session.extra_state = apply_turn_to_extra_state(
         session.extra_state, payload, cap=MAX_CC_CHAT_LOG_TURNS)
     session.save(update_fields=["extra_state", "updated_at"])
@@ -209,6 +212,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
         )
         resolved_session_id = str(chat_session.session_id)
         send_event = make_db_event_callback(str(query_task.task_id), resolved_session_id)
+        terminal_seen = cc_turn_complete.new_terminal_tracker()
+        send_event = cc_turn_complete.wrap_send_event(send_event, terminal_seen)
         adapter = DictSessionAdapter(chat_session)
         api_user, api_pass = self._resolve_credentials(request)
         user_api_user, user_api_pass = api_user, api_pass
@@ -228,6 +233,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
 
         def _run() -> None:
             ran_ns = False
+            decision = None
             try:
                 if force_cc:
                     # CC always runs Opus (the only proxy-allowlisted model);
@@ -246,8 +252,13 @@ class CCAssistantViewSet(viewsets.ViewSet):
                 })
 
                 if decision.route == cc_router.ROUTE_UNRELATED:
-                    # OI-4: out-of-scope query — never runs NS or CC; emit the
-                    # canned out-of-scope reply and finish (mirrors dmac ws.py).
+                    from django.utils import timezone
+                    chat_session.extra_state = cc_turn_complete.apply_non_answer_to_extra_state(
+                        chat_session.extra_state, user_query=req.query,
+                        router_choice=cc_router.ROUTE_UNRELATED, status="completed",
+                        error=None, ts=timezone.now().isoformat(timespec="seconds"),
+                        cap=MAX_CC_CHAT_LOG_TURNS)
+                    chat_session.save(update_fields=["extra_state", "updated_at"])
                     send_event("query_complete", {
                         "reply": cc_router.UNRELATED_CANNED_TEXT,
                         "bundle_id": None,
@@ -405,6 +416,26 @@ class CCAssistantViewSet(viewsets.ViewSet):
                     "session_id": resolved_session_id,
                 })
             finally:
+                unrelated = decision is not None and decision.route == cc_router.ROUTE_UNRELATED
+                if cc_turn_complete.should_append_non_answer(terminal_seen, unrelated=unrelated):
+                    from django.utils import timezone
+                    ts = timezone.now().isoformat(timespec="seconds")
+                    rc = decision.route if decision is not None else None
+                    err = terminal_seen["error"]
+                    if ran_ns:
+                        log = list(adapter.get("chat_log") or [])
+                        entry = cc_turn_complete.serialize_non_answer_entry(
+                            user_query=req.query, router_choice=rc, status="error",
+                            error=err, ts=ts, turn_id=next_turn_id(log))
+                        adapter["chat_log"] = cc_turn_complete.append_capped(
+                            log, entry, cap=MAX_CC_CHAT_LOG_TURNS)
+                    else:
+                        chat_session.refresh_from_db(fields=["extra_state"])
+                        chat_session.extra_state = cc_turn_complete.apply_non_answer_to_extra_state(
+                            chat_session.extra_state, user_query=req.query,
+                            router_choice=rc, status="error", error=err, ts=ts,
+                            cap=MAX_CC_CHAT_LOG_TURNS)
+                        chat_session.save(update_fields=["extra_state", "updated_at"])
                 if ran_ns:
                     adapter.save()
                     _auto_title_if_unset(chat_session)
