@@ -27,6 +27,7 @@ export NXF_SYNTAX_PARSER=v1
 export SSL_CERT_FILE="$(dirname {{SINGULARITY_CACHE}})/certs/ca-bundle.crt"
 
 cd {{RUN_DIR}}
+{{FETCHNGS_BLOCK}}
 
 # Per-pipeline scientific params come from params.yml (built from the curated
 # per-pipeline JSON in reports/templates/nfcore/); local reference genomes come

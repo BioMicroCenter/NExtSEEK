@@ -291,3 +291,38 @@ def test_local_luria_ref_files_returns_filenames_or_none():
     files = local_luria_ref_files("Mfas6.0")
     assert files["fasta"].endswith(".fa.gz") and files["gtf"].endswith(".gtf.gz")
     assert local_luria_ref_files("GRCz11") is None
+
+
+# --- Task 7: fetchngs pre-block rendered into run.sh --------------------------
+
+def _render(**over):
+    kw = dict(job_name="j", pipeline="nf-core/rnaseq", revision="3.18.0",
+              run_dir="/w/runs/j", work_dir="/w/work/j", singularity_cache="/w/sc",
+              genome="GRCm39", resources=None, refs_root="/w/refs")
+    kw.update(over)
+    return render_run_script(**kw)
+
+
+def test_render_no_fetch_block_by_default():
+    out = _render()
+    assert "fetchngs" not in out
+    assert "nextflow run nf-core/rnaseq -r 3.18.0" in out   # pipeline block intact
+
+
+def test_render_includes_fetch_block_when_needed():
+    out = _render(needs_fetch=True, fastq_cache="/w/fastq_cache", fetchngs_revision="1.12.0")
+    assert "nextflow run nf-core/fetchngs -r 1.12.0" in out
+    assert "fetchngs_helpers.py ids" in out
+    assert "fetchngs_helpers.py fill" in out
+    assert "/w/fastq_cache" in out
+    assert "nextflow run nf-core/rnaseq -r 3.18.0" in out   # pipeline block STILL intact + unchanged
+
+
+def test_render_fetch_block_rejects_bad_cache():
+    with pytest.raises(ValueError):
+        _render(needs_fetch=True, fastq_cache="/w; rm -rf /", fetchngs_revision="1.12.0")
+
+
+def test_render_fetch_block_rejects_bad_revision():
+    with pytest.raises(ValueError):
+        _render(needs_fetch=True, fastq_cache="/w/fastq_cache", fetchngs_revision="1.12.0; evil")

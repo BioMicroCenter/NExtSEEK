@@ -84,6 +84,24 @@ def validate_genome(genome: str) -> str:
 
 _TEMPLATE = Path(__file__).parent / "templates" / "run.sh.tmpl"
 
+_FETCHNGS_BLOCK_TMPL = """
+# --- fetchngs pre-stage: fetch SRR-only rows to the shared cache, then fill the sheet ---
+# Rows with a local /net/bmc-* fastq are already filled and untouched; only rows with an
+# empty fastq_1 + an SRA accession are fetched. fetchngs_helpers.py is staged beside run.sh.
+CACHE="{FASTQ_CACHE}"
+mkdir -p "$CACHE/fastq" "$CACHE/work"
+python3 fetchngs_helpers.py ids
+if [ -s ids.csv ]; then
+  need=0
+  while read acc; do ls "$CACHE"/fastq/${{acc}}*.fastq.gz >/dev/null 2>&1 || need=1; done < ids.csv
+  if [ "$need" = "1" ]; then
+    nextflow run nf-core/fetchngs -r {FETCHNGS_REVISION} -profile singularity \\
+      --input ids.csv --outdir "$CACHE" -w "$CACHE/work" -resume
+  fi
+  python3 fetchngs_helpers.py fill "$CACHE"
+fi
+"""
+
 _REFS_ROOT_RE = re.compile(r"[A-Za-z0-9_./-]{1,256}")
 
 # Single source of truth for local reference genomes on Luria: genome key -> reference
@@ -258,7 +276,9 @@ def resolve_pipeline_source(pipeline: str, aligner: str | None, revision: str,
 def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: str,
                       work_dir: str, singularity_cache: str, genome: str,
                       resources: dict | None, refs_root: str | None = None,
-                      aligner: str | None = None, working: str | None = None) -> str:
+                      aligner: str | None = None, working: str | None = None,
+                      needs_fetch: bool = False, fastq_cache: str | None = None,
+                      fetchngs_revision: str = "1.12.0") -> str:
     """Substitute the validated slots into the fixed run.sh template. When `refs_root` is given
     and `genome` has local refs registered (LURIA_GENOMES), explicit --fasta/--gtf flags are
     injected (path > iGenomes globally; the genomes-map resolution is unreliable). When
@@ -278,6 +298,13 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
         fasta, gtf = genome_ref_paths(genome, refs_root)
         if fasta and gtf:
             refs_flags = f"--fasta {fasta} --gtf {gtf}"
+    fetchngs_block = ""
+    if needs_fetch:
+        if not fastq_cache or not _REFS_ROOT_RE.fullmatch(str(fastq_cache)):
+            raise ValueError(f"invalid fastq_cache {fastq_cache!r}")
+        fq_rev = validate_revision(fetchngs_revision)
+        fetchngs_block = _FETCHNGS_BLOCK_TMPL.format(
+            FASTQ_CACHE=str(fastq_cache).rstrip("/"), FETCHNGS_REVISION=fq_rev)
     mapping = {
         "JOB_NAME": sanitize_job_name(job_name),
         "CPUS": res["cpus"],
@@ -287,6 +314,7 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
         "REVISION_FLAG": revision_flag,
         "GENOME": genome,
         "REFS_FLAGS": refs_flags,
+        "FETCHNGS_BLOCK": fetchngs_block,
         "WORK_DIR": work_dir,
         "SINGULARITY_CACHE": singularity_cache,
         "MAIL_DIRECTIVES": render_mail_directives(),
