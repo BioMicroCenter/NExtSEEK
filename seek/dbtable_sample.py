@@ -5,6 +5,7 @@ import time
 import datetime
 import simplejson
 import json
+import html
 import logging
 import xlwt
 import operator
@@ -1686,7 +1687,9 @@ class DBtable_sample(DBtable):
         
     def __getSamplelink(self, sample_uid, sample_id):
         sample_url = "/seek/sample/id=" + str(sample_id) + "/"
-        samplelink = '<a href="' + sample_url + '" target="_blank">' + str(sample_uid) + '</a>'
+        # The uid column is rendered as raw HTML by the client; escape the uid
+        # text so a sample uid containing markup cannot inject script.
+        samplelink = '<a href="' + sample_url + '" target="_blank">' + html.escape(str(sample_uid)) + '</a>'
         return samplelink
     
         
@@ -3023,13 +3026,17 @@ class DBtable_sample(DBtable):
     
     
     def __formatSampleUIDLink(self, sample_uid):
-        url = "/seek/sampletree/uid=" + sample_uid + "/";
-        weblink = '<a href="' + url + '" target="_blank">' + str(sample_uid) + '</a>'
+        url = "/seek/sampletree/uid=" + str(sample_uid) + "/";
+        # Rendered as raw HTML by the client; escape the untrusted uid in both
+        # the href attribute and the link text to prevent HTML injection.
+        weblink = '<a href="' + html.escape(url) + '" target="_blank">' + html.escape(str(sample_uid)) + '</a>'
         return weblink
 
     def __formatSopUIDLink(self, sop_uid):
-        url = "/seek/sop/uid=" + sop_uid + "/";
-        weblink = '<a href="' + url + '" target="_blank">' + str(sop_uid) + '</a>'
+        url = "/seek/sop/uid=" + str(sop_uid) + "/";
+        # Rendered as raw HTML by the client; escape the untrusted uid in both
+        # the href attribute and the link text to prevent HTML injection.
+        weblink = '<a href="' + html.escape(url) + '" target="_blank">' + html.escape(str(sop_uid)) + '</a>'
         return weblink
     
     def __formatExternalLink(self, urlValue):
@@ -3045,13 +3052,17 @@ class DBtable_sample(DBtable):
                         if i>0:
                             weblink += ","
                         
-                        weblink += '<a href="' + vi + '" target="_blank">' + vi + '</a>'
+                        # 'http' prefix check above blocks javascript:/data:
+                        # schemes; escape to prevent href/text HTML injection.
+                        weblink += '<a href="' + html.escape(vi) + '" target="_blank">' + html.escape(vi) + '</a>'
                         i += 1
         else:
             vi = urlValue.strip()
             if len(vi)>0:
                 if vi[0:4].lower()=='http':
-                    weblink = '<a href="' + vi + '" target="_blank">' + vi + '</a>'
+                    # 'http' prefix check blocks javascript:/data: schemes;
+                    # escape to prevent href/text HTML injection.
+                    weblink = '<a href="' + html.escape(vi) + '" target="_blank">' + html.escape(vi) + '</a>'
         
         return weblink
     
@@ -3867,7 +3878,14 @@ class DBtable_sample(DBtable):
         defaultStyle = "color:red;"
         if style is None:
             style = defaultStyle
-        
+
+        # The result is rendered as raw HTML by the client, so HTML-escape the
+        # untrusted keyword/value before splicing them into the highlight span.
+        # html.escape maps each character independently, so substring matching
+        # on the escaped strings is equivalent to matching on the originals.
+        keyword = html.escape(str(keyword))
+        value = html.escape(str(value))
+
         if keyword in value:
             newKeyword = '<span style="' + style + '">' + keyword + '</span>'
             value = value.replace(keyword, newKeyword)
@@ -3943,9 +3961,9 @@ class DBtable_sample(DBtable):
                             ki += 1            
                 elif ':' in term:
                     term = self.__getCleanKeyword(term)
-                    if term in value or term.lower() in valuel:     
+                    if term in value or term.lower() in valuel:
                         if ki==0:
-                            attributeValue += key + ':' + str(value)
+                            attributeValue += key + ':' + html.escape(str(value))
                         else:
                             attributeValue += separator + key + ':' + self.__highlightKeyword(term, value)
                         ki += 1
