@@ -1528,3 +1528,72 @@ body.sidebar-open .sidebar-scrim { display: block; }
 /* ---------- EasyUI desktop-only notice ---------- */
 /* (Notice display rule is already wired in the existing @media (max-width: 768px)
    block elsewhere in this file — Task 11 adds the markup to each desktop-only page.) */
+
+/* === Sample search UI rework ========================================= */
+
+/* Ellipsis + hover tooltip for long datagrid cells (paired with
+   nsEllipsisFormatter). The datagrid cell already clips overflow; this adds
+   the ellipsis affordance so users know there is more, revealed via title. */
+.ns-ellip {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Search-form action buttons: a crimson primary Search + a neutral Reset,
+   sized to sit level with the adjacent search inputs. */
+.ns-search-actions {
+	display: inline-flex;
+	gap: 8px;
+	align-items: flex-end;
+}
+.ns-btn-search,
+.ns-btn-reset {
+	height: 38px;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	box-sizing: border-box;
+	padding: 0 18px;
+	border-radius: 6px;
+	font-family: var(--ns-font-body);
+	font-size: 14px;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	cursor: pointer;
+	text-decoration: none;
+}
+.ns-btn-search {
+	background: var(--ns-crimson);
+	border: 1px solid var(--ns-crimson);
+	color: var(--ns-white);
+}
+.ns-btn-search:hover,
+.ns-btn-search:focus {
+	background: var(--ns-crimson-hover);
+	border-color: var(--ns-crimson-hover);
+	box-shadow: 0 0 0 3px rgba(163, 31, 52, 0.18);
+	color: var(--ns-white);
+	text-decoration: none;
+}
+.ns-btn-reset {
+	background: var(--ns-white);
+	border: 1px solid var(--ns-border);
+	color: var(--ns-body);
+}
+.ns-btn-reset:hover,
+.ns-btn-reset:focus {
+	background: var(--ns-sidebar-hover);
+	border-color: #ccc;
+	color: var(--ns-body);
+	text-decoration: none;
+}
+
+/* Keep the always-on EasyUI filter inputs full-width and on-theme. */
+.datagrid-filter-row .datagrid-filter input {
+	box-sizing: border-box;
+	width: 100%;
+	border: 1px solid var(--ns-border);
+	border-radius: 5px;
+}
