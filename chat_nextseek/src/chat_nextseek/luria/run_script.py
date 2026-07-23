@@ -102,6 +102,26 @@ LURIA_GENOMES: dict[str, dict[str, str]] = {
                 "gtf":   "Macaca_mulatta.Mmul_10.116.gtf.gz"},
 }
 
+
+def has_local_luria_ref(genome_key: str | None) -> bool:
+    """True when genome_key has a local Luria reference registered in LURIA_GENOMES.
+
+    Single source of truth shared by the host-side reference resolver
+    (seqera.pipeline_params.build_reference_params) and the submit-side
+    --fasta/--gtf injection, so the two can never disagree about whether a local
+    reference exists.
+    """
+    return str(genome_key or "") in LURIA_GENOMES
+
+
+def local_luria_ref_files(genome_key: str | None) -> dict[str, str] | None:
+    """The {'fasta','gtf'} FILENAMES of the local Luria reference for genome_key,
+    or None when there is no local ref. Filenames (not absolute paths) so the host
+    side can name them without knowing the Luria refs_root."""
+    ref = LURIA_GENOMES.get(str(genome_key or ""))
+    return {"fasta": ref["fasta"], "gtf": ref["gtf"]} if ref else None
+
+
 _LURIA_CONFIG_HEADER = (
     "// luria.config — local reference genomes for nf-core on MIT Luria.\n"
     "// Generated from luria.run_script.LURIA_GENOMES. The params.genomes MAP resolution is\n"

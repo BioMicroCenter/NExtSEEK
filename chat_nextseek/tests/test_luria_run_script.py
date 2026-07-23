@@ -271,3 +271,23 @@ def test_conda_env_is_allow_listed(monkeypatch):
     monkeypatch.setenv("LURIA_CONDA_ENV", "x; rm -rf /")
     with pytest.raises(ValueError):
         _script()
+
+
+from chat_nextseek.luria.run_script import has_local_luria_ref, local_luria_ref_files
+
+
+def test_has_local_luria_ref_true_for_registered_keys():
+    for key in ("GRCh38", "GRCm39", "Mfas6.0", "Mmul_10"):
+        assert has_local_luria_ref(key) is True
+
+
+def test_has_local_luria_ref_false_for_unregistered_or_none():
+    assert has_local_luria_ref("GRCz11") is False
+    assert has_local_luria_ref(None) is False
+    assert has_local_luria_ref("") is False
+
+
+def test_local_luria_ref_files_returns_filenames_or_none():
+    files = local_luria_ref_files("Mfas6.0")
+    assert files["fasta"].endswith(".fa.gz") and files["gtf"].endswith(".gtf.gz")
+    assert local_luria_ref_files("GRCz11") is None

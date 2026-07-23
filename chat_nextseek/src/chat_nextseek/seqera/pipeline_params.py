@@ -11,6 +11,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from ..luria.run_script import has_local_luria_ref
+
 _NFCORE_DIR = Path(__file__).resolve().parent.parent / "reports" / "templates" / "nfcore"
 
 
@@ -79,8 +81,9 @@ def gencode_for_genome_key(genome_key: str | None) -> bool:
 def build_reference_params(pipeline_key: str, bundle_key: str | None) -> tuple[dict[str, Any], str]:
     """Return (reference_params, reference_status) for a pipeline + bundle.
 
-    status: 'configured'             -> store_root set, explicit resource paths emitted
-            'igenomes_fallback'      -> store_root unset, bundle has igenomes_key -> {'genome': key}
+    status: 'local_luria'            -> genome key has a local Luria ref (LURIA_GENOMES) -> {'genome': key}
+            'configured'             -> store_root set, explicit resource paths emitted
+            'igenomes_fallback'      -> store_root unset, bundle has igenomes_key, NO local ref -> {'genome': key}
             'unconfigured_no_fallback' -> store_root unset and no igenomes_key (e.g. PDX combo)
             'no_bundle'              -> bundle_key is None/unknown
     """
@@ -93,6 +96,11 @@ def build_reference_params(pipeline_key: str, bundle_key: str | None) -> tuple[d
     store_root = reg.get("store_root")
     ctx = load_pipeline_context(pipeline_key)
     wanted = set(ctx.get("reference_resources") or [])
+    igenomes_key = bundle.get("igenomes_key")
+    # Local Luria reference wins: the submit path injects it as --fasta/--gtf
+    # (path > iGenomes), so report it honestly rather than as an iGenomes fallback.
+    if igenomes_key and has_local_luria_ref(igenomes_key):
+        return {"genome": igenomes_key}, "local_luria"
     if store_root:
         params: dict[str, Any] = {}
         for name, templated in (bundle.get("resources") or {}).items():

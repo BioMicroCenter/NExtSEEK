@@ -314,8 +314,8 @@ def test_configure_run_emits_yamls_and_caches(monkeypatch, tmp_path):
         _CfgTower(), state, {"pipeline_key": "rnaseq", "params": {"aligner": "hisat2"}}, str(tmp_path)))
     assert out["ok"] is True
     assert out["resolved_params"]["aligner"] == "hisat2"
-    assert out["resolved_params"]["genome"] == "GRCm39"     # igenomes fallback
-    assert out["reference_status"] == "igenomes_fallback"
+    assert out["resolved_params"]["genome"] == "GRCm39"     # GRCm39 has a local Luria ref
+    assert out["reference_status"] == "local_luria"
     assert captured["launch_plan"]["params"]["aligner"] == "hisat2"
     assert state["artifacts"]["params"].endswith("params.yml")
     assert state["artifacts"]["launch"].endswith("launch.yml")
