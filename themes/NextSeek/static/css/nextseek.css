@@ -1620,3 +1620,24 @@ body.sidebar-open .sidebar-scrim { display: block; }
 	border-color: var(--ns-crimson) !important;
 	box-shadow: 0 0 0 2px rgba(163, 31, 52, 0.15) !important;
 }
+
+/* --- Search tabs: flow the rigid EasyUI region layout so the criteria form
+   and results grid size to their content, instead of sitting inside oversized
+   fixed-height regions that left large empty gaps and clipped the button row.
+   Scoped to #search_tab so no other EasyUI layout on the site is affected. --- */
+#search_tab { height: auto !important; }
+#search_tab .tabs-panels,
+#search_tab .tabs-panels > .panel > .panel-body,
+#search_tab > .panel > .panel-body { height: auto !important; position: static !important; }
+#search_tab .layout,
+#search_tab .layout-body { position: static !important; height: auto !important; width: auto !important; }
+#search_tab .layout-panel { position: static !important; height: auto !important; width: auto !important; left: auto !important; top: auto !important; }
+#search_tab .layout-panel-north,
+#search_tab .layout-panel-center { height: auto !important; }
+#search_tab .layout-split-proxy-v,
+#search_tab .layout-expand,
+#search_tab .layout-split-north,
+#search_tab .layout-split-center { display: none !important; }
+/* Tighten the search-criteria panel so there is less blank space around it. */
+#search_tab .well { padding: 12px 16px !important; margin-bottom: 10px !important; }
+#search_tab .well .table { margin-bottom: 8px !important; }
