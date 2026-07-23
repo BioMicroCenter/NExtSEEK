@@ -55,6 +55,7 @@ from nextseek_api.services.assistant import (
 from chat_nextseek.orchestrator import run_query, run_query_plan
 
 from nextseek_api.cc_assistant import router as cc_router
+from nextseek_api.cc_assistant import router_context
 from nextseek_api.cc_assistant import cc_engine
 from nextseek_api.cc_assistant import cc_config
 from nextseek_api.cc_assistant import cc_session
@@ -244,11 +245,14 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         reasoning="forced", source="forced",
                     )
                 else:
-                    decision = cc_router.decide(req.query)
+                    history = router_context.build_history(
+                        (chat_session.extra_state or {}).get("chat_log") or []
+                    )
+                    decision = cc_router.decide(req.query, history=history)
 
                 send_event("route_decided", {
                     "route": decision.route, "model_class": decision.model_class,
-                    "source": decision.source,
+                    "source": decision.source, "reasoning": decision.reasoning,
                 })
 
                 if decision.route == cc_router.ROUTE_UNRELATED:
