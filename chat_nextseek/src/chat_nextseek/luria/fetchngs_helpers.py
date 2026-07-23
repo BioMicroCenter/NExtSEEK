@@ -33,13 +33,29 @@ def needs_fetch_accessions(rows: list[dict]) -> list[str]:
 
 
 def _paths_for(cache: str, acc: str) -> tuple[str | None, str]:
+    """Resolve the fetched fastq(s) for an accession from the cache.
+
+    nf-core/fetchngs names outputs <experiment>_<run>_{1,2}.fastq.gz (e.g.
+    SRX6818190_SRR10085181_1.fastq.gz), so the run accession is a SUFFIX, not the
+    whole filename. Match it as a suffix, falling back to a bare <acc>… name. `acc`
+    is pre-validated ^[A-Za-z0-9]+$, so it carries no glob metacharacters.
+    """
     fq = Path(cache) / "fastq"
-    r1, r2 = fq / f"{acc}_1.fastq.gz", fq / f"{acc}_2.fastq.gz"
-    se = fq / f"{acc}.fastq.gz"
-    if r1.exists():
-        return str(r1), (str(r2) if r2.exists() else "")
-    if se.exists():
-        return str(se), ""
+
+    def _first(*patterns: str) -> str | None:
+        for pat in patterns:
+            hits = sorted(fq.glob(pat))
+            if hits:
+                return str(hits[0])
+        return None
+
+    r1 = _first(f"*_{acc}_1.fastq.gz", f"{acc}_1.fastq.gz")
+    if r1:
+        r2 = _first(f"*_{acc}_2.fastq.gz", f"{acc}_2.fastq.gz")
+        return r1, (r2 or "")
+    se = _first(f"*_{acc}.fastq.gz", f"{acc}.fastq.gz")
+    if se:
+        return se, ""
     return None, ""
 
 

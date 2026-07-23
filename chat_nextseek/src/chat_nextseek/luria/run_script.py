@@ -92,13 +92,19 @@ CACHE="{FASTQ_CACHE}"
 mkdir -p "$CACHE/fastq" "$CACHE/work"
 python3 fetchngs_helpers.py ids
 if [ -s ids.csv ]; then
+  # fetchngs writes <experiment>_<run>_*.fastq.gz, so the accession is a substring, not a prefix.
   need=0
-  while read acc; do ls "$CACHE"/fastq/${{acc}}*.fastq.gz >/dev/null 2>&1 || need=1; done < ids.csv
+  while read acc; do ls "$CACHE"/fastq/*"${{acc}}"*.fastq.gz >/dev/null 2>&1 || need=1; done < ids.csv
   if [ "$need" = "1" ]; then
-    nextflow run nf-core/fetchngs -r {FETCHNGS_REVISION} -profile singularity \\
-      --input ids.csv --outdir "$CACHE" -w "$CACHE/work" -resume
+    # fetchngs' minimal wget container has no /etc/resolv.conf and Luria's singularity cannot
+    # create the mountpoint, so the containerized wget can't resolve ENA. Bind the host /etc
+    # (a directory, which mounts onto the container's existing /etc) to give it a resolver.
+    SINGULARITY_BIND=/etc nextflow run nf-core/fetchngs -r {FETCHNGS_REVISION} -profile singularity \\
+      --input ids.csv --outdir "$CACHE" -w "$CACHE/work" -resume \\
+      || {{ echo "[FETCHNGS] download failed -- see the fetchngs .nextflow.log" >&2; exit 1; }}
   fi
-  python3 fetchngs_helpers.py fill "$CACHE"
+  python3 fetchngs_helpers.py fill "$CACHE" \\
+    || {{ echo "[FETCHNGS] fill failed -- fastqs not present in $CACHE/fastq; aborting before the pipeline run" >&2; exit 1; }}
 fi
 """
 

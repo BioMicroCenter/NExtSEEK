@@ -318,6 +318,19 @@ def test_render_includes_fetch_block_when_needed():
     assert "nextflow run nf-core/rnaseq -r 3.18.0" in out   # pipeline block STILL intact + unchanged
 
 
+def test_render_fetch_block_binds_etc_for_container_dns():
+    # The fetchngs wget container has no /etc/resolv.conf; bind host /etc so it can resolve ENA.
+    out = _render(needs_fetch=True, fastq_cache="/w/fastq_cache", fetchngs_revision="1.12.0")
+    assert "SINGULARITY_BIND=/etc nextflow run nf-core/fetchngs" in out
+
+
+def test_render_fetch_block_fails_fast_on_fetch_or_fill_error():
+    # A failed download or fill must abort run.sh, not fall through to a doomed pipeline run.
+    out = _render(needs_fetch=True, fastq_cache="/w/fastq_cache", fetchngs_revision="1.12.0")
+    assert out.count("exit 1") >= 2                       # guards on both the fetch and the fill
+    assert 'fastq/*"${acc}"*.fastq.gz' in out             # substring pre-glob matches <exp>_<run>_*
+
+
 def test_render_fetch_block_rejects_bad_cache():
     with pytest.raises(ValueError):
         _render(needs_fetch=True, fastq_cache="/w; rm -rf /", fetchngs_revision="1.12.0")
