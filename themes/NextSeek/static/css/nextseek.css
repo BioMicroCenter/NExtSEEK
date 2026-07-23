@@ -1590,10 +1590,33 @@ body.sidebar-open .sidebar-scrim { display: block; }
 	text-decoration: none;
 }
 
-/* Keep the always-on EasyUI filter inputs full-width and on-theme. */
-.datagrid-filter-row .datagrid-filter input {
-	box-sizing: border-box;
-	width: 100%;
-	border: 1px solid var(--ns-border);
-	border-radius: 5px;
+/* Always-on filter row: a soft crimson-tinted band so it reads as an
+   interactive filter strip, clearly distinct from the column headers.
+   !important beats the base .datagrid-filter-row rule earlier in this file. */
+.datagrid-filter-row {
+	background: var(--ns-crimson-soft) !important;
+	border-bottom: 1px solid var(--ns-crimson-border) !important;
+}
+.datagrid-filter-row .datagrid-filter input,
+.datagrid-filter-row input {
+	box-sizing: border-box !important;
+	width: 100% !important;
+	height: 26px !important;
+	padding: 3px 7px !important;
+	border: 1px solid var(--ns-crimson-border) !important;
+	border-radius: 5px !important;
+	background: var(--ns-white) !important;
+	color: var(--ns-body) !important;
+	font-size: 12px !important;
+}
+.datagrid-filter-row .datagrid-filter input::placeholder,
+.datagrid-filter-row input::placeholder {
+	color: #b07680;
+	font-style: italic;
+}
+.datagrid-filter-row .datagrid-filter input:focus,
+.datagrid-filter-row input:focus {
+	outline: none !important;
+	border-color: var(--ns-crimson) !important;
+	box-shadow: 0 0 0 2px rgba(163, 31, 52, 0.15) !important;
 }
