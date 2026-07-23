@@ -38,8 +38,8 @@ CHAT_LOG_REQUIRED_FIELDS: dict[str, type] = {
     "ts": str,
     "mode": str,
     "user_query": str,
-    "assistant_reply": str,
 }
+CHAT_LOG_OPTIONAL_REPLY_FIELD = "assistant_reply"
 
 
 class ChatLogEntryError(ValueError):
@@ -93,6 +93,16 @@ def validate_chat_log_entry(entry: Any) -> None:
             raise ChatLogEntryError(
                 f"chat_log entry field {field!r} must be {typ.__name__}, "
                 f"got {type(val).__name__}")
+    reply = entry.get(CHAT_LOG_OPTIONAL_REPLY_FIELD)
+    if reply is not None:
+        if not isinstance(reply, str):
+            raise ChatLogEntryError(
+                f"chat_log entry field 'assistant_reply' must be str or None, "
+                f"got {type(reply).__name__}")
+        if reply == "":
+            raise ChatLogEntryError(
+                "chat_log entry field 'assistant_reply' must be non-empty when present "
+                "(use None/absent for non-answer turns)")
 
 
 def _strip_html(value: Any) -> str:
@@ -200,6 +210,9 @@ def append_turn(
     assistant_reply: str | None = None,
     bundle_id: int | None = None,
     wizard_state: dict[str, Any] | None = None,
+    router_choice: str | None = "nextseek_query",
+    status: str = "completed",
+    error: str | None = None,
 ) -> None:
     """Append a compact turn summary. Capped FIFO at MAX_TURNS."""
     log = session.get(CHAT_LOG_KEY) or []
@@ -221,7 +234,11 @@ def append_turn(
         "assistant_reply": _strip_debug_block(assistant_reply or ""),
         "assistant_reply_preview": _truncate(_strip_debug_block(assistant_reply or ""), REPLY_PREVIEW_CHARS),
         "bundle_id": bundle_id,
+        "router_choice": router_choice,
+        "status": status,
     }
+    if error:
+        turn["error"] = error
     if wizard_state:
         turn["wizard_state"] = wizard_state
 
@@ -265,11 +282,16 @@ def _strip_debug_block(reply: str) -> str:
     return reply.strip()
 
 
+def _is_answered(entry: Any) -> bool:
+    """True when the entry carries a real assistant reply (non-empty str)."""
+    return isinstance(entry, dict) and bool(entry.get(CHAT_LOG_OPTIONAL_REPLY_FIELD))
+
+
 def recent_turns(
     session: "SessionState | SessionStateProxy | None",
     n: int = DEFAULT_TAIL,
 ) -> list[dict[str, Any]]:
-    """Return the most recent up-to-N turns. Older first; empty list if no log."""
+    """Return the most recent up-to-N answered turns. Older first; empty list if no log."""
     if session is None:
         return []
     log = session.get(CHAT_LOG_KEY) or []
@@ -277,7 +299,8 @@ def recent_turns(
         return []
     if n <= 0:
         return []
-    return log[-n:]
+    answered = [e for e in log if _is_answered(e)]
+    return answered[-n:]
 
 
 def format_for_prompt(turns: list[dict[str, Any]]) -> str:
