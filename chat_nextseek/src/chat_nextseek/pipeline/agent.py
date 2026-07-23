@@ -2,7 +2,7 @@
 
 One BedrockClient.chat_with_tools conversation per session. The LLM picks the
 pipeline, judges data-type fit, builds cohorts, and asks the user when unsure.
-Five tools (resolve_samples, write_samplesheet, configure_run, submit_to_tower,
+Five tools (resolve_samples, write_samplesheet, configure_run, submit_to_luria,
 conclude) do the deterministic I/O; write_samplesheet builds the CSV (rejecting
 refs the agent didn't resolve), configure_run builds params.yml + launch.yml.
 

@@ -34,7 +34,7 @@ _VALID_LAUNCH_MODES = {"tower", "luria"}
 
 
 def detect_pipeline_launch_mode(env: dict | None = None) -> str:
-    """Return the default launch backend ('tower' | 'luria'). Invalid -> 'tower'."""
+    """Return the default launch backend ('tower' | 'luria'). Invalid -> 'luria'."""
     env = env if env is not None else os.environ
     mode = (env.get("PIPELINE_LAUNCH_MODE") or "luria").strip().lower()
     if mode not in _VALID_LAUNCH_MODES:

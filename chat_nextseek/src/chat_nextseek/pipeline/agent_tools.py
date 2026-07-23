@@ -4,7 +4,7 @@ Anthropic-style tools driven by BedrockClient.chat_with_tools (submit tools expo
   - resolve_samples:   UIDs/last-search -> compact leaf table (+ caches refs)
   - write_samplesheet: agent-built cohorts -> validated samplesheet CSV (CSV only)
   - configure_run:     curated params + species references -> params.yml + launch.yml
-  - submit_to_tower:   submit the built launch artifacts
+  - submit_to_luria:   submit the built run to MIT's Luria SLURM cluster
   - submit_to_luria:   submit the built launch artifacts to the Luria SLURM cluster
   - conclude:          terminate the conversation (control tool, intercepted by the loop)
 """
@@ -78,7 +78,8 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
             "group-by, make one cohort per distinct field value; for a filter, make one cohort "
             "of the matching samples. Every row's 'sample' and (if present) 'accession' MUST "
             "come from a resolve_samples result — invented refs are rejected and returned to you "
-            "to fix. Leave fastq_1/fastq_2 empty; the ENA layer fills them from accessions."
+            "to fix. Leave fastq_1/fastq_2 empty for SRR samples; local /net/bmc-* paths are "
+            "filled from metadata and SRR accessions are fetched on-cluster (nf-core/fetchngs)."
         ),
         "input_schema": {
             "type": "object",
@@ -106,7 +107,7 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "configure_run",
         "description": (
-            "Build the Tower submission YAMLs (params.yml + launch.yml) for the run. Call AFTER "
+            "Build the Luria run config (params.yml + launch.yml) for the run. Call AFTER "
             "write_samplesheet. Set pipeline params from the param_menu returned by resolve_samples; "
             "genome/reference defaults come from the samples' detected species. Returns the resolved "
             "params + reference_status so you can show the user and let them steer; re-call to change "
