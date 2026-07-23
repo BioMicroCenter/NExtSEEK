@@ -61,6 +61,37 @@ def _server_shaped_session_detail(*, turn_id=5, bundle_id=2, with_cc_traces=True
     }
 
 
+def test_server_and_mirror_turn_field_parity(bin_mods):
+    """Regression gate for R-1: every server Turn field must exist on the mirror.
+
+    Hand-shaped payloads can drift from models_api.Turn. Import BOTH models and
+    assert equal field names so a future server-only Turn field fails CI before
+    nextseek-recall breaks in the container.
+    """
+    mirror_mod, _, _ = bin_mods
+    from nextseek_api.assistant.models_api import Turn as ServerTurn
+
+    MirrorTurn = mirror_mod.Turn
+    server_fields = set(ServerTurn.model_fields)
+    mirror_fields = set(MirrorTurn.model_fields)
+    assert server_fields == mirror_fields, (
+        f"Turn field drift — server-only={server_fields - mirror_fields}; "
+        f"mirror-only={mirror_fields - server_fields}"
+    )
+    # Round-trip: a server Turn dump must validate on the mirror (extra=forbid).
+    server_turn = ServerTurn(
+        bundle_id=2,
+        turn_id=5,
+        user_query="q",
+        reply="a",
+        mode="search",
+        ts="t",
+        artifacts=None,
+        cc_traces=[{"total_cost_usd": 0.01}],
+    )
+    MirrorTurn.model_validate(server_turn.model_dump(mode="json"))
+
+
 def test_mirror_turn_accepts_server_turn_id_and_cc_traces(bin_mods):
     models, _, _ = bin_mods
     payload = _server_shaped_session_detail()
