@@ -254,3 +254,57 @@ def test_submit_luria_threads_genome_into_runsh(tmp_path, monkeypatch):
                      samplesheet_local=str(real_sheet), genome="GRCm39")
     assert "--genome GRCm39" in staged["run_sh"]
     assert "GRCh38" not in staged["run_sh"]
+
+
+import csv
+from pathlib import Path
+import chat_nextseek.luria.submitter as sub
+
+
+def _write_sheet(path, rows, fields):
+    with open(path, "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=fields, lineterminator="\n")
+        w.writeheader(); w.writerows(rows)
+
+
+def _patch_ssh(monkeypatch, scps):
+    monkeypatch.setattr(sub, "prepare_key", lambda key: "/tmp/key")
+    monkeypatch.setattr(sub, "ssh_run", lambda env, cmd, **kw: "Submitted batch job 42")
+    monkeypatch.setattr(sub, "scp_file",
+                        lambda env, src, dst, **kw: scps.append((Path(src).name, dst)))
+
+
+def test_submit_stages_helper_and_sets_needs_fetch_for_srr_sheet(monkeypatch, tmp_path):
+    captured = {}
+    monkeypatch.setattr(sub, "render_run_script",
+                        lambda **kw: captured.update(kw) or "#!/bin/bash\n")
+    scps = []
+    _patch_ssh(monkeypatch, scps)
+    sheet = tmp_path / "samplesheet.csv"
+    _write_sheet(sheet, [{"sample": "D.SEQ-2", "accession": "SRR9", "fastq_1": "", "fastq_2": ""}],
+                 ["sample", "accession", "fastq_1", "fastq_2"])
+    launch = tmp_path / "launch.yml"
+    launch.write_text("launch:\n  - {name: r, pipeline: nf-core/rnaseq, revision: 3.18.0}\n")
+    env = {"user": "u", "key": "/k", "working_path": "/work", "host": "luria.mit.edu"}
+    runs = sub.submit_luria(launch, luria_env=env, samplesheet_local=str(sheet))
+    assert runs and runs[0]["job_id"] == "42"
+    assert captured["needs_fetch"] is True
+    assert captured["fastq_cache"] == "/work/fastq_cache"
+    assert any(name == "fetchngs_helpers.py" for name, _ in scps)   # helper staged
+
+
+def test_submit_no_fetch_for_all_local_sheet(monkeypatch, tmp_path):
+    captured = {}
+    monkeypatch.setattr(sub, "render_run_script",
+                        lambda **kw: captured.update(kw) or "#!/bin/bash\n")
+    scps = []
+    _patch_ssh(monkeypatch, scps)
+    sheet = tmp_path / "samplesheet.csv"
+    _write_sheet(sheet, [{"sample": "D.SEQ-1", "accession": "", "fastq_1": "/net/bmc/1.fastq.gz", "fastq_2": ""}],
+                 ["sample", "accession", "fastq_1", "fastq_2"])
+    launch = tmp_path / "launch.yml"
+    launch.write_text("launch:\n  - {name: r, pipeline: nf-core/rnaseq, revision: 3.18.0}\n")
+    env = {"user": "u", "key": "/k", "working_path": "/work", "host": "luria.mit.edu"}
+    sub.submit_luria(launch, luria_env=env, samplesheet_local=str(sheet))
+    assert captured["needs_fetch"] is False
+    assert not any(name == "fetchngs_helpers.py" for name, _ in scps)

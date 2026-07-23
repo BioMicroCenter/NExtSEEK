@@ -22,7 +22,9 @@ except Exception:  # pragma: no cover
     _yaml = None
 
 from .run_script import render_run_script, render_luria_config, render_process_config, sanitize_job_name
+from .fetchngs_helpers import needs_fetch_accessions
 from .ssh import prepare_key, ssh_run, scp_file
+from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
 
 _JOB_ID_RE = re.compile(r"Submitted batch job (\d+)")
 _REQUIRED_ENV = ("user", "key", "working_path", "host")
@@ -92,6 +94,17 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
     return runs
 
 
+def _sheet_needs_fetch(sheet_path: str) -> bool:
+    """True when the staged samplesheet has at least one blank-fastq SRR row to fetch."""
+    import csv
+    try:
+        with open(sheet_path, newline="") as fh:
+            rows = list(csv.DictReader(fh))
+    except OSError:
+        return False
+    return bool(needs_fetch_accessions(rows))
+
+
 def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key_path,
                 samplesheet_local=None, genome=None, launch_params=None, process_args=None):
     name = (entry.get("name") or f"run{idx}").strip() or f"run{idx}"
@@ -130,12 +143,16 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     # and -c luria.config (genomes map for --genome identity + a per-protocol SIMPLEAF_QUANT
     # --knee block for scrnaseq bead protocols). Stage run.sh + luria.config + params.yml + sheet.
     refs_root = f"{working}/refs"
+    needs_fetch = _sheet_needs_fetch(local_sheet)
+    fastq_cache = f"{working}/fastq_cache"
+    fetchngs_rev = NFCORE_PIPELINE_CATALOG.get("fetchngs", {}).get("default_revision", "1.12.0")
     tmp_files: list[str] = []
     try:
         run_sh = render_run_script(
             job_name=safe, pipeline=pipeline, revision=revision, run_dir=remote_run_dir,
             work_dir=work_dir, singularity_cache=cache_dir, genome=run_genome, resources=resources,
             refs_root=refs_root, aligner=(launch_params or {}).get("aligner"), working=working,
+            needs_fetch=needs_fetch, fastq_cache=fastq_cache, fetchngs_revision=fetchngs_rev,
         )
         run_tmp = _write_temp(run_sh, prefix="run_", suffix=".sh"); tmp_files.append(run_tmp)
         # luria.config = genomes map + any curated per-protocol process ext.args (e.g. seqwell/dropseq
@@ -151,6 +168,9 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
         scp_file(luria_env, cfg_tmp, f"{remote_run_dir}/luria.config", key_path=key_path)
         scp_file(luria_env, params_tmp, f"{remote_run_dir}/params.yml", key_path=key_path)
         scp_file(luria_env, local_sheet, f"{remote_run_dir}/samplesheet.csv", key_path=key_path)
+        if needs_fetch:
+            helper = str(Path(__file__).parent / "fetchngs_helpers.py")
+            scp_file(luria_env, helper, f"{remote_run_dir}/fetchngs_helpers.py", key_path=key_path)
         out = ssh_run(luria_env, f"cd {remote_run_dir} && sbatch run.sh", key_path=key_path)
     finally:
         for _tmp in tmp_files:
