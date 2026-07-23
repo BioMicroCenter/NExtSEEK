@@ -136,7 +136,14 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     from nextseek_api.cc_assistant.cc_provision import build_user_dirs
 
     metas = []
-    qs = ChatSession.objects.filter(user=user).order_by("-updated_at")
+    # results_history can be multi-MB JSON; including it in ORDER BY filesort
+    # trips MySQL "Out of sort memory" (errno 1038) after large NS turns.
+    # This helper only needs session_id / extra_state / updated_at.
+    qs = (
+        ChatSession.objects.filter(user=user)
+        .defer("results_history")
+        .order_by("-updated_at")
+    )
     for s in qs:
         sid = str(s.session_id)
         es = s.extra_state or {}
