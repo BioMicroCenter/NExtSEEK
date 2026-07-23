@@ -29,11 +29,12 @@
 	});
 
 	$(function () {
-		var dg = $('#simple_dgtable').datagrid();
-		dg.datagrid('enableFilter', [{
-			field: 'id',
-			type: 'label'
-		}]);
+		var dg = $('#simple_dgtable');
+		nsEnableColumnFilters(
+			dg,
+			['uid', 'sample_type', 'assays', 'first_name', 'attributeValue'],
+			['ck', 'id']
+		);
 	});
 
 	function simple_downloadSamples(dg, url_download) {
@@ -363,13 +364,13 @@
 					data-options="field: 'ck', width: 100, align: 'center', checkbox: true, editor: { type: 'checkbox', options: { on: 'Y', off: 'N' } }">
 					Select file</th>
 				<th data-options="field: 'id', width: 30" sortable=" true"><b>ID</b></th>
-				<th data-options="field: 'uid', width: 200, editor: 'text'" sortable=" true"><b>UID</b></th>
+				<th data-options="field: 'uid', width: 200, editor: 'text', formatter: nsEllipsisFormatter" sortable=" true"><b>UID</b></th>
 				<!---th data-options="field: 'parent_uids', width: 200, editor: 'text'" sortable=" true"><b>Parent UIDs</b></th>
 				<th data-options="field: 'created_at', align: 'left', width: 60"><b>Updated AT</b></th--->
-				<th data-options="field: 'sample_type', width: 100" sortable=" true"><b>Sample Type</b></th>
-				<th data-options="field: 'assays', width: 120" sortable=" true"><b>Assays</b></th>
-				<th data-options="field: 'first_name', align: 'left', width: 100"><b>Contributor</b></th>
-				<th data-options="field: 'attributeValue',align:'left',width:900"><b>Attribute:Value</b></th>
+				<th data-options="field: 'sample_type', width: 100, formatter: nsEllipsisFormatter" sortable=" true"><b>Sample Type</b></th>
+				<th data-options="field: 'assays', width: 120, formatter: nsEllipsisFormatter" sortable=" true"><b>Assays</b></th>
+				<th data-options="field: 'first_name', align: 'left', width: 100, formatter: nsEllipsisFormatter"><b>Contributor</b></th>
+				<th data-options="field: 'attributeValue',align:'left',width:900, formatter: nsEllipsisFormatter"><b>Attribute:Value</b></th>
 				<!---th data-options=" field: 'json_metadata', align: 'left', width: 900"><b>Meta Data</b></th--->
 			</tr>
 		</thead>

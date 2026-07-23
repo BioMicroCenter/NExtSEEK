@@ -161,11 +161,12 @@
 				</table>
 			</div>
 			<div class="row show-grid">
-				<div class="col-xs-6 col-sm-4 col-md-4"></div>
-				<div class="col-xs-6 col-sm-4 col-md-4">
-					<a href="#" class="easyui-linkbutton" data-options="iconCls:'icon-search',plain:true" onclick="simple_searchSamples()">Search</a>
+				<div class="col-xs-12" style="text-align:center;">
+					<span class="ns-search-actions">
+						<a href="javascript:void(0)" class="ns-btn-reset" onclick="nsResetSearch($('#simple_dgtable'), ['#simple_sample_type','#simple_sample_attribute','#filter_rule','#input_valueFrom','#input_valueTo'])">Reset</a>
+						<a href="javascript:void(0)" class="ns-btn-search" onclick="simple_searchSamples()"><span class="glyphicon glyphicon-search"></span> Search</a>
+					</span>
 				</div>
-				<div class="col-xs-6 col-sm-4 col-md-4"></div>
 			</div>
 		</div>
 	</form>
