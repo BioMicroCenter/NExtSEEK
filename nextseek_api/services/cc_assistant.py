@@ -416,6 +416,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         chat_session=chat_session,
                         user_query=req.query or "",
                         on_turn_complete=_append_cc_turn_complete,
+                        chat_session_id=cc_state_key,
                     )
             except Exception:
                 logger.exception("cc-assistant pipeline error")

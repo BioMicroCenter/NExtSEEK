@@ -241,6 +241,7 @@ def build_agent_environment(
     api_user: str | None,
     api_pass: str | None,
     path_mappings: Mapping[str, Any],
+    chat_session_id: str | None = None,
 ) -> dict[str, str]:
     """The COMPLETE env for the sandboxed Container-CC agent (OI-3).
 
@@ -293,6 +294,9 @@ def build_agent_environment(
     env["NEXTSEEK_SIDECAR_PORT"] = src.get("NEXTSEEK_SIDECAR_PORT", _DEFAULT_SIDECAR_PORT)
     # D19: container->host path translation for artifact-location reporting.
     env["DMAC_PATH_MAPPINGS"] = json.dumps(path_mappings, separators=(",", ":"))
+    # §4.C: the live chat session id for nextseek-recall/query — not a credential.
+    if chat_session_id:
+        env["NEXTSEEK_CHAT_SESSION_ID"] = chat_session_id
     return env
 
 
@@ -545,6 +549,7 @@ def run_cc_turn(
     chat_session: Any | None = None,
     user_query: str = "",
     on_turn_complete: Callable[..., None] | None = None,
+    chat_session_id: str | None = None,
 ) -> None:
     """Execute one Container-CC turn with scoped input/shared mounts + artifact publish.
 
@@ -635,6 +640,7 @@ def run_cc_turn(
     environment = build_agent_environment(
         source=os.environ, api_user=api_user, api_pass=api_pass,
         path_mappings=path_mappings,
+        chat_session_id=chat_session_id,
     )
 
     command = _build_command(

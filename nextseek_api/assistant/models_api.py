@@ -129,6 +129,7 @@ class Turn(BaseModel):
     total_rows, rows_returned).
     """
     bundle_id: int
+    turn_id: Optional[int] = None
     user_query: str
     reply: str
     mode: str
