@@ -307,7 +307,7 @@ def test_configure_run_emits_yamls_and_caches(monkeypatch, tmp_path):
             saved_files={"params": str(out_dir) + "/params.yml", "launch": str(out_dir) + "/launch.yml"},
             launch_entry={"name": "r1"}, fetchngs_launch_entry=None, excluded_accessions=[])
 
-    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_launch_artifacts", fake_emit_launch)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_luria_launch_artifacts", fake_emit_launch)
     state = {"artifacts": {"samplesheet": str(tmp_path / "s.csv"), "base_dir": str(tmp_path)},
              "bundle_key": "GRCm39"}
     out = _json.loads(tool_configure_run(
@@ -332,7 +332,7 @@ def test_configure_run_genome_override_reselects_bundle(monkeypatch, tmp_path):
                                launch_entry={"name": "r1"}, fetchngs_launch_entry=None,
                                excluded_accessions=[])
 
-    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_launch_artifacts", fake_emit_launch)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_luria_launch_artifacts", fake_emit_launch)
     # detected bundle is mouse, but the user steers to human via a species name
     state = {"artifacts": {"samplesheet": str(tmp_path / "s.csv"), "base_dir": str(tmp_path)},
              "bundle_key": "GRCm39"}
@@ -375,7 +375,7 @@ def test_configure_run_override_persists_bundle_across_calls(monkeypatch, tmp_pa
                                launch_entry={"name": "r1"}, fetchngs_launch_entry=None,
                                excluded_accessions=[])
 
-    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_launch_artifacts", fake_emit_launch)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_luria_launch_artifacts", fake_emit_launch)
     state = {"artifacts": {"samplesheet": str(tmp_path / "s.csv"), "base_dir": str(tmp_path)},
              "bundle_key": "GRCm39"}
     out1 = _json.loads(tool_configure_run(
@@ -456,3 +456,19 @@ def test_write_samplesheet_keeps_path_only_row_without_accession(tmp_path):
     out = json.loads(at.tool_write_samplesheet(_WSCfg(tmp_path), state, tool_input, str(tmp_path)))
     assert out["ok"] is True
     assert out["total_rows"] == 1   # path-only, accession-less row is NOT dropped
+
+
+def test_configure_run_local_luria_without_tower(tmp_path):
+    class Cfg:
+        LOG_DIR = str(tmp_path)
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("sample,fastq_1\nD.SEQ-1,/net/bmc/1.fastq.gz\n")
+    state = {"artifacts": {"samplesheet": str(sheet), "base_dir": str(tmp_path)},
+             "bundle_key": "GRCm39", "pipeline_key": "rnaseq"}
+    out = json.loads(at.tool_configure_run(
+        Cfg(), state, {"pipeline_key": "rnaseq", "params": {}}, str(tmp_path)))
+    assert out["ok"] is True
+    assert out["reference_status"] == "local_luria"
+    assert out["reference_files"]["fasta"].endswith(".fa.gz")
+    assert Path(out["launch_yml"]).exists() and Path(out["params_yml"]).exists()
+    assert state["artifacts"]["launch"] and state["artifacts"]["params"]

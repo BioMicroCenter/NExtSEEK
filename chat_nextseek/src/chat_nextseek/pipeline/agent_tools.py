@@ -30,7 +30,7 @@ from pathlib import Path
 
 from ..schemas import SeqeraLaunchPlan
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
-from ..seqera.emitter import emit_launch_artifacts, emit_nfcore_artifacts
+from ..seqera.emitter import emit_launch_artifacts, emit_luria_launch_artifacts, emit_nfcore_artifacts
 from ..seqera.ena import extract_accessions_from_metadata, resolve_accessions
 from ..seqera.pipeline_params import (
     build_run_params,
@@ -42,6 +42,7 @@ from ..seqera.pipeline_params import (
 )
 from ..seqera.submitter import submit_launch
 from ..luria.submitter import submit_luria
+from ..luria.run_script import local_luria_ref_files
 
 PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
@@ -514,12 +515,9 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         pipeline_revision=tool_input.get("revision"),
         profile=tool_input.get("profile"),
     )
-    tower_env = dict(getattr(config, "TOWER_ENV", {}) or {})
-    excluded = list(artifacts.get("excluded_accessions") or [])
-    result = emit_launch_artifacts(
+    result = emit_luria_launch_artifacts(
         base, pipeline=pipeline_key, samplesheet_path=samplesheet,
-        launch_plan=plan.model_dump(), tower_env=tower_env, excluded=excluded,
-        samplesheet_relative_dir=".", write_launch_yml=True)
+        launch_plan=plan.model_dump())
 
     state.setdefault("artifacts", {})
     state["artifacts"]["params"] = result.saved_files.get("params")
@@ -527,17 +525,17 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     state["launch_plan"] = plan.model_dump()
     state["pipeline_key"] = pipeline_key
 
-    tower_complete = bool(tower_env and all(
-        tower_env.get(k) for k in ("access_token", "workspace", "compute_env", "work_bucket")))
+    ref_files = (local_luria_ref_files(merged.get("genome"))
+                 if reference_status == "local_luria" else None)
     return json.dumps({
         "ok": True,
         "pipeline_key": pipeline_key,
         "resolved_params": merged,
         "reference_status": reference_status,
+        "reference_files": ref_files,
         "bundle_key": bundle_key,
         "params_yml": result.saved_files.get("params"),
         "launch_yml": result.saved_files.get("launch"),
-        "tower_configured": tower_complete,
     })
 
 
