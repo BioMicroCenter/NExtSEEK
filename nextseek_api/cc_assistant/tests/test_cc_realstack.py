@@ -37,6 +37,7 @@ from typing import Any
 from django.conf import settings
 from django.test import TestCase
 
+from nextseek_api.assistant.models_db import ChatSession
 from nextseek_api.cc_assistant import cc_config, cc_engine
 from nextseek_api.cc_assistant import router as cc_router
 from nextseek_api.cc_assistant import step7_gate_catalog as catalog
@@ -238,6 +239,160 @@ class CCRealStackAcceptance(TestCase):
         all_ok, checks = validate_run(self.evid)
         print("\n[CC-ACCEPTANCE] run=" + self.run_id + "\n" + format_report(all_ok, checks))
         self.assertTrue(all_ok, f"validator failed: {[c for c in checks if not c[1]]}")
+
+    # -- spec-001 D2 scenarios (authored, not run in plan T0–T13) ------------
+
+    def _poll_cc_query(self, client, query, *, session_id=None, mode="standard", timeout_s=300):
+        """POST cc-assistant/query/async and poll to terminal; return task + progress."""
+        body = {"query": query, "mode": mode}
+        if session_id:
+            body["session_id"] = str(session_id)
+        resp = client.post("/nextseek_api/cc-assistant/query/async/", body, format="json")
+        self.assertEqual(resp.status_code, 202, resp.content)
+        task_id = resp.json()["task_id"]
+        sid = resp.json().get("session_id")
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            pr = client.get(f"/nextseek_api/cc-assistant/tasks/{task_id}/progress/")
+            self.assertEqual(pr.status_code, 200, pr.content)
+            payload = pr.json()
+            if payload["status"] in ("completed", "error"):
+                return sid, task_id, payload
+            time.sleep(1.0)
+        self.fail(f"task {task_id} not terminal after {timeout_s}s")
+
+    def _route_from_progress(self, progress):
+        for ev in progress:
+            if ev.get("event") == "route_decided":
+                return ev.get("data") or {}
+        return {}
+
+    def test_03_s1_cross_turn_histogram(self):
+        """S1: NS NDMA turn → CC histogram turn; CC answer cites recall artifact."""
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIClient
+
+        user = get_user_model().objects.create_user("s1-user", password="x")
+        client = APIClient()
+        client.force_authenticate(user)
+
+        q1 = "Find me all mice treated with NDMA"
+        sid, tid1, p1 = self._poll_cc_query(client, q1)
+        r1 = self._route_from_progress(p1["progress"])
+        (self.evid / "s1_turn1_route.json").write_text(json.dumps(r1))
+        self.assertEqual(r1.get("route"), cc_router.ROUTE_NS, p1)
+
+        q2 = (
+            "Now create a histogram of the results and stratify the mice by genotype"
+        )
+        sid2, tid2, p2 = self._poll_cc_query(client, q2, session_id=sid)
+        self.assertEqual(str(sid2), str(sid))
+        r2 = self._route_from_progress(p2["progress"])
+        (self.evid / "s1_turn2_route.json").write_text(json.dumps(r2))
+        self.assertEqual(r2.get("route"), cc_router.ROUTE_CC, p2)
+        self.assertEqual(p2["status"], "completed", p2.get("result"))
+
+        reply = (p2.get("result") or {}).get("reply") or ""
+        (self.evid / "s1_turn2_reply.txt").write_text(reply)
+        self.assertRegex(
+            reply,
+            r"nextseek-recall|recall.*manifest|/data/scratch",
+            "CC reply did not reference recall/manifest path",
+        )
+        artifacts = (p2.get("result") or {}).get("artifacts") or []
+        (self.evid / "s1_turn2_artifacts.json").write_text(json.dumps(artifacts))
+        self.assertTrue(artifacts, "expected CC artifacts on histogram turn")
+
+    def test_04_s2_compound_single_turn(self):
+        """S2: compound question routes CC; transcript shows nextseek-query + file cite."""
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIClient
+
+        user = get_user_model().objects.create_user("s2-user", password="x")
+        client = APIClient()
+        client.force_authenticate(user)
+
+        query = (
+            "Find all mice treated with NDMA and make a histogram stratified by genotype"
+        )
+        sid, tid, payload = self._poll_cc_query(client, query, timeout_s=420)
+        route = self._route_from_progress(payload["progress"])
+        (self.evid / "s2_route.json").write_text(json.dumps(route))
+        self.assertEqual(route.get("route"), cc_router.ROUTE_CC, payload)
+        self.assertEqual(payload["status"], "completed", payload.get("result"))
+
+        reply = (payload.get("result") or {}).get("reply") or ""
+        (self.evid / "s2_reply.txt").write_text(reply)
+        session = ChatSession.objects.get(session_id=sid)
+        traces = (session.extra_state or {}).get("cc_traces") or []
+        (self.evid / "s2_cc_traces.json").write_text(json.dumps(traces))
+        trace_blob = json.dumps(traces).lower()
+        self.assertIn("nextseek-query", trace_blob, "no nextseek-query invocation in cc_traces")
+        self.assertRegex(
+            reply,
+            r"/data/scratch|\.csv|\.txt|\.png|histogram",
+            "reply did not cite a materialized output file",
+        )
+
+    def test_05_s3_referent_scoping(self):
+        """S3: NHP-seq turn then 'counts of those' scoped to turn-1 result set."""
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIClient
+
+        user = get_user_model().objects.create_user("s3-user", password="x")
+        client = APIClient()
+        client.force_authenticate(user)
+
+        q1 = "Find me sequencing data associated with non human primates"
+        sid, _, p1 = self._poll_cc_query(client, q1, timeout_s=420)
+        self.assertEqual(p1["status"], "completed", p1.get("result"))
+        session = ChatSession.objects.get(session_id=sid)
+        turn1_bundle = (session.results_history or [])[-1]
+        turn1_total = (
+            (turn1_bundle.get("api_result_full") or {}).get("data") or {}
+        ).get("total")
+        (self.evid / "s3_turn1_total.json").write_text(json.dumps({"total": turn1_total}))
+
+        q2 = "Give me the unique counts of sex and species of all of those monkeys"
+        _, _, p2 = self._poll_cc_query(client, q2, session_id=sid, timeout_s=420)
+        self.assertEqual(p2["status"], "completed", p2.get("result"))
+        reply = (p2.get("result") or {}).get("reply") or ""
+        (self.evid / "s3_turn2_reply.txt").write_text(reply)
+        if turn1_total is not None:
+            self.assertIn(
+                str(turn1_total),
+                reply,
+                "turn-2 counts answer did not reference turn-1 result cardinality",
+            )
+        self.assertNotIn(
+            "408",
+            reply,
+            "answer appears scoped to full NHP corpus (408) rather than turn-1 set",
+        )
+
+    def test_06_t17_multiturn_route_with_history(self):
+        """T17 NF-core continuation: with history, router cites the prior turn."""
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIClient
+
+        user = get_user_model().objects.create_user("t17-user", password="x")
+        client = APIClient()
+        client.force_authenticate(user)
+
+        q1 = "Find me NHP samples with RNA-seq data."
+        sid, _, p1 = self._poll_cc_query(client, q1, timeout_s=420)
+        self.assertEqual(p1["status"], "completed", p1.get("result"))
+
+        q2 = "Run rnaseq on these monkeys, group by Treatment1."
+        _, _, p2 = self._poll_cc_query(client, q2, session_id=sid, timeout_s=420)
+        r2 = self._route_from_progress(p2["progress"])
+        (self.evid / "t17_turn2_route.json").write_text(json.dumps(r2))
+        self.assertEqual(r2.get("route"), cc_router.ROUTE_NS, p2)
+        reasoning = (r2.get("reasoning") or "").lower()
+        self.assertTrue(
+            any(tok in reasoning for tok in ("turn", "prior", "previous", "history", "rna-seq", "nhp")),
+            f"route_decided.reasoning did not reference prior context: {r2.get('reasoning')!r}",
+        )
 
 
 @unittest.skipUnless(RUN, "Task 15 capability gate; set RUN_REALSTACK=1 to run")
