@@ -319,9 +319,11 @@ def test_render_includes_fetch_block_when_needed():
 
 
 def test_render_fetch_block_binds_etc_for_container_dns():
-    # The fetchngs wget container has no /etc/resolv.conf; bind host /etc so it can resolve ENA.
+    # nextflow ignores $SINGULARITY_BIND, so the host-/etc bind goes via singularity.runOptions
+    # in a -c config (verified end-to-end on Luria).
     out = _render(needs_fetch=True, fastq_cache="/w/fastq_cache", fetchngs_revision="1.12.0")
-    assert "SINGULARITY_BIND=/etc nextflow run nf-core/fetchngs" in out
+    assert "singularity.runOptions = '-B /etc'" in out
+    assert "-c fetchngs.config" in out
 
 
 def test_render_fetch_block_fails_fast_on_fetch_or_fill_error():

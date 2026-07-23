@@ -97,9 +97,11 @@ if [ -s ids.csv ]; then
   while read acc; do ls "$CACHE"/fastq/*"${{acc}}"*.fastq.gz >/dev/null 2>&1 || need=1; done < ids.csv
   if [ "$need" = "1" ]; then
     # fetchngs' minimal wget container has no /etc/resolv.conf and Luria's singularity cannot
-    # create the mountpoint, so the containerized wget can't resolve ENA. Bind the host /etc
-    # (a directory, which mounts onto the container's existing /etc) to give it a resolver.
-    SINGULARITY_BIND=/etc nextflow run nf-core/fetchngs -r {FETCHNGS_REVISION} -profile singularity \\
+    # create that file mountpoint, so containerized wget can't resolve ENA. Nextflow ignores
+    # $SINGULARITY_BIND, so pass a host /etc DIRECTORY bind via singularity.runOptions in a
+    # config (verified end-to-end on Luria: fetchngs then resolves ftp.sra.ebi.ac.uk).
+    printf "singularity.runOptions = '-B /etc'\\n" > fetchngs.config
+    nextflow run nf-core/fetchngs -r {FETCHNGS_REVISION} -profile singularity -c fetchngs.config \\
       --input ids.csv --outdir "$CACHE" -w "$CACHE/work" -resume \\
       || {{ echo "[FETCHNGS] download failed -- see the fetchngs .nextflow.log" >&2; exit 1; }}
   fi
