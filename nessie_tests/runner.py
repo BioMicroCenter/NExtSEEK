@@ -16,7 +16,8 @@ def _iso(clock):  # avoid datetime.now() so tests are deterministic
 
 def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, variant_id=None,
               overlay_path, out_dir, post_query=None, get_progress=None, bundle_reader=None,
-              pace_s=0.0, sleep=time.sleep, clock=time.monotonic) -> NessieManifest:
+              pace_s=0.0, run_consistency: bool = False,
+              sleep=time.sleep, clock=time.monotonic) -> NessieManifest:
     if post_query is None or get_progress is None:
         post_query, get_progress = http_driver.make_default_clients(base_url, auth_header)
     variants = corpus.select(corpus.merged(overlay_path), scope=scope, family=family, variant_id=variant_id)
@@ -56,6 +57,19 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
             id=v.id, family=v.family, tier=tier, status=v_status, route=v_route, engine=v_engine,
             cost=v_cost, elapsed_s=round(clock() - t0, 3), failed_criteria=failed,
             reason=reason, expected_fail=expected_fail))
+    if run_consistency:
+        from nessie_tests import consistency
+        for g in corpus.load_consistency_groups(overlay_path):
+            def _drive(q):
+                r = http_driver.drive(q, tier="full" if tier == "full" else "route",
+                                      post_query=post_query, get_progress=get_progress,
+                                      sleep=sleep, clock=clock)
+                return {"route": r.route_obs.route, "count": consistency.get_result_count(r.payload)}
+            gr = consistency.run_group(g, _drive)
+            entries.append(NessieManifestEntry(
+                id=g["id"], family="nessie_consistency", tier=tier,
+                status="passed" if gr.passed else "failed",
+                failed_criteria=gr.reasons, expected_fail="known_fail" in g.get("tags", [])))
     manifest = NessieManifest(started_at=started, ended_at=_iso(clock), tier=tier, scope=scope, entries=entries)
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     write_manifest(manifest, Path(out_dir) / "manifest.json")

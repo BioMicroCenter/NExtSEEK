@@ -46,6 +46,39 @@
             "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "refine_last_search"},
                               {"field": "api_ok", "op": "true"}]}]}
       ]
+    },
+    "nessie_repro": {
+      "description": "RED repros — expected to FAIL until #32/#33 + bonus bugs are fixed",
+      "variants": [
+        {"family": "nessie_repro", "id": "repro.parent_attr_aggregate",
+         "name": "#32a child→parent sex/species aggregate", "tags": ["nessie", "known_fail", "full"], "requires_env": [],
+         "turns": [
+           {"label": "seed", "query": "Find me sequencing data associated with non human primates.",
+            "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"}]},
+           {"label": "aggregate", "query": "Give me the unique counts of sex and species of all of those monkeys.",
+            "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "(male|female|specie|mulatta|fascicularis)"}]}]},
+        {"family": "nessie_repro", "id": "repro.thin_bundle_recall",
+         "name": "#32b recalled bundle carries attributes", "tags": ["nessie", "known_fail", "full"], "requires_env": [],
+         "turns": [
+           {"label": "seed", "query": "Find sequencing data for the parents of NHP samples.",
+            "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"}]},
+           {"label": "recall", "query": "Which of those are RNA-seq?",
+            "pass_criteria": [{"field": "bundle.has_extra_keys", "op": "true"}]}]},
+        {"family": "nessie_repro", "id": "repro.eof_truncation_reporter",
+         "name": "bonus: reporter plan EOF truncation", "tags": ["nessie", "known_fail", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Write me an nf-core rnaseq report for the last results.",
+                    "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "^(?!.*could not be completed).*$"}]}]},
+        {"family": "nessie_repro", "id": "repro.cypher_uid_dot",
+         "name": "bonus: cypher UID / D.SEQ dot defect", "tags": ["nessie", "known_fail", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Find sequencing data for NHP-220524FLY-1-PUB and NHP-220524FLY-2-PUB.",
+                    "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "(NHP-220524FLY|D\\.SEQ)"}]}]}
+      ]
     }
   }
+  ,"consistency_groups": [
+    {"id": "cons.nhp_sequencing_engine", "name": "#33 NHP sequencing routes+counts must agree",
+     "tags": ["nessie", "known_fail", "full"],
+     "queries": ["Find NHP sequencing data.", "Find sequencing data for non-human primates."],
+     "assert": {"same_route": true, "same_count": true, "count_not": 250}}
+  ]
 }

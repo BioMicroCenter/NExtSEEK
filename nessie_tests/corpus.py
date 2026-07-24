@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 from pathlib import Path
 from nessie_tests.pathsetup import ensure_e2e_importable
 
@@ -24,6 +25,11 @@ def load_base() -> list[Variant]:
 
 def load_overlay(path: Path) -> list[Variant]:
     return _flatten(load_catalog(path), "overlay")
+
+
+def load_consistency_groups(path) -> list[dict]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    return payload.get("consistency_groups", [])
 
 
 def merged(overlay_path: Path | None = None) -> list[Variant]:
