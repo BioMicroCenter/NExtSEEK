@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import socket
 
-import pytest
-
 from startup.lib.ports import is_port_free, find_free_port, allocate_ports
 
 

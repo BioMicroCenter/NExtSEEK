@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from startup.steps.volumes import (
     REQUIRED_VOLUMES,
     volume_names_for_prefix,

@@ -29,6 +29,7 @@ export LANG="${LANG:-C.UTF-8}"
 export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-dmac.test_settings}"
 export ATTRIBUTE_TEST_SHARED_DB_DENYLIST="${ATTRIBUTE_TEST_SHARED_DB_DENYLIST:-dmac,seek_production,test_dmac}"
 export ATTRIBUTE_TEST_REQUIRE_DISPOSABLE_DB_UUID="${ATTRIBUTE_TEST_REQUIRE_DISPOSABLE_DB_UUID:-1}"
+export UV_PROJECT="${UV_PROJECT:-/home/taishajo/work/NExtSEEK-dev}"
 export SEEK_HOST="${SEEK_HOST:-attribute-seek}"
 export SEEK_HOSTNAME="${SEEK_HOSTNAME:-attribute-seek}"
 export NEXTSEEK_HOSTNAME="${NEXTSEEK_HOSTNAME:-localhost}"
@@ -69,7 +70,7 @@ else
   task_id="${ATTRIBUTE_TEST_TASK_ID:-task-00}"
 fi
 if [[ "$lane" == "db" ]]; then
-  mapfile -t test_args < <(uv run python - "$task_id" <<'PY'
+  mapfile -t test_args < <(uv run --no-sync python - "$task_id" <<'PY'
 import json, sys
 manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
 contract = manifest["runner_contract"]["db_lane_contract"]
@@ -82,7 +83,7 @@ PY
   [[ ${#test_args[@]} -gt 0 ]] || { echo "missing exact DB lane selection for $task_id" >&2; exit 64; }
 fi
 if [[ "$lane" == "schema" ]]; then
-  mapfile -t test_args < <(uv run python - "$task_id" <<'PY'
+  mapfile -t test_args < <(uv run --no-sync python - "$task_id" <<'PY'
 import json, sys
 manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
 for node in manifest["runner_contract"]["schema_lane_contract"][sys.argv[1]]["node_arguments"]:
@@ -92,7 +93,7 @@ PY
   [[ ${#test_args[@]} -gt 0 ]] || { echo "missing exact schema lane selection for $task_id" >&2; exit 64; }
 fi
 if [[ "$lane" == "benchmark" ]]; then
-  mapfile -t test_args < <(uv run python - "$task_id" <<'PY'
+  mapfile -t test_args < <(uv run --no-sync python - "$task_id" <<'PY'
 import json, sys
 manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
 for node in manifest["runner_contract"]["benchmark_lane_contract"][sys.argv[1]]["node_arguments"]:
@@ -103,7 +104,7 @@ PY
   if [[ "$task_id" == "task-10" || "$task_id" == "task-11" ]]; then
     export ATTRIBUTE_PERFORMANCE_MATRIX_MODE=full
     export ATTRIBUTE_T06_CHUNK_SELECTION_POINTER=/home/taishajo/work/state/attribute-viewset/evidence/task-06/chunk-selection.pointer.json
-    ATTRIBUTE_T06_CHUNK_SELECTION="$(uv run python - "$ATTRIBUTE_T06_CHUNK_SELECTION_POINTER" <<'PY'
+    ATTRIBUTE_T06_CHUNK_SELECTION="$(uv run --no-sync python - "$ATTRIBUTE_T06_CHUNK_SELECTION_POINTER" <<'PY'
 import hashlib, json, pathlib, sys
 pointer_path = pathlib.Path(sys.argv[1])
 root = pathlib.Path("/home/taishajo/work/state/attribute-viewset/evidence/task-06").resolve()
@@ -156,13 +157,13 @@ chown_evidence_root() {
 }
 boundary_env="$evidence_root/.boundary.env"
 unset ATTRIBUTE_TEST_DATABASE_PRECREATED ATTRIBUTE_TEST_DATABASE_NAME ATTRIBUTE_TEST_DISPOSABLE_DB_UUID
-network_name="attribute-evidence-$(uv run python -c 'import uuid; print(uuid.uuid4())')"
-db_container="attribute-db-$(uv run python -c 'import uuid; print(uuid.uuid4().hex)')"
-rails_container="attribute-rails-$(uv run python -c 'import uuid; print(uuid.uuid4().hex)')"
+network_name="attribute-evidence-$(uv run --no-sync python -c 'import uuid; print(uuid.uuid4())')"
+db_container="attribute-db-$(uv run --no-sync python -c 'import uuid; print(uuid.uuid4().hex)')"
+rails_container="attribute-rails-$(uv run --no-sync python -c 'import uuid; print(uuid.uuid4().hex)')"
 db_alias="attribute-db"
 rails_alias="attribute-seek"
 ATTRIBUTE_TEST_DB_USER=root
-ATTRIBUTE_TEST_DB_PASSWORD="$(uv run python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+ATTRIBUTE_TEST_DB_PASSWORD="$(uv run --no-sync python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 ATTRIBUTE_TEST_DB_PORT=3306
 boundary_prepared=0
 cleanup_complete=0
@@ -242,7 +243,7 @@ if [[ "$task_id" == "task-02" ]]; then
   oracle="$repo_root/nextseek_api/attributes/tests/rails_auth_oracle.rb"
   docker run --rm --network "$network_name" -e DATABASE_URL="$rails_database_url" \
     "$seek_image_id" bundle exec rake db:schema:load
-  oracle_key="$(uv run python -c 'import secrets; print(secrets.token_hex(32))')"
+  oracle_key="$(uv run --no-sync python -c 'import secrets; print(secrets.token_hex(32))')"
   docker run --rm --network "$network_name" -e DATABASE_URL="$rails_database_url" \
     -e ATTRIBUTE_ORACLE_KEY="$oracle_key" -v "$oracle:/work/rails_auth_oracle.rb:ro" \
     "$seek_image_id" bundle exec rails runner /work/rails_auth_oracle.rb seed \
@@ -268,7 +269,7 @@ if [[ "$task_id" == "task-02" ]]; then
     'r=Net::HTTP.get_response(URI("http://127.0.0.1:3000/people/current")); exit([401,403].include?(r.code.to_i) ? 0 : 1)' || exit 65
   ATTRIBUTE_ORACLE_KEY="$oracle_key" ATTRIBUTE_SEEK_IMAGE_ID="$seek_image_id" \
   ATTRIBUTE_SEEK_VERSION="$seek_version" ATTRIBUTE_RAILS_CONTAINER="$rails_container" \
-  uv run python - <<'PY'
+  uv run --no-sync python - <<'PY'
 import hashlib, hmac, json, os
 from pathlib import Path
 root = Path(os.environ["ATTRIBUTE_EVIDENCE_RUN_ROOT"])
@@ -351,9 +352,9 @@ export ATTRIBUTE_EVIDENCE_STDERR="$stderr_path" ATTRIBUTE_EVIDENCE_STARTED="$sta
 export ATTRIBUTE_EVIDENCE_FINISHED="$finished_at" ATTRIBUTE_EVIDENCE_EXIT="$child_exit"
 export ATTRIBUTE_EVIDENCE_CWD="$repo_root"
 export ATTRIBUTE_TEST_IMAGE_ID="$reference_image_id"
-export ATTRIBUTE_TEST_INTEGRATION_BASE_SHA="$(uv run python -c 'import json; print(json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))["source_identity"]["base_sha"])')"
+export ATTRIBUTE_TEST_INTEGRATION_BASE_SHA="$(uv run --no-sync python -c 'import json; print(json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))["source_identity"]["base_sha"])')"
 export ATTRIBUTE_TEST_TASK_HEAD_SHA="$(git rev-parse HEAD)"
-uv run python - <<'PY'
+uv run --no-sync python - <<'PY'
 import ast, hashlib, json, os, pathlib, re, subprocess, tempfile
 
 root = pathlib.Path(os.environ["ATTRIBUTE_EVIDENCE_ROOT"])

@@ -22,7 +22,7 @@ if str(SELECTOR.parent) not in sys.path:
 
 
 def run_validator(*args):
-    return subprocess.run(["python3", str(VALIDATOR), *map(str, args)], cwd=ROOT, text=True, capture_output=True)
+    return subprocess.run(["uv", "run", "--no-sync", "python", str(VALIDATOR), *map(str, args)], cwd=ROOT, text=True, capture_output=True)
 
 
 def test_frozen_manifest_identity_and_paths():

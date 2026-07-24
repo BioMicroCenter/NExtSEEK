@@ -11,7 +11,6 @@ from startup.lib.docker_ops import (
     DockerOpsError,
     compose_build,
     compose_up,
-    compose_down,
     compose_exec,
     volume_exists,
     volume_create,
