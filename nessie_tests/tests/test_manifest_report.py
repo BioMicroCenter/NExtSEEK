@@ -22,3 +22,13 @@ def test_generate_html_contains_id(tmp_path):
     out = report.generate_html(_sample(), tmp_path)
     assert out.name == "report.html"
     assert "route.cc_pipeline_launch" in out.read_text()
+
+
+def test_generate_html_escapes_reason(tmp_path):
+    m = M.NessieManifest(
+        started_at="t0", ended_at="t1", tier="route", scope="specific",
+        entries=[M.NessieManifestEntry(id="x", family="nessie_route", tier="route",
+                                       status="error", reason="<script>a & b</script>")])
+    text = report.generate_html(m, tmp_path).read_text()
+    assert "<script>a & b</script>" not in text
+    assert "&lt;script&gt;a &amp; b&lt;/script&gt;" in text

@@ -3,13 +3,14 @@ from nessie_tests.route_observer import RouteObservation
 
 NS_PAYLOAD = {"status": "completed", "progress": [
     {"event": "route_decided", "data": {"route": "nextseek_query", "model_class": None, "source": "baml", "reasoning": ""}},
-    {"event": "search_complete", "data": {"api_ok": True}},
-    {"event": "query_complete", "data": {"reply": "found", "debug": {"parser_plan": {"mode": "new_search"}, "api_plan": {"endpoint": "advanced_search"}}}},
+    {"event": "query_complete", "data": {"reply": "found", "debug": {"parser_plan": {"mode": "new_search"}, "api_plan": {"endpoint": "advanced_search"}, "api_result_meta": {"ok": True}}}},
 ]}
 OBS_NS = RouteObservation("nextseek_query", None, "baml", "", "new_search", "advanced_search")
 
 
-def test_build_debug_backfills_api_ok():
+def test_build_debug_preserves_primary_api_result_meta():
+    # Primary path: query_complete.debug already carries api_result_meta on a real
+    # NS turn; build_observed_debug preserves it (no search_complete backfill).
     debug = evaluate.build_observed_debug(NS_PAYLOAD)
     assert debug["parser_plan"]["mode"] == "new_search"
     assert debug["api_result_meta"]["ok"] is True

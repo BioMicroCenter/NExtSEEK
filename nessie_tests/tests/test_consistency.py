@@ -27,6 +27,16 @@ def test_group_fails_on_route_split():
     assert any("250" in r for r in res2.reasons)
 
 
+def test_group_fails_when_routes_differ():
+    # same_route asserted + TWO differing routes → group fails with a route reason.
+    g = {"id": "nhp", "name": "nhp", "queries": ["a", "b"], "assert": {"same_route": True}}
+    res = c.run_group(g, _fake_drive({"a": {"route": "nextseek_query", "count": 1},
+                                      "b": {"route": "container_cc", "count": 1}}))
+    assert res.passed is False
+    assert any("differ" in r and "route" in r for r in res.reasons)
+    assert any("nextseek_query" in r and "container_cc" in r for r in res.reasons)
+
+
 def test_get_result_count_from_debug():
     payload = {"progress": [{"event": "query_complete",
                              "data": {"debug": {"api_result_meta": {"count": 42}}}}]}

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import time
 from pathlib import Path
 from nessie_tests import corpus, evaluate, http_driver, report
@@ -25,6 +26,27 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
     entries: list[NessieManifestEntry] = []
     for v in variants:
         expected_fail = "known_fail" in v.tags
+        is_gate = "route_gate" in v.tags
+        # requires_env skip (both tiers): a variant needing an unset env var is
+        # not runnable here — record it skipped, don't fail the gate.
+        missing_env = [name for name in v.requires_env if name not in os.environ]
+        if missing_env:
+            entries.append(NessieManifestEntry(
+                id=v.id, family=v.family, tier=tier, status="skipped",
+                reason=f"requires_env unset: {missing_env}", expected_fail=expected_fail))
+            continue
+        # tier selection: the route tier only exercises route_gate cases (route
+        # assertions only). Anything else needs a real turn/launch — skip it,
+        # don't fail, so a route-tier run never touches the live pipeline.
+        if tier == "route" and not is_gate:
+            entries.append(NessieManifestEntry(
+                id=v.id, family=v.family, tier=tier, status="skipped",
+                reason="needs execution; skipped at route tier", expected_fail=expected_fail))
+            continue
+        # per-case DEPTH: route_gate cases are ALWAYS driven route-only (so the
+        # CC pipeline/reingest cases never execute a real turn/launch, even in a
+        # full run); everything else is driven at the global tier's depth.
+        case_tier = "route" if is_gate else tier
         session_id = None
         v_status, v_route, v_engine, v_cost, failed, reason = "passed", None, None, None, [], ""
         t0 = clock()
@@ -33,7 +55,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
             for i, turn in enumerate(v.turns):
                 if pace_s and i > 0:
                     sleep(pace_s)
-                res = http_driver.drive(turn.query, tier=tier, post_query=post_query,
+                res = http_driver.drive(turn.query, tier=case_tier, post_query=post_query,
                                         get_progress=get_progress, session_id=session_id,
                                         sleep=sleep, clock=clock)
                 session_id = res.session_id
@@ -42,7 +64,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                            if e.get("event") == "query_complete"), {})
                 v_cost = qc.get("total_cost_usd", v_cost)
                 bundle_summary = None
-                if tier == "full" and bundle_reader is not None and session_id is not None:
+                if case_tier == "full" and bundle_reader is not None and session_id is not None:
                     bundle_summary = bundle_reader(session_id)
                 criteria = list(turn.pass_criteria) + ([extra] if extra else [])
                 passed, results = evaluate.evaluate_turn(res.payload, criteria, res.route_obs,

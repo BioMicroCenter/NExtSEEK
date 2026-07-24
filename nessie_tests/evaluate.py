@@ -15,13 +15,11 @@ def _last(payload, name):
 
 
 def build_observed_debug(payload: dict) -> dict:
-    debug = dict((_last(payload, "query_complete") or {}).get("debug") or {})
-    sc = _last(payload, "search_complete") or {}
-    if "api_result_meta" not in debug and "api_ok" in sc:
-        debug["api_result_meta"] = {"ok": sc.get("api_ok")}
-    if "graph_result" not in debug and "neo4j_ok" in sc:
-        debug["graph_result"] = {"ok": sc.get("neo4j_ok")}
-    return debug
+    # The live turn carries api_result_meta/graph_result on query_complete.debug;
+    # that primary path is authoritative. (A former search_complete api_ok/neo4j_ok
+    # backfill was dead — the live search_complete event emits {source, ok, count},
+    # not api_ok/neo4j_ok — so it is intentionally omitted.)
+    return dict((_last(payload, "query_complete") or {}).get("debug") or {})
 
 
 def augment_debug(debug: dict, obs: ro.RouteObservation, bundle_summary: dict | None = None) -> dict:

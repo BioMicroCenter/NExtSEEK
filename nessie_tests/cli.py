@@ -16,6 +16,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--user", default="demo")
     p.add_argument("--password", default="demopassword")
     p.add_argument("--pace", type=float, default=0.0)
+    p.add_argument("--consistency", action="store_true", default=False,
+                   help="Run the #33 consistency groups (auto-on for --tier full)")
     p.add_argument("--out", type=Path, default=Path("nessie_out"))
     return p
 
@@ -27,10 +29,12 @@ def main(argv=None) -> int:
     if a.tier == "full":
         from nessie_tests.bundle import summary_for_session
         bundle_reader = summary_for_session
+    run_consistency = a.consistency or (a.tier == "full")
     manifest = runner.run_suite(
         base_url=a.base_url, auth_header=auth, tier=a.tier, scope=a.scope,
         family=a.family, variant_id=a.variant, overlay_path=_OVERLAY,
-        out_dir=a.out, bundle_reader=bundle_reader, pace_s=a.pace)
+        out_dir=a.out, bundle_reader=bundle_reader, pace_s=a.pace,
+        run_consistency=run_consistency)
     fails = runner.gate_failed(manifest)
     print(f"nessie: {len(manifest.entries)} cases, {fails} real failures "
           f"(tier={a.tier} scope={a.scope}); report → {a.out}/report.html")
