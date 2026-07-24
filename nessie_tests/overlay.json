@@ -1,0 +1,22 @@
+{
+  "version": "1.0",
+  "families": {
+    "nessie_route": {
+      "description": "Top-level router assertions",
+      "variants": [
+        {
+          "family": "nessie_route",
+          "id": "route.cc_pipeline_launch",
+          "name": "Pipeline launch routes to Container-CC",
+          "tags": ["nessie", "route_gate", "specific"],
+          "requires_env": [],
+          "turns": [
+            {"label": "main",
+             "query": "Launch an nf-core rnaseq run for D.SEQ-240910LAU-135.",
+             "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"}]}
+          ]
+        }
+      ]
+    }
+  }
+}
