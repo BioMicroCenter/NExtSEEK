@@ -18,6 +18,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pace", type=float, default=0.0)
     p.add_argument("--consistency", action="store_true", default=False,
                    help="Run the #33 consistency groups (auto-on for --tier full)")
+    p.add_argument("--sample", type=float, default=1.0,
+                   help="Fraction of selected variants to run, sampled per family (e.g. 0.1 for a tenth). Default 1.0 = all.")
+    p.add_argument("--seed", type=int, default=0, help="Deterministic sampling seed.")
     p.add_argument("--out", type=Path, default=Path("nessie_out"))
     return p
 
@@ -34,7 +37,7 @@ def main(argv=None) -> int:
         base_url=a.base_url, auth_header=auth, tier=a.tier, scope=a.scope,
         family=a.family, variant_id=a.variant, overlay_path=_OVERLAY,
         out_dir=a.out, bundle_reader=bundle_reader, pace_s=a.pace,
-        run_consistency=run_consistency)
+        run_consistency=run_consistency, sample=a.sample, seed=a.seed)
     fails = runner.gate_failed(manifest)
     print(f"nessie: {len(manifest.entries)} cases, {fails} real failures "
           f"(tier={a.tier} scope={a.scope}); report → {a.out}/report.html")

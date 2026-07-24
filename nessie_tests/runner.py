@@ -17,11 +17,13 @@ def _iso(clock):  # avoid datetime.now() so tests are deterministic
 
 def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, variant_id=None,
               overlay_path, out_dir, post_query=None, get_progress=None, bundle_reader=None,
-              pace_s=0.0, run_consistency: bool = False,
+              pace_s=0.0, run_consistency: bool = False, sample: float = 1.0, seed: int = 0,
               sleep=time.sleep, clock=time.monotonic) -> NessieManifest:
     if post_query is None or get_progress is None:
         post_query, get_progress = http_driver.make_default_clients(base_url, auth_header)
     variants = corpus.select(corpus.merged(overlay_path), scope=scope, family=family, variant_id=variant_id)
+    if sample < 1.0:
+        variants = corpus.sample(variants, sample, seed)
     started = _iso(clock)
     entries: list[NessieManifestEntry] = []
     for v in variants:

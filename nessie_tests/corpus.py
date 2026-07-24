@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import random
 from pathlib import Path
 from nessie_tests.pathsetup import ensure_e2e_importable
 
@@ -46,4 +47,25 @@ def select(variants, *, scope: str = "all", family: str | None = None,
         out = [v for v in out if v.family == family]
     if scope == "specific":
         out = [v for v in out if "route_gate" in v.tags]
+    return out
+
+
+def sample(variants, ratio: float, seed: int = 0) -> list:
+    """Deterministically keep a per-family fraction of the variants.
+
+    ratio >= 1.0 returns everything. Otherwise each family keeps
+    max(1, round(len(family) * ratio)) variants, chosen with a seeded RNG so
+    the same (ratio, seed) always yields the same subset.
+    """
+    if ratio >= 1.0:
+        return list(variants)
+    rng = random.Random(seed)
+    by_family: dict[str, list] = {}
+    for v in variants:
+        by_family.setdefault(v.family, []).append(v)
+    out: list = []
+    for fam in sorted(by_family):
+        vs = by_family[fam]
+        k = max(1, round(len(vs) * ratio))
+        out.extend(rng.sample(vs, min(k, len(vs))))
     return out

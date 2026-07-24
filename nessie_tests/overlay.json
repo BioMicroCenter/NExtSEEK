@@ -4,10 +4,10 @@
     "nessie_route": {
       "description": "Top-level router assertions (route tier, no seed data needed)",
       "variants": [
-        {"family": "nessie_route", "id": "route.cc_pipeline_launch",
-         "name": "Pipeline launch → Container-CC", "tags": ["nessie", "route_gate", "specific"], "requires_env": [],
+        {"family": "nessie_route", "id": "route.ns_pipeline_launch",
+         "name": "Pipeline launch → NS (pipeline_agent)", "tags": ["nessie", "route_gate", "specific"], "requires_env": [],
          "turns": [{"label": "main", "query": "Launch an nf-core rnaseq run for D.SEQ-240910LAU-135.",
-                    "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"}]}]},
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"}]}]},
         {"family": "nessie_route", "id": "route.cc_reingest",
          "name": "Reingest nf-core outputs → Container-CC", "tags": ["nessie", "route_gate", "specific"], "requires_env": [],
          "turns": [{"label": "main", "query": "Build a NExtSEEK upload sheet from the nf-core rnaseq outputs.",

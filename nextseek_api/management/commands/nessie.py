@@ -40,6 +40,9 @@ class Command(BaseCommand):
             "--consistency", action="store_true",
             help="Run the #33 consistency groups (auto-on for --tier full).",
         )
+        parser.add_argument("--sample", type=float, default=1.0,
+                            help="Fraction of selected variants to run, sampled per family (e.g. 0.1 for a tenth). Default 1.0 = all.")
+        parser.add_argument("--seed", type=int, default=0, help="Deterministic sampling seed.")
         parser.add_argument("--out", default="/app/nessie_out")
 
     def handle(self, *args, **opts) -> None:
@@ -65,6 +68,7 @@ class Command(BaseCommand):
             bundle_reader=bundle_reader,
             pace_s=opts["pace"],
             run_consistency=run_consistency,
+            sample=opts["sample"], seed=opts["seed"],
         )
         self._summarize(manifest, tier, opts["scope"], opts["out"], runner)
 

@@ -20,12 +20,10 @@ def test_run_suite_route_tier_specific(tmp_path):
     # route tier + specific scope → only route_gate cases; injected clients, no live stack
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.cc_reingest",
         post_query=_post(), get_progress=lambda tid: CC_ROUTED,
         sleep=lambda s: None, clock=lambda: 0.0)
-    ids = {e.id for e in m.entries}
-    assert "route.cc_pipeline_launch" in ids
-    entry = next(e for e in m.entries if e.id == "route.cc_pipeline_launch")
+    entry = next(e for e in m.entries if e.id == "route.cc_reingest")
     assert entry.status == "passed" and entry.route == "container_cc"
     assert (tmp_path / "manifest.json").exists() and (tmp_path / "report.html").exists()
 
@@ -59,10 +57,10 @@ def test_full_tier_drives_route_gate_cc_route_only(tmp_path):
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.cc_pipeline_launch",
+        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.cc_reingest",
         post_query=_post(), get_progress=lambda tid: CC_ROUTED, bundle_reader=boom_bundle,
         sleep=lambda s: None, clock=lambda: 0.0)
-    entry = next(e for e in m.entries if e.id == "route.cc_pipeline_launch")
+    entry = next(e for e in m.entries if e.id == "route.cc_reingest")
     assert entry.status == "passed" and entry.route == "container_cc"
 
 
@@ -90,9 +88,9 @@ def test_criteria_miss_marks_failed_with_reasons(tmp_path):
     # route_gate case asserts route==container_cc but the turn routes nextseek_query.
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
-        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.cc_pipeline_launch",
+        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.cc_reingest",
         post_query=_post(), get_progress=lambda tid: NS_ROUTED,
         sleep=lambda s: None, clock=lambda: 0.0)
-    entry = next(e for e in m.entries if e.id == "route.cc_pipeline_launch")
+    entry = next(e for e in m.entries if e.id == "route.cc_reingest")
     assert entry.status == "failed"
     assert entry.failed_criteria and any("route" in fc for fc in entry.failed_criteria)
