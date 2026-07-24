@@ -65,11 +65,17 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                                       post_query=post_query, get_progress=get_progress,
                                       sleep=sleep, clock=clock)
                 return {"route": r.route_obs.route, "count": consistency.get_result_count(r.payload)}
-            gr = consistency.run_group(g, _drive)
-            entries.append(NessieManifestEntry(
-                id=g["id"], family="nessie_consistency", tier=tier,
-                status="passed" if gr.passed else "failed",
-                failed_criteria=gr.reasons, expected_fail="known_fail" in g.get("tags", [])))
+            try:
+                gr = consistency.run_group(g, _drive)
+                entries.append(NessieManifestEntry(
+                    id=g["id"], family="nessie_consistency", tier=tier,
+                    status="passed" if gr.passed else "failed",
+                    failed_criteria=gr.reasons, expected_fail="known_fail" in g.get("tags", [])))
+            except Exception as exc:  # infra/endpoint failure ≠ assertion failure
+                entries.append(NessieManifestEntry(
+                    id=g["id"], family="nessie_consistency", tier=tier,
+                    status="error", reason=f"{type(exc).__name__}: {exc}",
+                    expected_fail="known_fail" in g.get("tags", [])))
     manifest = NessieManifest(started_at=started, ended_at=_iso(clock), tier=tier, scope=scope, entries=entries)
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     write_manifest(manifest, Path(out_dir) / "manifest.json")
