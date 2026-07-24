@@ -2,20 +2,49 @@
   "version": "1.0",
   "families": {
     "nessie_route": {
-      "description": "Top-level router assertions",
+      "description": "Top-level router assertions (route tier, no seed data needed)",
       "variants": [
-        {
-          "family": "nessie_route",
-          "id": "route.cc_pipeline_launch",
-          "name": "Pipeline launch routes to Container-CC",
-          "tags": ["nessie", "route_gate", "specific"],
-          "requires_env": [],
-          "turns": [
-            {"label": "main",
-             "query": "Launch an nf-core rnaseq run for D.SEQ-240910LAU-135.",
-             "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"}]}
-          ]
-        }
+        {"family": "nessie_route", "id": "route.cc_pipeline_launch",
+         "name": "Pipeline launch → Container-CC", "tags": ["nessie", "route_gate", "specific"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Launch an nf-core rnaseq run for D.SEQ-240910LAU-135.",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"}]}]},
+        {"family": "nessie_route", "id": "route.cc_reingest",
+         "name": "Reingest nf-core outputs → Container-CC", "tags": ["nessie", "route_gate", "specific"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Build a NExtSEEK upload sheet from the nf-core rnaseq outputs.",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"}]}]},
+        {"family": "nessie_route", "id": "route.ns_advanced",
+         "name": "Keyword search → NS", "tags": ["nessie", "route_gate", "specific"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Find me mice treated with NDMA.",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"}]}]},
+        {"family": "nessie_route", "id": "route.unrelated",
+         "name": "Off-topic → unrelated", "tags": ["nessie", "route_gate", "specific"], "requires_env": [],
+         "turns": [{"label": "main", "query": "What's the weather in Boston tomorrow?",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "unrelated"}]}]}
+      ]
+    },
+    "nessie_green": {
+      "description": "Known-good anchors (full tier; require the seeded v2 instance)",
+      "variants": [
+        {"family": "nessie_green", "id": "green.global_count",
+         "name": "Global sample count = 50,889", "tags": ["nessie", "green", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "How many samples are in the database?",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"},
+                                      {"field": "last_reply", "op": "mentions", "value": "50,889"}]}]},
+        {"family": "nessie_green", "id": "green.mus_ndma",
+         "name": "Mice + NDMA keyword search → 195", "tags": ["nessie", "green", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Find mice treated with NDMA.",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"},
+                                      {"field": "parser_plan.mode", "op": "eq", "value": "new_search"},
+                                      {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
+                                      {"field": "api_ok", "op": "true"}]}]},
+        {"family": "nessie_green", "id": "green.refine_recall",
+         "name": "Refine 4-week study (0 → 303)", "tags": ["nessie", "green", "full"], "requires_env": [],
+         "turns": [
+           {"label": "seed", "query": "Find samples from a 4 week study.",
+            "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"}]},
+           {"label": "refine", "query": "Just the 4 week ones.",
+            "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "refine_last_search"},
+                              {"field": "api_ok", "op": "true"}]}]}
       ]
     }
   }
