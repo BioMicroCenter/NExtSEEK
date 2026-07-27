@@ -236,7 +236,15 @@
          "_why": "Observed: cypher matched Study.title only and returned 0. 'GBM' is a Study node holding a single sample, while the samples the user means are reachable via Investigation or sample metadata. Either a non-empty result or a CC escalation is acceptable; a bare '0 samples' is not.",
          "tags": ["nessie", "full"], "requires_env": [],
          "turns": [{"label": "main", "query": "Find me NHP samples from study GBM",
-                    "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "(NHP-|Investigation|metadata|publication|could not|no samples matched)"}]}]}
+                    "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "(NHP-|Investigation|metadata|publication|could not|no samples matched)"}]}]},
+        {"family": "search_advanced", "id": "advanced.find_me_nhp_samples_from_study_2",
+         "name": "NHP samples from study IMPACT must return real rows",
+         "_why": "Same question shape as the GBM case. The base demanded REST advanced_search, but IMPACT is an Investigation and the graph answers it correctly — the engine choice is not the defect, the silent 250-row cap was. Assert rows came back and were not truncated, whichever engine ran.",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Find me NHP samples from study IMPACT",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"},
+                                      {"field": "graph_not_truncated", "op": "true"},
+                                      {"field": "last_reply", "op": "matches_re", "value": "(NHP-|no samples|could not)"}]}]}
       ]
     },
 
@@ -264,6 +272,35 @@
       ]
     },
 
+    "unsupported": {
+      "description": "OVERRIDE. Blessed 2026-07-27: open-ended analysis is CC's job, not an NS 'unsupported'.",
+      "variants": [
+        {"family": "unsupported", "id": "unsup.is_treatment_a_significantly_b",
+         "name": "Open-ended analysis routes to CC and answers",
+         "_why": "The base asserts parser_plan.mode == 'unsupported', which can NEVER hold once the query is blessed to container_cc: the CC route has no parser plan at all. Dropping the blanket route injection was necessary but not sufficient — this criterion had to change too.",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Is treatment A significantly better than treatment B based on our sequencing data?",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"},
+                                      {"field": "last_reply", "op": "nonempty"}]}]}
+      ]
+    },
+    "writes_unsupported": {
+      "description": "OVERRIDES. Blessed 2026-07-27: resource creation routes to CC, which must not write without confirmation.",
+      "variants": [
+        {"family": "writes_unsupported", "id": "write.create_me_investigation_testin",
+         "name": "Investigation write routes to CC and asks first",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Create me investigation \"Testing Investigation. Still Testing\"",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"},
+                                      {"field": "last_reply", "op": "nonempty"}]}]},
+        {"family": "writes_unsupported", "id": "write.create_me_investigation_test_c",
+         "name": "Investigation write routes to CC and asks first",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Create me investigation TEST-CD with project id 2",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"},
+                                      {"field": "last_reply", "op": "nonempty"}]}]}
+      ]
+    },
     "system_question": {
       "description": "OVERRIDE. Two near-identical assay questions classified differently; both answered correctly.",
       "variants": [
