@@ -39,6 +39,7 @@ from .llm_clients import LLMFatalError
 from .helpers import (
     _extract_required_paths,
     _retry_advanced_search_if_empty,
+    api_row_count,
     fix_sample_endpoint,
     generate_report_outputs,
     log_api_call,
@@ -259,7 +260,7 @@ def _execute_graph_turn(
     )
 
     history = session.get("results_history", [])
-    bundle_id = len(history) + 1
+    bundle_id = _next_bundle_id(session)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     graph_debug_path = _write_graph_debug(
         log_dir, ts,
@@ -324,6 +325,32 @@ def _execute_graph_turn(
     )
     print(f"[TIMING][TOTAL] {time.perf_counter() - t_total_start:.2f}s")
     return _emit_query_complete(send_event, reply, debug_payload, bundle_id, files=result_files or None)
+
+
+BUNDLE_SEQ_KEY = "bundle_seq"
+
+
+def _next_bundle_id(session) -> int:
+    """Allocate a monotonic bundle id for this session.
+
+    These ids used to be ``len(results_history) + 1``. That silently collides
+    whenever an append does not survive (concurrent writers reading a stale
+    snapshot of the JSON column, a trim, a failed save): two different searches
+    get the same id, and a later "what were those results?" resolves to whichever
+    bundle answers to that id — which may be a different question entirely.
+
+    A counter that only ever moves forward cannot collide, and it survives a lost
+    append because it is stored separately from the history it indexes.
+    """
+    history = session.get("results_history") or []
+    highest_seen = max((b.get("id") or 0) for b in history) if history else 0
+    try:
+        stored = int(session.get(BUNDLE_SEQ_KEY) or 0)
+    except (TypeError, ValueError):
+        stored = 0
+    nxt = max(stored, highest_seen, len(history)) + 1
+    session[BUNDLE_SEQ_KEY] = nxt
+    return nxt
 
 
 def _handle_pipeline_agent_turn(
@@ -663,7 +690,13 @@ def run_query(
 
                 current_agent = "search"
                 send_event("search_started", {"source": "reporter", "project": project, "summary_mode": summary_mode})
-                reporter_result, saved_files, reporter_summary = run_reporter_summary(config, reporter_plan, log_dir)
+                # "an annual progress report for the Kamm project" resolves Kamm as a
+                # LAB, so reporter_plan.project stays null and the report would run
+                # across every project while describing itself as Kamm's. Hand the
+                # resolved lab codes down so the summary can scope itself instead.
+                _lab_codes = list(getattr(entity_result, "lab_codes", None) or [])
+                reporter_result, saved_files, reporter_summary = run_reporter_summary(
+                    config, reporter_plan, log_dir, lab_codes=_lab_codes)
                 send_event(
                     "search_complete",
                     {
@@ -752,7 +785,7 @@ def run_query(
                     debug_payload["report_saved_files"] = saved_files
 
             history = session.get("results_history", [])
-            bundle_id = len(history) + 1
+            bundle_id = _next_bundle_id(session)
             result_files = build_saved_report_file_manifest(saved_files)
             report_writer_output_payload = (
                 report_writer_output.model_dump()
@@ -975,7 +1008,7 @@ def run_query(
 
             api_result_slim = slim_api_result_for_llm(api_result_full)
             history = session.get("results_history", [])
-            bundle_id = len(history) + 1
+            bundle_id = _next_bundle_id(session)
             raw_json_path = None
             try:
                 entry = artifact_store.write_json(
@@ -995,6 +1028,10 @@ def run_query(
                 "ok": api_result_full.get("ok"),
                 "status_code": api_result_full.get("status_code"),
                 "url": api_result_full.get("url"),
+                # An ok:true search that returned nothing is not a success; make
+                # the row count visible so callers can tell those apart.
+                "row_count": api_row_count(api_result_full),
+                "bundle_id": bundle_id,
             }
             debug_payload["api_result_slim"] = api_result_slim
             debug_payload["api_result_full"] = api_result_full
@@ -1409,7 +1446,7 @@ def run_query_plan(
             reply = f"Plan halted: {stop_reason}\n\n{reply}"
 
         history = session.get("results_history", [])
-        bundle_id = len(history) + 1
+        bundle_id = _next_bundle_id(session)
         result_files: list[dict[str, Any]] = []
         raw_result_paths: dict[int, str] = {}
         graph_debug_paths: dict[int, str] = {}

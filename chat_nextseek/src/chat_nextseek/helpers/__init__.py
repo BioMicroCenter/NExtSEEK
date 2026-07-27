@@ -23,7 +23,7 @@ from .tools.memory_code import (  # noqa: F401
     _validate_memory_code,
     execute_memory_code,
 )
-from .results import slim_api_result_for_llm, collect_bundle_files, normalize_api_result_for_memory, uids_from_last_search, summarize_pinned_bundle  # noqa: F401
+from .results import api_row_count, slim_api_result_for_llm, collect_bundle_files, normalize_api_result_for_memory, uids_from_last_search, summarize_pinned_bundle  # noqa: F401
 from .tools.neo4j import tool_neo4j_query  # noqa: F401
 from .tools.nextseek_api import (  # noqa: F401
     tool_nextseek_api_request,

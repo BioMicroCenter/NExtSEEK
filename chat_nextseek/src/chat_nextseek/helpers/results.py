@@ -8,6 +8,35 @@ from pathlib import Path
 from .text import strip_html
 
 
+def api_row_count(api_result: dict | None) -> int | None:
+    """How many rows an API result actually returned, or None if not countable.
+
+    ``api_result_meta`` used to carry only ok/status_code/url, so nothing
+    downstream — the debug panel, the chat log, or the test harness — could tell
+    a search that returned 195 rows from one that returned 0. Both looked like
+    ``ok: true``. Counting here makes the OUTCOME of a search observable rather
+    than just its plumbing.
+    """
+    if not isinstance(api_result, dict):
+        return None
+    data = api_result.get("data")
+    if isinstance(data, list):
+        return len(data)
+    if not isinstance(data, dict):
+        return None
+    # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'.
+    for key in ("samples", "rows", "nodes", "data"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return len(value)
+    # A totals-only payload (e.g. a count query) still reports a number.
+    for key in ("total", "total_samples", "total_nodes", "count"):
+        value = data.get(key)
+        if isinstance(value, int):
+            return value
+    return None
+
+
 def slim_api_result_for_llm(api_result: dict, max_rows: int = 5, max_chars: int = 5000) -> dict:
     """
     Trim API results to keep LLM prompts small while preserving key totals and a few example rows.

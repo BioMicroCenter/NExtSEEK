@@ -17,7 +17,9 @@ def test_tower_never_exposed_even_when_env_complete():
     names = _names(at.build_pipeline_tool_schemas(_Cfg(tower=True, luria=False)))
     assert "submit_to_tower" not in names          # Tower retired
     assert "submit_to_luria" not in names           # luria env absent here
-    assert names == ["resolve_samples", "write_samplesheet", "configure_run", "conclude"]
+    # `handoff` is always exposed: an open build must never be able to trap the
+    # conversation when the user asks about something else.
+    assert names == ["resolve_samples", "write_samplesheet", "configure_run", "conclude", "handoff"]
 
 
 def test_exposure_luria_only():
@@ -32,7 +34,18 @@ def test_exposure_luria_only_when_both_env_complete():
 
 def test_exposure_neither_still_has_core_and_conclude():
     names = _names(at.build_pipeline_tool_schemas(_Cfg(tower=False, luria=False)))
-    assert names == ["resolve_samples", "write_samplesheet", "configure_run", "conclude"]
+    assert names == ["resolve_samples", "write_samplesheet", "configure_run", "conclude", "handoff"]
+
+
+def test_handoff_is_always_exposed():
+    """Every env combination must offer the escape hatch.
+
+    Without it the agent answers off-topic turns itself ("searching the sample
+    database isn't something I can do"), which is how an open samplesheet build
+    hijacked an unrelated search.
+    """
+    for tower, luria in ((False, False), (True, False), (False, True), (True, True)):
+        assert "handoff" in _names(at.build_pipeline_tool_schemas(_Cfg(tower=tower, luria=luria)))
 
 
 def test_tool_submit_to_luria_calls_submitter(monkeypatch):
@@ -78,6 +91,7 @@ def test_tool_submit_to_luria_leaves_gencode_off_for_ensembl_macaque(monkeypatch
 
 
 def test_existing_static_schema_unchanged():
-    # Regression guard: the Tower-era constant still lists exactly the original five.
+    # Regression guard: the Tower-era constant, plus the handoff control tool.
     assert {t["name"] for t in at.PIPELINE_TOOL_SCHEMAS} == {
-        "resolve_samples", "write_samplesheet", "configure_run", "submit_to_tower", "conclude"}
+        "resolve_samples", "write_samplesheet", "configure_run", "submit_to_tower",
+        "conclude", "handoff"}

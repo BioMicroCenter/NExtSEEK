@@ -1,9 +1,10 @@
 from chat_nextseek.pipeline.agent_tools import PIPELINE_TOOL_SCHEMAS
 
 
-def test_five_tools_with_anthropic_shape():
+def test_tool_schemas_have_anthropic_shape():
     names = {t["name"] for t in PIPELINE_TOOL_SCHEMAS}
-    assert names == {"resolve_samples", "write_samplesheet", "configure_run", "submit_to_tower", "conclude"}
+    assert names == {"resolve_samples", "write_samplesheet", "configure_run", "submit_to_tower",
+                     "conclude", "handoff"}
     for t in PIPELINE_TOOL_SCHEMAS:
         assert set(t) == {"name", "description", "input_schema"}
         assert t["input_schema"]["type"] == "object"

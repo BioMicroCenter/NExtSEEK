@@ -138,6 +138,12 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None) -> dict[str
             name, tool_input, tuid = block.get("name"), block.get("input", {}), block.get("id")
             if name == "conclude":
                 return _conclude(session, state, tool_input)
+            if name == "handoff":
+                # The user moved on. Drop the build and let the orchestrator run
+                # its normal parser for this turn (it clears us on passthrough).
+                print(f"[DEBUG][PIPELINE] handoff: {tool_input.get('reason')!r}")
+                clear(session)
+                return {"action": "passthrough", "reply": "", "params": None}
             try:
                 result = dispatch_pipeline_tool_call(config=config, session=session, state=state,
                                                      name=name, tool_input=tool_input, log_dir=log_resolved_dir)

@@ -153,6 +153,28 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["outcome", "message"],
         },
     },
+    {
+        "name": "handoff",
+        "description": (
+            "Give the turn back to the main NExtSEEK assistant because the user's message "
+            "is NOT about building, configuring or launching a pipeline. Call this for "
+            "anything else they ask while a pipeline build happens to be open — a sample "
+            "search, a lineage or study question, a report, an unrelated question. Do not "
+            "answer it yourself and do not tell them you cannot search; just hand off and "
+            "the right agent will take it. Your build state is discarded, so only hand off "
+            "when they have genuinely moved on."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "one short phrase: what the user actually asked for.",
+                },
+            },
+            "required": ["reason"],
+        },
+    },
 ]
 
 SUBMIT_TO_LURIA_SCHEMA: dict[str, Any] = {
@@ -198,6 +220,8 @@ def build_pipeline_tool_schemas(config) -> list[dict[str, Any]]:
     if getattr(config, "LURIA_ENV_COMPLETE", False):
         tools.append(SUBMIT_TO_LURIA_SCHEMA)
     tools.append(_SCHEMA_BY_NAME["conclude"])
+    # Always available: an open build must never be able to trap the conversation.
+    tools.append(_SCHEMA_BY_NAME["handoff"])
     return tools
 
 
@@ -616,6 +640,6 @@ def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool
         return tool_submit_to_tower(config, state)
     if name == "submit_to_luria":
         return tool_submit_to_luria(config, state, tool_input)
-    if name == "conclude":
-        raise ValueError("dispatch_pipeline_tool_call must not be called for 'conclude'; the loop intercepts it.")
+    if name in ("conclude", "handoff"):
+        raise ValueError(f"dispatch_pipeline_tool_call must not be called for {name!r}; the loop intercepts it.")
     raise ValueError(f"Unknown pipeline tool: {name!r}")

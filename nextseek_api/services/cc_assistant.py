@@ -204,8 +204,9 @@ def _decide_route(user, req, *, force_cc: bool, session=None, history: list[rout
     """Pick the route for a query, honoring the admin-only ``force_route`` override.
 
     Precedence: an explicit force (``force_cc`` or an admin's ``force_route``)
-    wins first, THEN an active ``pipeline_agent`` wizard forces the NS route,
-    THEN the BAML router (:func:`cc_router.decide`) decides. A non-admin's
+    wins first, THEN the BAML router (:func:`cc_router.decide`) decides, and an
+    active ``pipeline_agent`` wizard only keeps a turn the router already sent to
+    NExtSEEK. A non-admin's
     ``force_route`` is ignored and falls back to the router (mirrors
     ``use_prod``'s server-side admin gate). Forced decisions are
     ``ROUTE_NS``/``ROUTE_CC`` (never ``ROUTE_UNRELATED``), so a forced query
@@ -233,15 +234,28 @@ def _decide_route(user, req, *, force_cc: bool, session=None, history: list[rout
             route=cc_router.ROUTE_NS, model_class=None,
             model_id=None, reasoning="forced", source="forced",
         )
-    if session is not None and pipeline_agent.is_active(session):
+    decision = cc_router.decide(req.query, history=history)
+    if (
+        session is not None
+        and pipeline_agent.is_active(session)
+        and decision.route == cc_router.ROUTE_NS
+    ):
         # A pipeline wizard is mid-flow: keep confirm/tweak/launch turns on the NS
-        # route so they reach pipeline_agent.handle_turn (the wizard's 'cancel'
-        # verb remains the escape hatch). Shared-state fix for the stateless router.
+        # route so they reach pipeline_agent.handle_turn.
+        #
+        # This used to short-circuit BEFORE consulting the router, which let an
+        # open build capture every following turn — a plain sample search got
+        # answered by the samplesheet builder ("searching the database isn't
+        # something I can do") because the model never saw the query. Now the
+        # router decides first and only an NS-bound turn is handed to the wizard;
+        # the wizard itself calls `handoff` when the turn is not about the build,
+        # which the orchestrator turns into a passthrough.
         return cc_router.RouteDecision(
-            route=cc_router.ROUTE_NS, model_class=None,
-            model_id=None, reasoning="pipeline_active", source="pipeline",
+            route=cc_router.ROUTE_NS, model_class=None, model_id=None,
+            reasoning=f"pipeline_active; router said ns ({decision.reasoning})",
+            source="pipeline",
         )
-    return cc_router.decide(req.query, history=history)
+    return decision
 
 
 class CCAssistantViewSet(viewsets.ViewSet):
