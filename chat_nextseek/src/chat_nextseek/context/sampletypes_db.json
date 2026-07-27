@@ -1614,5 +1614,21 @@
     "Associated Assay Children": "Chemical Challenge, ELISA, Western Blot Assay, Mass Spectrometry Proteomics, Water Quality Testing",
     "Parent_SampleTypes": null,
     "Child_SampleTypes": "CHM"
+  },
+  {
+    "ID": null,
+    "SampleType": "LYS",
+    "Name": "Cell Lysate",
+    "Description": "A cell lysate sample represents the soluble material released when cells are broken open (mechanically, enzymatically, or by detergent) to expose intracellular proteins, nucleic acids, and other biomolecules. Lysates are prepared from cultured or isolated cells and serve as input material for downstream biochemical and molecular assays.",
+    "Tags": "cell lysate, lysate, cellular homogenate, cell lysis, intracellular extract, detergent lysis, mechanical lysis, whole-cell lysate, protein extract",
+    "Required Metadata": "UID, Name, Scientist, Parent",
+    "Standard Metadata": "Protocol, Type, Volume, Concentration, ExtractionMethod, Link_QC",
+    "Possible Metadata Fields": "StorageLocation, StorageTemperature, SampleCreationDate, TotalProtein, TotalProteinUnits, BCAValue, Treatment, TreatmentType, ReactionStopper, Notes, Publish_uri",
+    "Clade": "Processed",
+    "SampleType File Link": null,
+    "Associated Assay Parents": null,
+    "Associated Assay Children": "Cell Lysate",
+    "Parent_SampleTypes": "CEL",
+    "Child_SampleTypes": null
   }
 ]

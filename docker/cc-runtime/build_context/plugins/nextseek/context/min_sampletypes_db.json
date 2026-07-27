@@ -705,5 +705,12 @@
     "Name": "PubChem Substance",
     "Description": "A PubChem substance record represents a chemical compound or biological molecule standardized and referenced via the NCBI PubChem database. It serves as a curated chemical entity linked to experimental workflows where specific compounds function as treatments, analytes, or reagents. Each record corresponds to a unique PubChem Compound ID (CID) or Substance ID (SID).",
     "Tags": "substance, PubChem substance, chemical entity, chemical reference, compound, CID, SID, PubChem CID, small molecule, chemical database entry, NCBI compound, reference compound"
+  },
+  {
+    "SampleType": "LYS",
+    "ID": null,
+    "Name": "Cell Lysate",
+    "Description": "A cell lysate sample represents the soluble material released when cells are broken open (mechanically, enzymatically, or by detergent) to expose intracellular proteins, nucleic acids, and other biomolecules. Lysates are prepared from cultured or isolated cells and serve as input material for downstream biochemical and molecular assays.",
+    "Tags": "cell lysate, lysate, cellular homogenate, cell lysis, intracellular extract, detergent lysis, mechanical lysis, whole-cell lysate, protein extract"
   }
 ]
