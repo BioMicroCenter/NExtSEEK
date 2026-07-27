@@ -152,6 +152,7 @@
                               {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"}]},
            {"label": "followup", "query": "What sample types were represented in those results",
             "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "ask_about_last_results"},
+                              {"field": "api_result_meta.source_mode", "op": "eq", "value": "new_search"},
                               {"field": "last_reply", "op": "mentions", "value": "MUS"}]}]},
 
         {"family": "refine_and_recall", "id": "refrec.of_those_which_are_actually_fr_2",
@@ -207,7 +208,7 @@
          "turns": [{"label": "main", "query": "How many samples did MetNet upload in 2024",
                     "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "reporter"},
                                       {"field": "reporter_plan.project", "op": "matches_re", "value": "(?i)metnet"},
-                                      {"field": "reporter_result.samples.years_table", "op": "nonempty"}]}]},
+                                      {"field": "reporter_result.years_table", "op": "nonempty"}]}]},
         {"family": "reporting", "id": "report.put_together_an_annual_progres",
          "name": "RPPR for Kamm must be SCOPED",
          "_why": "The base asserted reporter_plan.project == 'Kamm', but Kamm is modelled as a LAB. The real defect: reporter_result came back project_id null with 50,886 rows — the entire database — for a Kamm-scoped RPPR.",
