@@ -1,7 +1,8 @@
 # output-skill
 
-Turn a `nessie_tests` run into a reviewable HTML report where every failure carries
-its expected vs observed values and a verdict.
+Turn a `nessie_tests` run into a reviewable HTML report where every case carries
+its full working record: each turn's query, how it routed and why, the exact call
+the engine ran, what came back, and a verdict.
 
 Hand this directory to an agent and point it at **`SKILL.md`**.
 
@@ -31,6 +32,10 @@ python scripts/build_report.py \
 ```
 
 Expected: `cases 44  verdicts {'pass': 29, 'masked': 2, 'drift': 4, 'real': 5, 'policy': 3, 'notrun': 1}`
+
+The result is one self-contained HTML file, no external assets. Publish it with
+the Artifact tool for a shareable link, or add `--standalone` to get a complete
+`<!doctype html>` document you can open in a browser or send to someone.
 
 The one thing to internalise before triaging: **the manifest records criterion
 names, never observed values.** Recover the values from `assistant_query_task`

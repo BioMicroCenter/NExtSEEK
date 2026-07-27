@@ -33,9 +33,11 @@ python scripts/fetch_run.py --out ./run-<date> \
     --since "2026-07-24 20:05:00" --until "2026-07-24 20:45:00"
 ```
 
-Writes `manifest.json` and `turns.json`. `turns.json` holds, per turn: the router
-route/source/reasoning, parser mode, generated cypher and its row count, REST
-endpoint and status code, and the reporter plan.
+Writes `manifest.json` and `turns.json`. `turns.json` holds, per turn: the routing
+decision (route, source, and the router's own reasoning), the parser mode, and the
+**full engine call** — the graph plan with its bound parameters and result meta, or
+the API plan with its complete request body and result meta — plus the reporter
+plan, CC model id and cost. Graph result rows are stripped so the file stays small.
 
 Check the printed summary immediately. **Any turn with `src: "pipeline"` means the
 BAML router was bypassed entirely** — see the gotchas below.
@@ -82,12 +84,23 @@ python scripts/build_report.py --run ./run-<date> \
     --repo <dev-v3-merge checkout> --triage ./triage.json --out ./report.html
 ```
 
-It joins each manifest entry to its query text, its asserted criteria (from
-`chat_nextseek/e2e/catalog.json` + `nessie_tests/overlay.json`), its task id, and
-your verdict. Coverage is computed automatically. It warns about non-passing cases
-you left unjudged.
+It joins each manifest entry to its declared turns, their asserted criteria (from
+`chat_nextseek/e2e/catalog.json` + `nessie_tests/overlay.json`), each turn's task
+and engine call, and your verdict. Coverage is computed automatically. It warns
+about non-passing cases you left unjudged.
 
-Publish `report.html` with the Artifact tool if the reviewer wants a link.
+The output is **one self-contained HTML file**: no external assets, no network
+fetches, everything inlined. Publish it with the Artifact tool for a link, or pass
+`--standalone` to emit a complete `<!doctype html>` document to open locally or
+send. The default output omits the document skeleton because the Artifact
+publisher supplies it.
+
+**Everything about a case lands in that case's own record**, so a reviewer never
+has to cross-reference: per turn it shows the query, the routing decision with the
+router's reasoning, the exact call (cypher plus bound parameters, or method,
+endpoint and request body) and its result, followed by the criteria table, your
+analysis, and the trace. Turns are matched to tasks forward-only in execution
+order, because query text repeats across variants and a global lookup mis-assigns.
 
 ## Gotchas that will mislead you
 

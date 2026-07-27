@@ -20,6 +20,13 @@ Usage
 
 Writes  <out>/manifest.json  and  <out>/turns.json.
 
+`turns.json` carries, per turn: the routing decision (route / source / the
+router's own reasoning), the parser mode, and the **full** engine call — the
+graph plan with its bound parameters and result meta, or the API plan with its
+request body and result meta — plus the reporter plan, CC model id and cost.
+Result rows are stripped from `graph_result` (`$.data`) so the payload stays
+small; only the counts and the query are kept.
+
 The MySQL root password is read live from the db container's environment on the
 remote host. It is never passed on a command line here and never stored.
 """
@@ -55,13 +62,14 @@ q -e "SELECT JSON_OBJECT(
         'route',   JSON_UNQUOTE(JSON_EXTRACT(progress,'\$[0].data.route')),
         'src',     JSON_UNQUOTE(JSON_EXTRACT(progress,'\$[0].data.source')),
         'why',     JSON_UNQUOTE(JSON_EXTRACT(progress,'\$[0].data.reasoning')),
+        'model',   JSON_UNQUOTE(JSON_EXTRACT(progress,'\$[1].data.model_id')),
         'mode',    JSON_UNQUOTE({D}'\$[0].parser_plan.mode')),
-        'cypher',  JSON_UNQUOTE({D}'\$[0].graph_plan.cypher')),
-        'cnt',     {D}'\$[0].graph_result.count'),
-        'ep',      JSON_UNQUOTE({D}'\$[0].api_plan.endpoint')),
-        'code',    {D}'\$[0].api_result_meta.status_code'),
-        'apiok',   {D}'\$[0].api_result_meta.ok'),
-        'rplan',   {D}'\$[0].reporter_plan')
+        'aplan',   {D}'\$[0].api_plan'),
+        'ameta',   {D}'\$[0].api_result_meta'),
+        'gplan',   {D}'\$[0].graph_plan'),
+        'gmeta',   JSON_REMOVE({D}'\$[0].graph_result'),'\$.data'),
+        'rplan',   {D}'\$[0].reporter_plan'),
+        'cost',    JSON_EXTRACT(result,'\$.total_cost_usd')
       ) FROM assistant_query_task WHERE {where} ORDER BY id;"
 """
 
@@ -135,8 +143,9 @@ def main() -> None:
     print(f"turns.json     {len(turns)} turns")
     print(f"  routes  {routes}")
     print(f"  sources {srcs}   <- any 'pipeline' here means the router was bypassed")
-    print(f"  cypher  {sum(1 for t in turns if t.get('cypher'))}   "
-          f"rest {sum(1 for t in turns if t.get('ep'))}")
+    print(f"  graph calls {sum(1 for t in turns if t.get('gplan'))}   "
+          f"rest calls {sum(1 for t in turns if t.get('aplan'))}   "
+          f"reporter {sum(1 for t in turns if t.get('rplan'))}")
 
 
 if __name__ == "__main__":

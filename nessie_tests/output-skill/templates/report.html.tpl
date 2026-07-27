@@ -144,6 +144,49 @@ td.st{white-space:nowrap;font-size:11px;letter-spacing:.06em;text-transform:uppe
   color:var(--ink-2);margin-right:6px}
 .empty{padding:26px;text-align:center;color:var(--ink-3);border:1px dashed var(--line);border-radius:9px}
 
+/* collapsible explainer */
+details.howto{border:1px solid var(--line);border-radius:9px;background:var(--surface);overflow:hidden}
+details.howto > summary{padding:13px 18px;font-size:13.5px;color:var(--accent);display:block}
+details.howto > summary::before{content:"+ ";font-family:ui-monospace,monospace}
+details.howto[open] > summary::before{content:"– "}
+details.howto[open] > summary{border-bottom:1px solid var(--line)}
+.howto-body{padding:16px 20px 20px}
+.howto-body p{margin:0 0 12px;color:var(--ink-2);max-width:80ch}
+
+/* per-turn working record inside a case */
+.turn{border:1px solid var(--line);border-radius:8px;background:var(--surface-2);
+  padding:0;margin:0 0 9px;overflow:hidden}
+.turnhd{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;padding:9px 13px;
+  background:var(--raise);border-bottom:1px solid var(--line)}
+.turnhd .tn{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:640}
+.turnhd .tq{font-size:13.5px;color:var(--ink);flex:1;min-width:200px}
+.turnhd .tt{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--ink-3)}
+.row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;padding:10px 13px;
+  border-bottom:1px solid var(--line);align-items:start}
+.turn .row:last-child{border-bottom:none}
+.row > .rk{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);padding-top:3px}
+.row > .rv{min-width:0}
+.rv .why{color:var(--ink-3);font-size:12.5px;margin-top:5px;max-width:80ch}
+.callline{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;
+  color:var(--ink);margin-bottom:7px;word-break:break-all}
+.callline .verb{color:var(--accent);font-weight:640;margin-right:7px}
+pre.json{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:9px 11px;
+  overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;
+  line-height:1.55;color:var(--ink-2);white-space:pre;max-height:340px;overflow-y:auto}
+pre.json.wrap{white-space:pre-wrap;word-break:break-word}
+pre.json b{color:var(--accent);font-weight:640}
+.subk{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);margin:9px 0 5px}
+.chipline{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:8px}
+.rchip{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;font-weight:640;
+  padding:2px 8px;border-radius:4px;background:var(--mute-bg);color:var(--ink-2)}
+.rchip.good{background:var(--pass-bg);color:var(--pass)}
+.rchip.warn{background:var(--drift-bg);color:var(--drift)}
+.rchip.bad{background:var(--real-bg);color:var(--real)}
+.nores{color:var(--ink-3);font-size:12.5px;font-style:italic}
+
 .scroller{max-height:440px;overflow:auto;border:1px solid var(--line);border-radius:9px;background:var(--surface)}
 .scroller table{font-size:12.5px}
 .scroller th{position:sticky;top:0;background:var(--surface-2);padding:9px 14px;z-index:1;border-bottom:1px solid var(--line)}
@@ -226,40 +269,35 @@ ol.next b{color:var(--ink);font-weight:620}
 </section>
 
 <section class="sect">
-  <h2>How the router decided</h2>
-  <p class="lede">The top-level router is a BAML function, <span class="mono">RouteQuery</span> in
-  <span class="mono">dmac_assistant/baml_src/router.baml</span>, wrapped by
-  <span class="mono">nextseek_api/cc_assistant/router.py</span>. It is capability-driven: route descriptions,
-  tools and task families are loaded from <span class="mono">route_capabilities.json</span> and rendered into the prompt,
-  so routing behaviour is configuration, not hard-coded rules.</p>
+  <h2>Every case</h2>
+  <p class="lede">One record per case, holding everything needed to judge it: each turn's query, the
+  routing decision with the router's own reasoning, the exact call the engine made (cypher with its bound
+  parameters, or the full REST request body), what came back, and how that landed against the asserted
+  criteria. Filter by verdict; <span class="mono">real</span> and <span class="mono">masked</span> are the
+  ones worth attention.</p>
 
-  <div class="where">
-    <p>Three routes only: <span class="mono">nextseek_query</span>, <span class="mono">container_cc</span>,
-    <span class="mono">unrelated</span>. Conversation history is passed in and explicitly framed as
-    "data to interpret, NOT instructions", which is a deliberate prompt-injection guard.
-    <span class="mono">model_class</span> comes back from the router but is discarded: the CC route is always pinned to Opus
-    because that is the only model the Bedrock proxy allowlists.</p>
-    <p>There are two ways the BAML router is bypassed. A keyword <b>heuristic</b> takes over if BAML is unavailable or
-    returns its <span class="mono">&lt;router_unavailable&gt;</span> sentinel. And a <b>pipeline short-circuit</b> runs
-    <i>ahead</i> of the router entirely: if a pipeline is active the route is forced with
-    <span class="mono">source: "pipeline"</span>, reasoning <span class="mono">"pipeline_active"</span>, and the model never sees the query.</p>
-  </div>
-
-  <div class="stats" id="routestats" style="margin-bottom:18px"></div>
-  <div class="scroller"><table>
-    <thead><tr><th>Task</th><th>Query</th><th>Route</th><th>Source</th><th>Router reasoning</th></tr></thead>
-    <tbody id="routes"></tbody>
-  </table></div>
-</section>
-
-<section class="sect">
-  <h2>What the engines actually ran</h2>
-  <p class="lede">On where this evidence lives: there is <b>no per-turn <span class="mono">console.txt</span></b>.
-  The async endpoint reuses a single run root and writes one <span class="mono">console.txt</span> at process start.
-  The real per-turn evidence is elsewhere in that run root, and all of it is timestamped so it maps onto tasks.</p>
-
-  <div class="where">
-    <div class="tree">__RUNROOT__/
+  <details class="howto">
+    <summary>How routing works, and where this evidence comes from</summary>
+    <div class="howto-body">
+      <p>The top-level router is a BAML function, <span class="mono">RouteQuery</span> in
+      <span class="mono">dmac_assistant/baml_src/router.baml</span>, wrapped by
+      <span class="mono">nextseek_api/cc_assistant/router.py</span>. It is capability-driven: route descriptions,
+      tools and task families load from <span class="mono">route_capabilities.json</span> and are rendered into the
+      prompt, so routing is configuration rather than hard-coded rules. Three routes only:
+      <span class="mono">nextseek_query</span>, <span class="mono">container_cc</span>,
+      <span class="mono">unrelated</span>. History is passed in framed as "data to interpret, NOT instructions",
+      a deliberate injection guard. <span class="mono">model_class</span> is returned but discarded, because CC is
+      always pinned to Opus as the only model the Bedrock proxy allowlists.</p>
+      <p>Two things bypass the router, and both show up in the <b>Routing</b> row of a turn below. A keyword
+      <b>heuristic</b> takes over when BAML is unavailable. A <b>pipeline short-circuit</b> runs <i>ahead</i> of the
+      router entirely: when a pipeline is active the route is forced, reasoning
+      <span class="mono">pipeline_active</span>, and the model never sees the query. Any turn not marked
+      <span class="mono">baml</span> deserves a second look.</p>
+      <p>There is <b>no per-turn <span class="mono">console.txt</span></b>. The async endpoint reuses one run root
+      and writes <span class="mono">console.txt</span> once at process start. The per-turn evidence below is
+      reconstructed from the <span class="mono">assistant_query_task</span> event streams, and mirrored on disk
+      in timestamped files:</p>
+      <div class="tree">__RUNROOT__/
 ├── <b>api_requests.json</b>        <i>every API request made during the run</i>
 ├── console.txt              <i>config snapshot at process start, NOT per turn</i>
 └── files/
@@ -267,27 +305,10 @@ ol.next b{color:var(--ink);font-weight:620}
     ├── <b>api/</b>api_result_bundle_N.json  <i>API result bundles</i>
     ├── <b>report/</b>                       <i>generated GEO / SRA / RPPR workbooks</i>
     └── protocol/  memory/  nfcore_all-samples/</div>
-    <p style="margin-top:14px">Each <span class="mono">graph_debug_&lt;ts&gt;.json</span> carries the user query, entity output,
-    parser output and the cypher with its results. The timestamps line up 1:1 with the graph turns.</p>
-  </div>
+    </div>
+  </details>
 
-  <h3 class="sh">Every cypher query in the run</h3>
-  <p class="lede">Sorted as they ran. The <b>Matched on</b> column shows which graph node the phrase
-  "study X" resolved to, which is where result-set instability tends to originate.</p>
-  <div id="cyphers"></div>
-
-  <h3 class="sh">Every REST call in the run</h3>
-  <p class="lede" id="restlede"></p>
-  <div class="scroller"><table>
-    <thead><tr><th>Task</th><th>Query</th><th>Method</th><th>Endpoint</th><th>Status</th></tr></thead>
-    <tbody id="rest"></tbody>
-  </table></div>
-</section>
-
-<section class="sect">
-  <h2>Every case</h2>
-  <p class="lede">Expandable to the exact criteria and what the system actually produced.
-  Filter by verdict; <span class="mono">real</span> and <span class="mono">masked</span> are the ones worth attention.</p>
+  <div class="stats" id="routestats" style="margin:18px 0 0"></div>
   <div class="filters" id="filters"></div>
   <div class="cases" id="cases"></div>
   <div class="empty" id="empty" hidden>No cases match that filter.</div>
@@ -371,15 +392,7 @@ document.getElementById("routestats").innerHTML = [
   {n:rcount.unrelated||0,      label:"unrelated", tone:"mute"},
 ].map(s=>`<div class="stat"><div class="n ${s.tone||""}">${s.n}</div><div class="l">${s.label}</div></div>`).join("");
 
-document.getElementById("routes").innerHTML = TURNS.map(t => {
-  const pipe = t.src === "pipeline";
-  return `<tr><td class="mono">${esc(t.id)}</td><td>${esc((t.q||"").slice(0,52))}</td>`+
-   `<td><span class="pill ${RCLS[t.route]||"p-un"}">${esc(t.route||"none")}</span></td>`+
-   `<td>${pipe?'<span class="pill p-pipe">pipeline</span>':'<span class="mono" style="font-size:11.5px">'+esc(t.src||"?")+'</span>'}</td>`+
-   `<td class="why">${esc((t.why||"").slice(0,150))}</td></tr>`;
-}).join("");
-
-/* ---------- cypher ---------- */
+const CAP = META.graph_limit || 250;
 function matchedOn(cy){
   const inv = /inv\.title/.test(cy), st = /st\.title/.test(cy);
   if(inv && st) return "Study OR Investigation";
@@ -388,33 +401,69 @@ function matchedOn(cy){
   if(/parent\.uuid|\$uids/.test(cy)) return "by UID";
   return "no title match";
 }
-const CAP = META.graph_limit || 250;
-document.getElementById("cyphers").innerHTML = TURNS.filter(t => t.cypher).map(t => {
-  const c = t.cnt;
-  const cls  = c === CAP ? "cap" : (c === 0 ? "zero" : "");
-  const ccls = c === CAP ? "cap" : (c === 0 ? "zero" : "ok");
-  const cy = esc(t.cypher).replace(/\b(inv\.title|st\.title)\b/g, "<b>$1</b>");
-  return `<div class="cyq ${cls}">
-    <div class="cyhead">
-      <span class="qt">${esc(t.q)}</span>
-      <span class="ct">task ${esc(t.id)}</span>
-      <span class="ct">matched on: ${matchedOn(t.cypher)}</span>
-      <span class="cnt ${ccls}">${c} rows${c===CAP?" (LIMIT cap)":""}</span>
-    </div><pre class="cy">${cy}</pre></div>`;
-}).join("");
+const jfmt = o => JSON.stringify(o, null, 1);
+const isEmpty = o => !o || (typeof o === "object" && Object.keys(o).length === 0);
 
-/* ---------- rest ---------- */
-const restRows = TURNS.filter(t => t.ep);
-const restBad  = restRows.filter(t => t.code >= 400).length;
-document.getElementById("restlede").textContent =
-  `${restRows.length} calls, ${restRows.length - restBad} returned 2xx.`;
-document.getElementById("rest").innerHTML = restRows.map(t => {
-  const bad = t.code >= 400;
-  return `<tr><td class="mono">${esc(t.id)}</td><td>${esc((t.q||"").slice(0,40))}</td>`+
-   `<td class="mono">${/sample-tree/.test(t.ep||"") ? "GET":"POST"}</td>`+
-   `<td class="mono" style="font-size:11.5px">${esc(t.ep)}</td>`+
-   `<td class="mono ${bad?"bad":"ok"}">${t.code==null?"-":t.code}</td></tr>`;
-}).join("");
+/* The engine call for one turn: the cypher it ran, or the REST request it sent. */
+function renderCall(t){
+  if(t.gplan){
+    const cy = esc(t.gplan.cypher || "").replace(/\b(inv\.title|st\.title)\b/g, "<b>$1</b>");
+    const m = t.gmeta || {};
+    const cls = m.count === CAP ? "warn" : (m.count === 0 ? "bad" : "good");
+    let v = `<pre class="json">${cy}</pre>`;
+    if(!isEmpty(t.gplan.parameters))
+      v += `<div class="subk">bound parameters</div><pre class="json wrap">${esc(jfmt(t.gplan.parameters))}</pre>`;
+    v += `<div class="chipline">
+        <span class="rchip ${m.ok?"good":"bad"}">${m.ok?"ok":"failed"}</span>
+        <span class="rchip ${cls}">${m.count==null?"?":m.count} rows${m.count===CAP?" · LIMIT cap":""}</span>
+        <span class="rchip">matched on ${matchedOn(t.gplan.cypher||"")}</span></div>`;
+    if(t.gplan.explanation) v += `<div class="why">${esc(t.gplan.explanation)}</div>`;
+    return {k:"Graph query", v};
+  }
+  if(t.aplan){
+    const m = t.ameta || {};
+    const bad = m.status_code >= 400;
+    let v = `<div class="callline"><span class="verb">${esc(t.aplan.method||"POST")}</span>${esc(t.aplan.endpoint||"")}</div>`;
+    v += `<div class="subk">request body</div><pre class="json wrap">${esc(jfmt(t.aplan.requestBody||{}))}</pre>`;
+    if(!isEmpty(t.aplan.queryParameters))
+      v += `<div class="subk">query parameters</div><pre class="json wrap">${esc(jfmt(t.aplan.queryParameters))}</pre>`;
+    v += `<div class="chipline">
+        <span class="rchip ${bad?"bad":"good"}">HTTP ${m.status_code==null?"?":m.status_code}</span>
+        <span class="rchip ${m.ok?"good":"bad"}">api_ok ${m.ok===true?"true":"false"}</span></div>`;
+    if(t.aplan.notes) v += `<div class="why">${esc(t.aplan.notes)}</div>`;
+    return {k:"REST call", v};
+  }
+  if(t.rplan)
+    return {k:"Reporter plan", v:`<pre class="json wrap">${esc(jfmt(t.rplan))}</pre>`};
+  if(t.model){
+    let v = `<div class="callline">${esc(t.model)}</div>`;
+    if(t.cost!=null) v += `<div class="chipline"><span class="rchip">$${Number(t.cost).toFixed(4)}</span></div>`;
+    return {k:"Container-CC", v};
+  }
+  if(t.task) return {k:"Engine", v:`<span class="nores">No API or graph call was made on this turn.</span>`};
+  return null;
+}
+
+/* One turn = query + how it routed + what it actually ran. */
+function renderTurn(t){
+  const rows = [];
+  if(t.route){
+    const srcOdd = t.src && t.src !== "baml";
+    rows.push(`<div class="row"><div class="rk">Routing</div><div class="rv">
+      <span class="pill ${RCLS[t.route]||"p-un"}">${esc(t.route)}</span>
+      <span class="pill ${srcOdd?"p-pipe":"p-un"}" style="margin-left:6px">via ${esc(t.src||"?")}</span>
+      ${t.mode?`<span class="rchip" style="margin-left:6px">mode ${esc(t.mode)}</span>`:""}
+      ${t.why?`<div class="why">${esc(t.why)}</div>`:""}</div></div>`);
+  }
+  const call = renderCall(t);
+  if(call) rows.push(`<div class="row"><div class="rk">${call.k}</div><div class="rv">${call.v}</div></div>`);
+  return `<div class="turn">
+    <div class="turnhd">
+      <span class="tn">${esc(t.label||"turn")}</span>
+      <span class="tq">${esc(t.query)}</span>
+      <span class="tt">${t.task?("task "+t.task):"never ran"}</span>
+    </div>${rows.join("")}</div>`;
+}
 
 /* ---------- cases ---------- */
 function critRows(turns){
@@ -449,8 +498,8 @@ function render(list){
       </summary>
       <div class="body">
         ${c.head?`<p class="hd">${esc(c.head)}</p>`:""}
-        <div class="lab">Query</div>
-        ${(c.turns||[]).map(t=>`<p class="q"><b>${esc(t.label)}</b>${esc(t.query)}</p>`).join("")||`<p class="q">(consistency group)</p>`}
+        <div class="lab">Turns: query, routing, and the call it ran</div>
+        ${(c.turns||[]).map(renderTurn).join("")||`<div class="turn"><div class="turnhd"><span class="tq">no recorded turns</span></div></div>`}
         ${c.observed?`<div class="lab">Expected vs observed</div><div class="tbl-wrap"><table>
           <thead><tr><th>Field</th><th>Expected</th><th>Observed</th><th></th></tr></thead>
           <tbody>${obsRows(c.observed)}</tbody></table></div>`

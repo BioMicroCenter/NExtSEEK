@@ -164,6 +164,11 @@ not a per-turn trace. The per-turn evidence is the timestamped files:
 Map a `graph_debug_<ts>.json` onto a turn by comparing its timestamp to
 `created_at`/`updated_at`. The correspondence is 1:1 with graph turns.
 
+You rarely need these files: `fetch_run.py` already pulls the same plans and
+result metadata out of the event streams, which is faster and survives log
+rotation. Reach for the run root when you need the actual result *rows* or a
+generated workbook, since those are deliberately stripped from `turns.json`.
+
 ---
 
 ## 4. Routing

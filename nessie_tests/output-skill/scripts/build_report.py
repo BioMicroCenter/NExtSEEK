@@ -4,14 +4,20 @@
 Inputs
 ------
   manifest.json  what the harness recorded          (from fetch_run.py)
-  turns.json     router decisions + cypher + REST   (from fetch_run.py)
+  turns.json     routing + full engine calls        (from fetch_run.py)
   catalog.json   the imported corpus expectations   (chat_nextseek/e2e/catalog.json)
   overlay.json   nessie's own variants              (nessie_tests/overlay.json)
   triage.json    YOUR analysis: verdicts, findings, gaps, next steps
 
-The mechanical join (case -> query -> asserted criteria -> observed route/engine)
-is done here. The judgement (real vs drift vs policy, and why) lives in
-triage.json and is written by whoever runs the triage. See examples/triage.json.
+Everything a reviewer needs to judge a case ends up in that one case's record:
+each turn's query, how it routed and why, the exact call the engine ran (cypher
+with bound parameters, or the full REST request body), what came back, and how
+that landed against the asserted criteria. The mechanical join is done here; the
+judgement lives in triage.json. See examples/triage.json.
+
+Output is ONE self-contained HTML file. No external assets, no network fetches.
+By default it omits <!doctype>/<html>/<body> because the Artifact publisher
+supplies them; pass --standalone for a complete document to open or send.
 
 Usage
 -----
@@ -32,98 +38,131 @@ TPL_DEFAULT = pathlib.Path(__file__).resolve().parent.parent / "templates" / "re
 
 VERDICTS = {"pass", "real", "drift", "policy", "masked", "notrun"}
 
+STANDALONE = ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+              '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
+              "{head}\n</head>\n<body>\n{body}\n</body>\n</html>\n")
 
-def load_json(p: pathlib.Path):
-    # Corpus text can carry non-UTF8 bytes; never let that kill the build.
-    return json.loads(p.read_bytes().decode("utf-8", errors="replace"))
+
+def lj(p):
+    return json.loads(pathlib.Path(p).read_bytes().decode("utf-8", errors="replace"))
 
 
-def flatten(catalog: dict) -> dict:
+def flatten(cat):
     out = {}
-    for fam in catalog.get("families", {}).values():
+    for fam in cat.get("families", {}).values():
         for v in fam.get("variants", []):
             out[v["id"]] = v
     return out
 
 
-def build_cases(manifest, variants, triage, turns):
-    """Join manifest entries to their queries, criteria, and authored verdict."""
-    verdicts = triage.get("verdicts", {})
-    by_query = {}
-    for t in turns:
-        by_query.setdefault((t.get("q") or "").strip(), t)
-
-    cases = []
-    for e in manifest["entries"]:
-        v = variants.get(e["id"], {})
-        turn_defs = [
-            {"label": t.get("label", ""), "query": t.get("query", ""),
-             "criteria": [{"f": c["field"], "op": c["op"], "v": c.get("value")}
-                          for c in t.get("pass_criteria", [])]}
-            for t in v.get("turns", [])
-        ]
-        # Recover the task id by matching the (last) turn's query text.
-        task = None
-        gcount = None
-        for td in reversed(turn_defs):
-            hit = by_query.get((td["query"] or "").strip())
-            if hit:
-                task, gcount = hit.get("id"), hit.get("cnt")
-                break
-
-        tri = verdicts.get(e["id"], {})
-        verdict = tri.get("verdict")
-        if verdict is None:
-            verdict = "pass" if e["status"] == "passed" else "real"
-        if verdict not in VERDICTS:
-            sys.exit(f"triage.json: unknown verdict {verdict!r} for {e['id']}")
-
-        cases.append({
-            "id": e["id"], "family": e["family"], "status": e["status"],
-            "route": e.get("route"), "engine": e.get("engine"),
-            "elapsed": e.get("elapsed_s"), "failed": e.get("failed_criteria", []),
-            "reason": e.get("reason", ""), "xfail": e.get("expected_fail", False),
-            "turns": turn_defs, "task": tri.get("task", task), "gcount": gcount,
-            "verdict": verdict, "head": tri.get("head"),
-            "observed": tri.get("observed"), "note": tri.get("note"),
-        })
-    return cases
+def norm(s):
+    return (s or "").strip().replace("—", "-").replace("�", "-").lower()
 
 
-def build_coverage(manifest, base_variants, overlay_variants):
-    ran = Counter(e["family"] for e in manifest["entries"])
-    corpus = Counter(v["family"] for v in base_variants.values())
-    corpus.update(v["family"] for v in overlay_variants.values())
-    rows = []
-    for fam in sorted(set(corpus) | set(ran)):
-        rows.append([fam, corpus.get(fam, 0) or ran.get(fam, 0), ran.get(fam, 0)])
-    return rows
+def turn_defs(entry, variants, cgroups):
+    """The declared turns of a case. Consistency groups keep their queries elsewhere."""
+    v = variants.get(entry["id"], {})
+    if v.get("turns"):
+        return [{"label": t.get("label", ""), "query": t.get("query", ""),
+                 "criteria": [{"f": c["field"], "op": c["op"], "v": c.get("value")}
+                              for c in t.get("pass_criteria", [])]}
+                for t in v["turns"]]
+    g = cgroups.get(entry["id"])
+    if g:
+        return [{"label": f"q{i+1}", "query": q, "criteria": []}
+                for i, q in enumerate(g.get("queries", []))]
+    return []
 
 
-def main() -> None:
+CARRY = ("route", "src", "why", "mode", "aplan", "ameta", "gplan", "gmeta",
+         "rplan", "model", "cost", "status")
+
+
+def align(flat_turns, tasks):
+    """Greedily match each declared turn to its task, forward-only.
+
+    Forward-only matters: query text repeats across variants ("Find mice treated
+    with NDMA" appears in several), so a global text lookup mis-assigns. Walking
+    both sequences in execution order keeps each occurrence with its own case,
+    and lets leading tasks from an earlier run be skipped.
+    """
+    i = matched = 0
+    for t in flat_turns:
+        want = norm(t["query"])[:60]
+        j = i
+        while j < len(tasks) and norm(tasks[j].get("q"))[:60] != want:
+            j += 1
+        if j < len(tasks):
+            src = tasks[j]
+            t["task"] = src.get("id")
+            for k in CARRY:
+                if src.get(k) is not None:
+                    t[k] = src[k]
+            i = j + 1
+            matched += 1
+    return matched
+
+
+def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run", required=True, help="dir holding manifest.json + turns.json")
-    ap.add_argument("--repo", required=True, help="dev-v3-merge checkout root")
+    ap.add_argument("--run", required=True)
+    ap.add_argument("--repo", required=True)
     ap.add_argument("--triage", required=True)
     ap.add_argument("--template", default=str(TPL_DEFAULT))
     ap.add_argument("--out", required=True)
-    args = ap.parse_args()
+    ap.add_argument("--standalone", action="store_true",
+                    help="emit a complete HTML document (for opening locally or sending); "
+                         "omit when publishing via the Artifact tool, which supplies the skeleton")
+    a = ap.parse_args()
 
-    run = pathlib.Path(args.run)
-    repo = pathlib.Path(args.repo)
+    run, repo = pathlib.Path(a.run), pathlib.Path(a.repo)
+    manifest = lj(run / "manifest.json")
+    tasks = lj(run / "turns.json")
+    triage = lj(a.triage)
 
-    manifest = load_json(run / "manifest.json")
-    turns = load_json(run / "turns.json")
-    triage = load_json(pathlib.Path(args.triage))
-
-    base = flatten(load_json(repo / "chat_nextseek" / "e2e" / "catalog.json"))
-    overlay = flatten(load_json(repo / "nessie_tests" / "overlay.json"))
+    overlay_raw = lj(repo / "nessie_tests" / "overlay.json")
+    base = flatten(lj(repo / "chat_nextseek" / "e2e" / "catalog.json"))
+    overlay = flatten(overlay_raw)
     variants = {**base, **overlay}
+    cgroups = {g["id"]: g for g in overlay_raw.get("consistency_groups", [])}
 
-    cases = build_cases(manifest, variants, triage, turns)
-    coverage = triage.get("coverage") or build_coverage(manifest, base, overlay)
+    verdicts = triage.get("verdicts", {})
+    cases, flat_turns = [], []
+    for e in manifest["entries"]:
+        tds = turn_defs(e, variants, cgroups)
+        flat_turns.extend(tds)
+        tri = verdicts.get(e["id"], {})
+        verdict = tri.get("verdict") or ("pass" if e["status"] == "passed" else "real")
+        if verdict not in VERDICTS:
+            sys.exit(f"unknown verdict {verdict!r} for {e['id']}")
+        cases.append({
+            "id": e["id"], "family": e["family"], "status": e["status"],
+            "route": e.get("route"), "engine": e.get("engine"), "elapsed": e.get("elapsed_s"),
+            "failed": e.get("failed_criteria", []), "xfail": e.get("expected_fail", False),
+            "turns": tds, "verdict": verdict, "head": tri.get("head"),
+            "observed": tri.get("observed"), "note": tri.get("note"),
+        })
 
-    tally = Counter(c["verdict"] for c in cases)
+    matched = align(flat_turns, tasks)
+    print(f"turn->task alignment: {matched}/{len(flat_turns)} declared turns matched a task")
+    for t in flat_turns:
+        if "task" not in t:
+            print(f"  never ran: {t['query'][:60]!r}")
+
+    for c in cases:
+        run_turns = [t for t in c["turns"] if t.get("task")]
+        c["task"] = run_turns[-1]["task"] if run_turns else None
+        gm = next((t.get("gmeta") for t in reversed(c["turns"]) if t.get("gmeta")), None)
+        c["gcount"] = (gm or {}).get("count")
+
+    coverage = triage.get("coverage")
+    if not coverage:
+        ran = Counter(e["family"] for e in manifest["entries"])
+        corpus = Counter(v["family"] for v in base.values())
+        corpus.update(v["family"] for v in overlay.values())
+        coverage = [[f, corpus.get(f, 0) or ran.get(f, 0), ran.get(f, 0)]
+                    for f in sorted(set(corpus) | set(ran))]
+
     status = Counter(c["status"] for c in cases)
     stats = triage.get("stats") or [
         {"n": len(cases), "label": "cases run"},
@@ -134,39 +173,43 @@ def main() -> None:
          "label": "of corpus", "tone": "mute"},
     ]
 
-    html = pathlib.Path(args.template).read_text(encoding="utf-8")
+    html = pathlib.Path(a.template).read_text(encoding="utf-8")
     subs = {
-        "__TITLE__":    triage.get("title", "nessie_tests run review"),
-        "__EYEBROW__":  triage.get("eyebrow", "Test run review"),
-        "__HEADLINE__": triage.get("headline", "nessie_tests run review"),
-        "__SUBHEAD__":  triage.get("subhead", ""),
-        "__RUNROOT__":  triage.get("runroot", "/app/outputs/<run>"),
-        "__META__":     json.dumps({
-                            "runline": triage.get("runline", []),
-                            "stats": stats,
-                            "reframe": triage.get("reframe", ""),
-                            "coverage_lede": triage.get("coverage_lede"),
-                            "graph_limit": triage.get("graph_limit", 250),
-                        }, separators=(",", ":")),
-        "__CASES__":    json.dumps(cases, separators=(",", ":")),
-        "__TURNS__":    json.dumps(turns, separators=(",", ":")),
+        "__TITLE__": triage.get("title", "nessie_tests run review"),
+        "__EYEBROW__": triage.get("eyebrow", ""),
+        "__HEADLINE__": triage.get("headline", ""),
+        "__SUBHEAD__": triage.get("subhead", ""),
+        "__RUNROOT__": triage.get("runroot", "/app/outputs/<run>"),
+        "__META__": json.dumps({"runline": triage.get("runline", []), "stats": stats,
+                                "reframe": triage.get("reframe", ""),
+                                "coverage_lede": triage.get("coverage_lede"),
+                                "graph_limit": triage.get("graph_limit", 250)}, separators=(",", ":")),
+        "__CASES__": json.dumps(cases, separators=(",", ":")),
+        "__TURNS__": json.dumps(tasks, separators=(",", ":")),
         "__FINDINGS__": json.dumps(triage.get("findings", []), separators=(",", ":")),
         "__COVERAGE__": json.dumps(coverage, separators=(",", ":")),
-        "__GAPS__":     json.dumps(triage.get("gaps", []), separators=(",", ":")),
-        "__NEXT__":     json.dumps(triage.get("next", []), separators=(",", ":")),
+        "__GAPS__": json.dumps(triage.get("gaps", []), separators=(",", ":")),
+        "__NEXT__": json.dumps(triage.get("next", []), separators=(",", ":")),
     }
     for k, v in subs.items():
         html = html.replace(k, v)
+    left = [k for k in subs if k in html]
+    if left:
+        sys.exit(f"unsubstituted: {left}")
 
-    leftover = [k for k in subs if k in html]
-    if leftover:
-        sys.exit(f"template placeholders not substituted: {leftover}")
+    if a.standalone:
+        # <title>/<style> belong in <head>; everything from the first <div> is body.
+        split = html.find("<div class=\"wrap\">")
+        head, body = (html[:split], html[split:]) if split > 0 else ("", html)
+        html = STANDALONE.format(head=head.strip(), body=body.strip())
 
-    pathlib.Path(args.out).write_text(html, encoding="utf-8")
-    print(f"wrote {args.out}  ({len(html)} bytes)")
-    print(f"  cases {len(cases)}  verdicts {dict(tally)}")
+    pathlib.Path(a.out).write_text(html, encoding="utf-8")
+    print(f"wrote {a.out} ({len(html)} bytes){'  [standalone document]' if a.standalone else ''}")
+    print(f"  cases {len(cases)}  verdicts {dict(Counter(c['verdict'] for c in cases))}")
+    withcall = sum(1 for c in cases for t in c["turns"] if t.get("aplan") or t.get("gplan"))
+    print(f"  turns carrying a graph/REST call: {withcall}")
     unjudged = [c["id"] for c in cases
-                if c["status"] != "passed" and c["id"] not in triage.get("verdicts", {})]
+                if c["status"] != "passed" and c["id"] not in verdicts]
     if unjudged:
         print(f"  WARNING {len(unjudged)} non-passing cases have no triage entry "
               f"(defaulted to 'real'): {unjudged[:6]}")
