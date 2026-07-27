@@ -187,6 +187,29 @@ pre.json b{color:var(--accent);font-weight:640}
 .rchip.bad{background:var(--real-bg);color:var(--real)}
 .nores{color:var(--ink-3);font-size:12.5px;font-style:italic}
 
+/* reviewer notes */
+.notebar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 16px;
+  border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:11px 15px}
+.notebar .nstat{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;
+  color:var(--ink-3);margin-right:auto}
+.notebar .nstat b{color:var(--ink);font-weight:640}
+.notebar .nstat.dirty b{color:var(--drift)}
+.btn{border:1px solid var(--line);background:var(--surface-2);color:var(--ink-2);border-radius:6px;
+  padding:5px 12px;font:inherit;font-size:12.5px;cursor:pointer}
+.btn:hover{border-color:var(--accent);color:var(--ink)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.notes{margin-top:15px}
+.notes textarea{width:100%;min-height:74px;resize:vertical;background:var(--surface-2);
+  border:1px solid var(--line);border-radius:7px;padding:10px 12px;color:var(--ink);
+  font-family:inherit;font-size:13.5px;line-height:1.5;display:block}
+.notes textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset;
+  box-shadow:0 0 0 1px var(--accent)}
+.notes textarea::placeholder{color:var(--ink-3)}
+.notedot{color:var(--accent);font-size:15px;line-height:1;margin-left:8px}
+.gnotes{border:1px solid var(--line);border-radius:9px;background:var(--surface);
+  padding:15px 18px;margin:0 0 16px}
+.gnotes .lab{margin-top:0}
+
 .scroller{max-height:440px;overflow:auto;border:1px solid var(--line);border-radius:9px;background:var(--surface)}
 .scroller table{font-size:12.5px}
 .scroller th{position:sticky;top:0;background:var(--surface-2);padding:9px 14px;z-index:1;border-bottom:1px solid var(--line)}
@@ -310,6 +333,21 @@ ol.next b{color:var(--ink);font-weight:620}
 
   <div class="stats" id="routestats" style="margin:18px 0 0"></div>
   <div class="filters" id="filters"></div>
+
+  <div class="notebar">
+    <span class="nstat" id="nstat"></span>
+    <button class="btn" id="savenotes" type="button">Save notes</button>
+    <button class="btn" id="importbtn" type="button">Import</button>
+    <input type="file" id="importnotes" accept="application/json,.json" hidden>
+  </div>
+
+  <div class="gnotes">
+    <div class="lab">Overall review notes</div>
+    <div class="notes" style="margin-top:0">
+      <textarea data-note="__report__" placeholder="Notes on the run as a whole. Press Ctrl-S (or Cmd-S) to save all notes to a JSON file."></textarea>
+    </div>
+  </div>
+
   <div class="cases" id="cases"></div>
   <div class="empty" id="empty" hidden>No cases match that filter.</div>
 </section>
@@ -465,6 +503,82 @@ function renderTurn(t){
     </div>${rows.join("")}</div>`;
 }
 
+/* ---------- reviewer notes ----------
+   Typing autosaves to localStorage so nothing is lost on reload or refilter.
+   Ctrl-S / Cmd-S writes every note to a JSON file for handing back for review. */
+const NOTES_KEY = "nessie-notes:" + (META.notes_id || "run");
+let NOTES = {};
+try { NOTES = JSON.parse(localStorage.getItem(NOTES_KEY) || "{}") || {}; } catch(_) { NOTES = {}; }
+let notesDirty = false;
+
+function noteCount(){ return Object.values(NOTES).filter(v => (v||"").trim()).length; }
+
+function updateNoteBar(msg){
+  const el = document.getElementById("nstat");
+  const n = noteCount();
+  el.className = "nstat" + (notesDirty ? " dirty" : "");
+  el.innerHTML = msg ? msg
+    : `<b>${n}</b> note${n===1?"":"s"}` +
+      (notesDirty ? " · <b>unsaved</b> · press Ctrl-S" : (n ? " · saved to this browser" : " · add notes as you review"));
+}
+
+function setNote(id, val){
+  if((val||"").trim()) NOTES[id] = val; else delete NOTES[id];
+  try { localStorage.setItem(NOTES_KEY, JSON.stringify(NOTES)); } catch(_) {}
+  notesDirty = true;
+  updateNoteBar();
+}
+
+function saveNotes(){
+  const byCase = {};
+  for(const c of CASES) if((NOTES[c.id]||"").trim())
+    byCase[c.id] = {verdict: c.verdict, family: c.family, status: c.status, note: NOTES[c.id]};
+  const payload = {
+    report: META.title || document.title,
+    saved_at: new Date().toISOString(),
+    overall: NOTES["__report__"] || "",
+    cases: byCase,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (META.notes_file || "nessie-notes") + ".json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  notesDirty = false;
+  updateNoteBar(`<b>saved</b> ${a.download} · ${noteCount()} note(s) · check your downloads folder`);
+  setTimeout(()=>updateNoteBar(), 4000);
+}
+
+document.addEventListener("keydown", e => {
+  if((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")){ e.preventDefault(); saveNotes(); }
+});
+document.getElementById("savenotes").addEventListener("click", saveNotes);
+document.getElementById("importbtn").addEventListener("click", () => document.getElementById("importnotes").click());
+document.getElementById("importnotes").addEventListener("change", ev => {
+  const f = ev.target.files && ev.target.files[0];
+  if(!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if(d.overall) NOTES["__report__"] = d.overall;
+      for(const [k,v] of Object.entries(d.cases||{})) NOTES[k] = typeof v === "string" ? v : v.note;
+      localStorage.setItem(NOTES_KEY, JSON.stringify(NOTES));
+      applyFilter();
+      updateNoteBar(`<b>imported</b> ${noteCount()} note(s)`);
+      setTimeout(()=>updateNoteBar(), 3000);
+    } catch(err){ updateNoteBar(`<b>import failed</b> ${esc(String(err.message||err))}`); }
+  };
+  r.readAsText(f);
+});
+
+/* one delegated handler covers every textarea, including re-rendered ones */
+document.addEventListener("input", e => {
+  const ta = e.target.closest("textarea[data-note]");
+  if(ta) setNote(ta.dataset.note, ta.value);
+});
+
 /* ---------- cases ---------- */
 function critRows(turns){
   let out = "";
@@ -493,7 +607,7 @@ function render(list){
     return `<details class="case" data-v="${c.verdict}">
       <summary>
         <span class="vchip v-${c.verdict}">${VERDICT_LABEL[c.verdict]||c.verdict}</span>
-        <span class="cid">${esc(c.id)}<span class="fam">${esc(c.family)}</span></span>
+        <span class="cid">${esc(c.id)}<span class="fam">${esc(c.family)}</span>${(NOTES[c.id]||"").trim()?'<span class="notedot" title="you left a note here">&#9679;</span>':""}</span>
         <span class="cmeta">${esc(meta)}</span>
       </summary>
       <div class="body">
@@ -508,6 +622,10 @@ function render(list){
         ${c.note?`<p class="note">${esc(c.note)}</p>`:""}
         <div class="lab">Trace</div>
         <div>${tags.map(t=>`<span class="tag">${esc(t)}</span>`).join("")||'<span class="tag">no failed criteria</span>'}</div>
+        <div class="notes">
+          <div class="lab">Your notes</div>
+          <textarea data-note="${esc(c.id)}" placeholder="Notes on this case. Ctrl-S saves all notes to a file.">${esc(NOTES[c.id]||"")}</textarea>
+        </div>
       </div>
     </details>`;
   }).join("");
@@ -521,12 +639,21 @@ document.getElementById("filters").innerHTML =
   FILTERS.filter(([k]) => k==="all" || tally[k])
     .map(([k,l],i)=>`<button class="chip" data-f="${k}" aria-pressed="${i===0}">${l} ${k==="all"?CASES.length:tally[k]}</button>`)
     .join("") + `<button class="tool" id="toggle">Expand all</button>`;
-render(CASES);
+let currentFilter = "all";
+function applyFilter(){
+  render(currentFilter === "all" ? CASES : CASES.filter(c => c.verdict === currentFilter));
+}
+applyFilter();
+
+/* restore the overall-notes box (it lives outside the re-rendered case list) */
+document.querySelector('textarea[data-note="__report__"]').value = NOTES["__report__"] || "";
+updateNoteBar();
 
 document.getElementById("filters").addEventListener("click", e => {
   const btn = e.target.closest(".chip"); if(!btn) return;
   document.querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", String(c===btn)));
-  render(btn.dataset.f==="all" ? CASES : CASES.filter(c => c.verdict===btn.dataset.f));
+  currentFilter = btn.dataset.f;
+  applyFilter();
   document.getElementById("toggle").textContent = "Expand all";
 });
 document.getElementById("toggle").addEventListener("click", e => {

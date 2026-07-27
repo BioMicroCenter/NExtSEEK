@@ -183,7 +183,13 @@ def main():
         "__META__": json.dumps({"runline": triage.get("runline", []), "stats": stats,
                                 "reframe": triage.get("reframe", ""),
                                 "coverage_lede": triage.get("coverage_lede"),
-                                "graph_limit": triage.get("graph_limit", 250)}, separators=(",", ":")),
+                                "graph_limit": triage.get("graph_limit", 250),
+                                "title": triage.get("title", "nessie_tests run review"),
+                                # notes_id keys browser-local autosave; bump it per run
+                                # so two reports never share a notes store
+                                "notes_id": triage.get("notes_id", pathlib.Path(a.run).name),
+                                "notes_file": triage.get("notes_file", "nessie-notes")},
+                               separators=(",", ":")),
         "__CASES__": json.dumps(cases, separators=(",", ":")),
         "__TURNS__": json.dumps(tasks, separators=(",", ":")),
         "__FINDINGS__": json.dumps(triage.get("findings", []), separators=(",", ":")),

@@ -102,6 +102,35 @@ endpoint and request body) and its result, followed by the criteria table, your
 analysis, and the trace. Turns are matched to tasks forward-only in execution
 order, because query text repeats across variants and a global lookup mis-assigns.
 
+### 4. Hand it to a reviewer, then fold their notes back in
+
+The report is a review surface, not just a summary. Every case has a **Your notes**
+box, and there is an **Overall review notes** box above the case list. Typing
+autosaves to browser storage; **Ctrl-S** (or Cmd-S, or the Save notes button)
+downloads a `nessie-notes.json` the reviewer sends back:
+
+```json
+{ "report": "...", "saved_at": "...", "overall": "...",
+  "cases": { "advanced.find_me_nhp_samples_from_study":
+             {"verdict": "real", "family": "search_advanced",
+              "status": "failed", "note": "reviewer's text"} } }
+```
+
+Each note carries the verdict and family it was written against, so you can tell
+whether the reviewer was agreeing with or disputing your call. Fold the result
+back into `triage.json` (adjusting verdicts, notes, findings) and rebuild. The
+"Import" button restores a JSON into the page, so a reviewer can resume later or
+a second reviewer can build on the first one's pass.
+
+Notes are keyed in browser storage by `notes_id`, which defaults to the run
+directory name, so two different runs never share a notes store. Set it
+explicitly in `triage.json` if you rebuild the same run into several reports.
+
+Tell the reviewer to press Ctrl-S before closing: Chrome sometimes blocks local
+storage on `file://` pages. The code degrades gracefully (notes stay in memory and
+the export still works), but the autosave cannot be relied on there. The page's
+status line reads "saved to this browser" when storage is working.
+
 ## Gotchas that will mislead you
 
 Every one of these produced a wrong conclusion on the first pass.

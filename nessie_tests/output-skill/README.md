@@ -37,6 +37,10 @@ The result is one self-contained HTML file, no external assets. Publish it with
 the Artifact tool for a shareable link, or add `--standalone` to get a complete
 `<!doctype html>` document you can open in a browser or send to someone.
 
+The page is a review surface: every case has a notes box, and Ctrl-S exports all
+notes to a JSON file the reviewer sends back to be folded into `triage.json`.
+See step 4 in SKILL.md.
+
 The one thing to internalise before triaging: **the manifest records criterion
 names, never observed values.** Recover the values from `assistant_query_task`
 rather than re-running cases. See SKILL.md.
