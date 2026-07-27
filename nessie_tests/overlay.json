@@ -1,5 +1,6 @@
 {
-  "version": "1.0",
+  "version": "1.1",
+  "_note": "Variants whose id matches a base (chat_nextseek/e2e/catalog.json) variant OVERRIDE it. That is how an imported expectation gets corrected or strengthened without editing the vendored catalog. See corpus.merged().",
   "families": {
     "nessie_route": {
       "description": "Top-level router assertions (route tier, no seed data needed)",
@@ -19,7 +20,25 @@
         {"family": "nessie_route", "id": "route.unrelated",
          "name": "Off-topic → unrelated", "tags": ["nessie", "route_gate", "specific"], "requires_env": [],
          "turns": [{"label": "main", "query": "What's the weather in Boston tomorrow?",
-                    "pass_criteria": [{"field": "route", "op": "eq", "value": "unrelated"}]}]}
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "unrelated"}]}]},
+
+        {"family": "nessie_route", "id": "route.cc_write_investigation",
+         "name": "Resource creation → Container-CC (curated policy)",
+         "_why": "Blessed 2026-07-27: writes are deliberately CC's, not an NS 'unsupported'. Previously read as a failure only because default_route_criterion injected route==nextseek_query into every imported variant.",
+         "tags": ["nessie", "route_gate", "specific"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Create me investigation TEST-CD with project id 2",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"}]}]},
+        {"family": "nessie_route", "id": "route.cc_open_ended_analysis",
+         "name": "Open-ended statistical analysis → Container-CC (curated policy)",
+         "tags": ["nessie", "route_gate", "specific"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Is treatment A significantly better than treatment B based on our sequencing data?",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"}]}]},
+        {"family": "nessie_route", "id": "route.ns_plain_study_membership",
+         "name": "Plain study membership stays on NS",
+         "_why": "Guards the ambiguous_study_resolution CC family from swallowing ordinary graph questions.",
+         "tags": ["nessie", "route_gate", "specific"], "requires_env": [],
+         "turns": [{"label": "main", "query": "What mice are in the Impact study?",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"}]}]}
       ]
     },
     "nessie_green": {
@@ -36,12 +55,17 @@
                     "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"},
                                       {"field": "parser_plan.mode", "op": "eq", "value": "new_search"},
                                       {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
-                                      {"field": "api_ok", "op": "true"}]}]},
+                                      {"field": "api_ok", "op": "true"},
+                                      {"field": "api_result_meta.row_count", "op": "gte", "value": 1}]}]},
         {"family": "nessie_green", "id": "green.refine_recall",
-         "name": "Refine 4-week study (0 → 303)", "tags": ["nessie", "green", "full"], "requires_env": [],
+         "name": "Refine 4-week study", "tags": ["nessie", "green", "full"], "requires_env": [],
+         "_why": "The seed used to drop the keyword entirely: entity resolved ['4 week'], the API agent sent filter_searchText:'' and the reply covered all 50,886 samples. Assert the seed is actually filtered, not just routed.",
          "turns": [
            {"label": "seed", "query": "Find samples from a 4 week study.",
-            "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"}]},
+            "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"},
+                              {"field": "api_ok", "op": "true"},
+                              {"field": "api_plan.requestBody.filter_searchText", "op": "nonempty"},
+                              {"field": "api_result_meta.row_count", "op": "lte", "value": 20000}]},
            {"label": "refine", "query": "Just the 4 week ones.",
             "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "refine_last_search"},
                               {"field": "api_ok", "op": "true"}]}]}
@@ -69,9 +93,186 @@
          "turns": [{"label": "main", "query": "Write me an nf-core rnaseq report for the last results.",
                     "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "^(?!.*could not be completed).*$"}]}]},
         {"family": "nessie_repro", "id": "repro.cypher_uid_dot",
-         "name": "bonus: cypher UID / D.SEQ dot defect", "tags": ["nessie", "known_fail", "full"], "requires_env": [],
+         "name": "cypher UID / D.SEQ dot defect (VERIFIED FIXED 2026-07-27)",
+         "_why": "Kept as a live regression guard, no longer known_fail. In the 2026-07-24 run it returned the six expected D.SEQ-220823SHA UIDs, i.e. it xpassed; leaving the tag on made a green result read as an expected failure.",
+         "tags": ["nessie", "fixed", "full"], "requires_env": [],
          "turns": [{"label": "main", "query": "Find sequencing data for NHP-220524FLY-1-PUB and NHP-220524FLY-2-PUB.",
                     "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "(NHP-220524FLY|D\\.SEQ)"}]}]}
+      ]
+    },
+
+    "refine_and_recall": {
+      "description": "OVERRIDES of the imported refine/recall cases. The base variants assert only parser_plan.mode, so all four passed in the 2026-07-24 run while answering from a DIFFERENT case's result bundle. These assert the outcome.",
+      "variants": [
+        {"family": "refine_and_recall", "id": "refrec.rerun_that_last_search_with_pr",
+         "name": "Rerun last search with project id (must stay on the seed's mice)",
+         "_why": "Observed: seed returned 195 MUS; the refine ran a GRAPH query against NHP-220524FLY UIDs from a case seven turns earlier and answered about monkeys.",
+         "tags": ["nessie", "multi-turn", "full"], "requires_env": [],
+         "turns": [
+           {"label": "seed", "query": "Find me mice treated with NDMA",
+            "pass_criteria": [{"field": "api_ok", "op": "true"},
+                              {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
+                              {"field": "api_result_meta.row_count", "op": "gte", "value": 1}]},
+           {"label": "followup", "query": "Rerun that last search with project id = 2",
+            "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "refine_last_search"},
+                              {"field": "last_reply", "op": "matches_re", "value": "(MUS-|mice|mouse)"}]}]},
+
+        {"family": "refine_and_recall", "id": "refrec.refine_those_results_to_cd8_de",
+         "name": "Refine a REST search (must not bounce off the graph agent)",
+         "_why": "Observed: seed returned 408 NHP via REST; the refine was handed to the graph agent, which correctly refused ('CD8-depleted is not stored in the graph'), and the case still passed.",
+         "tags": ["nessie", "multi-turn", "full"], "requires_env": [],
+         "turns": [
+           {"label": "seed", "query": "Find all NHP samples in the database",
+            "pass_criteria": [{"field": "api_ok", "op": "true"},
+                              {"field": "entity_sampletype_codes", "op": "contains", "value": "NHP"}]},
+           {"label": "followup", "query": "Refine those results to CD8-depleted animals only",
+            "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "refine_last_search"},
+                              {"field": "api_ok", "op": "true"}]}]},
+
+        {"family": "refine_and_recall", "id": "refrec.of_those_mice_can_you_summariz",
+         "name": "Recall must use THIS case's bundle",
+         "_why": "Observed: seed returned 195 MUS; the follow-up answered about 'the 15 results' from the 4-week bundle twelve turns earlier, because target_result_id was null and bundle selection scored by keyword overlap across a shared session.",
+         "tags": ["nessie", "multi-turn", "full"], "requires_env": [],
+         "turns": [
+           {"label": "seed", "query": "Find me mice associated with ndma",
+            "pass_criteria": [{"field": "api_ok", "op": "true"},
+                              {"field": "api_result_meta.row_count", "op": "gte", "value": 1}]},
+           {"label": "followup", "query": "Of those mice, can you summarize the sex statistics of it",
+            "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "ask_about_last_results"},
+                              {"field": "api_result_meta.source_mode", "op": "eq", "value": "new_search"},
+                              {"field": "last_reply", "op": "matches_re", "value": "(male|female|sex)"}]}]},
+
+        {"family": "refine_and_recall", "id": "refrec.what_sample_types_were_represe",
+         "name": "Recall the seed's sample types",
+         "_why": "Observed: seed returned 195 MUS; the follow-up answered 'D.SEQ' and noted no rows were available.",
+         "tags": ["nessie", "multi-turn", "full"], "requires_env": [],
+         "turns": [
+           {"label": "seed", "query": "Find mice treated with NDMA",
+            "pass_criteria": [{"field": "api_ok", "op": "true"},
+                              {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"}]},
+           {"label": "followup", "query": "What sample types were represented in those results",
+            "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "ask_about_last_results"},
+                              {"field": "last_reply", "op": "mentions", "value": "MUS"}]}]},
+
+        {"family": "refine_and_recall", "id": "refrec.of_those_which_are_actually_fr_2",
+         "name": "Seed must actually run a search (pipeline-hijack regression)",
+         "_why": "Observed: the seed was answered by the nf-core samplesheet builder ('Searching the sample database isn't something I can do') because a pipeline build left open by an EARLIER case short-circuited routing.",
+         "tags": ["nessie", "multi-turn", "full"], "requires_env": [],
+         "turns": [
+           {"label": "seed", "query": "Find me all D.SEQ samples for the SHA lab",
+            "pass_criteria": [{"field": "api_ok", "op": "true"},
+                              {"field": "route_source", "op": "eq", "value": "baml"},
+                              {"field": "parser_plan.mode", "op": "eq", "value": "new_search"}]},
+           {"label": "followup", "query": "Of those, which are actually from the SHA lab? Give me UIDs with their Lab field value",
+            "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "ask_about_last_results"},
+                              {"field": "last_reply", "op": "mentions", "value": "D.SEQ"}]}]}
+      ]
+    },
+
+    "pipeline_nfcore": {
+      "description": "OVERRIDES. The base variants assert only last_reply nonempty, which a refusal satisfies.",
+      "variants": [
+        {"family": "pipeline_nfcore", "id": "pipeline.create_an_nf_core_samplesheet",
+         "name": "Samplesheet build must resolve the requested UIDs",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Create an nf-core samplesheet for D.SEQ-240709KAM-4-PUB and D.SEQ-241219BRY-2-PUB",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"},
+                                      {"field": "last_reply", "op": "mentions", "value": "D.SEQ-240709KAM-4-PUB"}]}]},
+        {"family": "pipeline_nfcore", "id": "pipeline.build_an_nfcore_samplesheet_fo",
+         "name": "\"for these\" with no pinned context must ASK, not guess",
+         "_why": "In an isolated session there is nothing to point at, so the honest answer is a clarifying question. Previously this inherited a neighbouring case's pinned bundle.",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Build an nfcore samplesheet for these",
+                    "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "(which|what|clarify|specify|UID|search|don't have|no .*(pinned|prior|previous))"}]}]}
+      ]
+    },
+
+    "reporting": {
+      "description": "OVERRIDES of imported reporting cases whose expectations were stale or too weak.",
+      "variants": [
+        {"family": "reporting", "id": "report.sra_submission",
+         "name": "SRA submission (correct artifact names)",
+         "_why": "The base asserted api_artifact.sra_seq.xlsx, a filename the reporter has not produced for some time; it now writes merged_report_SRA_*. That criterion was also unevaluable because evaluate.py passed no run_root.",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Build me an SRA submission for D.SEQ-230512FOR-288-PUB, D.SEQ-230512FOR-289-PUB.",
+                    "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "reporter"},
+                                      {"field": "reporter_plan.report_type", "op": "eq", "value": "SRA"},
+                                      {"field": "api_artifact.merged_report_SRA_SRA_metadata_filled.xlsx", "op": "true"},
+                                      {"field": "api_artifact.merged_report_SRA_SRA_biosample_filled.xlsx", "op": "true"},
+                                      {"field": "api_artifact.merged_report_SRA_SRA_metadata_filled.xlsx.rows_gte", "op": "gte", "value": 2}]}]},
+        {"family": "reporting", "id": "report.how_many_samples_did_metnet_up",
+         "name": "MetNet 2024 upload count (casing-insensitive, year must survive)",
+         "_why": "The base asserted project == 'MetNet' and observed 'METNET' — pure casing. The real defect it masked: years_table came back empty with unparsable_uids 3924/3924, so the year filter was silently dropped.",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "How many samples did MetNet upload in 2024",
+                    "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "reporter"},
+                                      {"field": "reporter_plan.project", "op": "matches_re", "value": "(?i)metnet"},
+                                      {"field": "reporter_result.samples.years_table", "op": "nonempty"}]}]},
+        {"family": "reporting", "id": "report.put_together_an_annual_progres",
+         "name": "RPPR for Kamm must be SCOPED",
+         "_why": "The base asserted reporter_plan.project == 'Kamm', but Kamm is modelled as a LAB. The real defect: reporter_result came back project_id null with 50,886 rows — the entire database — for a Kamm-scoped RPPR.",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Put together an annual progress report for the Kamm project - I need it for our NIH grant renewal",
+                    "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "reporter"},
+                                      {"field": "reporter_plan.reporter_mode", "op": "eq", "value": "summary"},
+                                      {"field": "reporter_result.samples.uuids_saved", "op": "lte", "value": 45000}]}]}
+      ]
+    },
+
+    "search_advanced": {
+      "description": "OVERRIDES of imported search cases whose expectations encoded the wrong behaviour.",
+      "variants": [
+        {"family": "search_advanced", "id": "advanced.show_me_analyzed_sequencing_da",
+         "name": "\"Analyzed sequencing data\" must find analysis samples",
+         "_why": "The base asserted entity_sampletype_codes contains D.SEQ. The system did exactly that — searched sampletype D.SEQ with keyword 'analyzed' — and returned ZERO records, then suggested trying A.SEQ itself. The corpus was enforcing the wrong mapping: analysed sequencing output lives in A.* analysis sample types (A.GEX, A.ALN, A.VCF, A.CNV, A.SCXP, A.CHRM).",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Show me analyzed sequencing data",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"},
+                                      {"field": "api_ok", "op": "true"},
+                                      {"field": "api_result_meta.row_count", "op": "gte", "value": 1}]}]},
+        {"family": "search_advanced", "id": "advanced.find_me_nhp_samples_from_study",
+         "name": "NHP samples from study GBM must not silently answer zero",
+         "_why": "Observed: cypher matched Study.title only and returned 0. 'GBM' is a Study node holding a single sample, while the samples the user means are reachable via Investigation or sample metadata. Either a non-empty result or a CC escalation is acceptable; a bare '0 samples' is not.",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Find me NHP samples from study GBM",
+                    "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "(NHP-|Investigation|metadata|publication|could not|no samples matched)"}]}]}
+      ]
+    },
+
+    "graph_query": {
+      "description": "OVERRIDES. Graph results must not be silently truncated, and cypher-text assertions are obsolete now that values are bound as parameters.",
+      "variants": [
+        {"family": "graph_query", "id": "graph.tissue_cell_impact",
+         "name": "Tissue + cell samples from IMPACT (parameterised, uncapped)",
+         "_why": "The base asserted graph_cypher contains 'IMPACT'. Values are now bound as $parameters, which is safer, so the literal never appears — the assertion was testing the old string-interpolation style. Replaced with an outcome check plus the truncation guard.",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Find all tissue and cell samples from IMPACT.",
+                    "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "graph_query"},
+                                      {"field": "neo4j_ok", "op": "true"},
+                                      {"field": "graph_result.count", "op": "gte", "value": 1},
+                                      {"field": "graph_not_truncated", "op": "true"}]}]},
+        {"family": "graph_query", "id": "graph.what_mice_are_in_the_impact_st",
+         "name": "Mice in the Impact study (must not stop at the old 250 cap)",
+         "_why": "Passed every assertion in the 2026-07-24 run while returning exactly 250 rows — the old LIMIT — because no criterion looked at result counts.",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "What mice are in the Impact study",
+                    "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "graph_query"},
+                                      {"field": "neo4j_ok", "op": "true"},
+                                      {"field": "graph_result.count", "op": "gte", "value": 1},
+                                      {"field": "graph_not_truncated", "op": "true"}]}]}
+      ]
+    },
+
+    "system_question": {
+      "description": "OVERRIDE. Two near-identical assay questions classified differently; both answered correctly.",
+      "variants": [
+        {"family": "system_question", "id": "sys.show_me_all_assays_i_have_acce",
+         "name": "Assay listing (either classification is acceptable)",
+         "_why": "Classified new_search where its sibling classified system_question. It still hit /nextseek_api/assays/ and answered with 324 assays. The inconsistency is real but the outcome is right, so assert the outcome.",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Show me all assays I have access to",
+                    "pass_criteria": [{"field": "parser_plan.mode", "op": "matches_re", "value": "(system_question|new_search)"},
+                                      {"field": "last_reply", "op": "matches_re", "value": "(assay|Assay)"}]}]}
       ]
     }
   }

@@ -34,8 +34,29 @@ def load_consistency_groups(path) -> list[dict]:
 
 
 def merged(overlay_path: Path | None = None) -> list[Variant]:
+    """Base catalog plus overlay, where an overlay variant may OVERRIDE a base one.
+
+    An overlay variant whose ``id`` matches a base variant replaces it in place,
+    keeping the base ordering and the base id. That is what lets us strengthen a
+    weak imported expectation — e.g. a refine/recall case that only asserted
+    ``parser_plan.mode``, and so passed while answering from the wrong result
+    bundle — without editing the vendored ``chat_nextseek/e2e/catalog.json``.
+    Overlay variants with a new id are appended as usual.
+    """
     ov = load_overlay(overlay_path) if overlay_path else []
-    return load_base() + ov
+    by_id = {v.id: v for v in ov}
+    base = load_base()
+    out = [by_id.pop(v.id, v) for v in base]
+    out += [v for v in ov if v.id in by_id]
+    return out
+
+
+def overridden_ids(overlay_path: Path | None = None) -> list[str]:
+    """Ids where the overlay replaces a base variant (for reporting/debugging)."""
+    if not overlay_path:
+        return []
+    base_ids = {v.id for v in load_base()}
+    return sorted(v.id for v in load_overlay(overlay_path) if v.id in base_ids)
 
 
 def select(variants, *, scope: str = "all", family: str | None = None,

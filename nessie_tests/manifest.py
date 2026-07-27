@@ -4,16 +4,36 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class CriterionObservation(BaseModel):
+    """One criterion's expected-vs-OBSERVED record.
+
+    The manifest used to store criterion *names* only, so a failure list could
+    not be triaged without querying assistant_query_task after the fact. The
+    observed value is what makes a run self-explaining.
+    """
+    turn: str
+    field: str
+    op: str
+    expected: object | None = None
+    observed: object | None = None
+    passed: bool
+    reason: str = ""
+
+
 class NessieManifestEntry(BaseModel):
     id: str
     family: str
     tier: Literal["route", "full"]
-    status: Literal["passed", "failed", "skipped", "error"]
+    # `xpass` = tagged known_fail but every criterion passed. Reporting it as
+    # `passed` hides a stale expectation behind a green run.
+    status: Literal["passed", "failed", "skipped", "error", "xpass"]
     route: str | None = None
     engine: str | None = None
     cost: float | None = None
     elapsed_s: float = 0.0
     failed_criteria: list[str] = Field(default_factory=list)
+    observations: list[CriterionObservation] = Field(default_factory=list)
+    poll_errors: int = 0
     reason: str = ""
     expected_fail: bool = False
 

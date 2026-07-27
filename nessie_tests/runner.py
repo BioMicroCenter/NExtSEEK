@@ -4,15 +4,42 @@ import time
 from pathlib import Path
 from nessie_tests import corpus, evaluate, http_driver, report
 from nessie_tests import route_observer as ro
-from nessie_tests.manifest import NessieManifest, NessieManifestEntry, write_manifest
+from nessie_tests.manifest import (
+    CriterionObservation, NessieManifest, NessieManifestEntry, write_manifest,
+)
 
 
 def default_route_criterion(variant) -> dict | None:
-    return {"field": "route", "op": "eq", "value": ro.ROUTE_NS} if "base" in variant.tags else None
+    """No route expectation is injected any more. Deliberately.
+
+    This used to return ``route == nextseek_query`` for every variant tagged
+    "base", which ``corpus.load_base`` applies to all 366 imported variants. No
+    one ever curated that: it was an assumption, and it made deliberate
+    ``container_cc`` routing (open-ended analysis, resource creation) read as a
+    product failure. Routing is asserted where it has actually been decided —
+    the ``route_gate`` variants in overlay.json, which carry explicit ``route``
+    criteria and run in the cheap route tier.
+    """
+    return None
 
 
 def _iso(clock):  # avoid datetime.now() so tests are deterministic
     return f"t={clock():.3f}"
+
+
+_MAX_OBSERVED_CHARS = 600
+
+
+def _trim(value):
+    """Keep an observed value readable in the manifest.
+
+    Some fields (api_result_full, a whole cypher result set) are megabytes; the
+    point of recording them is triage, not archival.
+    """
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    text = value if isinstance(value, str) else repr(value)
+    return text if len(text) <= _MAX_OBSERVED_CHARS else text[:_MAX_OBSERVED_CHARS] + " …[trimmed]"
 
 
 def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, variant_id=None,
@@ -51,16 +78,22 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
         case_tier = "route" if is_gate else tier
         session_id = None
         v_status, v_route, v_engine, v_cost, failed, reason = "passed", None, None, None, [], ""
+        observations: list[CriterionObservation] = []
+        poll_errors = 0
         t0 = clock()
         extra = default_route_criterion(v)
         try:
             for i, turn in enumerate(v.turns):
                 if pace_s and i > 0:
                     sleep(pace_s)
+                # force_new ONLY on a case's first turn: isolate the case, but
+                # keep its own follow-ups in the session its seed opened.
                 res = http_driver.drive(turn.query, tier=case_tier, post_query=post_query,
                                         get_progress=get_progress, session_id=session_id,
+                                        force_new=(session_id is None),
                                         sleep=sleep, clock=clock)
                 session_id = res.session_id
+                poll_errors += res.poll_errors
                 v_route, v_engine = res.route_obs.route, res.route_obs.engine
                 qc = next((e["data"] for e in reversed(res.payload.get("progress") or [])
                            if e.get("event") == "query_complete"), {})
@@ -69,17 +102,29 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                 if case_tier == "full" and bundle_reader is not None and session_id is not None:
                     bundle_summary = bundle_reader(session_id)
                 criteria = list(turn.pass_criteria) + ([extra] if extra else [])
-                passed, results = evaluate.evaluate_turn(res.payload, criteria, res.route_obs,
-                                                         last_reply=qc.get("reply"),
-                                                         bundle_summary=bundle_summary)
+                passed, results, observed = evaluate.evaluate_turn(
+                    res.payload, criteria, res.route_obs,
+                    last_reply=qc.get("reply"), bundle_summary=bundle_summary)
+                observations += [
+                    CriterionObservation(
+                        turn=turn.label, field=r["field"], op=r["op"], expected=r.get("value"),
+                        observed=_trim(observed.get(r["field"])),
+                        passed=r["passed"], reason=r.get("reason", ""))
+                    for r in results
+                ]
                 if not passed:
                     v_status = "failed"
                     failed += [f"{turn.label}:{r['field']}" for r in results if not r["passed"]]
         except Exception as exc:  # infra/endpoint failure ≠ assertion failure
             v_status, reason = "error", f"{type(exc).__name__}: {exc}"
+        if expected_fail and v_status == "passed":
+            # A known_fail that passes is a stale expectation, not a green run.
+            v_status = "xpass"
+            reason = "known_fail case passed every criterion; the expectation is stale"
         entries.append(NessieManifestEntry(
             id=v.id, family=v.family, tier=tier, status=v_status, route=v_route, engine=v_engine,
             cost=v_cost, elapsed_s=round(clock() - t0, 3), failed_criteria=failed,
+            observations=observations, poll_errors=poll_errors,
             reason=reason, expected_fail=expected_fail))
     if run_consistency:
         from nessie_tests import consistency
@@ -108,5 +153,14 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
 
 
 def gate_failed(manifest: NessieManifest) -> int:
-    """Count real failures (exclude expected_fail/known_fail)."""
-    return sum(1 for e in manifest.entries if e.status in ("failed", "error") and not e.expected_fail)
+    """Count real failures.
+
+    A known_fail case that fails is expected and excluded. An ``xpass`` is
+    always counted: it means the corpus is asserting something that is no
+    longer true, which is exactly the kind of drift that makes a green run
+    misleading.
+    """
+    return sum(
+        1 for e in manifest.entries
+        if e.status == "xpass" or (e.status in ("failed", "error") and not e.expected_fail)
+    )

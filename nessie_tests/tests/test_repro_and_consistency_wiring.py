@@ -4,11 +4,19 @@ from nessie_tests import corpus, runner
 OVERLAY = Path(__file__).resolve().parents[1] / "overlay.json"
 
 
-def test_repro_cases_are_known_fail():
+def test_repro_cases_are_known_fail_or_explicitly_fixed():
+    """A repro is either still RED (known_fail) or verified fixed.
+
+    Leaving `known_fail` on a case that now passes makes a green result render
+    as an expected failure — which is exactly how repro.cypher_uid_dot hid a
+    real pass in the 2026-07-24 run.
+    """
     ov = corpus.load_overlay(OVERLAY)
     repro = [v for v in ov if v.family == "nessie_repro"]
     assert len(repro) >= 3
-    assert all("known_fail" in v.tags for v in repro)
+    for v in repro:
+        assert ("known_fail" in v.tags) ^ ("fixed" in v.tags), \
+            f"{v.id} must be tagged exactly one of known_fail / fixed"
 
 
 def test_consistency_groups_present_with_count_not_250():

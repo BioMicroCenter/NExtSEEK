@@ -9,6 +9,11 @@ CC_ROUTED = {"status": "running", "progress": [
 NS_ROUTED = {"status": "running", "progress": [
     {"event": "route_decided", "data": {"route": "nextseek_query", "model_class": None, "source": "baml", "reasoning": ""}}]}
 
+# A COMPLETED nextseek turn. Full-tier cases poll until the status is terminal,
+# so a perpetually-"running" payload would spin forever against a frozen clock.
+NS_DONE = {"status": "completed", "progress": NS_ROUTED["progress"] + [
+    {"event": "query_complete", "data": {"reply": "ok", "debug": {"parser_plan": {"mode": "new_search"}}}}]}
+
 
 def _post():
     def post_query(body):
@@ -28,11 +33,18 @@ def test_run_suite_route_tier_specific(tmp_path):
     assert (tmp_path / "manifest.json").exists() and (tmp_path / "report.html").exists()
 
 
-def test_default_route_criterion_only_for_base():
+def test_no_route_expectation_is_injected_into_imported_variants():
+    """Imported variants must not inherit an uncurated route expectation.
+
+    The blanket `route == nextseek_query` injection is what made deliberate
+    container_cc routing (open-ended analysis, resource creation) read as a
+    product failure. Routing is asserted only where it was actually decided:
+    the route_gate variants in overlay.json.
+    """
     from e2e.catalog import Variant, Turn
     base = Variant(family="f", id="b", name="n", tags=["base"], turns=[Turn(label="m", query="q")])
     ov = Variant(family="nessie_route", id="o", name="n", tags=["overlay"], turns=[Turn(label="m", query="q")])
-    assert runner.default_route_criterion(base) == {"field": "route", "op": "eq", "value": "nextseek_query"}
+    assert runner.default_route_criterion(base) is None
     assert runner.default_route_criterion(ov) is None
 
 
@@ -83,6 +95,51 @@ def test_unsatisfied_requires_env_is_skipped(tmp_path, monkeypatch):
 
 
 # ── FIX 5 — a criteria MISS is a failure, not an error ────────────────────
+
+def test_first_turn_isolates_the_case_later_turns_share_it(tmp_path, monkeypatch):
+    """Per-CASE isolation: turn 1 asks for a fresh session, turn 2+ reuse it.
+
+    This is what keeps refine/recall honest — each case starts clean, but the
+    follow-up still sees its own seed's results rather than a neighbour's.
+    """
+    from e2e.catalog import Variant, Turn
+    v = Variant(family="refine_and_recall", id="multi.turn", name="n", tags=["overlay"],
+                turns=[Turn(label="seed", query="q1"), Turn(label="followup", query="q2")])
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [v])
+    bodies = []
+
+    def post_query(body):
+        bodies.append(dict(body))
+        return {"task_id": "t", "session_id": "sess-A"}
+
+    runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=post_query, get_progress=lambda tid: NS_DONE,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    assert len(bodies) == 2
+    assert bodies[0].get("force_new") is True and "session_id" not in bodies[0]
+    assert bodies[1].get("session_id") == "sess-A" and "force_new" not in bodies[1]
+
+
+def test_known_fail_that_passes_is_reported_as_xpass(tmp_path, monkeypatch):
+    from e2e.catalog import Variant, Turn
+    v = Variant(family="nessie_repro", id="repro.stale", name="n",
+                tags=["nessie", "known_fail", "overlay"],
+                turns=[Turn(label="main", query="q",
+                            pass_criteria=[{"field": "route", "op": "eq", "value": "nextseek_query"}])])
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [v])
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: NS_DONE,
+        sleep=lambda s: None, clock=lambda: 0.0)
+    entry = next(e for e in m.entries if e.id == "repro.stale")
+    assert entry.status == "xpass"
+    # an xpass is a real signal, not a green: the gate must count it
+    assert runner.gate_failed(m) == 1
+
 
 def test_criteria_miss_marks_failed_with_reasons(tmp_path):
     # route_gate case asserts route==container_cc but the turn routes nextseek_query.
