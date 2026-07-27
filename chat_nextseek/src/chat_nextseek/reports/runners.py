@@ -57,7 +57,7 @@ def _tabulate_sample_uuids(uuids: list[str]) -> dict:
     UID format: ``<SAMPLETYPE>-<YYMMDD><LAB>-<INCREMENT>``. Identical logic to the
     project sample report's inline tabulation, factored out so the investigation
     path produces a byte-identical table shape."""
-    uid_re = re.compile(r"^(?P<sampletype>[^-]+)-(?P<yymmdd>\d{6})(?P<lab>[A-Za-z]+)-(?P<inc>\d+)$")
+    uid_re = re.compile(r"^(?P<sampletype>[^-]+)-(?P<yymmdd>\d{6})(?P<lab>[A-Za-z]+)-(?P<inc>\d+)(-\w+)*$")
     st: dict[str, int] = {}
     lab_c: dict[str, int] = {}
     yr: dict[str, int] = {}
@@ -263,7 +263,7 @@ def run_project_sample_report(
         # --- Build summary tables from UID parsing ---
         # Format assumed: <SAMPLETYPE>-<YYMMDD><LAB>-<INCREMENT>
         uid_re = re.compile(
-            r"^(?P<sampletype>[^-]+)-(?P<yymmdd>\d{6})(?P<lab>[A-Za-z]+)-(?P<inc>\d+)$"
+            r"^(?P<sampletype>[^-]+)-(?P<yymmdd>\d{6})(?P<lab>[A-Za-z]+)-(?P<inc>\d+)(-\w+)*$"
         )
 
         sampletype_counts: dict[str, int] = {}
@@ -790,10 +790,41 @@ WHERE {prod_where};
     }
 
 
+def _lab_of(uid: str) -> str | None:
+    """Lab code embedded in a UID (``<TYPE>-<YYMMDD><LAB>-<INC>[-SUFFIX]``)."""
+    m = re.match(r"^[^-]+-\d{6}(?P<lab>[A-Za-z]+)-\d+", str(uid))
+    return m.group("lab").upper() if m else None
+
+
+def _scope_report_to_labs(result: dict, lab_codes: list[str]) -> dict:
+    """Narrow an all-projects sample report to the requested lab(s).
+
+    ``run_project_sample_report`` runs across EVERY project when ``project`` is
+    None, which is correct for "how big is the database" but wrong for "an annual
+    progress report for the Kamm project": Kamm is modelled as a LAB, so the
+    project never resolved and the RPPR silently covered all 50,886 samples while
+    describing itself as Kamm's. The lab code is embedded in every UID, so the
+    scope can be applied without a schema change.
+    """
+    wanted = {c.strip().upper() for c in lab_codes if isinstance(c, str) and c.strip()}
+    if not wanted or not isinstance(result, dict):
+        return result
+    uuids = [u for u in (result.get("uuids") or []) if _lab_of(u) in wanted]
+    scoped = dict(result)
+    scoped.update(_tabulate_sample_uuids(uuids))
+    scoped["uuids"] = uuids
+    scoped["uuids_saved"] = len(uuids)
+    scoped["rows_returned"] = len(uuids)
+    scoped["scope"] = {"kind": "lab", "lab_codes": sorted(wanted),
+                       "applied_because": "no project id resolved for the requested scope"}
+    return scoped
+
+
 def run_reporter_summary(
     config,
     reporter_plan,
     log_dir: "str | Path | None",
+    lab_codes: "list[str] | None" = None,
 ) -> "tuple[dict, dict[str, str], dict]":
     """
     Execute the summary reporter pipeline (samples / protocols / published / RPPR).
@@ -814,14 +845,20 @@ def run_reporter_summary(
     day_range = reporter_plan.day_range
     summary_mode = reporter_plan.summary_mode or "samples"
 
+    # A scoped request whose project did not resolve would otherwise silently run
+    # across every project. Fall back to the lab codes the entity agent resolved.
+    fallback_labs = list(lab_codes or []) if project is None else []
+    if fallback_labs:
+        print(f"[DEBUG][REPORTER] No project resolved; scoping by lab {fallback_labs}")
+
     print(f"[DEBUG][REPORTER] Summary mode: {summary_mode}, project: {project}, years: {years}")
 
     try:
         if summary_mode == "RPPR":
-            samples_result = run_project_sample_report(
+            samples_result = _scope_report_to_labs(run_project_sample_report(
                 config, project, years=years, month_range=month_range,
                 day_range=day_range, outputs_root=log_dir or "outputs",
-            )
+            ), fallback_labs)
             protocols_result = run_project_protocols_report(
                 config, project, years=years, month_range=month_range,
                 day_range=day_range, outputs_root=log_dir or "outputs",
@@ -850,10 +887,10 @@ def run_reporter_summary(
                 day_range=day_range, outputs_root=log_dir or "outputs",
             )
         else:  # "samples" (default)
-            reporter_result = run_project_sample_report(
+            reporter_result = _scope_report_to_labs(run_project_sample_report(
                 config, project, years=years, month_range=month_range,
                 day_range=day_range, outputs_root=log_dir or "outputs",
-            )
+            ), fallback_labs)
     except Exception as e:
         reporter_result = {"ok": False, "error": repr(e)}
 

@@ -21,10 +21,11 @@
         },
         {
           "name": "lineage_or_graph",
-          "description": "Graph traversal: lineage, study membership, assay-on-sample.",
+          "description": "Graph traversal: lineage, study membership, assay-on-sample. Handles a named study or project directly, matching both Study and Investigation nodes. Use this for a straightforward 'what/how many samples are in <study>' question.",
           "example_queries": [
             "How many samples are in the GBM study?",
-            "What assays were run on study X?"
+            "What assays were run on study X?",
+            "What mice are in the Impact study?"
           ]
         },
         {
@@ -86,6 +87,15 @@
             "Build me an update sheet to normalize the genotypes in the database.",
             "Prepare a batch-upload workbook that sets Scientist to Jane Doe on these UIDs.",
             "Make an upload spreadsheet to create new samples from this protocol text."
+          ]
+        },
+        {
+          "name": "ambiguous_study_resolution",
+          "description": "Find or reconcile samples for a named study/cohort when a single lookup will not settle it, because 'study' is not one thing in NExtSEEK. A study name can be (a) an Investigation node — the short project names like Impact, MetNet, SRP; (b) a Study node — usually the full title of the publication the work belongs to; or (c) only a metadata attribute on the samples themselves (e.g. Study on an NHP/MUS/PAT record), when no publication exists yet. Because these three live in different stores, one query can return zero while another returns hundreds for the SAME question. Route here when the user asks for samples from a named study AND the name is not an obvious project, or when they say a previous study answer looked wrong or empty. CC should try the graph on both node types AND a metadata search, then reconcile and report which interpretation produced what. A plain, unambiguous study membership question stays on nextseek_query (lineage_or_graph).",
+          "example_queries": [
+            "Find me NHP samples from study GBM.",
+            "Which samples belong to the CD8 depletion study? I don't think it's a project.",
+            "That study search came back empty — can you check whether it's a publication or a metadata field?"
           ]
         },
         {
