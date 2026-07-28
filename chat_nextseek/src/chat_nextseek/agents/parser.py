@@ -447,6 +447,76 @@ def _candidate_to_parser_plan(
     return _note_refine_without_bundle(session, projected)
 
 
+# A well-formed NExtSEEK UID: <TYPE>-<YYMMDD><LAB>-<INC>[-PUB<n>].
+# `NHP-22052-1` does not match — the date block must be exactly 6 digits.
+_WELL_FORMED_UID_RE = re.compile(r"\b[A-Z][A-Z.]{1,6}-\d{6}[A-Z]{3}-\d+(?:-PUB\d*)?\b")
+
+# Phrases that make the question about a *relationship* from the named UID rather
+# than about the record itself.
+_UID_RELATION_RE = re.compile(
+    r"\b(?:deriv(?:e|es|ed|ing)\s+from|came?\s+from|from\s+these|from\s+those"
+    r"|child(?:ren)?\s+of|parents?\s+of|lineage|ancestor|descendant"
+    r"|associated\s+with|linked\s+to|related\s+to|generated\s+from)\b",
+    re.IGNORECASE,
+)
+
+# "<some other entity> for/from/of <UID>" — the answer is a different record than
+# the one named, so REST cannot satisfy it.
+_UID_DERIVED_ENTITY_RE = re.compile(
+    r"\b(?:sequencing\s+data|data|assays?|samples?|files?|reads?|bams?|fastqs?"
+    r"|results?|libraries|libraries|children|parents)\s+(?:for|from|of)\b",
+    re.IGNORECASE,
+)
+
+# Asking for the named record itself. REST answers this correctly and cheaply.
+_UID_RECORD_LOOKUP_RE = re.compile(
+    r"\b(?:full\s+details|details|metadata|record|info(?:rmation)?)\s+(?:for|on|about|of)\b",
+    re.IGNORECASE,
+)
+
+UID_LINEAGE_ROUTE_NOTE = (
+    "forced to graph_query: the question asks for records related to a named UID, "
+    "which REST cannot answer (a child record does not contain its parent's UID as text)"
+)
+
+
+def _force_graph_for_uid_lineage(user_query: str, plan: ParserPlan) -> ParserPlan:
+    """
+    Route "what is derived from <UID>" style questions to the graph, deterministically.
+
+    `repro.cypher_uid_dot` went graph_query in the baseline (task 733, returning
+    exactly the correct six D.SEQ-220823SHA-1..6-PUB) and new_search post-fix
+    (task 797, wrong) with no code change on that path. The parser samples rather
+    than decides, and the prompt contradicted itself — parser_core_routing.txt said
+    do NOT use graph_query for "lineage from a known UID" in one place and DO for
+    "derivation chains, lineage, ancestor/descendant" in another.
+
+    REST genuinely cannot answer it: a child record does not contain its parent's UID
+    as text, which is why task 797's correctly-formed first attempt returned total: 0.
+
+    Runs AFTER the LLM call so the model's choice is respected everywhere else.
+    """
+    if plan.mode == "graph_query":
+        return plan
+    query = user_query or ""
+    uids = _WELL_FORMED_UID_RE.findall(query)
+    if not uids:
+        return plan
+    if _UID_RECORD_LOOKUP_RE.search(query):
+        return plan  # "full details for <UID>" is a plain record lookup
+    if not (_UID_RELATION_RE.search(query) or _UID_DERIVED_ENTITY_RE.search(query)):
+        return plan
+
+    merged = list(dict.fromkeys(list(plan.filters.uids or []) + uids))
+    print(f"[DEBUG][PARSER] {UID_LINEAGE_ROUTE_NOTE} (uids={merged})")
+    return plan.model_copy(update={
+        "mode": "graph_query",
+        "target_endpoint": None,
+        "filters": plan.filters.model_copy(update={"uids": merged}),
+        "notes": ((plan.notes + " | ") if plan.notes else "") + UID_LINEAGE_ROUTE_NOTE,
+    })
+
+
 REFINE_WITHOUT_BUNDLE_NOTE = (
     "previous turn ran outside the NExtSEEK search path (no result bundle to refine); "
     "re-ran as a fresh search"
@@ -499,6 +569,7 @@ def _apply_parser_guardrails(
 ) -> ParserPlan:
     """Apply narrow deterministic safety checks after LLM routing."""
     plan = _note_refine_without_bundle(session, plan)
+    plan = _force_graph_for_uid_lineage(user_query, plan)
     if _is_unscoped_bulk_export_request(user_query, plan.mode, plan.filters):
         return ParserPlan(
             mode="unsupported",
@@ -578,6 +649,17 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
     ])
 
     parser_client, parser_model_name, parser_thinking_budget = config.get_agent_model("parser")
+    # Log the *effective* temperature, not the requested one. Opus 4.7 and Mythos are
+    # adaptive-thinking-only (llm_clients.py), so temperature is never sent and routing
+    # samples between runs. Without this line a routing flip that was really a sample
+    # gets attributed to a code change — which is exactly what happened between the
+    # 2026-07-24 and 2026-07-27 runs for repro.cypher_uid_dot.
+    _adaptive_only = any(tag in parser_model_name for tag in ("opus-4-7", "mythos"))
+    print(
+        f"[DEBUG][PARSER] model={parser_model_name} "
+        f"temperature={'UNSET (adaptive-thinking-only; routing may vary run to run)' if _adaptive_only else 0} "
+        f"thinking_budget={parser_thinking_budget}"
+    )
     if parser_thinking_budget:
         print(f"[DEBUG][PARSER] Extended thinking enabled: budget={parser_thinking_budget} tokens, model={parser_model_name}")
 
