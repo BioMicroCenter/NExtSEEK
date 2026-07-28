@@ -75,7 +75,15 @@ if [[ "$lane" == "unit" ]]; then
   mapfile -t test_args < <(python3 - "$task_id" <<'PY'
 import json, sys
 manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
-for node in manifest["runner_contract"]["unit_lane_contract"][sys.argv[1]]["node_arguments"]:
+unit = manifest["runner_contract"]["unit_lane_contract"]
+if sys.argv[1] in unit:
+    nodes = unit[sys.argv[1]]["node_arguments"]
+else:
+    db = manifest["runner_contract"]["db_lane_contract"]
+    if sys.argv[1] not in db:
+        raise SystemExit(f"missing exact unit lane selection for {sys.argv[1]}")
+    nodes = db[sys.argv[1]]["node_arguments"]
+for node in nodes:
     print(node)
 PY
   )
