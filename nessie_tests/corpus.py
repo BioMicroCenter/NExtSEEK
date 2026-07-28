@@ -5,7 +5,7 @@ from pathlib import Path
 from nessie_tests.pathsetup import ensure_e2e_importable
 
 ensure_e2e_importable()
-from e2e.catalog import load_catalog, Catalog, Variant  # noqa: E402
+from e2e.catalog import load_catalog, Catalog, PassCriterion, Variant  # noqa: E402
 
 _BASE_CATALOG = Path(__file__).resolve().parents[1] / "chat_nextseek" / "e2e" / "catalog.json"
 
@@ -33,6 +33,54 @@ def load_consistency_groups(path) -> list[dict]:
     return payload.get("consistency_groups", [])
 
 
+def load_family_floor(path) -> dict:
+    """The per-family minimum OUTCOME assertion block from the overlay."""
+    if not path:
+        return {}
+    return json.loads(Path(path).read_text(encoding="utf-8")).get("family_floor", {})
+
+
+def apply_family_floor(variants: list[Variant], floor_spec: dict) -> list[Variant]:
+    """Add each family's minimum outcome assertion to the LAST turn of its variants.
+
+    Of 381 merged variants, 108 assert plan shape only and 194 assert only plumbing
+    (``api_ok`` / ``neo4j_ok`` say a request COMPLETED, not that it returned
+    anything). 79% of the corpus therefore cannot detect a wrong answer, and
+    hand-editing 300 variants is not viable — so the floor is applied structurally.
+
+    Two rules keep it from doing harm:
+
+    - a floor criterion is added only when the last turn does not already assert that
+      FIELD, so a deliberate bound (``row_count lte 20000``) is never overwritten and
+      never contradicted by an added one
+    - a variant tagged ``no_floor`` opts out entirely. That is required wherever ZERO
+      is the correct answer — ``advanced.find_me_nhp_samples_from_study`` (GBM does
+      not exist), ``graph.what_pbmcs_tissues_in_the_gbm`` (the operator confirmed the
+      zero is honest) and ``tree.missing_uid`` (which asserts a 404).
+
+    Only families listed in the spec get a floor; unsupported, writes_unsupported,
+    nessie_route, system_question and refine_and_recall are absent by design. Refine
+    and recall turns have no ``api_result_meta.row_count`` at all — that field exists
+    only on new_search turns — so a row-count floor there would fail every one of them.
+    """
+    floors = (floor_spec or {}).get("floors") or {}
+    skip_tag = (floor_spec or {}).get("exclude_tag", "no_floor")
+    if not floors:
+        return variants
+
+    for v in variants:
+        floor = floors.get(v.family)
+        if not floor or skip_tag in v.tags or not v.turns:
+            continue
+        last = v.turns[-1]
+        already = {c.field for c in last.pass_criteria}
+        for crit in floor:
+            if crit["field"] in already:
+                continue
+            last.pass_criteria.append(PassCriterion(**crit))
+    return variants
+
+
 def merged(overlay_path: Path | None = None) -> list[Variant]:
     """Base catalog plus overlay, where an overlay variant may OVERRIDE a base one.
 
@@ -48,7 +96,7 @@ def merged(overlay_path: Path | None = None) -> list[Variant]:
     base = load_base()
     out = [by_id.pop(v.id, v) for v in base]
     out += [v for v in ov if v.id in by_id]
-    return out
+    return apply_family_floor(out, load_family_floor(overlay_path))
 
 
 def overridden_ids(overlay_path: Path | None = None) -> list[str]:

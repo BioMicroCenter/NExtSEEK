@@ -330,6 +330,19 @@
                                       {"field": "last_reply", "op": "matches_re", "value": "(?s)^(?!.*(\\b[45]\\d[,.]\\d{3}\\b|\\b[45]\\d{4}\\b)).*$"}]}]}
       ]
     },
+    "search_tree": {
+      "description": "OVERRIDE. The sample-tree edge case whose correct answer is a 404.",
+      "variants": [
+        {"family": "search_tree", "id": "tree.missing_uid",
+         "name": "Missing UID must 404, not return rows",
+         "_why": "The only correct outcome here is an empty/404 response, so the family floor must not impose api_ok + rows. Tagged no_floor and given its own outcome assertion instead: a 404 status code is the ANSWER, and asserting it is what distinguishes a working lookup of a nonexistent UID from a broken endpoint.",
+         "tags": ["edge-case", "nessie", "full", "no_floor"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Show me children of XXX-999999ZZZ-1-PUB.",
+                    "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "new_search"},
+                                      {"field": "api_plan.endpoint", "op": "contains", "value": "sample-tree"},
+                                      {"field": "api_result_meta.status_code", "op": "eq", "value": 404}]}]}
+      ]
+    },
     "unsupported": {
       "description": "OVERRIDE. Blessed 2026-07-27: open-ended analysis is CC's job, not an NS 'unsupported'.",
       "variants": [
@@ -374,6 +387,39 @@
                                       {"field": "last_reply", "op": "matches_re", "value": "(assay|Assay)"},
                                       {"field": "api_result_meta.row_count", "op": "gte", "value": 300},
                                       {"field": "last_reply", "op": "mentions", "value": "324"}]}]}
+      ]
+    }
+  }
+  ,"family_floor": {
+    "_note": "Minimum OUTCOME assertion per family, applied by corpus.merged() to the LAST TURN of every variant in a listed family. Of 381 merged variants, 108 assert plan shape only and 194 assert only plumbing (api_ok / neo4j_ok, which say a request COMPLETED, not that it returned anything) — 79% cannot detect a wrong answer. Hand-editing 300 variants is not viable, so the floor is applied structurally.",
+    "_rules": "A floor criterion is added only when the last turn does not already assert that FIELD, so a deliberate bound (e.g. row_count lte 20000) is never overwritten and never contradicted. Families not listed here get no floor. Tag a variant `no_floor` to opt out entirely — required wherever ZERO is the correct answer.",
+    "exclude_tag": "no_floor",
+    "floors": {
+      "search_advanced": [
+        {"field": "api_ok", "op": "true", "value": null},
+        {"field": "api_result_meta.row_count", "op": "gte", "value": 1}
+      ],
+      "search_retrieve": [
+        {"field": "api_ok", "op": "true", "value": null},
+        {"field": "api_result_meta.row_count", "op": "gte", "value": 1}
+      ],
+      "search_parents_by_child": [
+        {"field": "api_ok", "op": "true", "value": null},
+        {"field": "api_result_meta.row_count", "op": "gte", "value": 1}
+      ],
+      "search_tree": [
+        {"field": "api_ok", "op": "true", "value": null}
+      ],
+      "graph_query": [
+        {"field": "neo4j_ok", "op": "true", "value": null},
+        {"field": "graph_result.count", "op": "gte", "value": 1},
+        {"field": "graph_not_truncated", "op": "true", "value": null}
+      ],
+      "routing_graph": [
+        {"field": "neo4j_ok", "op": "true", "value": null}
+      ],
+      "reporting": [
+        {"field": "reporter_result.ok", "op": "true", "value": null}
       ]
     }
   }
