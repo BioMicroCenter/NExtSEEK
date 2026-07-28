@@ -1,0 +1,89 @@
+"""Writes, exports and open-ended analysis are Container-CC's job, so the corpus
+must assert the ROUTE rather than an NS-internal parser mode.
+
+23 variants across `unsupported` and `writes_unsupported` assert
+`parser_plan.mode == "unsupported"`. When the router sends the turn to
+container_cc or unrelated, NS never runs, so there IS no parser plan and the
+criterion resolves to None and fails unconditionally. Three of the fifteen
+seed-0 failures were exactly this (unsup.weather, write.export_all_metadata,
+write.download_all_samples).
+
+The policy was settled by the operator on 2026-07-28: bulk export is CC's job.
+That matches what the overlay already blesses in its route_gate family —
+route.cc_write_investigation ("writes are deliberately CC's, not an NS
+'unsupported'") and route.cc_open_ended_analysis. It also matches the three
+variants a previous wave already converted by hand, which carry exactly the
+shape this rule produces: a `route` criterion and a `last_reply`, no
+`parser_plan.mode`.
+
+Applied structurally rather than as 23 overlay overrides for the same reason the
+family floor is: the correction belongs in one reviewable place.
+"""
+import pathlib
+
+from nessie_tests import corpus
+
+OVERLAY = pathlib.Path(__file__).resolve().parents[1] / "overlay.json"
+
+
+def _crits(variant):
+    return {(c.field, c.op, c.value) for t in variant.turns for c in t.pass_criteria}
+
+
+def _by_id():
+    return {v.id: v for v in corpus.merged(OVERLAY)}
+
+
+def test_no_cc_routed_family_asserts_an_ns_internal_parser_mode():
+    """`parser_plan.mode` is unobservable on a turn that never reaches NS."""
+    offenders = [v.id for v in corpus.merged(OVERLAY)
+                 if v.family in ("unsupported", "writes_unsupported")
+                 for t in v.turns for c in t.pass_criteria
+                 if c.field == "parser_plan.mode"]
+    assert offenders == [], f"{len(offenders)} variants still assert an NS mode: {offenders[:6]}"
+
+
+def test_bulk_export_is_asserted_as_container_cc():
+    """The operator's call: a bulk export is CC's job, not an NS refusal."""
+    for vid in ("write.export_all_metadata_for_nhp_22",
+                "write.export_all_metadata_for_nhp_22_2",
+                "write.download_all_samples_from_the"):
+        assert ("route", "eq", "container_cc") in _crits(_by_id()[vid]), vid
+
+
+def test_resource_writes_are_asserted_as_container_cc():
+    """Already blessed by route.cc_write_investigation in the route_gate family."""
+    for vid in ("write.create_investigation_testing_4",
+                "write.register_a_new_mouse_sample_wi",
+                "write.update_the_scientist_field_on"):
+        assert ("route", "eq", "container_cc") in _crits(_by_id()[vid]), vid
+
+
+def test_open_ended_analysis_is_asserted_as_container_cc():
+    """Already blessed by route.cc_open_ended_analysis."""
+    for vid in ("unsup.make_me_a_bar_chart_of_sample",
+                "unsup.compare_gene_expression_betwee"):
+        assert ("route", "eq", "container_cc") in _crits(_by_id()[vid]), vid
+
+
+def test_off_topic_stays_unrelated_not_cc():
+    """Weather is not lab work. Run 3 routed it `unrelated` and that is correct;
+    sending it to CC would burn a container on a question CC cannot answer either."""
+    assert ("route", "eq", "unrelated") in _crits(_by_id()["unsup.weather"])
+
+
+def test_domain_knowledge_may_be_either_but_must_not_be_a_data_query():
+    """"Explain what NDMA is" names something real in the database but asks for
+    textbook chemistry. unrelated and container_cc are both defensible; treating it
+    as a nextseek_query data search is not. Asserted as an alternation rather than
+    pinning a policy that has not been decided."""
+    crits = _crits(_by_id()["unsup.domain_chemistry"])
+    assert ("route", "matches_re", "(unrelated|container_cc)") in crits
+
+
+def test_the_hand_converted_variants_are_left_untouched():
+    """Three variants a previous wave already converted must not be double-written."""
+    for vid in ("unsup.is_treatment_a_significantly_b",
+                "write.create_me_investigation_testin"):
+        routes = [c for c in _crits(_by_id()[vid]) if c[0] == "route"]
+        assert len(routes) == 1, f"{vid} has {routes}"

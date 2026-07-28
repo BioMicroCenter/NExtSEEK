@@ -441,6 +441,19 @@
     "reporter_project_case_insensitive": true,
     "reporter_project_labs": {"Kamm": "KAM", "Kam": "KAM"}
   }
+  ,"route_policy": {
+    "_note": "Writes, exports and open-ended analysis are Container-CC's job, so these families must assert the ROUTE, not an NS-internal parser mode. `parser_plan.mode == unsupported` resolves to None on any turn that never reaches NS, so it fails unconditionally no matter what the product did — 3 of the 15 seed-0 failures were exactly that, across 23 variants.",
+    "_policy": "Settled by the operator 2026-07-28: bulk export is CC's job. Consistent with what the route_gate family already blesses (route.cc_write_investigation: 'writes are deliberately CC's, not an NS unsupported'; route.cc_open_ended_analysis) and with three variants a previous wave hand-converted to this exact shape.",
+    "drop_field": "parser_plan.mode",
+    "families": {
+      "unsupported": {"op": "eq", "value": "container_cc"},
+      "writes_unsupported": {"op": "eq", "value": "container_cc"}
+    },
+    "overrides": {
+      "unsup.weather": {"op": "eq", "value": "unrelated"},
+      "unsup.domain_chemistry": {"op": "matches_re", "value": "(unrelated|container_cc)"}
+    }
+  }
   ,"family_floor": {
     "_note": "Minimum OUTCOME assertion per family, applied by corpus.merged() to the LAST TURN of every variant in a listed family. Of 381 merged variants, 108 assert plan shape only and 194 assert only plumbing (api_ok / neo4j_ok, which say a request COMPLETED, not that it returned anything) — 79% cannot detect a wrong answer. Hand-editing 300 variants is not viable, so the floor is applied structurally.",
     "_rules": "A floor criterion is added only when the last turn does not already assert that FIELD, so a deliberate bound (e.g. row_count lte 20000) is never overwritten and never contradicted. Families not listed here get no floor. Tag a variant `no_floor` to opt out entirely.",

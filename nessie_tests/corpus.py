@@ -125,6 +125,54 @@ def apply_criterion_rewrites(variants: list[Variant], spec: dict) -> list[Varian
     return variants
 
 
+def load_route_policy(path) -> dict:
+    """Which families are routed away from NS, and to where."""
+    if not path:
+        return {}
+    return json.loads(Path(path).read_text(encoding="utf-8")).get("route_policy", {})
+
+
+def apply_route_policy(variants: list[Variant], spec: dict) -> list[Variant]:
+    """Assert the ROUTE, not an NS-internal parser mode, wherever NS is not reached.
+
+    23 variants across ``unsupported`` and ``writes_unsupported`` assert
+    ``parser_plan.mode == "unsupported"``. When the router sends a turn to
+    container_cc or unrelated, NS never runs and there is no parser plan, so the
+    criterion resolves to None and fails unconditionally regardless of whether the
+    product did the right thing. Three of the fifteen seed-0 failures were this.
+
+    The policy those 23 encode is stale rather than wrong-in-detail: writes,
+    exports and open-ended analysis are Container-CC's job. The overlay already
+    blesses that in its route_gate family (route.cc_write_investigation,
+    route.cc_open_ended_analysis) and a previous wave hand-converted three variants
+    to exactly the shape this produces. This finishes the job in one place instead
+    of 23 overlay overrides.
+
+    Per-variant ``overrides`` exist because the family is not uniform: weather is
+    ``unrelated``, and a textbook-chemistry question is defensibly either, so it is
+    asserted as an alternation rather than pinning an undecided policy.
+    """
+    families = (spec or {}).get("families") or {}
+    overrides = (spec or {}).get("overrides") or {}
+    drop = (spec or {}).get("drop_field")
+    if not families and not overrides:
+        return variants
+
+    for v in variants:
+        rule = overrides.get(v.id) or families.get(v.family)
+        if not rule or not v.turns:
+            continue
+        for t in v.turns:
+            if drop:
+                t.pass_criteria = [c for c in t.pass_criteria if c.field != drop]
+        first = v.turns[0]
+        if any(c.field == "route" for c in first.pass_criteria):
+            continue  # already converted by hand; do not double-write
+        first.pass_criteria.append(
+            PassCriterion(field="route", op=rule["op"], value=rule["value"]))
+    return variants
+
+
 def merged(overlay_path: Path | None = None) -> list[Variant]:
     """Base catalog plus overlay, where an overlay variant may OVERRIDE a base one.
 
@@ -141,6 +189,7 @@ def merged(overlay_path: Path | None = None) -> list[Variant]:
     out = [by_id.pop(v.id, v) for v in base]
     out += [v for v in ov if v.id in by_id]
     out = apply_criterion_rewrites(out, load_criterion_rewrites(overlay_path))
+    out = apply_route_policy(out, load_route_policy(overlay_path))
     return apply_family_floor(out, load_family_floor(overlay_path))
 
 
