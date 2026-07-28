@@ -19,9 +19,18 @@ def test_repro_cases_are_known_fail_or_explicitly_fixed():
             f"{v.id} must be tagged exactly one of known_fail / fixed"
 
 
-def test_consistency_groups_present_with_count_not_250():
+def test_consistency_groups_assert_against_every_graph_limit():
+    """Was `count_not: 250`, which went dead the moment the graph limit moved to 5000.
+
+    A hardcoded sentinel is a guard that silently expires. `count_not_limit` checks
+    the count against every limit the corpus has run under.
+    """
     groups = corpus.load_consistency_groups(OVERLAY)
-    assert any(g["assert"].get("count_not") == 250 for g in groups)
+
+    assert any(g["assert"].get("count_not_limit") for g in groups)
+    assert not any("count_not" in g["assert"] for g in groups), (
+        "a hardcoded count_not sentinel is back; use count_not_limit"
+    )
 
 
 def test_runner_reports_consistency_group(tmp_path):

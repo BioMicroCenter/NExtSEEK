@@ -129,24 +129,51 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
         from nessie_tests import consistency
         for g in corpus.load_consistency_groups(overlay_path):
             def _drive(q):
+                # force_new: without it the API falls back to the caller's most
+                # recently updated session, so the group inherited whatever ran
+                # before it. Confirmed in the 2026-07-27 run: tasks 837 (a CC write),
+                # 838 and 839 all shared sid=1310fa6cbdc74d50903e709e619db733, which
+                # means the "same question twice" comparison was contaminated by a
+                # third, unrelated turn's results_history.
                 r = http_driver.drive(q, tier="full" if tier == "full" else "route",
                                       post_query=post_query, get_progress=get_progress,
+                                      force_new=True,
                                       sleep=sleep, clock=clock)
                 return {"route": r.route_obs.route, "count": consistency.get_result_count(r.payload)}
+            g_t0 = clock()
+            g_expected_fail = "known_fail" in g.get("tags", [])
             try:
                 gr = consistency.run_group(g, _drive)
-                g_expected_fail = "known_fail" in g.get("tags", [])
                 g_status, g_reason = _apply_xpass(
                     "passed" if gr.passed else "failed", g_expected_fail)
                 entries.append(NessieManifestEntry(
                     id=g["id"], family="nessie_consistency", tier=tier,
                     status=g_status, reason=g_reason,
+                    elapsed_s=round(clock() - g_t0, 3),
+                    # The group's per-query evidence used to be discarded, so a
+                    # consistency result was a bare pass/fail with nothing to review.
+                    # CriterionObservation.op is a plain str, so "observed" is legal
+                    # and no schema change is needed.
+                    observations=[
+                        CriterionObservation(
+                            turn=o.get("query", ""), field="count", op="observed",
+                            expected=None, observed=_trim(o.get("count")),
+                            passed=gr.passed, reason="")
+                        for o in gr.observations
+                    ] + [
+                        CriterionObservation(
+                            turn=o.get("query", ""), field="route", op="observed",
+                            expected=None, observed=_trim(o.get("route")),
+                            passed=gr.passed, reason="")
+                        for o in gr.observations
+                    ],
                     failed_criteria=gr.reasons, expected_fail=g_expected_fail))
             except Exception as exc:  # infra/endpoint failure ≠ assertion failure
                 entries.append(NessieManifestEntry(
                     id=g["id"], family="nessie_consistency", tier=tier,
                     status="error", reason=f"{type(exc).__name__}: {exc}",
-                    expected_fail="known_fail" in g.get("tags", [])))
+                    elapsed_s=round(clock() - g_t0, 3),
+                    expected_fail=g_expected_fail))
     manifest = NessieManifest(started_at=started, ended_at=_iso(clock), tier=tier, scope=scope, entries=entries)
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     write_manifest(manifest, Path(out_dir) / "manifest.json")

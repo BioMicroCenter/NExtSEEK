@@ -318,6 +318,6 @@
     {"id": "cons.nhp_sequencing_engine", "name": "#33 NHP sequencing routes+counts must agree",
      "tags": ["nessie", "known_fail", "full"],
      "queries": ["Find NHP sequencing data.", "Find sequencing data for non-human primates."],
-     "assert": {"same_route": true, "same_count": true, "count_not": 250}}
+     "assert": {"same_route": true, "same_count": true, "count_not_limit": true}}
   ]
 }

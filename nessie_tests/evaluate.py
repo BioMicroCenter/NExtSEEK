@@ -25,7 +25,9 @@ ARTIFACT_INDEX_KEY = "nessie_artifact_index"
 # criterion — `graph.what_mice_are_in_the_impact_st` passed every assertion in
 # the 2026-07-24 run while returning exactly 250 rows. Both the historical cap
 # and the current one are listed so an old deployment is still caught.
-GRAPH_LIMIT_SENTINELS = (250, 5000)
+# Re-exported for back-compat; the definition moved to nessie_tests.limits so
+# consistency.py can use it without importing e2e.criteria and openpyxl.
+from nessie_tests.limits import GRAPH_LIMIT_SENTINELS  # noqa: E402,F401
 
 
 def _last(payload, name):
