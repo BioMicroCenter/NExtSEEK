@@ -62,6 +62,185 @@ def unknown_cypher_properties(cypher: str, known_props: set[str]) -> list[str]:
     return out
 
 
+# --------------------------------------------------------------------------- #
+# OPTIONAL MATCH ... WHERE guard
+#
+# A WHERE that immediately follows an OPTIONAL MATCH becomes part of the optional
+# pattern rather than a row filter, so non-matching rows survive with nulls instead
+# of being removed. Measured live on task 783's exact Cypher: 50,161 rows without an
+# intervening WITH, 705 with it — 50,161 being every sample in any study, i.e. a
+# result independent of both bound parameters.
+#
+# The prompt already carries the WITH; the model drops it roughly 40% of the time,
+# which is why this is a deterministic guard rather than another prompt line.
+# --------------------------------------------------------------------------- #
+
+# Ordered longest-first so `OPTIONAL MATCH` wins over `MATCH`.
+_CLAUSE_RE = re.compile(
+    r"\b(OPTIONAL\s+MATCH|DETACH\s+DELETE|ORDER\s+BY|MATCH|WHERE|WITH|RETURN|UNWIND"
+    r"|CALL|MERGE|CREATE|SET|DELETE|REMOVE|FOREACH|SKIP|LIMIT|UNION)\b",
+    re.IGNORECASE,
+)
+
+# `(s:Sample)`, `(st)`, `[r:DERIVED_FROM]`, `(s {id: 1})` — but not `toLower(st.title)`
+# (the `.` is not an accepted terminator) and not `[:IN_STUDY]` (no identifier).
+_PATTERN_VAR_RE = re.compile(r"[(\[]\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?=[:)\]{])")
+
+_AS_ALIAS_RE = re.compile(r"\bAS\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
+_IDENT_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
+_BINDING_CLAUSES = {"MATCH", "OPTIONAL MATCH", "MERGE", "CREATE"}
+
+
+def _mask_cypher(cypher: str) -> str:
+    """
+    Blank out string literals, backtick identifiers, `$params` and comments,
+    replacing each character with a space so every offset still lines up with the
+    original text. Clause scanning runs on the mask; slicing runs on the original.
+    """
+    out = list(cypher)
+    i, n = 0, len(cypher)
+    while i < n:
+        ch = cypher[i]
+        if ch in ("'", '"', "`"):
+            j = i + 1
+            while j < n:
+                if cypher[j] == "\\":
+                    j += 2
+                    continue
+                if cypher[j] == ch:
+                    break
+                j += 1
+            end = min(j + 1, n)
+        elif ch == "$":
+            j = i + 1
+            while j < n and (cypher[j].isalnum() or cypher[j] == "_"):
+                j += 1
+            end = j
+        elif cypher.startswith("//", i):
+            j = cypher.find("\n", i)
+            end = n if j == -1 else j
+        elif cypher.startswith("/*", i):
+            j = cypher.find("*/", i + 2)
+            end = n if j == -1 else j + 2
+        else:
+            i += 1
+            continue
+        for k in range(i, end):
+            out[k] = " "
+        i = max(end, i + 1)
+    return "".join(out)
+
+
+def _split_clauses(masked: str) -> list[tuple[str, int, int, int]]:
+    """Return (KEYWORD, keyword_start, body_start, body_end) for each clause, in order."""
+    matches = list(_CLAUSE_RE.finditer(masked))
+    clauses = []
+    for idx, m in enumerate(matches):
+        body_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(masked)
+        keyword = " ".join(m.group(1).upper().split())
+        clauses.append((keyword, m.start(), m.end(), body_end))
+    return clauses
+
+
+def _bound_vars(keyword: str, body: str) -> list[str]:
+    """Variables a clause introduces, in declaration order."""
+    found: list[str] = []
+
+    def add(name):
+        if name not in found:
+            found.append(name)
+
+    if keyword in _BINDING_CLAUSES:
+        for name in _PATTERN_VAR_RE.findall(body):
+            add(name)
+    elif keyword in ("WITH", "UNWIND", "RETURN"):
+        for item in body.split(","):
+            alias = _AS_ALIAS_RE.search(item)
+            if alias:
+                add(alias.group(1))
+                continue
+            bare = item.strip()
+            if keyword == "WITH" and _IDENT_RE.fullmatch(bare):
+                add(bare)
+    return found
+
+
+def optional_match_filter_leaks(cypher: str | None) -> list[dict]:
+    """
+    Find every `OPTIONAL MATCH` whose next clause is a `WHERE` that references a
+    variable bound *before* the optional pattern.
+
+    That reference is the discriminator. A WHERE legitimately belonging to an optional
+    pattern can only constrain what that pattern introduced; the moment it touches a
+    previously-bound variable the author meant a row filter, and Cypher will silently
+    discard it.
+
+    Returns one dict per leak with the WHERE's offset in the original string and the
+    variables the repairing `WITH` must carry.
+    """
+    if not cypher or not cypher.strip():
+        return []
+
+    masked = _mask_cypher(cypher)
+    clauses = _split_clauses(masked)
+    leaks: list[dict] = []
+    prior: list[str] = []
+
+    for idx, (keyword, kw_start, body_start, body_end) in enumerate(clauses):
+        if keyword == "OPTIONAL MATCH" and idx + 1 < len(clauses):
+            next_keyword, next_kw_start, next_body_start, next_body_end = clauses[idx + 1]
+            if next_keyword == "WHERE":
+                new_vars = [v for v in _bound_vars(keyword, masked[body_start:body_end]) if v not in prior]
+                where_idents = set(_IDENT_RE.findall(masked[next_body_start:next_body_end]))
+                if where_idents & set(prior):
+                    leaks.append({
+                        "where_offset": next_kw_start,
+                        "with_vars": prior + new_vars,
+                        "where_preview": " ".join(cypher[next_kw_start:next_body_end].split())[:80],
+                    })
+        for var in _bound_vars(keyword, masked[body_start:body_end]):
+            if var not in prior:
+                prior.append(var)
+
+    return leaks
+
+
+def repair_optional_match_filters(cypher: str | None) -> tuple[str | None, list[str]]:
+    """
+    Insert the missing `WITH` before any WHERE that Cypher would otherwise fold into
+    the preceding optional pattern. Returns (cypher, notes); notes is empty when
+    nothing was changed.
+
+    Fails soft by design: any error returns the input untouched. A guard that can
+    break a working query is worse than the bug it fixes. A repaired query that is
+    somehow a syntax error is still caught by the existing Neo4j retry.
+    """
+    try:
+        leaks = optional_match_filter_leaks(cypher)
+        if not leaks:
+            return cypher, []
+
+        repaired = cypher
+        notes: list[str] = []
+        # Right-to-left so earlier offsets stay valid.
+        for leak in sorted(leaks, key=lambda x: x["where_offset"], reverse=True):
+            offset = leak["where_offset"]
+            line_start = repaired.rfind("\n", 0, offset) + 1
+            indent = repaired[line_start:offset]
+            if indent.strip():
+                indent = ""
+            clause = "WITH " + ", ".join(leak["with_vars"])
+            repaired = repaired[:offset] + f"{clause}\n{indent}" + repaired[offset:]
+            notes.append(f"inserted `{clause}` before `{leak['where_preview']}`")
+
+        for note in reversed(notes):
+            print(f"[DEBUG][GRAPH][WITH_GUARD] {note}")
+        return repaired, list(reversed(notes))
+    except Exception as e:  # never break a working query
+        print(f"[DEBUG][GRAPH][WITH_GUARD] guard failed, leaving cypher untouched: {e!r}")
+        return cypher, []
+
+
 def graph_agent(
     config: ChatConfig,
     user_query: str,
@@ -181,6 +360,19 @@ def graph_agent(
                                 f"{still} do not exist on any node in the schema.",
                     parameters={},
                 )
+
+        # Filter guard: an OPTIONAL MATCH immediately followed by WHERE folds the
+        # predicate into the optional pattern, so the filter is silently discarded and
+        # the query answers a different question than the one asked. Runs last so it
+        # also covers cypher produced by the property repair above.
+        guarded, guard_notes = repair_optional_match_filters(result.cypher)
+        if guard_notes:
+            result.cypher = guarded
+            result.explanation = (
+                f"{result.explanation} "
+                f"[filter guard: {'; '.join(guard_notes)}]"
+            ).strip()
+            print(f"[DEBUG][GRAPH] Guarded cypher: {result.cypher!r}")
         return result
     except Exception as e:
         print(f"[DEBUG][GRAPH] graph_agent failed: {e!r}")

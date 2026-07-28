@@ -64,11 +64,27 @@ Rules:
 
   ```
   MATCH (s:Sample)-[:IN_STUDY]->(st:Study)
-  OPTIONAL MATCH (st)-[:IN_INVESTIGATION]->(inv:Investigation)
-  WITH s, st, inv
   WHERE toLower(st.title) CONTAINS toLower($project)
-     OR toLower(inv.title) CONTAINS toLower($project)
+     OR EXISTS { MATCH (st)-[:IN_INVESTIGATION]->(inv:Investigation)
+                 WHERE toLower(inv.title) CONTAINS toLower($project) }
   ```
+
+  **Use `EXISTS { }` here, not `OPTIONAL MATCH` + `WHERE`.** This is not a style
+  preference. A `WHERE` written directly after an `OPTIONAL MATCH` becomes part of the
+  optional pattern instead of filtering rows, so every non-matching row survives with
+  nulls and the filter is silently discarded — the query then answers a different
+  question and looks perfectly healthy doing it. Measured on this database: the
+  `OPTIONAL MATCH` + bare `WHERE` form returns **50,161** samples for *any* `$project`
+  value, because 50,161 is simply every sample in any study. The correct answer for
+  `Impact` is 705. `EXISTS { }` has no such failure mode: it is either right or a
+  syntax error.
+
+  If you do write `OPTIONAL MATCH` and then need to filter on anything bound *before*
+  it, you must put a `WITH <all bound variables>` between the two.
+
+  Do **not** replace this with a plain `MATCH` to the Investigation. Today every Study
+  has exactly one Investigation and there are no orphans, so it would appear to work
+  while silently under-counting the day an orphan appears.
 
   Apply this whenever the user names a study, investigation, project or cohort, whatever
   noun they used. If the disjunction returns nothing, say so explicitly and note that the
@@ -167,10 +183,17 @@ When the user asks **how many** of something, or wants a **count or breakdown**:
   (e.g. a `WITH collect(...) AS rows, count(*) AS total`, or a second aggregate), and say
   in your explanation that the rows are a capped sample of `total`. If the user asked
   "how many", return the count and no rows at all — counts are never limited.
-- Use OPTIONAL MATCH for relationships that may not always be present
+- Use OPTIONAL MATCH for relationships that may not always be present — but never
+  follow one directly with `WHERE` if that `WHERE` touches a variable bound before the
+  OPTIONAL MATCH. Cypher folds such a predicate into the optional pattern and discards
+  the filter silently. Either put a `WITH <all bound variables>` between them, or use
+  `EXISTS { }` instead.
 - When returning Sample records (not counts/aggregations), include `s.uuid AS uuid`, `s.id AS id`, and `s.type AS type` as standard columns. The canonical UID property is `uuid` (lowercase).
 - Never generate write operations (CREATE, MERGE, SET, DELETE) unless explicitly requested
-- Prefer simple, readable paths over deeply nested subqueries
+- Prefer simple, readable paths over deeply nested traversals. This is not a reason to
+  avoid `EXISTS { }` or `CALL { }`: a one-level existence subquery is simpler than the
+  `OPTIONAL MATCH` + `WITH` + `WHERE` it replaces, and unlike that form it cannot fail
+  silently.
 
 ---
 
