@@ -64,7 +64,9 @@ if [[ -f "$repo_root/.git" ]]; then
   fi
 fi
 branch_name="$(git branch --show-current)"
-if [[ "$branch_name" =~ -t([0-9][0-9])$ ]]; then
+if [[ "$branch_name" =~ ^task/([0-9]{2})- ]]; then
+  task_id="task-${BASH_REMATCH[1]}"
+elif [[ "$branch_name" =~ -t([0-9][0-9])$ ]]; then
   task_id="task-${BASH_REMATCH[1]}"
 else
   task_id="${ATTRIBUTE_TEST_TASK_ID:-task-00}"

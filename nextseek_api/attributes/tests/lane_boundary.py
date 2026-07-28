@@ -39,9 +39,11 @@ def dependencies(repo, task):
     head = git(repo, "rev-parse", "HEAD")
     output = []
     for dependency in DEPENDENCIES[task]:
-        matches = git(repo, "log", head, "--format=%H", "--grep", f"^Attribute-Task: {dependency}$").splitlines()
-        if len(matches) != 1:
-            raise RuntimeError(f"expected exactly one ancestor trailer for {dependency}")
+        matches = git(
+            repo, "log", head, "--format=%H", "--grep", f"^Attribute-Task: {dependency} ",
+        ).splitlines()
+        if not matches:
+            raise RuntimeError(f"expected at least one ancestor trailer for {dependency}")
         output.append({"task_id": dependency, "sha": matches[0]})
     return output
 

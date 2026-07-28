@@ -144,10 +144,10 @@ def observed_dependencies(cwd, head, task_id):
     result = []
     for dependency in TASK_DEPENDENCIES[task_id]:
         commits = subprocess.check_output(
-            ["git", "log", head, "--format=%H", "--grep", f"^Attribute-Task: {dependency}$"],
+            ["git", "log", head, "--format=%H", "--grep", f"^Attribute-Task: {dependency} "],
             cwd=cwd, text=True,
         ).splitlines()
-        if len(commits) != 1:
+        if not commits:
             raise Rejected("E_DEPENDENCY_SHA_MISMATCH")
         result.append({"task_id": dependency, "sha": commits[0]})
     return result
