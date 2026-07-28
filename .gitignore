@@ -175,7 +175,9 @@ docker/db.env
 docker/bedrock-proxy/proxy-secret.env
 internal_docs/
 .cursor/
-.claude/
+# .claude/ is local agent state — ignored except the committed project skills.
+.claude/*
+!.claude/skills/
 duckdb/
 embedding_models/
 *.swp

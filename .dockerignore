@@ -27,6 +27,9 @@ logs/
 .git/
 .gitignore
 
+# Local agent state / committed skills — never needed inside the image
+.claude/
+
 # Local runtime config / secrets — provided at runtime, never needed in the image:
 #   dmac/local_settings.py  is bind-mounted over /app/dmac/local_settings.py
 #   docker/db.env, docker/nextseek.env  are injected via compose env_file

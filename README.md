@@ -20,6 +20,11 @@ Open http://localhost:8000 and log in with `demo / demopassword` (admin) or
 > install to anyone you don't trust. Rotating the demo passwords is the
 > minimum.
 
+> **Deploying or operating a real instance?** Read
+> [`DEPLOYMENT.md`](DEPLOYMENT.md) — the authoritative deployment-hygiene
+> runbook: greenfield install, shipping changes, rollback, and post-deploy
+> verification.
+
 ## System requirements
 
 - Docker 24+ and Docker Compose v2
