@@ -255,7 +255,9 @@ def _install_impl(
     # entries whose target table doesn't exist (e.g., post --no-seed on a
     # fresh volume — there's nothing to fix up yet).
     for fqn, status in schema_fixups.apply_all(REPO_ROOT, compose_env):
-        (ui.ok if status != "applied" else ui.warn)(f"schema fixup {fqn}: {status}")
+        (ui.ok if status not in {"applied", "constraints reset"} else ui.warn)(
+            f"schema fixup {fqn}: {status}"
+        )
 
     # SEEK's public identity (its "SEEK ID", JSON-LD @id, and the sitemap it builds
     # at boot) comes from a DB-backed setting with no env-var lever, and the seed
