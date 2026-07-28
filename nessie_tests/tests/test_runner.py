@@ -151,3 +151,92 @@ def test_criteria_miss_marks_failed_with_reasons(tmp_path):
     entry = next(e for e in m.entries if e.id == "route.cc_reingest")
     assert entry.status == "failed"
     assert entry.failed_criteria and any("route" in fc for fc in entry.failed_criteria)
+
+
+# --------------------------------------------------------------------------- #
+# T3.1 — xpass must apply to consistency groups too.
+#
+# runner.py applied xpass inline in the variant loop only. The consistency branch
+# emitted plain "passed"/"failed", so cons.nhp_sequencing_engine passed while tagged
+# known_fail and was then PRINTED under "expected to fail" — reading as reassurance
+# for a case that was actually green.
+# --------------------------------------------------------------------------- #
+
+
+def test_apply_xpass_promotes_a_passing_known_fail():
+    assert runner._apply_xpass("passed", True)[0] == "xpass"
+    assert "stale" in runner._apply_xpass("passed", True)[1]
+
+
+def test_apply_xpass_leaves_everything_else_alone():
+    assert runner._apply_xpass("passed", False) == ("passed", "")
+    assert runner._apply_xpass("failed", True) == ("failed", "")
+    assert runner._apply_xpass("failed", False) == ("failed", "")
+    assert runner._apply_xpass("error", True) == ("error", "")
+    assert runner._apply_xpass("skipped", True) == ("skipped", "")
+
+
+def test_the_consistency_branch_uses_the_shared_helper(monkeypatch, tmp_path):
+    """A known_fail consistency group that passes must be xpass, not passed."""
+    from nessie_tests import consistency
+
+    group = {"id": "cons.fake", "tags": ["known_fail"],
+             "queries": ["a", "b"], "assert": ["same_route", "same_count"]}
+    monkeypatch.setattr("nessie_tests.corpus.load_consistency_groups", lambda p: [group])
+    monkeypatch.setattr(
+        consistency, "run_group",
+        lambda g, drive: type("R", (), {"passed": True, "reasons": [], "observations": []})(),
+    )
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
+        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.cc_reingest",
+        post_query=_post(), get_progress=lambda tid: CC_ROUTED,
+        sleep=lambda s: None, clock=lambda: 0.0, run_consistency=True)
+
+    entry = next(e for e in m.entries if e.id == "cons.fake")
+    assert entry.status == "xpass", "a passing known_fail group was recorded as passed"
+    assert entry.expected_fail is True
+    assert runner.gate_failed(m) >= 1, "an xpass group must count against the gate"
+
+
+def _manifest(*statuses):
+    """statuses: (status, expected_fail) pairs."""
+    from nessie_tests.manifest import NessieManifest, NessieManifestEntry
+    return NessieManifest(
+        started_at="a", ended_at="b", tier="full", scope="all",
+        entries=[NessieManifestEntry(id=f"c{i}", family="f", tier="full",
+                                     status=s, expected_fail=ef)
+                 for i, (s, ef) in enumerate(statuses)])
+
+
+def test_the_summary_and_the_gate_cannot_disagree():
+    """The printed 'GATE: PASS' used to contradict SystemExit(1) on an xpass run."""
+    m = _manifest(("passed", False), ("xpass", True))
+
+    summary = runner.classify_entries(m)
+
+    assert len(summary["real_fails"]) == runner.gate_failed(m) == 1
+
+
+def test_an_xpass_is_not_filed_under_expected_failures():
+    """The line that read as reassurance: a PASSING known_fail listed as expected."""
+    m = _manifest(("xpass", True), ("failed", True))
+
+    summary = runner.classify_entries(m)
+
+    assert [e.status for e in summary["known_failed"]] == ["failed"]
+    assert summary["counts"]["xpass"] == 1
+
+
+def test_a_genuinely_failing_known_fail_is_excluded_from_the_gate():
+    m = _manifest(("passed", False), ("failed", True))
+
+    assert runner.classify_entries(m)["real_fails"] == []
+    assert runner.gate_failed(m) == 0
+
+
+def test_errors_on_unexpected_cases_still_count():
+    m = _manifest(("error", False), ("error", True))
+
+    assert len(runner.classify_entries(m)["real_fails"]) == 1

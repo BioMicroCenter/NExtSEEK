@@ -73,19 +73,24 @@ class Command(BaseCommand):
         self._summarize(manifest, tier, opts["scope"], opts["out"], runner)
 
     def _summarize(self, manifest, tier, scope, out, runner) -> None:
-        entries = manifest.entries
-        count = lambda s: sum(1 for e in entries if e.status == s)
-        real_fails = [e for e in entries if e.status in ("failed", "error") and not e.expected_fail]
-        known = [e for e in entries if e.expected_fail]
+        # Classification lives in runner.classify_entries so this summary and
+        # runner.gate_failed cannot disagree again. They used to: "real failures" here
+        # excluded xpass while the gate counted it, so a run printed "GATE: PASS" and
+        # then raised SystemExit(1).
+        summary = runner.classify_entries(manifest)
+        count = summary["counts"]
+        real_fails = summary["real_fails"]
+        known_failed = summary["known_failed"]
 
         w = self.stdout.write
         w("")
-        w(f"Nessie harness  tier={tier}  scope={scope}  ({len(entries)} cases)")
-        w(f"  passed  : {count('passed')}")
-        w(f"  failed  : {count('failed')}")
-        w(f"  skipped : {count('skipped')}")
-        w(f"  error   : {count('error')}")
-        w(f"  known-fail (expected, excluded from gate): {len(known)}")
+        w(f"Nessie harness  tier={tier}  scope={scope}  ({summary['total']} cases)")
+        w(f"  passed  : {count['passed']}")
+        w(f"  failed  : {count['failed']}")
+        w(f"  skipped : {count['skipped']}")
+        w(f"  error   : {count['error']}")
+        w(f"  xpass   : {count['xpass']}  (known_fail that PASSED — stale expectation, counted as a failure)")
+        w(f"  known-fail that failed as expected (excluded from gate): {len(known_failed)}")
         w("")
         if real_fails:
             w(self.style.ERROR(f"GATE: FAIL — {len(real_fails)} real failure(s):"))
@@ -94,10 +99,10 @@ class Command(BaseCommand):
                 w(f"    - {e.family}/{e.id}  [{e.status}]  {detail}")
         else:
             w(self.style.SUCCESS("GATE: PASS (no real failures)"))
-        if known:
+        if known_failed:
             w("")
-            w("  known-fail cases (expected to fail until #32/#33 are fixed):")
-            for e in known:
+            w("  known-fail cases that failed as expected (until #32/#33 are fixed):")
+            for e in known_failed:
                 w(f"    - {e.family}/{e.id}")
         w("")
         w(f"  report:   {out}/report.html")

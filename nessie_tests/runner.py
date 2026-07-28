@@ -117,10 +117,9 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                     failed += [f"{turn.label}:{r['field']}" for r in results if not r["passed"]]
         except Exception as exc:  # infra/endpoint failure ≠ assertion failure
             v_status, reason = "error", f"{type(exc).__name__}: {exc}"
-        if expected_fail and v_status == "passed":
-            # A known_fail that passes is a stale expectation, not a green run.
-            v_status = "xpass"
-            reason = "known_fail case passed every criterion; the expectation is stale"
+        v_status, xpass_reason = _apply_xpass(v_status, expected_fail)
+        if xpass_reason:
+            reason = xpass_reason
         entries.append(NessieManifestEntry(
             id=v.id, family=v.family, tier=tier, status=v_status, route=v_route, engine=v_engine,
             cost=v_cost, elapsed_s=round(clock() - t0, 3), failed_criteria=failed,
@@ -136,10 +135,13 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                 return {"route": r.route_obs.route, "count": consistency.get_result_count(r.payload)}
             try:
                 gr = consistency.run_group(g, _drive)
+                g_expected_fail = "known_fail" in g.get("tags", [])
+                g_status, g_reason = _apply_xpass(
+                    "passed" if gr.passed else "failed", g_expected_fail)
                 entries.append(NessieManifestEntry(
                     id=g["id"], family="nessie_consistency", tier=tier,
-                    status="passed" if gr.passed else "failed",
-                    failed_criteria=gr.reasons, expected_fail="known_fail" in g.get("tags", [])))
+                    status=g_status, reason=g_reason,
+                    failed_criteria=gr.reasons, expected_fail=g_expected_fail))
             except Exception as exc:  # infra/endpoint failure ≠ assertion failure
                 entries.append(NessieManifestEntry(
                     id=g["id"], family="nessie_consistency", tier=tier,
@@ -150,6 +152,46 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
     write_manifest(manifest, Path(out_dir) / "manifest.json")
     report.generate_html(manifest, Path(out_dir))
     return manifest
+
+
+def _apply_xpass(status: str, expected_fail: bool) -> "tuple[str, str]":
+    """Promote a passing known_fail to ``xpass``.
+
+    Module-level and shared by BOTH the variant loop and the consistency branch.
+    It used to be inline in the variant loop only, so a consistency group tagged
+    known_fail that passed was recorded as plain "passed" and then printed under
+    "expected to fail" — which is how cons.nhp_sequencing_engine read as a
+    reassuring known failure while actually passing. Keeping one implementation
+    means the bug cannot relocate to a third call site.
+    """
+    if expected_fail and status == "passed":
+        return "xpass", "known_fail case passed every criterion; the expectation is stale"
+    return status, ""
+
+
+def classify_entries(manifest: NessieManifest) -> dict:
+    """Split a manifest into the buckets a summary needs.
+
+    Single source of truth, shared by ``gate_failed`` and the management command's
+    printed summary. They used to classify independently and disagreed: the summary's
+    "real failures" excluded xpass while the gate counted it, so a run could print
+    "GATE: PASS" and then exit 1. And its known-fail bucket included *passing*
+    known-fails, which is the line that read as reassurance.
+    """
+    entries = manifest.entries
+    real_fails = [
+        e for e in entries
+        if e.status == "xpass" or (e.status in ("failed", "error") and not e.expected_fail)
+    ]
+    return {
+        "total": len(entries),
+        "counts": {s: sum(1 for e in entries if e.status == s)
+                   for s in ("passed", "failed", "skipped", "error", "xpass")},
+        "real_fails": real_fails,
+        # Known-fails that actually failed. A known_fail that PASSED is an xpass and
+        # belongs in real_fails, not here.
+        "known_failed": [e for e in entries if e.expected_fail and e.status != "xpass"],
+    }
 
 
 def gate_failed(manifest: NessieManifest) -> int:
