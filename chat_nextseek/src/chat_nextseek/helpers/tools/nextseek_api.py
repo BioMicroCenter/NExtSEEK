@@ -10,6 +10,7 @@ import requests
 
 from ...config import ChatConfig
 from ...session import SessionState
+from ..results import DEFAULT_API_PAGE_SIZE
 
 
 def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=None, queryParameters=None):
@@ -18,7 +19,7 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
     Logs request/response previews, parses JSON when possible, and returns a structured dict with ok/status details.
     """
     requestBody = requestBody or {}
-    queryParameters = {"page_size": 1000, **(queryParameters or {})}
+    queryParameters = {"page_size": DEFAULT_API_PAGE_SIZE, **(queryParameters or {})}
 
     base = config.NEXTSEEK_BASE_URL
     if not base:

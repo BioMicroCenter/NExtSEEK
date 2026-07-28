@@ -1008,7 +1008,9 @@ def run_query(
                 },
             )
 
-            api_result_slim = slim_api_result_for_llm(api_result_full)
+            # api_plan_dict, not api_plan: APIRequestPlan has extra="ignore", so
+            # re-validating drops retry_substituted_search recorded by the retry ladder.
+            api_result_slim = slim_api_result_for_llm(api_result_full, api_plan=api_plan_dict)
             history = session.get("results_history", [])
             bundle_id = _next_bundle_id(session)
             raw_json_path = None

@@ -7,6 +7,10 @@ from pathlib import Path
 
 from .text import strip_html
 
+# tool_nextseek_api_request hard-defaults this. A search matching more rows than this
+# silently returns one page, so it must be disclosed rather than left implicit.
+DEFAULT_API_PAGE_SIZE = 1000
+
 
 def api_row_count(api_result: dict | None) -> int | None:
     """How many rows an API result actually returned, or None if not countable.
@@ -37,10 +41,82 @@ def api_row_count(api_result: dict | None) -> int | None:
     return None
 
 
-def slim_api_result_for_llm(api_result: dict, max_rows: int = 5, max_chars: int = 5000) -> dict:
+def _result_total(api_result: dict | None) -> int | None:
+    """The API's reported grand total, independent of how many rows came back."""
+    if not isinstance(api_result, dict):
+        return None
+    data = api_result.get("data")
+    if not isinstance(data, dict):
+        return None
+    for key in ("total", "total_samples", "total_nodes"):
+        value = data.get(key)
+        if isinstance(value, int):
+            return value
+    return None
+
+
+def _rows_actually_returned(api_result: dict | None) -> int | None:
+    """Length of the returned row list, or None when the payload carries no list."""
+    if not isinstance(api_result, dict):
+        return None
+    data = api_result.get("data")
+    if isinstance(data, list):
+        return len(data)
+    if not isinstance(data, dict):
+        return None
+    for key in ("samples", "rows", "nodes", "data"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return len(value)
+    return None
+
+
+def build_result_disclosure(api_result: dict | None, api_plan: dict | None = None) -> dict:
+    """
+    Flags describing how the returned rows differ from what the user asked for.
+
+    Two silences this removes. ``tool_nextseek_api_request`` hard-defaults
+    ``page_size: 1000``, so a search matching 2,057 records returns 1,000 rows and
+    reports total 2,057; the chatter faithfully said "2,057 records" while row_count
+    was 1000, and nothing said the rows were a page. And when the retry ladder
+    substitutes a different search text, the rows are not the user's terms at all.
+
+    Neither of those is a hallucination — the defect is that nothing told the chatter.
+    """
+    disclosure: dict = {}
+
+    total = _result_total(api_result)
+    rows = _rows_actually_returned(api_result)
+    if rows is not None:
+        disclosure["rows_returned"] = rows
+    if isinstance(api_plan, dict):
+        page_size = (api_plan.get("queryParameters") or {}).get("page_size")
+        if page_size is None and rows is not None:
+            page_size = DEFAULT_API_PAGE_SIZE
+        if page_size is not None:
+            disclosure["page_size"] = page_size
+    if total is not None and rows is not None and total > rows:
+        disclosure["result_capped"] = True
+        disclosure["total_matching"] = total
+
+    if isinstance(api_plan, dict) and api_plan.get("retry_substituted_search"):
+        disclosure["search_text_substituted"] = api_plan["retry_substituted_search"]
+
+    return disclosure
+
+
+def slim_api_result_for_llm(
+    api_result: dict,
+    max_rows: int = 5,
+    max_chars: int = 5000,
+    api_plan: dict | None = None,
+) -> dict:
     """
     Trim API results to keep LLM prompts small while preserving key totals and a few example rows.
     Caps row count and total serialized size, substituting a preview with truncation metadata when oversized.
+
+    ``api_plan`` is optional and only used to disclose capping and search-text
+    substitution; omitting it preserves the previous behaviour exactly.
     """
     data = api_result.get("data", {})
     new_data = data
@@ -84,6 +160,9 @@ def slim_api_result_for_llm(api_result: dict, max_rows: int = 5, max_chars: int 
             },
         }
 
+    # Computed from the ORIGINAL result, not the slimmed preview — the preview is
+    # always 5 rows, which would make every result look capped.
+    slimmed.update(build_result_disclosure(api_result, api_plan))
     return slimmed
 
 
