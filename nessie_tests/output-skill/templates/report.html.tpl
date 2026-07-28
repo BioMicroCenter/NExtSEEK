@@ -186,6 +186,13 @@ pre.json b{color:var(--accent);font-weight:640}
 .rchip.warn{background:var(--drift-bg);color:var(--drift)}
 .rchip.bad{background:var(--real-bg);color:var(--real)}
 .nores{color:var(--ink-3);font-size:12.5px;font-style:italic}
+/* The chatter's final answer. Deliberately the most readable block on the page:
+   it is prose a human judges, not a field they scan. */
+.reply{white-space:pre-wrap;font-size:13px;line-height:1.55;color:var(--ink);
+  border-left:2px solid var(--accent);
+  padding:9px 12px;border-radius:0 5px 5px 0;max-width:78ch}
+.replymore{margin-top:6px}
+.replymore summary{cursor:pointer;color:var(--ink-3);font-size:12px}
 
 /* reviewer notes */
 .notebar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 16px;
@@ -495,6 +502,21 @@ function renderTurn(t){
   }
   const call = renderCall(t);
   if(call) rows.push(`<div class="row"><div class="rk">${call.k}</div><div class="rv">${call.v}</div></div>`);
+  /* The answer the user actually read, next to the call that produced it.
+     A criterion can only check what someone thought to assert, so when a
+     criterion is stale this is the only way to judge whether the case was
+     right. Long replies collapse; the first ~600 chars carry the claim. */
+  if(t.reply != null && String(t.reply).trim()){
+    const full = String(t.reply).trim();
+    const head = full.length > 600 ? full.slice(0,600) + "…" : full;
+    rows.push(`<div class="row"><div class="rk">Answer</div><div class="rv">
+      <div class="reply">${esc(head)}</div>
+      ${full.length > 600 ? `<details class="replymore"><summary>full reply (${full.length} chars)</summary><pre class="json wrap">${esc(full)}</pre></details>` : ""}
+    </div></div>`);
+  } else if(t.task){
+    rows.push(`<div class="row"><div class="rk">Answer</div><div class="rv">
+      <span class="nores">No reply was recorded for this turn.</span></div></div>`);
+  }
   return `<div class="turn">
     <div class="turnhd">
       <span class="tn">${esc(t.label||"turn")}</span>

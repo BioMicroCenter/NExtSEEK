@@ -69,6 +69,9 @@ q -e "SELECT JSON_OBJECT(
         'gplan',   {D}'\$[0].graph_plan'),
         'gmeta',   JSON_REMOVE({D}'\$[0].graph_result'),'\$.data'),
         'rplan',   {D}'\$[0].reporter_plan'),
+        'reply',   COALESCE(
+                     JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.reply'),'\$[0]')),
+                     JSON_UNQUOTE(JSON_EXTRACT(result,'\$.reply'))),
         'cost',    JSON_EXTRACT(result,'\$.total_cost_usd')
       ) FROM assistant_query_task WHERE {where} ORDER BY id;"
 """

@@ -74,8 +74,13 @@ def turn_defs(entry, variants, cgroups):
     return []
 
 
+# `reply` is the chatter's final answer — the thing the user actually reads. It is
+# carried because a criterion can only ever check what someone thought to assert,
+# and stale criteria are the main reason a run needs reviewing at all. Seeing the
+# answer next to the call that produced it is what lets a reviewer judge a case the
+# corpus scored wrongly in either direction.
 CARRY = ("route", "src", "why", "mode", "aplan", "ameta", "gplan", "gmeta",
-         "rplan", "model", "cost", "status")
+         "rplan", "model", "cost", "status", "reply")
 
 
 def align(flat_turns, tasks):
