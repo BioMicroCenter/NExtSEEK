@@ -125,6 +125,50 @@ def build_result_disclosure(
     return disclosure
 
 
+def api_result_meta_truncation(api_result: dict | None, api_plan: dict | None = None) -> dict:
+    """The subset of ``build_result_disclosure`` that belongs on ``api_result_meta``.
+
+    T1.10 put ``result_capped`` / ``total_matching`` into the SLIMMED LLM payload, so
+    the chatter is told when it is holding a page rather than a result. But
+    ``api_result_meta`` is what the nessie harness asserts on, and it carries only
+    ``row_count``. So no criterion can distinguish a complete 1,000-row answer from a
+    1,000-row page of 1,179, and none ever has: ``advanced.find_me_mice`` reported
+    exactly the hard-coded ``DEFAULT_API_PAGE_SIZE`` in the seed-0 run and scored green.
+
+    This mirrors what the graph side already gained (``count`` / ``total`` /
+    ``truncated``), which is what made the 10,688 cap checkable rather than invisible.
+
+    Deliberately ignores the LLM-context preview cap: that one describes what the
+    chatter could see, not what the API returned, and the harness asserts on the API.
+    """
+    disclosure = build_result_disclosure(api_result, api_plan)
+    return {
+        "total_matching": disclosure.get("total_matching"),
+        "truncated": bool(disclosure.get("result_capped", False)),
+    }
+
+
+def build_api_result_meta(api_result: dict | None, api_plan: dict | None = None,
+                          *, bundle_id: int | None = None) -> dict:
+    """The full ``debug_payload['api_result_meta']`` block.
+
+    Assembled here rather than inline in the orchestrator so the truncation fields
+    have a seam a test can reach. The graph side's equivalent was written inline and
+    went two waves without a unit test.
+    """
+    api_result = api_result if isinstance(api_result, dict) else {}
+    return {
+        "ok": api_result.get("ok"),
+        "status_code": api_result.get("status_code"),
+        "url": api_result.get("url"),
+        # An ok:true search that returned nothing is not a success; make the row
+        # count visible so callers can tell those apart.
+        "row_count": api_row_count(api_result),
+        "bundle_id": bundle_id,
+        **api_result_meta_truncation(api_result, api_plan),
+    }
+
+
 def slim_api_result_for_llm(
     api_result: dict,
     max_rows: int = 5,

@@ -40,6 +40,7 @@ from .helpers import (
     _extract_required_paths,
     _retry_advanced_search_if_empty,
     api_row_count,
+    build_api_result_meta,
     fix_sample_endpoint,
     generate_report_outputs,
     log_api_call,
@@ -1028,15 +1029,11 @@ def run_query(
             except Exception as e:
                 print("[DEBUG][API_LOG] Failed to write raw API result file:", repr(e))
 
-            debug_payload["api_result_meta"] = {
-                "ok": api_result_full.get("ok"),
-                "status_code": api_result_full.get("status_code"),
-                "url": api_result_full.get("url"),
-                # An ok:true search that returned nothing is not a success; make
-                # the row count visible so callers can tell those apart.
-                "row_count": api_row_count(api_result_full),
-                "bundle_id": bundle_id,
-            }
+            # api_plan_dict for the same reason slim_api_result_for_llm takes it:
+            # APIRequestPlan has extra="ignore", so the re-validated object drops
+            # queryParameters/retry_substituted_search that the disclosure reads.
+            debug_payload["api_result_meta"] = build_api_result_meta(
+                api_result_full, api_plan_dict, bundle_id=bundle_id)
             debug_payload["api_result_slim"] = api_result_slim
             debug_payload["api_result_full"] = api_result_full
             debug_payload["raw_json_path"] = raw_json_path

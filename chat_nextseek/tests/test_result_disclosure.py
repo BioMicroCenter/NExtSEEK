@@ -192,3 +192,77 @@ def test_both_cap_reasons_can_apply_at_once():
     assert slim["rows_returned"] == 1000
     assert slim["preview_rows"] == 5
     assert slim["result_capped"] is True
+
+
+# ------------------------------------------- api_result_meta truncation (2026-07-28)
+#
+# T1.10 put result_capped/total_matching into the SLIMMED LLM payload, so the chatter
+# is told. `api_result_meta` — the field the nessie harness asserts on — never got an
+# equivalent, so no criterion could see a REST cap and none ever has. In the seed-0 run
+# `advanced.find_me_mice` reported row_count exactly 1000 (the hard-coded page size)
+# and scored green. That is the same silence T1.10 fixed, one layer up.
+
+from chat_nextseek.helpers.results import api_result_meta_truncation  # noqa: E402
+
+
+def test_meta_reports_truncation_for_a_capped_result():
+    """The seed-0 find_me_mice shape: 1,179 matched, 1,000 came back."""
+    meta = api_result_meta_truncation(_result(1179, 1000), {"queryParameters": {"page_size": 1000}})
+
+    assert meta["truncated"] is True
+    assert meta["total_matching"] == 1179
+
+
+def test_meta_reports_no_truncation_for_a_complete_result():
+    meta = api_result_meta_truncation(_result(12, 12), {"queryParameters": {"page_size": 1000}})
+
+    assert meta["truncated"] is False
+    assert meta["total_matching"] is None
+
+
+def test_meta_reports_no_truncation_for_an_honest_zero():
+    """Zero rows is complete, not capped."""
+    meta = api_result_meta_truncation(_result(0, 0), {})
+
+    assert meta["truncated"] is False
+
+
+def test_meta_is_safe_on_a_result_with_no_total():
+    """SEEK JSON:API passthroughs carry no total; absence must not read as capped."""
+    meta = api_result_meta_truncation({"ok": True, "data": {"rows": [{"uid": "U-1"}]}}, {})
+
+    assert meta["truncated"] is False
+
+
+def test_api_result_meta_carries_row_count_and_truncation_together():
+    """The shape orchestrator.py writes into debug_payload['api_result_meta'].
+
+    Extracted so the truncation fields have a seam that can be tested without
+    standing up the orchestrator; wiring it inline is what left the graph side's
+    equivalent untested for two waves.
+    """
+    from chat_nextseek.helpers.results import build_api_result_meta
+
+    full = {"ok": True, "status_code": 200,
+            "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+            "data": {"total": 1179, "rows": [{"uid": f"MUS-{i}"} for i in range(1000)]}}
+    meta = build_api_result_meta(full, {"queryParameters": {"page_size": 1000}}, bundle_id=1)
+
+    assert meta["ok"] is True
+    assert meta["status_code"] == 200
+    assert meta["bundle_id"] == 1
+    assert meta["row_count"] == 1000
+    # the two fields no criterion could see before
+    assert meta["truncated"] is True
+    assert meta["total_matching"] == 1179
+
+
+def test_api_result_meta_on_a_complete_result_is_not_truncated():
+    from chat_nextseek.helpers.results import build_api_result_meta
+
+    full = {"ok": True, "status_code": 200, "url": "u",
+            "data": {"total": 28, "rows": [{"uid": f"AB-{i}"} for i in range(28)]}}
+    meta = build_api_result_meta(full, {}, bundle_id=2)
+
+    assert meta["row_count"] == 28
+    assert meta["truncated"] is False
