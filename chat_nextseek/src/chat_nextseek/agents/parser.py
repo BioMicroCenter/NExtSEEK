@@ -429,7 +429,7 @@ def _candidate_to_parser_plan(
             previous_api_plan = previous_api_plan or last_bundle.get("api_plan")
             previous_user_query = previous_user_query or last_bundle.get("user_query")
 
-    return ParserPlan(
+    projected = ParserPlan(
         mode=candidate.mode,
         target_endpoint=candidate.target_endpoint,
         intent_summary=parser_plan.intent_summary or user_query,
@@ -443,10 +443,62 @@ def _candidate_to_parser_plan(
         report_mode=candidate.report_mode,
         report_type=candidate.report_type,
     )
+    # The multi-parser path degrades the same way the single-path parser does.
+    return _note_refine_without_bundle(session, projected)
 
 
-def _apply_parser_guardrails(user_query: str, plan: ParserPlan) -> ParserPlan:
+REFINE_WITHOUT_BUNDLE_NOTE = (
+    "previous turn ran outside the NExtSEEK search path (no result bundle to refine); "
+    "re-ran as a fresh search"
+)
+
+
+def _note_refine_without_bundle(
+    session: "SessionState | SessionStateProxy | None", plan: ParserPlan
+) -> ParserPlan:
+    """
+    Make the refine -> new_search degrade visible.
+
+    A Container CC turn writes no result bundle (795 bid=None, 796 opened bid=1), so
+    `results_history` is empty, the refine plan is built with Nones and the turn
+    quietly becomes a fresh search. The router had explicitly asked for a memory
+    follow-up — 796's reasoning names `memory_lookup` — and nothing detected the
+    mismatch.
+
+    Deliberately NOT fixed by synthesising a bundle. A bundle's contract is a real
+    REST call plus its response; fabricating one would let the parser re-POST an
+    invented api_plan and return confidently wrong rows, which is strictly worse than
+    today. `ask_about_last_results` over a CC turn is legitimate and is unblocked
+    separately by carrying the CC reply preview into chat_log.
+
+    So: keep the fallback, but say so. `notes` flows into the reply debug block and
+    can be asserted on, converting a silent defect into a detectable one.
+    """
+    if plan.mode != "refine_last_search" or session is None:
+        return plan
+    try:
+        history = session.get("results_history", []) or []
+    except Exception:
+        return plan
+    if history:
+        return plan
+
+    print(f"[DEBUG][PARSER] refine_last_search with no result bundle; {REFINE_WITHOUT_BUNDLE_NOTE}")
+    return plan.model_copy(update={
+        "mode": "new_search",
+        "notes": ((plan.notes + " | ") if plan.notes else "") + REFINE_WITHOUT_BUNDLE_NOTE,
+        "previous_api_plan": None,
+        "previous_user_query": None,
+    })
+
+
+def _apply_parser_guardrails(
+    user_query: str,
+    plan: ParserPlan,
+    session: "SessionState | SessionStateProxy | None" = None,
+) -> ParserPlan:
     """Apply narrow deterministic safety checks after LLM routing."""
+    plan = _note_refine_without_bundle(session, plan)
     if _is_unscoped_bulk_export_request(user_query, plan.mode, plan.filters):
         return ParserPlan(
             mode="unsupported",
@@ -551,7 +603,7 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
         plan_model = ParserPlan(notes="Parser could not produce valid structured output.")
 
     print("[DEBUG][PARSER] Parsed plan:", json.dumps(plan_model.model_dump(), indent=2))
-    plan_model = _apply_parser_guardrails(user_query, plan_model)
+    plan_model = _apply_parser_guardrails(user_query, plan_model, session=session)
     if plan_model.mode == "unsupported":
         print("[DEBUG][PARSER] Guardrailed plan:", json.dumps(plan_model.model_dump(), indent=2))
     return plan_model
