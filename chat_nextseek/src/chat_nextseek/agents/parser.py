@@ -460,11 +460,14 @@ _UID_RELATION_RE = re.compile(
     re.IGNORECASE,
 )
 
-# "<some other entity> for/from/of <UID>" — the answer is a different record than
-# the one named, so REST cannot satisfy it.
+# "<some other entity> for/from/of <UIDs>" — the answer is a different set of records
+# than the ones named. Safe to act on ONLY in combination with the 2-UID floor below;
+# on its own it also matches legitimate single-UID REST work ("Build an SRA metadata
+# file for <UID>", "Make me an nfcore samplesheet for the sequencing samples
+# associated with <UID>").
 _UID_DERIVED_ENTITY_RE = re.compile(
-    r"\b(?:sequencing\s+data|data|assays?|samples?|files?|reads?|bams?|fastqs?"
-    r"|results?|libraries|libraries|children|parents)\s+(?:for|from|of)\b",
+    r"\b(?:sequencing\s+data|data|assays?|samples?|files?|reads?|bams?|fastqs?|results?)"
+    r"\s+(?:for|from|of)\b",
     re.IGNORECASE,
 )
 
@@ -475,14 +478,29 @@ _UID_RECORD_LOOKUP_RE = re.compile(
 )
 
 UID_LINEAGE_ROUTE_NOTE = (
-    "forced to graph_query: the question asks for records related to a named UID, "
-    "which REST cannot answer (a child record does not contain its parent's UID as text)"
+    "forced to graph_query: lineage across MULTIPLE named UIDs, which no single REST "
+    "endpoint serves (sample-tree is GET-per-UID, and a child record does not contain "
+    "its parent's UID as text)"
 )
+
+# How many UIDs it takes before REST stops being able to answer. Deliberately 2.
+#
+# A SINGLE-UID lineage question is served by REST and must stay there: sample-tree
+# returns the whole bidirectional tree around one UID, `retrieve` returns everything
+# associated with one UID, and the reporter builds a submission file for one UID. The
+# corpus has 20 such turns across the search_tree, retrieve, reporting and
+# pipeline_nfcore families, all asserting a REST endpoint.
+#
+# TWO OR MORE UIDs is the shape that has no REST answer, and is exactly task 797:
+# the api agent fused both UIDs into one filter_searchText, got total 0 (a child
+# record does not contain its parent's UID as text), and fell into the retry ladder
+# that eventually "succeeded" on the term "1" with 2,057 unrelated rows.
+_MIN_UIDS_FOR_FORCED_GRAPH = 2
 
 
 def _force_graph_for_uid_lineage(user_query: str, plan: ParserPlan) -> ParserPlan:
     """
-    Route "what is derived from <UID>" style questions to the graph, deterministically.
+    Route multi-UID lineage questions to the graph, deterministically.
 
     `repro.cypher_uid_dot` went graph_query in the baseline (task 733, returning
     exactly the correct six D.SEQ-220823SHA-1..6-PUB) and new_search post-fix
@@ -491,16 +509,13 @@ def _force_graph_for_uid_lineage(user_query: str, plan: ParserPlan) -> ParserPla
     do NOT use graph_query for "lineage from a known UID" in one place and DO for
     "derivation chains, lineage, ancestor/descendant" in another.
 
-    REST genuinely cannot answer it: a child record does not contain its parent's UID
-    as text, which is why task 797's correctly-formed first attempt returned total: 0.
-
     Runs AFTER the LLM call so the model's choice is respected everywhere else.
     """
     if plan.mode == "graph_query":
         return plan
     query = user_query or ""
-    uids = _WELL_FORMED_UID_RE.findall(query)
-    if not uids:
+    uids = list(dict.fromkeys(_WELL_FORMED_UID_RE.findall(query)))
+    if len(uids) < _MIN_UIDS_FOR_FORCED_GRAPH:
         return plan
     if _UID_RECORD_LOOKUP_RE.search(query):
         return plan  # "full details for <UID>" is a plain record lookup

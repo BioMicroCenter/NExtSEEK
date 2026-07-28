@@ -64,26 +64,46 @@ def test_an_llm_choice_of_graph_is_left_alone():
 @pytest.mark.parametrize(
     "query",
     [
-        "What samples are derived from D.SEQ-220823SHA-1-PUB?",
-        "Show me the children of TIS-240612KAM-1-PUB",
-        "What is the lineage of MUS-200901ENG-23-PUB?",
-        "Find the sequencing data for NHP-220524FLY-1-PUB",
-        "What assays are associated with A.ADCD-250312ALT-1-PUB?",
+        "What samples are derived from D.SEQ-220823SHA-1-PUB and D.SEQ-220823SHA-2-PUB?",
+        "Show me the children of TIS-240612KAM-1-PUB and TIS-240612KAM-2-PUB",
         "Which samples came from these: NHP-220524FLY-1-PUB, NHP-220524FLY-2-PUB",
+        "What assays are associated with A.ADCD-250312ALT-1-PUB / A.ADCD-250312ALT-2-PUB?",
     ],
 )
-def test_uid_plus_relation_word_routes_to_graph(query):
+def test_multiple_uids_plus_a_relation_word_route_to_graph(query):
     assert _apply_parser_guardrails(query, _plan("new_search")).mode == "graph_query"
 
 
 # --------------------------------------------------------------- negative cases
+#
+# A SINGLE-UID lineage question is served by REST and must stay there: sample-tree
+# returns the whole bidirectional tree around one UID, `retrieve` returns everything
+# associated with one UID, and the reporter builds a submission file for one UID.
+#
+# The corpus has 20 such turns across the search_tree, retrieve, reporting and
+# pipeline_nfcore families, every one asserting a REST endpoint. An earlier version of
+# this guardrail fired on all of them; these cases pin the narrowing.
 
 
 @pytest.mark.parametrize(
     "query",
     [
-        # A plain record lookup: REST answers this correctly and cheaply.
-        "Get the full details for D.SEQ-221031SHA-67-PUB",
+        # search_tree — sample-tree is GET-per-UID and answers these directly.
+        "Show me all samples derived from CEL-250319WHI-1-PUB.",
+        "What's the lineage of D.MSP-230828GRI-4-PUB?",
+        "Show me children of XXX-999999ZZZ-1-PUB.",
+        "What is D.MSP-230828GRI-4-PUB derived from?",
+        "Show me tissue samples derived from NHP-220630FLY-1-PUB",
+        # retrieve — a dedicated endpoint for "everything associated with one UID".
+        "Retrieve all samples associated with NHP-220630FLY-5-PUB",
+        "Can you return to me all samples associated with CEL-250319WHI-1-PUB",
+        # reporting / pipeline — a single UID feeding a report or samplesheet.
+        "Build an SRA metadata file for D.SEQ-230512FOR-29-PUB",
+        "What has been derived from NHP-220630FLY-5-PUB",
+        "Make me an nfcore samplesheet for the sequencing samples associated with "
+        "NHP-220630FLY-1-PUB",
+        # A plain record lookup, even with two UIDs.
+        "Get the full details for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB",
         "Show me D.SEQ-221031SHA-67-PUB",
         # No UID at all.
         "Find mice treated with NDMA",
@@ -98,7 +118,15 @@ def test_these_stay_on_the_llm_chosen_route(query):
 
 def test_a_malformed_uid_is_not_treated_as_one():
     assert _apply_parser_guardrails(
-        "What is derived from NHP-22052-1?", _plan("new_search")
+        "What is derived from NHP-22052-1 and NHP-22053-2?", _plan("new_search")
+    ).mode == "new_search"
+
+
+def test_the_same_uid_repeated_is_still_one_uid():
+    """Deduped, so a restatement does not trip the multi-UID floor."""
+    assert _apply_parser_guardrails(
+        "What is derived from NHP-220630FLY-5-PUB? I mean NHP-220630FLY-5-PUB.",
+        _plan("new_search"),
     ).mode == "new_search"
 
 

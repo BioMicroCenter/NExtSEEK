@@ -50,12 +50,14 @@ Do NOT use graph_query when:
 - A REST API endpoint directly satisfies the intent, such as parents_by_child_types for
   finding parents with children of multiple specified type codes, or sample-tree when the
   user wants to VISUALISE the whole tree around one UID.
-  The sample-tree carve-out is narrow and means only that: one UID, the entire
-  bidirectional tree, no filtering. "Find samples of type T derived from <UID>", "what
-  sequencing data is associated with <UID>", "what came from these UIDs" are NOT
-  sample-tree requests — they are graph_query. REST cannot answer them at all, because a
-  child record does not contain its parent's UID as text, so a correctly formed
-  advanced_search for the parent UID returns zero and looks like a real negative.
+  A lineage question anchored on ONE UID is REST work: sample-tree returns the whole
+  bidirectional tree around it, and `retrieve` returns everything associated with it.
+  Keep those on new_search.
+  The line is the NUMBER of UIDs. Once the user names TWO OR MORE UIDs and asks what is
+  derived from or associated with them, no single REST call serves it — sample-tree is
+  GET-per-UID, and advanced_search cannot help because a child record does not contain
+  its parent's UID as text, so searching the parent UIDs returns zero and looks like a
+  real negative. Use graph_query and put every UID in filters.uids.
 - The question is about upload statistics over a time period; use reporter.
 - The question asks about system capabilities; use system_question.
 
@@ -198,7 +200,7 @@ Ask whether the nature of the request requires graph structure to answer:
 - Is the user asking for a count or aggregation that is organized by graph structure, such as "across all studies", "per study", or "how many X in study Y"?
 - Is the user asking for a global count of a sample type with no other attribute filters, such as "How many mice are in the database?" There is no filtering happening, only counting. This is a graph COUNT query, not a search.
 - Is the user filtering on an assay or protocol that lives on the DERIVED_FROM relationship, such as "underwent X", "processed via X", or "associated with X protocol"? REST endpoints cannot filter on relationship metadata.
-- Is the user asking about derivation chains, lineage, or ancestor/descendant relationships between samples? This includes lineage from one or more named UIDs ("what is derived from D.SEQ-...", "what sequencing data is associated with NHP-..."). The only UID-anchored exception is a request to visualise the whole sample tree around a single UID, which the sample-tree endpoint serves.
+- Is the user asking about derivation chains, lineage, or ancestor/descendant relationships between samples? For UID-anchored questions the discriminator is how many UIDs are named: ONE UID is REST work (sample-tree / retrieve), TWO OR MORE is graph_query, because no single REST call spans them.
 - Is the requested output a child/data sample constrained by an associated parent sample type? That is a relationship constraint, not a keyword filter, unless a direct child-by-parent REST endpoint exists.
 If yes to any of the above, use graph_query.
 
