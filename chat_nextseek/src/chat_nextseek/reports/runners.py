@@ -154,6 +154,10 @@ def _run_investigation_sample_report(
         "investigation_title": inv_title,
         "rows_returned": len(uuids),
         "uuids_saved": len(uuids),
+        # Needed by _scope_report_to_labs. run_reporter_summary drops it again once
+        # scoping is done — it can be ~50k strings and must not reach a UI payload,
+        # a persisted bundle or an LLM context. The durable copy is uuid_report_file.
+        "uuids": uuids,
         "uuid_report_file": entry["path"] if entry else None,
         "uuid_preview": uuids[:10],
         **tables,
@@ -366,6 +370,9 @@ def run_project_sample_report(
             "project_id": project_id,
             "rows_returned": len(rows),
             "uuids_saved": len(uuids),
+            # See _run_investigation_sample_report: required by _scope_report_to_labs,
+            # dropped again by run_reporter_summary before the result is serialised.
+            "uuids": uuids,
             "uuid_report_file": report_path,
             "uuid_preview": uuids[:10],
             "sampletypes_table": sampletypes_table,
@@ -809,15 +816,57 @@ def _scope_report_to_labs(result: dict, lab_codes: list[str]) -> dict:
     wanted = {c.strip().upper() for c in lab_codes if isinstance(c, str) and c.strip()}
     if not wanted or not isinstance(result, dict):
         return result
+
+    # Never turn a failed report into an empty successful one.
+    if not result.get("ok"):
+        return result
+
+    # The previous version read result["uuids"] with an `or []` fallback. Neither
+    # sample runner returned that key, so every lab-scoped report silently collapsed
+    # to zero rows while still reporting success. Fail loudly instead.
+    if "uuids" not in result:
+        print(
+            "[DEBUG][REPORTER][SCOPE] cannot scope to labs "
+            f"{sorted(wanted)}: result has no 'uuids' key (keys={sorted(result)}). "
+            "Returning the unscoped report."
+        )
+        scoped = dict(result)
+        scoped["scope"] = {
+            "kind": "lab",
+            "lab_codes": sorted(wanted),
+            "error": "report did not carry a uuid list; scope could not be applied",
+        }
+        return scoped
+
     uuids = [u for u in (result.get("uuids") or []) if _lab_of(u) in wanted]
     scoped = dict(result)
     scoped.update(_tabulate_sample_uuids(uuids))
     scoped["uuids"] = uuids
     scoped["uuids_saved"] = len(uuids)
     scoped["rows_returned"] = len(uuids)
+    # task 812 left the preview listing non-KAM UIDs alongside a zero row count,
+    # because `dict(result)` copied it verbatim.
+    scoped["uuid_preview"] = uuids[:10]
     scoped["scope"] = {"kind": "lab", "lab_codes": sorted(wanted),
                        "applied_because": "no project id resolved for the requested scope"}
     return scoped
+
+
+def _drop_uuid_list(result: dict) -> dict:
+    """Strip the full uuid list from a reporter result once scoping has used it.
+
+    The list is an internal hand-off between the sample runners and
+    ``_scope_report_to_labs``. Leaving it in place would put up to ~50k strings into
+    the debug payload, the metadata bundle and any LLM context built from them.
+    ``uuids_saved``, ``uuid_preview`` and ``uuid_report_file`` remain.
+    """
+    if not isinstance(result, dict):
+        return result
+    cleaned = {k: v for k, v in result.items() if k != "uuids"}
+    for block in ("samples", "protocols", "published"):
+        if isinstance(cleaned.get(block), dict):
+            cleaned[block] = {k: v for k, v in cleaned[block].items() if k != "uuids"}
+    return cleaned
 
 
 def run_reporter_summary(
@@ -893,6 +942,12 @@ def run_reporter_summary(
             ), fallback_labs)
     except Exception as e:
         reporter_result = {"ok": False, "error": repr(e)}
+
+    # The uuid list exists so scoping can run; past this point it is dead weight.
+    # reporter_result reaches debug_payload (orchestrator.py:715,769) and
+    # build_metadata_bundle, and this can be ~50k strings. The durable copy lives in
+    # uuid_report_file, which is what the reply links to.
+    reporter_result = _drop_uuid_list(reporter_result)
 
     # ── Register output files ─────────────────────────────────────────
     saved_files: dict[str, str] = {}
