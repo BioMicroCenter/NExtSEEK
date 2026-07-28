@@ -306,10 +306,44 @@ def _should_retry_advanced_search(plan: dict, api_plan: dict, api_result_full: d
     return (total == 0) or (row_count == 0)
 
 
+# A SINGLE-term retry that matches more than this is not answering the question that
+# was asked; it is the ladder falling off the bottom. Task 797's ladder "succeeded"
+# on the term "1" with 2,057 rows for a two-UID question.
+RETRY_SINGLE_TOTAL_CEILING = 200
+
+# Tokens that carry no search meaning on their own. A UID like NHP-220524FLY-1-PUB
+# splits into ['NHP','220524FLY','1','PUB']; the increment and the publication suffix
+# match essentially everything.
+_USELESS_RETRY_TOKEN_RE = re.compile(r"^(?:\d+|PUB\d*)$", re.IGNORECASE)
+
+
+def _is_useful_retry_token(term: str) -> bool:
+    """A retry term must be at least 3 characters and not a bare increment or PUB suffix."""
+    return len(term) >= 3 and not _USELESS_RETRY_TOKEN_RE.match(term)
+
+
 def _split_retry_keyword(keyword: str) -> list[str]:
-    """Split compact search phrases into useful retry terms while preserving the original elsewhere."""
+    """Split compact search phrases into useful retry terms while preserving the original elsewhere.
+
+    Tokens shorter than 3 characters, purely numeric tokens and PUB suffixes are
+    dropped: they are UID structure, not search terms, and searching them alone
+    returns an arbitrary slice of the database.
+    """
     terms = [part for part in re.split(r"[\s_\-/]+", keyword.strip()) if part]
-    return list(dict.fromkeys(terms))
+    return list(dict.fromkeys(t for t in terms if _is_useful_retry_token(t)))
+
+
+def _original_search_was_unfiltered(api_plan: dict) -> bool:
+    """True when the original request carried no filter at all (e.g. "how many samples
+    are there"), in which case a large total is the honest answer and the SINGLE
+    ceiling must not apply."""
+    body = api_plan.get("requestBody") or {}
+    if (body.get("filter_searchText") or "").strip():
+        return False
+    return not any(
+        key.startswith("filter_") and value not in (None, "", [], {})
+        for key, value in body.items()
+    )
 
 
 def _has_expandable_keyword(keywords: list[str]) -> bool:
@@ -357,6 +391,8 @@ def _retry_advanced_search_if_empty(config: ChatConfig, plan: dict, api_plan: di
 
     terms = _retry_terms(plan, api_plan)
     base_body = dict(api_plan.get("requestBody") or {})
+    original_search = (base_body.get("filter_searchText") or "").strip()
+    unfiltered = _original_search_was_unfiltered(api_plan)
 
     for label, search_text in _advanced_search_retry_attempts(terms):
         retry_body = dict(base_body)
@@ -376,7 +412,26 @@ def _retry_advanced_search_if_empty(config: ChatConfig, plan: dict, api_plan: di
 
         total, row_count = _extract_total_and_rows(retry_result)
         if (total and total > 0) or (row_count and row_count > 0):
+            # A single leftover token that matches a large slice of the database is
+            # the ladder falling off the bottom, not an answer. Task 797 "succeeded"
+            # on the term "1" with 2,057 rows for a two-UID question.
+            if label == "SINGLE" and not unfiltered and (total or 0) > RETRY_SINGLE_TOTAL_CEILING:
+                print(
+                    f"[DEBUG][API][RETRY] Rejecting {label}: filter_searchText={search_text!r} "
+                    f"total={total} exceeds ceiling {RETRY_SINGLE_TOTAL_CEILING}; "
+                    "a single leftover term is not an answer to a filtered question"
+                )
+                continue
+
             print(f"[DEBUG][API][RETRY] Success with {label}: filter_searchText={search_text!r} total={total} rows={row_count}")
+            if search_text != original_search:
+                # Recorded so the reply can disclose that these rows are not the
+                # user's terms. Undisclosed substitution is the actual defect.
+                retry_api_plan["retry_substituted_search"] = {
+                    "original": original_search,
+                    "used": search_text,
+                    "label": label,
+                }
             return retry_api_plan, retry_result
 
         print(f"[DEBUG][API][RETRY] No results with {label}: filter_searchText={search_text!r} total={total} rows={row_count}")
