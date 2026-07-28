@@ -131,6 +131,54 @@ def _mask_cypher(cypher: str) -> str:
     return "".join(out)
 
 
+# --------------------------------------------------------------------------- #
+# Canonical sample-UID property
+#
+# The cached Neo4j schema lists BOTH `uuid` and `UID` under node_properties.Sample,
+# while prompts/graph_agent.txt states "Sample nodes have exactly three properties:
+# uuid, type, id" and "The canonical UID property is `uuid` (lowercase)". Handed a
+# schema that advertises `UID`, the model sometimes believes the schema.
+#
+# Task 855 did exactly that: correctly routed to graph with both UIDs bound, then
+# filtered on `WHERE nhp.UID IN $uids`, matched nothing, and reported a confident
+# negative. The 2026-07-24 run asked the same question using `uuid` and returned the
+# correct six records.
+#
+# The property guard is not involved — `UID` IS in the schema, so flagging it as
+# unknown would be wrong. `UID` appears on no other label (Study/Investigation/
+# SampleType carry only title/id/description/project_id), so the rewrite is
+# unambiguous. Deterministic for the same reason the filter guard is: the prompt
+# already says this and the model does it anyway.
+# --------------------------------------------------------------------------- #
+
+# `nhp.UID` but not `AS UID` (no dot) and not `.UID` inside a string literal (the
+# mask blanks those before this ever sees them).
+_SAMPLE_UID_PROP_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\.UID\b")
+
+
+def canonicalize_sample_uid_property(cypher: str) -> tuple[str, list[str]]:
+    """Rewrite `<var>.UID` property reads to the canonical `<var>.uuid`.
+
+    Returns (cypher, notes); notes is empty when nothing was rewritten.
+    """
+    if not cypher:
+        return cypher, []
+    masked = _mask_cypher(cypher)
+    notes: list[str] = []
+    pieces: list[str] = []
+    last = 0
+    for m in _SAMPLE_UID_PROP_RE.finditer(masked):
+        var = m.group(1)
+        pieces.append(cypher[last:m.start()])
+        pieces.append(f"{var}.uuid")
+        last = m.end()
+        notes.append(f"{var}.UID -> {var}.uuid")
+    if not notes:
+        return cypher, []
+    pieces.append(cypher[last:])
+    return "".join(pieces), notes
+
+
 def _split_clauses(masked: str) -> list[tuple[str, int, int, int]]:
     """Return (KEYWORD, keyword_start, body_start, body_end) for each clause, in order."""
     matches = list(_CLAUSE_RE.finditer(masked))
@@ -321,6 +369,15 @@ def graph_agent(
             client=graph_client,
         )
         print(f"[DEBUG][GRAPH] Generated cypher: {result.cypher!r}")
+
+        # Canonical-UID guard: runs FIRST so everything downstream, including the
+        # property guard and the filter guard, sees the canonical spelling.
+        result.cypher, uid_notes = canonicalize_sample_uid_property(result.cypher)
+        if uid_notes:
+            result.explanation = (
+                f"{result.explanation} [uid guard: {'; '.join(uid_notes)}]"
+            ).strip()
+            print(f"[DEBUG][GRAPH] Canonicalised UID property: {result.cypher!r}")
 
         # Schema guard: reject Cypher that filters on properties no node actually has
         # (e.g. a hallucinated `s.Lab`). Re-prompt once with the error + valid props;
