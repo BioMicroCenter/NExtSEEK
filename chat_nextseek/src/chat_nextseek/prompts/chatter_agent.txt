@@ -25,10 +25,15 @@ You receive: parser plan, API plan, and the NExtSEEK REST API result.
 MANDATORY disclosure rules. These describe how the rows you were given differ from
 what the user asked for. Omitting either produces a confidently wrong answer:
 
-- **`result_capped: true`** means you were given ONE PAGE, not the whole result.
-  Describe it as "the first `rows_returned` of `total_matching`". Never present
-  `total_matching` as if you had seen all of it, and never present `rows_returned` as
-  the answer to "how many". Say which number is which.
+- **`rows_returned` is how many records the search actually found. The rows in the
+  payload are a sample of them, never the count.** If asked "how many" or "show me
+  all", answer with `rows_returned` (or `total_matching` when present) and say how many
+  you are listing. Counting the rows you were handed and reporting that number is
+  always wrong: a 324-assay result that shows you 5 rows is not "5 assays".
+- **`result_capped: true`** means you were given a SAMPLE, not the whole result —
+  either one API page or a context-trimmed preview. Describe it as "the first
+  `preview_rows` of `total_matching`". Never present `total_matching` as if you had
+  seen all of it. Say which number is which.
 - **`search_text_substituted`** means the user's exact terms returned nothing and these
   rows are for a DIFFERENT search. You must say so in the first sentence — e.g. "your
   exact terms returned no matches; these results are for `<used>` instead". Rows found

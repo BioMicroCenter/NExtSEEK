@@ -54,12 +54,17 @@ def test_the_implicit_page_size_default_is_reported():
     assert d["page_size"] == DEFAULT_API_PAGE_SIZE
 
 
-def test_capping_is_computed_from_the_full_result_not_the_preview():
-    """slim_api_result_for_llm keeps 5 rows; that must not read as 'capped at 5'."""
+def test_the_counts_are_computed_from_the_full_result_not_the_preview():
+    """
+    slim_api_result_for_llm keeps 5 rows. That IS a cap and is flagged as one, but the
+    numbers must describe the real result: 12 found, 5 shown — never "5 found".
+    """
     slim = slim_api_result_for_llm(_result(12, 12), api_plan={"queryParameters": {}})
 
-    assert "result_capped" not in slim
     assert slim["rows_returned"] == 12
+    assert slim["total_matching"] == 12
+    assert slim["preview_rows"] == 5
+    assert slim["result_capped"] is True
     assert len(slim["data"]["rows"]) == 5
 
 
@@ -118,3 +123,72 @@ def test_a_non_list_payload_does_not_crash():
     assert build_result_disclosure({"ok": True, "data": {"total": 5}}, {}) == {}
     assert build_result_disclosure({"ok": False, "error": "boom"}, {}) == {}
     assert build_result_disclosure(None, None) == {}
+
+
+# --------------------------------------------------------------------------- #
+# T1.12 — the assay count
+#
+# Task 833: api_result_meta.row_count was 324, the reply said "You have access to 5
+# assays" and listed the 5 previewed rows. Diagnosed as a code path, not
+# summarisation nondeterminism: /nextseek_api/assays/ is a SEEK JSON:API passthrough
+# ({"data": [...], "jsonapi":..., "links":..., "meta":...}) that carries no total
+# anywhere, and slim_api_result_for_llm trims data["data"] to max_rows=5. The chatter
+# was left holding 5 rows and no other number, so "5" was the only answer available.
+#
+# Note 5 is exactly max_rows — the reported count equalled the preview length.
+# --------------------------------------------------------------------------- #
+
+def _assays_jsonapi(n):
+    """The real endpoint shape: a JSON:API body with no total field of any kind."""
+    return {
+        "ok": True,
+        "status_code": 200,
+        "data": {
+            "data": [{"id": str(i), "type": "assays",
+                      "attributes": {"title": f"Assay {i}"}} for i in range(n)],
+            "jsonapi": {"version": "1.0"},
+            "links": {"self": "/assays?page[number]=1&page[size]=100"},
+            "meta": {"base_url": "http://seek", "api_version": "v1"},
+        },
+    }
+
+
+def test_the_assays_payload_really_has_no_total():
+    """Pins the premise of the diagnosis: nothing in the body says 324."""
+    body = _assays_jsonapi(324)["data"]
+    assert "total" not in body and "total_samples" not in body
+    assert "total" not in body["meta"] and "count" not in body["meta"]
+
+
+def test_the_full_assay_count_survives_slimming():
+    slim = slim_api_result_for_llm(_assays_jsonapi(324), api_plan={"queryParameters": {}})
+
+    assert slim["rows_returned"] == 324, "the chatter still cannot see how many there are"
+    assert slim["preview_rows"] == 5
+    assert slim["result_capped"] is True
+    assert slim["total_matching"] == 324
+    # And the preview really is trimmed, so this is not just a fat payload.
+    assert len(slim["data"]["data"]) == 5
+
+
+def test_a_short_list_is_not_flagged_as_capped():
+    slim = slim_api_result_for_llm(_assays_jsonapi(3), api_plan={"queryParameters": {}})
+
+    assert slim["rows_returned"] == 3
+    assert "result_capped" not in slim
+    assert "preview_rows" not in slim
+
+
+def test_preview_rows_is_absent_when_nothing_was_trimmed():
+    slim = slim_api_result_for_llm(_result(5, 5), api_plan={"queryParameters": {}})
+    assert "preview_rows" not in slim
+
+
+def test_both_cap_reasons_can_apply_at_once():
+    """API paging AND context trimming: total_matching must stay the API's total."""
+    slim = slim_api_result_for_llm(_result(2057, 1000), api_plan={"queryParameters": {}})
+
+    assert slim["total_matching"] == 2057, "the API total must win over the row count"
+    assert slim["rows_returned"] == 1000
+    assert slim["preview_rows"] == 5
+    assert slim["result_capped"] is True

@@ -71,17 +71,29 @@ def _rows_actually_returned(api_result: dict | None) -> int | None:
     return None
 
 
-def build_result_disclosure(api_result: dict | None, api_plan: dict | None = None) -> dict:
+def build_result_disclosure(
+    api_result: dict | None,
+    api_plan: dict | None = None,
+    preview_rows: int | None = None,
+) -> dict:
     """
-    Flags describing how the returned rows differ from what the user asked for.
+    Flags describing how the rows the chatter sees differ from what the user asked for.
 
-    Two silences this removes. ``tool_nextseek_api_request`` hard-defaults
-    ``page_size: 1000``, so a search matching 2,057 records returns 1,000 rows and
-    reports total 2,057; the chatter faithfully said "2,057 records" while row_count
-    was 1000, and nothing said the rows were a page. And when the retry ladder
-    substitutes a different search text, the rows are not the user's terms at all.
+    Three silences this removes.
 
-    Neither of those is a hallucination — the defect is that nothing told the chatter.
+    1. ``tool_nextseek_api_request`` hard-defaults ``page_size: 1000``, so a search
+       matching 2,057 records returns 1,000 rows and reports total 2,057. The chatter
+       faithfully said "2,057 records" while row_count was 1000, and nothing said the
+       rows were a page.
+    2. The LLM-context slim keeps 5 rows. ``/nextseek_api/assays/`` is a SEEK JSON:API
+       passthrough whose body carries no total at all, so after slimming the chatter
+       held 5 rows and no other number — and answered "You have access to 5 assays"
+       for a 324-row result (task 833). Reporting the preview length as the answer was
+       the only thing it could do with what it was given.
+    3. When the retry ladder substitutes a different search text, the rows are not the
+       user's terms at all.
+
+    None of these is a hallucination — the defect is that nothing told the chatter.
     """
     disclosure: dict = {}
 
@@ -95,9 +107,17 @@ def build_result_disclosure(api_result: dict | None, api_plan: dict | None = Non
             page_size = DEFAULT_API_PAGE_SIZE
         if page_size is not None:
             disclosure["page_size"] = page_size
+
+    # Capped by the API's page size: more matched than came back.
     if total is not None and rows is not None and total > rows:
         disclosure["result_capped"] = True
         disclosure["total_matching"] = total
+
+    # Capped by the LLM-context slim: more came back than the chatter can see.
+    if preview_rows is not None and rows is not None and preview_rows < rows:
+        disclosure["preview_rows"] = preview_rows
+        disclosure["result_capped"] = True
+        disclosure.setdefault("total_matching", total if total is not None else rows)
 
     if isinstance(api_plan, dict) and api_plan.get("retry_substituted_search"):
         disclosure["search_text_substituted"] = api_plan["retry_substituted_search"]
@@ -160,9 +180,12 @@ def slim_api_result_for_llm(
             },
         }
 
-    # Computed from the ORIGINAL result, not the slimmed preview — the preview is
-    # always 5 rows, which would make every result look capped.
-    slimmed.update(build_result_disclosure(api_result, api_plan))
+    # Row counts come from the ORIGINAL result; `preview_rows` is what actually
+    # survived into the payload the chatter reads. Passing both is what lets the
+    # chatter say "324, showing 5" instead of "5".
+    slimmed.update(
+        build_result_disclosure(api_result, api_plan, preview_rows=_rows_actually_returned(slimmed))
+    )
     return slimmed
 
 
