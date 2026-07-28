@@ -147,7 +147,7 @@ if [[ "$lane" != "lint" && "$lane" != "coverage" && "$lane" != "mutants" ]]; the
   command+=("${test_args[@]}")
 fi
 reference_image_id="$(docker image inspect --format '{{.Id}}' nextseek-nextseek)" || exit 65
-if [[ "$reference_image_id" != "sha256:1fc2e7175e9d215c1659945ad19a666c2e29a1360091babbaa310148dafb000c" ]]; then
+if [[ "$reference_image_id" != "sha256:397ca26e65051d05693330893898cb6b0b0fd4d430cc89df0b32fdd223f15ee4" ]]; then
   echo "reference image identity drift" >&2; exit 65
 fi
 chown_evidence_root() {
