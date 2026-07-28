@@ -48,7 +48,7 @@
          "name": "Global sample count = 50,889", "tags": ["nessie", "green", "full"], "requires_env": [],
          "turns": [{"label": "main", "query": "How many samples are in the database?",
                     "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"},
-                                      {"field": "last_reply", "op": "mentions", "value": "50,889"}]}]},
+                                      {"field": "last_reply", "op": "matches_re", "value": "50,?88[0-9]"}]}]},
         {"family": "nessie_green", "id": "green.mus_ndma",
          "name": "Mice + NDMA keyword search → 195", "tags": ["nessie", "green", "full"], "requires_env": [],
          "turns": [{"label": "main", "query": "Find mice treated with NDMA.",
@@ -91,13 +91,13 @@
         {"family": "nessie_repro", "id": "repro.eof_truncation_reporter",
          "name": "bonus: reporter plan EOF truncation", "tags": ["nessie", "known_fail", "full"], "requires_env": [],
          "turns": [{"label": "main", "query": "Write me an nf-core rnaseq report for the last results.",
-                    "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "^(?!.*could not be completed).*$"}]}]},
+                    "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "(?s)^(?!.*could not be completed).*$"}]}]},
         {"family": "nessie_repro", "id": "repro.cypher_uid_dot",
          "name": "cypher UID / D.SEQ dot defect (VERIFIED FIXED 2026-07-27)",
          "_why": "Kept as a live regression guard, no longer known_fail. In the 2026-07-24 run it returned the six expected D.SEQ-220823SHA UIDs, i.e. it xpassed; leaving the tag on made a green result read as an expected failure.",
          "tags": ["nessie", "fixed", "full"], "requires_env": [],
          "turns": [{"label": "main", "query": "Find sequencing data for NHP-220524FLY-1-PUB and NHP-220524FLY-2-PUB.",
-                    "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "(NHP-220524FLY|D\\.SEQ)"}]}]}
+                    "pass_criteria": [{"field": "last_reply", "op": "mentions", "value": "D.SEQ-220823SHA"}]}]}
       ]
     },
 
@@ -209,6 +209,16 @@
                     "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "reporter"},
                                       {"field": "reporter_plan.project", "op": "matches_re", "value": "(?i)metnet"},
                                       {"field": "reporter_result.years_table", "op": "nonempty"}]}]},
+        {"family": "reporting", "id": "report.build_me_a_full_nih_report_for",
+         "name": "Full NIH (RPPR) report for SRP must actually run",
+         "_why": "HIGHEST-VALUE criterion in the set. This raised ValueError(\"Unknown project 'SRP'\") in BOTH the 2026-07-24 baseline (task 751) and the 2026-07-27 rerun (task 815), and the whole reply was 'The reporter agent could not run the project report.' It passed both times, because the criteria only asserted the PLAN (mode, reporter_mode, project) and never that the report ran.",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Build me a full NIH Report for SRP in 2025",
+                    "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "reporter"},
+                                      {"field": "reporter_plan.reporter_mode", "op": "eq", "value": "summary"},
+                                      {"field": "reporter_plan.project", "op": "matches_re", "value": "(?i)srp"},
+                                      {"field": "reporter_result.ok", "op": "true", "value": null},
+                                      {"field": "reporter_result.samples.uuids_saved", "op": "gte", "value": 1}]}]},
         {"family": "reporting", "id": "report.put_together_an_annual_progres",
          "name": "RPPR for Kamm must be SCOPED",
          "_why": "The base asserted reporter_plan.project == 'Kamm', but Kamm is modelled as a LAB. The real defect: reporter_result came back project_id null with 50,886 rows — the entire database — for a Kamm-scoped RPPR.",
@@ -216,7 +226,10 @@
          "turns": [{"label": "main", "query": "Put together an annual progress report for the Kamm project - I need it for our NIH grant renewal",
                     "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "reporter"},
                                       {"field": "reporter_plan.reporter_mode", "op": "eq", "value": "summary"},
-                                      {"field": "reporter_result.samples.uuids_saved", "op": "lte", "value": 45000}]}]}
+                                      {"field": "reporter_result.ok", "op": "true", "value": null},
+                                      {"field": "reporter_result.samples.uuids_saved", "op": "gte", "value": 1},
+                                      {"field": "reporter_result.samples.uuids_saved", "op": "lte", "value": 20000},
+                                      {"field": "reporter_result.samples.labs_table", "op": "nonempty", "value": null}]}]}
       ]
     },
 
@@ -232,11 +245,19 @@
                                       {"field": "api_ok", "op": "true"},
                                       {"field": "api_result_meta.row_count", "op": "gte", "value": 1}]}]},
         {"family": "search_advanced", "id": "advanced.find_me_nhp_samples_from_study",
-         "name": "NHP samples from study GBM must not silently answer zero",
-         "_why": "Observed: cypher matched Study.title only and returned 0. 'GBM' is a Study node holding a single sample, while the samples the user means are reachable via Investigation or sample metadata. Either a non-empty result or a CC escalation is acceptable; a bare '0 samples' is not.",
-         "tags": ["nessie", "full"], "requires_env": [],
+         "name": "NHP samples from study GBM — ground truth is ZERO",
+         "_why": "GBM does not exist at any level; all 408 NHP samples are in Impact. Turn 819 answered '89 NHP samples in GBM' — fabricated by hand-counting NHP- rows out of the unfiltered graph dump (its own batch histogram reports 4 for NHP-220416FLY-* where the graph has 8, and misses the largest batches). The old regex accepted 'could not' and 'no samples matched', so a total failure passed; it also accepted any confident number. Require an honest negative AND reject a confident non-zero sample count.",
+         "tags": ["nessie", "full", "no_floor"], "requires_env": [],
          "turns": [{"label": "main", "query": "Find me NHP samples from study GBM",
-                    "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "(NHP-|Investigation|metadata|publication|could not|no samples matched)"}]}]},
+                    "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": "(?is)(no NHP|no samples|zero|0 samples|does not exist|not a (study|project|investigation)|could not find|not found)"},
+                                      {"field": "last_reply", "op": "matches_re", "value": "(?s)^(?!.*\\b[1-9][0-9]*\\s+(?:NHP|samples|records)\\b).*$"}]}]},
+        {"family": "search_advanced", "id": "advanced.find_me_nhp_samples_from_study_ns_graph",
+         "name": "RED: the same GBM question pinned to the NS graph path",
+         "_why": "Its sibling is route-agnostic, so Container CC can paper over the server-side defect. This one pins nextseek_query so the NS graph path stays visible on its own. Tagged known_fail: until the OPTIONAL MATCH guard is live, the NS answer for GBM is the unfiltered 50,161.",
+         "tags": ["nessie", "known_fail", "full", "no_floor"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Find me NHP samples from study GBM",
+                    "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"},
+                                      {"field": "last_reply", "op": "matches_re", "value": "(?s)^(?!.*(\\b[45]\\d[,.]\\d{3}\\b|\\b[45]\\d{4}\\b)).*$"}]}]},
         {"family": "search_advanced", "id": "advanced.find_me_nhp_samples_from_study_2",
          "name": "NHP samples from study IMPACT must return real rows",
          "_why": "Same question shape as the GBM case. The base demanded REST advanced_search, but IMPACT is an Investigation and the graph answers it correctly — the engine choice is not the defect, the silent 250-row cap was. Assert rows came back and were not truncated, whichever engine ran.",
@@ -260,6 +281,29 @@
                                       {"field": "neo4j_ok", "op": "true"},
                                       {"field": "graph_result.count", "op": "gte", "value": 1},
                                       {"field": "graph_not_truncated", "op": "true"}]}]},
+        {"family": "graph_query", "id": "graph.find_me_studies_in_metnet",
+         "name": "Studies in MetNet = 10, not the whole catalog",
+         "_why": "Task 792 returned 51 — every Study node in the database — because its OPTIONAL MATCH was followed directly by WHERE, so the project filter was folded into the optional pattern and discarded. It passed anyway: the old criteria only asserted mode, non-empty cypher and neo4j_ok, none of which notice a filter that did nothing. Ground truth is 10.",
+         "tags": ["nessie", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Find me studies in MetNet",
+                    "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "graph_query"},
+                                      {"field": "graph_cypher", "op": "nonempty", "value": null},
+                                      {"field": "neo4j_ok", "op": "true", "value": null},
+                                      {"field": "graph_result.count", "op": "gte", "value": 1},
+                                      {"field": "graph_result.count", "op": "lte", "value": 25},
+                                      {"field": "graph_not_truncated", "op": "true", "value": null}]}]},
+        {"family": "graph_query", "id": "graph.what_pbmcs_tissues_in_the_gbm",
+         "name": "PBMC tissues in GBM — the zero is honest",
+         "_why": "The operator confirmed 0 is CORRECT: GBM does not exist as a Study or an Investigation title. So do NOT assert a nonzero count. Assert instead that the query was well formed — the right parameters bound and the derivation traversal present — which is what distinguishes an honest zero from a query that never filtered.",
+         "tags": ["nessie", "full", "no_floor"], "requires_env": [],
+         "turns": [{"label": "main", "query": "what PBMCs tissues in the GBM study have sequencing data",
+                    "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "graph_query"},
+                                      {"field": "graph_cypher", "op": "nonempty", "value": null},
+                                      {"field": "neo4j_ok", "op": "true", "value": null},
+                                      {"field": "graph_result.parameters.project", "op": "matches_re", "value": "(?i)gbm"},
+                                      {"field": "graph_result.parameters.child_type", "op": "eq", "value": "D.SEQ"},
+                                      {"field": "graph_result.parameters.parent_type", "op": "nonempty", "value": null},
+                                      {"field": "graph_cypher", "op": "contains", "value": "DERIVED_FROM"}]}]},
         {"family": "graph_query", "id": "graph.what_mice_are_in_the_impact_st",
          "name": "Mice in the Impact study (must not stop at the old 250 cap)",
          "_why": "Passed every assertion in the 2026-07-24 run while returning exactly 250 rows — the old LIMIT — because no criterion looked at result counts.",
@@ -272,6 +316,20 @@
       ]
     },
 
+    "routing_graph": {
+      "description": "OVERRIDE. Routing cases whose criteria asserted the plan but never the answer.",
+      "variants": [
+        {"family": "routing_graph", "id": "routing.gbm_study_count",
+         "name": "GBM sample count — must not report the unfiltered 50,161",
+         "_why": "Task 817 answered 50,161, which is every sample in any study: the OPTIONAL MATCH...WHERE defect made the result independent of $project. Ground truth is 0, because GBM is not a Study or Investigation title. The old criterion asserted only parser_plan.mode, so it passed. NOTE graph_result.count is 1 here (one row holding a count), so the number to guard is in the REPLY, not the row count.",
+         "tags": ["nessie", "full", "no_floor"], "requires_env": [],
+         "turns": [{"label": "main", "query": "How many samples are in the GBM study?",
+                    "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "graph_query"},
+                                      {"field": "neo4j_ok", "op": "true", "value": null},
+                                      {"field": "graph_result.parameters.project", "op": "matches_re", "value": "(?i)gbm"},
+                                      {"field": "last_reply", "op": "matches_re", "value": "(?s)^(?!.*(\\b[45]\\d[,.]\\d{3}\\b|\\b[45]\\d{4}\\b)).*$"}]}]}
+      ]
+    },
     "unsupported": {
       "description": "OVERRIDE. Blessed 2026-07-27: open-ended analysis is CC's job, not an NS 'unsupported'.",
       "variants": [
@@ -288,11 +346,14 @@
       "description": "OVERRIDES. Blessed 2026-07-27: resource creation routes to CC, which must not write without confirmation.",
       "variants": [
         {"family": "writes_unsupported", "id": "write.create_me_investigation_testin",
-         "name": "Investigation write routes to CC and asks first",
-         "tags": ["nessie", "full"], "requires_env": [],
+         "name": "Entity write via CC must confirm or create, not abort",
+         "_why": "`last_reply nonempty` passed on a reply that only said the attempt budget was exhausted. Routing to CC is correct and blessed; the OUTCOME still has to be a create or a confirmation request.",
+         "tags": ["nessie", "full", "no_floor"], "requires_env": [],
          "turns": [{"label": "main", "query": "Create me investigation \"Testing Investigation. Still Testing\"",
                     "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"},
-                                      {"field": "last_reply", "op": "nonempty"}]}]},
+                                      {"field": "last_reply", "op": "nonempty", "value": null},
+                                      {"field": "last_reply", "op": "matches_re", "value": "(?s)^(?!.*(attempt budget|stop-after-2|thrash)).*$"},
+                                      {"field": "last_reply", "op": "matches_re", "value": "(?is)(created|confirm|would you like|shall I|proceed|investigation id)"}]}]},
         {"family": "writes_unsupported", "id": "write.create_me_investigation_test_c",
          "name": "Investigation write routes to CC and asks first",
          "tags": ["nessie", "full"], "requires_env": [],
@@ -306,11 +367,13 @@
       "variants": [
         {"family": "system_question", "id": "sys.show_me_all_assays_i_have_acce",
          "name": "Assay listing (either classification is acceptable)",
-         "_why": "Classified new_search where its sibling classified system_question. It still hit /nextseek_api/assays/ and answered with 324 assays. The inconsistency is real but the outcome is right, so assert the outcome.",
+         "_why": "Classified new_search where its sibling classified system_question. Either is acceptable; the OUTCOME is not. Task 833 hit /nextseek_api/assays/, got row_count 324, and replied 'You have access to 5 assays' — 5 being exactly the slim preview length. The old criteria (mode matches either, reply mentions 'assay') passed that happily, which is what made this a masked pass.",
          "tags": ["nessie", "full"], "requires_env": [],
          "turns": [{"label": "main", "query": "Show me all assays I have access to",
                     "pass_criteria": [{"field": "parser_plan.mode", "op": "matches_re", "value": "(system_question|new_search)"},
-                                      {"field": "last_reply", "op": "matches_re", "value": "(assay|Assay)"}]}]}
+                                      {"field": "last_reply", "op": "matches_re", "value": "(assay|Assay)"},
+                                      {"field": "api_result_meta.row_count", "op": "gte", "value": 300},
+                                      {"field": "last_reply", "op": "mentions", "value": "324"}]}]}
       ]
     }
   }
