@@ -104,7 +104,7 @@ set -u
 # Pinned identities
 # ---------------------------------------------------------------------------
 APP_IMAGE="nextseek-nextseek:latest"
-APP_IMAGE_ID_PIN="sha256:397ca26e65051d05693330893898cb6b0b0fd4d430cc89df0b32fdd223f15ee4"
+APP_IMAGE_ID_PIN="sha256:66d06207ab7b04886c5129f553302566dd83ee8318a325e1308367ebcf8b64d2"
 MYSQL_IMAGE="mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b"
 
 # ---------------------------------------------------------------------------
