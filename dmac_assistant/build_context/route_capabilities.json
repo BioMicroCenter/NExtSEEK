@@ -120,11 +120,11 @@
         },
         {
           "name": "ambiguous_study_resolution",
-          "description": "Find or reconcile samples for a named study/cohort when a single lookup will not settle it, because 'study' is not one thing in NExtSEEK. A study name can be (a) an Investigation node — the short project names like Impact, MetNet, SRP; (b) a Study node — usually the full title of the publication the work belongs to; or (c) only a metadata attribute on the samples themselves (e.g. Study on an NHP/MUS/PAT record), when no publication exists yet. Because these three live in different stores, one query can return zero while another returns hundreds for the SAME question. Route here when the user asks for samples from a named study AND the name is not an obvious project, or when they say a previous study answer looked wrong or empty. CC should try the graph on both node types AND a metadata search, then reconcile and report which interpretation produced what. A plain, unambiguous study membership question stays on nextseek_query (lineage_or_graph).",
+          "description": "Reconcile a named study/cohort ACROSS STORES when the graph alone cannot settle it, because 'study' is not one thing in NExtSEEK. A study name can be (a) an Investigation node, (b) a Study node — usually the full publication title, or (c) only a metadata attribute on the samples themselves (e.g. Study on an NHP/MUS/PAT record), when no publication exists yet. Only case (c) genuinely needs this route: nextseek_query's graph path now disjoins Study.title and Investigation.title itself, so it resolves (a) and (b) on its own. Route here ONLY when: (i) the user says a previous study answer looked wrong, empty or suspicious; or (ii) the named scope is not one of the known graph names AND reads like a descriptive cohort, condition or timepoint label rather than a project code — 'a 4 week study', 'the CD8 depletion study', 'the high-dose arm'. The known investigation names are CSBC, Griffith, Impact, MetNet, SRP and Shoulders; a Study node is normally a full publication title. A study membership question naming any of those, or any name that simply might be a project, stays on nextseek_query (lineage_or_graph) — including when it returns zero, because zero can be the correct answer. Do not route here merely because the name is unfamiliar to you.",
           "example_queries": [
-            "Find me NHP samples from study GBM.",
             "Which samples belong to the CD8 depletion study? I don't think it's a project.",
-            "That study search came back empty — can you check whether it's a publication or a metadata field?"
+            "That study search came back empty — can you check whether it's a publication or a metadata field?",
+            "Find me the samples from the 4 week study."
           ]
         },
         {
