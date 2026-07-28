@@ -152,9 +152,17 @@ def chatter_agent_answer(
                 break
         return out
 
+    graph_truncated = False
+    graph_limit = None
     if is_graph:
         graph_data = ((graph_result or {}).get("data") or [])
-        total_matches = (graph_result or {}).get("count")
+        # `count` is len(records), so a query that hit its LIMIT used to report the
+        # limit as the answer — graph.tissue_cell_impact's real total is 10,688 and
+        # it reported 5000. Prefer the probed total when the result was truncated.
+        graph_truncated = bool((graph_result or {}).get("truncated"))
+        graph_limit = (graph_result or {}).get("limit")
+        probed_total = (graph_result or {}).get("total")
+        total_matches = probed_total if probed_total is not None else (graph_result or {}).get("count")
         preview_count = len(graph_data[:20])
         example_ids = _harvest_ids(graph_data)
     elif is_reporter and isinstance(reporter_summary, dict):
@@ -230,7 +238,14 @@ def chatter_agent_answer(
         f"{data_section}\n\n"
         "Result statistics:\n"
         f"- Total matches: {total_matches if total_matches is not None else 'unknown'}\n"
-        f"- Preview rows shown: {preview_count}\n\n"
+        f"- Preview rows shown: {preview_count}\n"
+        + (
+            f"- TRUNCATED: the query hit its LIMIT of {graph_limit}. "
+            f"{'Total matches above is the TRUE total, obtained by a separate count.' if total_matches is not None else 'The true total could not be determined.'} "
+            "The rows you were given are a capped sample, not the whole result.\n"
+            if graph_truncated else ""
+        )
+        + "\n"
         f"{examples_block}"
         f"MODE: {mode_label}\n\n"
         "Instructions for this turn:\n"

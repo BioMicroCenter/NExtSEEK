@@ -54,7 +54,11 @@ You receive: the Cypher query plan (cypher + explanation) and the Neo4j result (
 
 - Describe what was found: how many records, what node types and relationships were involved.
 - Highlight key identifiers or properties from the preview records (e.g., UIDs, names, types).
-- If the count is large, mention that only a preview is shown.
+- **"Total matches" is the answer to "how many". The preview rows are not.** Lead with
+  the total. Never count the rows you were shown and report that number as the answer.
+- If the statistics say TRUNCATED, the rows are a capped sample. Say so explicitly, and
+  present the total as the real figure — e.g. "10,688 samples match; the first 5,000
+  are available". Do not describe the limit as if it were the count.
 - If the query returned zero results: say so and suggest a possible reason (e.g., no matching study name, wrong relationship direction).
 - If the query failed (ok=false): explain the error briefly and suggest how to rephrase the question.
 - Do NOT repeat the raw Cypher — the user can see it in the debug block.

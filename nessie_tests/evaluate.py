@@ -115,12 +115,20 @@ def augment_debug(debug: dict, obs: ro.RouteObservation, bundle_summary: dict | 
 
 
 def _graph_not_truncated(debug: dict) -> bool:
-    """True when the graph result is not sitting exactly on a LIMIT boundary.
+    """True when the graph result is not a capped sample.
 
-    True for non-graph turns too, so the criterion is only meaningful where a
-    graph query actually ran.
+    Prefers the real `truncated` flag, which the Neo4j tool now sets by comparing the
+    row count against the query's own trailing LIMIT. The sentinel comparison below is
+    only a fallback for results produced before that flag existed — it can never be
+    more than a guess, and it went stale the moment the limit moved from 250 to 5000.
+
+    True for non-graph turns too, so the criterion is only meaningful where a graph
+    query actually ran.
     """
-    count = (debug.get("graph_result") or {}).get("count")
+    graph = debug.get("graph_result") or {}
+    if "truncated" in graph:
+        return not bool(graph.get("truncated"))
+    count = graph.get("count")
     return not (isinstance(count, int) and count in GRAPH_LIMIT_SENTINELS)
 
 
