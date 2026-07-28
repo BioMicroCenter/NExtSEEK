@@ -52,6 +52,37 @@ def _resolve_investigation(config, name) -> "tuple[int, str] | None":
     return None
 
 
+def _resolve_report_scope(config, project) -> "tuple[str, Any]":
+    """
+    Resolve a report's requested scope to ``("project", id)``,
+    ``("investigation", (id, title))`` or ``("all", None)``.
+
+    Only ``run_project_sample_report`` used to have the investigation fallback; the
+    protocols and published runners called ``_normalize_project_id`` bare. The six
+    investigations (CSBC, Griffith, Impact, MetNet, SRP, Shoulders) live in
+    ``INVESTIGATION_NAME_TO_ID`` while ``PROJECT_NAME_TO_ID`` holds only
+    {PUB, PUBLISHED, PUBLISHED DATA}, so every investigation name raised
+    ``ValueError("Unknown project 'SRP'")`` and the whole RPPR died — identically in
+    baseline task 751 and post-fix task 815 — while the samples-only mode answered
+    the same string fine.
+
+    Raises ValueError only when the name is neither a project nor an investigation,
+    preserving the original error for genuinely unknown scopes.
+    """
+    if project is None or (isinstance(project, str) and not project.strip()):
+        return ("all", None)
+    try:
+        project_id = _normalize_project_id(config, project)
+    except ValueError:
+        investigation = _resolve_investigation(config, project)
+        if investigation is None:
+            raise
+        return ("investigation", investigation)
+    if project_id is None:
+        return ("all", None)
+    return ("project", project_id)
+
+
 def _tabulate_sample_uuids(uuids: list[str]) -> dict:
     """Shared sample-UUID tabulation (sampletype/lab/year/month counts).
     UID format: ``<SAMPLETYPE>-<YYMMDD><LAB>-<INCREMENT>``. Identical logic to the
@@ -198,15 +229,12 @@ def run_project_sample_report(
     # project but IS a known investigation, take the investigation-scoped path
     # (Neo4j — the relational DB has no sample->investigation linkage). Any name
     # that is neither still raises the original "Unknown project" ValueError.
-    try:
-        project_id = _normalize_project_id(config, project)
-    except ValueError:
-        investigation = _resolve_investigation(config, project)
-        if investigation is None:
-            raise
+    kind, scope = _resolve_report_scope(config, project)
+    if kind == "investigation":
         return _run_investigation_sample_report(
-            config, investigation, project, years, month_range, day_range, outputs_root
+            config, scope, project, years, month_range, day_range, outputs_root
         )
+    project_id = scope if kind == "project" else None
 
     conn = config._db_conn or config._connect_db(env="prod")
     if conn is None:
@@ -414,7 +442,26 @@ def run_project_protocols_report(
       - years_table: counts by YY
       - months_table: counts by YYMM
     """
-    project_id = _normalize_project_id(config, project)
+    # Protocols have no relational sample->investigation link, so an investigation
+    # scope cannot be narrowed here. Report every protocol and say so explicitly
+    # rather than raising and killing the whole RPPR (task 815).
+    kind, scope = _resolve_report_scope(config, project)
+    unsupported_scope = None
+    if kind == "investigation":
+        inv_id, inv_title = scope
+        unsupported_scope = {
+            "kind": "investigation",
+            "investigation_id": inv_id,
+            "investigation_title": inv_title,
+            "unsupported": True,
+            "reason": "protocols have no relational link to investigations; "
+                      "reporting all protocols",
+        }
+        print(f"[DEBUG][REPORTER] Protocols cannot be scoped to investigation "
+              f"'{inv_title}'; reporting all protocols")
+        project_id = None
+    else:
+        project_id = scope if kind == "project" else None
 
     conn = config._db_conn or config._connect_db(env="prod")
     if conn is None:
@@ -546,6 +593,7 @@ def run_project_protocols_report(
             "years_table": years_table,
             "months_table": months_table,
             "unparsable_titles": unparsable_count,
+            **({"scope": unsupported_scope} if unsupported_scope else {}),
         }
 
     except Exception as e:
@@ -575,7 +623,11 @@ def run_project_published_report(  # noqa: C901
 
     Returns counts of published samples (by type/lab/year/month), study count, and protocol count.
     """
-    project_id = _normalize_project_id(config, project)
+    # Resolution only — the Cypher below already filters on the raw project string via
+    # $proj_hint, so an investigation name works the moment resolution stops raising.
+    kind, scope = _resolve_report_scope(config, project)
+    project_id = scope if kind == "project" else None
+    investigation_scope = scope if kind == "investigation" else None
     outputs_root = Path(outputs_root)
     outputs_root.mkdir(exist_ok=True)
     ts = datetime.now().strftime("%Y%m%dT%H%M%S")
@@ -794,6 +846,10 @@ WHERE {prod_where};
         "report_file": report_path,
         "samples": samples_result,
         "protocols": protocols_result,
+        **({"scope": {"kind": "investigation",
+                      "investigation_id": investigation_scope[0],
+                      "investigation_title": investigation_scope[1]}}
+           if investigation_scope else {}),
     }
 
 
@@ -902,17 +958,35 @@ def run_reporter_summary(
 
     print(f"[DEBUG][REPORTER] Summary mode: {summary_mode}, project: {project}, years: {years}")
 
+    def _guarded(block: str, fn, *a, **kw) -> dict:
+        """
+        Run one report block, degrading that block alone on failure.
+
+        A single blanket `except` around all three RPPR blocks meant one raising
+        runner discarded the *successful* ones too: task 815's protocols failure
+        threw away a perfectly good samples block and the whole reply became
+        "The reporter agent could not run the project report."
+        """
+        try:
+            return fn(*a, **kw)
+        except Exception as e:
+            print(f"[DEBUG][REPORTER] {block} block failed: {e!r}")
+            return {"ok": False, "error": repr(e), "block": block}
+
     try:
         if summary_mode == "RPPR":
-            samples_result = _scope_report_to_labs(run_project_sample_report(
+            samples_result = _scope_report_to_labs(_guarded(
+                "samples", run_project_sample_report,
                 config, project, years=years, month_range=month_range,
                 day_range=day_range, outputs_root=log_dir or "outputs",
             ), fallback_labs)
-            protocols_result = run_project_protocols_report(
+            protocols_result = _guarded(
+                "protocols", run_project_protocols_report,
                 config, project, years=years, month_range=month_range,
                 day_range=day_range, outputs_root=log_dir or "outputs",
             )
-            published_result = run_project_published_report(
+            published_result = _guarded(
+                "published", run_project_published_report,
                 config, project, years=years, month_range=month_range,
                 day_range=day_range, outputs_root=log_dir or "outputs",
             )
