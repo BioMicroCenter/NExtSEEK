@@ -189,8 +189,7 @@ class GeminiClient(BaseLLMClient):
                 system_parts.append(str(content))
                 continue
             role_mapped = "model" if role == "assistant" else "user"
-            # contents.append({"role": role_mapped, "parts": [str(content)]})
-            contents.append({"text": [str(content)]})
+            contents.append({"role": role_mapped, "parts": [{"text": str(content)}]})
         system_instruction = "\n\n".join(system_parts) if system_parts else None
         return contents, system_instruction
 
@@ -206,6 +205,13 @@ class GeminiClient(BaseLLMClient):
         """Call Gemini `generate_content` and normalize the result into `LLMResponse`."""
 
         contents, system_instruction = self._convert_messages(messages)
+        if not contents:
+            # Previously fell through to an IndexError on contents[0], which the
+            # generic handler below reclassified as an opaque LLMError.
+            raise LLMError(
+                f"Gemini request for model={model} has no user/assistant content to send "
+                f"({len(messages)} message(s), all system)"
+            )
 
         generation_config: dict[str, Any] = {"system_instruction": system_instruction, "temperature": temperature}
         if isinstance(response_format, dict) and response_format.get("type") == "json_object":
@@ -216,7 +222,7 @@ class GeminiClient(BaseLLMClient):
         try:
             resp = self.client.models.generate_content(
                 model = model,
-                contents = contents[0]['text'],
+                contents = contents,
                 config = generation_config
             )
         except Exception as e:
@@ -255,12 +261,29 @@ class GeminiClient(BaseLLMClient):
         except Exception:
             pass
 
+        # Mirror BedrockClient's stop_reason so truncation is visible to callers.
+        # A completion that stops at a fixed token count every attempt is a cap,
+        # not a model choice, and without this the two are indistinguishable.
+        metadata = None
+        try:
+            candidates = getattr(resp, "candidates", None) or []
+            if candidates:
+                finish_reason = getattr(candidates[0], "finish_reason", None)
+                metadata = {
+                    "finish_reason": getattr(finish_reason, "name", None) or (
+                        str(finish_reason) if finish_reason is not None else None
+                    ),
+                }
+        except Exception:
+            pass
+
         return LLMResponse(
             content=text or "",
             raw=resp,
             usage=usage,
             model=model,
             provider=self.provider,
+            metadata=metadata,
         )
 
 
