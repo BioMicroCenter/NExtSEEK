@@ -20,6 +20,17 @@
           ]
         },
         {
+          "name": "system_or_catalog_question",
+          "description": "Questions ABOUT the NExtSEEK catalog or the system itself, rather than searches THROUGH it. Handled by system_agent (downstream mode: system_question). Three sub-intents: (a) what a named catalog entity IS — an assay, sample type, project, study, or protocol; (b) what the system can DO — its capabilities, the difference between search modes; (c) what EXISTS as options — which assays, sample types, endpoints, or graph relationships are available. Such a question is in scope for NExtSEEK even when it names no sample, uses no first-person wording ('Tell me about Tissue collection' is as much a catalog question as 'what assays do I have access to'), and sounds like ordinary biology. NExtSEEK's registered names ARE ordinary lab vocabulary — Tissue Collection, RNA Extraction, Flow Cytometry, Comet Chip Analysis, Patient Visit, Luminex are all real catalog entries. Do not treat a plain-language biological noun as evidence the question is unrelated. If the user actually wants records back rather than an explanation, that is sample_search instead.",
+          "example_queries": [
+            "Tell me about Tissue collection.",
+            "What is a TIS sample?",
+            "Show me all assays I have access to.",
+            "What sample types can I search for?",
+            "What relationships are in the graph?"
+          ]
+        },
+        {
           "name": "lineage_or_graph",
           "description": "Graph traversal: lineage, study membership, assay-on-sample. Handles a named study or project directly, matching both Study and Investigation nodes. Use this for a straightforward 'what/how many samples are in <study>' question.",
           "example_queries": [
@@ -87,6 +98,24 @@
             "Build me an update sheet to normalize the genotypes in the database.",
             "Prepare a batch-upload workbook that sets Scientist to Jane Doe on these UIDs.",
             "Make an upload spreadsheet to create new samples from this protocol text."
+          ]
+        },
+        {
+          "name": "entity_write_via_api",
+          "description": "Create, update or delete an Investigation, Study, Project, Assay or other NExtSEEK record through the REST API, using the nextseek-api tool. This is a WRITE against the live API, and is distinct from batch_upload_preparation, which builds a reviewable sample-metadata workbook and never writes anything. The tell: the user names a single entity and an action on it ('create an investigation called X', 'rename study Y', 'delete the test project'), rather than supplying material to turn into sample rows.",
+          "example_queries": [
+            "Create me an investigation called Testing 404.",
+            "Update the title of study 12 to 'CD8 depletion cohort'.",
+            "Delete the investigation I made yesterday."
+          ]
+        },
+        {
+          "name": "open_ended_analysis",
+          "description": "Analytical or comparative reasoning over data, rather than retrieval of it: statistical comparison, differential expression, clustering, correlation, quality assessment, or an open 'is X better than Y' / 'what does this suggest' judgement. Needs code execution and iteration, which the deterministic pipeline does not provide.",
+          "example_queries": [
+            "Is the RNA quality better in the Impact samples or the MetNet ones?",
+            "Run a differential expression comparison between the treated and control mice.",
+            "Cluster these samples by their metadata and tell me what the groups have in common."
           ]
         },
         {
