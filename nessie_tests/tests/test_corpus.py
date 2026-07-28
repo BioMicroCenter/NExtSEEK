@@ -184,7 +184,12 @@ def test_the_zero_is_correct_cases_are_all_opted_out():
 def test_the_floor_actually_moves_the_needle():
     OUTCOME = ("api_result_meta.row_count", "graph_result.count", "graph_result.total",
                "reporter_result", "last_reply", "api_artifact", "bundle",
-               "api_result_meta.status_code")
+               "api_result_meta.status_code",
+               # The 2026-07-28 floor rewrite renamed what it injects. These assert
+               # the outcome was OBSERVED and DISCLOSED rather than asserting its
+               # value, which is what made the old floor false-fail correct answers.
+               "api_outcome_observed", "graph_outcome_observed",
+               "graph_truncation_disclosed", "report_produced_output")
     merged = corpus.merged(_OV)
     weak = [v for v in merged
             if not any(c.field.startswith(OUTCOME) for t in v.turns for c in t.pass_criteria)]

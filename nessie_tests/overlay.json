@@ -275,12 +275,12 @@
         {"family": "graph_query", "id": "graph.tissue_cell_impact",
          "name": "Tissue + cell samples from IMPACT (parameterised, uncapped)",
          "_why": "The base asserted graph_cypher contains 'IMPACT'. Values are now bound as $parameters, which is safer, so the literal never appears — the assertion was testing the old string-interpolation style. Replaced with an outcome check plus the truncation guard.",
+         "_2026_07_28": "graph_not_truncated was unsatisfiable here and always will be: ground truth is 10,688 rows against a 5,000 page. The run that produced 5,000-of-10,688 with truncated:true was CORRECT and this criterion failed it anyway. The total probe shipped this wave makes the real total checkable, so assert that. A hidden cap is still caught, by the floor's graph_truncation_disclosed.",
          "tags": ["nessie", "full"], "requires_env": [],
          "turns": [{"label": "main", "query": "Find all tissue and cell samples from IMPACT.",
                     "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "graph_query"},
                                       {"field": "neo4j_ok", "op": "true"},
-                                      {"field": "graph_result.count", "op": "gte", "value": 1},
-                                      {"field": "graph_not_truncated", "op": "true"}]}]},
+                                      {"field": "graph_result.total", "op": "gte", "value": 10000}]}]},
         {"family": "graph_query", "id": "graph.find_me_studies_in_metnet",
          "name": "Studies in MetNet = 10, not the whole catalog",
          "_why": "Task 792 returned 51 — every Study node in the database — because its OPTIONAL MATCH was followed directly by WHERE, so the project filter was folded into the optional pattern and discarded. It passed anyway: the old criteria only asserted mode, non-empty cypher and neo4j_ok, none of which notice a filter that did nothing. Ground truth is 10.",
@@ -443,34 +443,35 @@
   }
   ,"family_floor": {
     "_note": "Minimum OUTCOME assertion per family, applied by corpus.merged() to the LAST TURN of every variant in a listed family. Of 381 merged variants, 108 assert plan shape only and 194 assert only plumbing (api_ok / neo4j_ok, which say a request COMPLETED, not that it returned anything) — 79% cannot detect a wrong answer. Hand-editing 300 variants is not viable, so the floor is applied structurally.",
-    "_rules": "A floor criterion is added only when the last turn does not already assert that FIELD, so a deliberate bound (e.g. row_count lte 20000) is never overwritten and never contradicted. Families not listed here get no floor. Tag a variant `no_floor` to opt out entirely — required wherever ZERO is the correct answer.",
+    "_rules": "A floor criterion is added only when the last turn does not already assert that FIELD, so a deliberate bound (e.g. row_count lte 20000) is never overwritten and never contradicted. Families not listed here get no floor. Tag a variant `no_floor` to opt out entirely.",
+    "_2026_07_28_correction": "The first version of this floor asserted VALUES rather than OBSERVABILITY, and that produced 10 of the 15 failures in the seed-0 run — false failures on answers that were correct. Measured over the merged corpus, the old spec put an unsatisfiable criterion on 163 variants (`count gte 1` where zero is ground truth, e.g. 14 GBM graph variants and zero_result_zebrafish), 59 (`graph_not_truncated` where the honest answer is 10,688 rows against a 5,000 cap) and 64 (`reporter_result.ok`, which only run_reporter_summary sets — the 24 SRA/GEO/PRIDE variants go through generate_report_outputs). A floor exists to catch a criterion that cannot SEE the answer, not to assert what the answer is. So: `api_outcome_observed` / `graph_outcome_observed` (the outcome was observed, zero included), `graph_truncation_disclosed` (a cap is fine, a HIDDEN cap is not) and `report_produced_output` (either of reporting's two result shapes). Per-case value expectations belong on the case, not in the floor.",
     "exclude_tag": "no_floor",
     "floors": {
       "search_advanced": [
         {"field": "api_ok", "op": "true", "value": null},
-        {"field": "api_result_meta.row_count", "op": "gte", "value": 1}
+        {"field": "api_outcome_observed", "op": "true", "value": null}
       ],
       "search_retrieve": [
         {"field": "api_ok", "op": "true", "value": null},
-        {"field": "api_result_meta.row_count", "op": "gte", "value": 1}
+        {"field": "api_outcome_observed", "op": "true", "value": null}
       ],
       "search_parents_by_child": [
         {"field": "api_ok", "op": "true", "value": null},
-        {"field": "api_result_meta.row_count", "op": "gte", "value": 1}
+        {"field": "api_outcome_observed", "op": "true", "value": null}
       ],
       "search_tree": [
         {"field": "api_ok", "op": "true", "value": null}
       ],
       "graph_query": [
         {"field": "neo4j_ok", "op": "true", "value": null},
-        {"field": "graph_result.count", "op": "gte", "value": 1},
-        {"field": "graph_not_truncated", "op": "true", "value": null}
+        {"field": "graph_outcome_observed", "op": "true", "value": null},
+        {"field": "graph_truncation_disclosed", "op": "true", "value": null}
       ],
       "routing_graph": [
         {"field": "neo4j_ok", "op": "true", "value": null}
       ],
       "reporting": [
-        {"field": "reporter_result.ok", "op": "true", "value": null}
+        {"field": "report_produced_output", "op": "true", "value": null}
       ]
     }
   }

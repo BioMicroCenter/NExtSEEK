@@ -113,7 +113,85 @@ def augment_debug(debug: dict, obs: ro.RouteObservation, bundle_summary: dict | 
     if artifact_index is not None:
         debug[ARTIFACT_INDEX_KEY] = artifact_index
     debug["graph_not_truncated"] = _graph_not_truncated(debug)
+    debug["graph_truncation_disclosed"] = _graph_truncation_disclosed(debug)
+    debug["report_produced_output"] = _report_produced_output(debug)
+    debug["graph_outcome_observed"] = _graph_outcome_observed(debug)
+    debug["api_outcome_observed"] = _api_outcome_observed(debug)
     return debug
+
+
+def _graph_outcome_observed(debug: dict) -> bool:
+    """True when the graph turn reported a row count, INCLUDING zero.
+
+    The floor's job is to catch a criterion that cannot see the answer, not to
+    assert what the answer is. `gte 1` conflates the two and calls an honest zero a
+    failure, which is wrong for the 14 GBM graph variants whose ground truth is
+    zero. `nonempty` is worse: it is `bool(actual)`, so it rejects 0 as well.
+    """
+    return (debug.get("graph_result") or {}).get("count") is not None
+
+
+def _api_outcome_observed(debug: dict) -> bool:
+    """True when the REST turn reported a row count, or answered from a recall.
+
+    A follow-up that resolves against a previously recalled bundle carries
+    `source_mode` and no `row_count` of its own, and that is correct rather than a
+    gap. `retrieve.then_inspect` is the only multi-turn variant in any floored
+    family, and the floor lands on the LAST turn, so without this it would be a
+    guaranteed false failure.
+    """
+    meta = debug.get("api_result_meta") or {}
+    return meta.get("row_count") is not None or meta.get("source_mode") is not None
+
+
+def _report_produced_output(debug: dict) -> bool:
+    """True when a reporting turn produced either of its two possible result shapes.
+
+    `orchestrator.py` splits the reporting family in two: `reporter_mode ==
+    "report_generation"` goes to `generate_report_outputs`, whose evidence is
+    `report_saved_files`; everything else goes to `run_reporter_summary`, whose
+    evidence is `reporter_result.ok`. The floor asserted only the second, so all 24
+    SRA/GEO/PRIDE variants carried a criterion their own code path never sets.
+
+    Asserting the disjunction is strictly better than tagging those 24 variants: it
+    needs no per-case bookkeeping, and it stays meaningful either way. If generation
+    does write files the cases pass; if it silently writes nothing they still fail,
+    but now for a true reason rather than an unsatisfiable one.
+    """
+    result = debug.get("reporter_result")
+    if isinstance(result, dict) and result.get("ok") is True:
+        return True
+    return bool(debug.get("report_saved_files"))
+
+
+def _graph_truncation_disclosed(debug: dict) -> bool:
+    """True when the graph result is either complete or HONEST about being capped.
+
+    `graph_not_truncated` asserts a cap never happened. That is the wrong invariant
+    for a floor: `graph.tissue_cell_impact` has 10,688 legitimate rows against a
+    5,000 limit, so it can never satisfy it no matter how correct the answer is.
+    Meanwhile the failure that actually burned us — the 2026-07-27 run reporting
+    exactly 5,000 as if it were the total — is a DISCLOSURE failure, not a
+    truncation one.
+
+    So: a capped result passes only if it also reports a real total exceeding the
+    rows it returned. That is precisely what the total probe added this wave makes
+    checkable, and it turns the floor into something a correct answer can satisfy.
+
+    True for non-graph turns, so the criterion stays inert on REST families.
+    """
+    graph = debug.get("graph_result") or {}
+    if not graph:
+        return True
+    count, total = graph.get("count"), graph.get("total")
+    if "truncated" in graph:
+        if not graph.get("truncated"):
+            return True
+        return isinstance(total, int) and isinstance(count, int) and total > count
+    # Results produced before the total probe existed carry no `truncated` flag, so
+    # a count landing exactly on a known LIMIT is the only remaining signal, and an
+    # undisclosed one by definition.
+    return not (isinstance(count, int) and count in GRAPH_LIMIT_SENTINELS)
 
 
 def _graph_not_truncated(debug: dict) -> bool:
