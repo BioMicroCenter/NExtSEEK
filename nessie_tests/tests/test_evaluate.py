@@ -81,3 +81,66 @@ def test_artifact_criteria_resolve_from_the_turns_own_files(tmp_path):
     missing, _r2, _o2 = evaluate.evaluate_turn(
         payload, [{"field": "api_artifact.sra_seq.xlsx", "op": "true"}], OBS_NS)
     assert not missing  # the stale name really is absent, and now says so
+
+
+# --------------------------------------------------------------------------- #
+# T3.6 — evaluate_turn calls check_pass with no session=/browser_ctx=/mysql_chat_log=,
+# so pipeline_agent.*, chat_log.*, ui_text.* and op:trio_match all resolve to None and
+# fail unconditionally. 27 such criteria span 12 variants, nearly all in the expensive
+# pipeline_nfcore family, so most seeds draw one or two guaranteed red herrings.
+#
+# pipeline.reject_non_directive asserts `eq False` and failed only because None != False.
+# --------------------------------------------------------------------------- #
+
+def test_unobservable_fields_are_recognised():
+    for f in ("pipeline_agent.active", "pipeline_agent.launch_plan.params.genome",
+              "chat_log.length", "ui_text.assistant_reply"):
+        assert evaluate.is_unobservable(f, "true")
+    assert evaluate.is_unobservable("trio", "trio_match")
+
+
+def test_observable_fields_are_not_swept_up():
+    for f in ("api_ok", "neo4j_ok", "last_reply", "api_result_meta.row_count",
+              "graph_result.count", "reporter_result.ok", "parser_plan.mode",
+              "api_artifact.samplesheet.csv"):
+        assert not evaluate.is_unobservable(f, "true"), f
+
+
+def _payload(reply="ok"):
+    return {"progress": [{"event": "query_complete",
+                          "data": {"reply": reply, "debug": {"api_result_meta": {"row_count": 5}}}}]}
+
+
+class _Obs:
+    route = "nextseek_query"; engine = "new_search"; source = "baml"
+
+
+def test_an_unobservable_criterion_is_skipped_not_failed():
+    passed, results, _ = evaluate.evaluate_turn(
+        _payload(), [{"field": "pipeline_agent.active", "op": "true", "value": None}], _Obs())
+
+    assert passed is True, "an unevaluable criterion must not fail the case"
+    assert results[0]["skipped"] is True
+    assert "not observable over HTTP" in results[0]["reason"]
+
+
+def test_the_eq_false_case_no_longer_fails_on_none():
+    """pipeline.reject_non_directive: `eq False` failed only because None != False."""
+    passed, results, _ = evaluate.evaluate_turn(
+        _payload(), [{"field": "pipeline_agent.active", "op": "eq", "value": False}], _Obs())
+
+    assert passed is True
+    assert results[0]["skipped"] is True
+
+
+def test_observable_criteria_alongside_skipped_ones_are_still_evaluated():
+    passed, results, _ = evaluate.evaluate_turn(
+        _payload(),
+        [{"field": "pipeline_agent.active", "op": "true", "value": None},
+         {"field": "api_result_meta.row_count", "op": "gte", "value": 999}],
+        _Obs())
+
+    assert passed is False, "a real criterion must still be able to fail"
+    by_field = {r["field"]: r for r in results}
+    assert by_field["pipeline_agent.active"].get("skipped") is True
+    assert by_field["api_result_meta.row_count"]["passed"] is False

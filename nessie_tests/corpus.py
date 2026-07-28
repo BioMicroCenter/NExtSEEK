@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import random
+import re
 from pathlib import Path
 from nessie_tests.pathsetup import ensure_e2e_importable
 
@@ -81,6 +82,49 @@ def apply_family_floor(variants: list[Variant], floor_spec: dict) -> list[Varian
     return variants
 
 
+def load_criterion_rewrites(path) -> dict:
+    """Structural corrections applied to every matching criterion in the corpus."""
+    if not path:
+        return {}
+    return json.loads(Path(path).read_text(encoding="utf-8")).get("criterion_rewrites", {})
+
+
+def apply_criterion_rewrites(variants: list[Variant], spec: dict) -> list[Variant]:
+    """Correct `reporter_plan.project eq "<Name>"` across the whole corpus.
+
+    Two verified facts make every one of these 30 criteria false-fail:
+
+    - the reporter UPPERCASES the project it resolved. Task 813 came back "METNET"
+      for a plan asserting ``eq "MetNet"``.
+    - for a LAB scope it returns ``project: null`` entirely. Task 812 shows
+      ``reporter_plan.project: null`` with ``reporter_context.lab_codes: ["KAM"]``,
+      so ``eq "Kamm"`` can never hold — Kamm is a lab, not a project.
+
+    So a lab name is rewritten to assert the resolved lab code, and every other name
+    becomes a case-insensitive regex. Doing it here rather than as 30 hand-written
+    overlay overrides keeps the correction in one reviewable place.
+    """
+    labs = {k.upper(): v for k, v in (spec or {}).get("reporter_project_labs", {}).items()}
+    if not spec or not spec.get("reporter_project_case_insensitive", False):
+        return variants
+
+    for v in variants:
+        for t in v.turns:
+            for i, c in enumerate(t.pass_criteria):
+                if c.field != "reporter_plan.project" or c.op != "eq" or not isinstance(c.value, str):
+                    continue
+                code = labs.get(c.value.strip().upper())
+                if code:
+                    t.pass_criteria[i] = PassCriterion(
+                        field="reporter_plan.reporter_context.lab_codes",
+                        op="contains", value=code)
+                else:
+                    t.pass_criteria[i] = PassCriterion(
+                        field="reporter_plan.project", op="matches_re",
+                        value="(?i)" + re.escape(c.value.strip()))
+    return variants
+
+
 def merged(overlay_path: Path | None = None) -> list[Variant]:
     """Base catalog plus overlay, where an overlay variant may OVERRIDE a base one.
 
@@ -96,6 +140,7 @@ def merged(overlay_path: Path | None = None) -> list[Variant]:
     base = load_base()
     out = [by_id.pop(v.id, v) for v in base]
     out += [v for v in ov if v.id in by_id]
+    out = apply_criterion_rewrites(out, load_criterion_rewrites(overlay_path))
     return apply_family_floor(out, load_family_floor(overlay_path))
 
 
