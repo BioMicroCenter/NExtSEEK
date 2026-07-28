@@ -1,5 +1,7 @@
 from __future__ import annotations
+import hashlib
 import os
+import subprocess
 import time
 from pathlib import Path
 from nessie_tests import corpus, evaluate, http_driver, report
@@ -27,6 +29,36 @@ def _iso(clock):  # avoid datetime.now() so tests are deterministic
     return f"t={clock():.3f}"
 
 
+def corpus_fingerprint(overlay_path) -> str:
+    """sha256 over the catalog + overlay bytes.
+
+    This is what makes a two-run diff honest. `--seed` changes sampling, not the
+    database, so the same seed picks the same cases — but only if the corpus is
+    unchanged. If the overlay was edited between runs the same seed selected a
+    DIFFERENT set, and a diff tool must say so rather than silently mis-pair cases.
+    """
+    h = hashlib.sha256()
+    for path in (corpus._BASE_CATALOG, overlay_path):
+        try:
+            h.update(Path(path).read_bytes())
+        except Exception:
+            h.update(b"<unreadable>")
+    return h.hexdigest()
+
+
+def git_sha() -> str | None:
+    """Short HEAD sha, or None outside a checkout (the deployed image has no .git)."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).resolve().parents[1],
+            capture_output=True, text=True, timeout=5,
+        )
+        return out.stdout.strip() or None
+    except Exception:
+        return None
+
+
 _MAX_OBSERVED_CHARS = 600
 
 
@@ -51,6 +83,16 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
     variants = corpus.select(corpus.merged(overlay_path), scope=scope, family=family, variant_id=variant_id)
     if sample < 1.0:
         variants = corpus.sample(variants, sample, seed)
+    # Recorded so two run directories can be told apart and diffed honestly.
+    run_meta = {
+        "seed": seed,
+        "sample": sample,
+        "selected_ids": [v.id for v in variants],
+        "overridden_ids": corpus.overridden_ids(overlay_path),
+        "corpus_fingerprint": corpus_fingerprint(overlay_path),
+        "base_url": base_url,
+        "git_sha": git_sha(),
+    }
     started = _iso(clock)
     entries: list[NessieManifestEntry] = []
     for v in variants:
@@ -78,6 +120,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
         case_tier = "route" if is_gate else tier
         session_id = None
         v_status, v_route, v_engine, v_cost, failed, reason = "passed", None, None, None, [], ""
+        v_route_source = None
         observations: list[CriterionObservation] = []
         poll_errors = 0
         t0 = clock()
@@ -95,6 +138,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                 session_id = res.session_id
                 poll_errors += res.poll_errors
                 v_route, v_engine = res.route_obs.route, res.route_obs.engine
+                v_route_source = res.route_obs.source
                 qc = next((e["data"] for e in reversed(res.payload.get("progress") or [])
                            if e.get("event") == "query_complete"), {})
                 v_cost = qc.get("total_cost_usd", v_cost)
@@ -122,6 +166,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
             reason = xpass_reason
         entries.append(NessieManifestEntry(
             id=v.id, family=v.family, tier=tier, status=v_status, route=v_route, engine=v_engine,
+            route_source=v_route_source,
             cost=v_cost, elapsed_s=round(clock() - t0, 3), failed_criteria=failed,
             observations=observations, poll_errors=poll_errors,
             reason=reason, expected_fail=expected_fail))
@@ -174,7 +219,8 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                     status="error", reason=f"{type(exc).__name__}: {exc}",
                     elapsed_s=round(clock() - g_t0, 3),
                     expected_fail=g_expected_fail))
-    manifest = NessieManifest(started_at=started, ended_at=_iso(clock), tier=tier, scope=scope, entries=entries)
+    manifest = NessieManifest(started_at=started, ended_at=_iso(clock), tier=tier, scope=scope,
+                              entries=entries, **run_meta)
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     write_manifest(manifest, Path(out_dir) / "manifest.json")
     report.generate_html(manifest, Path(out_dir))
@@ -218,6 +264,14 @@ def classify_entries(manifest: NessieManifest) -> dict:
         # Known-fails that actually failed. A known_fail that PASSED is an xpass and
         # belongs in real_fails, not here.
         "known_failed": [e for e in entries if e.expected_fail and e.status != "xpass"],
+        # Anything other than "baml" means the BAML router did not decide the turn.
+        # Task 816 fell to `heuristic` (1 in 65), a keyword regex that can never emit
+        # `unrelated` — so its route was not evidence about routing at all. An
+        # infrastructure flag, not a pass.
+        "heuristic_routed": [e for e in entries
+                             if e.route_source is not None and e.route_source != "baml"],
+        # Three more full-tier runs is real money; make the number visible.
+        "total_cost": round(sum(e.cost or 0.0 for e in entries), 4),
     }
 
 

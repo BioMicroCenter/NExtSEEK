@@ -91,6 +91,17 @@ class Command(BaseCommand):
         w(f"  error   : {count['error']}")
         w(f"  xpass   : {count['xpass']}  (known_fail that PASSED — stale expectation, counted as a failure)")
         w(f"  known-fail that failed as expected (excluded from gate): {len(known_failed)}")
+        w(f"  cost    : ${summary['total_cost']}")
+        if summary["heuristic_routed"]:
+            w("")
+            w(self.style.WARNING(
+                f"  INFRASTRUCTURE: {len(summary['heuristic_routed'])} case(s) were not routed "
+                f"by BAML — their route is not evidence about routing:"))
+            for e in summary["heuristic_routed"]:
+                w(f"    - {e.family}/{e.id}  (route_source={e.route_source})")
+        w("")
+        w(f"  seed={manifest.seed}  sample={manifest.sample}  "
+          f"corpus={(manifest.corpus_fingerprint or '')[:12]}  git={manifest.git_sha}")
         w("")
         if real_fails:
             w(self.style.ERROR(f"GATE: FAIL — {len(real_fails)} real failure(s):"))

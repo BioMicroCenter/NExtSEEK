@@ -22,20 +22,28 @@ def _display_status(entry) -> str:
 
 
 def _observations_table(entry) -> str:
-    """Expected-vs-observed for whatever did not pass.
+    """Expected-vs-observed for EVERY criterion, passing and failing.
 
-    Recording the observed value is what lets a run explain itself instead of
-    requiring a trip to assistant_query_task afterwards.
+    This used to filter to `not o.passed`, so a passing case rendered nothing at all.
+    That blind spot is exactly how the assay count went 324 -> 5 and the MetNet study
+    count went 10 -> 51 while both cases stayed green: the report could show that a
+    criterion was satisfied, but never what the answer actually was.
+
+    Showing passing rows is what makes review by OUTPUT possible rather than review by
+    pass rate.
     """
-    failed = [o for o in entry.observations if not o.passed]
-    if not failed:
+    if not entry.observations:
         return ""
+    n_failed = sum(1 for o in entry.observations if not o.passed)
     rows = "\n".join(
-        _OBS_ROW.format(cls="failed", turn=html.escape(o.turn), field=html.escape(o.field),
+        _OBS_ROW.format(cls="failed" if not o.passed else "passed",
+                        turn=html.escape(o.turn), field=html.escape(o.field),
                         expected=html.escape(f"{o.op} {o.expected!r}"),
                         observed=html.escape(str(o.observed)))
-        for o in failed)
-    return ("<details><summary>observed</summary>"
+        for o in entry.observations)
+    label = (f"observed ({len(entry.observations)} criteria, {n_failed} failed)"
+             if n_failed else f"observed ({len(entry.observations)} criteria, all passed)")
+    return (f"<details><summary>{label}</summary>"
             "<table border=1 cellpadding=3><tr><th>turn</th><th>field</th>"
             f"<th>expected</th><th>observed</th></tr>{rows}</table></details>")
 
