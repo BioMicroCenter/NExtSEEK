@@ -75,7 +75,15 @@ if [[ "$lane" == "unit" ]]; then
   mapfile -t test_args < <(python3 - "$task_id" <<'PY'
 import json, sys
 manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
-for node in manifest["runner_contract"]["unit_lane_contract"][sys.argv[1]]["node_arguments"]:
+unit = manifest["runner_contract"]["unit_lane_contract"]
+if sys.argv[1] in unit:
+    nodes = unit[sys.argv[1]]["node_arguments"]
+else:
+    db = manifest["runner_contract"]["db_lane_contract"]
+    if sys.argv[1] not in db:
+        raise SystemExit(f"missing exact unit lane selection for {sys.argv[1]}")
+    nodes = db[sys.argv[1]]["node_arguments"]
+for node in nodes:
     print(node)
 PY
   )
@@ -201,7 +209,7 @@ cleanup_boundary() {
   docker rm -f "$db_container" >/dev/null 2>&1 || true
   docker network rm "$network_name" >/dev/null 2>&1 || true
   rm -f "$evidence_root/.rails-seed.json" "$evidence_root/.rails-oracle.json" \
-    "$evidence_root/.rails-source-hashes.txt"
+    "$evidence_root/.rails-source-hashes.txt" "$evidence_root/.oracle-verify-key.hex"
   cleanup_complete=1
   return "$status"
 }
@@ -266,6 +274,9 @@ if [[ "$task_id" == "task-02" ]]; then
   docker run --rm --network "$network_name" -e DATABASE_URL="$rails_database_url" \
     "$seek_image_id" bundle exec rake db:schema:load
   oracle_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+  oracle_key_file="$evidence_root/.oracle-verify-key.hex"
+  printf '%s' "$oracle_key" >"$oracle_key_file"
+  chmod 600 "$oracle_key_file"
   docker run --rm --network "$network_name" -e DATABASE_URL="$rails_database_url" \
     -e ATTRIBUTE_ORACLE_KEY="$oracle_key" -v "$oracle:/work/rails_auth_oracle.rb:ro" \
     "$seek_image_id" bundle exec rails runner /work/rails_auth_oracle.rb seed \
@@ -315,6 +326,7 @@ PY
   export ATTRIBUTE_TEST_SEEK_URL="http://${rails_alias}:3000"
   export ATTRIBUTE_TEST_RAILS_BOUNDARY="$evidence_root/rails-boundary.json"
   export ATTRIBUTE_TEST_RAILS_SEED="$evidence_root/.rails-seed.json"
+  export ATTRIBUTE_TEST_ORACLE_VERIFY_KEY_FILE="$oracle_key_file"
 fi
 export ATTRIBUTE_TEST_DATABASE_PRECREATED=1
 export ATTRIBUTE_TEST_DOCKER_NETWORK ATTRIBUTE_TEST_DATABASE_NAME
@@ -353,6 +365,7 @@ container_args=(--rm --network "${ATTRIBUTE_TEST_DOCKER_NETWORK:?required dispos
   -e ATTRIBUTE_TEST_DB_PASSWORD -e ATTRIBUTE_TEST_DATABASE_NAME -e ATTRIBUTE_TEST_DISPOSABLE_DB_UUID
   -e ATTRIBUTE_TEST_DATABASE_PRECREATED=1
   -e ATTRIBUTE_TEST_SEEK_URL -e ATTRIBUTE_TEST_RAILS_BOUNDARY -e ATTRIBUTE_TEST_RAILS_SEED
+  -e ATTRIBUTE_TEST_ORACLE_VERIFY_KEY_FILE
   -e ATTRIBUTE_PERFORMANCE_MATRIX_MODE -e ATTRIBUTE_T06_CHUNK_SELECTION_POINTER -e ATTRIBUTE_T06_CHUNK_SELECTION
   -e ATTRIBUTE_EVIDENCE_TASK_ID -e ATTRIBUTE_EVIDENCE_RUN_ROOT="$evidence_root"
   -e ATTRIBUTE_TEST_FAULT_CONTROL)
