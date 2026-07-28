@@ -80,6 +80,7 @@ _REPORTS_REEXPORTS: dict[str, str] = {
     "run_project_protocols_report": "runners",
     "run_project_published_report": "runners",
     "run_reporter_summary": "runners",
+    "reporter_reply_footer": "runners",
     # ..reports.metadata
     "annotate_metadata_with_sampletypes": "metadata",
     "fetch_reporter_metadata": "metadata",

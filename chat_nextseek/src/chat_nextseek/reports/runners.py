@@ -593,6 +593,8 @@ def run_project_protocols_report(
             "years_table": years_table,
             "months_table": months_table,
             "unparsable_titles": unparsable_count,
+            # Needed by _scope_protocols_to_labs; dropped again by run_reporter_summary.
+            "titles": titles,
             **({"scope": unsupported_scope} if unsupported_scope else {}),
         }
 
@@ -724,6 +726,11 @@ def run_project_published_report(  # noqa: C901
             "rows_returned": len(uids),
             "study_count": len(study_set),
             "studies": sorted(study_set),
+            # Needed by _scope_published_to_labs so study_count/studies can be
+            # recomputed from the survivors rather than left contradicting the row
+            # count. Dropped again by run_reporter_summary.
+            "uuids": uids,
+            "uuid_studies": [[r.get("uuid"), r.get("study_title")] for r in rows if r.get("uuid")],
             "sampletypes_table": dict(sorted(sampletype_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
             "labs_table": dict(sorted(lab_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
             "years_table": dict(sorted(year_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
@@ -908,6 +915,153 @@ def _scope_report_to_labs(result: dict, lab_codes: list[str]) -> dict:
     return scoped
 
 
+def _lab_of_protocol_title(title: str) -> str | None:
+    """Lab code embedded in a protocol title (``P.<LAB>-<YYMMDD>-<rest>``)."""
+    m = re.match(r"^P\.(?P<lab>[^-]+)-\d{6}-", str(title))
+    return m.group("lab").upper() if m else None
+
+
+def _scope_protocols_to_labs(result: dict, lab_codes: list[str]) -> dict:
+    """Narrow a protocols report to the requested lab(s).
+
+    Only the samples block used to be scoped, so an RPPR for a LAB reported that
+    lab's samples next to every protocol in the database.
+    """
+    wanted = {c.strip().upper() for c in lab_codes if isinstance(c, str) and c.strip()}
+    if not wanted or not isinstance(result, dict) or not result.get("ok"):
+        return result
+    if "titles" not in result:
+        print(f"[DEBUG][REPORTER][SCOPE] cannot scope protocols to {sorted(wanted)}: "
+              "result has no 'titles' key. Returning the unscoped report.")
+        return result
+
+    titles = [t for t in (result.get("titles") or []) if _lab_of_protocol_title(t) in wanted]
+    lab_counts: dict[str, int] = {}
+    year_counts: dict[str, int] = {}
+    month_counts: dict[str, int] = {}
+    title_re = re.compile(r"^P\.(?P<lab>[^-]+)-(?P<yymmdd>\d{6})-")
+    unparsable = 0
+    for title in titles:
+        m = title_re.match(str(title))
+        if not m:
+            unparsable += 1
+            continue
+        lab_counts[m.group("lab")] = lab_counts.get(m.group("lab"), 0) + 1
+        ymd = m.group("yymmdd")
+        year_counts[ymd[:2]] = year_counts.get(ymd[:2], 0) + 1
+        month_counts[ymd[:4]] = month_counts.get(ymd[:4], 0) + 1
+
+    scoped = dict(result)
+    scoped["titles"] = titles
+    scoped["titles_saved"] = len(titles)
+    scoped["titles_preview"] = titles[:10]
+    scoped["rows_returned"] = len(titles)
+    scoped["labs_table"] = dict(sorted(lab_counts.items(), key=lambda kv: (-kv[1], kv[0])))
+    scoped["years_table"] = dict(sorted(year_counts.items(), key=lambda kv: (-kv[1], kv[0])))
+    scoped["months_table"] = dict(sorted(month_counts.items(), key=lambda kv: kv[0]))
+    scoped["unparsable_titles"] = unparsable
+    scoped["scope"] = {"kind": "lab", "lab_codes": sorted(wanted)}
+    return scoped
+
+
+def _scope_published_to_labs(result: dict, lab_codes: list[str]) -> dict:
+    """Narrow a published report to the requested lab(s).
+
+    ``study_count`` and ``studies`` are recomputed from the surviving UIDs. Leaving
+    them global while the row count narrowed is what produced task 812's
+    self-contradicting block: rows_returned 50179 alongside study_count 42 and 26
+    labs including FLY: 15994, all of it labelled a Kamm report.
+
+    UIDs whose lab cannot be parsed are dropped from the scoped set and counted in
+    ``unattributable_uids`` rather than silently vanishing.
+    """
+    wanted = {c.strip().upper() for c in lab_codes if isinstance(c, str) and c.strip()}
+    if not wanted or not isinstance(result, dict) or not result.get("ok"):
+        return result
+
+    samples = result.get("samples")
+    if not isinstance(samples, dict) or not samples.get("ok"):
+        return result
+    if "uuid_studies" not in samples:
+        print(f"[DEBUG][REPORTER][SCOPE] cannot scope published to {sorted(wanted)}: "
+              "samples block has no 'uuid_studies' key. Returning the unscoped report.")
+        return result
+
+    pairs = samples.get("uuid_studies") or []
+    kept = [(u, s) for u, s in pairs if _lab_of(u) in wanted]
+    unattributable = sum(1 for u, _ in pairs if _lab_of(u) is None)
+    uuids = [u for u, _ in kept]
+    study_set = {s for _, s in kept if s}
+
+    scoped_samples = dict(samples)
+    scoped_samples.update(_tabulate_sample_uuids(uuids))
+    scoped_samples["uuids"] = uuids
+    scoped_samples["uuid_studies"] = kept
+    scoped_samples["rows_returned"] = len(uuids)
+    scoped_samples["study_count"] = len(study_set)
+    scoped_samples["studies"] = sorted(study_set)
+    scoped_samples["unattributable_uids"] = unattributable
+
+    scoped = dict(result)
+    scoped["samples"] = scoped_samples
+    scoped["scope"] = {"kind": "lab", "lab_codes": sorted(wanted)}
+    return scoped
+
+
+def reporter_reply_footer(
+    config,
+    reporter_result: dict,
+    saved_files: "dict[str, str] | None",
+    summary_mode: str,
+) -> list[str]:
+    """Build the bullet-list footer appended under the chatter's narrative.
+
+    Two defects this replaces. The footer read top-level ``rows_returned`` and
+    ``uuid_report_file``, which an RPPR result does not have — they live under
+    ``samples`` — so a working RPPR still printed "Rows returned: 0" and
+    "Download report: None" while having generated three files, all present in
+    ``saved_files`` and none of them linked.
+
+    And a lab-scoped report never said so. The entity agent resolves
+    ``{"labs":["Kamm"],"lab_codes":["KAM"]}``, the plan comes back ``project: null``,
+    and a lab scope is substituted silently. The user asked for "the Kamm project"
+    and was never told that Kamm is a lab, not one of the six investigations.
+    """
+    lines: list[str] = []
+    saved_files = saved_files or {}
+
+    if summary_mode == "RPPR":
+        samples = reporter_result.get("samples") or {}
+        rows = samples.get("rows_returned")
+    else:
+        rows = reporter_result.get("rows_returned")
+    lines.append(f"- **Rows returned:** {rows}")
+
+    if summary_mode == "RPPR":
+        for key, path in saved_files.items():
+            lines.append(f"- **{key.replace('_', ' ').capitalize()}:** `{path}`")
+        if not saved_files:
+            lines.append("- **Download report:** none generated")
+    else:
+        lines.append(f"- **Download report:** `{reporter_result.get('uuid_report_file')}`")
+
+    scope = (reporter_result.get("scope")
+             or (reporter_result.get("samples") or {}).get("scope")
+             or {})
+    if isinstance(scope, dict) and scope.get("kind") == "lab":
+        codes = ", ".join(scope.get("lab_codes") or [])
+        known = sorted(getattr(config, "INVESTIGATION_NAME_TO_ID", None) or {})
+        note = (
+            f"- **Scope:** this report covers lab {codes}, not a project. "
+            "The name you gave is recorded as a lab code rather than an investigation"
+        )
+        if known:
+            note += f"; the investigations are {', '.join(known)}"
+        lines.append(note + ".")
+
+    return lines
+
+
 def _drop_uuid_list(result: dict) -> dict:
     """Strip the full uuid list from a reporter result once scoping has used it.
 
@@ -916,12 +1070,20 @@ def _drop_uuid_list(result: dict) -> dict:
     the debug payload, the metadata bundle and any LLM context built from them.
     ``uuids_saved``, ``uuid_preview`` and ``uuid_report_file`` remain.
     """
+    bulk = ("uuids", "uuid_studies", "titles")
     if not isinstance(result, dict):
         return result
-    cleaned = {k: v for k, v in result.items() if k != "uuids"}
+    cleaned = {k: v for k, v in result.items() if k not in bulk}
     for block in ("samples", "protocols", "published"):
-        if isinstance(cleaned.get(block), dict):
-            cleaned[block] = {k: v for k, v in cleaned[block].items() if k != "uuids"}
+        inner = cleaned.get(block)
+        if isinstance(inner, dict):
+            cleaned[block] = {k: v for k, v in inner.items() if k not in bulk}
+            # published nests its own samples/protocols blocks one level deeper.
+            for nested in ("samples", "protocols"):
+                if isinstance(cleaned[block].get(nested), dict):
+                    cleaned[block][nested] = {
+                        k: v for k, v in cleaned[block][nested].items() if k not in bulk
+                    }
     return cleaned
 
 
@@ -952,6 +1114,17 @@ def run_reporter_summary(
 
     # A scoped request whose project did not resolve would otherwise silently run
     # across every project. Fall back to the lab codes the entity agent resolved.
+    #
+    # Read them from the plan when the caller did not pass any: planner/tools.py:305
+    # and granular.py:132 both call this without lab_codes, so once scoping worked
+    # they would have gone on reporting the whole database. Task 812 shows the
+    # reporter already populates reporter_context.lab_codes.
+    if not lab_codes:
+        ctx = getattr(reporter_plan, "reporter_context", None)
+        lab_codes = list(getattr(ctx, "lab_codes", None) or []) if ctx is not None else []
+        if lab_codes:
+            print(f"[DEBUG][REPORTER] lab_codes not passed; taking {lab_codes} "
+                  "from reporter_plan.reporter_context")
     fallback_labs = list(lab_codes or []) if project is None else []
     if fallback_labs:
         print(f"[DEBUG][REPORTER] No project resolved; scoping by lab {fallback_labs}")
@@ -980,16 +1153,16 @@ def run_reporter_summary(
                 config, project, years=years, month_range=month_range,
                 day_range=day_range, outputs_root=log_dir or "outputs",
             ), fallback_labs)
-            protocols_result = _guarded(
+            protocols_result = _scope_protocols_to_labs(_guarded(
                 "protocols", run_project_protocols_report,
                 config, project, years=years, month_range=month_range,
                 day_range=day_range, outputs_root=log_dir or "outputs",
-            )
-            published_result = _guarded(
+            ), fallback_labs)
+            published_result = _scope_published_to_labs(_guarded(
                 "published", run_project_published_report,
                 config, project, years=years, month_range=month_range,
                 day_range=day_range, outputs_root=log_dir or "outputs",
-            )
+            ), fallback_labs)
             reporter_result: dict = {
                 "ok": samples_result.get("ok"),
                 "summary_mode": "RPPR",
@@ -1000,15 +1173,15 @@ def run_reporter_summary(
                 "filters": samples_result.get("filters") or {},
             }
         elif summary_mode == "protocols":
-            reporter_result = run_project_protocols_report(
+            reporter_result = _scope_protocols_to_labs(run_project_protocols_report(
                 config, project, years=years, month_range=month_range,
                 day_range=day_range, outputs_root=log_dir or "outputs",
-            )
+            ), fallback_labs)
         elif summary_mode == "published":
-            reporter_result = run_project_published_report(
+            reporter_result = _scope_published_to_labs(run_project_published_report(
                 config, project, years=years, month_range=month_range,
                 day_range=day_range, outputs_root=log_dir or "outputs",
-            )
+            ), fallback_labs)
         else:  # "samples" (default)
             reporter_result = _scope_report_to_labs(run_project_sample_report(
                 config, project, years=years, month_range=month_range,
@@ -1055,6 +1228,11 @@ def run_reporter_summary(
             "years": top_items(r.get("years_table"), 10),
             "top_months": top_items(r.get("months_table"), 12),
             "db_diagnostic": r.get("db_diagnostic") or {},
+            # Without this the chatter cannot tell that one block is lab-scoped and
+            # another global, so it reconciles the contradiction by narrating the
+            # global one — which is how task 812's prose reported 50,179 records for
+            # a report whose samples block held 0.
+            "scope": r.get("scope"),
         }
 
     reporter_summary: dict = {
@@ -1062,6 +1240,8 @@ def run_reporter_summary(
         "project": project,
         "project_id": reporter_result.get("project_id"),
         "filters": reporter_result.get("filters") or {},
+        "scope": reporter_result.get("scope")
+                 or (reporter_result.get("samples") or {}).get("scope"),
     }
     if summary_mode == "RPPR":
         reporter_summary["samples"] = _sub_summary(reporter_result.get("samples") or {})
@@ -1069,11 +1249,13 @@ def run_reporter_summary(
             "rows_returned": (reporter_result.get("protocols") or {}).get("rows_returned"),
             "top_labs": top_items((reporter_result.get("protocols") or {}).get("labs_table"), 5),
             "years": top_items((reporter_result.get("protocols") or {}).get("years_table"), 10),
+            "scope": (reporter_result.get("protocols") or {}).get("scope"),
         }
         reporter_summary["published"] = {
             "samples": _sub_summary((reporter_result.get("published") or {}).get("samples") or {}),
             "protocols_count": ((reporter_result.get("published") or {}).get("protocols") or {}).get("rows_returned"),
             "study_count": ((reporter_result.get("published") or {}).get("samples") or {}).get("study_count"),
+            "scope": (reporter_result.get("published") or {}).get("scope"),
         }
     elif summary_mode == "protocols":
         reporter_summary.update({

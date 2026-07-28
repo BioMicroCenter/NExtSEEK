@@ -23,6 +23,10 @@ import pytest
 from chat_nextseek.reports.runners import (
     _drop_uuid_list,
     _lab_of,
+    _lab_of_protocol_title,
+    _scope_protocols_to_labs,
+    _scope_published_to_labs,
+    reporter_reply_footer,
     _run_investigation_sample_report,
     _scope_report_to_labs,
     run_project_sample_report,
@@ -210,3 +214,180 @@ def test_run_reporter_summary_does_not_leak_the_uuid_list(tmp_path):
     # Scoping still happened, and the durable copy is still linked.
     assert reporter_result["uuids_saved"] == 2
     assert reporter_result["uuid_report_file"]
+
+
+# --------------------------------------------------------------------------- #
+# T1.3 — protocols and published were never scoped
+#
+# _scope_report_to_labs wrapped only the samples call; protocols and published
+# received project=None untouched and traversed everything. Task 812:
+# published.samples.rows_returned 50179, study_count 42, 26 labs including
+# FLY: 15994 — all of it labelled a Kamm report.
+# --------------------------------------------------------------------------- #
+
+PROTOCOL_TITLES = [
+    "P.KAM-240612-V1_protocol.docx",
+    "P.KAM-240701-V2_protocol.docx",
+    "P.SAS-240827-V1_RSTR_BMDM_protocol.docx",
+    "not-a-protocol-title",
+]
+
+
+def test_lab_of_protocol_title():
+    assert _lab_of_protocol_title("P.KAM-240612-V1_protocol.docx") == "KAM"
+    assert _lab_of_protocol_title("P.SAS-240827-V1_RSTR_BMDM_protocol.docx") == "SAS"
+    assert _lab_of_protocol_title("not-a-protocol-title") is None
+
+
+def test_protocols_are_narrowed_to_the_requested_lab():
+    result = {"ok": True, "rows_returned": 4, "titles_saved": 4,
+              "titles": PROTOCOL_TITLES, "titles_preview": PROTOCOL_TITLES,
+              "labs_table": {"KAM": 2, "SAS": 1}}
+
+    scoped = _scope_protocols_to_labs(result, ["KAM"])
+
+    assert scoped["rows_returned"] == 2
+    assert scoped["titles_saved"] == 2
+    assert scoped["labs_table"] == {"KAM": 2}
+    assert all(_lab_of_protocol_title(t) == "KAM" for t in scoped["titles_preview"])
+    assert scoped["scope"] == {"kind": "lab", "lab_codes": ["KAM"]}
+
+
+def test_protocols_scoping_is_a_no_op_without_lab_codes():
+    result = {"ok": True, "titles": PROTOCOL_TITLES}
+    assert _scope_protocols_to_labs(result, []) is result
+
+
+def test_published_is_narrowed_and_study_counts_are_recomputed():
+    """A narrowed row count next to a global study count is a contradiction."""
+    result = {
+        "ok": True,
+        "samples": {
+            "ok": True,
+            "rows_returned": 4,
+            "study_count": 3,
+            "studies": ["Study A", "Study B", "Study C"],
+            "uuid_studies": [
+                ["TIS-240612KAM-1-PUB", "Study A"],
+                ["DNA-240612KAM-2-PUB", "Study A"],
+                ["NHP-220913SED-15-PUB1", "Study B"],
+                ["MUS-200901ENG-23-PUB", "Study C"],
+            ],
+        },
+        "protocols": {"ok": True, "rows_returned": 9},
+    }
+
+    scoped = _scope_published_to_labs(result, ["KAM"])
+    samples = scoped["samples"]
+
+    assert samples["rows_returned"] == 2
+    assert samples["study_count"] == 1, "study_count must follow the rows, not stay global"
+    assert samples["studies"] == ["Study A"]
+    assert samples["labs_table"] == {"KAM": 2}
+    assert scoped["scope"] == {"kind": "lab", "lab_codes": ["KAM"]}
+
+
+def test_published_counts_unattributable_uids_explicitly():
+    """The UIDs whose lab cannot be parsed are dropped, but they are counted."""
+    result = {
+        "ok": True,
+        "samples": {
+            "ok": True, "rows_returned": 2, "study_count": 1, "studies": ["S"],
+            "uuid_studies": [["TIS-240612KAM-1-PUB", "S"], ["garbage-uid", "S"]],
+        },
+    }
+
+    samples = _scope_published_to_labs(result, ["KAM"])["samples"]
+
+    assert samples["rows_returned"] == 1
+    assert samples["unattributable_uids"] == 1
+
+
+def test_published_scoping_leaves_a_failed_block_alone():
+    result = {"ok": True, "samples": {"ok": False, "error": "Neo4j query failed"}}
+    assert _scope_published_to_labs(result, ["KAM"]) is result
+
+
+# --------------------------------------------------------------------------- #
+# T1.4 / T1.5 — the reply footer
+# --------------------------------------------------------------------------- #
+
+class _FooterCfg:
+    INVESTIGATION_NAME_TO_ID = {"CSBC": 1, "GRIFFITH": 2, "IMPACT": 3,
+                                "METNET": 4, "SRP": 6, "SHOULDERS": 7}
+
+
+def test_footer_reads_the_rppr_row_count_from_the_samples_block():
+    """RPPR has no top-level rows_returned, so the footer used to print 0."""
+    result = {"ok": True, "summary_mode": "RPPR",
+              "samples": {"ok": True, "rows_returned": 7412}}
+
+    lines = reporter_reply_footer(_FooterCfg(), result, {}, "RPPR")
+
+    assert "- **Rows returned:** 7412" in lines
+
+
+def test_footer_links_every_rppr_file():
+    """RPPR generates three files; none of them used to be linked."""
+    result = {"ok": True, "summary_mode": "RPPR", "samples": {"rows_returned": 1}}
+    saved = {"samples_report": "/o/a.json", "protocols_report": "/o/b.json",
+             "published_report": "/o/c.json"}
+
+    joined = "\n".join(reporter_reply_footer(_FooterCfg(), result, saved, "RPPR"))
+
+    for path in saved.values():
+        assert path in joined
+    assert "None" not in joined
+
+
+def test_footer_says_a_lab_scope_is_not_a_project():
+    result = {"ok": True, "rows_returned": 12,
+              "scope": {"kind": "lab", "lab_codes": ["KAM"]}}
+
+    joined = "\n".join(reporter_reply_footer(_FooterCfg(), result, {}, "samples"))
+
+    assert "lab KAM, not a project" in joined
+    assert "SRP" in joined and "MetNet".upper() in joined.upper()
+
+
+def test_footer_stays_quiet_when_the_scope_is_a_real_project():
+    result = {"ok": True, "rows_returned": 12, "project_id": 1,
+              "uuid_report_file": "/o/r.json"}
+
+    joined = "\n".join(reporter_reply_footer(_FooterCfg(), result, {}, "samples"))
+
+    assert "not a project" not in joined
+    assert "/o/r.json" in joined
+
+
+def test_scope_reaches_the_chatter_payload(tmp_path):
+    """_sub_summary dropped `scope`, so the chatter reconciled the contradictory
+    blocks by narrating the global one."""
+    rows = [{"project_id": 1, "sample_id": i, "uuid": u} for i, u in enumerate(UIDS)]
+    config = types.SimpleNamespace(_db_conn=_FakeConn(rows), _connect_db=lambda **k: None)
+    plan = types.SimpleNamespace(
+        project=None, years=[], month_range=None, day_range=None,
+        summary_mode="samples", reporter_context=None,
+    )
+
+    _result, _saved, reporter_summary = run_reporter_summary(
+        config, plan, tmp_path, lab_codes=["KAM"]
+    )
+
+    assert reporter_summary["scope"]["kind"] == "lab"
+    assert reporter_summary["scope"]["lab_codes"] == ["KAM"]
+
+
+def test_lab_codes_are_taken_from_the_plan_when_the_caller_passes_none(tmp_path):
+    """planner/tools.py:305 and granular.py:132 call without lab_codes."""
+    rows = [{"project_id": 1, "sample_id": i, "uuid": u} for i, u in enumerate(UIDS)]
+    config = types.SimpleNamespace(_db_conn=_FakeConn(rows), _connect_db=lambda **k: None)
+    plan = types.SimpleNamespace(
+        project=None, years=[], month_range=None, day_range=None, summary_mode="samples",
+        reporter_context=types.SimpleNamespace(lab_codes=["KAM"]),
+    )
+
+    result, _saved, _summary = run_reporter_summary(config, plan, tmp_path)
+
+    assert result["uuids_saved"] == 2, "the plan's lab_codes were ignored"
+    assert result["scope"]["kind"] == "lab"

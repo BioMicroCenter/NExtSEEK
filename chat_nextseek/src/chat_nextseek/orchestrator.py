@@ -43,6 +43,7 @@ from .helpers import (
     fix_sample_endpoint,
     generate_report_outputs,
     log_api_call,
+    reporter_reply_footer,
     run_reporter_summary,
     shortlist_catalog,
     slim_api_result_for_llm,
@@ -739,8 +740,9 @@ def run_query(
                 reply_lines = [
                     narrative.strip(),
                     "",
-                    f"- **Rows returned:** {reporter_result.get('rows_returned')}",
-                    f"- **Download report:** `{reporter_result.get('uuid_report_file')}`",
+                    *reporter_reply_footer(
+                        config, reporter_result, saved_files, summary_mode
+                    ),
                 ]
                 # Surface a clear hint when the connected DB has no data for the
                 # requested project (e.g. local dev DB aliased to MYSQL_HOST_PROD).
