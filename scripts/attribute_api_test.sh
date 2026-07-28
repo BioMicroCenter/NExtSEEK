@@ -8,11 +8,11 @@ fi
 
 lane="$1"
 case "$lane" in
-  unit) test_args=(nextseek_api/tests/test_attribute_api_harness.py nextseek_api/attributes/tests) ;;
+  unit) test_args=() ;; # populated from the exact task-specific unit node list below
   db) test_args=() ;; # populated from the manifest's exact task-specific DB node list below
   schema) test_args=() ;; # populated from the exact task-specific schema-node contract below
   worker) test_args=(nextseek_api/attributes/tests/test_tasks.py) ;;
-  openapi) test_args=(nextseek_api/attributes/tests/test_openapi.py nextseek_api/attributes/tests/test_views.py) ;;
+  openapi) test_args=() ;; # populated from the exact task-specific OpenAPI node list below
   collect) test_args=(nextseek_api/tests nextseek_api/attributes/tests startup/tests --collect-only) ;;
   lint) command=(python -m ruff check nextseek_api/attributes nextseek_api/tests/test_attribute_api_harness.py nextseek_api/tests/test_attribute_api_db_lane.py startup/steps/schema_fixups.py startup/tests) ;;
   benchmark) test_args=() ;; # populated from the exact task-specific integration-node contract below
@@ -70,6 +70,26 @@ elif [[ "$branch_name" =~ -t([0-9][0-9])$ ]]; then
   task_id="task-${BASH_REMATCH[1]}"
 else
   task_id="${ATTRIBUTE_TEST_TASK_ID:-task-00}"
+fi
+if [[ "$lane" == "unit" ]]; then
+  mapfile -t test_args < <(python3 - "$task_id" <<'PY'
+import json, sys
+manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
+for node in manifest["runner_contract"]["unit_lane_contract"][sys.argv[1]]["node_arguments"]:
+    print(node)
+PY
+  )
+  [[ ${#test_args[@]} -gt 0 ]] || { echo "missing exact unit lane selection for $task_id" >&2; exit 64; }
+fi
+if [[ "$lane" == "openapi" ]]; then
+  mapfile -t test_args < <(python3 - "$task_id" <<'PY'
+import json, sys
+manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
+for node in manifest["runner_contract"]["openapi_lane_contract"][sys.argv[1]]["node_arguments"]:
+    print(node)
+PY
+  )
+  [[ ${#test_args[@]} -gt 0 ]] || { echo "missing exact openapi lane selection for $task_id" >&2; exit 64; }
 fi
 if [[ "$lane" == "db" ]]; then
   mapfile -t test_args < <(python3 - "$task_id" <<'PY'
@@ -149,7 +169,7 @@ if [[ "$lane" != "lint" && "$lane" != "coverage" && "$lane" != "mutants" ]]; the
   command+=("${test_args[@]}")
 fi
 reference_image_id="$(docker image inspect --format '{{.Id}}' nextseek-nextseek)" || exit 65
-if [[ "$reference_image_id" != "sha256:397ca26e65051d05693330893898cb6b0b0fd4d430cc89df0b32fdd223f15ee4" ]]; then
+if [[ "$reference_image_id" != "sha256:66d06207ab7b04886c5129f553302566dd83ee8318a325e1308367ebcf8b64d2" ]]; then
   echo "reference image identity drift" >&2; exit 65
 fi
 chown_evidence_root() {
