@@ -18,12 +18,14 @@ Topology (preserves the OI-3 agent isolation):
 
 ```
             dmac-cc-net  (dedicated; NO neo4j/mysql/seek/solr)
-        ┌───────────────┬───────────────────┐
-        │               │                   │
-  dmac-bedrock-proxy   nextseek_nginx     <per-turn CC agent>   (uid 1001, ZERO aws creds)
-  (holds AWS bearer    (dual-homed, also    reaches Bedrock only via the proxy,
-   token; allowlist     on the default       NExtSEEK only via nginx as the user
-   opus-4-8 only)       stack network)
+        ┌───────────────┬─────────────────┬──────────────────┐
+        │               │                 │                  │
+  dmac-bedrock-proxy   nextseek_nginx   nextseek-sidecar   <per-turn CC agent>
+  (holds AWS bearer    (dual-homed,     (no credentials;   (uid 1001, ZERO aws
+   token; allowlist     also on the      _staging-subpath    creds; Bedrock only
+   opus-4-8 only)       default stack    writes only)        via the proxy,
+                        network)                             NExtSEEK only via
+                                                             nginx as the user)
 ```
 
 The `nextseek` service itself is **never** on `dmac-cc-net`; nginx is the only
@@ -63,23 +65,28 @@ dual-homed service. Per-turn agent containers are spawned from the
 
 ## Verification
 
-CC route wired end-to-end (checks daemon, agent image, network — in order):
+CC route wired end-to-end (checks daemon, agent image, network — in order;
+the image has no bare `python` on PATH, so use the venv interpreter):
 
 ```bash
-docker exec nextseek python -c "from nextseek_api.cc_assistant import cc_engine; print(cc_engine.cc_runner_available())"
+docker exec nextseek /app/.venv/bin/python -c "from nextseek_api.cc_assistant import cc_engine; print(cc_engine.cc_runner_available())"
 # -> (True, 'ok')
 ```
 
 Proxy contract, from a container ON dmac-cc-net (unsigned, exactly like the
-agent):
+agent). The healthz and sonnet probes are free; the **opus invoke is a real,
+PAID one-token Bedrock call** — it needs the same per-run owner approval as
+any live spend, and on a token-less install it returns 500 ("proxy
+misconfigured: no bearer token"), which is expected there:
 
 ```bash
 docker run --rm --network dmac-cc-net --entrypoint sh dmac-assistant:poc -c '
   B=http://bedrock-proxy:8080
-  curl -s -o /dev/null -w "healthz=%{http_code}\n" $B/healthz                       # 200
+  curl -s -o /dev/null -w "healthz=%{http_code}\n" $B/healthz                       # 200 (free)
+  curl -s -o /dev/null -w "sonnet=%{http_code}\n" -X POST $B/model/us.anthropic.claude-sonnet-4-6/invoke -d "{}"  # 403 (free; allowlist rejects pre-Bedrock)
+  # PAID (approval-gated; 500 expected when the proxy token is empty):
   curl -s -o /dev/null -w "opus=%{http_code}\n"   -X POST $B/model/us.anthropic.claude-opus-4-8/invoke \
        -H content-type:application/json -d "{\"anthropic_version\":\"bedrock-2023-05-31\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"   # 200
-  curl -s -o /dev/null -w "sonnet=%{http_code}\n" -X POST $B/model/us.anthropic.claude-sonnet-4-6/invoke -d "{}"  # 403
 '
 docker logs dmac-bedrock-proxy 2>&1 | grep -c -E "ABSK|Authorization"   # 0  (token never logged)
 ```
@@ -109,12 +116,14 @@ docker exec -e RUN_REALSTACK=1 -e SEEK_TEST_USER=.. -e SEEK_TEST_PASS=.. nextsee
   'cd /app && uv run python manage.py test nextseek_api.cc_assistant.tests.test_cc_realstack \
    --settings=dmac.test_settings_realstack --noinput -v2'
 
-# reproducible re-check of a committed evidence bundle (zero spend)
-docker exec nextseek python -m nextseek_api.cc_assistant.tests.validate_cc_acceptance \
+# reproducible re-check of a committed evidence bundle (zero spend; use the
+# venv interpreter — the image has no bare `python` on PATH)
+docker exec nextseek /app/.venv/bin/python -m nextseek_api.cc_assistant.tests.validate_cc_acceptance \
   outputs/cc_acceptance/<run_id>
 
-# full Step-7 compose-deploy evidence bundle re-validation (zero spend, 61 checks)
-python -m nextseek_api.cc_assistant.tests.validate_step7_compose_deploy <run_dir> [repo_root]
+# full Step-7 compose-deploy evidence bundle re-validation (zero spend, 61
+# checks; runs on the HOST from the repo root — stdlib-only module)
+python3 -m nextseek_api.cc_assistant.tests.validate_step7_compose_deploy <run_dir> [repo_root]
 ```
 
 Both live suites are skipped unless `RUN_REALSTACK=1` is set explicitly, and

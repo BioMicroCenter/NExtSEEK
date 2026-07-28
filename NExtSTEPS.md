@@ -25,20 +25,25 @@ Anyone who can `git clone` this repo knows those credentials. The moment your
 install is reachable by anyone you don't trust, rotate them via SEEK's admin
 UI:
 
-1. Log in as `demo` at `http://<your-host>:<seek-port>/users/sign_in`
+1. Log in as `demo` at `http://<your-host>:<seek-port>/login`
 2. **My Account → Edit profile → Change password** for both `demo` and `user`
 3. If you want SEEK closed to new signups: **Server Admin → Configure
    instance → Allow registration → No**
 
-### 1b. Set `DJANGO_DEBUG=False` for anything internet-facing
+### 1b. Make sure `DJANGO_DEBUG` is **unset** for anything internet-facing
 
 `docker/nextseek.env` does not set `DJANGO_DEBUG` by default, which Django
-interprets as production mode — good. If you ever toggled it on for
-debugging, set it back:
+interprets as production mode — good.
+
+> ⚠ **Do NOT write `DJANGO_DEBUG=False`.** The settings code is
+> `DEBUG = os.getenv("DJANGO_DEBUG", False)` — it does **no** string
+> parsing, so ANY non-empty value (including the literal strings `False`
+> or `false`) turns debug mode **on**. If you ever toggled it on for
+> debugging, **delete the line entirely** (or set it to an empty value):
 
 ```ini
-# docker/nextseek.env
-DJANGO_DEBUG=False
+# docker/nextseek.env — remove the DJANGO_DEBUG line altogether;
+# absent/empty is the only safe production state.
 ```
 
 Apply: `docker compose up -d --force-recreate nextseek`
@@ -107,15 +112,18 @@ MYSQL_PASSWORD="<strong-random>"          # app user (seek_db_user)
 `MYSQL_USER` and database names (`dmac`, `seek_production`) are referenced in
 many places — only rotate the **passwords**, leave names alone.
 
-**Apply**: the cleanest path is a full reset so the seed import runs with the
-new credentials embedded:
+**Apply**: rotate **in place** — this is the only route that preserves your
+edited credentials.
 
-```bash
-./startup.sh reset --keep-config        # preserves your edited db.env
-```
+> ⚠ **`./startup.sh reset --keep-config` does NOT preserve rotated
+> passwords.** `--keep-config` only skips *deleting* the files; the
+> re-install phase then unconditionally re-renders `docker/db.env` from the
+> template with the well-known defaults (`seek_root` / `seek_db_password`),
+> silently reverting your rotation while everything keeps working. Only
+> `SEEK_PUBLIC_URL` and the Bedrock proxy token have read-back preservation.
 
-If you want to rotate passwords on an EXISTING populated DB without
-re-seeding, you need to update the MySQL user grants in place:
+To rotate passwords on the EXISTING populated DB, update the MySQL user
+grants in place:
 
 ```bash
 docker compose exec db mysql -uroot -p<old-root-pw> \
@@ -138,23 +146,35 @@ Neo4j's password lives in **two places** that need to match:
 > the value through from startup. Until then, this is a manual two-file
 > edit. Tracked under "Future improvements" below.
 
-To rotate:
+To rotate **in place** (works on the running instance — `NEO4J_AUTH` only
+sets the *initial* password on a fresh volume; later changes go through
+cypher):
 
-1. Edit `docker-compose.yml`:
-   ```yaml
-   neo4j:
-     environment:
-       NEO4J_AUTH: "neo4j/<strong-random>"
+1. Change the live password:
+   ```bash
+   docker compose exec neo4j cypher-shell -u neo4j -p <old-pw> \
+     "ALTER CURRENT USER SET PASSWORD FROM '<old-pw>' TO '<strong-random>'"
    ```
 2. Edit `docker/nextseek.env`:
    ```ini
    NEXTSEEK_NEO4J_PASSWORD="<strong-random>"
    ```
-3. Full reset (Neo4j refuses to change AUTH on an existing volume —
-   `reset` drops the volume so the new password takes effect):
-   ```bash
-   ./startup.sh reset
+3. Edit `docker-compose.yml` so any FUTURE fresh volume initializes with the
+   same password:
+   ```yaml
+   neo4j:
+     environment:
+       NEO4J_AUTH: "neo4j/<strong-random>"
    ```
+4. `docker compose up -d --force-recreate nextseek`
+
+> ⚠ **Do not use `./startup.sh reset` to rotate Neo4j.** The reset's
+> re-install re-renders `docker/nextseek.env` with the default
+> `demopassword` (no read-back), while your compose `NEO4J_AUTH` edit
+> survives onto the fresh volume — the install's own Neo4j seed step then
+> fails auth, wedging the procedure, and the app env holds the wrong
+> password afterwards. Until `NEO4J_AUTH` is parameterized (§8 TODO), the
+> in-place path above is the only working rotation.
 
 ---
 
@@ -218,16 +238,17 @@ Whichever path you pick, also set `DJANGO_CSRF_TRUSTED_ORIGINS` to the
 Three things to back up:
 
 ```bash
-# MySQL — both schemas
-docker compose exec db mysqldump -uroot -p<root-pw> \
+# MySQL — both schemas. -T is REQUIRED: without it `docker compose exec`
+# allocates a TTY, which rewrites LF -> CRLF and corrupts the dump.
+docker compose exec -T db mysqldump -uroot -p<root-pw> \
   --single-transaction --routines --triggers \
   --databases dmac seek_production | gzip > nextseek-mysql-$(date +%F).sql.gz
 
-# Neo4j — using APOC export (same script startup uses internally)
-docker compose exec neo4j cypher-shell -u neo4j -p <neo4j-pw> \
-  "CALL apoc.export.cypher.all('/var/lib/neo4j/import/snapshot.cypher', {format:'plain', cypherFormat:'create'})"
-docker cp $(docker compose ps -q neo4j):/var/lib/neo4j/import/snapshot.cypher \
-  ./nextseek-neo4j-$(date +%F).cypher && gzip nextseek-neo4j-$(date +%F).cypher
+# Neo4j — use the repo's own bolt-driver exporter (the same mechanism the
+# maintainer `./startup.sh dump-db` flow uses; APOC is NOT enabled in the
+# shipped stack, so apoc.export.* procedures are unavailable):
+#   startup/seed/regenerate/dump_neo4j.py  — see startup/README.md
+#   ("dump-db") for the required dump-source.env credentials file.
 
 # SEEK filestore (user uploads, blobs)
 docker run --rm -v <prefix>seek-filestore:/data -v "$(pwd):/backup" alpine \
@@ -247,10 +268,15 @@ maintainer regen workflow).
 
 ## 7. Updates
 
-To pull new startup / NExtSEEK changes:
+To pull new startup / NExtSEEK changes, follow **`DEPLOYMENT.md` §3** (the
+authoritative redeploy procedure): fast-forward the deploy clone to
+**`origin/dev`** (the deploy branch — not `main`), take a rollback tag, run
+the mysqldump gate if the range includes migrations, rebuild, recreate, and
+run the §6 verification checklist. In short:
 
 ```bash
-git pull origin main
+git fetch origin dev && git merge --ff-only origin/dev
+docker tag nextseek-nextseek:latest nextseek-nextseek:pre-<change>
 ./startup.sh rebuild              # rebuilds nextseek image, restarts container
                                     # entrypoint runs `manage.py migrate` on startup
 ```
@@ -287,8 +313,8 @@ To pull a new `chat_nextseek` snapshot from its canonical repo, see
 | Setting | File | Apply with |
 |---|---|---|
 | Demo user passwords | SEEK admin UI (web) | (immediate) |
-| MySQL passwords | `docker/db.env` | `./startup.sh reset --keep-config` or in-place ALTER USER |
-| Neo4j password | `docker-compose.yml` + `docker/nextseek.env` | `./startup.sh reset` (drops volume) |
+| MySQL passwords | `docker/db.env` | in-place ALTER USER only (§2a — reset re-renders db.env to defaults) |
+| Neo4j password | `docker-compose.yml` + `docker/nextseek.env` | in-place cypher ALTER (§2b — do NOT use reset) |
 | Django secret | `docker/nextseek.env` | `docker compose up -d --force-recreate nextseek` |
 | ALLOWED_HOSTS / CSRF | `docker/nextseek.env` | `docker compose up -d --force-recreate nextseek` |
 | LLM API keys | `docker/nextseek.env` | `docker compose up -d --force-recreate nextseek` |

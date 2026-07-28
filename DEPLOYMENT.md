@@ -148,16 +148,18 @@ SEEK filestore blobs (~215 MB) are fetched from S3 and streamed in.
 docker compose up -d --no-deps --force-recreate nextseek
 
 # 6. Verify:
-./startup.sh doctor          # 8 read-only health checks, non-zero on failure
+./startup.sh doctor          # 13 read-only checks (4 prereq + instance
+                             # state + 8 health), non-zero on failure
 #    ...then run the full checklist in §6.
 ```
 
 **7. Before exposing to anyone you don't trust:** work through
 [`NExtSTEPS.md`](NExtSTEPS.md) — rotate `demo`/`user` passwords, MySQL and
-Neo4j credentials, set `DJANGO_DEBUG=false`, configure `ALLOWED_HOSTS`/CSRF,
-and put a TLS-terminating reverse proxy in front (nginx here serves plain
-HTTP on `127.0.0.1:${NEXTSEEK_PORT:-8000}`; TLS is out of scope of this
-repo).
+Neo4j credentials, ensure `DJANGO_DEBUG` stays **unset** (the code treats
+ANY non-empty value — including the string `False` — as debug-on), configure
+`ALLOWED_HOSTS`/CSRF, and put a TLS-terminating reverse proxy in front
+(nginx here serves plain HTTP on `127.0.0.1:${NEXTSEEK_PORT:-8000}`; TLS is
+out of scope of this repo).
 
 ### 2.3 What install does **not** provision
 
@@ -186,10 +188,13 @@ Budget these as explicit post-install steps:
   second instance on the same box will collide with (or silently share CC
   user data with) the first. One CC-enabled instance per box until this is
   fixed.
-- Re-running `install` re-renders `docker/nextseek.env` and **rotates
-  `DJANGO_SECRET_KEY`**; `--seek-public-url` and the proxy token are
-  preserved, hand-filled API keys in re-rendered files are not — re-check
-  them after any re-install/reset.
+- Re-running `install` re-renders `docker/nextseek.env` wholesale and
+  **rotates `DJANGO_SECRET_KEY`**. Only `--seek-public-url` and the proxy
+  token have read-back preservation — hand-filled API keys, the
+  **`NEXTSEEK_SERVER=gunicorn` pin** (its loss silently flips the next boot
+  to daphne), and any hand-added CC-knob keys are all wiped. Re-apply every
+  §2.2-step-4 edit after any re-install/reset **before** recreating
+  `nextseek`.
 
 ---
 
@@ -308,6 +313,10 @@ rollback.
   (created in §3.1 step 2b).
 - A long-lived known-good baseline tag (historically
   `nextseek-nextseek:dev-rollback`) should always exist on a deploy host.
+  **If you find a host with no baseline tag** (it has happened — tags have
+  been lost to disk cleanups), create one immediately from the current
+  known-good image before doing anything else:
+  `docker tag nextseek-nextseek:latest nextseek-nextseek:baseline-<YYYYMMDD>`.
 - **Tags are backups. Verify they exist before you rely on them** —
   `docker image list` tags have historically been lost to well-intentioned
   disk cleanups. Any rollback script must *fail loudly* (`set -e`) if its
@@ -337,19 +346,48 @@ deploy record.
 
 ## 6. Post-deploy verification checklist
 
-Run all of these after every deploy (all read-only, zero spend):
+Run all of these after every deploy (all read-only, zero spend). They are
+given as a fenced block so they copy correctly from the raw file:
 
-| # | Check | Command | Expect |
-|---|---|---|---|
-| 1 | Site up | `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${NEXTSEEK_PORT:-8000}/` | `200` |
-| 2 | Server mode | `docker exec nextseek printenv NEXTSEEK_SERVER; docker top nextseek` | `gunicorn`; `gunicorn dmac.wsgi` workers + a `celery … batch_upload` worker; **zero** `daphne` lines |
-| 3 | No crash-loop | `docker inspect nextseek --format '{{.RestartCount}}'` | `0` |
-| 4 | Boot clean | `docker logs nextseek 2>&1 \| grep -E 'FAILED\|UNREACHABLE\|Applying'` | no `*-FAILED`/`DB-UNREACHABLE`; expected `Applying <migration>... OK` lines only |
-| 5 | Migrations | `docker exec nextseek uv run manage.py showmigrations nextseek_api \| tail -5` | all `[X]` |
-| 6 | CC route wired | `docker exec nextseek python -c "from nextseek_api.cc_assistant import cc_engine; print(cc_engine.cc_runner_available())"` | `(True, 'ok')` |
-| 7 | OI-3 peers untouched | `docker ps --format 'table {{.Names}}\t{{.Status}}' \| grep -E 'nextseek-sidecar\|dmac-bedrock-proxy'` | uptime/health unchanged from before the deploy (app-only deploy) |
-| 8 | Rollback tag present | `docker image inspect nextseek-nextseek:pre-<name> --format '{{.Id}}'` | succeeds |
-| 9 | Health suite | `./startup.sh doctor` (from the deploy clone, or via the §3.3 helper) | exit 0 |
+```bash
+# 0. The published port lives in the root .env (compose interpolation), not
+#    your shell — source it first (default-port boxes may skip this):
+NEXTSEEK_PORT=$(grep '^NEXTSEEK_PORT=' .env | cut -d= -f2)
+
+# 1. Site up — expect: 200
+curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:${NEXTSEEK_PORT:-8000}/"
+
+# 2. Server mode — expect: NEXTSEEK_SERVER=gunicorn; 'gunicorn dmac.wsgi'
+#    workers + a 'celery … batch_upload' worker; ZERO daphne lines
+docker exec nextseek printenv NEXTSEEK_SERVER
+docker top nextseek | grep -c daphne          # expect: 0
+
+# 3. No crash-loop — expect: 0
+docker inspect nextseek --format '{{.RestartCount}}'
+
+# 4. Boot clean — expect: no FAILED/UNREACHABLE markers; only expected
+#    'Applying <migration>... OK' lines
+docker logs nextseek 2>&1 | grep -E '(COLLECTSTATIC-FAILED|DB-UNREACHABLE|MIGRATE-FAILED|Applying)'
+
+# 5. Migrations — expect: all [X]
+docker exec nextseek uv run manage.py showmigrations nextseek_api | tail -5
+
+# 6. CC route wired — expect: (True, 'ok')
+#    (the image has NO bare `python` on PATH — use the venv interpreter)
+docker exec nextseek /app/.venv/bin/python -c "from nextseek_api.cc_assistant import cc_engine; print(cc_engine.cc_runner_available())"
+
+# 7. OI-3 peers untouched (app-only deploy) — expect: uptime/health
+#    unchanged from before the deploy
+docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -e nextseek-sidecar -e dmac-bedrock-proxy
+
+# 8. Rollback tag present — expect: succeeds (prints an image ID)
+docker image inspect nextseek-nextseek:pre-<name> --format '{{.Id}}'
+
+# 9. Health suite — expect: exit 0. Run from a checkout with uv on PATH
+#    (NOT via the §3.3 docker:cli helper — it has no uv, and doctor's HTTP
+#    probes need host-loopback access).
+./startup.sh doctor
+```
 
 For CC-touching deploys, additionally run the OI-3 checks in §9. For a full
 greenfield acceptance (all plugin ops live, paid), see the Appendix.
@@ -382,7 +420,7 @@ by `reset`):
 | File | Rendered from | Holds |
 |---|---|---|
 | `docker/db.env` | `startup/templates/db.env.template` | MySQL root + app credentials |
-| `docker/nextseek.env` | `startup/templates/nextseek.env.template` | Django secret, Neo4j password, SEEK URL, LLM keys (`GCP_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, `FDH_API`), `NEXTSEEK_SERVER`, CC knobs |
+| `docker/nextseek.env` | `startup/templates/nextseek.env.template` | Django secret, Neo4j password, SEEK URL, LLM keys (`GCP_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, `FDH_API`); `NEXTSEEK_SERVER` + CC knobs are **hand-added** (not in the template — re-add after any re-render, §2.4) |
 | `dmac/local_settings.py` | `startup/templates/local_settings.py.template` | Django settings overlay (PROD ChatConfig block, etc.) |
 | `docker/bedrock-proxy/proxy-secret.env` | rendered programmatically (0600) | `AWS_BEARER_TOKEN_BEDROCK` + `AWS_REGION` **for the proxy** |
 | `.env` (repo root) | rendered | non-secret compose interpolation: `COMPOSE_PROJECT_NAME`, ports, `INSTANCE_PREFIX` |
@@ -460,8 +498,9 @@ docker inspect nextseek-sidecar --format '{{range .Config.Env}}{{println .}}{{en
 docker inspect dmac-bedrock-proxy --format '{{range .Config.Env}}{{println .}}{{end}}' | cut -d= -f1
 ```
 
-Full zero-spend re-verification of a recorded acceptance run:
-`python -m nextseek_api.cc_assistant.tests.validate_step7_compose_deploy <run_dir>`
+Full zero-spend re-verification of a recorded acceptance run — on the host,
+from the repo root (`python3`; the module is stdlib-only):
+`python3 -m nextseek_api.cc_assistant.tests.validate_step7_compose_deploy <run_dir>`
 (61 checks: topology, de-credentialing, closed-set network membership,
 cross-user isolation, plugin-ops matrix).
 
@@ -542,8 +581,10 @@ Both are skipped unless `RUN_REALSTACK=1`. Evidence bundles produced by
 acceptance runs are re-verifiable forever at zero spend:
 
 ```bash
-docker exec nextseek python -m nextseek_api.cc_assistant.tests.validate_cc_acceptance outputs/cc_acceptance/<run_id>
-python -m nextseek_api.cc_assistant.tests.validate_step7_compose_deploy <run_dir> [repo_root]
+# in-container (no bare `python` on the image PATH — use the venv):
+docker exec nextseek /app/.venv/bin/python -m nextseek_api.cc_assistant.tests.validate_cc_acceptance outputs/cc_acceptance/<run_id>
+# on the host, from the repo root (stdlib-only module):
+python3 -m nextseek_api.cc_assistant.tests.validate_step7_compose_deploy <run_dir> [repo_root]
 ```
 
 Bundles are real artifacts from real runs — "markdown is never proof"
