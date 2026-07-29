@@ -147,9 +147,16 @@ def test_actor_provenance_is_one_identity(seek_auth_boundary, field):
     pytest.param("admin-mutation", id="admin-mutation"),
 ])
 def test_csrf_exempt_session_route_parity(seek_auth_boundary, operation):
+    import sys
+
+    from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
     from rest_framework.response import Response
     from rest_framework.views import APIView
     from rest_framework.test import APIRequestFactory
+
+    auth_module = sys.modules["nextseek_api.attributes.auth"]
+    session_auth = auth_module.SeekPersonAuthentication.authenticators[1]
+    assert session_auth is CsrfExemptSessionAuthentication
 
     response = seek_auth_boundary.dispatch_neighbor_session_parity(operation)
     assert response.status_code == 200
@@ -224,14 +231,21 @@ def test_selected_identity_cache_is_request_local_and_never_cross_request(seek_a
 
 
 def test_rails_oracle_tamper_is_rejected_before_parity_comparison(seek_auth_boundary):
+    import sys
+
+    auth_boundary_module = sys.modules["nextseek_api.attributes.tests.auth_boundary"]
     boundary = json.loads(seek_auth_boundary._boundary_path.read_text())
     oracle = boundary["oracle"]
     tampered = {
         "input_row_ids": oracle["input_row_ids"],
         "rows": oracle["rows"],
         "signature": "tampered",
+        "oracle_verified": True,
     }
-    assert seek_auth_boundary.verify_oracle_signature(tampered) is False
+    assert auth_boundary_module.SeekAuthBoundary.verify_oracle_signature(
+        seek_auth_boundary,
+        tampered,
+    ) is False
 
 
 def test_csrf_exempt_session_matches_neighboring_api_for_read_and_admin_mutation(seek_auth_boundary):
