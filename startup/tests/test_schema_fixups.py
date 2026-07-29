@@ -288,8 +288,8 @@ def test_attribute_concurrent_insert_enforces_unique_identity(disposable_attribu
             first_finished.set()
 
     threads = [
-        threading.Thread(target=insert, args=(1, "RNA", False)),
-        threading.Thread(target=insert, args=(2, "rna", True)),
+        threading.Thread(target=insert, args=(1, "RNA"), kwargs={"wait_for_first": False}),
+        threading.Thread(target=insert, args=(2, "rna"), kwargs={"wait_for_first": True}),
     ]
     for thread in threads:
         thread.start()
