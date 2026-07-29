@@ -54,9 +54,12 @@ class SelectedSeekCredential:
     def proof_request(self):
         """A minimal request-like object containing only this selected credential."""
         meta = {"HTTP_AUTHORIZATION": self.authorization} if self.authorization else {}
-        session = ({"server": settings.SEEK_URL, "username": self.username, "password": self.password}
-                   if self.scheme == "session" else {})
-        return SimpleNamespace(META=meta, COOKIES={}, session=session)
+        session = (
+            {"server": settings.SEEK_URL, "username": self.username, "password": self.password}
+            if self.scheme == "session"
+            else {}
+        )
+        return SimpleNamespace(META=meta, COOKIES={}, session=session, method="GET")
 
 
 def _reject_competing_sources(request, selected_scheme: str) -> None:
@@ -102,7 +105,10 @@ def _assert_local_seek_binding(user, person_id: int) -> None:
             [str(user.get_username())],
         )
         rows = cursor.fetchall()
-    if rows != [(person_id, str(user.get_username()))]:
+    # Compare element-wise rather than against a list literal: some DB drivers return
+    # fetchall() as a tuple of rows rather than a list, and a bare `!=` against `[...]`
+    # would then always be True even for the single correct, unique row.
+    if len(rows) != 1 or int(rows[0][0]) != person_id or str(rows[0][1]) != str(user.get_username()):
         raise AuthenticationFailed("Selected local identity does not match proven SEEK person.")
 
 
@@ -183,7 +189,9 @@ def _query_admin_role(person_id: int) -> bool:
             [person_id, ADMIN_ROLE_TYPE_ID],
         )
         row = cursor.fetchone()
-    return bool(row and row[0] == 1)
+    if not row:
+        return False
+    return int(row[0]) == 1
 
 
 def is_seek_admin(request) -> bool:

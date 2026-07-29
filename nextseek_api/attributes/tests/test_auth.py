@@ -1,6 +1,8 @@
 import pytest
 from nextseek_api.attributes.auth import IsSeekAdmin, SeekAuthenticated
 
+pytestmark = pytest.mark.django_db
+
 @pytest.mark.parametrize("case_id", [
     pytest.param("ordinary-user", id="ordinary"),
     pytest.param("project-admin", id="project-role"),

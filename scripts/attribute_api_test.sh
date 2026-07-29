@@ -294,12 +294,12 @@ if [[ "$task_id" == "task-02" ]]; then
     "$seek_image_id" bundle exec rails server -b 0.0.0.0 -p 3000 >/dev/null
   for _ in {1..240}; do
     docker exec "$rails_container" ruby -rnet/http -e \
-      'r=Net::HTTP.get_response(URI("http://127.0.0.1:3000/people/current")); exit([401,403].include?(r.code.to_i) ? 0 : 1)' \
+      'r=Net::HTTP.get_response(URI("http://127.0.0.1:3000/people/current")); exit([401,403,404].include?(r.code.to_i) ? 0 : 1)' \
       >/dev/null 2>&1 && break
     sleep 0.25
   done
   docker exec "$rails_container" ruby -rnet/http -e \
-    'r=Net::HTTP.get_response(URI("http://127.0.0.1:3000/people/current")); exit([401,403].include?(r.code.to_i) ? 0 : 1)' || exit 65
+    'r=Net::HTTP.get_response(URI("http://127.0.0.1:3000/people/current")); exit([401,403,404].include?(r.code.to_i) ? 0 : 1)' || exit 65
   ATTRIBUTE_ORACLE_KEY="$oracle_key" ATTRIBUTE_SEEK_IMAGE_ID="$seek_image_id" \
   ATTRIBUTE_SEEK_VERSION="$seek_version" ATTRIBUTE_RAILS_CONTAINER="$rails_container" \
   python3 - <<'PY'

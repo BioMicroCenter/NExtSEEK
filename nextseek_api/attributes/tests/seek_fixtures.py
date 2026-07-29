@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 
 SCHEMA = [
-    ("CREATE TABLE IF NOT EXISTS sample_types (id BIGINT PRIMARY KEY,title VARCHAR(255) NOT NULL,updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))", ()),
-    ("CREATE TABLE IF NOT EXISTS sample_attribute_types (id BIGINT PRIMARY KEY,title VARCHAR(255) NOT NULL)", ()),
+    ("CREATE TABLE IF NOT EXISTS sample_types (id BIGINT PRIMARY KEY,title VARCHAR(255) NOT NULL,created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))", ()),
+    ("CREATE TABLE IF NOT EXISTS sample_attribute_types (id BIGINT PRIMARY KEY,title VARCHAR(255) NOT NULL,created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))", ()),
     ("CREATE TABLE IF NOT EXISTS units (id BIGINT PRIMARY KEY,title VARCHAR(255) NOT NULL,symbol VARCHAR(255) NULL)", ()),
     ("CREATE TABLE IF NOT EXISTS sample_controlled_vocabs (id BIGINT PRIMARY KEY,title VARCHAR(255) NOT NULL)", ()),
     ("CREATE TABLE IF NOT EXISTS sample_attributes (id BIGINT PRIMARY KEY,sample_type_id BIGINT NOT NULL,sample_attribute_type_id BIGINT NOT NULL,title VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,required TINYINT(1) NOT NULL DEFAULT 0,pos INT NOT NULL,is_title TINYINT(1) NOT NULL DEFAULT 0,description TEXT NULL,unit_id BIGINT NULL,sample_controlled_vocab_id BIGINT NULL,linked_sample_type_id BIGINT NULL,created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))", ()),
@@ -31,8 +31,8 @@ def _structured(value):
         raise ValueError("sample_titles must be nonempty strings")
     statements = list(SCHEMA)
     statements += [
-        ("INSERT INTO sample_attribute_types(id,title) VALUES(%s,%s) ON DUPLICATE KEY UPDATE title=VALUES(title)", (1, "String")),
-        ("INSERT INTO sample_types(id,title) VALUES(%s,%s) ON DUPLICATE KEY UPDATE title=VALUES(title)", (type_id, f"Type {type_id}")),
+        ("INSERT INTO sample_attribute_types(id,title,created_at,updated_at) VALUES(%s,%s,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE title=VALUES(title)", (1, "String")),
+        ("INSERT INTO sample_types(id,title,created_at,updated_at) VALUES(%s,%s,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE title=VALUES(title)", (type_id, f"Type {type_id}")),
     ]
     for position, title in enumerate(titles, 1):
         statements.append(("INSERT INTO sample_attributes(id,sample_type_id,sample_attribute_type_id,title,required,pos,is_title) VALUES(%s,%s,1,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE title=VALUES(title),pos=VALUES(pos)",

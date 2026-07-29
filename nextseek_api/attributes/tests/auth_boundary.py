@@ -5,10 +5,7 @@ import hashlib
 import hmac
 import json
 import os
-import socket
-import subprocess
 import time
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -83,7 +80,7 @@ class SeekAuthBoundary:
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             try:
-                if requests.get(f"{self.base_url}/people/current", timeout=1).status_code in {401, 403}:
+                if requests.get(f"{self.base_url}/people/current", timeout=1).status_code in {401, 403, 404}:
                     self._load_credentials(seed_payload)
                     return
             except requests.RequestException:
@@ -100,7 +97,8 @@ class SeekAuthBoundary:
             password = seed_payload["passwords"][login]
             user, _ = User.objects.update_or_create(username=login, defaults={"is_active": True})
             if login == "django-superuser-decoy-role":
-                user.is_staff = True; user.is_superuser = True
+                user.is_staff = True
+                user.is_superuser = True
             user.set_password(password)
             user.save(update_fields=["password", "is_staff", "is_superuser"])
             identity = {"person_id": person_id, "django_user_id": user.pk, "login": login}
@@ -117,10 +115,13 @@ class SeekAuthBoundary:
                 "token", login, person_id, {"HTTP_AUTHORIZATION": f"Token {token.key}"}, {},
                 {**identity, "scheme": "token"},
             )
-            session = SessionStore(); session["_auth_user_id"] = str(user.pk)
+            session = SessionStore()
+            session["_auth_user_id"] = str(user.pk)
             session["_auth_user_backend"] = "django.contrib.auth.backends.ModelBackend"
             session["_auth_user_hash"] = user.get_session_auth_hash()
-            session["server"] = self.base_url; session["username"] = login; session["password"] = password
+            session["server"] = self.base_url
+            session["username"] = login
+            session["password"] = password
             session.save()
             self._credentials[("session", login)] = BoundaryCredential(
                 "session", login, person_id, {}, {settings.SESSION_COOKIE_NAME: session.session_key},
@@ -133,11 +134,16 @@ class SeekAuthBoundary:
         forged_user = User.objects.create_user(username="forged-token-local", password="unused")
         Token.objects.filter(user=forged_user).delete()
         Token.objects.create(user=forged_user, key="f" * 40)
+        # The "revoked-token" fixture must not touch the "revoked-user" login's own
+        # working token credential: that login is independently reused by the admin
+        # parity matrix (case_id="revoked-user", id="missing-role"), which needs a
+        # live, authenticating token to prove identity before its missing role can be
+        # observed. A dedicated throwaway account keeps the two fixtures independent.
+        revoked_token_user = User.objects.create_user(username="revoked-token-local", password="unused")
+        Token.objects.filter(user=revoked_token_user).delete()
         for case_id, value in (("forged-token", "f" * 40), ("revoked-token", "e" * 40)):
             if case_id == "revoked-token":
-                revoked_user = User.objects.get(username="revoked-user")
-                Token.objects.filter(user=revoked_user).delete()
-                revoked_local = Token.objects.create(user=revoked_user, key=value)
+                revoked_local = Token.objects.create(user=revoked_token_user, key=value)
                 revoked_local.delete()
             self._credentials[("token", case_id)] = BoundaryCredential(
                 "token", case_id, None, {"HTTP_AUTHORIZATION": f"Token {value}"}, {}, None,
@@ -173,8 +179,6 @@ class SeekAuthBoundary:
             dict(admin_basic.headers) | {"HTTP_X_EXTRA_AUTHORIZATION": invalid_basic.headers["HTTP_AUTHORIZATION"]},
             dict(ordinary_session.cookies), None,
         )
-        mismatch_session = self._credentials[("session", "valid-admin")]
-        ordinary = self._credentials[("session", "ordinary-user")]
         store = SessionStore()
         store["_auth_user_id"] = str(get_user_model().objects.get(username="valid-admin").pk)
         store["_auth_user_backend"] = "django.contrib.auth.backends.ModelBackend"
@@ -202,15 +206,36 @@ class SeekAuthBoundary:
         return self._last_role_query_alias
 
     def dispatch_neighbor_session_parity(self, operation):
-        from nextseek_api.attributes.auth import SeekAuthenticated
+        # Mirrors nextseek_api/batch_upload/views.py's AttributeJobViewSet composition
+        # (Token, CsrfExemptSessionAuthentication, Basic + IsAuthenticated) exactly, so
+        # this proves our recognized CsrfExemptSessionAuthentication subclass keeps that
+        # neighboring API's CSRF-exempt read/mutation parity rather than a plain
+        # DRF SessionAuthentication substitution that would 403 on the POST case.
+        from rest_framework.authentication import BasicAuthentication, TokenAuthentication
+        from rest_framework.permissions import IsAuthenticated
         from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
         credential = self.credential("session", "valid-admin")
+
         class NeighborProbe(APIView):
-            authentication_classes = (CsrfExemptSessionAuthentication,)
-            permission_classes = (SeekAuthenticated,)
+            authentication_classes = (TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication)
+            permission_classes = (IsAuthenticated,)
+
+            def _respond(self, request):
+                return Response({"authentication_class": type(request.successful_authenticator).__name__})
+
             def get(self, request):
-                return Response({"authentication_class": "CsrfExemptSessionAuthentication"})
-        return self._dispatch(credential, NeighborProbe.as_view())
+                return self._respond(request)
+
+            def post(self, request):
+                return self._respond(request)
+
+        view = NeighborProbe.as_view()
+        factory = APIRequestFactory()
+        if operation == "safe-read":
+            request = factory.get("/attribute-auth-probe", **credential.headers)
+        else:
+            request = factory.post("/attribute-auth-probe", {}, format="json", **credential.headers)
+        return self._dispatch_request(credential, view, request)
 
     def run_rails_predicate_oracle(self):
         boundary = json.loads(self._boundary_path.read_text())
@@ -265,8 +290,12 @@ class SeekAuthBoundary:
         from nextseek_api.helpers import SeekAPIClient
         connection = connections[self.database.django_alias]
         case_key = credential.case_id
-        self._role_queries[case_key] = 0
-        self._current_person_calls[case_key] = 0
+        # Counts accumulate across dispatches of the same credential within one test so
+        # that test_selected_identity_cache_is_request_local_and_never_cross_request can
+        # observe two independent per-request role queries rather than the last dispatch
+        # clobbering the count of the one before it.
+        self._role_queries.setdefault(case_key, 0)
+        self._current_person_calls.setdefault(case_key, 0)
         self._last_role_query_alias = None
         original_get_current = SeekAPIClient.get_current_person
         boundary = self
@@ -286,8 +315,16 @@ class SeekAuthBoundary:
         for key, value in credential.cookies.items():
             request.COOKIES[key] = value
         if credential.scheme in {"session", "mixed", "binding"} and credential.cookies:
-            SessionMiddleware(lambda _request: None).process_request(request)
-            AuthenticationMiddleware(lambda _request: None).process_request(request)
+            from django.http import HttpResponse
+
+            def get_response(_req):
+                return HttpResponse(b"")
+
+            SessionMiddleware(get_response)(request)
+            AuthenticationMiddleware(get_response)(request)
+            user_id = request.session.get("_auth_user_id")
+            if user_id and not request.user.is_authenticated:
+                request.user = get_user_model().objects.get(pk=user_id)
         with override_settings(SEEK_URL=self.base_url), connection.execute_wrapper(observe), patch.object(
             SeekAPIClient, "get_current_person", counted_get_current
         ):
@@ -365,12 +402,13 @@ class SeekAuthBoundary:
 
 
 @pytest.fixture
-def seek_auth_boundary(disposable_attribute_db):
-    boundary = SeekAuthBoundary(
-        disposable_attribute_db, Path(os.environ["ATTRIBUTE_EVIDENCE_RUN_ROOT"]),
-    )
-    boundary.install_and_start()
-    try:
-        yield boundary
-    finally:
-        boundary.close()
+def seek_auth_boundary(disposable_attribute_db, django_db_blocker):
+    with django_db_blocker.unblock():
+        boundary = SeekAuthBoundary(
+            disposable_attribute_db, Path(os.environ["ATTRIBUTE_EVIDENCE_RUN_ROOT"]),
+        )
+        boundary.install_and_start()
+        try:
+            yield boundary
+        finally:
+            boundary.close()
