@@ -288,3 +288,104 @@ def test_auth_helper_entrypoints_and_invalid_creator_guard(seek_auth_boundary):
     assert response.data["can_view"] is True
     assert response.data["cancel_self"] is True
     assert response.data["cancel_invalid"] is False
+
+
+def test_unsupported_authenticator_scheme_is_rejected():
+    from rest_framework.authentication import BaseAuthentication
+    from rest_framework.exceptions import AuthenticationFailed
+
+    from nextseek_api.attributes import auth as auth_module
+
+    class WeirdAuth(BaseAuthentication):
+        pass
+
+    with pytest.raises(AuthenticationFailed, match="Unsupported authentication mechanism"):
+        auth_module._scheme(WeirdAuth())
+
+
+def test_selected_token_without_key_is_rejected():
+    from types import SimpleNamespace
+
+    from rest_framework.authentication import TokenAuthentication
+    from rest_framework.exceptions import AuthenticationFailed
+
+    from nextseek_api.attributes import auth as auth_module
+
+    request = SimpleNamespace(META={"HTTP_AUTHORIZATION": "Token abc"}, COOKIES={}, session={})
+    with pytest.raises(AuthenticationFailed, match="Selected local token is unavailable"):
+        auth_module._selected_credential(request, TokenAuthentication(), SimpleNamespace(key=""))
+
+
+def test_selected_basic_without_prefix_is_rejected():
+    from types import SimpleNamespace
+
+    from rest_framework.authentication import BasicAuthentication
+    from rest_framework.exceptions import AuthenticationFailed
+
+    from nextseek_api.attributes import auth as auth_module
+
+    request = SimpleNamespace(META={"HTTP_AUTHORIZATION": "Bearer x"}, COOKIES={}, session={})
+    with pytest.raises(AuthenticationFailed, match="Selected Basic credential is unavailable"):
+        auth_module._selected_credential(request, BasicAuthentication(), None)
+
+
+@pytest.mark.parametrize(
+    "status_code,body",
+    [
+        pytest.param(401, b"{}", id="seek-rejects-credentials"),
+        pytest.param(200, b"not-json", id="seek-body-not-json"),
+        pytest.param(200, b'{"data": {"type": "projects", "id": "1"}}', id="seek-wrong-type"),
+        pytest.param(200, b'{"data": {"type": "people", "id": "0"}}', id="seek-invalid-person-id"),
+        pytest.param(200, b'{"data": {"type": "people", "id": "not-int"}}', id="seek-unparseable-person-id"),
+    ],
+)
+def test_seek_current_person_failures_are_rejected(seek_auth_boundary, status_code, body):
+    from unittest.mock import patch
+
+    from django.contrib.auth import get_user_model
+    from rest_framework.exceptions import AuthenticationFailed
+
+    from nextseek_api.attributes import auth as auth_module
+    from nextseek_api.helpers import SeekAPIClient
+
+    user = get_user_model().objects.get(username="system-admin")
+    selected = auth_module.SelectedSeekCredential("basic", authorization="Basic x")
+    with patch.object(SeekAPIClient, "get_current_person", return_value=(body, status_code, {}, None)):
+        with pytest.raises(AuthenticationFailed):
+            auth_module._prove_seek_person(selected, user)
+
+
+def test_query_admin_role_empty_fetchone_returns_false(seek_auth_boundary):
+    from unittest.mock import MagicMock, patch
+
+    from django.conf import settings
+
+    from nextseek_api.attributes import auth as auth_module
+
+    cursor = MagicMock()
+    cursor.fetchone.return_value = None
+    context = MagicMock()
+    context.__enter__.return_value = cursor
+    with patch.object(auth_module.connections[settings.SEEK_DATABASE], "cursor", return_value=context):
+        assert auth_module._query_admin_role(1) is False
+
+
+def test_nonadmin_cannot_cancel_valid_creator_job(seek_auth_boundary):
+    from rest_framework.response import Response
+    from rest_framework.views import APIView
+
+    from nextseek_api.attributes.auth import SeekPersonAuthentication, can_cancel_job
+
+    ordinary = seek_auth_boundary.credential("token", "ordinary-user")
+    creator_id = seek_auth_boundary.case("creator-admin").person_id
+
+    class CancelProbe(APIView):
+        authentication_classes = (SeekPersonAuthentication,)
+        permission_classes = ()
+
+        def get(self, request):
+            return Response({"allowed": can_cancel_job(request, creator_id)})
+
+    response = seek_auth_boundary._dispatch(ordinary, CancelProbe.as_view())
+    assert response.status_code == 200
+    assert response.data["allowed"] is False
