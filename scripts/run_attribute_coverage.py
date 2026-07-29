@@ -169,6 +169,13 @@ def main() -> int:
         if len(matches) != 1 or matches[0]["summary"]["percent_covered"] < 100.0:
             print("task-01 schemas.py coverage is below 100%")
             return 1
+    if os.environ.get("ATTRIBUTE_EVIDENCE_TASK_ID") == "task-02":
+        payload = json.loads(output.read_text())
+        auth_suffix = "nextseek_api/attributes/auth.py"
+        matches = [row for name, row in payload["files"].items() if name.endswith(auth_suffix)]
+        if len(matches) != 1 or matches[0]["summary"]["percent_covered"] < 95.0:
+            print("task-02 auth.py coverage is below 95%")
+            return 1
     return int(pytest_exit)
 
 
