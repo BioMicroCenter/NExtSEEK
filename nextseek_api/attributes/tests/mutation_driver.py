@@ -34,17 +34,15 @@ def _atomic_write(path, data):
 def _reload_after_mutation(module_name: str) -> None:
     import importlib
 
-    reload_order = []
     if module_name in sys.modules:
-        reload_order.append(module_name)
+        importlib.reload(sys.modules[module_name])
     for dependent in (
+        "nextseek_api.attributes.auth",
         "nextseek_api.attributes.tests.auth_boundary",
         "nextseek_api.attributes.tests.test_auth",
     ):
-        if dependent in sys.modules and dependent not in reload_order:
-            reload_order.append(dependent)
-    for name in reload_order:
-        importlib.reload(sys.modules[name])
+        if dependent != module_name and dependent in sys.modules:
+            importlib.reload(sys.modules[dependent])
 
 
 def pytest_configure(config):

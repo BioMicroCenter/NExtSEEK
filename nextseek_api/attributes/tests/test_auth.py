@@ -1,5 +1,7 @@
+import json
+
 import pytest
-from nextseek_api.attributes.auth import IsSeekAdmin, SeekAuthenticated
+from nextseek_api.attributes.auth import IsSeekAdmin, SeekAuthenticated, SeekPersonAuthentication
 
 pytestmark = pytest.mark.django_db
 
@@ -145,9 +147,31 @@ def test_actor_provenance_is_one_identity(seek_auth_boundary, field):
     pytest.param("admin-mutation", id="admin-mutation"),
 ])
 def test_csrf_exempt_session_route_parity(seek_auth_boundary, operation):
+    from rest_framework.response import Response
+    from rest_framework.views import APIView
+    from rest_framework.test import APIRequestFactory
+
     response = seek_auth_boundary.dispatch_neighbor_session_parity(operation)
     assert response.status_code == 200
     assert response.data["authentication_class"] == "CsrfExemptSessionAuthentication"
+    credential = seek_auth_boundary.credential("session", "valid-admin")
+    factory = APIRequestFactory()
+
+    class SeekSessionProbe(APIView):
+        authentication_classes = (SeekPersonAuthentication,)
+        permission_classes = (SeekAuthenticated,)
+
+        def post(self, request):
+            return Response({"scheme": request.auth.scheme})
+
+    request = factory.post("/attribute-auth-probe", **credential.headers)
+    for key, value in credential.cookies.items():
+        request.COOKIES[key] = value
+    seek_response = seek_auth_boundary._dispatch_request(
+        credential, SeekSessionProbe.as_view(), request,
+    )
+    assert seek_response.status_code == 200
+    assert seek_response.data["scheme"] == "session"
 
 def test_wrong_basic_password_and_forged_tokens_are_401(seek_auth_boundary):
     for scheme, case in (("basic", "wrong-password"), ("token", "forged-token")):
@@ -189,17 +213,25 @@ def test_admin_role_query_uses_only_the_disposable_seek_alias(seek_auth_boundary
 
 
 def test_selected_identity_cache_is_request_local_and_never_cross_request(seek_auth_boundary):
+    from nextseek_api.attributes.auth import SeekPersonAuthentication
+
     credential = seek_auth_boundary.credential("token", "system-admin")
     first = seek_auth_boundary.dispatch_drf(credential, permission=IsSeekAdmin)
     second = seek_auth_boundary.dispatch_drf(credential, permission=IsSeekAdmin)
     assert first.status_code == 200 and second.status_code == 200
     assert seek_auth_boundary.role_query_count(credential) == 2
+    assert getattr(SeekPersonAuthentication, "_attribute_seek_identity", None) is None
 
 
 def test_rails_oracle_tamper_is_rejected_before_parity_comparison(seek_auth_boundary):
-    truth = seek_auth_boundary.run_rails_predicate_oracle()
-    truth["signature"] = "tampered"
-    assert seek_auth_boundary.verify_oracle_signature(truth) is False
+    boundary = json.loads(seek_auth_boundary._boundary_path.read_text())
+    oracle = boundary["oracle"]
+    tampered = {
+        "input_row_ids": oracle["input_row_ids"],
+        "rows": oracle["rows"],
+        "signature": "tampered",
+    }
+    assert seek_auth_boundary.verify_oracle_signature(tampered) is False
 
 
 def test_csrf_exempt_session_matches_neighboring_api_for_read_and_admin_mutation(seek_auth_boundary):
