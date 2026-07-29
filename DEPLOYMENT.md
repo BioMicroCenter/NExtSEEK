@@ -329,6 +329,23 @@ rollback.
   runtime environment (i.e. real secrets) in the image config. Only push
   images produced by `docker build` / `docker compose build`, whose env is
   injected at runtime and never baked.
+- **Pre-push gate (mandatory before ANY off-box push):** even a
+  build-produced image can carry secrets if the build context was dirty —
+  ad-hoc copies of rendered env files (e.g. `docker/nextseek.env.bak.<date>`)
+  have been swept into an image by `COPY . /app` on a real deploy host.
+  Before any tag leaves the box, prove the image is free of baked
+  config/secret files:
+
+  ```bash
+  docker run --rm --network none --entrypoint sh <image> -c \
+    'ls /app/.env /app/docker/*env* /app/dmac/local_settings.py 2>/dev/null; true'
+  ```
+
+  PASS = nothing printed except (at most) `docker/nextseek.env.example`.
+  Anything else → do **not** push: clean the build context / fix
+  `.dockerignore` (env files are excluded by *pattern*, not exact name — see
+  `.dockerignore` and `test_build_context_env_guard.py`), rebuild, re-run
+  the gate.
 
 ### 5.3 mysqldump gate (before migration-applying deploys)
 
