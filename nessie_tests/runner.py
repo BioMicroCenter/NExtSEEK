@@ -77,16 +77,25 @@ def _trim(value):
 def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, variant_id=None,
               overlay_path, out_dir, post_query=None, get_progress=None, bundle_reader=None,
               pace_s=0.0, run_consistency: bool = False, sample: float = 1.0, seed: int = 0,
-              sleep=time.sleep, clock=time.monotonic) -> NessieManifest:
+              cases_path=None, sleep=time.sleep, clock=time.monotonic) -> NessieManifest:
     if post_query is None or get_progress is None:
         post_query, get_progress = http_driver.make_default_clients(base_url, auth_header)
-    variants = corpus.select(corpus.merged(overlay_path), scope=scope, family=family, variant_id=variant_id)
-    if sample < 1.0:
-        variants = corpus.sample(variants, sample, seed)
+    if cases_path:
+        # An explicit running order replaces sampling entirely: scope, family,
+        # variant_id, sample and seed are all selection knobs and the file IS the
+        # selection. Mixing them would make "what ran" depend on two sources.
+        variants = corpus.select_cases(corpus.merged(overlay_path),
+                                       *corpus.load_case_file(cases_path))
+    else:
+        variants = corpus.select(corpus.merged(overlay_path), scope=scope, family=family,
+                                 variant_id=variant_id)
+        if sample < 1.0:
+            variants = corpus.sample(variants, sample, seed)
     # Recorded so two run directories can be told apart and diffed honestly.
     run_meta = {
-        "seed": seed,
-        "sample": sample,
+        "seed": None if cases_path else seed,
+        "sample": None if cases_path else sample,
+        "cases_file": str(cases_path) if cases_path else None,
         "selected_ids": [v.id for v in variants],
         "overridden_ids": corpus.overridden_ids(overlay_path),
         "corpus_fingerprint": corpus_fingerprint(overlay_path),

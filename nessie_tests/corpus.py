@@ -201,6 +201,56 @@ def overridden_ids(overlay_path: Path | None = None) -> list[str]:
     return sorted(v.id for v in load_overlay(overlay_path) if v.id in base_ids)
 
 
+def load_case_file(path) -> tuple[list[str], list[Variant]]:
+    """Parse a ``--cases`` file into (include_ids, inline variants).
+
+    The file is OVERLAY-SHAPED so a ``families`` block can be copy-pasted straight
+    out of overlay.json and gets the same PassCriterion validation for free.
+
+        {"include_ids": ["repro.cypher_uid_dot"],
+         "families": {"manual": {"description": "...", "variants": [ ... ]}}}
+
+    Either key may be omitted, but not both.
+    """
+    path = Path(path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    include = list(payload.get("include_ids") or [])
+    inline = load_overlay(path) if payload.get("families") else []
+    return include, inline
+
+
+def select_cases(variants: list[Variant], include_ids: list[str],
+                 inline: list[Variant]) -> list[Variant]:
+    """Resolve a case file to the exact list of variants to run, in FILE order.
+
+    A seeded sample answers "is the corpus still healthy". It cannot answer "does
+    THIS work" — reingestion, a harmonization conversation, cross-mode memory —
+    because those questions are not in the corpus, and waiting for a seed to draw
+    the cases you care about does not work: the 2026-07-28 run silently dropped
+    three of the fixes it was meant to verify because seed 0 did not select them.
+
+    File order is preserved rather than corpus order, because a probe file is a
+    running order and usually wants a seed followed by its follow-up.
+
+    Inline variants are returned AS WRITTEN — no family floor, no route policy. A
+    hand-authored probe is a precise instrument, and bolting extra assertions onto
+    questions someone wrote deliberately is the opposite of the point.
+    """
+    by_id = {v.id: v for v in variants}
+    missing = [i for i in include_ids if i not in by_id]
+    if missing:
+        # Loud, because a typo would silently shrink a run that costs money.
+        raise ValueError(
+            f"--cases include_ids not found in the corpus: {missing}. "
+            f"Check spelling against nessie_tests/overlay.json and "
+            f"chat_nextseek/e2e/catalog.json.")
+    out = [by_id[i] for i in include_ids]
+    out += inline
+    if not out:
+        raise ValueError("--cases file selected no cases: give include_ids, families, or both.")
+    return out
+
+
 def select(variants, *, scope: str = "all", family: str | None = None,
            variant_id: str | None = None) -> list[Variant]:
     out = list(variants)

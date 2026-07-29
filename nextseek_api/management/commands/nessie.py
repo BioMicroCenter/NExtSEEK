@@ -43,6 +43,12 @@ class Command(BaseCommand):
         parser.add_argument("--sample", type=float, default=1.0,
                             help="Fraction of selected variants to run, sampled per family (e.g. 0.1 for a tenth). Default 1.0 = all.")
         parser.add_argument("--seed", type=int, default=0, help="Deterministic sampling seed.")
+        parser.add_argument("--cases", default=None,
+                            help="Path to an overlay-shaped JSON file listing exactly which cases to "
+                                 "run, instead of a seeded sample. Keys: include_ids (existing corpus "
+                                 "variants, by id, in file order) and/or families (new ad-hoc variants "
+                                 "inline). Overrides --scope/--family/--variant/--sample/--seed; "
+                                 "inline variants run exactly as written, with no family floor.")
         parser.add_argument("--out", default="/app/nessie_out")
 
     def handle(self, *args, **opts) -> None:
@@ -69,6 +75,7 @@ class Command(BaseCommand):
             pace_s=opts["pace"],
             run_consistency=run_consistency,
             sample=opts["sample"], seed=opts["seed"],
+            cases_path=opts["cases"],
         )
         self._summarize(manifest, tier, opts["scope"], opts["out"], runner)
 
@@ -100,7 +107,9 @@ class Command(BaseCommand):
             for e in summary["heuristic_routed"]:
                 w(f"    - {e.family}/{e.id}  (route_source={e.route_source})")
         w("")
-        w(f"  seed={manifest.seed}  sample={manifest.sample}  "
+        selection = (f"cases={manifest.cases_file}" if manifest.cases_file
+                     else f"seed={manifest.seed}  sample={manifest.sample}")
+        w(f"  {selection}  "
           f"corpus={(manifest.corpus_fingerprint or '')[:12]}  git={manifest.git_sha}")
         w("")
         if real_fails:

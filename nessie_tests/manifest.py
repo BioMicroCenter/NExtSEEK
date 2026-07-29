@@ -59,6 +59,10 @@ class NessieManifest(BaseModel):
     scope: str
     seed: int | None = None
     sample: float | None = None
+    # Set instead of seed/sample when the run came from an explicit --cases file.
+    # Null seed AND null sample is how a reader tells a hand-authored probe from a
+    # sampled run, which otherwise look identical in the manifest.
+    cases_file: str | None = None
     selected_ids: list[str] = Field(default_factory=list)
     overridden_ids: list[str] = Field(default_factory=list)
     corpus_fingerprint: str | None = None
