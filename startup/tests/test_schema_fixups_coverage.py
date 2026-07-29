@@ -319,3 +319,8 @@ def test_observe_concurrent_lock_probe_reports_errored_on_database_error(disposa
     assert result["attempted"] is True
     assert result["outcome"] == "errored"
     assert result["server_error_code"] is not None
+
+
+def test_quote_identifier_rejects_unsafe_names():
+    with pytest.raises(ValueError, match="unsafe SQL identifier"):
+        sf._quote_identifier("bad-name")

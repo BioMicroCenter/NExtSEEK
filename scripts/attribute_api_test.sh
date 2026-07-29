@@ -261,7 +261,7 @@ rm -f "$boundary_env"
 export ATTRIBUTE_TEST_DOCKER_NETWORK ATTRIBUTE_TEST_DATABASE_NAME
 export ATTRIBUTE_TEST_DISPOSABLE_DB_UUID ATTRIBUTE_TEST_DB_HOST ATTRIBUTE_TEST_DB_PORT
 export ATTRIBUTE_TEST_DATABASE_PRECREATED
-if [[ "$task_id" == "task-02" ]]; then
+if [[ "$task_id" != "task-00" && "$task_id" != "task-01" ]]; then
   seek_image_id="sha256:8b5c12a005d8bc9fea51b0f2e03c06ab210b2348ab4ec09bffbfde74ac3499fc"
   [[ "$(docker image inspect --format '{{.Id}}' fairdom/seek:1.15.1)" == "$seek_image_id" ]] || exit 65
   [[ "$(docker run --rm --network none "$seek_image_id" sha256sum config/version.yml | awk '{print $1}')" == \
@@ -343,6 +343,7 @@ SAMPLE_TEMPLATES_FOLDER_PROJECT = "1"
 PUBLISH_URL = "http://attribute-seek:3000"
 PUBLISH_STATS_FILE = "/path/to/published_stats.xlsx"
 SMART_SEARCH_URL = ""
+SCHEMA_RAG_EMBEDDING_MODEL_PATH = "/work/schema_rag_embedding_models"
 
 class _AttributeLaneChatConfig:
     CONFIG_VERBOSE = False
