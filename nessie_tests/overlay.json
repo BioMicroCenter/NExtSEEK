@@ -445,6 +445,8 @@
     "_note": "Writes, exports and open-ended analysis are Container-CC's job, so these families must assert the ROUTE, not an NS-internal parser mode. `parser_plan.mode == unsupported` resolves to None on any turn that never reaches NS, so it fails unconditionally no matter what the product did — 3 of the 15 seed-0 failures were exactly that, across 23 variants.",
     "_policy": "Settled by the operator 2026-07-28: bulk export is CC's job. Consistent with what the route_gate family already blesses (route.cc_write_investigation: 'writes are deliberately CC's, not an NS unsupported'; route.cc_open_ended_analysis) and with three variants a previous wave hand-converted to this exact shape.",
     "drop_field": "parser_plan.mode",
+    "_2026_07_29_also_assert": "A route assertion ALONE cannot tell a working turn from a dead one. Task 957 in the 2026-07-29 run hit error_max_budget_usd, replied null, and scored GREEN because `route eq container_cc` was its only criterion. Applied per FIELD so the three hand-converted variants keep their own stricter last_reply regexes.",
+    "also_assert": [{"field": "last_reply", "op": "nonempty", "value": null}],
     "families": {
       "unsupported": {"op": "eq", "value": "container_cc"},
       "writes_unsupported": {"op": "eq", "value": "container_cc"}

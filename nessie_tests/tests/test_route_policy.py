@@ -81,6 +81,32 @@ def test_domain_knowledge_may_be_either_but_must_not_be_a_data_query():
     assert ("route", "matches_re", "(unrelated|container_cc)") in crits
 
 
+def test_a_route_assertion_alone_cannot_tell_a_working_turn_from_a_dead_one():
+    """The 2026-07-29 run: task 957 errored with a null reply and scored GREEN.
+
+    write.export_all_metadata_for_nhp_22 asserted only `route eq container_cc`.
+    The route WAS container_cc, so the single criterion held while the turn hit
+    error_max_budget_usd and produced nothing. Every rule-converted variant needs
+    an outcome assertion next to the route.
+    """
+    for v in corpus.merged(OVERLAY):
+        if v.family not in ("unsupported", "writes_unsupported"):
+            continue
+        fields = {c.field for t in v.turns for c in t.pass_criteria}
+        assert "last_reply" in fields, (
+            f"{v.id} asserts the route and nothing about the answer, so a dead "
+            f"turn scores green. Has: {sorted(fields)}")
+
+
+def test_the_outcome_assertion_is_not_double_written():
+    """The three hand-converted variants already carry last_reply; adding a second
+    nonempty check would be noise, and would overwrite a stricter matches_re."""
+    v = _by_id()["write.create_me_investigation_testin"]
+    nonempty = [c for t in v.turns for c in t.pass_criteria
+                if c.field == "last_reply" and c.op == "nonempty"]
+    assert len(nonempty) == 1, f"duplicated last_reply nonempty: {len(nonempty)}"
+
+
 def test_the_hand_converted_variants_are_left_untouched():
     """Three variants a previous wave already converted must not be double-written."""
     for vid in ("unsup.is_treatment_a_significantly_b",

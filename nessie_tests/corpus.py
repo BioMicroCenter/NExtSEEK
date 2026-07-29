@@ -155,6 +155,7 @@ def apply_route_policy(variants: list[Variant], spec: dict) -> list[Variant]:
     families = (spec or {}).get("families") or {}
     overrides = (spec or {}).get("overrides") or {}
     drop = (spec or {}).get("drop_field")
+    also = (spec or {}).get("also_assert") or []
     if not families and not overrides:
         return variants
 
@@ -166,10 +167,18 @@ def apply_route_policy(variants: list[Variant], spec: dict) -> list[Variant]:
             if drop:
                 t.pass_criteria = [c for c in t.pass_criteria if c.field != drop]
         first = v.turns[0]
-        if any(c.field == "route" for c in first.pass_criteria):
-            continue  # already converted by hand; do not double-write
-        first.pass_criteria.append(
-            PassCriterion(field="route", op=rule["op"], value=rule["value"]))
+        present = {c.field for c in first.pass_criteria}
+        if "route" not in present:
+            first.pass_criteria.append(
+                PassCriterion(field="route", op=rule["op"], value=rule["value"]))
+        # A route assertion alone cannot tell a working turn from a dead one. In
+        # the 2026-07-29 run task 957 hit error_max_budget_usd, replied null, and
+        # scored GREEN because `route eq container_cc` was the only criterion.
+        # Added per FIELD, so the three hand-converted variants keep their own
+        # stricter last_reply regexes instead of gaining a redundant nonempty.
+        for crit in also:
+            if crit["field"] not in present:
+                first.pass_criteria.append(PassCriterion(**crit))
     return variants
 
 
