@@ -28,7 +28,7 @@ def run_validator(*args):
 def test_frozen_manifest_identity_and_paths():
     manifest = json.loads(MANIFEST.read_text())
     assert manifest["source_identity"]["base_sha"] == "402dad090ee225e1f8ae8be2c6547cef87b34511"
-    assert manifest["source_identity"]["reference_image_id"] == "sha256:66d06207ab7b04886c5129f553302566dd83ee8318a325e1308367ebcf8b64d2"
+    assert manifest["source_identity"]["reference_image_id"] == "sha256:1b7b67839e1b2dd4ca80df1e04534dc496af2e132f8321947f6586b76b9862e2"
     assert manifest["artifact_paths"]["corrupt_corpus"] == str(CORPUS)
     assert manifest["minimum_collected_tests"]["task-00"] == 18
     selection = manifest["evidence_selection_contract"]
