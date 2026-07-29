@@ -373,8 +373,9 @@ docker logs nextseek 2>&1 | grep -E '(COLLECTSTATIC-FAILED|DB-UNREACHABLE|MIGRAT
 docker exec nextseek uv run manage.py showmigrations nextseek_api | tail -5
 
 # 6. CC route wired — expect: (True, 'ok')
-#    (the image has NO bare `python` on PATH — use the venv interpreter)
-docker exec nextseek /app/.venv/bin/python -c "from nextseek_api.cc_assistant import cc_engine; print(cc_engine.cc_runner_available())"
+#    (the image has NO bare `python` on PATH — use `uv run --no-sync`, which
+#    executes in the app env /app/.venv without modifying it)
+docker exec nextseek uv run --no-sync python -c "from nextseek_api.cc_assistant import cc_engine; print(cc_engine.cc_runner_available())"
 
 # 7. OI-3 peers untouched (app-only deploy) — expect: uptime/health
 #    unchanged from before the deploy
@@ -401,8 +402,8 @@ Free lanes (run before/after deploys as appropriate):
 | Lane | Command | Notes |
 |---|---|---|
 | Hermetic cc_assistant (no DB, no spend) | `PYTHONPATH="$PWD:$PWD/dmac_assistant/src" uv run --no-project --with pytest --with orjson --with 'pydantic>=2.13' --with 'baml-py==0.222.0' python -m pytest nextseek_api/cc_assistant/tests/ --noconftest -p no:cacheprovider -q --ignore=nextseek_api/cc_assistant/tests/test_cc_realstack.py` | from repo root |
-| In-container DB-backed **clean lane** | `docker exec -w /app nextseek /app/.venv/bin/python -m pytest nextseek_api/cc_assistant/tests/ --create-db -k 'not realstack' --ignore=nextseek_api/cc_assistant/tests/test_step7_compose_deploy.py --ignore=nextseek_api/cc_assistant/tests/test_cc_realstack.py` | the canonical behavioral suite; runs in the live container (has secrets, db network, `test_dmac` grant). Do **not** run the whole `nextseek_api/` tree in-container — it has ~407 known environmental harness errors that are not regressions |
-| Source-tree hygiene (`host_only`) | `docker run --rm -v <WRITABLE checkout copy>:/repo -w /repo -v /usr/bin/docker:/usr/local/bin/docker:ro -v /usr/libexec/docker/cli-plugins:/usr/local/lib/docker/cli-plugins:ro nextseek-nextseek:latest /app/.venv/bin/python -m pytest -m host_only nextseek_api/cc_assistant/tests/ -q` | needs a **writable** checkout (settings import mkdirs) and **both** the docker CLI and compose plugin mounted; asserts on the checkout, not the image (the image strips `.gitignore` by design) |
+| In-container DB-backed **clean lane** | `docker exec -w /app nextseek uv run --no-sync python -m pytest nextseek_api/cc_assistant/tests/ --create-db -k 'not realstack' --ignore=nextseek_api/cc_assistant/tests/test_step7_compose_deploy.py --ignore=nextseek_api/cc_assistant/tests/test_cc_realstack.py` | the canonical behavioral suite; runs in the live container (has secrets, db network, `test_dmac` grant). Do **not** run the whole `nextseek_api/` tree in-container — it has ~407 known environmental harness errors that are not regressions |
+| Source-tree hygiene (`host_only`) | `docker run --rm -v <WRITABLE checkout copy>:/repo -w /repo -v /usr/bin/docker:/usr/local/bin/docker:ro -v /usr/libexec/docker/cli-plugins:/usr/local/lib/docker/cli-plugins:ro nextseek-nextseek:latest uv run --project /app --no-sync python -m pytest -m host_only nextseek_api/cc_assistant/tests/ -q` | needs a **writable** checkout (settings import mkdirs) and **both** the docker CLI and compose plugin mounted; asserts on the checkout, not the image (the image strips `.gitignore` by design). `--project /app` keeps uv on the image env (`/app/.venv`), not the mounted checkout's |
 | startup CLI | `uv run --project startup --group test pytest startup/tests -q` | isolated uv project |
 | Doc guards | included in the hermetic lane (`test_deploy_docs_guard.py`) | keeps this file and DEPLOY.md compose-native |
 
@@ -581,8 +582,9 @@ Both are skipped unless `RUN_REALSTACK=1`. Evidence bundles produced by
 acceptance runs are re-verifiable forever at zero spend:
 
 ```bash
-# in-container (no bare `python` on the image PATH — use the venv):
-docker exec nextseek /app/.venv/bin/python -m nextseek_api.cc_assistant.tests.validate_cc_acceptance outputs/cc_acceptance/<run_id>
+# in-container (no bare `python` on the image PATH — use `uv run --no-sync`,
+# which executes in the app env /app/.venv):
+docker exec nextseek uv run --no-sync python -m nextseek_api.cc_assistant.tests.validate_cc_acceptance outputs/cc_acceptance/<run_id>
 # on the host, from the repo root (stdlib-only module):
 python3 -m nextseek_api.cc_assistant.tests.validate_step7_compose_deploy <run_dir> [repo_root]
 ```

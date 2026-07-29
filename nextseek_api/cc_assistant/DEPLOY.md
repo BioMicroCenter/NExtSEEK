@@ -66,10 +66,11 @@ dual-homed service. Per-turn agent containers are spawned from the
 ## Verification
 
 CC route wired end-to-end (checks daemon, agent image, network — in order;
-the image has no bare `python` on PATH, so use the venv interpreter):
+the image has no bare `python` on PATH, so use `uv run --no-sync`, which
+executes in the app env `/app/.venv` without modifying it):
 
 ```bash
-docker exec nextseek /app/.venv/bin/python -c "from nextseek_api.cc_assistant import cc_engine; print(cc_engine.cc_runner_available())"
+docker exec nextseek uv run --no-sync python -c "from nextseek_api.cc_assistant import cc_engine; print(cc_engine.cc_runner_available())"
 # -> (True, 'ok')
 ```
 
@@ -116,9 +117,9 @@ docker exec -e RUN_REALSTACK=1 -e SEEK_TEST_USER=.. -e SEEK_TEST_PASS=.. nextsee
   'cd /app && uv run python manage.py test nextseek_api.cc_assistant.tests.test_cc_realstack \
    --settings=dmac.test_settings_realstack --noinput -v2'
 
-# reproducible re-check of a committed evidence bundle (zero spend; use the
-# venv interpreter — the image has no bare `python` on PATH)
-docker exec nextseek /app/.venv/bin/python -m nextseek_api.cc_assistant.tests.validate_cc_acceptance \
+# reproducible re-check of a committed evidence bundle (zero spend; use
+# `uv run --no-sync` — the image has no bare `python` on PATH)
+docker exec nextseek uv run --no-sync python -m nextseek_api.cc_assistant.tests.validate_cc_acceptance \
   outputs/cc_acceptance/<run_id>
 
 # full Step-7 compose-deploy evidence bundle re-validation (zero spend, 61
