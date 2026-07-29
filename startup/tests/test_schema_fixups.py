@@ -258,16 +258,35 @@ def test_attribute_owned_only_reverse_preserves_preexisting_index(disposable_att
 
 def test_attribute_concurrent_insert_enforces_unique_identity(disposable_attribute_db, attribute_faults):
     disposable_attribute_db.seed_seek_fixture("attribute_schema_empty")
-    database = disposable_attribute_db.database_name
-    sf.apply_managed_indexes_on_connection(
-        disposable_attribute_db.connect(), sf.indexes_for_database(database), attribute_faults
+    disposable_attribute_db.execute_sql(
+        [
+            (
+                "INSERT INTO sample_attribute_types(id,title,created_at,updated_at) "
+                "VALUES (%s,%s,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6)) "
+                "ON DUPLICATE KEY UPDATE title=VALUES(title)",
+                (5, "String"),
+            ),
+            (
+                "INSERT INTO sample_types(id,title,created_at,updated_at) "
+                "VALUES (%s,%s,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6)) "
+                "ON DUPLICATE KEY UPDATE title=VALUES(title)",
+                (7, "Type 7"),
+            ),
+        ]
     )
-    first_finished = threading.Event()
+    database = disposable_attribute_db.database_name
+    setup_connection = disposable_attribute_db.connect()
+    try:
+        sf.apply_managed_indexes_on_connection(
+            setup_connection, sf.indexes_for_database(database), attribute_faults
+        )
+    finally:
+        setup_connection.close()
+    barrier = threading.Barrier(2)
     outcomes: list[str] = []
 
-    def insert(row_id: int, title: str, *, wait_for_first: bool) -> None:
-        if wait_for_first:
-            assert first_finished.wait(timeout=5)
+    def insert(row_id: int, title: str) -> None:
+        barrier.wait()
         connection = disposable_attribute_db.fresh_connection()
         try:
             cursor = connection.cursor()
@@ -284,12 +303,10 @@ def test_attribute_concurrent_insert_enforces_unique_identity(disposable_attribu
             outcomes.append("duplicate")
         finally:
             connection.close()
-        if not wait_for_first:
-            first_finished.set()
 
     threads = [
-        threading.Thread(target=insert, args=(1, "RNA"), kwargs={"wait_for_first": False}),
-        threading.Thread(target=insert, args=(2, "rna"), kwargs={"wait_for_first": True}),
+        threading.Thread(target=insert, args=(1, "RNA")),
+        threading.Thread(target=insert, args=(2, "rna")),
     ]
     for thread in threads:
         thread.start()
