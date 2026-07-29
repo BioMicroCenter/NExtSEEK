@@ -54,9 +54,21 @@ def known_relationship_properties(schema: dict) -> set[str]:
 def unknown_cypher_properties(cypher: str, known_props: set[str]) -> list[str]:
     """Return distinct `<var>.<Prop>` property names in the Cypher that are not
     in known_props, preserving first-seen order. Catches hallucinated attributes
-    like `s.Lab` before the query runs."""
+    like `s.Lab` before the query runs.
+
+    Scans the MASKED cypher. Sample type codes are dotted — D.SEQ, A.SCXP,
+    D.FLOW — so an inlined literal like `WHERE s.type = 'D.SEQ'` reads to
+    `_CYPHER_PROP_RE` as a property access on a variable named `D`, and the guard
+    rejects a valid query with "properties ['SEQ'] do not exist". That is exactly
+    what happened to repro.cypher_uid_dot in the 2026-07-29 probe run.
+
+    It is nondeterministic in practice, which is what makes it nasty: the same
+    question bound the value as `$type` in the seed-0 run and passed, then
+    inlined it in the probe run and failed. Masking removes the whole class,
+    and both other guards in this module already scan the mask.
+    """
     out: list[str] = []
-    for prop in _CYPHER_PROP_RE.findall(cypher or ""):
+    for prop in _CYPHER_PROP_RE.findall(_mask_cypher(cypher or "")):
         if prop not in known_props and prop not in out:
             out.append(prop)
     return out
