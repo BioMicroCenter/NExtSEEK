@@ -35,7 +35,16 @@ logs/
 #   docker/db.env, docker/nextseek.env  are injected via compose env_file
 #   docker/bedrock-proxy/proxy-secret.env  is the proxy's env_file (real Bedrock token)
 # Excluding them keeps plaintext config/secrets out of the `COPY . /app/` layer.
+# PATTERNS, not exact names: ad-hoc operator copies (nextseek.env.bak.<date>,
+# rotation backups, a root .env) carry the same secrets and must never enter the
+# build context either. Committed *.example templates are re-included explicitly
+# (last matching rule wins).
 dmac/local_settings.py
-docker/db.env
-docker/nextseek.env
-docker/bedrock-proxy/proxy-secret.env
+docker/db.env*
+docker/nextseek.env*
+!docker/nextseek.env.example
+docker/bedrock-proxy/proxy-secret.env*
+!docker/bedrock-proxy/proxy-secret.env.example
+.env
+**/.env
+**/*.env.bak*

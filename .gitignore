@@ -168,6 +168,9 @@ local_settings.py
 # See docker/nextseek.env.example for the template.
 docker/nextseek.env
 docker/db.env
+# Ad-hoc backup copies of rendered env files (nextseek.env.bak.<date>, …) —
+# same secrets, same rule, any depth.
+*.env.bak*
 
 # Bedrock auth-proxy real secret env (holds AWS_BEARER_TOKEN_BEDROCK). Never
 # tracked; injected into the proxy container only at runtime via compose
