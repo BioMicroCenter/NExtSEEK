@@ -471,9 +471,26 @@ if lane == "collect":
         raise SystemExit("assertion-count keys do not exactly equal collected node IDs")
     exclusive_json(root / "collected-nodeids.json", node_ids)
     exclusive_json(root / "assertion_counts.json", assertion_counts)
-collected = 0 if lane in {"collect", "lint"} else (
-    count("collected") or sum(count(x) for x in ("passed", "failed", "skipped", "xfailed", "deselected"))
-)
+passed = count("passed")
+failed = count("failed")
+skipped = count("skipped")
+xfailed = count("xfailed")
+deselected = count("deselected")
+if lane == "mutants":
+    report = json.loads((root / "mutants.json").read_text())
+    keys = ("killed", "survived", "timed_out", "skipped", "errored")
+    if set(report) != set(keys):
+        raise SystemExit("mutants.json shape drift")
+    collected = sum(len(report[key]) for key in keys)
+    passed = len(report["killed"])
+    failed = len(report["survived"]) + len(report["errored"]) + len(report["timed_out"])
+    skipped = len(report["skipped"])
+    xfailed = 0
+    deselected = 0
+else:
+    collected = 0 if lane in {"collect", "lint"} else (
+        count("collected") or sum(passed + failed + skipped + xfailed + deselected for _ in [0])
+    )
 artifact_paths = [stdout, stderr]
 for name in ("coverage.json", "collected-nodeids.json", "assertion_counts.json", "node-results.json", "mutants.json", "mutant-pytest-reports.json", "fault-control.json", "rails-boundary.json", "boundary-identity.json", "dependency-shas.json"):
     candidate = root / name
@@ -489,8 +506,8 @@ record = {
   "lane": lane, "argv": argv, "cwd": os.environ["ATTRIBUTE_EVIDENCE_CWD"],
   "started_at": os.environ["ATTRIBUTE_EVIDENCE_STARTED"], "finished_at": os.environ["ATTRIBUTE_EVIDENCE_FINISHED"],
   "exit_code": int(os.environ["ATTRIBUTE_EVIDENCE_EXIT"]), "stdout_sha256": sha(stdout), "stderr_sha256": sha(stderr),
-  "collected": collected, "passed": count("passed"), "failed": count("failed"), "skipped": count("skipped"),
-  "xfailed": count("xfailed"), "deselected": count("deselected"), "source_tree_sha256": tree,
+  "collected": collected, "passed": passed, "failed": failed, "skipped": skipped,
+  "xfailed": xfailed, "deselected": deselected, "source_tree_sha256": tree,
   "plan_sha256": plan_sha256, "decisions_sha256": decisions_sha256,
   "base_sha": os.environ["ATTRIBUTE_TEST_INTEGRATION_BASE_SHA"],
   "task_head_sha": os.environ["ATTRIBUTE_TEST_TASK_HEAD_SHA"],
