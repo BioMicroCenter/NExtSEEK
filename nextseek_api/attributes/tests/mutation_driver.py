@@ -31,6 +31,22 @@ def _atomic_write(path, data):
             os.unlink(name)
 
 
+def _reload_after_mutation(module_name: str) -> None:
+    import importlib
+
+    reload_order = []
+    if module_name in sys.modules:
+        reload_order.append(module_name)
+    for dependent in (
+        "nextseek_api.attributes.tests.auth_boundary",
+        "nextseek_api.attributes.tests.test_auth",
+    ):
+        if dependent in sys.modules and dependent not in reload_order:
+            reload_order.append(dependent)
+    for name in reload_order:
+        importlib.reload(sys.modules[name])
+
+
 def pytest_configure(config):
     mutant_id = os.environ["ATTRIBUTE_ACTIVE_MUTANT_ID"]
     table = json.loads(Path(os.environ["ATTRIBUTE_MUTATION_ADAPTERS"]).read_text())
@@ -53,8 +69,10 @@ def pytest_configure(config):
     mutated = text.encode("utf-8")
     compile(text, str(path), "exec")
     _atomic_write(path, mutated)
+    module_name = Path(rule["path"]).with_suffix("").as_posix().replace("/", ".")
+    _reload_after_mutation(module_name)
     _state.update(rule=rule, path=path, original=original, mutated=mutated,
-                  observed=observed, loaded=None)
+                  observed=observed, loaded=None, module_name=module_name)
 
 
 def pytest_collection_finish(session):
@@ -62,7 +80,7 @@ def pytest_collection_finish(session):
     current = _state["path"].read_bytes()
     if _digest(current) != _digest(_state["mutated"]):
         raise pytest.UsageError("mutated source was not present during collection")
-    module_name = Path(_state["rule"]["path"]).with_suffix("").as_posix().replace("/", ".")
+    module_name = _state.get("module_name") or Path(_state["rule"]["path"]).with_suffix("").as_posix().replace("/", ".")
     if module_name not in sys.modules:
         raise pytest.UsageError("mutated production module was not loaded by the killer")
     # Pytest's assertion rewriter loader lacks get_source(); disk is authoritative.
