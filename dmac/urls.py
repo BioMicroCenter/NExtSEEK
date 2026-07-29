@@ -46,10 +46,15 @@ if settings.USE_MODELTRANSLATION:
 
 urlpatterns += [
     re_path("^$", views.home, name="home"),
+    # Must precede the mezzanine catch-all below: mezzanine.urls includes its own
+    # ^accounts/signup/ view, and "^" matches everything, so a signup route placed
+    # after it is unreachable and users get Mezzanine's local signup form instead
+    # of being handed off to SEEK. Registered last among the signup_seek patterns
+    # so {% url "signup_seek" %} reverses to this one.
+    re_path(r'^accounts/signup/', views.signup_seek, name="signup_seek"),
     re_path("^", include("mezzanine.urls")),
     re_path(r'^accounts/login/', views.login_seek, name="login_seek"),
-    re_path(r'^accounts/signup/', views.signup_seek, name="signup_seek"),
-    
+
 ]
 
 handler404 = "mezzanine.core.views.page_not_found"
