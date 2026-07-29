@@ -262,11 +262,12 @@ def test_attribute_concurrent_insert_enforces_unique_identity(disposable_attribu
     sf.apply_managed_indexes_on_connection(
         disposable_attribute_db.connect(), sf.indexes_for_database(database), attribute_faults
     )
-    barrier = threading.Barrier(2)
+    first_finished = threading.Event()
     outcomes: list[str] = []
 
-    def insert(row_id: int, title: str) -> None:
-        barrier.wait()
+    def insert(row_id: int, title: str, *, wait_for_first: bool) -> None:
+        if wait_for_first:
+            assert first_finished.wait(timeout=5)
         connection = disposable_attribute_db.fresh_connection()
         try:
             cursor = connection.cursor()
@@ -283,10 +284,12 @@ def test_attribute_concurrent_insert_enforces_unique_identity(disposable_attribu
             outcomes.append("duplicate")
         finally:
             connection.close()
+        if not wait_for_first:
+            first_finished.set()
 
     threads = [
-        threading.Thread(target=insert, args=(1, "RNA")),
-        threading.Thread(target=insert, args=(2, "rna")),
+        threading.Thread(target=insert, args=(1, "RNA", False)),
+        threading.Thread(target=insert, args=(2, "rna", True)),
     ]
     for thread in threads:
         thread.start()
