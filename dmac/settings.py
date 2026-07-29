@@ -10,7 +10,7 @@ from django.utils.translation import gettext_lazy as _
 # MAIN DJANGO SETTINGS #
 ########################
 
-DEBUG = os.getenv("DJANGO_DEBUG", False)
+DEBUG = (os.getenv("DJANGO_DEBUG") or "").strip().lower() in ("1", "true", "yes")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 
