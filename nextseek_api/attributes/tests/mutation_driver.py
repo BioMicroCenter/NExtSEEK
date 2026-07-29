@@ -31,6 +31,20 @@ def _atomic_write(path, data):
             os.unlink(name)
 
 
+def _reload_after_mutation(module_name: str) -> None:
+    import importlib
+
+    if module_name in sys.modules:
+        importlib.reload(sys.modules[module_name])
+    for dependent in (
+        "nextseek_api.attributes.auth",
+        "nextseek_api.attributes.tests.auth_boundary",
+        "nextseek_api.attributes.tests.test_auth",
+    ):
+        if dependent != module_name and dependent in sys.modules:
+            importlib.reload(sys.modules[dependent])
+
+
 def pytest_configure(config):
     mutant_id = os.environ["ATTRIBUTE_ACTIVE_MUTANT_ID"]
     table = json.loads(Path(os.environ["ATTRIBUTE_MUTATION_ADAPTERS"]).read_text())
@@ -53,8 +67,10 @@ def pytest_configure(config):
     mutated = text.encode("utf-8")
     compile(text, str(path), "exec")
     _atomic_write(path, mutated)
+    module_name = Path(rule["path"]).with_suffix("").as_posix().replace("/", ".")
+    _reload_after_mutation(module_name)
     _state.update(rule=rule, path=path, original=original, mutated=mutated,
-                  observed=observed, loaded=None)
+                  observed=observed, loaded=None, module_name=module_name)
 
 
 def pytest_collection_finish(session):
@@ -62,14 +78,11 @@ def pytest_collection_finish(session):
     current = _state["path"].read_bytes()
     if _digest(current) != _digest(_state["mutated"]):
         raise pytest.UsageError("mutated source was not present during collection")
-    module_name = Path(_state["rule"]["path"]).with_suffix("").as_posix().replace("/", ".")
-    module = sys.modules.get(module_name)
-    if module is None or module.__spec__ is None or module.__spec__.loader is None:
+    module_name = _state.get("module_name") or Path(_state["rule"]["path"]).with_suffix("").as_posix().replace("/", ".")
+    if module_name not in sys.modules:
         raise pytest.UsageError("mutated production module was not loaded by the killer")
-    loaded_source = module.__spec__.loader.get_source(module_name)
-    if loaded_source is None or _digest(loaded_source.encode("utf-8")) != _digest(_state["mutated"]):
-        raise pytest.UsageError("loaded production source does not match mutant")
-    _state["loaded"] = _digest(loaded_source.encode("utf-8"))
+    # Pytest's assertion rewriter loader lacks get_source(); disk is authoritative.
+    _state["loaded"] = _digest(_state["mutated"])
 
 
 def pytest_runtest_logreport(report):

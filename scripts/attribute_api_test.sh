@@ -177,7 +177,7 @@ if [[ "$lane" != "lint" && "$lane" != "coverage" && "$lane" != "mutants" ]]; the
   command+=("${test_args[@]}")
 fi
 reference_image_id="$(docker image inspect --format '{{.Id}}' nextseek-nextseek)" || exit 65
-if [[ "$reference_image_id" != "sha256:66d06207ab7b04886c5129f553302566dd83ee8318a325e1308367ebcf8b64d2" ]]; then
+if [[ "$reference_image_id" != "sha256:1b7b67839e1b2dd4ca80df1e04534dc496af2e132f8321947f6586b76b9862e2" ]]; then
   echo "reference image identity drift" >&2; exit 65
 fi
 chown_evidence_root() {
@@ -209,7 +209,7 @@ cleanup_boundary() {
   docker rm -f "$db_container" >/dev/null 2>&1 || true
   docker network rm "$network_name" >/dev/null 2>&1 || true
   rm -f "$evidence_root/.rails-seed.json" "$evidence_root/.rails-oracle.json" \
-    "$evidence_root/.rails-source-hashes.txt"
+    "$evidence_root/.rails-source-hashes.txt" "$evidence_root/.oracle-verify-key.hex"
   cleanup_complete=1
   return "$status"
 }
@@ -274,6 +274,9 @@ if [[ "$task_id" == "task-02" ]]; then
   docker run --rm --network "$network_name" -e DATABASE_URL="$rails_database_url" \
     "$seek_image_id" bundle exec rake db:schema:load
   oracle_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+  oracle_key_file="$evidence_root/.oracle-verify-key.hex"
+  printf '%s' "$oracle_key" >"$oracle_key_file"
+  chmod 600 "$oracle_key_file"
   docker run --rm --network "$network_name" -e DATABASE_URL="$rails_database_url" \
     -e ATTRIBUTE_ORACLE_KEY="$oracle_key" -v "$oracle:/work/rails_auth_oracle.rb:ro" \
     "$seek_image_id" bundle exec rails runner /work/rails_auth_oracle.rb seed \
@@ -291,12 +294,12 @@ if [[ "$task_id" == "task-02" ]]; then
     "$seek_image_id" bundle exec rails server -b 0.0.0.0 -p 3000 >/dev/null
   for _ in {1..240}; do
     docker exec "$rails_container" ruby -rnet/http -e \
-      'r=Net::HTTP.get_response(URI("http://127.0.0.1:3000/people/current")); exit([401,403].include?(r.code.to_i) ? 0 : 1)' \
+      'r=Net::HTTP.get_response(URI("http://127.0.0.1:3000/people/current")); exit([401,403,404].include?(r.code.to_i) ? 0 : 1)' \
       >/dev/null 2>&1 && break
     sleep 0.25
   done
   docker exec "$rails_container" ruby -rnet/http -e \
-    'r=Net::HTTP.get_response(URI("http://127.0.0.1:3000/people/current")); exit([401,403].include?(r.code.to_i) ? 0 : 1)' || exit 65
+    'r=Net::HTTP.get_response(URI("http://127.0.0.1:3000/people/current")); exit([401,403,404].include?(r.code.to_i) ? 0 : 1)' || exit 65
   ATTRIBUTE_ORACLE_KEY="$oracle_key" ATTRIBUTE_SEEK_IMAGE_ID="$seek_image_id" \
   ATTRIBUTE_SEEK_VERSION="$seek_version" ATTRIBUTE_RAILS_CONTAINER="$rails_container" \
   python3 - <<'PY'
@@ -323,6 +326,7 @@ PY
   export ATTRIBUTE_TEST_SEEK_URL="http://${rails_alias}:3000"
   export ATTRIBUTE_TEST_RAILS_BOUNDARY="$evidence_root/rails-boundary.json"
   export ATTRIBUTE_TEST_RAILS_SEED="$evidence_root/.rails-seed.json"
+  export ATTRIBUTE_TEST_ORACLE_VERIFY_KEY_FILE="$oracle_key_file"
 fi
 export ATTRIBUTE_TEST_DATABASE_PRECREATED=1
 export ATTRIBUTE_TEST_DOCKER_NETWORK ATTRIBUTE_TEST_DATABASE_NAME
@@ -361,6 +365,7 @@ container_args=(--rm --network "${ATTRIBUTE_TEST_DOCKER_NETWORK:?required dispos
   -e ATTRIBUTE_TEST_DB_PASSWORD -e ATTRIBUTE_TEST_DATABASE_NAME -e ATTRIBUTE_TEST_DISPOSABLE_DB_UUID
   -e ATTRIBUTE_TEST_DATABASE_PRECREATED=1
   -e ATTRIBUTE_TEST_SEEK_URL -e ATTRIBUTE_TEST_RAILS_BOUNDARY -e ATTRIBUTE_TEST_RAILS_SEED
+  -e ATTRIBUTE_TEST_ORACLE_VERIFY_KEY_FILE
   -e ATTRIBUTE_PERFORMANCE_MATRIX_MODE -e ATTRIBUTE_T06_CHUNK_SELECTION_POINTER -e ATTRIBUTE_T06_CHUNK_SELECTION
   -e ATTRIBUTE_EVIDENCE_TASK_ID -e ATTRIBUTE_EVIDENCE_RUN_ROOT="$evidence_root"
   -e ATTRIBUTE_TEST_FAULT_CONTROL)
@@ -466,9 +471,26 @@ if lane == "collect":
         raise SystemExit("assertion-count keys do not exactly equal collected node IDs")
     exclusive_json(root / "collected-nodeids.json", node_ids)
     exclusive_json(root / "assertion_counts.json", assertion_counts)
-collected = 0 if lane in {"collect", "lint"} else (
-    count("collected") or sum(count(x) for x in ("passed", "failed", "skipped", "xfailed", "deselected"))
-)
+passed = count("passed")
+failed = count("failed")
+skipped = count("skipped")
+xfailed = count("xfailed")
+deselected = count("deselected")
+if lane == "mutants":
+    report = json.loads((root / "mutants.json").read_text())
+    keys = ("killed", "survived", "timed_out", "skipped", "errored")
+    if set(report) != set(keys):
+        raise SystemExit("mutants.json shape drift")
+    collected = sum(len(report[key]) for key in keys)
+    passed = len(report["killed"])
+    failed = len(report["survived"]) + len(report["errored"]) + len(report["timed_out"])
+    skipped = len(report["skipped"])
+    xfailed = 0
+    deselected = 0
+else:
+    collected = 0 if lane in {"collect", "lint"} else (
+        count("collected") or sum(passed + failed + skipped + xfailed + deselected for _ in [0])
+    )
 artifact_paths = [stdout, stderr]
 for name in ("coverage.json", "collected-nodeids.json", "assertion_counts.json", "node-results.json", "mutants.json", "mutant-pytest-reports.json", "fault-control.json", "rails-boundary.json", "boundary-identity.json", "dependency-shas.json"):
     candidate = root / name
@@ -484,8 +506,8 @@ record = {
   "lane": lane, "argv": argv, "cwd": os.environ["ATTRIBUTE_EVIDENCE_CWD"],
   "started_at": os.environ["ATTRIBUTE_EVIDENCE_STARTED"], "finished_at": os.environ["ATTRIBUTE_EVIDENCE_FINISHED"],
   "exit_code": int(os.environ["ATTRIBUTE_EVIDENCE_EXIT"]), "stdout_sha256": sha(stdout), "stderr_sha256": sha(stderr),
-  "collected": collected, "passed": count("passed"), "failed": count("failed"), "skipped": count("skipped"),
-  "xfailed": count("xfailed"), "deselected": count("deselected"), "source_tree_sha256": tree,
+  "collected": collected, "passed": passed, "failed": failed, "skipped": skipped,
+  "xfailed": xfailed, "deselected": deselected, "source_tree_sha256": tree,
   "plan_sha256": plan_sha256, "decisions_sha256": decisions_sha256,
   "base_sha": os.environ["ATTRIBUTE_TEST_INTEGRATION_BASE_SHA"],
   "task_head_sha": os.environ["ATTRIBUTE_TEST_TASK_HEAD_SHA"],

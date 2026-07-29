@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 
 SCHEMA = [
-    ("CREATE TABLE IF NOT EXISTS sample_types (id BIGINT PRIMARY KEY,title VARCHAR(255) NOT NULL,updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))", ()),
-    ("CREATE TABLE IF NOT EXISTS sample_attribute_types (id BIGINT PRIMARY KEY,title VARCHAR(255) NOT NULL)", ()),
+    ("CREATE TABLE IF NOT EXISTS sample_types (id BIGINT PRIMARY KEY,title VARCHAR(255) NOT NULL,created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))", ()),
+    ("CREATE TABLE IF NOT EXISTS sample_attribute_types (id BIGINT PRIMARY KEY,title VARCHAR(255) NOT NULL,created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))", ()),
     ("CREATE TABLE IF NOT EXISTS units (id BIGINT PRIMARY KEY,title VARCHAR(255) NOT NULL,symbol VARCHAR(255) NULL)", ()),
     ("CREATE TABLE IF NOT EXISTS sample_controlled_vocabs (id BIGINT PRIMARY KEY,title VARCHAR(255) NOT NULL)", ()),
     ("CREATE TABLE IF NOT EXISTS sample_attributes (id BIGINT PRIMARY KEY,sample_type_id BIGINT NOT NULL,sample_attribute_type_id BIGINT NOT NULL,title VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,required TINYINT(1) NOT NULL DEFAULT 0,pos INT NOT NULL,is_title TINYINT(1) NOT NULL DEFAULT 0,description TEXT NULL,unit_id BIGINT NULL,sample_controlled_vocab_id BIGINT NULL,linked_sample_type_id BIGINT NULL,created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))", ()),
-    ("CREATE TABLE IF NOT EXISTS samples (id BIGINT PRIMARY KEY,sample_type_id BIGINT NOT NULL,json_metadata LONGTEXT NOT NULL,updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))", ()),
+    ("CREATE TABLE IF NOT EXISTS samples (id BIGINT PRIMARY KEY,sample_type_id BIGINT NOT NULL,json_metadata LONGTEXT NOT NULL,created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))", ()),
 ]
 CHECKSUM_COLUMNS = {
     "sample_types": ("id", "title", "updated_at"),
@@ -31,16 +31,16 @@ def _structured(value):
         raise ValueError("sample_titles must be nonempty strings")
     statements = list(SCHEMA)
     statements += [
-        ("INSERT INTO sample_attribute_types(id,title) VALUES(%s,%s) ON DUPLICATE KEY UPDATE title=VALUES(title)", (1, "String")),
-        ("INSERT INTO sample_types(id,title) VALUES(%s,%s) ON DUPLICATE KEY UPDATE title=VALUES(title)", (type_id, f"Type {type_id}")),
+        ("INSERT INTO sample_attribute_types(id,title,created_at,updated_at) VALUES(%s,%s,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE title=VALUES(title)", (1, "String")),
+        ("INSERT INTO sample_types(id,title,created_at,updated_at) VALUES(%s,%s,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE title=VALUES(title)", (type_id, f"Type {type_id}")),
     ]
     for position, title in enumerate(titles, 1):
-        statements.append(("INSERT INTO sample_attributes(id,sample_type_id,sample_attribute_type_id,title,required,pos,is_title) VALUES(%s,%s,1,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE title=VALUES(title),pos=VALUES(pos)",
+        statements.append(("INSERT INTO sample_attributes(id,sample_type_id,sample_attribute_type_id,title,required,pos,is_title,created_at,updated_at) VALUES(%s,%s,1,%s,%s,%s,%s,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE title=VALUES(title),pos=VALUES(pos)",
                            (type_id * 100000 + position, type_id, title, position == 1, position, position == 1)))
     for row in samples:
         if set(row) != {"id", "json_metadata"} or not isinstance(row["id"], int) or not isinstance(row["json_metadata"], dict):
             raise ValueError("sample rows require exact id/json_metadata")
-        statements.append(("INSERT INTO samples(id,sample_type_id,json_metadata) VALUES(%s,%s,%s) ON DUPLICATE KEY UPDATE sample_type_id=VALUES(sample_type_id),json_metadata=VALUES(json_metadata)",
+        statements.append(("INSERT INTO samples(id,sample_type_id,json_metadata,created_at,updated_at) VALUES(%s,%s,%s,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE sample_type_id=VALUES(sample_type_id),json_metadata=VALUES(json_metadata)",
                            (row["id"], type_id, json.dumps(row["json_metadata"], separators=(",", ":"), sort_keys=True))))
     return statements
 
@@ -52,7 +52,7 @@ def _named(name):
         return _structured({"sample_type_id": 7, "sample_titles": ["UID", "Mass"], "samples": [{"id": 1, "json_metadata": {"UID": "u1", "Mass": "1"}}]})
     if name == "attribute_schema_case_duplicate":
         statements = _structured({"sample_type_id": 7, "sample_titles": ["UID", "Mass"], "samples": [{"id": 1, "json_metadata": {"UID": "u1"}}]})
-        statements.append(("INSERT INTO sample_attributes(id,sample_type_id,sample_attribute_type_id,title,required,pos,is_title) VALUES(%s,%s,1,%s,0,%s,0)", (700003, 7, "mass", 3)))
+        statements.append(("INSERT INTO sample_attributes(id,sample_type_id,sample_attribute_type_id,title,required,pos,is_title,created_at,updated_at) VALUES(%s,%s,1,%s,0,%s,0,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6))", (700003, 7, "mass", 3)))
         return statements
     if name in {"attribute_repository_5000", "attribute_planner_scale_5000"}:
         return _structured({"sample_type_id": 8, "sample_titles": ["UID", *[f"A{n}" for n in range(1, 5000)]], "samples": [{"id": 2, "json_metadata": {"UID": "u2"}}]})

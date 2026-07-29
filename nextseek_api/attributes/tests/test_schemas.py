@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import get_args
 from uuid import UUID
 
 import orjson

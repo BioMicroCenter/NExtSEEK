@@ -17,7 +17,11 @@ HANDSHAKE_KEYS = {"schema_version", "mutant_id", "source_path", "symbol",
                   "applied", "restored"}
 REPORT_KEYS = {"schema_version", "killer", "collected_nodeids", "phases", "pytest_exit_code"}
 TASK_MUTANTS = {
-    "task-02": ("M-AUTH-01", "M-AUTH-02", "M-CANCEL-02"),
+    "task-02": ("M-AUTH-01", "M-AUTH-02", "M-CANCEL-02", "M-AUTH-FALLBACK-01",
+                "M-AUTH-PRIORITY-01", "M-AUTH-XSEEK-01", "M-AUTH-PERSON-01",
+                "M-AUTH-ROLETYPE-01", "M-AUTH-SCOPEROLE-01", "M-AUTH-ALIAS-01",
+                "M-AUTH-CACHE-01", "M-AUTH-ADAPTER-01", "M-AUTH-SIGNATURE-01",
+                "M-AUTH-SESSION-01", "M-CANCEL-DENY-01"),
     "task-05": ("M-AUTH-01", "M-AUTH-02", "M-CANCEL-02", "M-UID-01", "M-TITLE-01", "M-DRY-01"),
     "task-11": ("M-AUTH-01", "M-AUTH-02", "M-UID-01", "M-TITLE-01", "M-DRY-01",
                 "M-LOCK-01", "M-VERSION-01", "M-TXN-01", "M-RECOVER-01",
