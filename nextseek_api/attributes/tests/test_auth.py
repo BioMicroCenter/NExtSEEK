@@ -205,3 +205,40 @@ def test_rails_oracle_tamper_is_rejected_before_parity_comparison(seek_auth_boun
 def test_csrf_exempt_session_matches_neighboring_api_for_read_and_admin_mutation(seek_auth_boundary):
     for operation in ("safe-read", "admin-mutation"):
         test_csrf_exempt_session_route_parity(seek_auth_boundary, operation)
+
+
+def test_auth_helper_entrypoints_and_invalid_creator_guard(seek_auth_boundary):
+    from rest_framework.exceptions import AuthenticationFailed
+    from rest_framework.response import Response
+    from rest_framework.views import APIView
+    from types import SimpleNamespace
+
+    from nextseek_api.attributes.auth import (
+        SeekPersonAuthentication,
+        authenticate_seek_person,
+        can_cancel_job,
+        can_view_job,
+    )
+
+    with pytest.raises(AuthenticationFailed):
+        authenticate_seek_person(SimpleNamespace(auth=None, _attribute_seek_identity=None))
+
+    admin = seek_auth_boundary.credential("token", "system-admin")
+
+    class HelperProbe(APIView):
+        authentication_classes = (SeekPersonAuthentication,)
+        permission_classes = ()
+
+        def get(self, request):
+            identity = authenticate_seek_person(request)
+            return Response({
+                "can_view": can_view_job(request),
+                "cancel_self": can_cancel_job(request, identity.person_id),
+                "cancel_invalid": can_cancel_job(request, 0),
+            })
+
+    response = seek_auth_boundary._dispatch(admin, HelperProbe.as_view())
+    assert response.status_code == 200
+    assert response.data["can_view"] is True
+    assert response.data["cancel_self"] is True
+    assert response.data["cancel_invalid"] is False
