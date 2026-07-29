@@ -292,8 +292,8 @@ def test_attribute_concurrent_insert_enforces_unique_identity(disposable_attribu
             cursor = connection.cursor()
             cursor.execute(
                 "INSERT INTO sample_attributes "
-                "(id,sample_type_id,sample_attribute_type_id,title,required,pos,is_title) "
-                "VALUES (%s,7,5,%s,0,1,0)",
+                "(id,sample_type_id,sample_attribute_type_id,title,required,pos,is_title,created_at,updated_at) "
+                "VALUES (%s,7,5,%s,0,1,0,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6))",
                 (row_id, title),
             )
             connection.commit()
