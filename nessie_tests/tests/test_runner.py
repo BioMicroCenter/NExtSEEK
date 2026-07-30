@@ -21,14 +21,32 @@ def _post():
     return post_query
 
 
-def test_run_suite_route_tier_specific(tmp_path):
+def _cc_gate(vid="gate.cc"):
+    """A CC route_gate variant, built here rather than taken from the corpus.
+
+    The 2026-07-30 review retired all three real CC gates, which broke these
+    tests. That coupling was the bug: a runner test should not depend on which
+    cases the operator currently keeps. Building the variant inline makes the
+    test measure the runner and survive any corpus decision.
+    """
+    from e2e.catalog import Variant, Turn
+    return Variant(
+        family="nessie_route", id=vid, name="cc gate",
+        tags=["nessie", "route_gate", "overlay"], requires_env=[],
+        turns=[Turn(label="m", query="q",
+                    pass_criteria=[{"field": "route", "op": "eq", "value": "container_cc"}])])
+
+
+
+def test_run_suite_route_tier_specific(tmp_path, monkeypatch):
     # route tier + specific scope → only route_gate cases; injected clients, no live stack
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_cc_gate()])
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
-        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.cc_reingest",
+        overlay_path=OVERLAY, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: CC_ROUTED,
         sleep=lambda s: None, clock=lambda: 0.0)
-    entry = next(e for e in m.entries if e.id == "route.cc_reingest")
+    entry = next(e for e in m.entries if e.id == "gate.cc")
     assert entry.status == "passed" and entry.route == "container_cc"
     assert (tmp_path / "manifest.json").exists() and (tmp_path / "report.html").exists()
 
@@ -61,18 +79,19 @@ def test_route_tier_skips_full_tagged_variant(tmp_path):
     assert entry.status == "skipped"
 
 
-def test_full_tier_drives_route_gate_cc_route_only(tmp_path):
+def test_full_tier_drives_route_gate_cc_route_only(tmp_path, monkeypatch):
     # A route_gate CC variant in a FULL run is driven route-only: it passes on
     # route==container_cc without a completed turn AND never calls bundle_reader.
     def boom_bundle(session_id):  # would run only at full depth
         raise AssertionError("bundle_reader must not run for a route_gate case")
 
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_cc_gate()])
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.cc_reingest",
+        overlay_path=OVERLAY, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: CC_ROUTED, bundle_reader=boom_bundle,
         sleep=lambda s: None, clock=lambda: 0.0)
-    entry = next(e for e in m.entries if e.id == "route.cc_reingest")
+    entry = next(e for e in m.entries if e.id == "gate.cc")
     assert entry.status == "passed" and entry.route == "container_cc"
 
 
@@ -141,14 +160,15 @@ def test_known_fail_that_passes_is_reported_as_xpass(tmp_path, monkeypatch):
     assert runner.gate_failed(m) == 1
 
 
-def test_criteria_miss_marks_failed_with_reasons(tmp_path):
+def test_criteria_miss_marks_failed_with_reasons(tmp_path, monkeypatch):
     # route_gate case asserts route==container_cc but the turn routes nextseek_query.
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_cc_gate()])
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
-        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.cc_reingest",
+        overlay_path=OVERLAY, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: NS_ROUTED,
         sleep=lambda s: None, clock=lambda: 0.0)
-    entry = next(e for e in m.entries if e.id == "route.cc_reingest")
+    entry = next(e for e in m.entries if e.id == "gate.cc")
     assert entry.status == "failed"
     assert entry.failed_criteria and any("route" in fc for fc in entry.failed_criteria)
 
@@ -190,7 +210,7 @@ def test_the_consistency_branch_uses_the_shared_helper(monkeypatch, tmp_path):
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
-        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.cc_reingest",
+        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.ns_advanced",
         post_query=_post(), get_progress=lambda tid: CC_ROUTED,
         sleep=lambda s: None, clock=lambda: 0.0, run_consistency=True)
 

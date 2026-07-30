@@ -15,11 +15,12 @@ def test_overlay_loads_and_is_tagged():
     assert all("overlay" in v.tags for v in ov)
 
 
-def test_merged_is_base_plus_overlay_minus_overrides():
+def test_merged_is_base_plus_overlay_minus_overrides_minus_retired():
     base, ov = corpus.load_base(), corpus.load_overlay(OVERLAY)
     overrides = corpus.overridden_ids(OVERLAY)
+    retired = corpus.load_retired_ids()
     merged = corpus.merged(OVERLAY)
-    assert len(merged) == len(base) + len(ov) - len(overrides)
+    assert len(merged) == len(base) + len(ov) - len(overrides) - len(retired)
     assert len({v.id for v in merged}) == len(merged)  # no duplicate ids
 
 
@@ -55,7 +56,9 @@ def test_overridden_refine_and_recall_cases_assert_outcomes_not_labels():
     the wrong result bundle, because the only criterion was parser_plan.mode.
     """
     merged = {v.id: v for v in corpus.merged(OVERLAY)}
-    overridden = [merged[i] for i in corpus.overridden_ids(OVERLAY)]
+    # An overridden id may since have been retired, in which case it is no longer
+    # in the merged corpus and there is nothing here to guard.
+    overridden = [merged[i] for i in corpus.overridden_ids(OVERLAY) if i in merged]
     refrec = [v for v in overridden if v.family == "refine_and_recall"]
     assert refrec, "expected the overlay to strengthen the refine_and_recall cases"
     for v in refrec:
@@ -174,10 +177,10 @@ def test_refine_and_recall_never_gets_a_row_count_floor():
 def test_the_zero_is_correct_cases_are_all_opted_out():
     """Every case whose right answer is zero must carry no_floor, or the floor breaks it."""
     merged = {v.id: v for v in corpus.merged(_OV)}
-    for vid in ("advanced.find_me_nhp_samples_from_study",
-                "graph.what_pbmcs_tissues_in_the_gbm",
-                "tree.missing_uid",
-                "routing.gbm_study_count"):
+    # The three GBM cases that used to be listed here were retired on 2026-07-30
+    # (the study does not exist), so tree.missing_uid, which asserts a 404, is the
+    # only remaining case in the active corpus whose right answer is nothing.
+    for vid in ("tree.missing_uid",):
         assert "no_floor" in merged[vid].tags, f"{vid} would be broken by the floor"
 
 

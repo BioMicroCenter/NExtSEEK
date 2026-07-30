@@ -35,16 +35,16 @@ def _write(tmp_path, payload):
 
 
 def test_include_ids_pull_existing_corpus_variants(tmp_path):
-    path = _write(tmp_path, {"include_ids": ["route.unrelated", "repro.cypher_uid_dot"]})
+    path = _write(tmp_path, {"include_ids": ["route.unrelated", "green.mus_ndma"]})
     picked = corpus.select_cases(corpus.merged(OVERLAY), *corpus.load_case_file(path))
-    assert [v.id for v in picked] == ["route.unrelated", "repro.cypher_uid_dot"]
+    assert [v.id for v in picked] == ["route.unrelated", "green.mus_ndma"]
 
 
 def test_include_ids_keep_file_order_not_corpus_order(tmp_path):
     """The file is a running order. A probe usually wants seed-then-followup."""
-    path = _write(tmp_path, {"include_ids": ["repro.cypher_uid_dot", "route.unrelated"]})
+    path = _write(tmp_path, {"include_ids": ["green.mus_ndma", "route.unrelated"]})
     picked = corpus.select_cases(corpus.merged(OVERLAY), *corpus.load_case_file(path))
-    assert [v.id for v in picked] == ["repro.cypher_uid_dot", "route.unrelated"]
+    assert [v.id for v in picked] == ["green.mus_ndma", "route.unrelated"]
 
 
 def test_an_unknown_include_id_fails_loudly(tmp_path):

@@ -34,6 +34,26 @@ def _by_id():
     return {v.id: v for v in corpus.merged(OVERLAY)}
 
 
+RETIRED = pathlib.Path(__file__).resolve().parents[1] / "retired.json"
+
+
+def _by_id_incl_retired():
+    """Active corpus plus retired variants with the same policy applied.
+
+    The 2026-07-30 review retired most of `writes_unsupported`, but the policy
+    these tests guard is about the RULE, not about which cases happen to be
+    active today. Applying it to the retired definitions too keeps the guarantee
+    meaningful: reinstating any of them still yields `route eq container_cc`
+    rather than an unobservable `parser_plan.mode`.
+    """
+    out = _by_id()
+    retired = corpus.apply_route_policy(
+        corpus.load_overlay(RETIRED), corpus.load_route_policy(OVERLAY))
+    for v in retired:
+        out.setdefault(v.id, v)
+    return out
+
+
 def test_no_cc_routed_family_asserts_an_ns_internal_parser_mode():
     """`parser_plan.mode` is unobservable on a turn that never reaches NS."""
     offenders = [v.id for v in corpus.merged(OVERLAY)
@@ -48,7 +68,7 @@ def test_bulk_export_is_asserted_as_container_cc():
     for vid in ("write.export_all_metadata_for_nhp_22",
                 "write.export_all_metadata_for_nhp_22_2",
                 "write.download_all_samples_from_the"):
-        assert ("route", "eq", "container_cc") in _crits(_by_id()[vid]), vid
+        assert ("route", "eq", "container_cc") in _crits(_by_id_incl_retired()[vid]), vid
 
 
 def test_resource_writes_are_asserted_as_container_cc():
@@ -56,7 +76,7 @@ def test_resource_writes_are_asserted_as_container_cc():
     for vid in ("write.create_investigation_testing_4",
                 "write.register_a_new_mouse_sample_wi",
                 "write.update_the_scientist_field_on"):
-        assert ("route", "eq", "container_cc") in _crits(_by_id()[vid]), vid
+        assert ("route", "eq", "container_cc") in _crits(_by_id_incl_retired()[vid]), vid
 
 
 def test_open_ended_analysis_is_asserted_as_container_cc():
@@ -101,7 +121,7 @@ def test_a_route_assertion_alone_cannot_tell_a_working_turn_from_a_dead_one():
 def test_the_outcome_assertion_is_not_double_written():
     """The three hand-converted variants already carry last_reply; adding a second
     nonempty check would be noise, and would overwrite a stricter matches_re."""
-    v = _by_id()["write.create_me_investigation_testin"]
+    v = _by_id_incl_retired()["write.create_me_investigation_testin"]
     nonempty = [c for t in v.turns for c in t.pass_criteria
                 if c.field == "last_reply" and c.op == "nonempty"]
     assert len(nonempty) == 1, f"duplicated last_reply nonempty: {len(nonempty)}"
@@ -111,5 +131,5 @@ def test_the_hand_converted_variants_are_left_untouched():
     """Three variants a previous wave already converted must not be double-written."""
     for vid in ("unsup.is_treatment_a_significantly_b",
                 "write.create_me_investigation_testin"):
-        routes = [c for c in _crits(_by_id()[vid]) if c[0] == "route"]
+        routes = [c for c in _crits(_by_id_incl_retired()[vid]) if c[0] == "route"]
         assert len(routes) == 1, f"{vid} has {routes}"

@@ -459,6 +459,7 @@
   ,"family_floor": {
     "_note": "Minimum OUTCOME assertion per family, applied by corpus.merged() to the LAST TURN of every variant in a listed family. Of 381 merged variants, 108 assert plan shape only and 194 assert only plumbing (api_ok / neo4j_ok, which say a request COMPLETED, not that it returned anything) — 79% cannot detect a wrong answer. Hand-editing 300 variants is not viable, so the floor is applied structurally.",
     "_rules": "A floor criterion is added only when the last turn does not already assert that FIELD, so a deliberate bound (e.g. row_count lte 20000) is never overwritten and never contradicted. Families not listed here get no floor. Tag a variant `no_floor` to opt out entirely.",
+    "_2026_07_30_retirement": "routing_graph lost its floor because it lost its only variant: routing.gbm_study_count was retired with the other 25 GBM cases (issue #35), leaving the family empty. A floor on a family with no members is dead config, and test_every_floored_family_exists_in_the_corpus enforces that. Reinstating the variant means reinstating its floor entry.",
     "_2026_07_28_correction": "The first version of this floor asserted VALUES rather than OBSERVABILITY, and that produced 10 of the 15 failures in the seed-0 run — false failures on answers that were correct. Measured over the merged corpus, the old spec put an unsatisfiable criterion on 163 variants (`count gte 1` where zero is ground truth, e.g. 14 GBM graph variants and zero_result_zebrafish), 59 (`graph_not_truncated` where the honest answer is 10,688 rows against a 5,000 cap) and 64 (`reporter_result.ok`, which only run_reporter_summary sets — the 24 SRA/GEO/PRIDE variants go through generate_report_outputs). A floor exists to catch a criterion that cannot SEE the answer, not to assert what the answer is. So: `api_outcome_observed` / `graph_outcome_observed` (the outcome was observed, zero included), `graph_truncation_disclosed` (a cap is fine, a HIDDEN cap is not) and `report_produced_output` (either of reporting's two result shapes). Per-case value expectations belong on the case, not in the floor.",
     "exclude_tag": "no_floor",
     "floors": {
@@ -481,9 +482,6 @@
         {"field": "neo4j_ok", "op": "true", "value": null},
         {"field": "graph_outcome_observed", "op": "true", "value": null},
         {"field": "graph_truncation_disclosed", "op": "true", "value": null}
-      ],
-      "routing_graph": [
-        {"field": "neo4j_ok", "op": "true", "value": null}
       ],
       "reporting": [
         {"field": "report_produced_output", "op": "true", "value": null}

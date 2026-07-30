@@ -38,6 +38,20 @@ def _merged():
     return {v.id: v for v in _corpus.merged(_OVERLAY)}
 
 
+_RETIRED_FILE = Path(__file__).resolve().parents[1] / "retired.json"
+
+
+def _retired():
+    """Variants that left the active corpus but kept their definition.
+
+    The GBM cases were retired on 2026-07-30 because the study does not exist,
+    so their criteria no longer run. The assertions below still hold them to
+    account: if any of them is ever reinstated, the guards it carries must
+    already be sound rather than needing to be rediscovered.
+    """
+    return {v.id: v for v in _corpus.load_overlay(_RETIRED_FILE)}
+
+
 def _fields(variant):
     return {(c.field, c.op) for t in variant.turns for c in t.pass_criteria}
 
@@ -71,7 +85,7 @@ def test_the_metnet_study_count_is_bounded_below_the_whole_catalog():
 
 def test_the_gbm_count_rejects_the_unfiltered_fingerprint():
     """50,161 is every sample in any study — the missing-WITH signature."""
-    v = _merged()["routing.gbm_study_count"]
+    v = _retired()["routing.gbm_study_count"]
     guard = _value(v, "last_reply", "matches_re")
     for bad in ("There are 50,161 samples.", "50161 matched", "Found 45,000 rows"):
         assert not re.search(guard, bad, re.IGNORECASE), f"guard let {bad!r} through"
@@ -81,7 +95,7 @@ def test_the_gbm_count_rejects_the_unfiltered_fingerprint():
 
 def test_the_pbmc_gbm_case_asserts_the_query_not_a_nonzero_count():
     """The operator confirmed the zero is honest — never assert a nonzero count here."""
-    v = _merged()["graph.what_pbmcs_tissues_in_the_gbm"]
+    v = _retired()["graph.what_pbmcs_tissues_in_the_gbm"]
     fields = _fields(v)
     assert ("graph_result.parameters.project", "matches_re") in fields
     assert ("graph_result.parameters.child_type", "eq") in fields
@@ -100,13 +114,13 @@ def test_the_assay_case_asserts_the_real_total():
 
 def test_the_uid_lineage_repro_is_engine_agnostic_and_not_known_fail():
     """A count bound would false-fail whichever engine it does not name."""
-    v = _merged()["repro.cypher_uid_dot"]
+    v = _retired()["repro.cypher_uid_dot"]
     assert _value(v, "last_reply", "mentions") == "D.SEQ-220823SHA"
     assert "known_fail" not in v.tags, "it genuinely regressed; it should go red, not be excused"
 
 
 def test_the_gbm_nhp_case_requires_an_honest_negative():
-    v = _merged()["advanced.find_me_nhp_samples_from_study"]
+    v = _retired()["advanced.find_me_nhp_samples_from_study"]
     guards = [c.value for t in v.turns for c in t.pass_criteria if c.op == "matches_re"]
 
     def passes(reply):
@@ -120,13 +134,13 @@ def test_the_gbm_nhp_case_requires_an_honest_negative():
 
 def test_a_known_fail_sibling_pins_the_ns_graph_path():
     """The route-agnostic sibling lets CC paper over the server-side defect."""
-    v = _merged()["advanced.find_me_nhp_samples_from_study_ns_graph"]
+    v = _retired()["advanced.find_me_nhp_samples_from_study_ns_graph"]
     assert ("route", "eq") in _fields(v)
     assert "known_fail" in v.tags
 
 
 def test_the_write_case_rejects_budget_abort_language():
-    v = _merged()["write.create_me_investigation_testin"]
+    v = _retired()["write.create_me_investigation_testin"]
     guards = [c.value for t in v.turns for c in t.pass_criteria if c.op == "matches_re"]
 
     def passes(reply):
