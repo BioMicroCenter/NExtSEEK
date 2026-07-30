@@ -85,3 +85,28 @@ class TestIssueForm:
     def test_blank_issues_disabled(self):
         cfg = yaml.safe_load(FORM_CONFIG.read_text(encoding="utf-8"))
         assert cfg["blank_issues_enabled"] is False
+
+
+SEEDER = REPO_ROOT / "scripts" / "seed_issue_labels.sh"
+
+
+class TestSeedScript:
+    def _text(self):
+        assert SEEDER.is_file(), "scripts/seed_issue_labels.sh missing"
+        return SEEDER.read_text(encoding="utf-8")
+
+    def test_type_labels_match_enum(self):
+        seeded = set(re.findall(r'create "type: ([a-z-]+)"', self._text()))
+        assert seeded == set(vi.ISSUE_TYPES)
+
+    def test_area_labels_match_seeded(self):
+        seeded = set(re.findall(r'create "area: ([a-z0-9_-]+)"', self._text()))
+        assert seeded == set(vi.SEEDED_AREAS)
+
+    def test_needs_ruling_seeded_and_priority_untouched(self):
+        text = self._text()
+        assert 'create "needs-ruling"' in text
+        assert "priority:" not in text  # existing priority labels are left alone
+
+    def test_idempotent_flag(self):
+        assert "--force" in self._text()
