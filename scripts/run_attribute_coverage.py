@@ -183,6 +183,17 @@ def main() -> int:
             if len(matches) != 1 or matches[0]["summary"]["percent_covered"] < 95.0:
                 print(f"task-03 {suffix} coverage is below 95%")
                 return 1
+    if os.environ.get("ATTRIBUTE_EVIDENCE_TASK_ID") == "task-04":
+        payload = json.loads(output.read_text())
+        for suffix in (
+            "nextseek_api/attributes/resolver.py",
+            "nextseek_api/attributes/repository.py",
+            "nextseek_api/attributes/pagination.py",
+        ):
+            matches = [row for name, row in payload["files"].items() if name.endswith(suffix)]
+            if len(matches) != 1 or matches[0]["summary"]["percent_covered"] < 95.0:
+                print(f"task-04 {suffix} coverage is below 95%")
+                return 1
     return int(pytest_exit)
 
 
