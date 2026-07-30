@@ -408,12 +408,15 @@ CORS_EXPOSE_HEADERS = [
 # SCHEMA RAG SETTINGS #
 #######################
 
-SCHEMA_RAG_DUCKDB_DIR = os.path.join(BASE_DIR, 'schema_rag', 'duckdb')
+# Defaults only when local_settings (exec'd above) did not already define them.
+if "SCHEMA_RAG_DUCKDB_DIR" not in globals():
+    SCHEMA_RAG_DUCKDB_DIR = os.path.join(BASE_DIR, "schema_rag", "duckdb")
 SCHEMA_RAG_DEFAULT_TTL_MINUTES = 15
 SCHEMA_RAG_MAX_ENDPOINTS = 250
 SCHEMA_RAG_MAX_TOP_K = 10
 SCHEMA_RAG_EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
-SCHEMA_RAG_EMBEDDING_MODEL_PATH = os.path.join(BASE_DIR, 'schema_rag', 'embedding_models')
+if "SCHEMA_RAG_EMBEDDING_MODEL_PATH" not in globals():
+    SCHEMA_RAG_EMBEDDING_MODEL_PATH = os.path.join(BASE_DIR, "schema_rag", "embedding_models")
 SCHEMA_RAG_EXCLUDED_PATH_PATTERNS = [
     "/schema_rag/",
 ]

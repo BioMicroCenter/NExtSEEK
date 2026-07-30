@@ -180,6 +180,15 @@ reference_image_id="$(docker image inspect --format '{{.Id}}' nextseek-nextseek)
 if [[ "$reference_image_id" != "sha256:1b7b67839e1b2dd4ca80df1e04534dc496af2e132f8321947f6586b76b9862e2" ]]; then
   echo "reference image identity drift" >&2; exit 65
 fi
+if [[ "$lane" == "coverage" || "$lane" == "full" || "$lane" == "raw-full" ]]; then
+  schema_rag_dir="$repo_root/schema_rag"
+  if [[ -e "$schema_rag_dir" && ! -w "$schema_rag_dir" ]]; then
+    docker run --rm -v "$repo_root:/work" "$reference_image_id" rm -rf /work/schema_rag || exit 65
+  fi
+  embedding_seed="${UV_PROJECT}/schema_rag/embedding_models"
+  bash "$repo_root/startup/dev/provision_embedding_model.sh" \
+    --seed "$embedding_seed" --target "$repo_root" || exit 65
+fi
 chown_evidence_root() {
   docker run --rm \
     -v /home/taishajo/work/state/attribute-viewset:/home/taishajo/work/state/attribute-viewset \
@@ -343,7 +352,6 @@ SAMPLE_TEMPLATES_FOLDER_PROJECT = "1"
 PUBLISH_URL = "http://attribute-seek:3000"
 PUBLISH_STATS_FILE = "/path/to/published_stats.xlsx"
 SMART_SEARCH_URL = ""
-SCHEMA_RAG_EMBEDDING_MODEL_PATH = "/work/schema_rag_embedding_models"
 
 class _AttributeLaneChatConfig:
     CONFIG_VERBOSE = False
