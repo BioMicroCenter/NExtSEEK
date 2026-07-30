@@ -110,3 +110,28 @@ class TestSeedScript:
 
     def test_idempotent_flag(self):
         assert "--force" in self._text()
+
+
+SKILL = REPO_ROOT / ".claude" / "skills" / "nextseek-issues" / "SKILL.md"
+AGENTS_MD = REPO_ROOT / "AGENTS.md"
+CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
+
+
+class TestSkillAndPointers:
+    def test_skill_exists_with_frontmatter(self):
+        text = SKILL.read_text(encoding="utf-8")
+        assert text.startswith("---\n") and "name: nextseek-issues" in text
+        assert "description:" in text
+
+    def test_skill_hard_rules(self):
+        text = SKILL.read_text(encoding="utf-8")
+        assert "never" in text.lower() and "approval" in text.lower()
+        assert "validate_issue.py" in text
+        assert "ISSUE-CONVENTIONS.md" in text
+        assert "gh issue list" in text  # duplicate check
+
+    def test_pointers_present(self):
+        for path in (AGENTS_MD, CLAUDE_MD):
+            text = path.read_text(encoding="utf-8")
+            assert "ISSUE-CONVENTIONS.md" in text, path.name
+            assert "validate_issue.py" in text, path.name

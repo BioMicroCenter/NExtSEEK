@@ -12,3 +12,10 @@ Container-CC isolation invariants).
 
 Production hardening (credentials, TLS, exposure) is in
 [`NExtSTEPS.md`](NExtSTEPS.md).
+
+For **filing GitHub issues** — including any bug you find whose fix is
+deferred, or residuals left when a plan/task completes — follow
+[`docs/ISSUE-CONVENTIONS.md`](docs/ISSUE-CONVENTIONS.md): draft the
+structured body, validate it with `scripts/validate_issue.py`, and ask the
+user before filing (the repo is public). Do not let deferred defects
+languish uncreated.
