@@ -9,6 +9,7 @@ ensure_e2e_importable()
 from e2e.catalog import load_catalog, Catalog, PassCriterion, Variant  # noqa: E402
 
 _BASE_CATALOG = Path(__file__).resolve().parents[1] / "chat_nextseek" / "e2e" / "catalog.json"
+_RETIRED = Path(__file__).resolve().parent / "retired.json"
 
 
 def _flatten(cat: Catalog, source_tag: str) -> list[Variant]:
@@ -182,6 +183,41 @@ def apply_route_policy(variants: list[Variant], spec: dict) -> list[Variant]:
     return variants
 
 
+def load_retired_ids(path=None) -> set[str]:
+    """Ids retired from the active corpus, per ``nessie_tests/retired.json``.
+
+    Retirement is not deletion. The 2026-07-30 review found 26 variants asking
+    about a study that does not exist and 9 whose seed turn refers to state that
+    was never created, and the operator's instruction was to retire rather than
+    delete: a question that is wrong against today's data may be the right
+    question once the data or the product changes, and the reason it left is
+    worth keeping next to it.
+
+    So ``retired.json`` is overlay-shaped and holds each variant's FULL
+    definition alongside a reason and a date. Reinstating one is a data edit,
+    not a code change.
+    """
+    path = Path(path or _RETIRED)
+    if not path.exists():
+        return set()
+    return set(json.loads(path.read_text(encoding="utf-8")).get("retired") or {})
+
+
+def check_retired_ids(retired: set[str], known: set[str]) -> None:
+    """Fail loudly on a retired id that matches nothing.
+
+    Silence here is the dangerous outcome: a typo would leave the variant
+    running while the review believes it is gone, so the corpus and the record
+    of what was decided would disagree with no signal.
+    """
+    unknown = retired - known
+    if unknown:
+        raise ValueError(
+            f"retired.json lists ids not found in the corpus: {sorted(unknown)}. "
+            f"Check spelling against chat_nextseek/e2e/catalog.json and "
+            f"nessie_tests/overlay.json.")
+
+
 def merged(overlay_path: Path | None = None) -> list[Variant]:
     """Base catalog plus overlay, where an overlay variant may OVERRIDE a base one.
 
@@ -197,6 +233,12 @@ def merged(overlay_path: Path | None = None) -> list[Variant]:
     base = load_base()
     out = [by_id.pop(v.id, v) for v in base]
     out += [v for v in ov if v.id in by_id]
+    # Filter only. The typo guard lives in the test suite rather than here,
+    # because merged() is also called with a monkeypatched base in unit tests,
+    # where a real retired id legitimately matches nothing.
+    retired = load_retired_ids()
+    if retired:
+        out = [v for v in out if v.id not in retired]
     out = apply_criterion_rewrites(out, load_criterion_rewrites(overlay_path))
     out = apply_route_policy(out, load_route_policy(overlay_path))
     return apply_family_floor(out, load_family_floor(overlay_path))
