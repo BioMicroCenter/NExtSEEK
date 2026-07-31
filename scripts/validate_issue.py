@@ -65,9 +65,12 @@ _SECRET_PATTERNS: dict[str, re.Pattern] = {
     "AWS access key id": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     "private key block": re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     "credential-looking assignment": re.compile(
-        r"(?i)\b(password|passwd|secret|api[_-]?key|token)\b\s*[=:]\s*['\"]?"
+        r"(?i)[A-Za-z0-9_]*(password|passwd|secret|api[_-]?key|token)\s*[=:]\s*['\"]?"
         r"(?!(?:" + _PLACEHOLDER + r"))[A-Za-z0-9+/_\-]{12,}"
     ),
+    "Google API key": re.compile(r"AIza[0-9A-Za-z_\-]{30,}"),
+    "OpenAI-style API key": re.compile(r"sk-[A-Za-z0-9_\-]{20,}"),
+    "JWT": re.compile(r"eyJ[A-Za-z0-9_\-]{10,}\.eyJ"),
 }
 
 

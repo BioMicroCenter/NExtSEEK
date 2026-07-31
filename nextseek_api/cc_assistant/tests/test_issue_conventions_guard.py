@@ -8,7 +8,7 @@ import importlib.util
 import re
 from pathlib import Path
 
-import yaml  # add to module imports
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 _spec = importlib.util.spec_from_file_location(
@@ -96,16 +96,16 @@ class TestSeedScript:
         return SEEDER.read_text(encoding="utf-8")
 
     def test_type_labels_match_enum(self):
-        seeded = set(re.findall(r'create "type: ([a-z-]+)"', self._text()))
+        seeded = set(re.findall(r'^create "type: ([a-z-]+)"', self._text(), re.MULTILINE))
         assert seeded == set(vi.ISSUE_TYPES)
 
     def test_area_labels_match_seeded(self):
-        seeded = set(re.findall(r'create "area: ([a-z0-9_-]+)"', self._text()))
+        seeded = set(re.findall(r'^create "area: ([a-z0-9_-]+)"', self._text(), re.MULTILINE))
         assert seeded == set(vi.SEEDED_AREAS)
 
     def test_needs_ruling_seeded_and_priority_untouched(self):
         text = self._text()
-        assert 'create "needs-ruling"' in text
+        assert re.search(r'^create "needs-ruling"', text, re.MULTILINE)
         assert "priority:" not in text  # existing priority labels are left alone
 
     def test_idempotent_flag(self):

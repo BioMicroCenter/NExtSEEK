@@ -72,9 +72,15 @@ an on-disk code path (`cc_assistant`, `chat_nextseek`, `nextseek_api`);
 everything else uses hyphens.
 
 **Minting rule:** before adding a new area, check `gh label list` for a
-near-match. If none exists, the commit that first uses the new area also
-adds its one-line "covers" entry to the table below — the area list here and
-the labels actually in use must never drift apart.
+near-match. If none exists, minting one touches all three of these
+touch-points in the same commit/session: (1) add its one-line "covers" entry
+to the table below, (2) add a matching `create "area: <name>" ...` line to
+`scripts/seed_issue_labels.sh`, and (3) actually run `gh label create` (or
+re-run the seeder) so the label exists on GitHub. The drift guard
+(`nextseek_api/cc_assistant/tests/test_issue_conventions_guard.py::TestSeedScript::test_area_labels_match_seeded`)
+diffs this table against the seeder script and goes red until they agree —
+the area list here, the seeder, and the labels actually in use must never
+drift apart.
 
 **Seeded starter set (15):**
 
@@ -90,7 +96,7 @@ the labels actually in use must never drift apart.
 | `area: sample-search` | attribute/keyword-based sample search: find, list, or filter samples by type, treatment, keyword, or assay |
 | `area: project-search` | project- and investigation-level search and lookup queries |
 | `area: router` | BAML route decision, route_capabilities, history context |
-| `area: schema-rag` | schema-aware retrieval that grounds NL queries against the live SEEK/Neo4j schema (`nextseek_api/schema_rag/`) |
+| `area: schema-rag` | schema-aware retrieval that grounds NL queries against the live API's OpenAPI schema (`nextseek_api/schema_rag/`) |
 | `area: search-solr` | SEEK's Solr search index integration |
 | `area: graph-neo4j` | the sample/assay relationship graph: sync, schema, and queries |
 | `area: deployment` | compose topology, images, env/config delivery |
@@ -133,8 +139,12 @@ character for character:
 Not established — do not guess.
 ```
 
-Writing a guess instead of the sentinel, or leaving the section blank, both
-fail validation.
+The sentinel may be followed by additional non-causal context (e.g. what was
+ruled out), as long as the sentinel line itself is character-exact.
+
+An empty Root cause section fails validation. Writing a guess instead of the
+sentinel does not fail validation — the validator cannot tell a guess from
+real analysis — but it violates the convention and fails review.
 
 ## Filing an issue
 

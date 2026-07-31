@@ -4,6 +4,7 @@ Hermetic: file reads + in-memory strings only. Runs in the repo-mounted
 container lane (pydantic + PyYAML come from the app env).
 """
 import importlib.util
+import typing
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,25 @@ class TestConstants:
 
     def test_sentinel_exact(self):
         assert vi.ROOT_CAUSE_SENTINEL == "Not established — do not guess."
+
+    def test_type_literal_binds_to_issue_types(self):
+        # Acceptance criterion §10.2: the model's Literal["type"] enum must
+        # never drift from the ISSUE_TYPES tuple it's supposed to mirror.
+        annotation = vi.IssueDraft.model_fields["type"].annotation
+        args = typing.get_args(annotation)
+        assert set(args) == set(vi.ISSUE_TYPES)
+        assert len(args) == len(vi.ISSUE_TYPES)
+
+    def test_priority_literal_binds_to_priorities(self):
+        # priority is Optional[Literal[...]] — unwrap the Union to reach the
+        # Literal before comparing against PRIORITIES.
+        annotation = vi.IssueDraft.model_fields["priority"].annotation
+        union_args = typing.get_args(annotation)
+        literal_types = [a for a in union_args if a is not type(None)]
+        assert len(literal_types) == 1, union_args
+        literal_args = typing.get_args(literal_types[0])
+        assert set(literal_args) == set(vi.PRIORITIES)
+        assert len(literal_args) == len(vi.PRIORITIES)
 
 
 class TestAccepts:
@@ -155,6 +175,21 @@ class TestSecretScan:
 
     def test_clean_example(self):
         assert vi.scan_secrets(WORKED_EXAMPLE) == []
+
+    def test_env_style_password_assignment_flagged(self):
+        # NEO4J_PASSWORD=... — the leading \b in the old pattern couldn't
+        # fire after an underscore-joined env-var prefix.
+        hits = vi.scan_secrets("NEO4J_PASSWORD=s3cretvalue123")
+        assert hits and "credential-looking" in hits[0]
+
+    def test_yaml_style_password_assignment_flagged(self):
+        hits = vi.scan_secrets("MYSQL_ROOT_PASSWORD: hunter2hunter2")
+        assert hits and "credential-looking" in hits[0]
+
+    def test_google_api_key_runtime_assembled_flagged(self):
+        fake_key = "AIza" + "B" * 35
+        hits = vi.scan_secrets(f"leak: {fake_key}")
+        assert hits and "Google" in hits[0]
 
 
 class TestCli:
