@@ -45,6 +45,36 @@ ADMIN_SAMPLE_RETRIEVE_DESC = (
 )
 
 # =============================================================================
+# ProjectExportViewSet (2 routes, same operation)
+# =============================================================================
+
+PROJECT_EXPORT_DESC = (
+    "**SUMMARY:** Export EVERY sample in a SEEK project at once, as JSON or as an Excel workbook "
+    "with one sheet per sample type. Superuser-only.\n\n"
+    "**USE WHEN:** An admin wants a complete dump of a whole project identified by its numeric SEEK "
+    "project ID — every sample, every sample type, all metadata attributes flattened into columns.\n\n"
+    "**DO NOT USE WHEN:** The user already knows which samples they want by UID or SEEK ID — use "
+    "`POST admin/samples/retrieve` instead. The user wants to SEARCH or FILTER by type, attribute, or "
+    "text — use `POST advanced_search`. The user wants the lineage of one sample — use `GET sample-tree`. "
+    "The caller is not a superuser — this endpoint returns 403 for ordinary and staff accounts.\n\n"
+    "**ACCEPTS:** `project_id` (numeric SEEK project ID, e.g. 2 for IMPACT) and optional `output_format` "
+    "(`json` or `xlsx`, default `json`). Available as a POST body on `admin/project-export/run/` or as a "
+    "path parameter on `GET admin/project-export/{project_id}/?output_format=xlsx`.\n\n"
+    "**RETURNS:** JSON grouped by sample type (`project_title`, `total_samples`, `total_sample_types`, "
+    "`unparseable_metadata`, a `source` block naming the database that answered, and per-group sample "
+    "records keyed by `id` and `uuid`), or an .xlsx workbook with one sheet per sample type. Sample type "
+    "comes from the `sample_types` foreign key, so related types such as AB and ABP stay on separate sheets. "
+    "Returns 404 if the project ID does not exist, naming the database it asked.\n\n"
+    "**TRIGGER PHRASES:** export a project, pull all samples, whole project dump, every sample in the "
+    "project, project spreadsheet, all project metadata, download the full project, pull_all_db\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Export everything in the IMPACT project as a spreadsheet'\n"
+    "- 'Pull all samples for project 4'\n"
+    "- 'Give me every sample in MetNet with all their metadata as JSON'\n"
+    "- 'Download the complete BTC project workbook'\n"
+)
+
+# =============================================================================
 # SopProxyViewSet (5 endpoints)
 # =============================================================================
 

@@ -42,6 +42,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from nextseek_api.assistant.excel_export import generate_table_xlsx
+from nextseek_api.endpoint_descriptions import PROJECT_EXPORT_DESC
 from nextseek_api.models import ProjectExportRequest, ProjectExportResponse
 from nextseek_api.permissions import IsSuperUser
 from nextseek_api.services.assistant import CsrfExemptSessionAuthentication, _error_response
@@ -267,6 +268,7 @@ class ProjectExportViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Admin: Project Export (POST)",
+        description=PROJECT_EXPORT_DESC,
         tags=["admin"],
         request=ProjectExportRequest,
         responses={
@@ -295,6 +297,7 @@ class ProjectExportViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="Admin: Project Export (GET)",
+        description=PROJECT_EXPORT_DESC,
         tags=["admin"],
         parameters=[
             OpenApiParameter(
