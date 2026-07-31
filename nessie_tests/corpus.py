@@ -160,12 +160,31 @@ def apply_route_policy(variants: list[Variant], spec: dict) -> list[Variant]:
     if not families and not overrides:
         return variants
 
+    def guarantees_ns(rule) -> bool:
+        """True when the rule asserts the turn definitely reaches NExtSEEK.
+
+        `drop_field` exists because `parser_plan.mode` resolves to None on a turn
+        that never reaches NS, so asserting it fails no matter what the product
+        did. That reasoning only holds where NS is NOT guaranteed. Applying the
+        drop blanket-fashion once the NS families joined the map would have
+        stripped the field from 256 variants where it is real and observable —
+        the corpus gaining a route assertion while losing a stronger one.
+        """
+        op, value = rule.get("op"), str(rule.get("value") or "")
+        if op == "eq":
+            return value == "nextseek_query"
+        if op == "matches_re":
+            # An alternation is safe only if every branch is NS.
+            branches = [b for b in re.split(r"[|()]", value) if b.strip()]
+            return bool(branches) and all(b.strip() == "nextseek_query" for b in branches)
+        return False
+
     for v in variants:
         rule = overrides.get(v.id) or families.get(v.family)
         if not rule or not v.turns:
             continue
-        for t in v.turns:
-            if drop:
+        if drop and not guarantees_ns(rule):
+            for t in v.turns:
                 t.pass_criteria = [c for c in t.pass_criteria if c.field != drop]
         first = v.turns[0]
         present = {c.field for c in first.pass_criteria}

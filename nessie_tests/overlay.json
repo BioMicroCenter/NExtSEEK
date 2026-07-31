@@ -447,13 +447,33 @@
     "drop_field": "parser_plan.mode",
     "_2026_07_29_also_assert": "A route assertion ALONE cannot tell a working turn from a dead one. Task 957 in the 2026-07-29 run hit error_max_budget_usd, replied null, and scored GREEN because `route eq container_cc` was its only criterion. Applied per FIELD so the three hand-converted variants keep their own stricter last_reply regexes.",
     "also_assert": [{"field": "last_reply", "op": "nonempty", "value": null}],
+    "_2026_07_31_mapping": "Extended from 2 families to 12 from the operator's route mapping (issue #35 step 2). Every turn in the active corpus was assigned a route by an agent working only from route_capabilities.json, with no sight of the existing criteria, the operator's earlier answers, or any tags; the operator then reviewed all 311. 298 of the 302 comparable turns matched their round-2 family answers.",
+    "_2026_07_31_drop_is_conditional": "`drop_field` is no longer blanket. corpus.guarantees_ns() keeps parser_plan.mode wherever the rule pins nextseek_query, because there NS definitely runs and the field is real and observable. Applying the old blanket drop to these families would have stripped it from 256 variants — the corpus gaining a route assertion while losing a stronger one, which reads as a strengthening. See tests/test_route_policy_drop.py.",
+    "_2026_07_31_either": "search_tree, refine_and_recall and pipeline_nfcore are asserted as an ALTERNATION because the operator answered EITHER for all three: the NS/CC boundary for follow-ups, lineage and pipeline build-vs-launch is genuinely unsettled. An alternation cannot guarantee NS, so parser_plan.mode is dropped for those three.",
+    "_2026_07_31_per_case": "nessie_green and nessie_route are provenance groupings rather than intents (their members span several task families), so each carries its own route as an override instead of inheriting a family default.",
     "families": {
+      "graph_query": {"op": "eq", "value": "nextseek_query"},
+      "reporting": {"op": "eq", "value": "nextseek_query"},
+      "routing_lab": {"op": "eq", "value": "nextseek_query"},
+      "search_advanced": {"op": "eq", "value": "nextseek_query"},
+      "search_parents_by_child": {"op": "eq", "value": "nextseek_query"},
+      "search_retrieve": {"op": "eq", "value": "nextseek_query"},
+      "system_question": {"op": "eq", "value": "nextseek_query"},
+      "search_tree": {"op": "matches_re", "value": "(nextseek_query|container_cc)"},
+      "refine_and_recall": {"op": "matches_re", "value": "(nextseek_query|container_cc)"},
+      "pipeline_nfcore": {"op": "matches_re", "value": "(nextseek_query|container_cc)"},
       "unsupported": {"op": "eq", "value": "container_cc"},
       "writes_unsupported": {"op": "eq", "value": "container_cc"}
     },
     "overrides": {
       "unsup.weather": {"op": "eq", "value": "unrelated"},
-      "unsup.domain_chemistry": {"op": "matches_re", "value": "(unrelated|container_cc)"}
+      "unsup.domain_chemistry": {"op": "matches_re", "value": "(unrelated|container_cc)"},
+      "green.mus_ndma": {"op": "eq", "value": "nextseek_query"},
+      "green.global_count": {"op": "eq", "value": "container_cc"},
+      "green.refine_recall": {"op": "eq", "value": "container_cc"},
+      "route.ns_advanced": {"op": "eq", "value": "nextseek_query"},
+      "route.ns_plain_study_membership": {"op": "eq", "value": "nextseek_query"},
+      "route.unrelated": {"op": "eq", "value": "unrelated"}
     }
   }
   ,"family_floor": {
