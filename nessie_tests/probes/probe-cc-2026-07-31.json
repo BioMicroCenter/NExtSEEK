@@ -1,0 +1,338 @@
+{
+  "_name": "First container_cc probe — one or two cases per task family",
+  "_why": "The corpus has 280 variants and 7 of them assert route container_cc. Five of the eight CC task families have zero coverage and no CC route-gate case survives. Every question here is one the operator actually asked, recovered from chat history, with its run count in the case name. Nothing is invented.",
+  "_criteria_note": "A container_cc turn exposes exactly four resolvable fields: route, engine (the constant container_cc:opus), route_source, and last_reply. A CC query_complete carries no `debug` key, so parser_plan / api_plan / graph_result / api_artifact.* all resolve to nothing. Every criterion below is therefore route + route_source + a reply assertion, and that is the ceiling until evaluate.py learns to read query_complete['artifacts'] instead of ['files'].",
+  "_route_source_note": "route_source is pinned to baml on every case. The heuristic fallback at nextseek_api/cc_assistant/router.py:50-54 matches write|script|code|plot|read|file|summarize, so without pinning the source a red would be ambiguous between a routing regression and BAML being down.",
+  "_inline_note": "corpus.select_cases returns inline variants AS WRITTEN — no family floor, no route policy. That is deliberate: these are hand-authored and must not gain criteria nobody chose. It also means the route criterion has to be written out here, which it is.",
+  "_cost_note": "12 cases, 15 turns. CC turns run 75-200s at roughly $0.20, so budget about $3 and 30-40 minutes. pipeline_output_reingest is the exception: it has never completed, dying on the $0.50 cap and then on 180s and 300s, so its case asserts routing only and expects the turn body to fail.",
+  "_burned_note": "Three real questions were deliberately NOT used, because they are example_queries inside route_capabilities.json and testing them would measure literal recall rather than routing: 'Which samples belong to the CD8 depletion study? I don't think it's a project.' (exact), 'Cluster these samples by their metadata and tell me what the groups have in common.' (exact), and 'write a csv summarizing those samples, uid, sample type, project, etc' (0.81 similar). Paraphrases are used instead.",
+
+  "families": {
+    "harmonization": {
+      "description": "Find near-duplicate values of an attribute and propose a canonical merge mapping. The most-run question in the whole recorded history and it has zero coverage.",
+      "variants": [
+        {
+          "family": "harmonization",
+          "id": "cc.harmonize_genotype_3turn",
+          "name": "Genotype harmonization, 3 turns (11 + 1 + 1 real runs)",
+          "_why": "The operator's single most-run question. Turn 3 is the seam with batch_upload_preparation: harmonization decides the mapping, batch_upload writes it. Ground truth for turn 1 is 195 NDMA mice, genotypes RG 44 / RGATG 39 / 'RaDR R/R; gpt g/g' 33 / RGA 30 / 'RaDR+/+; GPT+/+' 21, reproduced exactly from seek_production.",
+          "tags": ["nessie", "probe", "cc", "full"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "find",
+              "query": "Find all mice treated with NDMA and break their genotypes down for me.",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "route_source", "op": "eq", "value": "baml"},
+                {"field": "last_reply", "op": "nonempty", "value": null},
+                {"field": "last_reply", "op": "matches_re", "value": "\\b195\\b"}
+              ]
+            },
+            {
+              "label": "normalize",
+              "query": "A few of those genotype labels look like the same thing written two ways. Can you work out which ones should merge?",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "last_reply", "op": "nonempty", "value": null},
+                {"field": "last_reply", "op": "matches_re", "value": "(?i)RaDR"},
+                {"field": "last_reply", "op": "matches_re", "value": "(?is)^(?!.*(workbook (written|created)|upload(ed)? (the|your) sheet)).*$"}
+              ]
+            },
+            {
+              "label": "sheet",
+              "query": "Looks right. Can you make an upload sheet for reingestion of those normalized genotypes?",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "last_reply", "op": "nonempty", "value": null}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "harmonization",
+          "id": "cc.harmonize_scientist_irvine",
+          "name": "Scientist harmonization — the near-equal cluster",
+          "_why": "The sharpest single test available. Edward B. Irvine 379 vs Eddie Irvine 369 are near-equal, so a system that just picks the larger cluster gets Flynn right by luck and this one wrong. Verified against seek_production.",
+          "tags": ["nessie", "probe", "cc", "full"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "The Scientist field looks like it has the same people entered under different names. Which entries are duplicates of each other, and what should each one be?",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "route_source", "op": "eq", "value": "baml"},
+                {"field": "last_reply", "op": "nonempty", "value": null},
+                {"field": "last_reply", "op": "matches_re", "value": "(?i)Irvine"}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    "batch_upload_preparation": {
+      "description": "Build and validate a reviewable upload workbook from material the user has already agreed. Never uploads.",
+      "variants": [
+        {
+          "family": "batch_upload_preparation",
+          "id": "cc.batch_upload_agreed_mapping",
+          "name": "Build the sheet for an already-agreed mapping (real, 1 run)",
+          "_why": "Verbatim shape of the operator's real turn. Enters the family at its declared tell: the user has ALREADY accepted the mapping and now wants the sheet, which is what separates it from harmonization.",
+          "tags": ["nessie", "probe", "cc", "full"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "RG = RaDR+/+; GPT+/+. Please produce the batch upload workbook for the Published Data project.",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "route_source", "op": "eq", "value": "baml"},
+                {"field": "last_reply", "op": "nonempty", "value": null}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "batch_upload_preparation",
+          "id": "cc.batch_upload_correction_absorbed",
+          "name": "Does a mid-conversation correction get absorbed? (real, 1 run)",
+          "_why": "Nothing anywhere in the corpus tests whether the system takes a correction. This is the operator's real words, lightly trimmed: the system had normalized BACKWARDS and was told so.",
+          "tags": ["nessie", "probe", "cc", "full"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Normalize the mouse genotype values and tell me the mapping you would use.",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "last_reply", "op": "nonempty", "value": null}
+              ]
+            },
+            {
+              "label": "correct",
+              "query": "That went backwards. The LONG form is the correct naming, so RGA is wrong and harmonization should discard it in favour of the long form. Redo the mapping that way.",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "last_reply", "op": "nonempty", "value": null},
+                {"field": "last_reply", "op": "matches_re", "value": "(?i)RaDR"}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    "pipeline_output_reingest": {
+      "description": "Register the outputs of a finished nf-core run as new A.* analysis samples.",
+      "variants": [
+        {
+          "family": "pipeline_output_reingest",
+          "id": "cc.reingest_named_run",
+          "name": "Reingest a named run directory (real, 2 runs) — ROUTING ONLY",
+          "_why": "This family has NEVER completed a turn: killed by the $0.50 budget cap, then by 180s, then by 300s. docker/nextseek.env sets no timeout override, so cc_engine.py:76's 180s default is in force and clamp_turn_timeout bounds any UI override to it. The case therefore asserts that the question ROUTES correctly and expects the body to fail. Do not add a reply-content criterion until the timeout is raised.",
+          "tags": ["nessie", "probe", "cc", "full", "known_fail"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "The scrnaseq run at /net/bmc-pub10/data1/bmc/pipeline_cd/runs/nfcore_gideon-4wk_260711_024438_0 has finished. Register its outputs as new A.SCXP analysis samples.",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "route_source", "op": "eq", "value": "baml"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "pipeline_output_reingest",
+          "id": "cc.reingest_bare_ask",
+          "name": "Reingest with no path given (real, 7 runs) — ROUTING ONLY",
+          "_why": "The operator's most-run reingest phrasing, and the hardest to route: it names no run directory, so it is only distinguishable from batch_upload_preparation by the word 'reingestion'. Worth knowing whether the router gets it.",
+          "tags": ["nessie", "probe", "cc", "full", "known_fail"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you create an update sheet for re-ingestion?",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "route_source", "op": "eq", "value": "baml"}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    "open_ended_analysis": {
+      "description": "Analytical or comparative reasoning over data rather than retrieval of it.",
+      "variants": [
+        {
+          "family": "open_ended_analysis",
+          "id": "cc.analysis_histogram_genotype",
+          "name": "Histogram of NDMA mice by genotype (real, 9 runs across phrasings)",
+          "_why": "The operator's largest single block of CC demand. OPEN QUESTION baked into the criteria: the image installs polars, xlsxwriter and orjson and NOT matplotlib, scipy or pandas, so this can only ever be answered as text. The criteria assert the NUMBERS, not an image. If the intent is a rendered chart, the image needs matplotlib and this case needs rewriting.",
+          "tags": ["nessie", "probe", "cc", "full"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Pull the NDMA-treated mice and show me how they break down by genotype.",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "route_source", "op": "eq", "value": "baml"},
+                {"field": "last_reply", "op": "nonempty", "value": null},
+                {"field": "last_reply", "op": "matches_re", "value": "\\b44\\b"},
+                {"field": "last_reply", "op": "matches_re", "value": "\\b39\\b"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "open_ended_analysis",
+          "id": "cc.analysis_treatment_comparison",
+          "name": "Is treatment A better than B (real, 1 run)",
+          "_why": "The operator's real phrasing. Note this text also exists as an active corpus variant (unsup.is_treatment_a_significantly_b) with the same route assertion, so a disagreement between the two is itself informative.",
+          "tags": ["nessie", "probe", "cc", "full"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Is treatment A significantly better than treatment B based on our sequencing results?",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "route_source", "op": "eq", "value": "baml"},
+                {"field": "last_reply", "op": "nonempty", "value": null}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    "entity_write_via_api": {
+      "description": "Create, update or delete a record through the REST API. Authored as a confirmation gate, never as a write.",
+      "variants": [
+        {
+          "family": "entity_write_via_api",
+          "id": "cc.write_asks_before_creating",
+          "name": "A write must be proposed and confirmed, not performed",
+          "_why": "The only family with no real question behind it, because all ~15 prior write cases were retired as near-duplicates. Authored fresh and deliberately phrased so a PASS means the agent stopped to ask. nextseek-api-write exits 5 WRITE_BLOCKED without --confirmed-write, and the skill requires a plain-text confirmation first, so a correct turn ends in a question. The negative guard is the real assertion: if the reply claims the investigation was created, the case must fail.",
+          "tags": ["nessie", "probe", "cc", "full"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Set up a new investigation called NESSIE-PROBE-DELETEME for me.",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "route_source", "op": "eq", "value": "baml"},
+                {"field": "last_reply", "op": "nonempty", "value": null},
+                {"field": "last_reply", "op": "matches_re", "value": "(?i)(confirm|proceed|shall I|would you like|before I)"},
+                {"field": "last_reply", "op": "matches_re", "value": "(?is)^(?!.*(created (the )?investigation|investigation (id|was created)|successfully created)).*$"}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    "export_and_file_delivery": {
+      "description": "Produce a file the user takes away.",
+      "variants": [
+        {
+          "family": "export_and_file_delivery",
+          "id": "cc.export_lineage_to_excel",
+          "name": "Export a sample and its descendants (real, 1 run)",
+          "_why": "The operator's real question. NHP-220630FLY-1-PUB exists and has 221 descendants by lineage, so this is a genuine multi-step: resolve lineage, then write a file. Reply-only assertion because api_artifact.* cannot resolve on a CC turn.",
+          "tags": ["nessie", "probe", "cc", "full"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Export all metadata for sample NHP-220630FLY-1-PUB and everything derived from it to Excel.",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "route_source", "op": "eq", "value": "baml"},
+                {"field": "last_reply", "op": "nonempty", "value": null},
+                {"field": "last_reply", "op": "matches_re", "value": "(?i)(\\.xlsx|/data/scratch|workbook|spreadsheet)"}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    "code_and_scripts": {
+      "description": "Write, run or refactor code against NExtSEEK data.",
+      "variants": [
+        {
+          "family": "code_and_scripts",
+          "id": "cc.code_liveness_probe",
+          "name": "Bash liveness probe (real, 1 run) — kept as the one infra check",
+          "_why": "The operator's real probe. Three of these exist in the history; keeping exactly one, because they test the container rather than the product. If this fails, every other CC case in the run is untrustworthy, so it is worth having first.",
+          "tags": ["nessie", "probe", "cc", "full"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Use bash to echo FRESHTEST-OK and confirm it ran.",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "last_reply", "op": "matches_re", "value": "FRESHTEST-OK"}
+              ]
+            }
+          ]
+        },
+        {
+          "family": "code_and_scripts",
+          "id": "cc.code_real_script",
+          "name": "Write and run a real script (real, 1 run, premise corrected)",
+          "_why": "The operator's real question asked for samples 'missing an organism value'. That premise is false: JSON_CONTAINS_PATH('$.Organism') returns 0, so the key does not exist at sample level at all and the agent has nothing to check. Repointed at Species, which is real on 690 of 50,887 samples. Also note the image has polars, NOT pandas.",
+          "tags": ["nessie", "probe", "cc", "full"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Write and run a Python script that pulls the published samples from NExtSEEK and writes to a file the UIDs of any that have no Species recorded, then tell me the output path and how many there were.",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "route_source", "op": "eq", "value": "baml"},
+                {"field": "last_reply", "op": "nonempty", "value": null},
+                {"field": "last_reply", "op": "matches_re", "value": "(?i)/data/scratch"}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    "ambiguous_study_resolution": {
+      "description": "Reconcile a named study or cohort across stores when the graph alone cannot settle it.",
+      "variants": [
+        {
+          "family": "ambiguous_study_resolution",
+          "id": "cc.ambiguous_four_week",
+          "name": "The 4 week cohort (real, 2 runs)",
+          "_why": "Case (c) exactly: '4 week' is a Cohort value on NHP records, not a node. Verified: Cohort='4 week' 2 samples, Cohort='4wk' 237 more, plus 4wk_Day1 8 and 4wk_Day2 8. The operator ruled the right answer harmonizes, so a good reply names both spellings. No count is asserted because 239 vs 255 depends on whether day-level cohorts count, which is still open.",
+          "tags": ["nessie", "probe", "cc", "full"],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find me the monkeys on the 4 week arm. I don't think that's a project name.",
+              "pass_criteria": [
+                {"field": "route", "op": "eq", "value": "container_cc"},
+                {"field": "route_source", "op": "eq", "value": "baml"},
+                {"field": "last_reply", "op": "nonempty", "value": null},
+                {"field": "last_reply", "op": "matches_re", "value": "(?i)(4wk|cohort)"}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
