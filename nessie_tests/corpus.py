@@ -196,9 +196,17 @@ def apply_route_policy(variants: list[Variant], spec: dict) -> list[Variant]:
         # scored GREEN because `route eq container_cc` was the only criterion.
         # Added per FIELD, so the three hand-converted variants keep their own
         # stricter last_reply regexes instead of gaining a redundant nonempty.
-        for crit in also:
-            if crit["field"] not in present:
-                first.pass_criteria.append(PassCriterion(**crit))
+        # ...but NOT on a route_gate case. runner.py drives those at case_tier
+        # "route" whatever the run's tier, and http_driver stops polling the moment
+        # route_decided arrives, so the turn is abandoned before any reply exists BY
+        # DESIGN. Adding `last_reply nonempty` there makes the case unsatisfiable —
+        # exactly the defect this block was written to remove. Observed live on
+        # 2026-07-31: route.ns_plain_study_membership failed on main:last_reply while
+        # asserting the correct route.
+        if "route_gate" not in v.tags:
+            for crit in also:
+                if crit["field"] not in present:
+                    first.pass_criteria.append(PassCriterion(**crit))
     return variants
 
 
