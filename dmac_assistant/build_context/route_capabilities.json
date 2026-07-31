@@ -4,8 +4,14 @@
       "route_name": "nextseek_query",
       "description": "Deterministic NExtSEEK pipeline via chat_nextseek (no Claude reasoning loop).",
       "tools": [
-        "entity_agent", "parser_agent", "api_agent", "graph_agent",
-        "reporter_agent", "memory_agent", "system_agent", "pipeline_agent"
+        "entity_agent",
+        "parser_agent",
+        "api_agent",
+        "graph_agent",
+        "reporter_agent",
+        "memory_agent",
+        "system_agent",
+        "pipeline_agent"
       ],
       "best_for": "Structured biomedical sample / project / study queries that map onto chat_nextseek's pipeline.",
       "not_for": "File I/O, code execution, free-form reasoning, multi-tool work outside chat_nextseek.",
@@ -34,8 +40,8 @@
           "name": "lineage_or_graph",
           "description": "Graph traversal: lineage, study membership, assay-on-sample. Handles a named study or project directly, matching both Study and Investigation nodes. Use this for a straightforward 'what/how many samples are in <study>' question.",
           "example_queries": [
-            "How many samples are in the GBM study?",
-            "What assays were run on study X?",
+            "How many samples are in the MetNet study?",
+            "What assays were run on the Griffith study?",
             "What mice are in the Impact study?"
           ]
         },
@@ -50,12 +56,16 @@
         {
           "name": "memory_lookup",
           "description": "Follow-up Q&A against the last result set.",
-          "example_queries": ["What sample types were in those results?"]
+          "example_queries": [
+            "What sample types were in those results?"
+          ]
         },
         {
           "name": "reporter_summary",
           "description": "Project / RPPR-style summaries.",
-          "example_queries": ["Give me an RPPR summary for SRP."]
+          "example_queries": [
+            "Give me an RPPR summary for SRP."
+          ]
         },
         {
           "name": "pipeline_build_and_launch",
@@ -71,16 +81,25 @@
     {
       "route_name": "container_cc",
       "description": "Container Claude Code: full agentic environment with file I/O, code execution, and arbitrary plugins / skills (including the nextseek-batch-upload skill).",
-      "tools": ["nextseek-api", "nextseek-batch-upload", "bash", "filesystem", "skill-runner"],
+      "tools": [
+        "nextseek-api-read",
+        "nextseek-api-write",
+        "nextseek-batch-upload",
+        "nextseek-run-ls",
+        "nextseek-build-upload-xlsx",
+        "bash",
+        "filesystem"
+      ],
       "best_for": "Open-ended reasoning, file I/O, code, multi-tool workflows, and building/validating NExtSEEK batch-upload create/update sheets.",
       "not_for": "Pure NExtSEEK lookups that chat_nextseek answers deterministically, or building/launching nf-core pipelines (those go to the nextseek_query pipeline_build_and_launch route).",
       "task_families": [
         {
-          "name": "file_io_and_summarization",
-          "description": "Read project files mounted at /data/projects, summarize, transform.",
+          "name": "export_and_file_delivery",
+          "description": "Produce a file the user takes away, or read and summarize one already on disk. The writable path is /data/scratch; the read-only mounts are /data/input and /data/shared. The baked catalog under /app/plugins/nextseek/context/ and the docs under /app/docs/nextseek/ are always readable. There is no /data/projects mount. Document extraction handles text, HTML and markdown only - PDF and DOCX are not supported.",
           "example_queries": [
-            "Read /data/projects/Foo/notes.md and summarize.",
-            "Walk me through the sample tree extraction pipeline."
+            "Export the metadata for these samples and their descendants to a spreadsheet.",
+            "Write me a CSV summarizing those results with UID, sample type and project.",
+            "Summarize what sample types this instance supports for single-cell work."
           ]
         },
         {
@@ -92,12 +111,21 @@
           ]
         },
         {
-          "name": "batch_upload_preparation",
-          "description": "Build and validate (never upload) a NExtSEEK batch-upload workbook to create or update sample metadata from user-supplied material (protocol text, a description, or an existing cohort to normalize) via the nextseek-batch-upload skill — including normalizing or fixing attribute values on existing samples. Any request to create, update, modify, or normalize samples from user-supplied material — even one that also asks to find the samples first — belongs here. (Registering finished pipeline-run OUTPUTS as new analysis samples is NOT this family — see pipeline_output_reingest.)",
+          "name": "harmonization",
+          "description": "Reconcile near-duplicate VALUES of a sample attribute and propose a canonical mapping. The tell is that the user points at values that look inconsistent - spelling, casing, abbreviation, or two names for one thing - rather than at records. This is the step BEFORE batch_upload_preparation: harmonization decides which values should merge and what the canonical form is; batch_upload_preparation writes that decision into a workbook. Propose the mapping and confirm it with the user before building anything. No dedicated op exists: read the values with a search op, cluster them, and hand the accepted mapping onward.",
           "example_queries": [
-            "Build me an update sheet to normalize the genotypes in the database.",
+            "Some of these genotype terms look like the same thing written differently - can you normalize them?",
+            "The Lab field has several spellings of the same lab. What should they collapse to?",
+            "Build me an update sheet to normalize the genotypes in the database."
+          ]
+        },
+        {
+          "name": "batch_upload_preparation",
+          "description": "Build and validate (never upload) a NExtSEEK batch-upload workbook to create or update sample metadata from user-supplied material (protocol text, a description, or a mapping the user has already accepted) via the nextseek-batch-upload skill. The tell is that the user supplies the rows or has ALREADY AGREED what the values should become, and now wants a sheet built. If the user is still asking WHICH values should merge, that is harmonization, not this. Registering finished pipeline-run OUTPUTS as new analysis samples is also not this - see pipeline_output_reingest.",
+          "example_queries": [
             "Prepare a batch-upload workbook that sets Scientist to Jane Doe on these UIDs.",
-            "Make an upload spreadsheet to create new samples from this protocol text."
+            "Make an upload spreadsheet to create new samples from this protocol text.",
+            "Build the update sheet for the mapping we just agreed."
           ]
         },
         {
@@ -120,7 +148,7 @@
         },
         {
           "name": "ambiguous_study_resolution",
-          "description": "Reconcile a named study/cohort ACROSS STORES when the graph alone cannot settle it, because 'study' is not one thing in NExtSEEK. A study name can be (a) an Investigation node, (b) a Study node — usually the full publication title, or (c) only a metadata attribute on the samples themselves (e.g. Study on an NHP/MUS/PAT record), when no publication exists yet. Only case (c) genuinely needs this route: nextseek_query's graph path now disjoins Study.title and Investigation.title itself, so it resolves (a) and (b) on its own. Route here ONLY when: (i) the user says a previous study answer looked wrong, empty or suspicious; or (ii) the named scope is not one of the known graph names AND reads like a descriptive cohort, condition or timepoint label rather than a project code — 'a 4 week study', 'the CD8 depletion study', 'the high-dose arm'. The known investigation names are CSBC, Griffith, Impact, MetNet, SRP and Shoulders; a Study node is normally a full publication title. A study membership question naming any of those, or any name that simply might be a project, stays on nextseek_query (lineage_or_graph) — including when it returns zero, because zero can be the correct answer. Do not route here merely because the name is unfamiliar to you.",
+          "description": "Reconcile a named study/cohort ACROSS STORES when the graph alone cannot settle it, because 'study' is not one thing in NExtSEEK. A study name can be (a) an Investigation node, (b) a Study node — usually the full publication title, or (c) only a metadata attribute on the samples themselves (e.g. Study on an NHP/MUS/PAT record), when no publication exists yet. Only case (c) genuinely needs this route: nextseek_query's graph path now disjoins Study.title and Investigation.title itself, so it resolves (a) and (b) on its own. Route here ONLY when: (i) the user says a previous study answer looked wrong, empty or suspicious; or (ii) the named scope is not one of the known graph names AND reads like a descriptive cohort, condition or timepoint label rather than a project code — 'a 4 week study', 'the CD8 depletion study', 'the high-dose arm'. The known investigation names are CSBC, Griffith, Impact, MetNet, SRP and Shoulders; a Study node is normally a full publication title. A study membership question naming any of those, or any name that simply might be a project, stays on nextseek_query (lineage_or_graph) — including when it returns zero, because zero can be the correct answer. Do not route here merely because the name is unfamiliar to you. Worked example: '4 week' is not a Study or Investigation node - it is a Cohort value on NHP records (2 samples as '4 week', 237 more as '4wk'), which is exactly case (c).",
           "example_queries": [
             "Which samples belong to the CD8 depletion study? I don't think it's a project.",
             "That study search came back empty — can you check whether it's a publication or a metadata field?",

@@ -11,6 +11,8 @@ here applied to the config the BAML `RouteQuery` router consumes. They run
 against whatever `route_capabilities.json` ships with the package, so a future
 edit that breaks the invariants fails CI instead of the live router.
 """
+import pathlib
+
 from dmac_assistant.router.agent import _ROUTE_ALIAS
 from dmac_assistant.router.capabilities import load_capabilities
 
@@ -24,11 +26,22 @@ ROUTABLE = {alias for alias in _ROUTE_ALIAS.values() if alias != "unrelated"}
 #   container_cc   -> CC plugin/skill capability labels (docker/cc-runtime
 #                     container/CLAUDE.md skill set)
 # Keep in sync with the real agent registry + the CC skill set.
+# 2026-07-31: the CC half was wrong. `nextseek-api` and `skill-runner` have never
+# shipped — the plugin exposes `nextseek-api-read` / `nextseek-api-write`, and there
+# is no skill-runner binary. Advertising a tool the image does not have misleads the
+# router on exactly the families that have no coverage, and this allowlist agreeing
+# with the wrong value is why CI could not see the drift. Now derived from the bin
+# directory so it cannot drift again silently.
+_CC_BIN = (pathlib.Path(__file__).resolve().parents[3]
+           / "docker/cc-runtime/build_context/plugins/nextseek/bin")
+_SHIPPED_OPS = {p.name for p in _CC_BIN.iterdir() if p.name.startswith("nextseek-")} \
+    if _CC_BIN.is_dir() else set()
+
 ALLOWED_TOOLS = {
     "entity_agent", "parser_agent", "api_agent", "graph_agent",
     "reporter_agent", "memory_agent", "system_agent", "pipeline_agent",
-    "nextseek-api", "nextseek-batch-upload", "bash", "filesystem", "skill-runner",
-}
+    "nextseek-batch-upload", "bash", "filesystem",
+} | _SHIPPED_OPS
 
 
 # Every user-facing NS capability must be exercised by a task family, or the router
@@ -53,9 +66,13 @@ TOOL_TO_FAMILY = {
 # of being silently waved through.
 INFRASTRUCTURE_TOOLS = {"entity_agent", "parser_agent"}
 
-# container_cc's tools are generic capabilities (a shell, a filesystem) that every one
-# of its families uses, so a 1:1 tool->family map does not apply there.
-GENERIC_TOOLS = {"nextseek-api", "nextseek-batch-upload", "bash", "filesystem", "skill-runner"}
+# container_cc's tools are capabilities its families share rather than destinations a
+# question routes to, so a 1:1 tool->family map does not apply there. Several of them
+# ARE family-specific in practice (run-ls and build-upload-xlsx belong to
+# pipeline_output_reingest, api-write to entity_write_via_api), but the agent picks the
+# op from the skill docs at turn time, not from this registry, so pinning a map here
+# would assert a coupling that does not exist.
+GENERIC_TOOLS = {"nextseek-batch-upload", "bash", "filesystem"} | _SHIPPED_OPS
 
 
 def _caps():
