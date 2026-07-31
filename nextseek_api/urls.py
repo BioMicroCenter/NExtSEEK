@@ -30,6 +30,7 @@ router.register(r"entity_tree", views.EntityTreeViewSet, basename="entity-tree")
 router.register(r"batch-upload", views.BatchUploadViewSet, basename="batch-upload")
 router.register(r"assistant", views.AssistantViewSet, basename="assistant")
 router.register(r"evaluator", views.EvaluatorViewSet, basename="evaluator")
+router.register(r"admin/project-export", views.ProjectExportViewSet, basename="admin-project-export")
 
 
 urlpatterns = [

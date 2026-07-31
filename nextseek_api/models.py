@@ -1776,6 +1776,54 @@ class AdminSampleRetrieveResponse(BaseModel):
 
 
 # -----------------------------
+# Project export: request/response models
+# -----------------------------
+
+class ProjectExportRequest(BaseModel):
+    project_id: int = Field(
+        ...,
+        description="SEEK project id (seek_production.projects.id), e.g. 1. "
+                    "Every sample belonging to this project is exported."
+    )
+    output_format: Literal["json", "xlsx"] = Field("json", description="Output format")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectExportGroup(BaseModel):
+    sample_type: str = Field(
+        ...,
+        description="Sample type title from seek_production.sample_types.title (e.g. 'TIS', 'D.IMG')."
+    )
+    n_samples: int = Field(..., description="Number of samples of this type in the project")
+    samples: List[Dict[str, Any]] = Field(
+        ...,
+        description="Sample records: 'id' and 'uuid' followed by the flattened json_metadata keys."
+    )
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class ProjectExportResponse(BaseModel):
+    project_id: int = Field(..., description="SEEK project id that was exported")
+    project_title: str = Field(..., description="seek_production.projects.title")
+    source: Dict[str, str] = Field(
+        ...,
+        description="Database the export was read from ('db_host', 'db_name'). Echoed so a "
+                    "caller can confirm which instance answered."
+    )
+    total_samples: int = Field(..., description="Total samples exported across all sample types")
+    total_sample_types: int = Field(..., description="Number of distinct sample types")
+    unparseable_metadata: int = Field(
+        0,
+        description="Samples whose json_metadata could not be parsed; exported with id/uuid only."
+    )
+    data: List[ProjectExportGroup] = Field(..., description="Samples grouped by sample type")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
 # Schema RAG: request/response models
 # -----------------------------
 
