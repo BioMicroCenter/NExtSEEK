@@ -41,6 +41,7 @@ SEEDED_AREAS: tuple[str, ...] = (
     "cc_assistant", "chat_nextseek", "nextseek_api", "seek-proxy", "ui",
     "upload", "batch-upload", "sample-search", "project-search", "router",
     "schema-rag", "search-solr", "graph-neo4j", "deployment", "installer",
+    "seek",
 )
 
 AREA_RE = re.compile(r"^[a-z0-9]+([_-][a-z0-9]+)*$")

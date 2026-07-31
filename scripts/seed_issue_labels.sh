@@ -36,5 +36,6 @@ create "area: search-solr"    "$AREA" "SEEK/Solr indexing and search"
 create "area: graph-neo4j"    "$AREA" "Neo4j data, sync, graph queries"
 create "area: deployment"     "$AREA" "Compose topology, images, env/config delivery, live-instance concerns"
 create "area: installer"      "$AREA" "startup.sh / startup/ install, reset, doctor, seeding"
+create "area: seek"           "$AREA" "SEEK's own Rails-side codebase and behavior (distinct from seek-proxy and search-solr)"
 
 echo "Seeded $(gh label list --repo "$REPO" --limit 100 | grep -c -e '^type: ' -e '^area: ' -e '^needs-ruling') conventions labels on $REPO"

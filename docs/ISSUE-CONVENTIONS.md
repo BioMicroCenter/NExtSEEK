@@ -101,6 +101,7 @@ drift apart.
 | `area: graph-neo4j` | the sample/assay relationship graph: sync, schema, and queries |
 | `area: deployment` | compose topology, images, env/config delivery |
 | `area: installer` | startup.sh / startup/ install, reset, doctor, seeding |
+| `area: seek` | SEEK's own Rails-side codebase and behavior — distinct from `seek-proxy` (this repo's passthrough ViewSet layer) and `search-solr` (SEEK's Solr integration) |
 
 ## Description schema
 

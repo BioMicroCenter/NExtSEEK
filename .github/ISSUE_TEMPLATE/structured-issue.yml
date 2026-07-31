@@ -20,7 +20,7 @@ body:
     attributes:
       label: Areas
       description: "Comma-separated, at least one. Open set — lowercase with -/_ separators; check existing `area:` labels before inventing a new one."
-      placeholder: "cc_assistant, chat_nextseek, nextseek_api, seek-proxy, ui, upload, batch-upload, sample-search, project-search, router, schema-rag, search-solr, graph-neo4j, deployment, installer"
+      placeholder: "cc_assistant, chat_nextseek, nextseek_api, seek-proxy, ui, upload, batch-upload, sample-search, project-search, router, schema-rag, search-solr, graph-neo4j, deployment, installer, seek"
     validations:
       required: true
   - type: dropdown

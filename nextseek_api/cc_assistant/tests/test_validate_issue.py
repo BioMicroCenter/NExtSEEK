@@ -65,8 +65,9 @@ class TestConstants:
         assert len(vi.ISSUE_TYPES) == 9
         assert vi.ISSUE_TYPES[0] == "bug" and "design-question" in vi.ISSUE_TYPES
 
-    def test_fifteen_seeded_areas(self):
-        assert len(vi.SEEDED_AREAS) == 15
+    def test_seeded_area_count(self):
+        # 15 originals + "seek" (minted 2026-07-31, user-approved, drives #23)
+        assert len(vi.SEEDED_AREAS) == 16
         for a in vi.SEEDED_AREAS:
             assert vi.AREA_RE.fullmatch(a), a
 
