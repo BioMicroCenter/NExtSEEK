@@ -60,19 +60,52 @@ def _collect_paths(value: Any, out: list[str]) -> None:
 def build_artifact_index(debug: dict, payload: dict) -> dict[str, str]:
     """Map produced-artifact basename -> absolute path for this turn.
 
-    Sources: ``report_saved_files`` in the debug payload (reporter/pipeline
-    writes) and any ``files`` carried on the query_complete event.
+    Sources, all on the query_complete event except the first:
+
+    * ``debug.report_saved_files`` — reporter/pipeline writes (NS).
+    * ``files`` — anything the NS turn attached.
+    * ``artifacts`` — emitted by BOTH the Container-CC publish path
+      (``cc_engine.py:789``) and the NS reporter path (``orchestrator.py:813-839``
+      via ``extract_table_artifacts``). Only ``artifact_type == "file"`` entries
+      are indexed: the reporter also emits ``"table"`` and ``"preview"`` entries
+      whose ``label`` is a human string ("GEO Report Preview", "Sample Types")
+      with no file behind it, and ``api_artifact.<name>`` means "a file with this
+      basename was produced", so indexing those would make it true for an inline
+      table. Neither producer sets ``path``, so ``label`` is the fallback.
+    * ``cc_raw_files`` — Container-CC scratch/raw writes, plain path strings.
+
+    The last two exist because a CC turn emits NEITHER of the first two: without
+    them every ``api_artifact.<name>`` criterion resolved False on every CC turn,
+    so the three file-producing families could never be scored at all.
+
+    KNOWN LIMIT — a multi-deliverable CC turn only ever exposes ``artifacts.zip``.
+    ``_publish_artifacts`` (``cc_engine.py:954-961``) zips whenever it finds more
+    than one deliverable and emits a SINGLE artifact labelled ``artifacts.zip``;
+    the member filenames never reach ``query_complete``. So a reingest turn that
+    writes a workbook plus anything else resolves ``api_artifact.upload.xlsx``
+    False and only ``api_artifact.artifacts.zip`` True. There is no harness-side
+    fix — the names are not in the payload. CC criteria must assert
+    ``api_artifact.artifacts.zip`` for multi-file turns; only a single-deliverable
+    turn can assert a real basename.
     """
     paths: list[str] = []
     _collect_paths(debug.get("report_saved_files") or {}, paths)
     qc = _last(payload, "query_complete") or {}
-    for entry in qc.get("files") or []:
-        if isinstance(entry, dict):
-            candidate = entry.get("path") or entry.get("name")
-            if candidate:
-                paths.append(str(candidate))
-        elif isinstance(entry, str):
-            paths.append(entry)
+
+    def _add(entries, *keys: str, files_only: bool = False) -> None:
+        for entry in entries or []:
+            if isinstance(entry, dict):
+                if files_only and entry.get("artifact_type") not in (None, "file"):
+                    continue
+                candidate = next((entry.get(k) for k in keys if entry.get(k)), None)
+                if candidate:
+                    paths.append(str(candidate))
+            elif isinstance(entry, str):
+                paths.append(entry)
+
+    _add(qc.get("files"), "path", "name")
+    _add(qc.get("artifacts"), "path", "label", files_only=True)
+    _add(qc.get("cc_raw_files"), "path", "name")
     return {PurePosixPath(p).name: p for p in paths if p}
 
 
@@ -98,7 +131,15 @@ def resolve_artifact(index: dict[str, str], field: str) -> Any:
     if sub.endswith(".rows_gte"):
         name = sub[: -len(".rows_gte")]
         path = index.get(name)
-        return 0 if path is None else _count_rows(Path(path))
+        # A CC/reporter artifact carries no path and is indexed under its bare
+        # label, so Path(label) would resolve against the harness cwd (/app in
+        # the container lane) and count rows out of an unrelated same-named file
+        # — `samplesheet.csv` appears 4x in the corpus. A value with no separator
+        # is a label, not a path: return the 0 this branch returned before
+        # artifacts were indexed at all, without touching the filesystem.
+        if path is None or "/" not in path:
+            return 0
+        return _count_rows(Path(path))
     return sub in index
 
 
