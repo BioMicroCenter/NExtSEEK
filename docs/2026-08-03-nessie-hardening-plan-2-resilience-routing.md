@@ -51,6 +51,15 @@ whole hardening effort: it caused ten of the eighteen failures in the last live 
   ```
   **Always copy the source alongside the tests.** Copying only tests runs them against the
   deployed image's older source and produces failures that are pure version skew.
+
+  **Copy ONLY the two paths above.** The container is shared with plan 3, which is
+  concurrently copying `nextseek_api/assistant/` and `nextseek_api/views.py` into the same
+  `/app`. A blanket `docker cp nextseek_api nextseek:/app/` would overwrite their
+  work-in-progress with your older copy.
+
+  **If a test fails in a file you do not own, assume contention first.** Another agent is
+  probably mid-copy. Re-run once before investigating. If it persists, say so rather than
+  editing a file that is not yours.
 - **Commit after every task.** Conventional commits; scopes `router`, `llm`, `docs`.
   Do not push.
 

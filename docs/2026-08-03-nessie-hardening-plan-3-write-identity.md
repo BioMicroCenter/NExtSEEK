@@ -42,11 +42,22 @@ reason. **Ship each item as its own commit.** Do not batch them.
   ```
   *Container* (for `nextseek_api/`, local stack must be up — do not start or rebuild it):
   ```bash
-  docker cp nextseek_api nextseek:/app/
+  docker cp nextseek_api/assistant nextseek:/app/nextseek_api/
+  docker cp nextseek_api/views.py  nextseek:/app/nextseek_api/views.py
   docker exec -e DJANGO_SETTINGS_MODULE=dmac.test_settings nextseek \
     sh -c 'cd /app && uv run pytest nextseek_api/assistant/tests/<sel> --no-migrations -q -p no:cacheprovider'
   ```
   Always copy source alongside tests, or you test the deployed image's older code.
+
+  **Copy ONLY the paths you own — never `docker cp nextseek_api nextseek:/app/`.**
+  The container is shared with plan 2, which is concurrently copying
+  `nextseek_api/services/cc_assistant.py` and `nextseek_api/cc_assistant/` into the same
+  `/app`. Copying the whole `nextseek_api/` tree would overwrite their work-in-progress
+  with your worktree's older copy and make their tests fail for no visible reason.
+
+  **If a test fails in a file you do not own, assume contention first.** Another agent is
+  probably mid-copy. Re-run once before investigating. If it persists, say so rather than
+  editing a file that is not yours.
 - **No live mutation, ever.** Every test here is unit-level with a stubbed transport.
   Nothing in this plan may issue a real `POST`, `PATCH` or `DELETE` against any stack.
 - **Commit per item.** Scopes: `security`, `api`, `assistant`.
