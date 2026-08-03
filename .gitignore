@@ -208,8 +208,15 @@ startup/.instance.json
 # Generated BAML router client (regenerate via baml-cli generate --from dmac_assistant/baml_src)
 dmac_assistant/src/dmac_assistant/router/baml_client/
 
-# Local design specs + plans (working docs, not part of the public repo)
-docs/superpowers/
+# Local design specs + plans (working docs, not part of the public repo).
+# Excluded level-by-level so a single file can be re-included below; git will not descend
+# into a directory excluded outright, which makes a bare negation inside it a no-op.
+docs/superpowers/*
+!docs/superpowers/specs/
+docs/superpowers/specs/*
+# Exception: this design spec is deliberately tracked. The repo is PUBLIC, so it carries no
+# environment concretes and no reproduction detail for any unresolved platform issue.
+!docs/superpowers/specs/2026-07-31-hibayes-eval-routing-design.md
 
 # SEEK filestore — too large for git (raw dir ~500MB; snapshot ~215MB, over
 # GitHub's 100MB/file limit, and forks can't host LFS). The snapshot is hosted
