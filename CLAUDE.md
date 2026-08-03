@@ -16,13 +16,45 @@ containers via `./startup.sh`.
 |---|---|---|
 | `nextseek` | built from `Dockerfile` | Django + gunicorn (this repo's app) |
 | `nextseek_nginx` | nginx | serves static + proxies to gunicorn (published port) |
+| `bedrock-proxy` | built from `docker/bedrock-proxy` | model gateway for the Container-CC route; reachable only on `dmac-cc-net`, never published to the host |
+| `cc-agent` | built from `docker/cc-runtime` | **build target only** (tags `dmac-assistant:poc`, `command: ["true"]`). The Django worker spawns one ephemeral sibling container per CC turn via the host docker socket; nothing long-running comes from this stanza |
+| `nextseek-sidecar` | built from `docker/ns-sidecar` | brokers per-request NExtSEEK ops for the CC agent over a WebSocket; writes only under the reserved `_staging/` subpath of `dmac-cc-users` |
 | `db` | mysql:8.0 | two schemas: `dmac` (NExtSEEK) + `seek_production` (SEEK) |
 | `neo4j` | neo4j | sample/assay relationship graph |
 | `seek` / `seek_workers` | fairdom/seek:1.15.1 | upstream SEEK Rails app + delayed-job workers |
 | `solr` | fairdom/seek-solr:8.11 | SEEK search index |
 
 External named volumes: `seek-filestore`, `seek-mysql-db`, `seek-solr-data`,
-`seek-cache`, `nextseek-static-files`, `neo4j-data` (created by startup).
+`seek-cache`, `nextseek-static-files`, `neo4j-data`, `dmac-cc-users` (created by
+startup). `nextseek-luria-ssh` is compose-managed, not external.
+
+## The assistant (two engines behind one endpoint)
+
+`POST /nextseek_api/cc-assistant/query/async/` is the router-dispatched chat
+entry point. Per turn a router picks one of two engines: `nextseek_query`, the
+deterministic `chat_nextseek` pipeline run in-process by Django, or
+`container_cc`, a sandboxed Claude Code agent run as an ephemeral sibling
+container. A third outcome, `unrelated`, returns a fixed out-of-scope reply
+without running either engine. Both engines write the same `QueryTask` rows and
+stream over the one existing websocket consumer
+(`ws/assistant/progress/{task_id}/`), so `chat_frontend` needs no per-route code.
+
+- **Router** (`nextseek_api/cc_assistant/router.py`) wraps `dmac_assistant`'s
+  BAML `RouteQuery`. Every dmac import is lazy and guarded, and on a BAML
+  failure (or dmac's own `<router_unavailable>` sentinel, which would otherwise
+  send *everything* to CC) it falls back to a keyword heuristic. A vendoring or
+  `uv sync` hiccup degrades routing; it never stops Django booting.
+- **Overrides** live in `_decide_route` (`nextseek_api/services/cc_assistant.py`).
+  An admin-only `force_route` (`ns`/`cc`) and the `cc/query/async/` endpoint beat
+  the router; non-admin `force_route` is ignored. An open `pipeline_agent` wizard
+  only keeps a turn the router *already* sent to NExtSEEK.
+- **`dmac_assistant/`** is a vendored subset of the upstream dmac-assistant repo.
+  Only the BAML router (`dmac_assistant.router.*`) and `run_tracker.diff_files`
+  are imported; the FastAPI/websocket bridge is deliberately not vendored. The
+  BAML client is generated at image build time (see `Dockerfile`), not committed.
+- **`nessie_tests/`** is a router-aware e2e harness that drives the real endpoint
+  above. `route` tier is cheap and pre-merge, `full` tier is paid and needs a
+  seeded instance. See `nessie_tests/README.md`.
 
 ## Build & Run
 
@@ -51,10 +83,12 @@ demand by the startup CLI, then streamed into the `seek` container. See
 ```
 dmac/                  Django project: settings.py, test_settings.py, urls.py, wsgi/asgi
 seek/                  main app (models, views, urls, SEEK integration, search, snapshot)
-nextseek_api/          REST API app
+nextseek_api/          REST API app; services/ + assistant/ + cc_assistant/ (router, CC engine)
 api_app/               API app
-chat_frontend/         Vite/React UI for the chat panel (npm run build → collectstatic)
+chat_frontend/         Vite/React UI for the chat panel (npm run build:embedded → collectstatic)
 chat_nextseek/         VENDORED assistant subpackage (own CLAUDE.md + README.md)
+dmac_assistant/        VENDORED BAML router + run_tracker (own README.md)
+nessie_tests/          router-aware e2e harness for the assistant (own README.md)
 startup/               Typer install/bring-up CLI (isolated uv project) + seed/ data
 docker/                db.env / nextseek.env (rendered), nginx.conf, init scripts
 themes/ static/ templates/   Mezzanine theme + collected static + templates
@@ -75,7 +109,9 @@ uv run pytest                 # config in [tool.pytest.ini_options]
 - test files: `test_*.py`, `*_test.py`, `tests.py`
 
 `chat_nextseek/` has its own separate test suite — run it from inside that
-directory per `chat_nextseek/CLAUDE.md`.
+directory per `chat_nextseek/CLAUDE.md`. `nessie_tests/` also sits outside
+`testpaths`: its unit tests run from that directory and its `tests_container/`
+tests run inside the `nextseek` container. See `nessie_tests/README.md`.
 
 ## Development workflow
 
@@ -83,12 +119,21 @@ directory per `chat_nextseek/CLAUDE.md`.
 |---|---|
 | Python views / models / settings | `docker compose up -d --build nextseek` (entrypoint runs `migrate`) |
 | `static/` CSS/JS/images (hand-edited) | rebuild **then** `docker compose exec nextseek uv run manage.py collectstatic --noinput` |
-| `chat_frontend/` React source | `npm run build` in `chat_frontend/` (Vite; `build:embedded` for the embedded panel), then `collectstatic` |
+| `chat_frontend/` React source | `npm run build:embedded` in `chat_frontend/`, then `collectstatic` (see the note below) |
 | `chat_nextseek/` snapshot | `startup/scripts/sync_chat_nextseek.sh <source>`, commit, then `./startup.sh rebuild` |
 | Wipe + re-seed everything | `./startup.sh reset` |
 
 **Gotcha:** rebuilding does **not** auto-run `collectstatic`. If you changed
 anything under `static/`, run it after the rebuild or your change isn't served.
+
+**Gotcha (frontend):** the two Vite scripts are not interchangeable.
+`npm run build` uses `vite.config.ts` and emits `chat_frontend/dist`, which is
+gitignored (`chat_frontend/.gitignore`) and served by nothing. Only
+`npm run build:embedded` (`vite.config.embedded.ts`) emits what the site
+actually loads, into `static/js/chat_assistant/`, and those built files are
+**committed**. The `Dockerfile` has no npm/node step at all, so the image ships
+whatever bundle is in git: every UI change is a two-step commit (source, then
+rebuilt bundle).
 
 ## Config & secrets (all gitignored)
 
