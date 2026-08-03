@@ -74,12 +74,17 @@ Use new_search when a REST endpoint in the catalog can completely satisfy the in
 - Retrieving full metadata and lineage for a specific sample UID.
 - Finding parent samples that have children of multiple specified types.
 - Retrieving raw catalog rows or detail records for assays, sample types, people, projects, or SOPs when the user explicitly wants the records themselves rather than asking what categories/search options the system supports.
-- Updating or patching a specific sample record by UID.
 - Any intent where a REST endpoint's description clearly matches what the user wants.
+
+The REST corridor is READ-ONLY. It retrieves records; it never creates, changes, or removes them.
 
 Select the best endpoint from the catalog. Evaluate each endpoint's description against the user's intent and select the most specific match. advanced_search is a broad catch-all for attribute/keyword searches; use it only when no more targeted endpoint fits.
 
 Do NOT use new_search when:
+- The user wants to create, register, add, update, patch, edit, or delete a record. That is
+  write intent, and no path in this file can write; use unsupported. A write request that
+  also names a UID, a sample type, or a project is still a write request — those entities
+  must not pull it back into new_search.
 - The question requires traversing relationships between Samples, Studies, and Investigations; use graph_query.
 - The question cannot be satisfied by any endpoint in the catalog; use unsupported.
 - The user asks for child or data records constrained by an associated parent sample type, unless a direct child-by-parent REST endpoint is available. Do not use the parent sample type as a free-text keyword when it is functioning as a relationship constraint.
@@ -162,13 +167,19 @@ PATH: unsupported
 --------------------------------------------------
 
 Use when no downstream path can actually satisfy the request. Examples:
+- Creating, registering, updating, patching, editing, or deleting a sample or any other
+  record. Every path described in this file is read-only; none of them can write to
+  NExtSEEK. This holds no matter how specific and well-formed the request is, and no
+  matter how clearly a UID is named: "delete NHP-220630FLY-1-PUB", "change the scientist
+  on TIS-230324BOO-39-PUB", "register a new tissue sample for the water study", and
+  "set the study name for sample X" are all unsupported here.
 - Requests for visualizations or charts; the system cannot render graphics.
 - Analytical computations: statistical comparison, differential expression, clustering, fold-change analysis between groups.
 - General scientific domain knowledge: explaining what a molecule does, why something is carcinogenic, what a gene encodes. These are knowledge questions, not data queries.
 - Unscoped bulk export or bulk download requests that ask for all samples, all records, or the whole database in a file/table format without filters, UIDs, a project-reporting scope, or a supported repository/report-generation target.
 - Any request that requires capabilities the system fundamentally does not have.
 
-Do NOT route to new_search or graph_query simply because the topic overlaps with data in the system. A chart request is unsupported even if the underlying data exists. A comparison between two groups is unsupported even if both groups are in the database.
+Do NOT route to new_search or graph_query simply because the topic overlaps with data in the system. A chart request is unsupported even if the underlying data exists. A comparison between two groups is unsupported even if both groups are in the database. A write request is unsupported even though the sample it names is real and the system holds it.
 
 --------------------------------------------------
 HOW TO CHOOSE
@@ -176,24 +187,31 @@ HOW TO CHOOSE
 
 Work through these questions in order.
 
-1. Is the user asking for an unscoped bulk export or download of all samples, all records, or the whole database?
+1. Is the user asking to create, register, add, update, patch, edit, set, change, or delete a record?
+That is write intent, and every path here is read-only, so the answer is unsupported.
+Decide this before anything else. A write request routinely names a UID, a sample type, or
+a project, and those entities must not carry it into new_search — "update NHP-220630FLY-1-PUB's
+scientist" is a write, not a UID retrieval. Asking to SEE a record is a read; asking to CHANGE
+one is not.
+
+2. Is the user asking for an unscoped bulk export or download of all samples, all records, or the whole database?
 If there are no explicit filters, UIDs, project-reporting scope, or supported repository/report-generation target, use unsupported. Do not reinterpret unscoped bulk export as an unfiltered advanced_search.
 
-2. Is the user asking about the system itself: capabilities, catalog entities, or search options?
+3. Is the user asking about the system itself: capabilities, catalog entities, or search options?
 This includes "what can you do?", "tell me about [assay/sampletype/project]", "what endpoints exist?", "how do I search by X?", "what sample types can I search for?", "what assay types are available?", "what's the NIH Reporter link for MetNet?", and "what kind of research does the Kamm project do?".
 If the user is asking what exists in the catalog as available search categories or assay/sampletype/project options, that is system_question, not new_search.
 Exception: "Can you find me X?" is a search intent even though it is phrased as a question; use new_search.
 
-3. Is the user asking for aggregate statistics, a project summary, or a formal report?
+4. Is the user asking for aggregate statistics, a project summary, or a formal report?
 Signals: upload/ingestion counts, protocol usage summary, published sample counts, time-scoped breakdowns, RPPR, NIH RePORT, annual report, progress report, "report", "summary" plus project name, repository submission, nf-core samplesheet generation, or project-scoped protocol/published reporting language like "show me protocols for CGR" or "what samples from CGR have been published?".
 Key distinction from graph_query: reporter answers the project reporting view, such as uploaded, published, protocols used/registered, and RPPR-style summaries. graph_query answers structural graph questions about named studies/investigations and lineage.
 If yes, use reporter.
 
-4. Is the user referring back to results already returned this session?
+5. Is the user referring back to results already returned this session?
 Signals: "those results", "which of those", "from that list", "the previous ones", "of them".
 If yes, use ask_about_last_results or refine_last_search.
 
-5. Does answering this require the knowledge graph?
+6. Does answering this require the knowledge graph?
 Ask whether the nature of the request requires graph structure to answer:
 - Is the answer scoped to a named Study or Investigation? Even if the user also specifies sample types or keywords, a named organizational scope such as GBM, IMPACT, Griffith, SRP, or CSBC requires IN_STUDY or IN_INVESTIGATION traversal. That is always graph. Multiple sample type codes do not change this; use s.type IN [...] in the Cypher.
 - Is the user asking what studies, investigations, or projects contain or are associated with something? That is a structural question about graph topology.
@@ -204,17 +222,17 @@ Ask whether the nature of the request requires graph structure to answer:
 - Is the requested output a child/data sample constrained by an associated parent sample type? That is a relationship constraint, not a keyword filter, unless a direct child-by-parent REST endpoint exists.
 If yes to any of the above, use graph_query.
 
-6. Is the user asking for parent samples constrained by child/data sample types?
+7. Is the user asking for parent samples constrained by child/data sample types?
 If a parent lookup endpoint can directly satisfy the request, use new_search with that endpoint. This is distinct from requests for child/data records constrained by parent sample type, which require graph traversal unless directly supported by REST.
 
-7. Is the user asking for a numeric or date comparison over a metadata field?
+8. Is the user asking for a numeric or date comparison over a metadata field?
 Comparisons include greater than, less than, at least, at most, above, below, before, after, equal to, or between a value. Use new_search for candidate retrieval when records can be retrieved by a field anchor or supported endpoint. Do not put the full comparison phrase into filter_searchText. Use the searchable field name as the keyword anchor and preserve the comparison predicate in notes or metadata for downstream post-filtering. The standard parser can retrieve candidates but cannot guarantee comparison enforcement unless a downstream/local filter runs. The planner can compose a local coding_filter step.
 
-8. Can a REST endpoint fully satisfy the intent using only sample attribute filters?
+9. Can a REST endpoint fully satisfy the intent using only sample attribute filters?
 This includes sample type codes, keyword filters, UIDs, assay codes as attribute filters, and catalog lookups.
 If yes, use new_search and pick the most specific endpoint from the catalog.
 
-9. Does no available path satisfy the request?
+10. Does no available path satisfy the request?
 If yes, use unsupported.
 
 Repository-style deliverables belong under reporter:
