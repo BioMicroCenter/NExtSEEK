@@ -46,6 +46,16 @@ def test_inactive_pipeline_falls_through(monkeypatch):
     assert seen == {"q": "write me code", "history": "prior turns"}  # history threaded through
 
 
+def test_active_pipeline_does_not_hijack_a_cc_turn(monkeypatch):
+    """4241289: an open build must not capture a turn the router sent to CC."""
+    sentinel = cc_router.RouteDecision(route=cc_router.ROUTE_CC, model_class="opus",
+                                       model_id=None, reasoning="x", source="baml")
+    monkeypatch.setattr(cc_router, "decide", lambda q, history=None: sentinel)
+    d = cc_svc._decide_route(_User(), _Req("find me all D.SEQ samples"),
+                             force_cc=False, session={"pipeline_agent": {"active": True}})
+    assert d is sentinel
+
+
 def test_force_cc_beats_active_pipeline():
     session = {"pipeline_agent": {"active": True}}
     d = cc_svc._decide_route(_User(), _Req("x"), force_cc=True, session=session)

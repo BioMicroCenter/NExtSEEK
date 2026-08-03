@@ -200,13 +200,27 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     return metas
 
 
+def _prev_route_was_cc(history: list[router_context.HistoryTurn] | None) -> bool:
+    """True when the immediately preceding turn in this chat ran CC and completed.
+
+    Deliberately dumb: only ``history[-1]``, only ``status == "completed"``. A
+    failed CC turn must NOT trap the chat on a route that just broke.
+    """
+    return bool(history) and (
+        history[-1].router_choice == cc_router.ROUTE_CC
+        and history[-1].status == "completed"
+    )
+
+
 def _decide_route(user, req, *, force_cc: bool, session=None, history: list[router_context.HistoryTurn] | None = None) -> cc_router.RouteDecision:
     """Pick the route for a query, honoring the admin-only ``force_route`` override.
 
-    Precedence: an explicit force (``force_cc`` or an admin's ``force_route``)
-    wins first, THEN the BAML router (:func:`cc_router.decide`) decides, and an
-    active ``pipeline_agent`` wizard only keeps a turn the router already sent to
-    NExtSEEK. A non-admin's
+    Precedence: ``force_route`` > ``pipeline_agent`` > sticky CC > the router.
+    An explicit force (``force_cc`` or an admin's ``force_route``) wins first,
+    THEN the BAML router (:func:`cc_router.decide`) decides, and two guards may
+    still redirect an NS-bound turn: an active ``pipeline_agent`` wizard keeps
+    it on NExtSEEK, and a chat whose previous turn completed on CC keeps it on
+    CC (A1 "sticky CC"). A non-admin's
     ``force_route`` is ignored and falls back to the router (mirrors
     ``use_prod``'s server-side admin gate). Forced decisions are
     ``ROUTE_NS``/``ROUTE_CC`` (never ``ROUTE_UNRELATED``), so a forced query
@@ -254,6 +268,33 @@ def _decide_route(user, req, *, force_cc: bool, session=None, history: list[rout
             route=cc_router.ROUTE_NS, model_class=None, model_id=None,
             reasoning=f"pipeline_active; router said ns ({decision.reasoning})",
             source="pipeline",
+        )
+    # A1 (sticky CC): the router classifies each turn independently, so a
+    # conversation that starts on CC gets yanked back to NS mid-thread and the
+    # follow-up fails for want of an NS bundle to refine ("Find samples from a
+    # 4 week study." -> CC, "Just the 4 week ones." -> NS -> broken). Once a CC
+    # turn completes, keep the chat on CC.
+    #
+    # ORDER IS LOAD-BEARING, for the same reason spelled out on the pipeline
+    # gate above: a guard that short-circuits BEFORE the router captures every
+    # following turn without the model ever seeing the query. Both guards run
+    # AFTER cc_router.decide and only ever redirect an NS-bound turn. Do not
+    # "simplify" this to the top of the function.
+    #
+    # ROUTE_UNRELATED is deliberately excluded -- converting it would spin up an
+    # Opus container for an out-of-scope question instead of returning the
+    # canned refusal. Only NS -> CC.
+    try:
+        sticky = decision.route == cc_router.ROUTE_NS and _prev_route_was_cc(history)
+    except Exception:  # noqa: BLE001 - routing must never crash on bad history
+        logger.warning("CC router: sticky-CC history inspection failed", exc_info=True)
+        sticky = False
+    if sticky:
+        return cc_router.RouteDecision(
+            route=cc_router.ROUTE_CC, model_class="opus",
+            model_id=cc_router._resolve_cc_model_id(),
+            reasoning=f"sticky_cc; router said ns ({decision.reasoning})",
+            source="sticky",
         )
     return decision
 
