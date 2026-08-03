@@ -13,7 +13,7 @@
         "system_agent",
         "pipeline_agent"
       ],
-      "best_for": "Structured biomedical sample / project / study queries that map onto chat_nextseek's pipeline.",
+      "best_for": "Structured biomedical sample / project / study queries that map onto chat_nextseek's pipeline, plus questions about the catalog itself: what exists in it, how much of each thing there is, and who the caller is to it.",
       "not_for": "File I/O, code execution, free-form reasoning, multi-tool work outside chat_nextseek.",
       "task_families": [
         {
@@ -27,7 +27,7 @@
         },
         {
           "name": "system_or_catalog_question",
-          "description": "Questions ABOUT the NExtSEEK catalog or the system itself, rather than searches THROUGH it. Handled by system_agent (downstream mode: system_question). Three sub-intents: (a) what a named catalog entity IS — an assay, sample type, project, study, or protocol; (b) what the system can DO — its capabilities, the difference between search modes; (c) what EXISTS as options — which assays, sample types, endpoints, or graph relationships are available. Such a question is in scope for NExtSEEK even when it names no sample, uses no first-person wording ('Tell me about Tissue collection' is as much a catalog question as 'what assays do I have access to'), and sounds like ordinary biology. NExtSEEK's registered names ARE ordinary lab vocabulary — Tissue Collection, RNA Extraction, Flow Cytometry, Comet Chip Analysis, Patient Visit, Luminex are all real catalog entries. Do not treat a plain-language biological noun as evidence the question is unrelated. If the user actually wants records back rather than an explanation, that is sample_search instead.",
+          "description": "Questions ABOUT the NExtSEEK catalog or the system itself, rather than searches THROUGH it. Handled by system_agent (downstream mode: system_question). Four sub-intents: (a) what a named catalog entity IS — an assay, sample type, project, study, or protocol; (b) what the system can DO and who the caller IS to it: its capabilities, the difference between search modes, and the asker's own identity, session and access scope (who am I, what account am I authenticated as, what am I allowed to see); (c) what EXISTS as options — which assays, sample types, endpoints, or graph relationships are available; (d) how the catalog is SHAPED: frequency, distribution and counts by category over the registered metadata, including how many of each kind there are, how they break down across investigations or projects, and which categories are most or least common. Sub-intent (d) is bookkeeping over what is registered, not reasoning about measurements, so grouping and ranking the catalog's own categories stays here and is not open_ended_analysis; the presence of an aggregation or a ranking does not make a catalog question analytical. Sub-intent (b) needs no shell and no container: NExtSEEK already resolves the authenticated user and their permissions from the request that carried the question, so a container agent inspecting its environment learns nothing NExtSEEK does not already hold. Such a question is in scope for NExtSEEK even when it names no sample, uses no first-person wording ('Tell me about Tissue collection' is as much a catalog question as 'what assays do I have access to'), and sounds like ordinary biology. NExtSEEK's registered names ARE ordinary lab vocabulary — Tissue Collection, RNA Extraction, Flow Cytometry, Comet Chip Analysis, Patient Visit, Luminex are all real catalog entries. Do not treat a plain-language biological noun as evidence the question is unrelated. If the user actually wants records back rather than an explanation, that is sample_search instead.",
           "example_queries": [
             "Tell me about Tissue collection.",
             "What is a TIS sample?",
@@ -91,7 +91,7 @@
         "filesystem"
       ],
       "best_for": "Open-ended reasoning, file I/O, code, multi-tool workflows, and building/validating NExtSEEK batch-upload create/update sheets.",
-      "not_for": "Pure NExtSEEK lookups that chat_nextseek answers deterministically, or building/launching nf-core pipelines (those go to the nextseek_query pipeline_build_and_launch route).",
+      "not_for": "Pure NExtSEEK lookups that chat_nextseek answers deterministically, or building/launching nf-core pipelines (those go to the nextseek_query pipeline_build_and_launch route). Also not for the caller's own identity, session or access scope, and not for counting, grouping or ranking the catalog's registered metadata: both of those are nextseek_query system_or_catalog_question work. Having a shell is not a reason to route here when NExtSEEK already holds the answer.",
       "task_families": [
         {
           "name": "export_and_file_delivery",
@@ -139,7 +139,7 @@
         },
         {
           "name": "open_ended_analysis",
-          "description": "Analytical or comparative reasoning over data, rather than retrieval of it: statistical comparison, differential expression, clustering, correlation, quality assessment, or an open 'is X better than Y' / 'what does this suggest' judgement. Needs code execution and iteration, which the deterministic pipeline does not provide.",
+          "description": "Analytical or comparative reasoning over MEASURED data, rather than retrieval or bookkeeping of it: statistical comparison, differential expression, clustering, correlation, quality assessment, or an open 'is X better than Y' / 'what does this suggest' judgement. Needs code execution and iteration, which the deterministic pipeline does not provide. NOT descriptive statistics over the catalog's own metadata: counting, grouping and ranking what is registered (how many of each sample type, assay or project there are, which categories are most or least common, how records distribute across investigations) is a catalog question that nextseek_query answers deterministically under system_or_catalog_question. A group-by-and-rank over the catalog is not this family, however statistical it sounds; route here only when the answer needs reasoning the counts themselves cannot supply.",
           "example_queries": [
             "Is the RNA quality better in the Impact samples or the MetNet ones?",
             "Run a differential expression comparison between the treated and control mice.",
