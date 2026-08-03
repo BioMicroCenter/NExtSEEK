@@ -59,16 +59,17 @@
                                       {"field": "api_result_meta.row_count", "op": "gte", "value": 1}]}]},
         {"family": "nessie_green", "id": "green.refine_recall",
          "name": "Refine 4-week study", "tags": ["nessie", "green", "full"], "requires_env": [],
-         "_why": "The seed used to drop the keyword entirely: entity resolved ['4 week'], the API agent sent filter_searchText:'' and the reply covered all 50,886 samples. Assert the seed is actually filtered, not just routed.",
+         "_why_superseded_2026_08_03": "The seed used to drop the keyword entirely: entity resolved ['4 week'], the API agent sent filter_searchText:'' and the reply covered all 50,886 samples. Assert the seed is actually filtered, not just routed. That reasoning assumed the turn belongs to NExtSEEK's REST path, which the router settled otherwise.",
+         "_why": "Rewritten 2026-08-03 for the route this case ACTUALLY takes. The old text asserted `route eq nextseek_query` alongside api_ok, api_plan.requestBody.filter_searchText and api_result_meta.row_count, and in the seed-6 run all four went red together. The operator ruled the ROUTER right: the seed turn routed container_cc citing ambiguous_study_resolution, cost $0.378, and produced the best answer in the entire run. Flipping the route alone was therefore not progress, it would have converted a case failing on one criterion into a case failing on three, because a container_cc query_complete carries no `debug` key at all and every NS REST field on it is unresolvable by construction. So the case is rewritten around what a CORRECT CC answer has to contain. Ground truth: Cohort='4 week' is exactly 2 samples, NHP-220524FLY-1-PUB and NHP-220524FLY-2-PUB, both Macaca fascicularis in JoAnne Flynn's lab; the keyword '4 week' returns 15, and the other 13 are substring hits on '14 weeks'. The seed accordingly asserts the route, the two genuine UIDs, the Cohort field the truth rests on (a naive keyword-count answer never mentions it), and that the false positives are disclosed. That last one is the real assertion: the failure mode here is answering '15 samples' flat, and no route or plumbing criterion can tell that apart from the right answer. Cohort='4wk' is a FURTHER 237 samples and is deliberately NOT asserted, because the known-correct reply never uses that spelling, so a 4wk guard would false-fail the one answer we have evidence is right. The refine turn's api_ok is gone for the same reason as the seed's, and its replacement is UNVERIFIED: turn 998 in that run came back 'All provider fallbacks exhausted' during the Bedrock outage, so a correct refine reply has never been observed. Its guard is a deliberately loose alternation that keeps the turn on topic and rejects a dead or off-topic one without inventing a shape. No route criterion on the refine turn and no route_source criterion anywhere: sticky routing makes a follow-up after a CC turn carry source 'sticky', so pinning turn 1's route is precisely the assumption that would break. Guards in tests/test_inline_route_assertions.py, replayed against the stored seed-6 reply.",
          "turns": [
            {"label": "seed", "query": "Find samples from a 4 week study.",
-            "pass_criteria": [{"field": "route", "op": "eq", "value": "nextseek_query"},
-                              {"field": "api_ok", "op": "true"},
-                              {"field": "api_plan.requestBody.filter_searchText", "op": "nonempty"},
-                              {"field": "api_result_meta.row_count", "op": "lte", "value": 20000}]},
+            "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"},
+                              {"field": "last_reply", "op": "matches_re", "value": "NHP-220524FLY-"},
+                              {"field": "last_reply", "op": "matches_re", "value": "(?i)cohort"},
+                              {"field": "last_reply", "op": "matches_re", "value": "(?i)(substring|false positive|artifact)"}]},
            {"label": "refine", "query": "Just the 4 week ones.",
-            "pass_criteria": [{"field": "parser_plan.mode", "op": "eq", "value": "refine_last_search"},
-                              {"field": "api_ok", "op": "true"}]}]}
+            "pass_criteria": [{"field": "last_reply", "op": "nonempty"},
+                              {"field": "last_reply", "op": "matches_re", "value": "(?i)(NHP-220524FLY-|cohort|4[- ]?week)"}]}]}
       ]
     },
     "nessie_repro": {
@@ -482,11 +483,11 @@
       "unsupported": {"op": "eq", "value": "container_cc"},
       "writes_unsupported": {"op": "eq", "value": "container_cc"}
     },
+    "_2026_08_03_inert_overrides": "An override is appended only `if \"route\" not in present` (corpus.apply_route_policy), so an entry for a variant that writes its OWN route criterion never fires. green.global_count carried exactly that: this map claimed container_cc while the case asserted nextseek_query inline and backed it with a `50,88[0-9]` reply guard, a number only the NS REST global count produces. The inline criterion was right, so the dead override was DELETED rather than the case changed. green.refine_recall's entry was the same shape and the opposite call: there the router is right, so the case was rewritten to container_cc and the override kept, now agreeing with the inline criterion instead of contradicting it. tests/test_inline_route_assertions.py fails on any future override that contradicts an inline route.",
     "overrides": {
       "unsup.weather": {"op": "eq", "value": "unrelated"},
       "unsup.domain_chemistry": {"op": "matches_re", "value": "(unrelated|container_cc)"},
       "green.mus_ndma": {"op": "eq", "value": "nextseek_query"},
-      "green.global_count": {"op": "eq", "value": "container_cc"},
       "green.refine_recall": {"op": "eq", "value": "container_cc"},
       "route.ns_advanced": {"op": "eq", "value": "nextseek_query"},
       "route.ns_plain_study_membership": {"op": "eq", "value": "nextseek_query"},
