@@ -262,8 +262,17 @@ left-hand column.
   **CLOSED** — `SOCKET_TIMEOUT_S` is **120**, and a single mid-poll failure is
   swallowed into `poll_errors`; only five consecutive failures raise.
 - `default_route_criterion` injects `route == nextseek_query` into all imported
-  variants. **CLOSED** — it returns `None`. Nothing is injected, so a route
-  failure today is a curated expectation, not a harness assumption.
+  variants. **CLOSED** — it returns `None`. Injection did not stop, though; it
+  became CURATED, and reading this line as "nothing is injected" is how a real
+  route failure gets discounted as residue. `corpus.apply_route_policy` attaches
+  a `route` criterion to turn 0 of **268** of the 283 resolved variants — 15 more
+  write one inline, so **all 283** carry one, against only 3 tagged `route_gate`
+  — plus `last_reply nonempty` to 241. `apply_family_floor` adds 239 outcome
+  criteria across 203 variants (`outcome_observed` to 146,
+  `report_produced_output` to 57, `graph_truncation_disclosed` to 36). All of it
+  comes from the `route_policy` and `family_floor` blocks in `overlay.json`,
+  which are reviewable data, so a route failure today is a curated expectation
+  rather than a harness assumption.
 - `api_artifact.*` unevaluable (no `run_root`). **CLOSED** — resolved from the
   turn's own artifact index; see §2 for the two limits that remain.
 - No xpass detection. **CLOSED** — `runner._apply_xpass` promotes a passing

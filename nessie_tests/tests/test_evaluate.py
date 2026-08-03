@@ -653,12 +653,18 @@ def test_a_turn_with_no_criteria_at_all_evaluated_nothing():
 #
 # The honest scale: if every case in the resolved corpus routed container_cc,
 # 270 of 283 would still be red and all six floored families would be 100% red,
-# because the inline `route` (227 variants), `parser_plan.mode` (216), `api_ok`
-# (136) and `api_plan.endpoint` (116) criteria are deliberately NOT skipped.
+# because `route` (failing on 226 variants), `parser_plan.mode` (216), `api_ok`
+# (130) and `api_plan.endpoint` (105) are deliberately NOT skipped.
 #
-# `tree.then_ask_about` is the ONLY multi-turn variant in any floored family, so
-# it is the entire realistic mixed-route population, and it is the one variant
-# this change demonstrably turns green.
+# NAME THE FRAME. In that all-CC simulation this change turns NOTHING green: the
+# green set is the same 13 variants with the CC skip and with it monkeypatched
+# off, and `tree.then_ask_about` is red there too, because its SEED turn asserts
+# `api_ok` and `api_plan.endpoint` inline and an all-CC run fails both.
+#
+# The payoff is in the MIXED-route frame, which is what a real run produces: an
+# NS seed followed by a CC follow-up. `tree.then_ask_about` is the ONLY
+# multi-turn variant in any floored family, so it is that entire population, and
+# in that frame it goes red -> green. That is what the test below drives.
 #
 # 270/283 is REPRODUCED rather than remembered: see
 # tests/test_write_refusal_coverage.py::

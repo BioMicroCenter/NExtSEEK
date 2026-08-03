@@ -170,8 +170,8 @@ including one that told a triager to discount a genuine route failure — so
 re-derive rather than trusting this a third time.
 
 - **`TimeoutError` in the manifest is never a server hang.** `drive()` breaks on
-  its own deadline (60s route, 600s full — `http_driver.py:81`), it does not
-  raise. The socket timeout on the harness's own HTTP calls is **120s, not 30**
+  its own deadline (defaults 60s route / 600s full at `http_driver.py:61`, set at
+  `:81`, enforced by the `break` at `:101-102`), it does not raise. The socket timeout on the harness's own HTTP calls is **120s, not 30**
   (`SOCKET_TIMEOUT_S`, `http_driver.py:14`), and a single socket failure mid-poll
   is swallowed: it increments the entry's `poll_errors` and only **five
   consecutive** failures re-raise (`http_driver.py:20`, `:89-93`). So a
@@ -187,11 +187,17 @@ re-derive rather than trusting this a third time.
   `route == nextseek_query` into every variant tagged `"base"`, which
   `corpus.load_base` applies to all of them — nobody ever curated that, and it
   made deliberate `container_cc` routing (open-ended analysis, resource creation)
-  read as a product failure. Routing is now asserted only where it has actually
-  been decided: the `route_gate` variants in `overlay.json`, which carry explicit
-  `route` criteria. **A route failure you see today is a curated expectation, not
-  a harness assumption. Do not discount it.** Read the router's own `reasoning`
-  to judge it, not to excuse it.
+  read as a product failure. What ended is the BLANKET assumption, not injection:
+  `corpus.apply_route_policy` reads the curated `route_policy` block in
+  `overlay.json` — twelve families plus seven per-variant overrides — and
+  attaches a `route` criterion to turn 0 of **268** variants, while 15 more write
+  one inline. **All 283 resolved variants carry a `route` criterion; only three
+  are `route_gate`** (`route.ns_advanced`, `route.unrelated`,
+  `route.ns_plain_study_membership`). So a `route` criterion on a case that is
+  not a gate is the policy working, NOT harness residue — reading it as residue
+  is how a real misroute gets discounted. **A route failure you see today is a
+  curated expectation, not a harness assumption. Do not discount it.** Read the
+  router's own `reasoning` to judge it, not to excuse it.
 - **When a case routes to CC, some NS criteria cascade — but not all, and the
   difference is the whole point.** There is no `parser_plan` on the CC route. The
   four DERIVED NS outcome fields — `api_outcome_observed`,
@@ -244,8 +250,9 @@ re-derive rather than trusting this a third time.
     no `path` and is indexed under its bare label, so `resolve_artifact`
     (`evaluate.py:160-175`) returns 0 rather than resolving that label against the
     harness cwd and counting rows out of an unrelated same-named file
-    (`samplesheet.csv` appears four times in the corpus). A failing `.rows_gte` on
-    a CC turn is unevaluable, not evidence.
+    (`samplesheet.csv` is asserted 3 times across 2 active variants,
+    `pipeline.end_to_end_emit` and `pipeline.happy_path_scrnaseq`). A failing
+    `.rows_gte` on a CC turn is unevaluable, not evidence.
 - **Cases are not isolated.** Pipeline agent state leaks across cases, so a failure
   may have been caused by the case before it. Check execution order in the
   manifest, which is append-order.

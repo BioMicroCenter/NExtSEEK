@@ -26,7 +26,20 @@ uv run --no-project --with pytest --with pydantic --with requests --with beautif
   python -m pytest nessie_tests/tests -q -p no:cacheprovider
 ```
 
-Baseline **403 passed** (measured 2026-08-03 at `a85dde9`).
+**Baseline: everything passes.** Deliberately not a number. This file said
+"403 passed" for three commits and was wrong by the fourth — inside its own
+branch — which is the same rot the rest of this document exists to correct. Take
+the count from the run, not from here:
+
+```bash
+uv run --no-project --with pytest --with pydantic --with requests --with beautifulsoup4 \
+  python -m pytest nessie_tests/tests -q -p no:cacheprovider 2>&1 | tail -1
+```
+
+The figure that IS fixed, and is pinned by a test rather than by prose, is the
+size of the resolved corpus: `corpus.merged(Path('nessie_tests/overlay.json'))`
+returns **283** variants
+(`tests/test_floor_ops.py::test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus`).
 
 `--no-project` and the explicit `--with` list are load-bearing, not decoration.
 Both ways of getting them wrong fail in a way that does not name the cause:
@@ -39,12 +52,15 @@ Both ways of getting them wrong fail in a way that does not name the cause:
 - **Dropping `--with beautifulsoup4` does not present as a missing dependency.**
   `chat_nextseek/e2e/playwright/trio.py:11` imports `bs4`, and `run_suite` catches
   every `Exception` as infrastructure (`runner.py:268`), so a case that hit the
-  import is recorded `status="error"`. At HEAD that is **63 failures**: 43 do name
-  `ModuleNotFoundError: No module named 'bs4'`, but the other 20 surface as
+  import is recorded `status="error"`. Most of the failures that follow do name
+  `ModuleNotFoundError: No module named 'bs4'`, but a large minority surface as
   `AssertionError: assert 'error' == 'passed'` (or `'failed'`, `'xpass'`,
   `'no_assertions'`) and never mention bs4 at all. **The reliable tell is the
-  string `bs4` appearing anywhere in the output** — the counts move with the
-  suite, the string does not. Do not chase those 20 as real regressions.
+  string `bs4` appearing anywhere in the output.** No counts here on purpose:
+  this bullet has pinned a pair twice and both went stale — "63 failures, 43
+  naming bs4" was measured at `a85dde9` and was 431 failed / 293 passed three
+  commits later. The string does not move. Do not chase the silent ones as real
+  regressions.
 
 ### DB/contract tests — in-container lane
 
@@ -88,9 +104,11 @@ mixing the two prints `PARTIAL`.
 
 ## Known-fail (RED) cases
 
-**No variant in the resolved corpus is tagged `known_fail` any more.** All 283
-variants returned by `corpus.merged(Path('nessie_tests/overlay.json'))` are
-untagged. Four variants still carry the tag in `overlay.json` —
+**No variant in the resolved corpus is tagged `known_fail` any more.** None of
+the 283 variants returned by `corpus.merged(Path('nessie_tests/overlay.json'))`
+carries that tag — which is a statement about `known_fail` only; they carry
+plenty of other tags, and all 283 carry an injected `route` criterion (see
+"Scale" below). Four variants still carry `known_fail` in `overlay.json` —
 `repro.parent_attr_aggregate` (#32a), `repro.thin_bundle_recall` (#32b),
 `repro.eof_truncation_reporter` (the reporter EOF bonus) and
 `advanced.find_me_nhp_samples_from_study_ns_graph` — but all four were retired on
@@ -127,19 +145,39 @@ NS turn the same four fields are real assertions and still fail.
 **Scale, stated honestly.** Skipping them removes ONE of the reasons a CC-routed
 case in a floored family goes red — not all of them. Simulate every case in the
 resolved corpus routing CC and **270 of 283 are still red**, with all six floored
-families at 100%: the inline `route` (227 variants), `parser_plan.mode` (216),
-`api_ok` (136) and `api_plan.endpoint` (116) criteria are deliberately not
-skipped, so those cases stay red until the corpus itself is settled. The one
-variant this measurably turns green is `tree.then_ask_about`, the only multi-turn
-variant in any floored family and therefore the whole realistic mixed-route
-population today.
+families at 100%. Four criteria account for nearly all of it, and none of them is
+skipped: `route` fails on **226** variants, `parser_plan.mode` on **216**,
+`api_ok` on **130** and `api_plan.endpoint` on **105**. Those cases stay red
+until the corpus itself is settled.
 
-That figure is REPRODUCED, not remembered. `tests/test_write_refusal_coverage.py
-::test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` drives every
-turn of the resolved corpus through `evaluate.evaluate_turn` with the real CC
-payload shape (a reply and no `debug` key) and asserts 283 total / 13 green / 270
-red. If the corpus changes, that test fails and names this paragraph and the
-matching comment in `tests/test_evaluate.py` as the two places to update. It read
+**Name the frame, because the two frames disagree.** Under that all-CC
+simulation the skip turns *nothing* green: the green set is 13 variants with the
+skip and the *same* 13 with it monkeypatched off. `tree.then_ask_about` is red
+there too — its SEED turn asserts `api_ok` and `api_plan.endpoint` inline, and an
+all-CC run fails both before the follow-up is ever reached.
+
+The measurable payoff is the **mixed-route** case, which is what a real run
+actually produces: an NS seed followed by a CC follow-up. `tree.then_ask_about`
+is the only multi-turn variant in any floored family, so it is that entire
+population, and in that frame it goes red -> green. Pinned by
+`tests/test_evaluate.py::test_the_one_mixed_route_variant_in_a_floored_family_now_passes`,
+which drives the seed NS and the follow-up CC and asserts the follow-up's
+`outcome_observed` is SKIPPED rather than satisfied — `augment_debug` still
+resolves it `False`, so the case is green because the criterion is no longer
+scored, not because it started holding.
+
+**Every figure above is RECOMPUTED, not remembered**, in
+`tests/test_write_refusal_coverage.py`: the headline by
+`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (283 total /
+13 green / 270 red), the four per-criterion counts by
+`test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too`, and the
+two-frames claim by `test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation`.
+All three drive the resolved corpus through `evaluate.evaluate_turn` with the real
+CC payload shape (a reply and no `debug` key), and all three fail naming this
+paragraph and the matching comment in `tests/test_evaluate.py` as the places to
+update. That second test exists because the headline WAS recomputed while the four
+counts beside it were not, and they had drifted to 227/216/136/116 — a fresh
+number vouching for stale ones is worse than neither. The headline read
 `267 of 280` until the write/delete refusal cases were restored on 2026-08-03; the
 green set did not move, because all three of those cases are red under the
 simulation.
@@ -157,7 +195,18 @@ drift, exactly like an `xpass`. `known_fail` does not excuse it: the tag claims
 the case fails, and a case that tested nothing showed neither that nor its
 absence. The rule is per CASE, not per turn — a multi-turn case that really
 asserted something on one turn did assert something, and the vacuous turn stays
-visible in the report's observation table with every row marked SKIPPED.
+visible in `report.html`'s observation table: each of its rows is classed
+`skipped`, labelled `SKIPPED` in words, carries the reason that skipped it, and
+is counted apart from the passes in the table's summary line, which reads
+`observed (6 criteria, 2 skipped)` and never `all passed`.
+
+That sentence was FALSE for the whole of its first day in this file: `report.py`
+never read `CriterionObservation.skipped`, a skipped row carries `passed=True`,
+so a fully vacuous turn rendered as green rows inside an "all passed" count. It
+is now held by
+`tests/test_manifest_report.py::test_the_vacuous_turn_the_docs_promise_really_is_visible`,
+which drives the real `tree.then_ask_about` through the real runner and greps
+the generated HTML.
 
 ## Provider outages (GREY)
 A reply carrying `nessie_tests.outage.PROVIDER_OUTAGE_MARKER` means every

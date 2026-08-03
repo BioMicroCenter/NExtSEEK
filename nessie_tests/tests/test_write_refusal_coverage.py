@@ -822,6 +822,53 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
     for vid in (CREATE, UPDATE, DELETE):
         assert vid not in green, vid
 
+
+def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
+    """The same paragraph names FOUR per-criterion counts, and they had rotted
+    while the headline 270/283 beside them had not — 227/216/136/116 in prose
+    against 226/216/130/105 in the corpus. A recomputed headline sitting next to
+    remembered detail is worse than neither, because the fresh number vouches for
+    the stale ones."""
+    counts = {}
+    for v in corpus.merged(OVERLAY):
+        fields = set()
+        for t in v.turns:
+            _ok, results, _ = evaluate.evaluate_turn(
+                _cc_payload("done"), list(t.pass_criteria), _OBS_CC, last_reply="done")
+            fields |= {r["field"] for r in results
+                       if not r.get("passed") and not r.get("skipped")}
+        for f in fields:
+            counts[f] = counts.get(f, 0) + 1
+
+    assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
+                                    "api_plan.endpoint")] == [226, 216, 130, 105], (
+        f"{counts} — update the four counts in nessie_tests/README.md and in "
+        f"tests/test_evaluate.py's 'Fix round 1' comment")
+
+
+def test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation():
+    """The claim the README's "name the frame" paragraph rests on. If this ever
+    stops holding, the honest reading changed and both documents need rewriting —
+    which is the point of asserting it rather than remembering it."""
+    def green_ids():
+        return {v.id for v in corpus.merged(OVERLAY)
+                if all(evaluate.evaluate_turn(_cc_payload("done"), list(t.pass_criteria),
+                                              _OBS_CC, last_reply="done")[0]
+                       for t in v.turns)}
+
+    with_skip = green_ids()
+    saved = evaluate.CC_UNOBSERVABLE_FIELDS
+    try:
+        evaluate.CC_UNOBSERVABLE_FIELDS = frozenset()
+        without_skip = green_ids()
+    finally:
+        evaluate.CC_UNOBSERVABLE_FIELDS = saved
+
+    assert with_skip == without_skip, sorted(with_skip ^ without_skip)
+    assert "tree.then_ask_about" not in with_skip, (
+        "the all-CC simulation now turns the mixed-route variant green, so the "
+        "README paragraph naming the two frames is out of date")
+
 # --------------------------------------------------------------------------- #
 # Round-2 regression guards. Each test names the finding it protects, so a
 # future break says WHICH structural property was lost rather than just that

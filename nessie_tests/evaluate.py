@@ -166,9 +166,9 @@ def resolve_artifact(index: dict[str, str], field: str) -> Any:
         # A CC/reporter artifact carries no path and is indexed under its bare
         # label, so Path(label) would resolve against the harness cwd (/app in
         # the container lane) and count rows out of an unrelated same-named file
-        # — `samplesheet.csv` appears 4x in the corpus. A value with no separator
-        # is a label, not a path: return the 0 this branch returned before
-        # artifacts were indexed at all, without touching the filesystem.
+        # — `samplesheet.csv` is asserted 3x across 2 variants. A value with no
+        # separator is a label, not a path: return the 0 this branch returned
+        # before artifacts were indexed at all, without touching the filesystem.
         if path is None or "/" not in path:
             return 0
         return _count_rows(Path(path))
