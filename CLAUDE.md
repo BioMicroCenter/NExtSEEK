@@ -52,8 +52,9 @@ stream over the one existing websocket consumer
   previous turn in the chat routed `container_cc` *and* completed, an NS-classified
   turn is converted to `container_cc` (`source: "sticky"`); `unrelated` is never
   converted, and a CC turn that errored does not make the chat sticky. The chat
-  then stays on CC until a new chat or an admin `force_route`, an accepted
-  consequence of the rule rather than a bug.
+  then stays on CC until a new chat, an admin `force_route`, or an intervening
+  `unrelated` turn (logged as `unrelated`/completed, so the next turn no longer
+  sees a preceding CC turn), an accepted consequence of the rule rather than a bug.
 - **`dmac_assistant/`** is a vendored subset of the upstream dmac-assistant repo.
   Only the BAML router (`dmac_assistant.router.*`) and `run_tracker.diff_files`
   are imported; the FastAPI/websocket bridge is deliberately not vendored. The

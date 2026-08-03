@@ -55,10 +55,11 @@ src/chat_nextseek/
   context/                           Cached catalogs (API spec, sampletypes, assays, Neo4j)
   luria/                             Luria SLURM launch backend: ssh.py, submitter.py,
                                      run_script.py, fetchngs_helpers.py + templates/ +
-                                     pipelines/scrnaseq_2_7_1_star/ (provision.sh +
-                                     validation script that build the patched
-                                     nf-core/scrnaseq 2.7.1 clone on Luria, used by
-                                     the whitelist-less STARsolo path)
+                                     pipelines/scrnaseq_2_7_1_star/ (provision.sh clones
+                                     and patches the nf-core/scrnaseq 2.7.1 tree on Luria
+                                     for the whitelist-less STARsolo path;
+                                     run_star_validation.sh is the SLURM batch script that
+                                     runs a validation job against that clone)
   seqera/                            Samplesheet/params/launch emitter, ENA, curated
                                      params + reference bundles. Also the dormant
                                      Tower client + Datasets v2 (retired, see below)

@@ -217,7 +217,7 @@ Each agent can be independently routed to a different LLM provider via the catal
 agents/              entity, parser, api, reporter, chatter, memory, system, graph, seqera, planner/
 helpers/             generic utilities (dates, lineage, lab_code, results, text, json_io) + tools/ (nextseek_api, neo4j, catalog_match, memory_code)
 pipeline/            full-agentic nf-core agent: agent.py (tool loop) + agent_tools.py (resolve_samples, write_samplesheet, configure_run, submit_to_luria, conclude, handoff)
-luria/               Luria SLURM launch backend: ssh.py, submitter.py, run_script.py, fetchngs_helpers.py, templates/, pipelines/scrnaseq_2_7_1_star/ (provision.sh + validation script that build the patched nf-core/scrnaseq 2.7.1 clone on Luria for the whitelist-less STARsolo path; see `LURIA_VENDORED_PIPELINES` in run_script.py)
+luria/               Luria SLURM launch backend: ssh.py, submitter.py, run_script.py, fetchngs_helpers.py, templates/, pipelines/scrnaseq_2_7_1_star/ (provision.sh clones and patches the nf-core/scrnaseq 2.7.1 tree on Luria for the whitelist-less STARsolo path, run_star_validation.sh is the SLURM batch script that runs a validation job against that clone; see `LURIA_VENDORED_PIPELINES` in run_script.py)
 reports/             runners, metadata, protocols, nfcore, outputs, templates_meta + exporters/ + templates/ (incl. nfcore/<key>.json curated params + reference_bundles.json)
 schemas/             Pydantic models
 prompts/             *.txt prompt files
