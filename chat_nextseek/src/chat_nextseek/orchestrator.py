@@ -78,10 +78,31 @@ _LOG = logging.getLogger(__name__)
 #     cc_assistant.py, evaluator.py) passes a MAPPING even when it could not
 #     resolve the caller -- the values are simply None. That is the case this
 #     gate exists for: a real asking user exists and we failed to bind to them.
-#   * `credentials is None` comes only from the single-operator surfaces
-#     (cli.py, app.py, mcp_server.py, e2e/runner.py) where the ChatConfig
-#     credentials ARE the operator's own identity and there is nobody to
-#     impersonate. Those warn but are never refused.
+#   * `credentials is None` comes from the single-operator surfaces (cli.py,
+#     app.py, mcp_server.py, e2e/runner.py) where the ChatConfig credentials
+#     ARE the operator's own identity and there is nobody to impersonate.
+#     Those warn but are never refused.
+#
+# Two known consequences of that split, both verified, neither an oversight:
+#
+#   * DRF TOKEN callers are now REFUSED. AssistantViewSet (and CCAssistantViewSet)
+#     list TokenAuthentication in authentication_classes and _check_auth resolves
+#     ["BASIC","SESSION","TOKEN"], but credential resolution (assistant.py:728)
+#     resolves only ["BASIC","SESSION"] and then falls back to
+#     request.session.get(...), which is empty for a token request. So a token
+#     caller arrives here as {"api_user": None, "api_pass": None} and is refused.
+#     That is this gate working as intended -- a token caller previously ran
+#     silently as the service account, which IS the hole -- but it is an
+#     undocumented break of a supported auth mode. The real repair belongs in
+#     services/assistant.py (resolve TOKEN into credentials, or 401 at the front
+#     door); it is filed as a follow-up, not fixable from here.
+#   * One single-operator surface passes a MAPPING and so CAN be refused:
+#     evaluator/runner.py::_build_retry_credentials returns None when the config
+#     has neither half and a complete dict when it has both -- but a PARTIAL
+#     mapping when only API_USER or only API_PASS is set. A half-configured
+#     batch-evaluator CLI therefore refuses. Only reachable on a misconfigured
+#     ChatConfig; the clean repair (return None unless both halves are present)
+#     is filed as a follow-up. Do not read the bullet above as absolute.
 #
 # Default is OFF (fail closed). The nessie_tests harness authenticates over
 # HTTP Basic (nessie_tests/http_driver.py) which assistant.py resolves via
@@ -113,9 +134,19 @@ def _coerce_setting_bool(value: Any, *, default: bool) -> bool:
 def _emit_identity_warning(message: str) -> None:
     """Warn on both surfaces an operator actually reads.
 
-    logging.warning carries the severity an aggregator can filter on; the print
-    matches this module's convention and is what lands in the per-turn
-    outputs/<ts>/console.txt trace via Tee.
+    Both land in CONTAINER stdout/stderr -- `docker logs nextseek` -- and NOT in
+    the per-turn outputs/<ts>_<user>/console.txt trace. The identity gate runs
+    before _ensure_query_log_dir, which is what installs the Tee onto
+    sys.stdout/sys.stderr, so by design there is no per-turn trace yet (on the
+    refuse branch there never will be: no run directory is created for a turn
+    that did not run). Look in `docker logs`, not in outputs/, when triaging
+    "why did this turn answer as someone else?".
+
+    logging.warning carries the severity a log aggregator can filter on; with no
+    chat_nextseek logger and no root handler configured in dmac/settings.py it
+    reaches stderr via Python's lastResort handler. The print matches this
+    module's diagnostic convention and keeps the line adjacent to the rest of
+    the turn's output.
     """
     _LOG.warning(message)
     print(message)
