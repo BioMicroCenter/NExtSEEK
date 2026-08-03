@@ -38,8 +38,14 @@ docker exec -w /app nextseek uv run manage.py nessie \
     --tier {route,full} --scope {specific,all} --sample <ratio> --out /app/nessie_out_X
 ```
 
-`route` tier is cheap and needs no seed data. `full` executes real turns, costs
+`route` tier is cheaper and needs no seed data. `full` executes real turns, costs
 money, and needs the seeded v2 instance (project ids 2-14).
+
+**`route` is not free, and its printed cost is `unmeasured`, not `$0`.** It stops
+the *client* polling at `route_decided`; the server finishes and bills for every
+gate anyway. Read the Cadence section of `nessie_tests/README.md` before drawing
+any conclusion about what a run spent — a `$…` figure in a triage report is a
+floor, never a total.
 
 Deploy a harness change with no rebuild, since it is test tooling and not the
 served app:

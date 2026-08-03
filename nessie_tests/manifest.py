@@ -119,6 +119,14 @@ class NessieManifest(BaseModel):
 # $0, not an unobserved one, and folding it in with the unobserved ones would
 # overstate the problem in the other direction: a 280-case route run in which 240
 # cases never left the harness is not 240 cases of unmeasured spend.
+#
+# NOT an exhaustive list of the free cases, deliberately. An `error` entry whose
+# exception fired on the very first `post_query` (connection refused) also cost
+# nothing, and it still counts as unmeasured. That is the fail-safe direction:
+# `skipped` is decided by this harness and provable from the control flow above,
+# whereas "the error happened before the request was billed" is a guess about
+# where an arbitrary exception was raised. Over-reporting unmeasured spend is
+# recoverable; under-reporting it is the bug this whole function exists to fix.
 _NEVER_EXECUTED = frozenset({"skipped"})
 
 
@@ -144,6 +152,15 @@ def cost_summary(entries) -> dict:
     polling never reaches. A route run therefore spends roughly one full turn
     per non-``unrelated`` gate and can account for none of it.
 
+    An ``unrelated`` gate is the CHEAPEST route, not a free one: ``_decide_route``
+    (cc_assistant.py:203) has already called ``cc_router.decide`` →
+    ``_baml_decision``, an LLM call made on every single turn, and
+    ``route_decided`` is emitted at cc_assistant.py:347-350 — BEFORE the
+    ``ROUTE_UNRELATED`` check at :352. What ``unrelated`` skips is the answering
+    turn, not the router. Such an entry lands here as ``cost=None`` with an
+    executed status and is counted UNMEASURED, which is the correct answer: the
+    router call was real and the harness never saw its price.
+
     Returned keys:
 
     ``total_cost``
@@ -157,7 +174,10 @@ def cost_summary(entries) -> dict:
     ``cost_partial``
         True when both are non-zero. A partial total presented as a total is the
         same lie in miniature — every full-tier run so far has been partial,
-        because NS-routed cases emit no ``total_cost_usd`` at all.
+        because NS-routed cases emit no ``total_cost_usd`` at all, and even a CC
+        turn that ends in ``query_error`` carries no cost field
+        (nextseek_api/cc_assistant/translate.py:206-209). The printed figure is a
+        floor even among CC cases.
     ``cost_display``
         The one preformatted string every summary prints, so the CLI, the HTML
         report and ``manage.py nessie`` cannot describe the same run differently.
@@ -171,16 +191,18 @@ def cost_summary(entries) -> dict:
     total = round(float(sum(e.cost for e in observed)), 4)
     n_obs, n_un = len(observed), len(unmeasured)
     executed = n_obs + n_un
+    # `:.4f` rather than the raw float repr, so a $1.5 total does not render as
+    # "$1.5" next to a "$1.4791" from the same `round(..., 4)`.
     if not n_obs and n_un:
         display = (f"unmeasured ({n_un} executed case(s) reported no cost; a turn the "
                    "harness stopped polling still runs and still bills)")
     elif n_un:
-        display = (f"${total} observed on {n_obs} of {executed} executed case(s) — "
+        display = (f"${total:.4f} observed on {n_obs} of {executed} executed case(s) — "
                    f"PARTIAL, {n_un} reported no cost, so the real spend is higher")
     elif n_obs:
-        display = f"${total} (all {n_obs} executed case(s) reported a cost)"
+        display = f"${total:.4f} (all {n_obs} executed case(s) reported a cost)"
     else:
-        display = f"${total} (no case executed)"
+        display = f"${total:.4f} (no case executed)"
     return {
         "total_cost": total if (n_obs or not n_un) else None,
         "cost_observed": n_obs,

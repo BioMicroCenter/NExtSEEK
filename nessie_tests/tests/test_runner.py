@@ -996,3 +996,38 @@ def test_a_full_tier_run_still_reports_the_cost_it_observed(tmp_path, monkeypatc
     assert m.entries[0].cost == 0.37
     assert s["total_cost"] == 0.37
     assert "$0.37" in s["cost_display"]
+
+
+def test_an_unrelated_gate_is_unmeasured_rather_than_free(tmp_path, monkeypatch):
+    """`unrelated` is the CHEAPEST route, not a free one.
+
+    `_decide_route` (cc_assistant.py:203) has already made the BAML router call
+    and `route_decided` is emitted at :347-350, BEFORE the ROUTE_UNRELATED check
+    at :352 — so an `unrelated` turn skips the answering turn, not the router.
+    Its price is real and the harness never sees it, which makes `unmeasured`
+    the correct bucket. Pinned because the prose here once claimed the opposite,
+    and a future reader "fixing" the code to match that claim would reintroduce
+    a silent $0.
+    """
+    from e2e.catalog import Variant, Turn
+    gate = Variant(
+        family="nessie_route", id="gate.unrelated", name="unrelated gate",
+        tags=["nessie", "route_gate", "overlay"], requires_env=[],
+        turns=[Turn(label="m", query="what is the weather",
+                    pass_criteria=[{"field": "route", "op": "eq", "value": "unrelated"}])])
+    unrelated = {"status": "running", "progress": [
+        {"event": "route_decided", "data": {"route": "unrelated", "model_class": None,
+                                            "source": "baml", "reasoning": ""}}]}
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [gate])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: unrelated,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    entry = next(e for e in m.entries if e.id == "gate.unrelated")
+    assert entry.status == "passed" and entry.route == "unrelated"
+    s = runner.classify_entries(m)
+    assert s["cost_unmeasured"] == 1, "an `unrelated` turn still paid for the router call"
+    assert s["total_cost"] is None

@@ -160,8 +160,14 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
         # early return is ROUTE_UNRELATED (cc_assistant.py:352-366) — both the NS
         # and the CC branches fall straight through into full execution. So every
         # gate whose route is not `unrelated` runs to completion, and on a CC gate
-        # that is a full Opus turn, launch included. ONLY THE `unrelated` ROUTE IS
-        # FREE.
+        # that is a full Opus turn, launch included.
+        #
+        # NO ROUTE IS FREE, `unrelated` included. It is merely the cheapest: the
+        # BAML router call (`_decide_route` at cc_assistant.py:203 →
+        # `cc_router.decide` → `_baml_decision`) is made on EVERY turn, and
+        # `route_decided` is emitted at cc_assistant.py:347-350, before the
+        # ROUTE_UNRELATED check at :352. What `unrelated` skips is the answering
+        # turn, not the router that decided to skip it.
         #
         # What route-only actually buys is WALL CLOCK and a shorter window for the
         # harness to trip over a slow turn — not money, and not blast radius. It

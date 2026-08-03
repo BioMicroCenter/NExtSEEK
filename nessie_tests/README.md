@@ -32,12 +32,21 @@ anything. The server started the turn on a daemon thread and returned 202, and
 its only early return is the `unrelated` route
 (`nextseek_api/services/cc_assistant.py:352-366`) — so every gate that routes
 anywhere else runs to completion and bills for it after the harness has walked
-away, on a CC gate a full Opus turn. Only `unrelated` is genuinely free.
+away, on a CC gate a full Opus turn.
+
+**No route is free, `unrelated` included** — it is only the cheapest. The BAML
+router call (`_decide_route` → `cc_router.decide` → `_baml_decision`) is made on
+every turn, and `route_decided` is emitted at `cc_assistant.py:347-350` *before*
+the `ROUTE_UNRELATED` check at `:352`. `unrelated` skips the answering turn, not
+the router that decided to skip it.
 
 Cost is read off `query_complete`, which route-tier polling never reaches, so a
 route run cannot account for what it spent. It reports `unmeasured`, not `$0`.
-A full-tier total is a floor too: only `container_cc` turns emit
-`total_cost_usd`, so a run with any NS-routed case prints `PARTIAL`.
+A full-tier total is a floor too, for two independent reasons: NS-routed turns
+are never priced at all (`chat_nextseek` logs a per-call token ledger to a *log
+file*, with no USD conversion anywhere and nothing attached to `query_complete`),
+and a CC turn that ends in `query_error` carries no cost field either. Any run
+mixing the two prints `PARTIAL`.
 
 ## Known-fail (RED) cases
 `nessie_repro` family + the `#33` consistency group are tagged `known_fail`:

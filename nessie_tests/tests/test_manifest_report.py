@@ -326,10 +326,16 @@ def test_cost_summary_of_an_empty_run_is_a_truthful_zero():
 
 @pytest.mark.skipif(not SEED6B.exists(), reason=f"stored run evidence absent: {SEED6B}")
 def test_the_stored_seed6b_run_still_totals_its_real_spend():
-    """$1.4791 across 5 CC-routed cases — and 52 that ran and reported nothing.
+    """$1.4791 across 5 cases that had at least one container_cc TURN.
+
+    Turn granularity, not case granularity: one of the five,
+    `green.refine_recall`, is `route="nextseek_query"` at case level (its
+    observations record `turn=seed, expected=nextseek_query,
+    observed=container_cc`), and `runner.py` carries the seed turn's cost forward
+    because the later NS turn has no `total_cost_usd` to overwrite it with.
 
     Real evidence that the honest label for a full-tier total is PARTIAL: the
-    other 52 cases were NS-routed, executed, and emitted no `total_cost_usd`.
+    other 52 cases executed and emitted no `total_cost_usd` at all.
     """
     s = M.cost_summary(M.load_manifest(SEED6B).entries)
 
