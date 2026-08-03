@@ -117,7 +117,7 @@ class NessieManifest(BaseModel):
 # `requires_env`, and a non-gate case at route tier) and BOTH precede the call to
 # `http_driver.drive`, so a skipped case genuinely cost nothing. That is a real
 # $0, not an unobserved one, and folding it in with the unobserved ones would
-# overstate the problem in the other direction: a 280-case route run in which 240
+# overstate the problem in the other direction: a 283-case route run in which 240
 # cases never left the harness is not 240 cases of unmeasured spend.
 #
 # NOT an exhaustive list of the free cases, deliberately. An `error` entry whose

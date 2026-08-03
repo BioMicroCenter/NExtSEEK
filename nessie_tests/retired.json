@@ -667,13 +667,6 @@
    "source": "base",
    "family": "writes_unsupported"
   },
-  "write.create_me_investigation_testin": {
-   "reason": "retired in the issue-#35 manual review (round 2). Questions marked: Create me investigation \"Testing Investigation. Still Testing\"",
-   "retired_on": "2026-07-30",
-   "decided_by": "issue #35 review, round 2 (operator)",
-   "source": "overlay",
-   "family": "writes_unsupported"
-  },
   "write.create_me_investigation_testin_2": {
    "reason": "retired in the issue-#35 manual review (round 2). Questions marked: Create me investigation \"TESTING\"",
    "retired_on": "2026-07-30",
@@ -3548,46 +3541,6 @@
          "field": "parser_plan.mode",
          "op": "eq",
          "value": "unsupported"
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "family": "writes_unsupported",
-     "id": "write.create_me_investigation_testin",
-     "name": "Entity write via CC must confirm or create, not abort",
-     "_why": "`last_reply nonempty` passed on a reply that only said the attempt budget was exhausted. Routing to CC is correct and blessed; the OUTCOME still has to be a create or a confirmation request.",
-     "tags": [
-      "nessie",
-      "full",
-      "no_floor"
-     ],
-     "requires_env": [],
-     "turns": [
-      {
-       "label": "main",
-       "query": "Create me investigation \"Testing Investigation. Still Testing\"",
-       "pass_criteria": [
-        {
-         "field": "route",
-         "op": "eq",
-         "value": "container_cc"
-        },
-        {
-         "field": "last_reply",
-         "op": "nonempty",
-         "value": null
-        },
-        {
-         "field": "last_reply",
-         "op": "matches_re",
-         "value": "(?s)^(?!.*(attempt budget|stop-after-2|thrash)).*$"
-        },
-        {
-         "field": "last_reply",
-         "op": "matches_re",
-         "value": "(?is)(created|confirm|would you like|shall I|proceed|investigation id)"
         }
        ]
       }

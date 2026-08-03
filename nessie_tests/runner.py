@@ -141,7 +141,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
         # don't fail, so a route-tier run stays SMALL. It does not stay
         # side-effect-free: the gates it does run execute to completion on the
         # server (see the `case_tier` comment below), so a pipeline-launch gate
-        # really launches. Skipping is what stops a route run doing that 280
+        # really launches. Skipping is what stops a route run doing that 283
         # times, not something that makes any single case free.
         if tier == "route" and not is_gate:
             entries.append(NessieManifestEntry(

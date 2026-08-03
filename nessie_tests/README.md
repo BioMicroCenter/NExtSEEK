@@ -68,7 +68,9 @@ NS turn the same four fields are real assertions and still fail.
 
 **Scale, stated honestly.** Skipping them removes ONE of the reasons a CC-routed
 case in a floored family goes red — not all of them. Simulate every case in the
-resolved corpus routing CC and **267 of 280 are still red**, with all six floored
+resolved corpus routing CC and **267 of the 280 variants active when this was
+measured are still red** (2026-08-03, before the three write/delete refusal cases
+took the corpus to 283 — the measurement was not repeated), with all six floored
 families at 100%: the inline `route` (227 variants), `parser_plan.mode` (216),
 `api_ok` (136) and `api_plan.endpoint` (116) criteria are deliberately not
 skipped, so those cases stay red until the corpus itself is settled. The one

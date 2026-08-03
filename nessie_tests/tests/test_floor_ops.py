@@ -853,7 +853,10 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     question, which would double the cost of every full run and let the base
     variant keep failing next to its replacement."""
     merged = corpus.merged(OVERLAY)
-    assert len(merged) == 280
+    # 280 -> 283 on 2026-08-03: the create/update/delete refusal coverage came
+    # back (one reinstated from retired.json, two authored). This is the ONLY
+    # hardcoded corpus size in the suite, so it is the one place that has to move.
+    assert len(merged) == 283
     ids = [v.id for v in merged]
     for vid in OVERRIDDEN_2026_08_03B:
         assert ids.count(vid) == 1, vid

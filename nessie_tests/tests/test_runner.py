@@ -934,7 +934,7 @@ def test_a_case_that_never_ran_is_free_rather_than_unmeasured():
     """`skipped` is reached by two `continue`s that precede http_driver.drive.
 
     No request was issued, so $0 is the truth for those cases — and saying
-    `unmeasured` about a 280-case route run in which 240 cases never left the
+    `unmeasured` about a 283-case route run in which 240 cases never left the
     harness would overstate the problem in the other direction.
     """
     s = runner.classify_entries(_costed(None, None, status="skipped"))

@@ -140,7 +140,10 @@ def test_a_known_fail_sibling_pins_the_ns_graph_path():
 
 
 def test_the_write_case_rejects_budget_abort_language():
-    v = _retired()["write.create_me_investigation_testin"]
+    """Read from the ACTIVE corpus since 2026-08-03: this case was reinstated as
+    the create leg of the restored write/delete refusal coverage, so its guards
+    now run for real rather than being held to account in absentia."""
+    v = _merged()["write.create_me_investigation_testin"]
     guards = [c.value for t in v.turns for c in t.pass_criteria if c.op == "matches_re"]
 
     def passes(reply):

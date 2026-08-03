@@ -652,7 +652,9 @@ def test_a_turn_with_no_criteria_at_all_evaluated_nothing():
 # Fix round 1 — the MEASURED payoff of this change, pinned.
 #
 # The honest scale: if every case in the resolved corpus routed container_cc,
-# 267 of 280 would still be red and all six floored families would be 100% red,
+# 267 of the 280 variants active when this was measured would still be red (the
+# corpus is 283 since the write/delete refusal cases came back; not re-measured)
+# and all six floored families would be 100% red,
 # because the inline `route` (227 variants), `parser_plan.mode` (216), `api_ok`
 # (136) and `api_plan.endpoint` (116) criteria are deliberately NOT skipped.
 #
