@@ -599,7 +599,32 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
             user_project_ids = list(map(lambda x: x['id'], user_projects))
         except Exception:
             user_project_ids = []
-        # Treat Django staff as admin for data scope, matching IsAdminUser
+        # SECURITY, known gap — deliberately NOT fixed here. Read before touching this line.
+        #
+        # Treating staff as admin makes project membership a no-op for data scope: every
+        # SEEK user synced into NExtSEEK is marked staff (dmac/views.py:80,97), so this
+        # unconditionally takes the unfiltered branch of getChildrenUIDs for everyone.
+        # This is also strictly more permissive than the legacy path it claims to mirror —
+        # seek/views.py:1249 uses verifySuperUser(), i.e. is_superuser alone.
+        #
+        # The obvious fix (drop the is_staff clause) is NOT safe yet, because the filtered
+        # branch is currently dead code that would return nothing:
+        #   - SeekDB(None, None, None) above takes the username-is-None branch
+        #     (seek/seekdb.py:31), which never calls getSeekLogin(), so __server is None;
+        #   - getCurrentUser() then does None + "/people/current" (seek/seekapi.py:188)
+        #     -> TypeError -> swallowed by the bare except above -> user_project_ids == [].
+        # So user_project_ids is ALWAYS empty on this path. Drop the is_staff clause and
+        # every non-superuser takes the project-filtered branch with an empty project list
+        # -> `ps.project_id IN ('')` -> zero rows -> HTTP 404, for all four consumer classes
+        # (legacy newSearch UI, the assistant, container-CC, and external API clients).
+        # No existing test catches this: nextseek_api/tests/test_views.py:762 is named
+        # test_neo4j_fallback_non_superuser but leaves is_staff=True and asserts only a 200.
+        #
+        # PREREQUISITE: resolve the caller's SEEK projects for real first — either call
+        # seekdb.getSeekLogin(request, False) before getCurrentUser() (what views.py:496 and
+        # seek/views.py:1245 both do), or build SeekDB from the basic_tuple already resolved
+        # at the top of this method. Once user_project_ids is genuinely populated and
+        # verified, this becomes a safe one-line change to is_superuser alone.
         is_superuser = bool(getattr(request.user, 'is_superuser', False) or getattr(request.user, 'is_staff', False))
         
         dbs = DBtable_sample()
