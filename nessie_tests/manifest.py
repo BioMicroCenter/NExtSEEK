@@ -29,11 +29,21 @@ class NessieManifestEntry(BaseModel):
     status: Literal["passed", "failed", "skipped", "error", "xpass"]
     route: str | None = None
     engine: str | None = None
-    # Which router produced the route. Anything other than "baml" means the BAML
-    # router did not decide this turn — task 816 fell through to `heuristic`, a
-    # keyword regex that can never emit `unrelated`. That is an infrastructure
-    # condition, not a pass.
+    # Which router produced the route on TURN 0, deliberately — not the last
+    # turn, unlike `route` and `engine` above. `corpus.apply_route_policy`
+    # attaches its route criterion to `turns[0]`, so this field describes the
+    # same turn the assertion tests. A source outside
+    # `runner.ROUTE_DECISION_SOURCES` means no router decided the turn: task 816
+    # fell through to `heuristic`, a keyword regex that can never emit
+    # `unrelated`. That is an infrastructure condition, not a pass.
     route_source: str | None = None
+    # Every turn's source, in order. `route_source` alone cannot tell "BAML
+    # routed all four turns" from "turn 3 fell to the keyword regex", and the
+    # second is not evidence about routing. Turns whose payload carried no
+    # `route_decided` event contribute nothing — they observed no routing
+    # decision at all, which is not the same as a router that fell back.
+    # Defaults to [] so manifests written before this field existed still load.
+    route_sources: list[str] = Field(default_factory=list)
     cost: float | None = None
     elapsed_s: float = 0.0
     failed_criteria: list[str] = Field(default_factory=list)

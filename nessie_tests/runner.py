@@ -11,6 +11,24 @@ from nessie_tests.manifest import (
 )
 
 
+# The route sources that represent a real routing DECISION. Everything else
+# means no router decided the turn, so that turn's route is not evidence about
+# routing: `heuristic` is a keyword regex that can never emit `unrelated` (task
+# 816 fell to it), and `forced` and `pipeline` bypass the router outright.
+#
+# `sticky` belongs HERE. It is a deliberate product decision taken DOWNSTREAM of
+# a real BAML call — the router said NExtSEEK, the previous turn was
+# container_cc, and the product chose to stay — so bucketing it under "the
+# router was unavailable" would discard exactly the evidence a live run exists
+# to collect about sticky routing.
+#
+# An ALLOWLIST, not a denylist, on purpose. Denying the three known fallbacks
+# would silently TRUST any source added later; an allowlist flags it as
+# not-evidence until someone decides it is. That is the fail-safe direction for
+# an instrument whose whole job is telling the truth about the product.
+ROUTE_DECISION_SOURCES = frozenset({"baml", "sticky"})
+
+
 def default_route_criterion(variant) -> dict | None:
     """No route expectation is injected any more. Deliberately.
 
@@ -130,6 +148,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
         session_id = None
         v_status, v_route, v_engine, v_cost, failed, reason = "passed", None, None, None, [], ""
         v_route_source = None
+        v_route_sources: list[str] = []
         v_outage = False
         observations: list[CriterionObservation] = []
         poll_errors = 0
@@ -148,7 +167,24 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                 session_id = res.session_id
                 poll_errors += res.poll_errors
                 v_route, v_engine = res.route_obs.route, res.route_obs.engine
-                v_route_source = res.route_obs.source
+                # `route` and `engine` stay LAST-write-wins: the report displays
+                # the route the case ended on, and changing that would change
+                # what every existing report says.
+                #
+                # `route_source` deliberately does NOT. corpus.apply_route_policy
+                # attaches its route criterion to turns[0], which is always a COLD
+                # turn, so pinning the recorded source to turn 0 makes the field
+                # describe the same turn the assertion tests. Assigning it every
+                # turn left an entry carrying its LAST turn's source — a follow-up
+                # that went `sticky` was never what the route criterion was about.
+                if i == 0:
+                    v_route_source = res.route_obs.source
+                # ...and the whole sequence, because one value cannot say whether
+                # some middle turn fell to the keyword regex. A turn with no
+                # `route_decided` event contributes nothing: it observed no routing
+                # decision at all, which is not a router that fell back.
+                if res.route_obs.source is not None:
+                    v_route_sources.append(res.route_obs.source)
                 qc = next((e["data"] for e in reversed(res.payload.get("progress") or [])
                            if e.get("event") == "query_complete"), {})
                 v_cost = qc.get("total_cost_usd", v_cost)
@@ -196,7 +232,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
             reason = xpass_reason
         entries.append(NessieManifestEntry(
             id=v.id, family=v.family, tier=tier, status=v_status, route=v_route, engine=v_engine,
-            route_source=v_route_source,
+            route_source=v_route_source, route_sources=v_route_sources,
             cost=v_cost, elapsed_s=round(clock() - t0, 3), failed_criteria=failed,
             observations=observations, poll_errors=poll_errors,
             reason=reason, expected_fail=expected_fail, outage=v_outage))
@@ -316,6 +352,27 @@ def _is_real_failure(entry) -> bool:
             or (entry.status in ("failed", "error") and not entry.expected_fail))
 
 
+def _not_routing_evidence(entry) -> bool:
+    """Did ANY turn of this case get its route from something other than a decision?
+
+    If one turn fell to the keyword regex, that turn's route says nothing about
+    routing, so the case cannot be read as evidence either — hence "any", not
+    "turn 0". See ``ROUTE_DECISION_SOURCES`` for why `sticky` is a decision and
+    `heuristic` / `forced` / `pipeline` are not.
+
+    Falls back to the single ``route_source`` when ``route_sources`` is empty, so
+    a manifest written before the sequence existed classifies exactly as it did
+    then — including the case where NO route was observed at all (``None``),
+    which was never bucketed and must not start being: it is silence about the
+    router, not a report of one falling back.
+    """
+    sources = list(getattr(entry, "route_sources", None) or [])
+    if not sources:
+        one = getattr(entry, "route_source", None)
+        sources = [one] if one is not None else []
+    return any(s not in ROUTE_DECISION_SOURCES for s in sources)
+
+
 def classify_entries(manifest: NessieManifest) -> dict:
     """Split a manifest into the buckets a summary needs.
 
@@ -348,12 +405,12 @@ def classify_entries(manifest: NessieManifest) -> dict:
         "known_failed": [e for e in entries
                          if e.expected_fail and e.status != "xpass"
                          and not getattr(e, "outage", False)],
-        # Anything other than "baml" means the BAML router did not decide the turn.
-        # Task 816 fell to `heuristic` (1 in 65), a keyword regex that can never emit
-        # `unrelated` — so its route was not evidence about routing at all. An
-        # infrastructure flag, not a pass.
-        "heuristic_routed": [e for e in entries
-                             if e.route_source is not None and e.route_source != "baml"],
+        # Cases where some turn's route came from no router at all. Task 816 fell
+        # to `heuristic` (1 in 65), a keyword regex that can never emit
+        # `unrelated` — so its route was not evidence about routing. An
+        # infrastructure flag, not a pass. The key name is load-bearing: the
+        # management command reads it.
+        "heuristic_routed": [e for e in entries if _not_routing_evidence(e)],
         # Three more full-tier runs is real money; make the number visible.
         "total_cost": round(sum(e.cost or 0.0 for e in entries), 4),
     }

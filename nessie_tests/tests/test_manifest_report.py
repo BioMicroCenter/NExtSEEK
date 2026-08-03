@@ -1,4 +1,5 @@
 from pathlib import Path
+import pytest
 from nessie_tests import manifest as M
 from nessie_tests import report
 
@@ -171,3 +172,48 @@ def test_an_outaged_known_fail_is_not_rendered_as_xfail(tmp_path):
 
     assert "<td>outage</td>" in doc
     assert "xfail" not in doc
+
+
+# --------------------------------------------------------------------------- #
+# `route_sources` — the per-turn sequence. A single `route_source` is
+# last-write-wins, which cannot distinguish "every turn was routed by BAML" from
+# "turn 3 fell to the keyword regex". Sequence beats last-write-wins for triage
+# and costs almost nothing. It defaults to [] so manifests written before this
+# change still load.
+# --------------------------------------------------------------------------- #
+
+SEED6B = Path("/home/cdemu/nessie-run-seed6b/manifest.json")
+
+
+def test_route_sources_defaults_to_empty_so_old_manifests_still_load(tmp_path):
+    p = tmp_path / "manifest.json"
+    # an entry serialised before the field existed
+    old = ('{"started_at":"a","ended_at":"b","tier":"full","scope":"all","entries":'
+           '[{"id":"c0","family":"f","tier":"full","status":"passed","route_source":"baml"}]}')
+    p.write_text(old, encoding="utf-8")
+
+    loaded = M.load_manifest(p)
+
+    assert loaded.entries[0].route_sources == []
+    assert loaded.entries[0].route_source == "baml"
+
+
+def test_route_sources_round_trips(tmp_path):
+    m = M.NessieManifest(
+        started_at="a", ended_at="b", tier="full", scope="all",
+        entries=[M.NessieManifestEntry(id="c0", family="f", tier="full", status="passed",
+                                       route_source="baml",
+                                       route_sources=["baml", "sticky"])])
+    p = tmp_path / "manifest.json"
+    M.write_manifest(m, p)
+
+    assert M.load_manifest(p).entries[0].route_sources == ["baml", "sticky"]
+
+
+@pytest.mark.skipif(not SEED6B.exists(), reason=f"stored run evidence absent: {SEED6B}")
+def test_the_stored_seed6b_run_still_loads():
+    """Real run evidence, written before `route_sources` existed."""
+    loaded = M.load_manifest(SEED6B)
+
+    assert loaded.entries, "the stored manifest loaded but carries no entries"
+    assert all(e.route_sources == [] for e in loaded.entries)

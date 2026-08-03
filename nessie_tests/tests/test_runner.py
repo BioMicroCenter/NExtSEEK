@@ -506,3 +506,114 @@ def test_a_clean_outage_is_still_exempt_with_no_failed_criteria():
 
     assert runner.gate_failed(m) == 0
     assert len(runner.classify_entries(m)["outage"]) == 1
+
+
+# --------------------------------------------------------------------------- #
+# A sticky route is a DECISION, not a router outage.
+#
+# `_decide_route` returns source="sticky" when the BAML router says NExtSEEK but
+# the previous turn was container_cc. Two harness behaviours combined badly with
+# that: `route_source` was assigned per turn inside the turn loop (so an entry
+# carried its LAST turn's source), and the `heuristic_routed` bucket was a
+# DENYLIST (`!= "baml"`). Together, any multi-turn case whose follow-up went
+# sticky was filed as an infrastructure condition and its routing evidence
+# thrown away — which is exactly the evidence the next live run exists to
+# collect.
+#
+# It matters particularly because corpus.apply_route_policy attaches its route
+# criterion to turns[0], which is always a COLD turn and can never be sticky:
+# the bucketed `route_source` was describing a different turn from the one the
+# assertion tested.
+# --------------------------------------------------------------------------- #
+
+CC_STICKY_DONE = {"status": "completed", "progress": [
+    {"event": "route_decided", "data": {"route": "container_cc", "model_class": "opus",
+                                        "source": "sticky",
+                                        "reasoning": "previous turn was container_cc"}},
+    {"event": "query_complete", "data": {"reply": "ok", "debug": {}}}]}
+
+NS_HEURISTIC_DONE = {"status": "completed", "progress": [
+    {"event": "route_decided", "data": {"route": "nextseek_query", "model_class": None,
+                                        "source": "heuristic", "reasoning": "keyword"}},
+    {"event": "query_complete", "data": {"reply": "ok", "debug": {}}}]}
+
+
+def _two_turn_run(tmp_path, monkeypatch, second_payload, vid="multi.route_src"):
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_variant(vid, turns=2)])
+    payloads = iter([NS_DONE, second_payload])
+    return runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: next(payloads),
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+
+def test_a_sticky_followup_is_not_an_infrastructure_condition(tmp_path, monkeypatch):
+    m = _two_turn_run(tmp_path, monkeypatch, CC_STICKY_DONE)
+
+    entry = next(e for e in m.entries if e.id == "multi.route_src")
+    assert entry.route_sources == ["baml", "sticky"], "the per-turn sequence must be recorded"
+    assert entry.route_source == "baml", (
+        "route_source must describe turn 0 — the turn apply_route_policy asserts on — "
+        "not the last turn")
+    assert runner.classify_entries(m)["heuristic_routed"] == [], (
+        "a sticky follow-up is a deliberate product decision downstream of a real "
+        "BAML call; filing it as 'the router was unavailable' discards the evidence")
+
+
+def test_a_heuristic_followup_is_still_an_infrastructure_condition(tmp_path, monkeypatch):
+    """Non-vacuity: the bucket still catches a turn that fell to the keyword regex."""
+    m = _two_turn_run(tmp_path, monkeypatch, NS_HEURISTIC_DONE, vid="multi.heur")
+
+    entry = next(e for e in m.entries if e.id == "multi.heur")
+    assert entry.route_sources == ["baml", "heuristic"]
+    assert entry.route_source == "baml"
+    assert [e.id for e in runner.classify_entries(m)["heuristic_routed"]] == ["multi.heur"], (
+        "a turn routed by a keyword regex is not evidence about routing, whichever "
+        "turn it was")
+
+
+def _entry_with(route_source=None, route_sources=None):
+    from nessie_tests.manifest import NessieManifestEntry
+    kwargs = {} if route_sources is None else {"route_sources": route_sources}
+    return NessieManifestEntry(id="c0", family="f", tier="full", status="passed",
+                               route_source=route_source, **kwargs)
+
+
+def _bucketed(entry) -> bool:
+    from nessie_tests.manifest import NessieManifest
+    m = NessieManifest(started_at="a", ended_at="b", tier="full", scope="all", entries=[entry])
+    return bool(runner.classify_entries(m)["heuristic_routed"])
+
+
+def test_an_unknown_source_is_bucketed_because_the_predicate_is_an_allowlist():
+    """The fail-safe direction: a source nobody has vetted is NOT evidence.
+
+    The tempting alternative is to keep a denylist and just extend it —
+    `not in {"heuristic", "forced", "pipeline"}`. That silently TRUSTS any
+    source added downstream later. This instrument's job is telling the truth
+    about the product, so an unrecognised source must read as 'not evidence'
+    until someone decides otherwise.
+    """
+    assert _bucketed(_entry_with("quantum_router", ["baml", "quantum_router"]))
+    assert _bucketed(_entry_with("quantum_router"))
+    assert "sticky" in runner.ROUTE_DECISION_SOURCES
+    assert "baml" in runner.ROUTE_DECISION_SOURCES
+    assert "heuristic" not in runner.ROUTE_DECISION_SOURCES
+
+
+def test_a_manifest_written_before_route_sources_classifies_off_route_source_alone():
+    """Old runs must keep the classification they had, in both directions."""
+    assert not _bucketed(_entry_with("baml"))
+    assert _bucketed(_entry_with("heuristic"))
+    assert _bucketed(_entry_with("forced"))
+    assert _bucketed(_entry_with("pipeline"))
+    # An entry that observed NO route_decided at all was never bucketed and must
+    # not start being: it says nothing about the router either way.
+    assert not _bucketed(_entry_with(None))
+
+
+def test_any_turn_outside_the_allowlist_buckets_the_entry():
+    """The sequence, not just turn 0, decides the bucket."""
+    assert _bucketed(_entry_with("baml", ["baml", "sticky", "heuristic"]))
+    assert not _bucketed(_entry_with("baml", ["baml", "sticky", "sticky"]))
