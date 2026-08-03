@@ -191,7 +191,11 @@ def test_the_floor_actually_moves_the_needle():
                # The 2026-07-28 floor rewrite renamed what it injects. These assert
                # the outcome was OBSERVED and DISCLOSED rather than asserting its
                # value, which is what made the old floor false-fail correct answers.
-               "api_outcome_observed", "graph_outcome_observed",
+               # 2026-08-03 collapsed the two engine-specific `*_outcome_observed`
+               # floors into one `outcome_observed`, so the floor asserts that an
+               # outcome exists rather than which engine produced it. The engine-
+               # specific names stay listed: a case may still assert one by hand.
+               "outcome_observed", "api_outcome_observed", "graph_outcome_observed",
                "graph_truncation_disclosed", "report_produced_output")
     merged = corpus.merged(_OV)
     weak = [v for v in merged

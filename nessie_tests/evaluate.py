@@ -190,7 +190,35 @@ def augment_debug(debug: dict, obs: ro.RouteObservation, bundle_summary: dict | 
     debug["report_produced_output"] = _report_produced_output(debug)
     debug["graph_outcome_observed"] = _graph_outcome_observed(debug)
     debug["api_outcome_observed"] = _api_outcome_observed(debug)
+    debug["outcome_observed"] = _outcome_observed(debug)
     return debug
+
+
+def _outcome_observed(debug: dict) -> bool:
+    """True when the turn produced an outcome by ANY engine.
+
+    The family floor is attached at corpus-BUILD time keyed on `v.family`
+    (`corpus.py:45`), and the family names are engine-shaped: `search_advanced`
+    means the REST advanced_search endpoint, `graph_query` means Cypher. The parser
+    is free to answer the same question with either, and in the 2026-08-03 seed-6
+    run three `search_advanced` cases routed NS correctly, answered correctly via
+    the graph, and went red on `api_ok` / `api_outcome_observed` — both False on a
+    graph turn by construction. The operator's note on all three was "this was
+    correct".
+
+    `apply_family_floor` cannot know which engine will run, so the fix has to live
+    here, where the outcome is already in hand. The floor now asserts THAT an
+    outcome was produced; asserting WHICH engine produced it is a per-case decision
+    and the three engine-specific booleans stay available for exactly that.
+
+    Strictly the disjunction of those three — nothing else. It must stay that way:
+    a floor that is true unconditionally is worse than no floor, because it reports
+    green. `test_a_turn_that_produced_no_outcome_at_all_still_fails_the_floor` and
+    `test_outcome_observed_is_exactly_the_disjunction_of_the_three` pin it.
+    """
+    return (_graph_outcome_observed(debug)
+            or _api_outcome_observed(debug)
+            or _report_produced_output(debug))
 
 
 def _graph_outcome_observed(debug: dict) -> bool:

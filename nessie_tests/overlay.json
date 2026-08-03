@@ -481,26 +481,23 @@
     "_rules": "A floor criterion is added only when the last turn does not already assert that FIELD, so a deliberate bound (e.g. row_count lte 20000) is never overwritten and never contradicted. Families not listed here get no floor. Tag a variant `no_floor` to opt out entirely.",
     "_2026_07_30_retirement": "routing_graph lost its floor because it lost its only variant: routing.gbm_study_count was retired with the other 25 GBM cases (issue #35), leaving the family empty. A floor on a family with no members is dead config, and test_every_floored_family_exists_in_the_corpus enforces that. Reinstating the variant means reinstating its floor entry.",
     "_2026_07_28_correction": "The first version of this floor asserted VALUES rather than OBSERVABILITY, and that produced 10 of the 15 failures in the seed-0 run — false failures on answers that were correct. Measured over the merged corpus, the old spec put an unsatisfiable criterion on 163 variants (`count gte 1` where zero is ground truth, e.g. 14 GBM graph variants and zero_result_zebrafish), 59 (`graph_not_truncated` where the honest answer is 10,688 rows against a 5,000 cap) and 64 (`reporter_result.ok`, which only run_reporter_summary sets — the 24 SRA/GEO/PRIDE variants go through generate_report_outputs). A floor exists to catch a criterion that cannot SEE the answer, not to assert what the answer is. So: `api_outcome_observed` / `graph_outcome_observed` (the outcome was observed, zero included), `graph_truncation_disclosed` (a cap is fine, a HIDDEN cap is not) and `report_produced_output` (either of reporting's two result shapes). Per-case value expectations belong on the case, not in the floor.",
+    "_2026_08_03_engine_agnostic": "The floor is keyed on v.family, and the family names are ENGINE-shaped — search_advanced means the REST advanced_search endpoint, graph_query means Cypher. The parser is free to answer the same question with either engine, so an engine-shaped floor is an assertion the corpus never meant to make. In the 2026-08-03 seed-6 run advanced.find_me_sequencing_files_assoc, advanced.find_me_nhp_samples_from_study_2 and advanced.find_me_d_seq_samples_in_proje each routed nextseek_query correctly and were answered correctly by the graph (1765 / 408 / 1858 rows), and each went red — on api_ok and api_outcome_observed, which are False on a graph turn by construction. So every engine-flexible family now floors on ONE field, `outcome_observed` (evaluate.py), the disjunction of graph_outcome_observed / api_outcome_observed / report_produced_output. api_ok and neo4j_ok are GONE from the floor for the same reason: api_ok is False on a graph-answered turn and neo4j_ok is False on a REST-answered one, so either is an engine mandate wearing a plumbing check's clothes. graph_query KEEPS graph_truncation_disclosed — it returns True for a non-graph turn by design, so it is inert rather than mandating, and a hidden cap is a real defect. reporting KEEPS report_produced_output: a report that produced no output is a real failure whatever engine ran. This WEAKENS the floor, so the guard that it did not weaken into vacuity is the deliverable: a turn that produced no outcome at all still fails (test_floor_ops.py), and the seed-6 Bedrock-outage turn graph.what_mice_are_in_the_impact_st is replayed to prove it on real evidence. The engine-specific booleans remain available so a case that genuinely must use one engine can still assert it BY HAND.",
     "exclude_tag": "no_floor",
     "floors": {
       "search_advanced": [
-        {"field": "api_ok", "op": "true", "value": null},
-        {"field": "api_outcome_observed", "op": "true", "value": null}
+        {"field": "outcome_observed", "op": "true", "value": null}
       ],
       "search_retrieve": [
-        {"field": "api_ok", "op": "true", "value": null},
-        {"field": "api_outcome_observed", "op": "true", "value": null}
+        {"field": "outcome_observed", "op": "true", "value": null}
       ],
       "search_parents_by_child": [
-        {"field": "api_ok", "op": "true", "value": null},
-        {"field": "api_outcome_observed", "op": "true", "value": null}
+        {"field": "outcome_observed", "op": "true", "value": null}
       ],
       "search_tree": [
-        {"field": "api_ok", "op": "true", "value": null}
+        {"field": "outcome_observed", "op": "true", "value": null}
       ],
       "graph_query": [
-        {"field": "neo4j_ok", "op": "true", "value": null},
-        {"field": "graph_outcome_observed", "op": "true", "value": null},
+        {"field": "outcome_observed", "op": "true", "value": null},
         {"field": "graph_truncation_disclosed", "op": "true", "value": null}
       ],
       "reporting": [
