@@ -97,8 +97,23 @@ class Command(BaseCommand):
         w(f"  skipped : {count['skipped']}")
         w(f"  error   : {count['error']}")
         w(f"  xpass   : {count['xpass']}  (known_fail that PASSED — stale expectation, counted as a failure)")
+        w(f"  no-assert: {count['no_assertions']}  (evaluated ZERO criteria — green here would be vacuous, counted as a failure)")
         w(f"  known-fail that failed as expected (excluded from gate): {len(known_failed)}")
-        w(f"  cost    : ${summary['total_cost']}")
+        # `cost_display`, not `total_cost`. The latter is float-or-None by design —
+        # a route-tier turn never emits `query_complete`, so its cost is unobservable
+        # rather than zero — and interpolating it prints the literal "$None".
+        w(f"  cost    : {summary['cost_display']}")
+        if summary["outage"]:
+            w("")
+            w(self.style.WARNING(
+                f"  INFRASTRUCTURE: {len(summary['outage'])} case(s) were lost to an LLM provider "
+                f"outage — they were not scored and say nothing about the product:"))
+            for e in summary["outage"]:
+                w(f"    - {e.family}/{e.id}")
+            w(self.style.WARNING(
+                "  Re-run these before reading the headline. Without this line they would "
+                "vanish from the printout entirely: an outaged known_fail is excluded from "
+                "`known-fail that failed as expected` with nothing else reporting it."))
         if summary["heuristic_routed"]:
             w("")
             w(self.style.WARNING(
