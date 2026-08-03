@@ -126,15 +126,23 @@ NS turn the same four fields are real assertions and still fail.
 
 **Scale, stated honestly.** Skipping them removes ONE of the reasons a CC-routed
 case in a floored family goes red — not all of them. Simulate every case in the
-resolved corpus routing CC and **267 of the 280 variants active when this was
-measured are still red** (2026-08-03, before the three write/delete refusal cases
-took the corpus to 283 — the measurement was not repeated), with all six floored
+resolved corpus routing CC and **270 of 283 are still red**, with all six floored
 families at 100%: the inline `route` (227 variants), `parser_plan.mode` (216),
 `api_ok` (136) and `api_plan.endpoint` (116) criteria are deliberately not
 skipped, so those cases stay red until the corpus itself is settled. The one
 variant this measurably turns green is `tree.then_ask_about`, the only multi-turn
 variant in any floored family and therefore the whole realistic mixed-route
 population today.
+
+That figure is REPRODUCED, not remembered. `tests/test_write_refusal_coverage.py
+::test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` drives every
+turn of the resolved corpus through `evaluate.evaluate_turn` with the real CC
+payload shape (a reply and no `debug` key) and asserts 283 total / 13 green / 270
+red. If the corpus changes, that test fails and names this paragraph and the
+matching comment in `tests/test_evaluate.py` as the two places to update. It read
+`267 of 280` until the write/delete refusal cases were restored on 2026-08-03; the
+green set did not move, because all three of those cases are red under the
+simulation.
 
 The skip does **not** extend to `api_ok`, `neo4j_ok`, `parser_plan.*`,
 `api_plan.*` or `graph_result.*`. Those are inline, hand-written case criteria —

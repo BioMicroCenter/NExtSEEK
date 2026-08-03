@@ -652,15 +652,20 @@ def test_a_turn_with_no_criteria_at_all_evaluated_nothing():
 # Fix round 1 — the MEASURED payoff of this change, pinned.
 #
 # The honest scale: if every case in the resolved corpus routed container_cc,
-# 267 of the 280 variants active when this was measured would still be red (the
-# corpus is 283 since the write/delete refusal cases came back; not re-measured)
-# and all six floored families would be 100% red,
+# 270 of 283 would still be red and all six floored families would be 100% red,
 # because the inline `route` (227 variants), `parser_plan.mode` (216), `api_ok`
 # (136) and `api_plan.endpoint` (116) criteria are deliberately NOT skipped.
 #
 # `tree.then_ask_about` is the ONLY multi-turn variant in any floored family, so
 # it is the entire realistic mixed-route population, and it is the one variant
 # this change demonstrably turns green.
+#
+# 270/283 is REPRODUCED rather than remembered: see
+# tests/test_write_refusal_coverage.py::
+# test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible, which
+# recomputes it and fails with this comment and README.md named as the two places
+# to update. It read 267/280 until the write/delete refusal cases were restored
+# on 2026-08-03; the 13-variant green set did not move.
 # --------------------------------------------------------------------------- #
 
 _TREE_NS_SEED = {"status": "completed", "progress": [
