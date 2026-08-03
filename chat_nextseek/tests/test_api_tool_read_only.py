@@ -231,6 +231,63 @@ def test_the_read_post_allowlist_is_exactly_the_three_search_posts():
     assert set(_READ_POST_PATHS) == set(READ_POSTS)
 
 
+# ------------------------------------------------------------ parser differential
+
+# The guard decides on a canonicalised (verb, path). If the request were then built
+# from the ORIGINAL strings, three inputs would be approved as one thing and sent as
+# another — the classic parser-differential shape. None was exploitable (`.strip()`
+# cannot turn DELETE into GET, and http.client rejects control characters in a
+# method), but approving one string and sending another is a bug waiting for a
+# second mistake to land on it. These lock the two to the same value.
+
+
+def test_an_approved_request_is_sent_in_its_normalised_form(transport):
+    """Leading space on the path, missing trailing slash, padded lowercase verb:
+    approved after normalisation, so the normalised form is what must go out."""
+    result = tool_nextseek_api_request(
+        _Cfg(), endpoint=" /nextseek_api/samples/advanced_search", method=" post "
+    )
+    assert len(transport.calls) == 1
+    assert transport.calls[0]["method"] == "POST"
+    assert transport.calls[0]["url"] == "http://nextseek.invalid/nextseek_api/samples/advanced_search/"
+    assert result["ok"] is True
+    assert result["method"] == "POST"
+
+
+def test_a_query_string_cannot_smuggle_a_different_path(transport):
+    """The decision drops everything after `?`, so the request must drop it too —
+    otherwise the approved path and the fetched path differ. queryParameters is the
+    supported way to send a query string and is passed separately as `params`."""
+    result = tool_nextseek_api_request(
+        _Cfg(), endpoint="/nextseek_api/samples/advanced_search/?/../samples/", method="POST"
+    )
+    assert len(transport.calls) == 1
+    assert transport.calls[0]["url"] == "http://nextseek.invalid/nextseek_api/samples/advanced_search/"
+    assert "?" not in transport.calls[0]["url"]
+    assert result["ok"] is True
+
+
+def test_a_control_character_method_is_sent_stripped(transport):
+    """`\\r\\nGET` is approved as GET after stripping; GET is therefore what must be
+    sent, not the raw string with the CRLF still in it."""
+    result = tool_nextseek_api_request(
+        _Cfg(), endpoint="/nextseek_api/assays/", method="\r\nGET"
+    )
+    assert len(transport.calls) == 1
+    assert transport.calls[0]["method"] == "GET"
+    assert result["ok"] is True
+
+
+def test_canonical_callers_are_byte_identical_to_before(transport):
+    """The normalisation must be a no-op for the paths real callers actually pass —
+    every catalog path is already canonical."""
+    for endpoint in READ_POSTS:
+        transport.calls.clear()
+        tool_nextseek_api_request(_Cfg(), endpoint=endpoint, method="POST")
+        assert transport.calls[0]["url"] == f"http://nextseek.invalid{endpoint}"
+        assert transport.calls[0]["method"] == "POST"
+
+
 # --------------------------------------------------------------- catalog crosscheck
 
 

@@ -81,10 +81,11 @@ The REST corridor is READ-ONLY. It retrieves records; it never creates, changes,
 Select the best endpoint from the catalog. Evaluate each endpoint's description against the user's intent and select the most specific match. advanced_search is a broad catch-all for attribute/keyword searches; use it only when no more targeted endpoint fits.
 
 Do NOT use new_search when:
-- The user wants to create, register, add, update, patch, edit, or delete a record. That is
-  write intent, and no path in this file can write; use unsupported. A write request that
-  also names a UID, a sample type, or a project is still a write request — those entities
-  must not pull it back into new_search.
+- The user wants to create, register, add, update, patch, edit, or delete a record stored in
+  NExtSEEK. That is write intent, and no path in this file can write; use unsupported. A write
+  request that also names a UID, a sample type, or a project is still a write request — those
+  entities must not pull it back into new_search. (Building a GEO/PRIDE/SRA submission or an
+  nf-core samplesheet from existing records is not a write; that is reporter.)
 - The question requires traversing relationships between Samples, Studies, and Investigations; use graph_query.
 - The question cannot be satisfied by any endpoint in the catalog; use unsupported.
 - The user asks for child or data records constrained by an associated parent sample type, unless a direct child-by-parent REST endpoint is available. Do not use the parent sample type as a free-text keyword when it is functioning as a relationship constraint.
@@ -167,12 +168,16 @@ PATH: unsupported
 --------------------------------------------------
 
 Use when no downstream path can actually satisfy the request. Examples:
-- Creating, registering, updating, patching, editing, or deleting a sample or any other
-  record. Every path described in this file is read-only; none of them can write to
-  NExtSEEK. This holds no matter how specific and well-formed the request is, and no
-  matter how clearly a UID is named: "delete NHP-220630FLY-1-PUB", "change the scientist
-  on TIS-230324BOO-39-PUB", "register a new tissue sample for the water study", and
-  "set the study name for sample X" are all unsupported here.
+- Creating, registering, updating, patching, editing, or deleting a sample, an investigation,
+  a project, or any other record in NExtSEEK. Every path described in this file is read-only;
+  none of them can write to NExtSEEK. This holds no matter how specific and well-formed the
+  request is, and no matter how clearly a UID is named: "delete NHP-220630FLY-1-PUB", "change
+  the scientist on TIS-230324BOO-39-PUB", "register a new tissue sample for the water study",
+  "Create Investigation 'Testing 404'", and "set the study name for sample X" are all
+  unsupported here.
+  This is about changing STORED RECORDS only. Assembling a GEO, PRIDE, or SRA submission, an
+  RPPR, or an nf-core samplesheet out of records that already exist writes nothing to
+  NExtSEEK — those are reporter, not unsupported.
 - Requests for visualizations or charts; the system cannot render graphics.
 - Analytical computations: statistical comparison, differential expression, clustering, fold-change analysis between groups.
 - General scientific domain knowledge: explaining what a molecule does, why something is carcinogenic, what a gene encodes. These are knowledge questions, not data queries.
@@ -187,12 +192,23 @@ HOW TO CHOOSE
 
 Work through these questions in order.
 
-1. Is the user asking to create, register, add, update, patch, edit, set, change, or delete a record?
+1. Is the user asking to create, register, add, update, patch, edit, set, change, or delete a
+record STORED IN NExtSEEK — a sample, an investigation, a project?
 That is write intent, and every path here is read-only, so the answer is unsupported.
 Decide this before anything else. A write request routinely names a UID, a sample type, or
 a project, and those entities must not carry it into new_search — "update NHP-220630FLY-1-PUB's
 scientist" is a write, not a UID retrieval. Asking to SEE a record is a read; asking to CHANGE
 one is not.
+The test is whether the request would alter what the database stores. Building a deliverable
+FROM records that already exist does not alter anything, so it is NOT a write: "create a PRIDE
+submission", "create an SRA submission", "create a GEO deposit file" and "create an nf-core
+samplesheet" all assemble a file out of existing records, leave NExtSEEK untouched, and belong
+to reporter — do not stop here, go on to step 4. By contrast "Create Investigation 'Testing
+404'", "register a new mouse sample" and "update the scientist field on NHP-220630FLY-1-PUB"
+would change what is stored, and those stop here as unsupported.
+This carve-out is only for the named repository and report targets — GEO, PRIDE, SRA, RPPR /
+NIH report, and nf-core samplesheets. A plain "export these to Excel" or "export to JSON" is
+not one of them; leave those to step 2.
 
 2. Is the user asking for an unscoped bulk export or download of all samples, all records, or the whole database?
 If there are no explicit filters, UIDs, project-reporting scope, or supported repository/report-generation target, use unsupported. Do not reinterpret unscoped bulk export as an unfiltered advanced_search.

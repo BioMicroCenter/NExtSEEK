@@ -53,8 +53,14 @@ def _normalize_endpoint_path(endpoint: str) -> str:
     return f"/{path}/" if path else "/"
 
 
-def _is_read_only_request(endpoint: str, method: str | None) -> bool:
-    """True when this (method, path) pair may leave the process.
+def _canonical_method(method: str | None) -> str:
+    """Canonicalise the verb: strip surrounding whitespace and control characters,
+    upper-case. This is the form both the decision AND the outgoing request use."""
+    return str(method or "").strip().upper()
+
+
+def _is_read_only_pair(verb: str, path: str) -> bool:
+    """The policy itself, over ALREADY-CANONICAL inputs.
 
     DEFAULT-DENY. Reads are allowed unconditionally; POST is allowed only for the
     three known search endpoints; every other verb — PATCH, PUT, DELETE, or anything
@@ -62,12 +68,16 @@ def _is_read_only_request(endpoint: str, method: str | None) -> bool:
     survives the catalog changing: a mutating endpoint added later is denied because
     nothing allowed it, not permitted because nothing forbade it.
     """
-    verb = str(method or "").strip().upper()
     if verb in _READ_METHODS:
         return True
     if verb == "POST":
-        return _normalize_endpoint_path(endpoint) in _READ_POST_PATHS
+        return path in _READ_POST_PATHS
     return False
+
+
+def _is_read_only_request(endpoint: str, method: str | None) -> bool:
+    """True when this (method, path) pair may leave the process. Canonicalises first."""
+    return _is_read_only_pair(_canonical_method(method), _normalize_endpoint_path(endpoint))
 
 
 def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=None, queryParameters=None):
@@ -77,9 +87,15 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
 
     Read-only: mutating (method, path) pairs are refused here, before any network work.
     """
-    # First statement in the function on purpose — the refusal must not depend on
+    # Canonicalise ONCE, then decide, validate, build the URL and dispatch on the same
+    # two strings. Approving one form and sending another is the classic parser
+    # differential; `verb` and `path` below are what was approved and what goes out.
+    verb = _canonical_method(method)
+    path = _normalize_endpoint_path(endpoint)
+
+    # First decision in the function on purpose — the refusal must not depend on
     # config state, request-body validation, or anything else that could be absent.
-    if not _is_read_only_request(endpoint, method):
+    if not _is_read_only_pair(verb, path):
         msg = (
             f"Write operations are not permitted on the NExtSEEK REST path: "
             f"{method} {endpoint} was blocked. This tool is read-only; sample "
@@ -108,18 +124,18 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
             "method": method,
         }
 
-    is_valid, error_payload = config.validate_request_body(endpoint, requestBody, method)
+    is_valid, error_payload = config.validate_request_body(path, requestBody, verb)
     if not is_valid:
         return error_payload
 
-    url = f"{base}/{endpoint.lstrip('/')}"
+    url = f"{base}/{path.lstrip('/')}"
     auth = (config.API_USER, config.API_PASS) if config.API_USER and config.API_PASS else None
     request_timeout = 90
-    if endpoint == "/nextseek_api/samples/advanced_search/":
+    if path == "/nextseek_api/samples/advanced_search/":
         request_timeout = 120
 
     print("[DEBUG][API] Request:")
-    print(f"  METHOD: {method}")
+    print(f"  METHOD: {verb}")
     print(f"  URL:    {url}")
     print(f"  PARAMS: {queryParameters}")
     print(f"  BODY:   {requestBody}")
@@ -128,7 +144,7 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
 
     try:
         resp = requests.request(
-            method=method,
+            method=verb,
             url=url,
             auth=auth,
             params=queryParameters,
@@ -150,7 +166,8 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
             "ok": resp.ok,
             "url": url,
             "status_code": resp.status_code,
-            "method": method,
+            # `verb`/`url` so the record matches the request that was actually sent.
+            "method": verb,
             "query": queryParameters,
             "body": requestBody,
             "data": _sanitize_api_row_strings(data),
