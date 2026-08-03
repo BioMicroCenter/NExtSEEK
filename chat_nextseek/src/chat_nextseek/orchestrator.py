@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import re
 import shutil
 import sys
@@ -57,6 +58,188 @@ from .tee import Tee
 
 SendEvent = Callable[[str, dict[str, Any]], None]
 
+_LOG = logging.getLogger(__name__)
+
+# --------------------------------------------------------------------------
+# Turn identity
+# --------------------------------------------------------------------------
+#
+# Every entry point below (run_query, run_query_plan, run_pipeline_launch)
+# used to carry the same four-line seam: override config.API_USER/API_PASS
+# only `if credentials:` and only for the truthy halves. With absent session
+# credentials the turn proceeded as whatever account ChatConfig was built
+# with -- `demo`/`demopassword` in the shipped template -- silently answering
+# with a different identity's permissions than the asking user's.
+#
+# `credentials is None` means something DIFFERENT from an empty mapping, and
+# the distinction is what makes fail-closed safe to default:
+#
+#   * Every request-scoped caller (nextseek_api/services/assistant.py,
+#     cc_assistant.py, evaluator.py) passes a MAPPING even when it could not
+#     resolve the caller -- the values are simply None. That is the case this
+#     gate exists for: a real asking user exists and we failed to bind to them.
+#   * `credentials is None` comes from the single-operator surfaces (cli.py,
+#     app.py, mcp_server.py, e2e/runner.py) where the ChatConfig credentials
+#     ARE the operator's own identity and there is nobody to impersonate.
+#     Those warn but are never refused.
+#
+# Two known consequences of that split, both verified, neither an oversight:
+#
+#   * DRF TOKEN callers are now REFUSED. AssistantViewSet (and CCAssistantViewSet)
+#     list TokenAuthentication in authentication_classes and _check_auth resolves
+#     ["BASIC","SESSION","TOKEN"], but credential resolution (assistant.py:728)
+#     resolves only ["BASIC","SESSION"] and then falls back to
+#     request.session.get(...), which is empty for a token request. So a token
+#     caller arrives here as {"api_user": None, "api_pass": None} and is refused.
+#     That is this gate working as intended -- a token caller previously ran
+#     silently as the service account, which IS the hole -- but it is an
+#     undocumented break of a supported auth mode. The real repair belongs in
+#     services/assistant.py (resolve TOKEN into credentials, or 401 at the front
+#     door); it is filed as a follow-up, not fixable from here.
+#   * One single-operator surface passes a MAPPING and so CAN be refused:
+#     evaluator/runner.py::_build_retry_credentials returns None when the config
+#     has neither half and a complete dict when it has both -- but a PARTIAL
+#     mapping when only API_USER or only API_PASS is set. A half-configured
+#     batch-evaluator CLI therefore refuses. Only reachable on a misconfigured
+#     ChatConfig; the clean repair (return None unless both halves are present)
+#     is filed as a follow-up. Do not read the bullet above as absolute.
+#
+# Default is OFF (fail closed). The nessie_tests harness authenticates over
+# HTTP Basic (nessie_tests/http_driver.py) which assistant.py resolves via
+# resolve_seek_auth into a complete pair, so it never takes this path.
+_ALLOW_SERVICE_ACCOUNT_FALLBACK_DEFAULT = False
+
+_IDENTITY_LOG_MARK = "[SECURITY][IDENTITY]"
+
+_IDENTITY_REFUSAL_REPLY = (
+    "**This request was not run.**\n\n"
+    "The assistant could not establish which NExtSEEK account this turn belongs to. "
+    "Running it anyway would answer using a shared service account's permissions "
+    "rather than yours, so the turn was refused instead. Sign in again (or supply "
+    "Basic-auth credentials) and retry.\n\n"
+    "_Operators: set `NEXTSEEK_ALLOW_SERVICE_ACCOUNT_FALLBACK` on the ChatConfig "
+    "to re-enable the service-account fallback._"
+)
+
+
+def _coerce_setting_bool(value: Any, *, default: bool) -> bool:
+    """Mirror ChatConfig._coerce_bool so a string 'false' from a config_map stays false."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _emit_identity_warning(message: str) -> None:
+    """Warn on both surfaces an operator actually reads.
+
+    Both land in CONTAINER stdout/stderr -- `docker logs nextseek` -- and NOT in
+    the per-turn outputs/<ts>_<user>/console.txt trace. The identity gate runs
+    before _ensure_query_log_dir, which is what installs the Tee onto
+    sys.stdout/sys.stderr, so by design there is no per-turn trace yet (on the
+    refuse branch there never will be: no run directory is created for a turn
+    that did not run). Look in `docker logs`, not in outputs/, when triaging
+    "why did this turn answer as someone else?".
+
+    logging.warning carries the severity a log aggregator can filter on; with no
+    chat_nextseek logger and no root handler configured in dmac/settings.py it
+    reaches stderr via Python's lastResort handler. The print matches this
+    module's diagnostic convention and keeps the line adjacent to the rest of
+    the turn's output.
+    """
+    _LOG.warning(message)
+    print(message)
+
+
+def _credentials_are_complete(credentials: dict[str, str] | None) -> bool:
+    """True only when BOTH halves of a per-request identity are present.
+
+    A half-supplied pair is worse than none: the old code applied the supplied
+    half and left the other on the service account, producing a mixed identity
+    (user A's name, the service account's password). Partial counts as missing.
+    """
+    if not isinstance(credentials, dict):
+        return False
+    return bool(credentials.get("api_user")) and bool(credentials.get("api_pass"))
+
+
+def _service_account_fallback_allowed(config: ChatConfig) -> bool:
+    """Read the fallback setting off the config object (threaded from settings, never os.getenv)."""
+    return _coerce_setting_bool(
+        getattr(config, "NEXTSEEK_ALLOW_SERVICE_ACCOUNT_FALLBACK", None),
+        default=_ALLOW_SERVICE_ACCOUNT_FALLBACK_DEFAULT,
+    )
+
+
+def _identity_gate(
+    session: SessionState | SessionStateProxy,
+    config: ChatConfig,
+    credentials: dict[str, str] | None,
+    send_event: SendEvent | None,
+    *,
+    entry_point: str,
+) -> tuple[ChatConfig, dict[str, Any] | None]:
+    """Bind the turn to the caller's identity, or refuse to impersonate.
+
+    Returns ``(config, refusal)``. When ``refusal`` is not None the entry point
+    must return it unchanged: it is an already-emitted ``query_complete``
+    payload carrying a user-facing explanation, chosen over raising so the
+    caller renders a diagnosable refusal instead of a 500 (a bare raise escapes
+    run_query through its re-raising ``except Exception`` and becomes a task
+    crash reported as "Internal pipeline error").
+
+    On the happy path a SHALLOW copy of config is made so the shared singleton
+    is never mutated; LLM clients, catalogs, and prompts stay shared by reference.
+    """
+    if _credentials_are_complete(credentials):
+        config = copy.copy(config)
+        config.API_USER = credentials["api_user"]
+        config.API_PASS = credentials["api_pass"]
+        return config, None
+
+    # Name the account only. NEVER the password -- not the value, not a mask,
+    # not a length hint.
+    account = getattr(config, "API_USER", None) or "<unset>"
+    request_scoped = credentials is not None
+    supplied = [
+        key for key in ("api_user", "api_pass")
+        if isinstance(credentials, dict) and credentials.get(key)
+    ]
+    if supplied:
+        detail = f"incomplete per-request credentials (only {', '.join(supplied)} supplied)"
+    elif request_scoped:
+        detail = "no per-request credentials"
+    else:
+        detail = "no per-request identity supplied (single-operator surface)"
+
+    if request_scoped and not _service_account_fallback_allowed(config):
+        message = (
+            f"{_IDENTITY_LOG_MARK} {entry_point}: refusing this turn -- {detail}; "
+            f"falling back to the configured account {account!r} is disabled "
+            f"(NEXTSEEK_ALLOW_SERVICE_ACCOUNT_FALLBACK)."
+        )
+        _emit_identity_warning(message)
+        debug_payload: dict[str, Any] = {
+            "identity_refused": True,
+            "reason": detail,
+            "fallback_account": str(account),
+            "entry_point": entry_point,
+        }
+        try:
+            session["last_debug"] = debug_payload
+        except Exception:  # pragma: no cover - exotic session proxies
+            pass
+        return config, _emit_query_complete(
+            send_event, _IDENTITY_REFUSAL_REPLY, debug_payload, None,
+        )
+
+    _emit_identity_warning(
+        f"{_IDENTITY_LOG_MARK} {entry_point}: {detail}; this turn runs as the "
+        f"configured account {account!r}, NOT as the asking user."
+    )
+    return config, None
+
 
 def _emit_query_complete(
     send_event: SendEvent | None,
@@ -96,13 +279,15 @@ def run_pipeline_launch(
     parser/reporter classification. Runs on the async task path, so pipeline_agent's
     real first reply is surfaced (no canned turn) and there is no 30 s bin ReadTimeout.
     Follow-up turns continue via the F9 router gate → _handle_pipeline_agent_turn.
+
+    credentials — see _identity_gate. An incomplete per-request identity refuses
+    the turn rather than launching a pipeline as the service account.
     """
-    if credentials:
-        config = copy.copy(config)
-        if credentials.get("api_user"):
-            config.API_USER = credentials["api_user"]
-        if credentials.get("api_pass"):
-            config.API_PASS = credentials["api_pass"]
+    config, identity_refusal = _identity_gate(
+        session, config, credentials, send_event, entry_point="run_pipeline_launch",
+    )
+    if identity_refusal is not None:
+        return identity_refusal
 
     log_dir = _ensure_query_log_dir(session, config)
     if send_event:
@@ -420,16 +605,17 @@ def run_query(
     Shared query orchestrator for Streamlit, CLI, and async/SSE consumers.
     Runs the full agent pipeline, updates session state, and emits optional progress events.
 
-    credentials — optional dict with keys 'api_user' and/or 'api_pass'.  When provided,
-    a shallow copy of config is made so the shared singleton is never mutated; all LLM
-    clients, catalogs, and prompts remain shared by reference.
+    credentials — optional dict with keys 'api_user' and 'api_pass'.  When BOTH are
+    present a shallow copy of config is made so the shared singleton is never mutated;
+    all LLM clients, catalogs, and prompts remain shared by reference.  Anything less
+    than a complete pair is an unresolved identity: see _identity_gate, which warns and
+    (by default) refuses the turn rather than running it as the service account.
     """
-    if credentials:
-        config = copy.copy(config)
-        if credentials.get("api_user"):
-            config.API_USER = credentials["api_user"]
-        if credentials.get("api_pass"):
-            config.API_PASS = credentials["api_pass"]
+    config, identity_refusal = _identity_gate(
+        session, config, credentials, send_event, entry_point="run_query",
+    )
+    if identity_refusal is not None:
+        return identity_refusal
 
     log_dir = _ensure_query_log_dir(session, config)
     artifact_store = ArtifactStore(log_dir)
@@ -1200,14 +1386,13 @@ def run_query_plan(
     Planner-based orchestrator: entity -> parser -> planner -> executor -> chatter -> evaluator.
     Parallel structure to `run_query`, using the same result contract.
 
-    credentials — same shallow-copy semantics as run_query.
+    credentials — same shallow-copy and identity-gate semantics as run_query.
     """
-    if credentials:
-        config = copy.copy(config)
-        if credentials.get("api_user"):
-            config.API_USER = credentials["api_user"]
-        if credentials.get("api_pass"):
-            config.API_PASS = credentials["api_pass"]
+    config, identity_refusal = _identity_gate(
+        session, config, credentials, send_event, entry_point="run_query_plan",
+    )
+    if identity_refusal is not None:
+        return identity_refusal
 
     log_dir = _ensure_query_log_dir(session, config)
     artifact_store = ArtifactStore(log_dir)
