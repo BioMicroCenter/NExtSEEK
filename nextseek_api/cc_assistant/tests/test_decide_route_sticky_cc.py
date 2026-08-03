@@ -165,3 +165,61 @@ def test_broken_history_falls_through_to_the_router(router_says_ns):
     d = cc_svc._decide_route(_User(), _Req("how many mice"), force_cc=False,
                              history=[_Exploding()])
     assert d is router_says_ns
+
+
+# ----------------------------------------- `unrelated` is transparent to stickiness
+def test_an_unrelated_aside_does_not_end_stickiness(router_says_ns):
+    """CC -> unrelated -> follow-up must stay on CC.
+
+    An `unrelated` turn runs no engine and writes no bundle, so inheriting its
+    router_choice would drop the chat back to NS and the follow-up would then
+    fail for want of an NS bundle to refine.
+    """
+    d = cc_svc._decide_route(
+        _User(), _Req("now group those by genotype"), force_cc=False,
+        history=[_turn(cc_router.ROUTE_CC, position=1),
+                 _turn(cc_router.ROUTE_UNRELATED, position=2)])
+    assert d.route == cc_router.ROUTE_CC
+    assert d.source == "sticky"
+
+
+def test_the_scan_stops_at_a_failed_cc_turn_it_does_not_look_past_it(router_says_ns):
+    """The load-bearing half: transparency must not resurrect a broken route.
+
+    The history is deliberately healthy-CC THEN failed-CC. A guard that keeps
+    scanning for "any completed CC turn" skips the failure, finds the healthy
+    turn behind it, and traps the chat on a route that just broke. Only a guard
+    that stops at the first engine-running turn gets this right.
+
+    An [errored CC, unrelated] history does NOT distinguish the two — both
+    implementations return False — which is why this test does not use it.
+    """
+    d = cc_svc._decide_route(
+        _User(), _Req("how many mice"), force_cc=False,
+        history=[_turn(cc_router.ROUTE_CC, position=1),
+                 _turn(cc_router.ROUTE_CC, status="error", position=2)])
+    assert d is router_says_ns
+
+
+def test_a_failed_cc_turn_behind_an_unrelated_aside_is_still_not_sticky(router_says_ns):
+    d = cc_svc._decide_route(
+        _User(), _Req("how many mice"), force_cc=False,
+        history=[_turn(cc_router.ROUTE_CC, status="error", position=1),
+                 _turn(cc_router.ROUTE_UNRELATED, position=2)])
+    assert d is router_says_ns
+
+
+def test_an_unrelated_turn_after_ns_is_still_not_sticky(router_says_ns):
+    d = cc_svc._decide_route(
+        _User(), _Req("how many mice"), force_cc=False,
+        history=[_turn(cc_router.ROUTE_NS, position=1),
+                 _turn(cc_router.ROUTE_UNRELATED, position=2)])
+    assert d is router_says_ns
+
+
+def test_history_of_only_unrelated_turns_is_not_sticky(router_says_ns):
+    d = cc_svc._decide_route(
+        _User(), _Req("how many mice"), force_cc=False,
+        history=[_turn(cc_router.ROUTE_UNRELATED, position=1),
+                 _turn(cc_router.ROUTE_UNRELATED, position=2)])
+    assert d is router_says_ns

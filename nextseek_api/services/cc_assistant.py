@@ -201,15 +201,30 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
 
 
 def _prev_route_was_cc(history: list[router_context.HistoryTurn] | None) -> bool:
-    """True when the immediately preceding turn in this chat ran CC and completed.
+    """True when the most recent ENGINE-RUNNING turn in this chat ran CC and completed.
 
-    Deliberately dumb: only ``history[-1]``, only ``status == "completed"``. A
-    failed CC turn must NOT trap the chat on a route that just broke.
+    ``unrelated`` turns are transparent. They never reach an engine, never produce
+    a bundle and carry no routing state worth inheriting, so scanning past them is
+    what keeps one off-topic aside from silently ending stickiness: with a plain
+    ``history[-1]`` test, "cluster these samples" (CC) -> "what's the weather"
+    (unrelated) -> "now group those by genotype" dropped back to NS and then failed
+    for want of an NS bundle to refine, which is the exact breakage sticky CC
+    exists to prevent.
+
+    The scan stops at the FIRST engine-running turn it finds, whatever its status.
+    That is deliberate: a failed CC turn must NOT trap the chat on a route that
+    just broke, so we must not keep looking past it for an older healthy CC turn.
+
+    Bounded by ``router_context.MAX_HISTORY_TURNS`` (5), so three consecutive
+    ``unrelated`` turns push the CC turn out of the window and stickiness is lost
+    regardless. Accepted: the window is the router's own context limit.
     """
-    return bool(history) and (
-        history[-1].router_choice == cc_router.ROUTE_CC
-        and history[-1].status == "completed"
-    )
+    for turn in reversed(history or []):
+        if turn.router_choice == cc_router.ROUTE_UNRELATED:
+            continue
+        return (turn.router_choice == cc_router.ROUTE_CC
+                and turn.status == "completed")
+    return False
 
 
 def _decide_route(user, req, *, force_cc: bool, session=None, history: list[router_context.HistoryTurn] | None = None) -> cc_router.RouteDecision:
