@@ -31,9 +31,36 @@ import pathlib
 import re
 import sys
 
-# Keys build_report.py reads off each manifest entry.
-_ENTRY_KEYS = ("id", "family", "status", "route", "engine", "elapsed_s",
-               "failed_criteria", "expected_fail", "cost", "reason")
+# (manifest field, the key build_report.py writes it under in CASES, the value to
+# use when the report predates the field).
+#
+# LIVE, not decoration: `main` rebuilds every entry from this table. The version
+# before it was a comment-only tuple that named `cost` and `reason` while the code
+# beside it silently dropped both — and dropped `outage` with them, which is the
+# one that mattered. `runner._is_real_failure` EXEMPTS a provider outage from the
+# gate; an entry rebuilt without the flag is an ordinary `error`, so rebuilding a
+# report converted every exempt outage back into a gate-failing red. Ten of the
+# eighteen reds in the 2026-08-03 seed-6 run were one Bedrock outage, so that is
+# not a rounding error on a rebuild — it is most of the failure signal.
+#
+# `route_source`/`route_sources` are here for the same reason at lower stakes:
+# without them a rebuilt manifest cannot say whether a turn was routed by a
+# decision or fell through to the keyword regex, and `classify_entries` silently
+# stops reporting heuristic routing.
+_ENTRY_FIELDS = (
+    ("family", "family", ""),
+    ("status", "status", "failed"),
+    ("route", "route", None),
+    ("engine", "engine", None),
+    ("route_source", "route_source", None),
+    ("route_sources", "route_sources", []),
+    ("cost", "cost", None),
+    ("elapsed_s", "elapsed", 0.0),
+    ("failed_criteria", "failed", []),
+    ("expected_fail", "xfail", False),
+    ("outage", "outage", False),
+    ("reason", "reason", ""),
+)
 # Keys it reads off the triage, top level.
 _TRIAGE_KEYS = ("title", "eyebrow", "headline", "subhead", "runroot", "runline",
                 "reframe", "coverage_lede", "graph_limit", "stats", "coverage",
@@ -66,15 +93,13 @@ def main() -> None:
     entries = []
     verdicts = {}
     for c in cases:
-        entries.append({
-            "id": c["id"], "family": c.get("family", ""),
-            "tier": "full", "status": c.get("status", "failed"),
-            "route": c.get("route"), "engine": c.get("engine"),
-            "elapsed_s": c.get("elapsed") or 0.0,
-            "failed_criteria": c.get("failed", []),
-            "expected_fail": c.get("xfail", False),
-            "observations": [],
-        })
+        # `observations` stays empty: a built report carries the per-turn evidence
+        # under TURNS, not the per-criterion rows, so there is nothing to recover.
+        entry = {"id": c["id"], "tier": "full", "observations": []}
+        for field, key, default in _ENTRY_FIELDS:
+            value = c.get(key)
+            entry[field] = default if value is None else value
+        entries.append(entry)
         # The triage half of each case record.
         if any(c.get(k) for k in ("verdict", "head", "observed", "note")):
             verdicts[c["id"]] = {k: c[k] for k in ("verdict", "task", "head", "observed", "note")

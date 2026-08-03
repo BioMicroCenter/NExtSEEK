@@ -98,6 +98,136 @@ def test_a_case_with_no_observations_renders_no_table(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# `CriterionObservation.skipped` was added so a reader would not have to
+# string-match `reason`, and pinned in the manifest — then the one renderer this
+# tree owns never read it. A skipped row carries `passed=True` (an unevaluable
+# criterion is not evidence either way), so it rendered in the GREEN class,
+# inside an "all passed" count, with no `reason` column to fall back on. The
+# operator's signal for a vacuous turn was zero.
+#
+# Blast radius: `tree.then_ask_about` is the only multi-turn variant in any
+# floored family, so it is the entire population the per-case vacuity ruling
+# applies to — and it is exactly the case that rendered a fully skipped
+# follow-up as two green rows.
+# --------------------------------------------------------------------------- #
+
+def _skip_entry(*obs, status="passed"):
+    """`obs` are 7-tuples: field, op, expected, observed, passed, skipped, reason."""
+    from nessie_tests.manifest import CriterionObservation, NessieManifestEntry
+    return NessieManifestEntry(
+        id="tree.then_ask_about", family="search_tree", tier="full", status=status,
+        observations=[CriterionObservation(turn=t, field=f, op=o, expected=e, observed=v,
+                                           passed=p, skipped=s, reason=r)
+                      for t, f, o, e, v, p, s, r in obs])
+
+
+SKIPPED_FOLLOW_UP = (
+    ("seed", "api_ok", "true", None, True, True, False, ""),
+    ("follow_up", "chat_log.length", "gte", 2, None, True, True,
+     "chat_log.length: SKIPPED — field family not observable over HTTP"),
+    ("follow_up", "outcome_observed", "true", None, False, True, True,
+     "outcome_observed: SKIPPED — NS outcome field not observable on a container_cc turn"),
+)
+
+
+def test_a_skipped_criterion_is_not_rendered_as_a_pass(tmp_path):
+    """The defect: `passed=True, skipped=True` rendered `class='passed'`."""
+    doc = _html(_skip_entry(*SKIPPED_FOLLOW_UP), tmp_path)
+
+    assert "class='skipped'" in doc, "a skipped criterion renders in the pass class"
+    assert ".skipped{" in doc, "the class has no CSS, so it renders like every other row"
+
+
+def test_the_html_says_skipped_in_words_not_only_in_a_class(tmp_path):
+    """A colour is not a signal on a printed or pasted report."""
+    doc = _html(_skip_entry(*SKIPPED_FOLLOW_UP), tmp_path)
+
+    assert "SKIPPED" in doc
+
+
+def test_the_summary_counts_skips_separately_from_passes(tmp_path):
+    """`observed (3 criteria, all passed)` was the exact claim being made about a
+    case whose entire second turn asserted nothing."""
+    doc = _html(_skip_entry(*SKIPPED_FOLLOW_UP), tmp_path)
+
+    assert "3 criteria, 2 skipped" in doc
+    assert "all passed" not in doc
+
+
+def test_a_run_with_failures_and_skips_reports_both(tmp_path):
+    doc = _html(_skip_entry(
+        ("main", "route", "eq", "nextseek_query", "container_cc", False, False, ""),
+        ("main", "chat_log.length", "gte", 2, None, True, True, "SKIPPED — not over HTTP"),
+        ("main", "api_ok", "true", None, True, True, False, ""),
+    ), tmp_path)
+
+    assert "3 criteria, 1 failed, 1 skipped" in doc
+
+
+def test_the_reason_a_criterion_was_skipped_is_readable(tmp_path):
+    """Two skips with the same colour and no text are untriageable: the operator
+    cannot tell "not observable over HTTP" from "not observable on a CC turn"."""
+    doc = _html(_skip_entry(*SKIPPED_FOLLOW_UP), tmp_path)
+
+    assert "NS outcome field not observable on a container_cc turn" in doc
+    assert "field family not observable over HTTP" in doc
+
+
+def test_a_genuine_pass_is_still_a_pass(tmp_path):
+    """The control. Without it every assertion above could hold by calling
+    everything skipped."""
+    doc = _html(_skip_entry(("main", "api_ok", "true", None, True, True, False, "")), tmp_path)
+
+    assert "class='passed'" in doc
+    assert "class='skipped'" not in doc
+    assert "1 criteria, all passed" in doc
+
+
+def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
+    """`README.md` tells the operator that a vacuous turn stays visible in the
+    observation table with its rows marked SKIPPED. Drives the REAL runner over
+    the real `tree.then_ask_about` — NS seed, container_cc follow-up — so the
+    claim is held against the harness rather than against a hand-built entry."""
+    from nessie_tests import corpus, runner
+
+    overlay = Path(__file__).resolve().parents[1] / "overlay.json"
+    assert any(v.id == "tree.then_ask_about" for v in corpus.merged(overlay))
+
+    ns_seed = {"status": "completed", "progress": [
+        {"event": "route_decided", "data": {"route": "nextseek_query", "source": "baml"}},
+        {"event": "query_complete", "data": {
+            "reply": "Here is the tree.",
+            "debug": {"api_plan": {"endpoint": "/nextseek_api/sample-tree/"},
+                      "api_result_meta": {"ok": True, "row_count": 7}}}}]}
+    cc_follow = {"status": "completed", "progress": [
+        {"event": "route_decided", "data": {"route": "container_cc", "source": "baml"}},
+        {"event": "query_complete", "data": {
+            "reply": "I have no idea what you are talking about", "mode": "cc"}}]}
+
+    seen = []
+
+    def post_query(body):
+        seen.append(body)
+        return {"task_id": f"t{len(seen)}", "session_id": "s"}
+
+    m = runner.run_suite(
+        base_url="http://dev:8000", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=overlay, out_dir=tmp_path, variant_id="tree.then_ask_about",
+        post_query=post_query,
+        get_progress=lambda tid: ns_seed if tid == "t1" else cc_follow,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    entry = m.entries[0]
+    skipped = [o for o in entry.observations if o.skipped]
+    assert {o.field for o in skipped} == {"chat_log.length", "outcome_observed"}
+    assert all(o.turn == "follow_up" for o in skipped), "the SEED must still assert something"
+
+    doc = (tmp_path / "report.html").read_text(encoding="utf-8")
+    assert "SKIPPED" in doc, "the report gives no signal that a whole turn asserted nothing"
+    assert f"{len(entry.observations)} criteria, {len(skipped)} skipped" in doc
+
+
+# --------------------------------------------------------------------------- #
 # T3.8 — three run directories used to be indistinguishable.
 # --------------------------------------------------------------------------- #
 

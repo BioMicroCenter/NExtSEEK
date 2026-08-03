@@ -76,21 +76,19 @@ An `error` **without** the outage flag — a dead endpoint, five consecutive pol
 failures — still fails the gate and is still infrastructure. Check the task row
 before calling it either way.
 
-**`scripts/build_report.py` does not yet know about any of these.** Its default
-stat tiles count `passed`, `failed` and `error` only (`build_report.py:174-176`),
-so two things go wrong in the summary row:
+**`scripts/build_report.py` writes those three answers as its defaults.** It has
+a tile each for `provider outages`, `xpass` and `asserted nothing`, `errored`
+counts only the errors that are NOT outages, and an untriaged case takes the
+verdict from the table above rather than `real` — see `DEFAULT_VERDICT` in that
+file, and `tests/test_output_skill_scripts.py`, which pins every mapping.
 
-- an **outage** lands in the `errored` tile with tone `drift` — exactly the
-  mis-read the status was added to prevent;
-- **`xpass` and `no_assertions` appear in no tile at all.** They are inside the
-  "cases run" total and nowhere else, so a run with five vacuous cases just shows
-  five fewer passes, unexplained.
+That is a DEFAULT, not a judgement. The tool cannot tell a stale expectation from
+a real one; it can only stop captioning an outage "real product defect" before you
+have looked. Override any of it per case in `triage.json`, or replace the tiles
+wholesale with your own `stats` block.
 
-Each case's own record does carry its real `status`, so the loss is confined to
-the tiles. Until that is fixed, read `status` and `outage` off `manifest.json`
-and state the counts explicitly in `triage.json`'s `stats`, which replaces the
-default tiles wholesale. (`graph_limit` also still defaults to the stale `250` at
-`build_report.py:191`; set it in `triage.json` for any 2026-08 run.)
+`graph_limit` now comes from `nessie_tests/limits.py` (currently 5000). Set it in
+`triage.json` only to review an OLDER run that really was capped at 250.
 
 Copy `examples/triage.json` and edit. Each verdict entry takes:
 

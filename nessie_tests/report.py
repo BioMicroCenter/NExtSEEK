@@ -5,7 +5,8 @@ from nessie_tests.manifest import NessieManifest, cost_summary
 
 _ROW = ("<tr class='{cls}'><td>{id}</td><td>{family}</td><td>{route}</td><td>{engine}</td>"
         "<td>{status}</td><td>{reason}</td></tr>")
-_OBS_ROW = "<tr class='{cls}'><td>{turn}</td><td>{field}</td><td>{expected}</td><td>{observed}</td></tr>"
+_OBS_ROW = ("<tr class='{cls}'><td>{turn}</td><td>{field}</td><td>{expected}</td>"
+            "<td>{observed}</td><td>{verdict}</td><td>{reason}</td></tr>")
 
 
 def _display_status(entry) -> str:
@@ -33,8 +34,41 @@ def _display_status(entry) -> str:
     return entry.status
 
 
+def _obs_class(o) -> str:
+    """Three outcomes, three classes — never two.
+
+    ``CriterionObservation.skipped`` carries ``passed=True``, because an
+    unevaluable criterion is not evidence in either direction. Reading only
+    ``passed`` therefore painted a skip GREEN and folded it into "all passed",
+    which is the exact claim the flag was added to make impossible.
+    """
+    if o.skipped:
+        return "skipped"
+    return "passed" if o.passed else "failed"
+
+
+def _observations_label(observations) -> str:
+    """The ``<details>`` summary, counting skips apart from passes.
+
+    "N criteria, all passed" about a case whose entire second turn was skipped is
+    the line a reader acts on WITHOUT opening the table, and it was wrong for
+    exactly the population the per-case vacuity ruling covers:
+    ``tree.then_ask_about`` is the only multi-turn variant in any floored family.
+    """
+    n_failed = sum(1 for o in observations if not o.passed and not o.skipped)
+    n_skipped = sum(1 for o in observations if o.skipped)
+    parts = [f"{len(observations)} criteria"]
+    if n_failed:
+        parts.append(f"{n_failed} failed")
+    if n_skipped:
+        parts.append(f"{n_skipped} skipped")
+    if not n_failed and not n_skipped:
+        parts.append("all passed")
+    return "observed (" + ", ".join(parts) + ")"
+
+
 def _observations_table(entry) -> str:
-    """Expected-vs-observed for EVERY criterion, passing and failing.
+    """Expected-vs-observed for EVERY criterion — passing, failing and skipped.
 
     This used to filter to `not o.passed`, so a passing case rendered nothing at all.
     That blind spot is exactly how the assay count went 324 -> 5 and the MetNet study
@@ -42,22 +76,30 @@ def _observations_table(entry) -> str:
     criterion was satisfied, but never what the answer actually was.
 
     Showing passing rows is what makes review by OUTPUT possible rather than review by
-    pass rate.
+    pass rate. Showing a SKIPPED row AS a skip is what stops the same table telling the
+    operator that a turn which asserted nothing asserted everything.
+
+    ``reason`` gets a column because two skips are not interchangeable: "field family
+    not observable over HTTP" is unconditional, while "not observable on a
+    container_cc turn" is conditional on the route the turn actually took, and only
+    the second one is evidence that the case and the router disagree.
     """
     if not entry.observations:
         return ""
-    n_failed = sum(1 for o in entry.observations if not o.passed)
     rows = "\n".join(
-        _OBS_ROW.format(cls="failed" if not o.passed else "passed",
+        _OBS_ROW.format(cls=_obs_class(o),
                         turn=html.escape(o.turn), field=html.escape(o.field),
                         expected=html.escape(f"{o.op} {o.expected!r}"),
-                        observed=html.escape(str(o.observed)))
+                        observed=html.escape(str(o.observed)),
+                        # Upper case and spelled out: a colour is no signal at all on
+                        # a printed, pasted or grepped report.
+                        verdict="SKIPPED" if o.skipped else ("passed" if o.passed else "failed"),
+                        reason=html.escape(o.reason or ""))
         for o in entry.observations)
-    label = (f"observed ({len(entry.observations)} criteria, {n_failed} failed)"
-             if n_failed else f"observed ({len(entry.observations)} criteria, all passed)")
-    return (f"<details><summary>{label}</summary>"
+    return (f"<details><summary>{_observations_label(entry.observations)}</summary>"
             "<table border=1 cellpadding=3><tr><th>turn</th><th>field</th>"
-            f"<th>expected</th><th>observed</th></tr>{rows}</table></details>")
+            f"<th>expected</th><th>observed</th><th>result</th><th>why</th></tr>"
+            f"{rows}</table></details>")
 
 
 def generate_html(manifest: NessieManifest, out_dir: Path) -> Path:
@@ -75,7 +117,11 @@ def generate_html(manifest: NessieManifest, out_dir: Path) -> Path:
            ".xpass{background:#ffe0b2}.outage{background:#e0e0e0}"
            # Its own colour, not red and not green: nothing was tested, so the
            # row is neither a regression nor a result.
-           ".no_assertions{background:#e1bee7}</style></head>"
+           ".no_assertions{background:#e1bee7}"
+           # Same reasoning one level down, for a single criterion rather than a
+           # whole case — and it doubles as the class for a `skipped` ENTRY,
+           # which had no styling of its own either.
+           ".skipped{background:#dceefb}</style></head>"
            f"<body><h1>Nessie tests — tier={manifest.tier} scope={manifest.scope}</h1>"
            f"<p>{manifest.started_at} → {manifest.ended_at}</p>"
            # The report rendered no cost at all, which left the operator's only
