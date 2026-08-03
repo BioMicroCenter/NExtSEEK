@@ -38,7 +38,13 @@ def main(argv=None) -> int:
         family=a.family, variant_id=a.variant, overlay_path=_OVERLAY,
         out_dir=a.out, bundle_reader=bundle_reader, pace_s=a.pace,
         run_consistency=run_consistency, sample=a.sample, seed=a.seed)
+    summary = runner.classify_entries(manifest)
     fails = runner.gate_failed(manifest)
-    print(f"nessie: {len(manifest.entries)} cases, {fails} real failures "
+    # Outages get their own clause rather than vanishing: they are excluded from
+    # `real failures` by design, and a run that quietly lost ten cases to a dead
+    # provider must not read as a run that tested them.
+    outaged = (f", {len(summary['outage'])} lost to a provider outage (not scored)"
+               if summary["outage"] else "")
+    print(f"nessie: {len(manifest.entries)} cases, {fails} real failures{outaged} "
           f"(tier={a.tier} scope={a.scope}); report → {a.out}/report.html")
     return 1 if fails else 0

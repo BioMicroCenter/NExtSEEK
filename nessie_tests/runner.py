@@ -130,6 +130,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
         session_id = None
         v_status, v_route, v_engine, v_cost, failed, reason = "passed", None, None, None, [], ""
         v_route_source = None
+        v_outage = False
         observations: list[CriterionObservation] = []
         poll_errors = 0
         t0 = clock()
@@ -154,10 +155,11 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                 bundle_summary = None
                 if case_tier == "full" and bundle_reader is not None and session_id is not None:
                     bundle_summary = bundle_reader(session_id)
+                last_reply = qc.get("reply")
                 criteria = list(turn.pass_criteria) + ([extra] if extra else [])
                 passed, results, observed = evaluate.evaluate_turn(
                     res.payload, criteria, res.route_obs,
-                    last_reply=qc.get("reply"), bundle_summary=bundle_summary)
+                    last_reply=last_reply, bundle_summary=bundle_summary)
                 observations += [
                     CriterionObservation(
                         turn=turn.label, field=r["field"], op=r["op"], expected=r.get("value"),
@@ -165,7 +167,26 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                         passed=r["passed"], reason=r.get("reason", ""))
                     for r in results
                 ]
-                if not passed:
+                # One authority for this turn's status: passed / failed / error.
+                turn_status = evaluate.classify_turn_status(passed, last_reply)
+                if turn_status == "error":
+                    # Provider outage: the fallback chain gave up before the
+                    # product ran, so this turn is infrastructure, not evidence.
+                    # The case stops here either way — its remaining turns share a
+                    # session with a turn that never reached the product, so they
+                    # cost money and prove nothing.
+                    if failed:
+                        # ...but an EARLIER turn already produced a genuine red,
+                        # and an outage on a later turn does not un-fail it. Stay
+                        # `failed`, stay gate-visible. Overwriting here sent a real
+                        # regression out as an exempt grey `outage` row.
+                        reason = (f"{evaluate.OUTAGE_REASON}. Recorded AFTER "
+                                  f"{len(failed)} criterion failure(s) on an earlier "
+                                  "turn, which still count")
+                    else:
+                        v_status, v_outage, reason = "error", True, evaluate.OUTAGE_REASON
+                    break
+                if turn_status == "failed":
                     v_status = "failed"
                     failed += [f"{turn.label}:{r['field']}" for r in results if not r["passed"]]
         except Exception as exc:  # infra/endpoint failure ≠ assertion failure
@@ -178,7 +199,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
             route_source=v_route_source,
             cost=v_cost, elapsed_s=round(clock() - t0, 3), failed_criteria=failed,
             observations=observations, poll_errors=poll_errors,
-            reason=reason, expected_fail=expected_fail))
+            reason=reason, expected_fail=expected_fail, outage=v_outage))
     if run_consistency:
         from nessie_tests import consistency
         for g in corpus.load_consistency_groups(overlay_path):
@@ -193,16 +214,30 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                                       post_query=post_query, get_progress=get_progress,
                                       force_new=True,
                                       sleep=sleep, clock=clock)
-                return {"route": r.route_obs.route, "count": consistency.get_result_count(r.payload)}
+                # `reply` is what lets run_group see a provider outage. Without it
+                # the group only ever saw {route, count}, so an outage surfaced as
+                # "count could not be resolved" and read as product drift.
+                return {"route": r.route_obs.route,
+                        "count": consistency.get_result_count(r.payload),
+                        "reply": consistency.get_last_reply(r.payload)}
             g_t0 = clock()
             g_expected_fail = "known_fail" in g.get("tags", [])
             try:
                 gr = consistency.run_group(g, _drive)
-                g_status, g_reason = _apply_xpass(
-                    "passed" if gr.passed else "failed", g_expected_fail)
+                # An outaged group is infrastructure, exactly as an outaged turn
+                # is. It is NOT eligible for xpass either: a known_fail group that
+                # never reached the product has not demonstrated anything, in
+                # either direction. (getattr: a test double for run_group may
+                # predate the flag.)
+                g_outage = getattr(gr, "outage", False)
+                if g_outage:
+                    g_status, g_reason = "error", "; ".join(gr.reasons)
+                else:
+                    g_status, g_reason = _apply_xpass(
+                        "passed" if gr.passed else "failed", g_expected_fail)
                 entries.append(NessieManifestEntry(
                     id=g["id"], family="nessie_consistency", tier=tier,
-                    status=g_status, reason=g_reason,
+                    status=g_status, reason=g_reason, outage=g_outage,
                     elapsed_s=round(clock() - g_t0, 3),
                     # The group's per-query evidence used to be discarded, so a
                     # consistency result was a bare pass/fail with nothing to review.
@@ -221,7 +256,10 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                             passed=gr.passed, reason="")
                         for o in gr.observations
                     ],
-                    failed_criteria=gr.reasons, expected_fail=g_expected_fail))
+                    # An outaged group failed no criterion — it evaluated none.
+                    # Its reason already carries the whole story.
+                    failed_criteria=[] if g_outage else gr.reasons,
+                    expected_fail=g_expected_fail))
             except Exception as exc:  # infra/endpoint failure ≠ assertion failure
                 entries.append(NessieManifestEntry(
                     id=g["id"], family="nessie_consistency", tier=tier,
@@ -251,6 +289,33 @@ def _apply_xpass(status: str, expected_fail: bool) -> "tuple[str, str]":
     return status, ""
 
 
+def _is_real_failure(entry) -> bool:
+    """Is this entry a failure the run should be held to?
+
+    ONE definition, called by both ``classify_entries`` and ``gate_failed``. They
+    have disagreed before and it produced a run that printed "GATE: PASS" and then
+    exited 1, so the two must never re-derive this independently.
+
+    A provider outage is exempt. It is an ``error`` like any other infrastructure
+    fault, but unlike a TimeoutError against a dead endpoint it says nothing at all
+    about the product: the fallback chain 503'd before the turn ran. Ten of the
+    eighteen reds in the 2026-08-03 seed-6 run were one Bedrock outage, and letting
+    that fail a gate makes every outage look like a regression. Every OTHER error
+    keeps its gate-failing behaviour.
+
+    The exemption does NOT extend to an entry that also recorded a criterion
+    failure. The runner no longer emits that combination (a mid-case outage
+    leaves an already-failed case `failed`), but this is the second of two
+    independent guards on purpose: an outage flag silently swallowing a real red
+    is precisely the failure mode this whole change exists to prevent, and a
+    manifest from an older run can still carry the pair.
+    """
+    if getattr(entry, "outage", False) and not entry.failed_criteria:
+        return False
+    return (entry.status == "xpass"
+            or (entry.status in ("failed", "error") and not entry.expected_fail))
+
+
 def classify_entries(manifest: NessieManifest) -> dict:
     """Split a manifest into the buckets a summary needs.
 
@@ -261,18 +326,28 @@ def classify_entries(manifest: NessieManifest) -> dict:
     known-fails, which is the line that read as reassurance.
     """
     entries = manifest.entries
-    real_fails = [
-        e for e in entries
-        if e.status == "xpass" or (e.status in ("failed", "error") and not e.expected_fail)
-    ]
+    real_fails = [e for e in entries if _is_real_failure(e)]
+    # Disjoint from real_fails by construction: a case that recorded a genuine red
+    # before the provider died WAS scored, so it is not a case lost to an outage
+    # and must not be listed on the exempt line as well as the failure line.
+    outage = [e for e in entries
+              if getattr(e, "outage", False) and not _is_real_failure(e)]
     return {
         "total": len(entries),
         "counts": {s: sum(1 for e in entries if e.status == s)
                    for s in ("passed", "failed", "skipped", "error", "xpass")},
         "real_fails": real_fails,
+        # Cases the LLM provider took out from under the run. Their manifest status
+        # is `error`, so they are already inside counts["error"] — this bucket is
+        # what lets the printed summary give them their own line instead of folding
+        # them into the pass/fail headline where they read as regressions.
+        "outage": outage,
         # Known-fails that actually failed. A known_fail that PASSED is an xpass and
-        # belongs in real_fails, not here.
-        "known_failed": [e for e in entries if e.expected_fail and e.status != "xpass"],
+        # belongs in real_fails, not here. An OUTAGED one belongs in neither: it
+        # demonstrated neither the known failure nor its absence.
+        "known_failed": [e for e in entries
+                         if e.expected_fail and e.status != "xpass"
+                         and not getattr(e, "outage", False)],
         # Anything other than "baml" means the BAML router did not decide the turn.
         # Task 816 fell to `heuristic` (1 in 65), a keyword regex that can never emit
         # `unrelated` — so its route was not evidence about routing at all. An
@@ -287,12 +362,12 @@ def classify_entries(manifest: NessieManifest) -> dict:
 def gate_failed(manifest: NessieManifest) -> int:
     """Count real failures.
 
-    A known_fail case that fails is expected and excluded. An ``xpass`` is
-    always counted: it means the corpus is asserting something that is no
-    longer true, which is exactly the kind of drift that makes a green run
-    misleading.
+    A known_fail case that fails is expected and excluded, and so is a provider
+    outage. An ``xpass`` is always counted: it means the corpus is asserting
+    something that is no longer true, which is exactly the kind of drift that
+    makes a green run misleading.
+
+    Delegates to ``_is_real_failure`` so this and ``classify_entries`` cannot
+    drift apart again.
     """
-    return sum(
-        1 for e in manifest.entries
-        if e.status == "xpass" or (e.status in ("failed", "error") and not e.expected_fail)
-    )
+    return sum(1 for e in manifest.entries if _is_real_failure(e))

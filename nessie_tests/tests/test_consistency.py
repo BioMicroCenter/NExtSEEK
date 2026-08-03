@@ -154,3 +154,132 @@ def test_the_observations_carry_the_per_query_evidence():
 
     assert [o["query"] for o in gr.observations] == ["q1", "q2"]
     assert all(o["count"] == 139 for o in gr.observations)
+
+
+# --------------------------------------------------------------------------- #
+# B2 — the hard half of the outage fix.
+#
+# A consistency group DISCARDS its members' replies and reports its own summary,
+# so an outage inside a group is invisible in the manifest. In the 2026-08-03
+# seed-6 run cons.nhp_sequencing_engine recorded
+#   "count could not be resolved for 2 of 2 queries (...); the count assertions
+#    evaluated nothing"
+# and a careful human reviewer read that and filed it as drift. Both of its
+# turns (ids 1054/1055) carried the Bedrock outage marker. The outage check must
+# therefore run BEFORE that message is composed.
+# --------------------------------------------------------------------------- #
+
+import json
+from pathlib import Path
+
+import pytest
+
+OUTAGE_REPLY = (
+    "**The request could not be completed.**\n\nAll provider fallbacks exhausted "
+    "� agent 'parser': An error occurred (ServiceUnavailableException) when "
+    "calling the Converse operation (reached max retries: 4)."
+)
+
+
+def _drive(route="nextseek_query", count=None, reply=None):
+    return lambda q: {"route": route, "count": count, "reply": reply}
+
+
+def test_get_last_reply_reads_the_final_query_complete():
+    assert consistency.get_last_reply(_payload({})) is None  # no reply key
+    payload = {"progress": [
+        {"event": "query_complete", "data": {"reply": "first"}},
+        {"event": "query_complete", "data": {"reply": "last"}}]}
+    assert consistency.get_last_reply(payload) == "last"
+    assert consistency.get_last_reply({"progress": []}) is None
+    assert consistency.get_last_reply({}) is None
+
+
+def test_a_group_whose_turns_outaged_reports_outage_not_a_count_failure():
+    """The exact case the triage missed."""
+    gr = consistency.run_group(
+        _group(same_route=True, same_count=True, count_not_limit=True),
+        _drive(count=None, reply=OUTAGE_REPLY))
+
+    assert gr.outage is True
+    assert gr.passed is False
+    assert any("provider outage" in r for r in gr.reasons)
+    # the message that read as drift must not be what this group reports
+    assert not any("could not be resolved" in r for r in gr.reasons), gr.reasons
+
+
+def test_one_outaged_member_is_enough_to_flag_the_group():
+    replies = iter([None, OUTAGE_REPLY])
+    gr = consistency.run_group(
+        _group(same_count=True),
+        lambda q: {"route": "nextseek_query", "count": 139, "reply": next(replies)})
+
+    assert gr.outage is True
+    assert any("1 of 2" in r for r in gr.reasons)
+
+
+def test_a_group_that_did_not_outage_still_reports_the_count_failure():
+    """Non-vacuity: the outage branch must not swallow the real check."""
+    gr = consistency.run_group(_group(same_count=True),
+                               _drive(count=None, reply="I found nothing."))
+
+    assert gr.outage is False
+    assert gr.passed is False
+    assert any("could not be resolved" in r for r in gr.reasons)
+
+
+def test_a_healthy_group_is_unaffected_by_the_outage_check():
+    gr = consistency.run_group(_group(same_route=True, same_count=True),
+                               _drive(count=139, reply="I found 139 samples."))
+
+    assert gr.passed is True and gr.outage is False
+
+
+def test_a_drive_fn_that_reports_no_reply_at_all_is_tolerated():
+    """Back-compat: the older drive_fn shape returned only route+count."""
+    gr = consistency.run_group(_group(same_count=True),
+                               lambda q: {"route": "x", "count": 139})
+
+    assert gr.passed is True and gr.outage is False
+
+
+def test_the_group_observations_still_carry_the_per_query_evidence_on_an_outage():
+    gr = consistency.run_group(_group(same_count=True), _drive(reply=OUTAGE_REPLY))
+
+    assert [o["query"] for o in gr.observations] == ["q1", "q2"]
+
+
+# --------------------------------------------------------------------------- #
+# Replay: the tenth case, reconstructed from the stored run.
+# --------------------------------------------------------------------------- #
+
+_TURNS = Path("/home/cdemu/nessie-run-seed6b/turns.json")
+_OVERLAY = Path(__file__).resolve().parents[1] / "overlay.json"
+
+
+@pytest.mark.skipif(not _TURNS.exists(), reason=f"stored run evidence absent: {_TURNS}")
+def test_replay_the_tenth_case_the_triage_missed():
+    """cons.nhp_sequencing_engine, driven from its OWN turns in the stored run.
+
+    The group and its two queries come from overlay.json; the replies come from
+    turns.json. Nothing here is hand-authored, so the test cannot claim evidence
+    the run did not produce.
+    """
+    group = next(g for g in json.loads(_OVERLAY.read_text(encoding="utf-8"))
+                 ["consistency_groups"] if g["id"] == "cons.nhp_sequencing_engine")
+    turns = json.loads(_TURNS.read_text(encoding="utf-8"))
+    # last turn matching each query — the group forces a new session per query
+    by_query = {t["q"]: t for t in turns}
+    replayed = [by_query[q] for q in group["queries"]]
+    assert all(consistency.is_provider_outage(t["reply"]) for t in replayed), (
+        "both of this group's turns must carry the outage marker; if not, the "
+        "stored evidence changed and this replay is no longer about the outage"
+    )
+
+    gr = consistency.run_group(
+        group, lambda q: {"route": by_query[q]["route"], "count": None,
+                          "reply": by_query[q]["reply"]})
+
+    assert gr.outage is True
+    assert not any("could not be resolved" in r for r in gr.reasons), (
+        "this is the message the 2026-08-03 triage read as drift: " f"{gr.reasons}")

@@ -135,3 +135,39 @@ def test_the_fingerprint_changes_when_the_overlay_changes(tmp_path):
         "an edited overlay must change the fingerprint, or a diff will mis-pair "
         "cases the same seed no longer selects"
     )
+
+
+# --------------------------------------------------------------------------- #
+# B2 — an outage must be visible AS an outage in the HTML, not as a plain
+# `error` row indistinguishable from a dead endpoint.
+# --------------------------------------------------------------------------- #
+
+def test_an_outage_row_says_outage_not_error(tmp_path):
+    from nessie_tests.manifest import NessieManifest, NessieManifestEntry
+
+    m = NessieManifest(
+        started_at="a", ended_at="b", tier="full", scope="all",
+        entries=[NessieManifestEntry(id="sys.q", family="system_question", tier="full",
+                                     status="error", outage=True, reason="provider outage"),
+                 NessieManifestEntry(id="infra.q", family="system_question", tier="full",
+                                     status="error", reason="TimeoutError: read timed out")])
+
+    doc = report.generate_html(m, tmp_path).read_text(encoding="utf-8")
+
+    assert "<td>outage</td>" in doc
+    assert "<td>error</td>" in doc, "a non-outage error must still render as error"
+
+
+def test_an_outaged_known_fail_is_not_rendered_as_xfail(tmp_path):
+    """`xfail` claims the expected failure was observed. An outage observed nothing."""
+    from nessie_tests.manifest import NessieManifest, NessieManifestEntry
+
+    m = NessieManifest(
+        started_at="a", ended_at="b", tier="full", scope="all",
+        entries=[NessieManifestEntry(id="cons.nhp", family="nessie_consistency", tier="full",
+                                     status="error", outage=True, expected_fail=True)])
+
+    doc = report.generate_html(m, tmp_path).read_text(encoding="utf-8")
+
+    assert "<td>outage</td>" in doc
+    assert "xfail" not in doc

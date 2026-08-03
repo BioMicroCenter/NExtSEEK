@@ -13,7 +13,14 @@ def _display_status(entry) -> str:
 
     An ``xpass`` must never render as ``xfail``: the whole point is that a
     known_fail case stopped failing, and collapsing the two hides that.
+
+    ``outage`` wins over everything, including ``xfail``. It is not a product
+    result at all — the provider chain gave up before the turn ran — so both
+    "this failed" and "this failed as expected" would be claims the run cannot
+    support.
     """
+    if getattr(entry, "outage", False):
+        return "outage"
     if entry.status == "xpass":
         return "xpass"
     if entry.expected_fail and entry.status in ("failed", "error"):
@@ -50,7 +57,8 @@ def _observations_table(entry) -> str:
 
 def generate_html(manifest: NessieManifest, out_dir: Path) -> Path:
     rows = "\n".join(
-        _ROW.format(cls=e.status, id=html.escape(e.id), family=html.escape(e.family),
+        _ROW.format(cls=("outage" if getattr(e, "outage", False) else e.status),
+                    id=html.escape(e.id), family=html.escape(e.family),
                     route=html.escape(e.route or ""), engine=html.escape(e.engine or ""),
                     status=_display_status(e),
                     reason=html.escape(e.reason or ", ".join(e.failed_criteria))
@@ -58,7 +66,7 @@ def generate_html(manifest: NessieManifest, out_dir: Path) -> Path:
         for e in manifest.entries)
     doc = (f"<html><head><title>nessie {manifest.tier}/{manifest.scope}</title>"
            "<style>.failed{background:#fdd}.passed{background:#dfd}.error{background:#fbb}"
-           ".xpass{background:#ffe0b2}</style></head>"
+           ".xpass{background:#ffe0b2}.outage{background:#e0e0e0}</style></head>"
            f"<body><h1>Nessie tests — tier={manifest.tier} scope={manifest.scope}</h1>"
            f"<p>{manifest.started_at} → {manifest.ended_at}</p>"
            "<table border=1 cellpadding=4><tr><th>id</th><th>family</th><th>route</th>"

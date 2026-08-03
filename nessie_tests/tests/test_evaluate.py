@@ -1,3 +1,8 @@
+import json
+from pathlib import Path
+
+import pytest
+
 from nessie_tests import evaluate
 from nessie_tests.route_observer import RouteObservation
 
@@ -310,3 +315,148 @@ def test_observable_criteria_alongside_skipped_ones_are_still_evaluated():
     by_field = {r["field"]: r for r in results}
     assert by_field["pipeline_agent.active"].get("skipped") is True
     assert by_field["api_result_meta.row_count"]["passed"] is False
+
+
+# --------------------------------------------------------------------------- #
+# B2 — a provider outage is infrastructure, not a regression.
+#
+# Ten of the eighteen reds in the 2026-08-03 seed-6 run were ONE Bedrock outage:
+# every agent's structured-parse call 503'd, schema_helper.py:280 raised
+# LLMFatalError("All provider fallbacks exhausted — agent '<x>': ...") and the
+# orchestrator returned that string as the turn's reply. Scored as ordinary
+# failures, an outage is indistinguishable from a regression and half a paid
+# run's signal is lost.
+# --------------------------------------------------------------------------- #
+
+# The real string, copied from /home/cdemu/nessie-run-seed6b/turns.json. The
+# U+FFFD between "exhausted" and "agent" is a genuine mojibake in the stored
+# evidence (the source emits an em dash); the detector deliberately matches the
+# PHRASE only, so the separator can be anything.
+OUTAGE_REPLY = (
+    "**The request could not be completed.**\n\nAll provider fallbacks exhausted "
+    "� agent 'parser': An error occurred (ServiceUnavailableException) when "
+    "calling the Converse operation (reached max retries: 4): Bedrock is unable "
+    "to process your request."
+)
+
+
+def test_the_outage_marker_is_detected_in_a_real_reply():
+    assert evaluate.is_provider_outage(OUTAGE_REPLY) is True
+
+
+def test_the_separator_between_exhausted_and_agent_is_not_matched_on():
+    """Same phrase, three different separators — all must be caught."""
+    for sep in ("�", "—", "-", ":"):
+        assert evaluate.is_provider_outage(
+            f"All provider fallbacks exhausted {sep} agent 'api': 503") is True
+
+
+def test_an_ordinary_reply_is_not_an_outage():
+    for reply in ("found 139 samples", "", None, 42,
+                  "the provider fallbacks worked and nothing was exhausted"):
+        assert evaluate.is_provider_outage(reply) is False, reply
+
+
+def test_a_failing_turn_that_outaged_classifies_error_not_failed():
+    """The whole point: this is the line that turned 10 infra reds into regressions."""
+    assert evaluate.classify_turn_status(False, OUTAGE_REPLY) == "error"
+
+
+def test_a_failing_turn_without_the_marker_is_still_failed():
+    """Non-vacuity: the change must not turn every red into an exempt error."""
+    assert evaluate.classify_turn_status(False, "I found 0 samples.") == "failed"
+    assert evaluate.classify_turn_status(False, None) == "failed"
+    assert evaluate.classify_turn_status(False, "") == "failed"
+
+
+def test_a_passing_turn_that_outaged_is_still_error():
+    """An outage reply is not evidence, even when some criterion happens to pass.
+
+    A route criterion is satisfied by ``route_decided``, which fires BEFORE the
+    provider chain gives up — so an outaged turn can still "pass" while having
+    exercised no product behaviour at all. Recording that as green is the same
+    lie in the other direction.
+    """
+    assert evaluate.classify_turn_status(True, OUTAGE_REPLY) == "error"
+    assert evaluate.classify_turn_status(True, "found 139 samples") == "passed"
+
+
+def test_the_detector_lives_in_exactly_one_module():
+    """The requirement is one detector, not two copies that can drift apart.
+
+    Scope, precisely: exactly one *production* module under ``nessie_tests/``
+    contains the marker. The glob is non-recursive on purpose — the fixtures in
+    ``nessie_tests/tests/`` hold their own copies of the phrase, and that is
+    protective rather than duplication: they are what fails loudly if the product
+    ever rewords the message out from under the detector.
+    """
+    from nessie_tests import consistency, outage
+
+    assert evaluate.is_provider_outage is outage.is_provider_outage
+    assert consistency.is_provider_outage is outage.is_provider_outage
+
+    root = Path(evaluate.__file__).resolve().parent
+    defines = sorted(p.name for p in root.glob("*.py")
+                     if outage.PROVIDER_OUTAGE_MARKER in p.read_text(encoding="utf-8"))
+    assert defines == ["outage.py"], f"the marker phrase is duplicated in {defines}"
+
+
+# --------------------------------------------------------------------------- #
+# Replay against the stored 2026-08-03 seed-6 run. Not a fixture — the real
+# manifest and the real turn log.
+# --------------------------------------------------------------------------- #
+
+_EVIDENCE = Path("/home/cdemu/nessie-run-seed6b")
+_TURNS = _EVIDENCE / "turns.json"
+_MANIFEST = _EVIDENCE / "manifest.json"
+
+requires_seed6b = pytest.mark.skipif(
+    not (_TURNS.exists() and _MANIFEST.exists()),
+    reason=f"stored run evidence absent: {_EVIDENCE}",
+)
+
+
+@requires_seed6b
+def test_replay_every_outaged_turn_in_the_seed6_run_classifies_error():
+    turns = json.loads(_TURNS.read_text(encoding="utf-8"))
+    marked = [t for t in turns if evaluate.is_provider_outage(t.get("reply"))]
+
+    assert len(marked) == 18, (
+        f"the Bedrock outage hit 18 of the run's {len(turns)} turns; "
+        f"the detector found {len(marked)}"
+    )
+    assert all(evaluate.classify_turn_status(False, t["reply"]) == "error" for t in marked)
+
+    # ...and no other turn is swept up with them.
+    marked_ids = {t["id"] for t in marked}
+    healthy = [t for t in turns if t["id"] not in marked_ids]
+    assert healthy, "guard against an evidence file that is nothing but outages"
+    assert all(evaluate.classify_turn_status(False, t.get("reply")) == "failed"
+               for t in healthy)
+
+
+@requires_seed6b
+def test_replay_nine_of_the_ten_outaged_cases_show_the_marker_in_their_manifest():
+    """Nine cases carry the outage reply in an observation. The tenth does not.
+
+    That asymmetry is the whole reason this task exists: the 2026-08-03 triage
+    read the nine, attributed them to the outage, and filed the tenth
+    (``cons.nhp_sequencing_engine``) as drift, because a consistency group
+    replaces its members' replies with its own summary. The tenth is proved in
+    test_consistency.py::test_replay_the_tenth_case_the_triage_missed.
+    """
+    entries = json.loads(_MANIFEST.read_text(encoding="utf-8"))["entries"]
+    visible = [e for e in entries
+               if any(evaluate.is_provider_outage(o.get("observed"))
+                      for o in e.get("observations") or [])]
+
+    assert len(visible) == 9
+    # every one of them was scored an ordinary failure at the time
+    assert {e["status"] for e in visible} == {"failed"}
+
+    group = next(e for e in entries if e["id"] == "cons.nhp_sequencing_engine")
+    assert not any(evaluate.is_provider_outage(o.get("observed"))
+                   for o in group["observations"]), (
+        "if the group's reply reached its manifest record, the reply-only "
+        "detector would be enough and consistency.py would need no change"
+    )

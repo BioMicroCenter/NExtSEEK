@@ -44,3 +44,20 @@ def test_consistency_flag_forces_it_on_route_tier(monkeypatch, tmp_path):
     captured = _capture(monkeypatch)
     cli.main(["--base-url", "http://h:8000", "--tier", "route", "--consistency", "--out", str(tmp_path)])
     assert captured["run_consistency"] is True
+
+
+def test_the_cli_reports_an_outage_rather_than_silently_dropping_it(monkeypatch, tmp_path, capsys):
+    """`0 real failures` on a run that lost 10 cases to Bedrock would be a lie."""
+    from nessie_tests.manifest import NessieManifest, NessieManifestEntry
+
+    def fake_run_suite(**kw):
+        return NessieManifest(
+            started_at="a", ended_at="b", tier=kw["tier"], scope=kw["scope"],
+            entries=[NessieManifestEntry(id="sys.q", family="f", tier="full",
+                                         status="error", outage=True)])
+
+    monkeypatch.setattr(cli.runner, "run_suite", fake_run_suite)
+    rc = cli.main(["--base-url", "http://h:8000", "--out", str(tmp_path)])
+
+    assert rc == 0, "an outage must not fail the gate"
+    assert "provider outage" in capsys.readouterr().out

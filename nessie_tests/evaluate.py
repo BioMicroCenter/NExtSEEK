@@ -29,6 +29,38 @@ ARTIFACT_INDEX_KEY = "nessie_artifact_index"
 # consistency.py can use it without importing e2e.criteria and openpyxl.
 from nessie_tests.limits import GRAPH_LIMIT_SENTINELS  # noqa: E402,F401
 
+# Provider-outage detection. Re-exported rather than reimplemented: consistency.py
+# needs the same verdict and cannot import this module (openpyxl, e2e.criteria), so
+# the detector itself lives in the dependency-free nessie_tests.outage.
+from nessie_tests.outage import (  # noqa: E402,F401
+    OUTAGE_REASON, PROVIDER_OUTAGE_MARKER, is_provider_outage,
+)
+
+
+def classify_turn_status(passed: bool, last_reply: str | None) -> str:
+    """Map one turn's criterion outcome to a manifest status.
+
+    An outaged turn is ``error`` no matter what its criteria did.
+
+    * Not ``failed``, because nothing was tested: the provider chain gave up
+      before the parser ran, so the reply is an infrastructure message and
+      scoring it as a product regression is how ten of the eighteen reds in the
+      2026-08-03 seed-6 run came to be triaged by hand.
+    * Not ``passed`` either, even when a criterion is satisfied. ``route`` is
+      resolved from ``route_decided``, which fires BEFORE the LLM call, and
+      ``last_reply nonempty`` is satisfied by the error text itself — so an
+      outaged turn can look green while having exercised nothing. Recording that
+      as a pass is the same lie in the other direction.
+
+    ``error`` is the status the runner already uses for infrastructure
+    (runner.py:171), so no new status is introduced; what IS new is the
+    ``outage`` flag the runner sets alongside it, which is what exempts the entry
+    from the gate. A non-outage error stays gate-failing.
+    """
+    if is_provider_outage(last_reply):
+        return "error"
+    return "passed" if passed else "failed"
+
 
 def _last(payload, name):
     data = None

@@ -221,13 +221,14 @@ def test_the_consistency_branch_uses_the_shared_helper(monkeypatch, tmp_path):
 
 
 def _manifest(*statuses):
-    """statuses: (status, expected_fail) pairs."""
+    """statuses: (status, expected_fail) or (status, expected_fail, outage) tuples."""
     from nessie_tests.manifest import NessieManifest, NessieManifestEntry
     return NessieManifest(
         started_at="a", ended_at="b", tier="full", scope="all",
         entries=[NessieManifestEntry(id=f"c{i}", family="f", tier="full",
-                                     status=s, expected_fail=ef)
-                 for i, (s, ef) in enumerate(statuses)])
+                                     status=t[0], expected_fail=t[1],
+                                     outage=(t[2] if len(t) > 2 else False))
+                 for i, t in enumerate(statuses)])
 
 
 def test_the_summary_and_the_gate_cannot_disagree():
@@ -260,3 +261,248 @@ def test_errors_on_unexpected_cases_still_count():
     m = _manifest(("error", False), ("error", True))
 
     assert len(runner.classify_entries(m)["real_fails"]) == 1
+
+
+# --------------------------------------------------------------------------- #
+# B2 — an outage must be scored as infrastructure and must not fail the gate,
+# while every OTHER kind of error keeps its gate-failing behaviour.
+# --------------------------------------------------------------------------- #
+
+OUTAGE_REPLY = (
+    "**The request could not be completed.**\n\nAll provider fallbacks exhausted "
+    "� agent 'parser': An error occurred (ServiceUnavailableException) when "
+    "calling the Converse operation (reached max retries: 4)."
+)
+
+NS_OUTAGE = {"status": "completed", "progress": NS_ROUTED["progress"] + [
+    {"event": "query_complete", "data": {"reply": OUTAGE_REPLY, "debug": {}}}]}
+
+
+def _variant(vid="sys.q", *criteria, turns=1, family="system_question"):
+    from e2e.catalog import Variant, Turn
+    return Variant(
+        family=family, id=vid, name="n", tags=["nessie", "overlay", "full"], requires_env=[],
+        turns=[Turn(label=f"t{i}", query=f"q{i}", pass_criteria=list(criteria))
+               for i in range(turns)])
+
+
+def test_an_outaged_case_is_error_and_cannot_fail_the_gate(tmp_path, monkeypatch):
+    v = _variant("sys.what_can_nextseek_do",
+                 {"field": "parser_plan.mode", "op": "eq", "value": "new_search"})
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [v])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: NS_OUTAGE,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    entry = next(e for e in m.entries if e.id == "sys.what_can_nextseek_do")
+    assert entry.status == "error", "an outage was scored as an ordinary failure"
+    assert entry.outage is True
+    assert "provider" in entry.reason.lower()
+    assert runner.gate_failed(m) == 0, "a Bedrock outage must not be able to fail the gate"
+    assert runner.classify_entries(m)["real_fails"] == []
+    assert [e.id for e in runner.classify_entries(m)["outage"]] == ["sys.what_can_nextseek_do"]
+
+
+def test_an_outage_still_records_what_the_criteria_saw(tmp_path, monkeypatch):
+    """Exempt from the gate, not erased: the evidence must survive for triage."""
+    v = _variant("sys.q", {"field": "last_reply", "op": "nonempty"})
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [v])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: NS_OUTAGE,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    entry = next(e for e in m.entries if e.id == "sys.q")
+    # `last_reply nonempty` is SATISFIED by an outage reply — that is precisely why
+    # a passing criterion cannot rescue an outaged turn.
+    assert entry.status == "error" and entry.outage is True
+    assert any(o.field == "last_reply" for o in entry.observations)
+
+
+def test_an_outage_stops_driving_the_rest_of_the_case(tmp_path, monkeypatch):
+    """Turns 2+ against a dead provider are noise and cost money."""
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_variant("m.t", turns=3)])
+    calls = []
+
+    def post_query(body):
+        calls.append(body)
+        return {"task_id": "t", "session_id": "s"}
+
+    runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=post_query, get_progress=lambda tid: NS_OUTAGE,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    assert len(calls) == 1, "the case kept driving turns after the provider gave up"
+
+
+def test_a_non_outage_error_still_fails_the_gate(tmp_path, monkeypatch):
+    """The distinction that matters: a TimeoutError is NOT exempt."""
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_variant("infra.dead")])
+
+    def dead(tid):
+        raise TimeoutError("the read timed out")
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=dead,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    entry = next(e for e in m.entries if e.id == "infra.dead")
+    assert entry.status == "error"
+    assert entry.outage is False
+    assert runner.gate_failed(m) == 1
+    assert runner.classify_entries(m)["outage"] == []
+
+
+def test_an_ordinary_failure_is_untouched_by_the_outage_path(tmp_path, monkeypatch):
+    """Non-vacuity: a red without the marker is still a red."""
+    v = _variant("sys.red", {"field": "parser_plan.mode", "op": "eq", "value": "graph_query"})
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [v])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: NS_DONE,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    entry = next(e for e in m.entries if e.id == "sys.red")
+    assert entry.status == "failed" and entry.outage is False
+    assert runner.gate_failed(m) == 1
+
+
+def test_an_outaged_consistency_group_is_error_not_a_count_failure(monkeypatch, tmp_path):
+    """The tenth case: a group tagged known_fail whose members both outaged."""
+    group = {"id": "cons.nhp_sequencing_engine", "tags": ["known_fail"],
+             "queries": ["a", "b"], "assert": {"same_route": True, "same_count": True}}
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [])
+    monkeypatch.setattr("nessie_tests.corpus.load_consistency_groups", lambda p: [group])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: NS_OUTAGE,
+        sleep=lambda s: None, clock=lambda: 0.0, run_consistency=True)
+
+    entry = next(e for e in m.entries if e.id == "cons.nhp_sequencing_engine")
+    assert entry.status == "error"
+    assert entry.outage is True
+    assert "could not be resolved" not in entry.reason
+    assert not any("could not be resolved" in fc for fc in entry.failed_criteria)
+    assert runner.gate_failed(m) == 0
+
+
+def test_an_outaged_known_fail_is_not_filed_as_a_failure_that_met_expectation():
+    """It produced no evidence at all, so "failed as expected" would be a lie."""
+    m = _manifest(("error", True, True), ("failed", True, False))
+
+    summary = runner.classify_entries(m)
+
+    assert [e.id for e in summary["known_failed"]] == ["c1"]
+    assert [e.id for e in summary["outage"]] == ["c0"]
+
+
+def test_the_summary_and_the_gate_still_cannot_disagree_about_outages():
+    m = _manifest(("error", False, True), ("error", False, False), ("passed", False, False))
+
+    summary = runner.classify_entries(m)
+
+    assert len(summary["real_fails"]) == runner.gate_failed(m) == 1
+    assert summary["counts"]["error"] == 2, "the manifest status is still `error` for both"
+    assert len(summary["outage"]) == 1
+
+
+# --------------------------------------------------------------------------- #
+# Fix round 1 — a mid-case outage must not erase an earlier turn's genuine red.
+#
+# v_status was overwritten unconditionally, so a case whose turn 1 really failed
+# and whose turn 2 caught a transient 503 went out as status=error + outage=True.
+# _is_real_failure short-circuits on that flag, so the case dropped out of
+# real_fails, out of gate_failed and out of known_failed: a real regression
+# passing the gate, rendered grey. The `break` is right (turns 2+ share a session
+# with a turn that never reached the product); the overwrite was not.
+# --------------------------------------------------------------------------- #
+
+def test_an_outage_after_a_real_failure_does_not_erase_it(tmp_path, monkeypatch):
+    v = _variant("multi.red", {"field": "parser_plan.mode", "op": "eq", "value": "graph_query"},
+                 turns=2, family="refine_and_recall")
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [v])
+    payloads = iter([NS_DONE, NS_OUTAGE])  # turn 1 genuinely fails, turn 2 outages
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: next(payloads),
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    entry = next(e for e in m.entries if e.id == "multi.red")
+    assert entry.status == "failed", "a later outage un-failed an earlier genuine red"
+    assert entry.outage is False
+    assert entry.failed_criteria, "the turn-1 red must survive in the manifest"
+    assert runner.gate_failed(m) == 1, "a real regression escaped the gate behind an outage"
+    summary = runner.classify_entries(m)
+    assert [e.id for e in summary["real_fails"]] == ["multi.red"]
+    assert summary["outage"] == [], "a case that WAS scored is not a case lost to an outage"
+    # the outage is still recorded, so triage can see why the case stopped early
+    assert "provider outage" in entry.reason and "earlier turn" in entry.reason
+
+
+def test_an_outage_on_the_first_turn_of_a_multi_turn_case_is_still_exempt(tmp_path, monkeypatch):
+    """The other half: with no prior evidence, the exemption is still correct.
+
+    This is the shape the stored seed-6 run actually had — in
+    refrec.refine_those_results_to_cd8_de and refrec.refine_to_cd8 the outage
+    landed on the `seed` turn, before any independent evidence existed.
+    """
+    v = _variant("multi.out", {"field": "parser_plan.mode", "op": "eq", "value": "graph_query"},
+                 turns=2, family="refine_and_recall")
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [v])
+    payloads = iter([NS_OUTAGE, NS_DONE])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: next(payloads),
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    entry = next(e for e in m.entries if e.id == "multi.out")
+    assert entry.status == "error" and entry.outage is True
+    assert entry.failed_criteria == []
+    assert runner.gate_failed(m) == 0
+    assert [e.id for e in runner.classify_entries(m)["outage"]] == ["multi.out"]
+
+
+def test_an_outage_flag_cannot_hide_a_recorded_criterion_failure():
+    """Belt and braces, independent of the runner: the flag is not a free pass.
+
+    Two mechanisms, because this is the exact class of bug the task exists to
+    prevent. The runner should never emit this combination now, so any entry
+    that carries both is either hand-built or produced by an older run — and in
+    both cases the recorded red is the more trustworthy of the two signals.
+    """
+    from nessie_tests.manifest import NessieManifest, NessieManifestEntry
+
+    m = NessieManifest(
+        started_at="a", ended_at="b", tier="full", scope="all",
+        entries=[NessieManifestEntry(id="c0", family="f", tier="full", status="error",
+                                     outage=True, failed_criteria=["seed:api_ok"])])
+
+    assert runner.gate_failed(m) == 1
+    summary = runner.classify_entries(m)
+    assert len(summary["real_fails"]) == 1
+    assert summary["outage"] == [], "real_fails and outage must stay disjoint"
+
+
+def test_a_clean_outage_is_still_exempt_with_no_failed_criteria():
+    """Non-vacuity for the guard above: the flag still works when it should."""
+    m = _manifest(("error", False, True))
+
+    assert runner.gate_failed(m) == 0
+    assert len(runner.classify_entries(m)["outage"]) == 1

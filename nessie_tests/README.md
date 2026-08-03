@@ -32,3 +32,14 @@ they encode #32/#33 + the EOF/cypher bugs and are EXPECTED to fail until fixed.
 `gate_failed()` excludes them, so they don't break the gate. Remove the
 `known_fail` tag when the corresponding fix lands (that flips them into real
 regressions).
+
+## Provider outages (GREY)
+A reply carrying `nessie_tests.outage.PROVIDER_OUTAGE_MARKER` means every
+provider in an agent's fallback chain returned 503, so the turn never reached
+the product. Those cases are recorded `status="error"` with `outage=True`,
+reported on their own line, and excluded from the gate — an outage is not a
+regression. Every *other* `error` (a dead endpoint, a timeout) still fails the
+gate. Ten of the eighteen reds in the 2026-08-03 seed-6 run were one Bedrock
+outage; nine were visible in the manifest and the tenth was hidden inside the
+`#33` consistency group, which reports its own summary instead of its members'
+replies. `run_group` checks for an outage before composing that summary.
