@@ -51,6 +51,12 @@ def main(argv=None) -> int:
     # different triage entirely.
     vacuous = (f", {summary['counts']['no_assertions']} asserted nothing "
                f"(counted as failures)" if summary["counts"]["no_assertions"] else "")
+    # Cost is printed from the single preformatted string so this line, the HTML
+    # report and `manage.py nessie` cannot describe the same run differently. It
+    # says `unmeasured` when nothing was observed: a route-tier run keeps billing
+    # after the poll loop breaks (http_driver.py:96-98 vs cc_assistant.py:352-366),
+    # so `$0.00` there is a claim the harness cannot support.
     print(f"nessie: {len(manifest.entries)} cases, {fails} real failures{outaged}{vacuous} "
-          f"(tier={a.tier} scope={a.scope}); report → {a.out}/report.html")
+          f"(tier={a.tier} scope={a.scope}); cost {summary['cost_display']}; "
+          f"report → {a.out}/report.html")
     return 1 if fails else 0

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import html
 from pathlib import Path
-from nessie_tests.manifest import NessieManifest
+from nessie_tests.manifest import NessieManifest, cost_summary
 
 _ROW = ("<tr class='{cls}'><td>{id}</td><td>{family}</td><td>{route}</td><td>{engine}</td>"
         "<td>{status}</td><td>{reason}</td></tr>")
@@ -69,6 +69,7 @@ def generate_html(manifest: NessieManifest, out_dir: Path) -> Path:
                     reason=html.escape(e.reason or ", ".join(e.failed_criteria))
                            + _observations_table(e))
         for e in manifest.entries)
+    cost = cost_summary(manifest.entries)
     doc = (f"<html><head><title>nessie {manifest.tier}/{manifest.scope}</title>"
            "<style>.failed{background:#fdd}.passed{background:#dfd}.error{background:#fbb}"
            ".xpass{background:#ffe0b2}.outage{background:#e0e0e0}"
@@ -77,6 +78,12 @@ def generate_html(manifest: NessieManifest, out_dir: Path) -> Path:
            ".no_assertions{background:#e1bee7}</style></head>"
            f"<body><h1>Nessie tests — tier={manifest.tier} scope={manifest.scope}</h1>"
            f"<p>{manifest.started_at} → {manifest.ended_at}</p>"
+           # The report rendered no cost at all, which left the operator's only
+           # figure the management command's `$0.0`. `cost_summary` is shared, so
+           # this line and the CLI's cannot drift; it says `unmeasured` when the
+           # harness stopped polling before `query_complete` and `PARTIAL` when
+           # only some cases reported — an NS-routed case never reports one.
+           f"<p>cost: {html.escape(cost['cost_display'])}</p>"
            "<table border=1 cellpadding=4><tr><th>id</th><th>family</th><th>route</th>"
            f"<th>engine</th><th>status</th><th>reason</th></tr>{rows}</table></body></html>")
     out = Path(out_dir)

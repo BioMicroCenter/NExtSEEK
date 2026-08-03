@@ -865,3 +865,134 @@ def test_old_manifests_load_without_the_skipped_field(tmp_path):
         encoding="utf-8")
 
     assert M.load_manifest(p).entries[0].observations[0].skipped is False
+
+
+# --------------------------------------------------------------------------- #
+# C3 — a cost the harness never OBSERVED is `unmeasured`, not $0.
+#
+# route_gate cases are driven route-only, and route-only is a CLIENT-side stop
+# and nothing else: `http_driver.drive` breaks its poll loop at `route_decided`
+# (http_driver.py:96-98) with no cancel, abort or DELETE anywhere. The server
+# has already started the turn on a daemon thread and returned 202
+# (cc_assistant.py:560) and its ONLY early return is ROUTE_UNRELATED
+# (cc_assistant.py:352-366), so every gate that is not `unrelated` runs to
+# completion and bills for it after the harness walked away. Cost is read off
+# `query_complete`, which route-tier polling never reaches — and
+# `sum(e.cost or 0.0 ...)` turned that silence into a confident $0.00.
+# --------------------------------------------------------------------------- #
+
+def _costed(*costs, status="passed"):
+    from nessie_tests.manifest import NessieManifest, NessieManifestEntry
+    return NessieManifest(
+        started_at="a", ended_at="b", tier="full", scope="all",
+        entries=[NessieManifestEntry(id=f"c{i}", family="f", tier="full",
+                                     status=status, cost=c)
+                 for i, c in enumerate(costs)])
+
+
+def test_a_run_that_observed_no_cost_reports_unmeasured_not_zero():
+    s = runner.classify_entries(_costed(None, None, None))
+
+    assert s["total_cost"] is None, "a never-observed cost must not become a number"
+    assert "unmeasured" in s["cost_display"]
+    assert "0.0" not in s["cost_display"], "the run still rendered a spend it never saw"
+    assert s["cost_observed"] == 0 and s["cost_unmeasured"] == 3
+
+
+def test_a_genuinely_observed_zero_is_distinguishable_from_never_observed():
+    """Without this, the fix is a cosmetic rename of $0.00 to `unmeasured`.
+
+    An observed 0.0 is a real measurement — the product ran and reported no
+    spend — and it must keep rendering as a number.
+    """
+    s = runner.classify_entries(_costed(0.0, 0.0))
+
+    assert s["total_cost"] == 0.0
+    assert "unmeasured" not in s["cost_display"]
+    assert "$0.0" in s["cost_display"]
+    assert s["cost_observed"] == 2 and s["cost_unmeasured"] == 0
+    assert s["cost_partial"] is False
+
+
+def test_a_partial_total_says_so():
+    """A partial total presented as a total is the same lie in miniature.
+
+    This is the shape of every real full-tier run so far: only container_cc
+    turns emit `total_cost_usd`, so an NS-routed case contributes nothing and
+    the printed figure is a FLOOR, not the spend.
+    """
+    s = runner.classify_entries(_costed(0.25, None, 0.5))
+
+    assert s["total_cost"] == 0.75, "the observed total is still worth printing"
+    assert s["cost_partial"] is True
+    assert s["cost_observed"] == 2 and s["cost_unmeasured"] == 1
+    assert "PARTIAL" in s["cost_display"]
+    assert "0.75" in s["cost_display"]
+
+
+def test_a_case_that_never_ran_is_free_rather_than_unmeasured():
+    """`skipped` is reached by two `continue`s that precede http_driver.drive.
+
+    No request was issued, so $0 is the truth for those cases — and saying
+    `unmeasured` about a 280-case route run in which 240 cases never left the
+    harness would overstate the problem in the other direction.
+    """
+    s = runner.classify_entries(_costed(None, None, status="skipped"))
+
+    assert s["total_cost"] == 0.0
+    assert s["cost_unmeasured"] == 0
+    assert "unmeasured" not in s["cost_display"]
+
+
+def test_skipped_cases_do_not_dilute_the_unmeasured_count():
+    from nessie_tests.manifest import NessieManifest, NessieManifestEntry
+    m = NessieManifest(
+        started_at="a", ended_at="b", tier="route", scope="all",
+        entries=[NessieManifestEntry(id="skip1", family="f", tier="route", status="skipped"),
+                 NessieManifestEntry(id="skip2", family="f", tier="route", status="skipped"),
+                 NessieManifestEntry(id="gate", family="f", tier="route", status="passed")])
+
+    s = runner.classify_entries(m)
+
+    assert s["cost_unmeasured"] == 1, "only the case that actually ran is unmeasured"
+    assert s["total_cost"] is None
+    assert "unmeasured" in s["cost_display"]
+
+
+def test_total_cost_stays_present_for_the_out_of_bounds_consumer():
+    """`manage.py nessie` reads summary['total_cost']; dropping it KeyErrors a run."""
+    for m in (_costed(None), _costed(0.5), _costed(None, status="skipped")):
+        assert "total_cost" in runner.classify_entries(m)
+
+
+def test_a_route_tier_run_does_not_claim_it_spent_nothing(tmp_path, monkeypatch):
+    """End to end: the exact scenario. A CC gate polled only to route_decided.
+
+    The server keeps executing that turn after the poll loop breaks, so the run
+    cost roughly one Opus turn and observed none of it.
+    """
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_cc_gate()])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: CC_ROUTED,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    s = runner.classify_entries(m)
+    assert s["total_cost"] is None
+    assert s["cost_unmeasured"] == 1
+    assert "unmeasured" in s["cost_display"]
+
+
+def test_a_full_tier_run_still_reports_the_cost_it_observed(tmp_path, monkeypatch):
+    """Non-vacuity for the runner path: a real observed cost still lands."""
+    payload = {"status": "completed", "progress": CC_ROUTED["progress"] + [
+        {"event": "query_complete", "data": {"reply": "done", "mode": "cc",
+                                             "total_cost_usd": 0.37}}]}
+    m = _run(tmp_path, monkeypatch, _variant("cc.priced", family="system_question"), [payload])
+
+    s = runner.classify_entries(m)
+    assert m.entries[0].cost == 0.37
+    assert s["total_cost"] == 0.37
+    assert "$0.37" in s["cost_display"]

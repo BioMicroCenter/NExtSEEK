@@ -7,7 +7,8 @@ from pathlib import Path
 from nessie_tests import corpus, evaluate, http_driver, report
 from nessie_tests import route_observer as ro
 from nessie_tests.manifest import (
-    CriterionObservation, NessieManifest, NessieManifestEntry, write_manifest,
+    CriterionObservation, NessieManifest, NessieManifestEntry, cost_summary,
+    write_manifest,
 )
 
 
@@ -38,7 +39,9 @@ def default_route_criterion(variant) -> dict | None:
     ``container_cc`` routing (open-ended analysis, resource creation) read as a
     product failure. Routing is asserted where it has actually been decided —
     the ``route_gate`` variants in overlay.json, which carry explicit ``route``
-    criteria and run in the cheap route tier.
+    criteria and run in the route tier — cheaper, but not free: see the
+    ``case_tier`` comment in ``run_suite`` for what route-only does and does not
+    stop.
     """
     return None
 
@@ -135,15 +138,37 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
             continue
         # tier selection: the route tier only exercises route_gate cases (route
         # assertions only). Anything else needs a real turn/launch — skip it,
-        # don't fail, so a route-tier run never touches the live pipeline.
+        # don't fail, so a route-tier run stays SMALL. It does not stay
+        # side-effect-free: the gates it does run execute to completion on the
+        # server (see the `case_tier` comment below), so a pipeline-launch gate
+        # really launches. Skipping is what stops a route run doing that 280
+        # times, not something that makes any single case free.
         if tier == "route" and not is_gate:
             entries.append(NessieManifestEntry(
                 id=v.id, family=v.family, tier=tier, status="skipped",
                 reason="needs execution; skipped at route tier", expected_fail=expected_fail))
             continue
-        # per-case DEPTH: route_gate cases are ALWAYS driven route-only (so the
-        # CC pipeline/reingest cases never execute a real turn/launch, even in a
-        # full run); everything else is driven at the global tier's depth.
+        # per-case DEPTH: route_gate cases are ALWAYS driven route-only, even in
+        # a full run; everything else is driven at the global tier's depth.
+        #
+        # Route-only is a CLIENT-side stop and NOTHING ELSE. This comment used to
+        # claim these cases "never execute a real turn/launch". They do.
+        # `http_driver.drive` breaks its own poll loop at `route_decided`
+        # (http_driver.py:96-98); there is no cancel, no abort and no DELETE
+        # anywhere in the harness or in the endpoint. The server has already
+        # started the turn on a daemon thread and returned 202, and its only
+        # early return is ROUTE_UNRELATED (cc_assistant.py:352-366) — both the NS
+        # and the CC branches fall straight through into full execution. So every
+        # gate whose route is not `unrelated` runs to completion, and on a CC gate
+        # that is a full Opus turn, launch included. ONLY THE `unrelated` ROUTE IS
+        # FREE.
+        #
+        # What route-only actually buys is WALL CLOCK and a shorter window for the
+        # harness to trip over a slow turn — not money, and not blast radius. It
+        # also costs the run its accounting: `v_cost` below is read off
+        # `query_complete`, which route-tier polling never observes, so the spend
+        # is real and unmeasurable from here. `manifest.cost_summary` reports that
+        # as `unmeasured` rather than as $0.
         case_tier = "route" if is_gate else tier
         session_id = None
         v_status, v_route, v_engine, v_cost, failed, reason = "passed", None, None, None, [], ""
@@ -447,8 +472,13 @@ def classify_entries(manifest: NessieManifest) -> dict:
         # infrastructure flag, not a pass. The key name is load-bearing: the
         # management command reads it.
         "heuristic_routed": [e for e in entries if _not_routing_evidence(e)],
-        # Three more full-tier runs is real money; make the number visible.
-        "total_cost": round(sum(e.cost or 0.0 for e in entries), 4),
+        # Money. `total_cost`, `cost_observed`, `cost_unmeasured`, `cost_partial`
+        # and `cost_display` — see `manifest.cost_summary` for why a summed
+        # `e.cost or 0.0` was a lie and what each key is allowed to claim.
+        # `total_cost` keeps its name and its float-or-None type because
+        # `manage.py nessie` reads it; `cost_display` is what a summary should
+        # actually print.
+        **cost_summary(entries),
     }
 
 

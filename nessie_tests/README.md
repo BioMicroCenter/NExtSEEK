@@ -24,7 +24,20 @@ Live route gate: `python -m nessie_tests --base-url http://localhost:8000 --tier
 Full pass: `python -m nessie_tests --base-url http://localhost:8000 --tier full --scope all`
 
 ## Cadence
-Route gate = pre-merge (cheap). Full pass = nightly / pre-release on a seeded box.
+Route gate = pre-merge. Full pass = nightly / pre-release on a seeded box.
+
+**The route gate is cheaper, not free.** `--tier route` stops the *client*
+polling once it sees `route_decided` (`http_driver.py:96-98`); it does not cancel
+anything. The server started the turn on a daemon thread and returned 202, and
+its only early return is the `unrelated` route
+(`nextseek_api/services/cc_assistant.py:352-366`) — so every gate that routes
+anywhere else runs to completion and bills for it after the harness has walked
+away, on a CC gate a full Opus turn. Only `unrelated` is genuinely free.
+
+Cost is read off `query_complete`, which route-tier polling never reaches, so a
+route run cannot account for what it spent. It reports `unmeasured`, not `$0`.
+A full-tier total is a floor too: only `container_cc` turns emit
+`total_cost_usd`, so a run with any NS-routed case prints `PARTIAL`.
 
 ## Known-fail (RED) cases
 `nessie_repro` family + the `#33` consistency group are tagged `known_fail`:

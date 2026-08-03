@@ -284,3 +284,57 @@ def test_the_stored_seed6b_run_still_loads_after_the_new_status():
 
     assert loaded.entries
     assert "no_assertions" not in {e.status for e in loaded.entries}
+
+
+# --------------------------------------------------------------------------- #
+# C3 — the report grew a cost line, and it tells the truth about what was
+# OBSERVED. `cost` is read off `query_complete.total_cost_usd`, which only the
+# container_cc engine emits and which route-tier polling never reaches at all
+# (http_driver.py:96-98 breaks the client loop; cc_assistant.py:352-366 is the
+# server's only early return, so the turn keeps running and keeps billing).
+# --------------------------------------------------------------------------- #
+
+def _priced(*costs, status="passed"):
+    return M.NessieManifest(
+        started_at="t0", ended_at="t1", tier="full", scope="all",
+        entries=[M.NessieManifestEntry(id=f"c{i}", family="f", tier="full",
+                                       status=status, cost=c)
+                 for i, c in enumerate(costs)])
+
+
+def test_the_report_states_an_unobservable_cost_as_unmeasured(tmp_path):
+    doc = report.generate_html(_priced(None, None), tmp_path).read_text(encoding="utf-8")
+
+    assert "unmeasured" in doc
+    assert "$0.0" not in doc
+
+
+def test_the_report_prints_a_cost_it_observed(tmp_path):
+    doc = report.generate_html(_priced(0.37), tmp_path).read_text(encoding="utf-8")
+
+    assert "$0.37" in doc
+    assert "unmeasured" not in doc
+
+
+def test_cost_summary_of_an_empty_run_is_a_truthful_zero():
+    """Nothing executed really did cost nothing; `unmeasured` there would be noise."""
+    s = M.cost_summary([])
+
+    assert s["total_cost"] == 0.0
+    assert "unmeasured" not in s["cost_display"]
+
+
+@pytest.mark.skipif(not SEED6B.exists(), reason=f"stored run evidence absent: {SEED6B}")
+def test_the_stored_seed6b_run_still_totals_its_real_spend():
+    """$1.4791 across 5 CC-routed cases — and 52 that ran and reported nothing.
+
+    Real evidence that the honest label for a full-tier total is PARTIAL: the
+    other 52 cases were NS-routed, executed, and emitted no `total_cost_usd`.
+    """
+    s = M.cost_summary(M.load_manifest(SEED6B).entries)
+
+    assert s["total_cost"] == 1.4791
+    assert s["cost_observed"] == 5
+    assert s["cost_unmeasured"] == 52
+    assert s["cost_partial"] is True
+    assert "1.4791" in s["cost_display"]
