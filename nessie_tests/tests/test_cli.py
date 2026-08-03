@@ -61,3 +61,20 @@ def test_the_cli_reports_an_outage_rather_than_silently_dropping_it(monkeypatch,
 
     assert rc == 0, "an outage must not fail the gate"
     assert "provider outage" in capsys.readouterr().out
+
+
+def test_the_cli_names_a_case_that_asserted_nothing(monkeypatch, tmp_path, capsys):
+    """`1 real failure` with no explanation reads as a regression. It is not one."""
+    from nessie_tests.manifest import NessieManifest, NessieManifestEntry
+
+    def fake_run_suite(**kw):
+        return NessieManifest(
+            started_at="a", ended_at="b", tier=kw["tier"], scope=kw["scope"],
+            entries=[NessieManifestEntry(id="green.refine_recall", family="f", tier="full",
+                                         status="no_assertions")])
+
+    monkeypatch.setattr(cli.runner, "run_suite", fake_run_suite)
+    rc = cli.main(["--base-url", "http://h:8000", "--out", str(tmp_path)])
+
+    assert rc == 1, "a case that asserted nothing must fail the gate"
+    assert "asserted nothing" in capsys.readouterr().out

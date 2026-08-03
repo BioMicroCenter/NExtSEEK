@@ -237,9 +237,14 @@ def _api_outcome_observed(debug: dict) -> bool:
 
     A follow-up that resolves against a previously recalled bundle carries
     `source_mode` and no `row_count` of its own, and that is correct rather than a
-    gap. `retrieve.then_inspect` is the only multi-turn variant in any floored
-    family, and the floor lands on the LAST turn, so without this it would be a
-    guaranteed false failure.
+    gap. The floor lands on the LAST turn, so without this branch such a follow-up
+    would be a guaranteed false failure.
+
+    CORRECTION: this docstring used to name `retrieve.then_inspect` as "the only
+    multi-turn variant in any floored family". That variant has since been
+    RETIRED; `tree.then_ask_about` is now the only one
+    (`test_it_is_still_the_only_multi_turn_variant_in_a_floored_family`). The
+    branch itself is unchanged and still needed — only the example was stale.
     """
     meta = debug.get("api_result_meta") or {}
     return meta.get("row_count") is not None or meta.get("source_mode") is not None
@@ -368,11 +373,71 @@ _UNOBSERVABLE_FIELD_PREFIXES = ("pipeline_agent.", "chat_log.", "ui_text.")
 _UNOBSERVABLE_OPS = ("trio_match",)
 UNOBSERVABLE_REASON = "field family not observable over HTTP"
 
+# The four DERIVED outcome fields `augment_debug` computes, all of them off keys
+# that live on `query_complete.debug`. A Container-CC `query_complete` carries no
+# `debug` key AT ALL — `cc_engine` emits {reply, mode, artifacts, cc_raw_files} —
+# so `graph_result`, `api_result_meta`, `reporter_result` and `report_saved_files`
+# are absent and every one of these four resolves False by construction,
+# regardless of what the CC turn actually did.
+#
+# Part 1 of this fix made the family floor engine-AGNOSTIC by flooring on
+# `outcome_observed` instead of `api_ok`/`neo4j_ok`. Necessary but not sufficient:
+# `outcome_observed` is exactly the disjunction of the other three, so it is
+# constant-false on a CC turn too, and every CC-routed case in a floored family
+# stayed an automatic red that proved nothing. `green.refine_recall` failed for
+# precisely this reason in the 2026-08-03 seed-6 run.
+#
+# The scope is deliberately NARROW: only these four derived fields, and only when
+# the OBSERVED route is container_cc. `api_ok`, `neo4j_ok`, `parser_plan.*`,
+# `api_plan.*` and `graph_result.*` are inline, case-level assertions someone
+# wrote by hand — a case carrying them is claiming a particular engine answered
+# it. A CC-routed case carrying an inline `api_ok` therefore STILL FAILS, and
+# that is intended: widening the skip to cover it is a corpus decision with a
+# much bigger blast radius, not a harness one.
+CC_ROUTE = "container_cc"
+CC_UNOBSERVABLE_FIELDS = frozenset({
+    "api_outcome_observed", "graph_outcome_observed",
+    "report_produced_output", "outcome_observed",
+})
+# Names the route, so a manifest reader can tell this skip from the HTTP one
+# above. Two skips with the same reason string would be untriageable.
+CC_UNOBSERVABLE_REASON = f"NS outcome field not observable on a {CC_ROUTE} turn"
 
-def is_unobservable(field: str | None, op: str | None) -> bool:
-    return bool(
-        (field or "").startswith(_UNOBSERVABLE_FIELD_PREFIXES) or op in _UNOBSERVABLE_OPS
-    )
+# What the runner records when a case evaluated ZERO criteria. Lives here, next
+# to the two reasons that cause it, so the three read as one story.
+NO_ASSERTIONS_REASON = (
+    "every criterion this case evaluated was skipped as unobservable, so the "
+    "case asserted nothing about the product"
+)
+
+
+def unobservable_reason(field: str | None, op: str | None,
+                        route: str | None = None) -> str | None:
+    """Why this criterion cannot be evaluated on this turn, or None if it can.
+
+    ``route`` is optional and defaults to None so the HTTP-family check keeps
+    working for callers that have no route in hand; it is only consulted for the
+    container_cc case.
+    """
+    if (field or "").startswith(_UNOBSERVABLE_FIELD_PREFIXES) or op in _UNOBSERVABLE_OPS:
+        return UNOBSERVABLE_REASON
+    if route == CC_ROUTE and field in CC_UNOBSERVABLE_FIELDS:
+        return CC_UNOBSERVABLE_REASON
+    return None
+
+
+def is_unobservable(field: str | None, op: str | None, route: str | None = None) -> bool:
+    return unobservable_reason(field, op, route) is not None
+
+
+def any_criterion_evaluated(results: list[dict]) -> bool:
+    """Did this turn actually TEST anything?
+
+    False both when every result was skipped and when there were no criteria at
+    all — the two are the same claim about the turn, and the runner turns a case
+    made entirely of such turns into ``no_assertions`` rather than ``passed``.
+    """
+    return any(not r.get("skipped") for r in results)
 
 
 def evaluate_turn(payload, criteria, obs, *, last_reply=None, bundle_summary=None):
@@ -380,17 +445,22 @@ def evaluate_turn(payload, criteria, obs, *, last_reply=None, bundle_summary=Non
     debug = augment_debug(raw_debug, obs, bundle_summary,
                           artifact_index=build_artifact_index(raw_debug, payload))
 
-    skipped = [c for c in criteria if is_unobservable(*_criterion_parts(c)[:2])]
-    criteria = [c for c in criteria if not is_unobservable(*_criterion_parts(c)[:2])]
+    # The route is read off `debug` rather than plumbed through from the runner:
+    # `augment_debug` has just set it from the SAME observation the criteria are
+    # about to be evaluated against, so there is no second source to drift from.
+    route = debug.get("route")
+    paired = [(c, unobservable_reason(*_criterion_parts(c)[:2], route=route)) for c in criteria]
+    skipped = [(c, why) for c, why in paired if why]
+    criteria = [c for c, why in paired if not why]
 
     local_criteria, delegated = _split_local_criteria(criteria)
     passed, results = check_pass(debug, delegated, last_reply=last_reply)
 
-    for crit in skipped:
+    for crit, why in skipped:
         field, op, expected = _criterion_parts(crit)
         results.append({"field": field, "op": op, "value": expected,
                         "passed": True, "skipped": True,
-                        "reason": f"{field}: SKIPPED — {UNOBSERVABLE_REASON}"})
+                        "reason": f"{field}: SKIPPED — {why}"})
 
     index = debug.get(ARTIFACT_INDEX_KEY) or {}
     for crit in local_criteria:

@@ -617,3 +617,251 @@ def test_any_turn_outside_the_allowlist_buckets_the_entry():
     """The sequence, not just turn 0, decides the bucket."""
     assert _bucketed(_entry_with("baml", ["baml", "sticky", "heuristic"]))
     assert not _bucketed(_entry_with("baml", ["baml", "sticky", "sticky"]))
+
+
+# --------------------------------------------------------------------------- #
+# C1 part 2 — the vacuity guard.
+#
+# Skipping the four NS outcome fields on a container_cc turn stops them being
+# automatic reds. On its own that is dangerous in the opposite direction: a case
+# whose ONLY criteria were skipped would report `passed` while having asserted
+# nothing whatsoever about the product. That is corpus drift — the same class
+# `xpass` exists to catch — so it gets its own status, and that status counts as
+# a real failure.
+#
+# The status is a CASE-level field, so the predicate is case-level: a case is
+# `no_assertions` only when it evaluated ZERO criteria across ALL of its turns.
+# A multi-turn case that really asserted something on one turn did assert
+# something, and labelling it "no assertions" would be the instrument telling a
+# different lie. `test_a_multi_turn_case_that_asserted_something_is_not_vacuous`
+# pins that boundary.
+# --------------------------------------------------------------------------- #
+
+# A real Container-CC completion: reply + mode + the container's own keys, and
+# NO `debug` — which is why all four NS outcome fields are constant-false on it.
+CC_DONE_NO_DEBUG = {"status": "completed", "progress": [
+    {"event": "route_decided", "data": {"route": "container_cc", "model_class": "opus",
+                                        "source": "baml", "reasoning": ""}},
+    {"event": "query_complete", "data": {"reply": "I wrote the workbook.", "mode": "cc"}}]}
+
+# An NS turn that genuinely produced an outcome.
+NS_ANSWERED = {"status": "completed", "progress": NS_ROUTED["progress"] + [
+    {"event": "query_complete",
+     "data": {"reply": "408 samples", "debug": {"graph_result": {"count": 408}}}}]}
+
+CC_OUTAGE = {"status": "completed", "progress": [
+    {"event": "route_decided", "data": {"route": "container_cc", "model_class": "opus",
+                                        "source": "baml", "reasoning": ""}},
+    {"event": "query_complete", "data": {"reply": OUTAGE_REPLY, "mode": "cc"}}]}
+
+FLOOR = {"field": "outcome_observed", "op": "true", "value": None}
+
+
+def _run(tmp_path, monkeypatch, variant, payloads):
+    payloads = iter(payloads)
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [variant])
+    return runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: next(payloads),
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+
+def test_a_cc_case_whose_every_criterion_was_skipped_is_no_assertions(tmp_path, monkeypatch):
+    """The exact shape of `green.refine_recall` under a floored family, routed CC."""
+    m = _run(tmp_path, monkeypatch, _variant("green.refine_recall", FLOOR),
+             [CC_DONE_NO_DEBUG])
+
+    entry = next(e for e in m.entries if e.id == "green.refine_recall")
+    assert entry.status == "no_assertions", (
+        "a case that evaluated nothing reported green")
+    assert "asserted nothing" in entry.reason
+    assert runner.gate_failed(m) == 1, "a case proving nothing must not pass the gate"
+
+
+def test_the_same_case_routed_to_nextseek_is_still_scored_normally(tmp_path, monkeypatch):
+    """Non-vacuity in both directions: the skip is conditional on the route."""
+    green = _run(tmp_path, monkeypatch, _variant("ns.answered", FLOOR), [NS_ANSWERED])
+    assert next(e for e in green.entries if e.id == "ns.answered").status == "passed"
+    assert runner.gate_failed(green) == 0
+
+    red = _run(tmp_path, monkeypatch, _variant("ns.empty", FLOOR), [NS_DONE])
+    assert next(e for e in red.entries if e.id == "ns.empty").status == "failed", (
+        "an NS turn that produced no outcome must still go red — the four fields "
+        "are only skipped on a container_cc turn")
+    assert runner.gate_failed(red) == 1
+
+
+def test_a_multi_turn_case_that_asserted_something_is_not_vacuous(tmp_path, monkeypatch):
+    """The case-level boundary, stated as a test.
+
+    Turn 1 routes NS and really evaluates `outcome_observed`; turn 2 routes CC and
+    evaluates nothing. The case DID assert something and passed it, so calling it
+    `no_assertions` would be false. The vacuous TURN is still visible in the
+    observations table, where every one of its rows is marked SKIPPED.
+    """
+    v = _variant("multi.half_cc", FLOOR, turns=2, family="refine_and_recall")
+    m = _run(tmp_path, monkeypatch, v, [NS_ANSWERED, CC_DONE_NO_DEBUG])
+
+    entry = next(e for e in m.entries if e.id == "multi.half_cc")
+    assert entry.status == "passed"
+    assert runner.gate_failed(m) == 0
+    # ...and the skip is recorded, not silently dropped
+    assert any("container_cc" in (o.reason or "") for o in entry.observations)
+
+
+def test_a_genuine_red_on_an_earlier_turn_beats_no_assertions(tmp_path, monkeypatch):
+    v = _variant("multi.red_then_cc", FLOOR, turns=2, family="refine_and_recall")
+    m = _run(tmp_path, monkeypatch, v, [NS_DONE, CC_DONE_NO_DEBUG])
+
+    entry = next(e for e in m.entries if e.id == "multi.red_then_cc")
+    assert entry.status == "failed"
+    assert entry.failed_criteria
+
+
+def test_an_outage_beats_no_assertions(tmp_path, monkeypatch):
+    """Both mean "nothing was proved"; the outage says WHY, so it wins and stays exempt."""
+    m = _run(tmp_path, monkeypatch, _variant("cc.outaged", FLOOR), [CC_OUTAGE])
+
+    entry = next(e for e in m.entries if e.id == "cc.outaged")
+    assert entry.status == "error" and entry.outage is True
+    assert runner.gate_failed(m) == 0
+
+
+def test_an_infrastructure_error_beats_no_assertions(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_variant("cc.dead", FLOOR)])
+
+    def dead(tid):
+        raise TimeoutError("the read timed out")
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=_post(), get_progress=dead, sleep=lambda s: None, clock=lambda: 0.0)
+
+    entry = next(e for e in m.entries if e.id == "cc.dead")
+    assert entry.status == "error" and entry.outage is False
+    assert runner.gate_failed(m) == 1
+
+
+def test_a_case_whose_turns_carry_no_criteria_at_all_is_also_vacuous(tmp_path, monkeypatch):
+    """Zero criteria and all-skipped criteria are the same claim: nothing was tested."""
+    m = _run(tmp_path, monkeypatch, _variant("empty.case", turns=1), [NS_DONE])
+
+    assert next(e for e in m.entries if e.id == "empty.case").status == "no_assertions"
+
+
+# ── the classification side: one predicate, shared ────────────────────────────
+
+def test_no_assertions_is_a_real_failure_and_the_two_readers_agree():
+    m = _manifest(("passed", False), ("no_assertions", False))
+
+    summary = runner.classify_entries(m)
+
+    assert len(summary["real_fails"]) == runner.gate_failed(m) == 1
+    assert summary["counts"]["no_assertions"] == 1
+
+
+def test_a_known_fail_that_asserted_nothing_is_still_a_real_failure():
+    """`known_fail` claims the case FAILS. A case proving nothing cannot show that.
+
+    So the tag does not excuse it, exactly as it does not excuse an `xpass`, and
+    it is not filed on the reassuring "failed as expected" line either.
+    """
+    m = _manifest(("no_assertions", True), ("failed", True))
+
+    summary = runner.classify_entries(m)
+
+    assert len(summary["real_fails"]) == runner.gate_failed(m) == 1
+    assert [e.status for e in summary["known_failed"]] == ["failed"]
+
+
+def test_no_assertions_is_never_promoted_to_xpass():
+    assert runner._apply_xpass("no_assertions", True) == ("no_assertions", "")
+    assert runner._apply_xpass("no_assertions", False) == ("no_assertions", "")
+
+
+def test_the_gate_and_the_summary_use_the_one_predicate():
+    """`_is_real_failure` is the single definition; neither reader re-derives it."""
+    from nessie_tests.manifest import NessieManifestEntry
+
+    def entry(**kw):
+        return NessieManifestEntry(id="c", family="f", tier="full", **kw)
+
+    assert runner._is_real_failure(entry(status="no_assertions")) is True
+    assert runner._is_real_failure(entry(status="no_assertions", expected_fail=True)) is True
+    assert runner._is_real_failure(entry(status="passed")) is False
+
+
+# --------------------------------------------------------------------------- #
+# Fix round 1 — two guards the review found.
+# --------------------------------------------------------------------------- #
+
+def test_the_outage_exemption_cannot_swallow_a_no_assertions_entry():
+    """A `no_assertions` entry ALWAYS has empty `failed_criteria`.
+
+    So `outage and not failed_criteria` exempted it wholesale. Unreachable from
+    the runner (the outage branch sets `error` and breaks), but that second guard
+    exists precisely for manifests the runner did not write — which is the only
+    place the combination can occur.
+    """
+    from nessie_tests.manifest import NessieManifest, NessieManifestEntry
+
+    m = NessieManifest(
+        started_at="a", ended_at="b", tier="full", scope="all",
+        entries=[NessieManifestEntry(id="c0", family="f", tier="full",
+                                     status="no_assertions", outage=True)])
+
+    assert runner.gate_failed(m) == 1
+    assert len(runner.classify_entries(m)["real_fails"]) == 1
+    assert runner.classify_entries(m)["outage"] == [], "must stay disjoint from real_fails"
+
+
+def test_a_genuine_outage_is_still_exempt_after_narrowing_the_guard():
+    """Non-vacuity: narrowing the exemption to `error` must not disarm it."""
+    m = _manifest(("error", False, True))
+
+    assert runner.gate_failed(m) == 0
+    assert len(runner.classify_entries(m)["outage"]) == 1
+
+
+def test_a_skipped_criterion_is_machine_readable_in_the_manifest(tmp_path, monkeypatch):
+    """`skipped` was only ever a prefix on a prose reason string.
+
+    Downstream readers had to string-match `"SKIPPED — "` to find it, and a
+    stored manifest could not be re-checked for vacuity the way `outage` can.
+    This change makes skipped rows far more common, so the flag becomes a field.
+    """
+    m = _run(tmp_path, monkeypatch, _variant("cc.vacuous", FLOOR), [CC_DONE_NO_DEBUG])
+
+    entry = next(e for e in m.entries if e.id == "cc.vacuous")
+    obs = next(o for o in entry.observations if o.field == "outcome_observed")
+    assert obs.skipped is True
+    assert obs.passed is True, "a skipped criterion is not a failure either"
+
+    # ...and it survives a write/read round trip
+    from nessie_tests.manifest import load_manifest
+    reloaded = load_manifest(tmp_path / "manifest.json")
+    assert next(o for o in reloaded.entries[0].observations
+                if o.field == "outcome_observed").skipped is True
+
+
+def test_an_evaluated_criterion_is_not_marked_skipped(tmp_path, monkeypatch):
+    """Non-vacuity for the flag: it must not default to True."""
+    m = _run(tmp_path, monkeypatch, _variant("ns.real", FLOOR), [NS_ANSWERED])
+
+    entry = next(e for e in m.entries if e.id == "ns.real")
+    assert all(o.skipped is False for o in entry.observations)
+
+
+def test_old_manifests_load_without_the_skipped_field(tmp_path):
+    from nessie_tests import manifest as M
+
+    p = tmp_path / "manifest.json"
+    p.write_text(
+        '{"started_at":"a","ended_at":"b","tier":"full","scope":"all","entries":'
+        '[{"id":"c0","family":"f","tier":"full","status":"passed","observations":'
+        '[{"turn":"main","field":"api_ok","op":"true","passed":true}]}]}',
+        encoding="utf-8")
+
+    assert M.load_manifest(p).entries[0].observations[0].skipped is False

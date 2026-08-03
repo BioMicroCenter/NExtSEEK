@@ -152,6 +152,13 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
         v_outage = False
         observations: list[CriterionObservation] = []
         poll_errors = 0
+        # Did ANY turn of this case really test something? Accumulated across the
+        # whole case on purpose — `status` is a case-level field, so claiming
+        # "no assertions" about a case that asserted four real criteria on its
+        # first turn would be the instrument lying in the other direction. The
+        # vacuous TURN stays visible: every one of its observation rows is
+        # recorded `skipped` with the reason that skipped it.
+        evaluated_any = False
         t0 = clock()
         extra = default_route_criterion(v)
         try:
@@ -200,9 +207,11 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                     CriterionObservation(
                         turn=turn.label, field=r["field"], op=r["op"], expected=r.get("value"),
                         observed=_trim(observed.get(r["field"])),
-                        passed=r["passed"], reason=r.get("reason", ""))
+                        passed=r["passed"], skipped=r.get("skipped", False),
+                        reason=r.get("reason", ""))
                     for r in results
                 ]
+                evaluated_any = evaluated_any or evaluate.any_criterion_evaluated(results)
                 # One authority for this turn's status: passed / failed / error.
                 turn_status = evaluate.classify_turn_status(passed, last_reply)
                 if turn_status == "error":
@@ -227,6 +236,16 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                     failed += [f"{turn.label}:{r['field']}" for r in results if not r["passed"]]
         except Exception as exc:  # infra/endpoint failure ≠ assertion failure
             v_status, reason = "error", f"{type(exc).__name__}: {exc}"
+        # A case that evaluated nothing is not a pass. Guarded on "passed" so
+        # every other outcome wins: `failed` (a red is evidence, and it stands),
+        # `error`/outage (which say WHY nothing was proved, and the outage
+        # exemption depends on the status staying `error`).
+        #
+        # Placed BEFORE _apply_xpass deliberately — a known_fail case that
+        # asserted nothing must not be promoted to `xpass`, which would claim the
+        # expected failure had stopped happening. It demonstrated neither.
+        if v_status == "passed" and not evaluated_any:
+            v_status, reason = "no_assertions", evaluate.NO_ASSERTIONS_REASON
         v_status, xpass_reason = _apply_xpass(v_status, expected_fail)
         if xpass_reason:
             reason = xpass_reason
@@ -345,10 +364,24 @@ def _is_real_failure(entry) -> bool:
     independent guards on purpose: an outage flag silently swallowing a real red
     is precisely the failure mode this whole change exists to prevent, and a
     manifest from an older run can still carry the pair.
+
+    ``no_assertions`` counts, and `expected_fail` does NOT excuse it — same
+    treatment as ``xpass``, for the same reason. A `known_fail` tag is a claim
+    that the case FAILS; a case that evaluated zero criteria demonstrated
+    neither that nor its absence, so the tag cannot excuse it. Both statuses mean
+    the corpus is asserting something out of step with reality, which is exactly
+    the drift that makes a green run misleading.
     """
-    if getattr(entry, "outage", False) and not entry.failed_criteria:
+    # `status == "error"` is part of the exemption, not decoration. A
+    # `no_assertions` entry ALWAYS has empty `failed_criteria`, so without it a
+    # manifest carrying `outage=True` alongside `no_assertions` was exempted
+    # wholesale. The runner cannot emit that pair (the outage branch sets
+    # `error` and breaks), but this guard exists for manifests the runner did
+    # not write, which is the only place the pair can occur.
+    if (getattr(entry, "outage", False) and entry.status == "error"
+            and not entry.failed_criteria):
         return False
-    return (entry.status == "xpass"
+    return (entry.status in ("xpass", "no_assertions")
             or (entry.status in ("failed", "error") and not entry.expected_fail))
 
 
@@ -392,7 +425,8 @@ def classify_entries(manifest: NessieManifest) -> dict:
     return {
         "total": len(entries),
         "counts": {s: sum(1 for e in entries if e.status == s)
-                   for s in ("passed", "failed", "skipped", "error", "xpass")},
+                   for s in ("passed", "failed", "skipped", "error", "xpass",
+                             "no_assertions")},
         "real_fails": real_fails,
         # Cases the LLM provider took out from under the run. Their manifest status
         # is `error`, so they are already inside counts["error"] — this bucket is
@@ -401,9 +435,11 @@ def classify_entries(manifest: NessieManifest) -> dict:
         "outage": outage,
         # Known-fails that actually failed. A known_fail that PASSED is an xpass and
         # belongs in real_fails, not here. An OUTAGED one belongs in neither: it
-        # demonstrated neither the known failure nor its absence.
+        # demonstrated neither the known failure nor its absence — and neither
+        # does a `no_assertions` one, which evaluated no criteria at all, so it is
+        # excluded for exactly the same reason.
         "known_failed": [e for e in entries
-                         if e.expected_fail and e.status != "xpass"
+                         if e.expected_fail and e.status not in ("xpass", "no_assertions")
                          and not getattr(e, "outage", False)],
         # Cases where some turn's route came from no router at all. Task 816 fell
         # to `heuristic` (1 in 65), a keyword regex that can never emit

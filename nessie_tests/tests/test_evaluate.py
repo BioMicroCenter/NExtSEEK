@@ -460,3 +460,277 @@ def test_replay_nine_of_the_ten_outaged_cases_show_the_marker_in_their_manifest(
         "if the group's reply reached its manifest record, the reply-only "
         "detector would be enough and consistency.py would need no change"
     )
+
+
+# --------------------------------------------------------------------------- #
+# C1 part 2 — an NS outcome field is not observable on a container_cc turn.
+#
+# Part 1 made the family floor engine-agnostic by flooring on `outcome_observed`.
+# That is necessary but not sufficient: all three of its inputs
+# (`_graph_outcome_observed`, `_api_outcome_observed`, `_report_produced_output`)
+# read keys off `query_complete.debug`, and a Container-CC `query_complete`
+# carries NO `debug` key at all. So the disjunction is constant-false on a CC
+# turn and every CC-routed case in a floored family stayed an automatic red that
+# proved nothing. `green.refine_recall` failed `api_ok` in seed 6 for exactly
+# this reason.
+# --------------------------------------------------------------------------- #
+
+# The real CC shape: reply + mode + the container's own artifact keys, and no
+# `debug`. Deliberately NOT the `_cc_payload` helper above, which sets
+# `"debug": {}` — the whole premise of this block is the ABSENT key.
+def _cc_no_debug_payload(reply="done", **data_extra):
+    data = {"reply": reply, "mode": "cc"}
+    data.update(data_extra)
+    return {"status": "completed", "progress": [
+        {"event": "route_decided",
+         "data": {"route": "container_cc", "model_class": "opus", "source": "baml",
+                  "reasoning": ""}},
+        {"event": "query_complete", "data": data},
+    ]}
+
+
+_FLOOR_FIELDS = ["api_outcome_observed", "graph_outcome_observed",
+                 "report_produced_output", "outcome_observed"]
+
+
+def _crits(fields):
+    return [{"field": f, "op": "true", "value": None} for f in fields]
+
+
+def _by_field(results):
+    return {r["field"]: r for r in results}
+
+
+def test_a_cc_turn_really_does_carry_no_debug_key():
+    """The premise, asserted rather than assumed.
+
+    If the product ever starts emitting `debug` on a CC `query_complete`, the
+    four skips below become wrong and this is the test that says so first.
+    """
+    payload = _cc_no_debug_payload()
+    assert "debug" not in payload["progress"][-1]["data"]
+    assert evaluate.build_observed_debug(payload) == {}
+
+
+def test_the_ns_outcome_fields_are_skipped_on_a_container_cc_turn():
+    passed, results, _ = evaluate.evaluate_turn(
+        _cc_no_debug_payload(), _crits(_FLOOR_FIELDS), OBS_CC, last_reply="done")
+
+    assert passed is True, "a field that cannot be observed must not fail the case"
+    by_field = _by_field(results)
+    for field in _FLOOR_FIELDS:
+        assert by_field[field].get("skipped") is True, f"{field} was not skipped"
+
+
+def test_the_same_fields_are_evaluated_normally_on_a_nextseek_query_turn():
+    """The skip is CONDITIONAL on the route, not blanket. This is the non-vacuity test.
+
+    Two directions, because "not skipped" alone would be satisfied by a field
+    that had quietly become unfailable: the graph-answered turn must PASS and the
+    empty turn must FAIL, and neither may be recorded as skipped.
+    """
+    answered = {"status": "completed", "progress": [
+        {"event": "route_decided",
+         "data": {"route": "nextseek_query", "model_class": None, "source": "baml",
+                  "reasoning": ""}},
+        {"event": "query_complete",
+         "data": {"reply": "found 408", "debug": {"graph_result": {"count": 408}}}},
+    ]}
+    passed, results, _ = evaluate.evaluate_turn(
+        answered, _crits(["graph_outcome_observed", "outcome_observed"]), OBS_NS,
+        last_reply="found 408")
+    assert passed is True
+    assert not any(r.get("skipped") for r in results)
+
+    empty = {"status": "completed", "progress": [
+        {"event": "route_decided",
+         "data": {"route": "nextseek_query", "model_class": None, "source": "baml",
+                  "reasoning": ""}},
+        {"event": "query_complete", "data": {"reply": "nothing", "debug": {}}},
+    ]}
+    failed, results2, _ = evaluate.evaluate_turn(
+        empty, _crits(_FLOOR_FIELDS), OBS_NS, last_reply="nothing")
+    assert failed is False, "an NS turn that produced no outcome must still go red"
+    assert not any(r.get("skipped") for r in results2), (
+        "the four fields must stay REAL assertions on an NS turn")
+
+
+def test_the_cc_skip_names_the_route_so_a_manifest_reader_can_tell_them_apart():
+    """Two different skips now exist; a manifest that cannot distinguish them is useless."""
+    cc_passed, cc_results, _ = evaluate.evaluate_turn(
+        _cc_no_debug_payload(),
+        _crits(["outcome_observed"]) + [{"field": "pipeline_agent.active", "op": "true",
+                                         "value": None}],
+        OBS_CC, last_reply="done")
+    assert cc_passed is True
+    by_field = _by_field(cc_results)
+
+    cc_reason = by_field["outcome_observed"]["reason"]
+    http_reason = by_field["pipeline_agent.active"]["reason"]
+
+    assert "container_cc" in cc_reason
+    assert cc_reason != http_reason
+    assert evaluate.CC_UNOBSERVABLE_REASON != evaluate.UNOBSERVABLE_REASON
+    assert "container_cc" in evaluate.CC_UNOBSERVABLE_REASON
+
+
+def test_the_skipped_cc_fields_are_exactly_the_four_derived_ones():
+    """A named constant, pinned. Widening it is a decision, not an accident."""
+    assert evaluate.CC_UNOBSERVABLE_FIELDS == frozenset(_FLOOR_FIELDS)
+
+
+def test_the_cc_skip_does_not_extend_to_inline_engine_criteria():
+    """DELIBERATE: an inline `api_ok` on a CC-routed case still fails.
+
+    `api_ok`, `neo4j_ok`, `parser_plan.*`, `api_plan.*` and `graph_result.*` are
+    case-level assertions someone wrote by hand — a case carrying them is
+    claiming a particular engine answered it. Sweeping those into the skip is a
+    much bigger blast radius and a corpus decision, not a harness one.
+    """
+    inline = [
+        {"field": "api_ok", "op": "true", "value": None},
+        {"field": "neo4j_ok", "op": "true", "value": None},
+        {"field": "parser_plan.mode", "op": "eq", "value": "new_search"},
+        {"field": "api_plan.endpoint", "op": "contains", "value": "advanced_search"},
+        {"field": "graph_result.count", "op": "gte", "value": 1},
+    ]
+    for crit in inline:
+        assert evaluate.is_unobservable(crit["field"], crit["op"],
+                                        route="container_cc") is False, crit["field"]
+
+    passed, results, _ = evaluate.evaluate_turn(
+        _cc_no_debug_payload(), inline, OBS_CC, last_reply="done")
+
+    assert passed is False
+    assert not any(r.get("skipped") for r in results)
+
+
+def test_the_http_unobservable_family_still_skips_on_every_route():
+    """Regression lock on the pre-existing skip: it was never route-conditional."""
+    for route in ("container_cc", "nextseek_query", "unrelated", None):
+        assert evaluate.is_unobservable("pipeline_agent.active", "true", route=route)
+        assert evaluate.is_unobservable("chat_log.length", "gte", route=route)
+        assert evaluate.is_unobservable("x", "trio_match", route=route)
+
+
+def test_the_route_argument_is_optional_so_existing_callers_are_unaffected():
+    assert evaluate.is_unobservable("outcome_observed", "true") is False
+    assert evaluate.is_unobservable("pipeline_agent.active", "true") is True
+    assert evaluate.unobservable_reason("outcome_observed", "true") is None
+    assert evaluate.unobservable_reason("outcome_observed", "true",
+                                        route="container_cc") == evaluate.CC_UNOBSERVABLE_REASON
+
+
+# ── the vacuity guard: a turn that evaluated nothing ──────────────────────────
+
+def test_any_criterion_evaluated_is_false_when_every_result_was_skipped():
+    _p, results, _o = evaluate.evaluate_turn(
+        _cc_no_debug_payload(), _crits(_FLOOR_FIELDS), OBS_CC, last_reply="done")
+
+    assert evaluate.any_criterion_evaluated(results) is False
+
+
+def test_any_criterion_evaluated_is_true_when_one_real_criterion_ran():
+    _p, results, _o = evaluate.evaluate_turn(
+        _cc_no_debug_payload(),
+        _crits(_FLOOR_FIELDS) + [{"field": "last_reply", "op": "nonempty", "value": None}],
+        OBS_CC, last_reply="done")
+
+    assert evaluate.any_criterion_evaluated(results) is True
+
+
+def test_a_turn_with_no_criteria_at_all_evaluated_nothing():
+    """17 refine/recall follow-up turns carry zero criteria. Zero is not one."""
+    _p, results, _o = evaluate.evaluate_turn(
+        _cc_no_debug_payload(), [], OBS_CC, last_reply="done")
+
+    assert results == []
+    assert evaluate.any_criterion_evaluated(results) is False
+
+
+# --------------------------------------------------------------------------- #
+# Fix round 1 — the MEASURED payoff of this change, pinned.
+#
+# The honest scale: if every case in the resolved corpus routed container_cc,
+# 267 of 280 would still be red and all six floored families would be 100% red,
+# because the inline `route` (227 variants), `parser_plan.mode` (216), `api_ok`
+# (136) and `api_plan.endpoint` (116) criteria are deliberately NOT skipped.
+#
+# `tree.then_ask_about` is the ONLY multi-turn variant in any floored family, so
+# it is the entire realistic mixed-route population, and it is the one variant
+# this change demonstrably turns green.
+# --------------------------------------------------------------------------- #
+
+_TREE_NS_SEED = {"status": "completed", "progress": [
+    {"event": "route_decided",
+     "data": {"route": "nextseek_query", "model_class": None, "source": "baml",
+              "reasoning": ""}},
+    {"event": "query_complete",
+     "data": {"reply": "Here is the tree.",
+              "debug": {"api_plan": {"endpoint": "/nextseek_api/sample-tree/"},
+                        "api_result_meta": {"ok": True, "row_count": 7}}}}]}
+
+_TREE_CC_FOLLOWUP = {"status": "completed", "progress": [
+    {"event": "route_decided",
+     "data": {"route": "container_cc", "model_class": "opus", "source": "baml",
+              "reasoning": ""}},
+    {"event": "query_complete",
+     "data": {"reply": "3 of them are sequencing samples.", "mode": "cc"}}]}
+
+_OBS_TREE_NS = RouteObservation("nextseek_query", None, "baml", "", "new_search", "sample-tree")
+
+
+def _merged_variant(vid):
+    from nessie_tests import corpus
+    overlay = Path(__file__).resolve().parents[1] / "overlay.json"
+    return next(v for v in corpus.merged(overlay) if v.id == vid)
+
+
+def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
+    """`tree.then_ask_about`: NS seed answers correctly, CC follow-up answers correctly.
+
+    The follow-up's `outcome_observed` is floor-injected and was the ONLY thing
+    failing it. `_outcome_observed` still resolves False on that turn — the fix is
+    that it is no longer SCORED, not that it became true — and the case is not
+    vacuous because the seed turn really evaluated four criteria.
+    """
+    v = _merged_variant("tree.then_ask_about")
+    seed = next(t for t in v.turns if t.label == "seed")
+    follow = next(t for t in v.turns if t.label == "follow_up")
+
+    seed_passed, seed_results, _ = evaluate.evaluate_turn(
+        _TREE_NS_SEED, list(seed.pass_criteria), _OBS_TREE_NS,
+        last_reply="Here is the tree.")
+    assert seed_passed, [r for r in seed_results if not r["passed"]]
+    assert evaluate.any_criterion_evaluated(seed_results), (
+        "the seed must really assert something, or the case would be no_assertions")
+
+    follow_passed, follow_results, _ = evaluate.evaluate_turn(
+        _TREE_CC_FOLLOWUP, list(follow.pass_criteria), OBS_CC,
+        last_reply="3 of them are sequencing samples.")
+    assert follow_passed
+    assert {r["field"] for r in follow_results if r.get("skipped")} == {
+        "chat_log.length", "outcome_observed"}
+
+    # non-vacuity: the criterion is skipped, NOT satisfied. Were it still scored,
+    # the turn would be red — which is exactly what happened before this change.
+    debug = evaluate.augment_debug(
+        evaluate.build_observed_debug(_TREE_CC_FOLLOWUP), OBS_CC)
+    assert debug["outcome_observed"] is False
+
+
+def test_it_is_still_the_only_multi_turn_variant_in_a_floored_family():
+    """The claim above, asserted rather than asserted-about.
+
+    NOTE: `_api_outcome_observed`'s docstring names `retrieve.then_inspect` as
+    this variant; that case has since been RETIRED, so `tree.then_ask_about` is
+    now the one. The recall branch it justifies is still correct and still needed.
+    """
+    from nessie_tests import corpus
+    overlay = Path(__file__).resolve().parents[1] / "overlay.json"
+    floors = (corpus.load_family_floor(overlay).get("floors") or {})
+    multi = [v.id for v in corpus.merged(overlay)
+             if v.family in floors and len(v.turns) > 1]
+
+    assert multi == ["tree.then_ask_about"]
+    assert "retrieve.then_inspect" in corpus.load_retired_ids()

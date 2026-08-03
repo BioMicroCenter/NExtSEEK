@@ -217,3 +217,70 @@ def test_the_stored_seed6b_run_still_loads():
 
     assert loaded.entries, "the stored manifest loaded but carries no entries"
     assert all(e.route_sources == [] for e in loaded.entries)
+
+
+# --------------------------------------------------------------------------- #
+# C1 part 2 — `no_assertions`: a case that evaluated ZERO criteria.
+#
+# It is a sixth status rather than a flag because it is genuinely a different
+# outcome from `passed`, `failed` and `error`: nothing was tested. Old manifests
+# never carry the value, so they still load.
+# --------------------------------------------------------------------------- #
+
+def test_no_assertions_round_trips(tmp_path):
+    m = M.NessieManifest(
+        started_at="a", ended_at="b", tier="full", scope="all",
+        entries=[M.NessieManifestEntry(id="green.refine_recall", family="nessie_green",
+                                       tier="full", status="no_assertions",
+                                       route="container_cc",
+                                       reason="asserted nothing about the product")])
+    p = tmp_path / "manifest.json"
+    M.write_manifest(m, p)
+
+    assert M.load_manifest(p).entries[0].status == "no_assertions"
+
+
+def test_the_five_older_statuses_still_load(tmp_path):
+    """Adding a value to the Literal must not remove one."""
+    for status in ("passed", "failed", "skipped", "error", "xpass"):
+        m = M.NessieManifest(
+            started_at="a", ended_at="b", tier="full", scope="all",
+            entries=[M.NessieManifestEntry(id="c", family="f", tier="full", status=status)])
+        p = tmp_path / f"{status}.json"
+        M.write_manifest(m, p)
+        assert M.load_manifest(p).entries[0].status == status
+
+
+def test_a_no_assertions_row_renders_with_its_own_class(tmp_path):
+    m = M.NessieManifest(
+        started_at="a", ended_at="b", tier="full", scope="all",
+        entries=[M.NessieManifestEntry(id="green.refine_recall", family="nessie_green",
+                                       tier="full", status="no_assertions")])
+
+    doc = report.generate_html(m, tmp_path).read_text(encoding="utf-8")
+
+    assert "<td>no_assertions</td>" in doc
+    assert "class='no_assertions'" in doc
+    assert ".no_assertions{" in doc, "the status has no CSS class, so it renders unstyled"
+
+
+def test_a_known_fail_that_asserted_nothing_is_not_rendered_as_xfail(tmp_path):
+    """`xfail` claims the expected failure was observed. Nothing was observed."""
+    m = M.NessieManifest(
+        started_at="a", ended_at="b", tier="full", scope="all",
+        entries=[M.NessieManifestEntry(id="repro.x", family="nessie_repro", tier="full",
+                                       status="no_assertions", expected_fail=True)])
+
+    doc = report.generate_html(m, tmp_path).read_text(encoding="utf-8")
+
+    assert "<td>no_assertions</td>" in doc
+    assert "xfail" not in doc
+
+
+@pytest.mark.skipif(not SEED6B.exists(), reason=f"stored run evidence absent: {SEED6B}")
+def test_the_stored_seed6b_run_still_loads_after_the_new_status():
+    """Real 142 KB run evidence written before `no_assertions` existed."""
+    loaded = M.load_manifest(SEED6B)
+
+    assert loaded.entries
+    assert "no_assertions" not in {e.status for e in loaded.entries}

@@ -18,6 +18,11 @@ def _display_status(entry) -> str:
     result at all — the provider chain gave up before the turn ran — so both
     "this failed" and "this failed as expected" would be claims the run cannot
     support.
+
+    ``no_assertions`` renders as itself for the same reason, which is why the
+    ``xfail`` test below lists ``failed``/``error`` explicitly instead of
+    "anything that is not passed": a known_fail case that evaluated zero criteria
+    did not fail as expected, it failed to test anything.
     """
     if getattr(entry, "outage", False):
         return "outage"
@@ -66,7 +71,10 @@ def generate_html(manifest: NessieManifest, out_dir: Path) -> Path:
         for e in manifest.entries)
     doc = (f"<html><head><title>nessie {manifest.tier}/{manifest.scope}</title>"
            "<style>.failed{background:#fdd}.passed{background:#dfd}.error{background:#fbb}"
-           ".xpass{background:#ffe0b2}.outage{background:#e0e0e0}</style></head>"
+           ".xpass{background:#ffe0b2}.outage{background:#e0e0e0}"
+           # Its own colour, not red and not green: nothing was tested, so the
+           # row is neither a regression nor a result.
+           ".no_assertions{background:#e1bee7}</style></head>"
            f"<body><h1>Nessie tests — tier={manifest.tier} scope={manifest.scope}</h1>"
            f"<p>{manifest.started_at} → {manifest.ended_at}</p>"
            "<table border=1 cellpadding=4><tr><th>id</th><th>family</th><th>route</th>"

@@ -17,6 +17,14 @@ class CriterionObservation(BaseModel):
     expected: object | None = None
     observed: object | None = None
     passed: bool
+    # True when this criterion could not be evaluated at all and was recorded
+    # rather than scored. `passed` is True for such a row (an unevaluable
+    # criterion is not evidence either way), which on its own is
+    # indistinguishable from a genuine pass — the fact used to live ONLY as a
+    # `"SKIPPED — "` prefix on `reason`, so every downstream reader had to
+    # string-match it and a stored manifest could not be re-checked for vacuity
+    # the way `outage` can. Defaults False so older manifests still load.
+    skipped: bool = False
     reason: str = ""
 
 
@@ -26,7 +34,17 @@ class NessieManifestEntry(BaseModel):
     tier: Literal["route", "full"]
     # `xpass` = tagged known_fail but every criterion passed. Reporting it as
     # `passed` hides a stale expectation behind a green run.
-    status: Literal["passed", "failed", "skipped", "error", "xpass"]
+    #
+    # `no_assertions` = the case evaluated ZERO criteria: every one it carried was
+    # recorded `skipped` as unobservable (or it carried none). That is not a pass
+    # — nothing was tested — and reporting it as one is how a CC-routed case in a
+    # floored family could look green while proving nothing. It counts as a real
+    # failure (`runner._is_real_failure`), same as `xpass`, because both mean the
+    # corpus is out of step with what the harness can actually observe.
+    #
+    # A value added, never removed: manifests written before it existed carry one
+    # of the original five and still load unchanged.
+    status: Literal["passed", "failed", "skipped", "error", "xpass", "no_assertions"]
     route: str | None = None
     engine: str | None = None
     # Which router produced the route on TURN 0, deliberately — not the last

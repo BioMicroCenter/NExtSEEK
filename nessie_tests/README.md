@@ -33,6 +33,42 @@ they encode #32/#33 + the EOF/cypher bugs and are EXPECTED to fail until fixed.
 `known_fail` tag when the corresponding fix lands (that flips them into real
 regressions).
 
+## Cases that asserted nothing (`no_assertions`)
+
+Some criteria cannot be observed over HTTP and are recorded `skipped` rather than
+failed — `pipeline_agent.*`, `chat_log.*`, `ui_text.*`, `op: trio_match`, and (only
+on a `container_cc` turn) the four derived NS outcome fields
+`api_outcome_observed` / `graph_outcome_observed` / `report_produced_output` /
+`outcome_observed`. Those four read keys off `query_complete.debug`, and a CC
+`query_complete` carries no `debug` at all, so they are constant-false on a CC
+turn no matter what it did. The skip is conditional on the observed route: on an
+NS turn the same four fields are real assertions and still fail.
+
+**Scale, stated honestly.** Skipping them removes ONE of the reasons a CC-routed
+case in a floored family goes red — not all of them. Simulate every case in the
+resolved corpus routing CC and **267 of 280 are still red**, with all six floored
+families at 100%: the inline `route` (227 variants), `parser_plan.mode` (216),
+`api_ok` (136) and `api_plan.endpoint` (116) criteria are deliberately not
+skipped, so those cases stay red until the corpus itself is settled. The one
+variant this measurably turns green is `tree.then_ask_about`, the only multi-turn
+variant in any floored family and therefore the whole realistic mixed-route
+population today.
+
+The skip does **not** extend to `api_ok`, `neo4j_ok`, `parser_plan.*`,
+`api_plan.*` or `graph_result.*`. Those are inline, hand-written case criteria —
+a case carrying them is claiming a particular engine answered it — so a CC-routed
+case with an inline `api_ok` still fails. That is deliberate; changing it is a
+corpus decision, not a harness one.
+
+The guard against the obvious hazard: a case that evaluated **zero** criteria
+(every one skipped, or none carried) is recorded `status="no_assertions"`, never
+`passed`, and it counts as a **real failure** — a case proving nothing is corpus
+drift, exactly like an `xpass`. `known_fail` does not excuse it: the tag claims
+the case fails, and a case that tested nothing showed neither that nor its
+absence. The rule is per CASE, not per turn — a multi-turn case that really
+asserted something on one turn did assert something, and the vacuous turn stays
+visible in the report's observation table with every row marked SKIPPED.
+
 ## Provider outages (GREY)
 A reply carrying `nessie_tests.outage.PROVIDER_OUTAGE_MARKER` means every
 provider in an agent's fallback chain returned 503, so the turn never reached

@@ -45,6 +45,12 @@ def main(argv=None) -> int:
     # provider must not read as a run that tested them.
     outaged = (f", {len(summary['outage'])} lost to a provider outage (not scored)"
                if summary["outage"] else "")
-    print(f"nessie: {len(manifest.entries)} cases, {fails} real failures{outaged} "
+    # ...and so do the cases that asserted nothing. They ARE inside `fails` by
+    # design, but "1 real failure" with no qualifier reads as a product
+    # regression, and a case that evaluated zero criteria is corpus drift — a
+    # different triage entirely.
+    vacuous = (f", {summary['counts']['no_assertions']} asserted nothing "
+               f"(counted as failures)" if summary["counts"]["no_assertions"] else "")
+    print(f"nessie: {len(manifest.entries)} cases, {fails} real failures{outaged}{vacuous} "
           f"(tier={a.tier} scope={a.scope}); report → {a.out}/report.html")
     return 1 if fails else 0
