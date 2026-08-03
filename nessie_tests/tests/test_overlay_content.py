@@ -140,7 +140,10 @@ def test_a_known_fail_sibling_pins_the_ns_graph_path():
 
 
 def test_the_write_case_rejects_budget_abort_language():
-    v = _retired()["write.create_me_investigation_testin"]
+    """Read from the ACTIVE corpus since 2026-08-03: this case was reinstated as
+    the create leg of the restored write/delete refusal coverage, so its guards
+    now run for real rather than being held to account in absentia."""
+    v = _merged()["write.create_me_investigation_testin"]
     guards = [c.value for t in v.turns for c in t.pass_criteria if c.op == "matches_re"]
 
     def passes(reply):
@@ -170,3 +173,74 @@ def test_the_global_count_matches_the_seeded_database():
     guard = _value(v, "last_reply", "matches_re")
     assert re.search(guard, "There are 50,886 samples in the database.")
     assert not re.search(guard, "There are 50,161 samples in the database.")
+
+
+# --------------------------------------------------------------------------- #
+# C1 part 2 — the blast radius of the vacuity guard, measured over the RESOLVED
+# corpus rather than reasoned about. `no_assertions` is a real failure, so any
+# variant it lands on flips from green to gate-failing the moment it ships.
+# --------------------------------------------------------------------------- #
+
+from nessie_tests import evaluate as _evaluate  # noqa: E402
+
+# The four NS outcome fields, skipped only when the observed route is
+# container_cc. Assuming a variant routes CC is the WORST case for this analysis,
+# which is the right direction for a blast-radius measurement.
+def _skipped_now(c):
+    return _evaluate.is_unobservable(c.field, c.op)
+
+
+def _skipped_if_cc(c):
+    return _evaluate.is_unobservable(c.field, c.op, route=_evaluate.CC_ROUTE)
+
+
+def _vacuous_variants(predicate):
+    return sorted(v.id for v in _corpus.merged(_OVERLAY)
+                  if all(predicate(c) for t in v.turns for c in t.pass_criteria))
+
+
+def test_no_variant_in_the_corpus_asserts_nothing_at_all():
+    """Zero variants flip green -> no_assertions, in either the current or the CC world.
+
+    If this ever fails, a variant has been added (or weakened) to the point where
+    it tests nothing, and it will now say so loudly instead of reporting green.
+    """
+    # Deliberately NOT pinned to a corpus SIZE. That is pinned once already, in
+    # test_floor_ops.py, and a legitimate corpus addition must not break a test
+    # whose subject is vacuity for an unrelated reason.
+    assert _vacuous_variants(_skipped_now) == []
+    assert _vacuous_variants(_skipped_if_cc) == []
+
+
+def test_the_turns_that_evaluate_nothing_are_a_known_named_set():
+    """Per-TURN vacuity, which the case-level status deliberately does not flag.
+
+    These turns really do assert nothing evaluable, but each belongs to a case
+    whose other turns assert four real criteria — so the case is not vacuous and
+    must not be labelled as such. Recorded here so the residue is visible and a
+    NEW vacuous turn has to be acknowledged rather than appearing silently.
+    """
+    def turns_where(predicate):
+        return sorted(f"{v.id}:{t.label}" for v in _corpus.merged(_OVERLAY) for t in v.turns
+                      if t.pass_criteria and all(predicate(c) for c in t.pass_criteria))
+
+    assert turns_where(_skipped_now) == [
+        "pipeline.activation_rnaseq:trigger_pipeline",
+        "pipeline.end_to_end_emit:issue_directive",
+    ]
+    # ...plus one more, but only if that turn routes container_cc.
+    assert turns_where(_skipped_if_cc) == [
+        "pipeline.activation_rnaseq:trigger_pipeline",
+        "pipeline.end_to_end_emit:issue_directive",
+        "tree.then_ask_about:follow_up",
+    ]
+
+
+def test_every_such_case_still_asserts_real_criteria_on_another_turn():
+    """The justification for the case-level rule, not an assumption about it."""
+    merged = {v.id: v for v in _corpus.merged(_OVERLAY)}
+    for vid in ("pipeline.activation_rnaseq", "pipeline.end_to_end_emit",
+                "tree.then_ask_about"):
+        real = [c.field for t in merged[vid].turns for c in t.pass_criteria
+                if not _skipped_if_cc(c)]
+        assert len(real) >= 4, f"{vid} asserts only {real}"

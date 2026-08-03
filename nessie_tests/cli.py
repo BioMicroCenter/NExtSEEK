@@ -38,7 +38,25 @@ def main(argv=None) -> int:
         family=a.family, variant_id=a.variant, overlay_path=_OVERLAY,
         out_dir=a.out, bundle_reader=bundle_reader, pace_s=a.pace,
         run_consistency=run_consistency, sample=a.sample, seed=a.seed)
+    summary = runner.classify_entries(manifest)
     fails = runner.gate_failed(manifest)
-    print(f"nessie: {len(manifest.entries)} cases, {fails} real failures "
-          f"(tier={a.tier} scope={a.scope}); report → {a.out}/report.html")
+    # Outages get their own clause rather than vanishing: they are excluded from
+    # `real failures` by design, and a run that quietly lost ten cases to a dead
+    # provider must not read as a run that tested them.
+    outaged = (f", {len(summary['outage'])} lost to a provider outage (not scored)"
+               if summary["outage"] else "")
+    # ...and so do the cases that asserted nothing. They ARE inside `fails` by
+    # design, but "1 real failure" with no qualifier reads as a product
+    # regression, and a case that evaluated zero criteria is corpus drift — a
+    # different triage entirely.
+    vacuous = (f", {summary['counts']['no_assertions']} asserted nothing "
+               f"(counted as failures)" if summary["counts"]["no_assertions"] else "")
+    # Cost is printed from the single preformatted string so this line, the HTML
+    # report and `manage.py nessie` cannot describe the same run differently. It
+    # says `unmeasured` when nothing was observed: a route-tier run keeps billing
+    # after the poll loop breaks (http_driver.py:96-98 vs cc_assistant.py:352-366),
+    # so `$0.00` there is a claim the harness cannot support.
+    print(f"nessie: {len(manifest.entries)} cases, {fails} real failures{outaged}{vacuous} "
+          f"(tier={a.tier} scope={a.scope}); cost {summary['cost_display']}; "
+          f"report → {a.out}/report.html")
     return 1 if fails else 0

@@ -60,6 +60,36 @@ Assign one verdict per case:
 | `notrun` | Never executed, so it proves nothing. Do not count it as a pass or a fail. |
 | `pass` | Genuinely fine. |
 
+#### Read the manifest STATUS first — three of them are not what they look like
+
+Your verdict is your own; the entry's `status` is the harness's. Three statuses
+carry information a bare pass/fail reading destroys, and mis-triaging the first
+one is the reason it exists.
+
+| Status | What the harness is telling you | Verdict to reach for |
+|---|---|---|
+| `error` **with `"outage": true`** | Every provider in an agent's fallback chain returned 503. The reply carries `All provider fallbacks exhausted` (`nessie_tests/outage.py`), so no parser ran, no query was issued, and no product behaviour was exercised. `gate_failed()` exempts it. | **`notrun`.** Not `real` — nothing was tested. Not `drift` — the assertion is fine. Ten of the eighteen reds in the 2026-08-03 seed-6 run were one Bedrock outage, and three reviewers spent time triaging that noise as product behaviour. Only a re-run can say anything. |
+| `no_assertions` | The case evaluated **zero** criteria — every one it carried was recorded `skipped` as unobservable, or it carried none. Counted as a real failure (`runner._is_real_failure`). | **`drift`**, and act on it: a case that proves nothing is corpus drift. `known_fail` does NOT excuse it — the tag claims the case fails, and this case demonstrated neither that nor its absence. Fix the case; never re-file it as `pass`. |
+| `xpass` | A `known_fail` case or group passed every criterion. Counted as a real failure. | **`drift`.** The expectation is stale. Retire the tag, which flips the case into a live regression guard. |
+
+An `error` **without** the outage flag — a dead endpoint, five consecutive poll
+failures — still fails the gate and is still infrastructure. Check the task row
+before calling it either way.
+
+**`scripts/build_report.py` writes those three answers as its defaults.** It has
+a tile each for `provider outages`, `xpass` and `asserted nothing`, `errored`
+counts only the errors that are NOT outages, and an untriaged case takes the
+verdict from the table above rather than `real` — see `DEFAULT_VERDICT` in that
+file, and `tests/test_output_skill_scripts.py`, which pins every mapping.
+
+That is a DEFAULT, not a judgement. The tool cannot tell a stale expectation from
+a real one; it can only stop captioning an outage "real product defect" before you
+have looked. Override any of it per case in `triage.json`, or replace the tiles
+wholesale with your own `stats` block.
+
+`graph_limit` now comes from `nessie_tests/limits.py` (currently 5000). Set it in
+`triage.json` only to review an OLDER run that really was capped at 250.
+
 Copy `examples/triage.json` and edit. Each verdict entry takes:
 
 ```json
@@ -133,34 +163,103 @@ status line reads "saved to this browser" when storage is working.
 
 ## Gotchas that will mislead you
 
-Every one of these produced a wrong conclusion on the first pass.
+Every one of these produced a wrong conclusion on the first pass. **Re-verified
+against the harness at `a85dde9` (2026-08-03).** The previous version of this list
+was a 2026-07-24 snapshot and seven of its nine bullets had gone false or stale —
+including one that told a triager to discount a genuine route failure — so
+re-derive rather than trusting this a third time.
 
 - **`TimeoutError` in the manifest is never a server hang.** `drive()` breaks on
-  its own deadline, it does not raise. The only source is the **30s socket
-  timeout** on the harness's own HTTP calls. Always check the task's real status
-  in the database: a "timed out" case may have completed fine server-side.
+  its own deadline (defaults 60s route / 600s full at `http_driver.py:61`, set at
+  `:81`, enforced by the `break` at `:101-102`), it does not raise. The socket timeout on the harness's own HTTP calls is **120s, not 30**
+  (`SOCKET_TIMEOUT_S`, `http_driver.py:14`), and a single socket failure mid-poll
+  is swallowed: it increments the entry's `poll_errors` and only **five
+  consecutive** failures re-raise (`http_driver.py:20`, `:89-93`). So a
+  `TimeoutError` means the endpoint was down for five polls running, or the
+  opening POST — which is outside that loop (`:44`) — timed out. Read the entry's
+  `poll_errors`, then check the task's real status in the database: a "timed out"
+  case may have completed fine server-side.
 - **`route: None` does not mean unrouted.** It means the harness gave up before it
   observed `route_decided`. The real route is in the task's progress column.
-- **A `container_cc` route is not automatically a misroute.** The harness injects
-  `route == nextseek_query` into *all* imported variants via
-  `default_route_criterion`, because `load_base` tags them `"base"`. That is a
-  harness assumption, not a curated expectation. Read the router's own `reasoning`
-  before calling it wrong.
-- **When a case routes to CC, every NS criterion fails as a cascade.** There is no
-  `parser_plan` on the CC route. One decision, many red criteria. Count causes,
-  not criteria.
-- **Check `expected_fail` cases that passed.** There is no xpass detection, so a
-  known-fail that starts passing still reads green.
-- **Check whether graph results equal the LIMIT cap** (250). A capped result set is
-  indistinguishable from a complete one, and no criterion in the corpus looks at
-  counts.
-- **`api_artifact.*` criteria can never pass.** They resolve against `run_root`,
-  and `evaluate.py` never passes one. Always `drift`.
+- **A `container_cc` route is not automatically a misroute — and the harness
+  stopped claiming otherwise.** `runner.default_route_criterion` now returns
+  `None` (`runner.py:33-46`); its docstring records why. It used to inject
+  `route == nextseek_query` into every variant tagged `"base"`, which
+  `corpus.load_base` applies to all of them — nobody ever curated that, and it
+  made deliberate `container_cc` routing (open-ended analysis, resource creation)
+  read as a product failure. What ended is the BLANKET assumption, not injection:
+  `corpus.apply_route_policy` reads the curated `route_policy` block in
+  `overlay.json` — twelve families plus seven per-variant overrides — and
+  attaches a `route` criterion to turn 0 of **268** variants, while 15 more write
+  one inline. **All 283 resolved variants carry a `route` criterion; only three
+  are `route_gate`** (`route.ns_advanced`, `route.unrelated`,
+  `route.ns_plain_study_membership`). So a `route` criterion on a case that is
+  not a gate is the policy working, NOT harness residue — reading it as residue
+  is how a real misroute gets discounted. **A route failure you see today is a
+  curated expectation, not a harness assumption. Do not discount it.** Read the
+  router's own `reasoning` to judge it, not to excuse it.
+- **When a case routes to CC, some NS criteria cascade — but not all, and the
+  difference is the whole point.** There is no `parser_plan` on the CC route. The
+  four DERIVED NS outcome fields — `api_outcome_observed`,
+  `graph_outcome_observed`, `report_produced_output`, `outcome_observed` — are
+  recorded `skipped` on an observed `container_cc` turn rather than failed
+  (`evaluate.py:397-404`), because a CC `query_complete` carries no `debug` key at
+  all and they were constant-false by construction. Inline, hand-written criteria
+  — `api_ok`, `neo4j_ok`, `parser_plan.*`, `api_plan.*`, `graph_result.*` — are
+  deliberately NOT skipped and still fail, because a case carrying them is
+  claiming a particular engine answered it. Count causes, not criteria.
+- **xpass detection EXISTS.** A `known_fail` case, or a `known_fail` consistency
+  group, that passes every criterion is promoted to `status="xpass"` by
+  `runner._apply_xpass` (`runner.py:363-375`, called from the variant loop at
+  `:280` and the group branch at `:322`), and `_is_real_failure` counts it
+  (`runner.py:415-416`). You no longer have to hunt green known-fails by hand —
+  but you do have to explain every `xpass`, because it means the corpus asserts
+  something that is no longer true.
+- **The graph LIMIT is 5000 now, and the sentinel check is a fallback, not the
+  signal.** `nessie_tests/limits.py` holds `GRAPH_LIMIT_SENTINELS = (250, 5000)`,
+  covering the historical cap and the current one, but inferring truncation from a
+  row count landing on a limit is only ever a guess — it went dead the moment the
+  limit moved. The real signal is `graph_result.truncated`, which the Neo4j tool
+  sets by comparing the returned count against the query's own trailing LIMIT. The
+  criterion to read is `graph_truncation_disclosed` (`evaluate.py:273-300`): it
+  asks whether the result is complete **or honest about being capped**, so a
+  capped result passes only if it also reports a real `total` exceeding the rows
+  returned. That is the right invariant — `graph.tissue_cell_impact` has 10,688
+  legitimate rows against a 5,000 limit and can never satisfy "not truncated",
+  while the failure that actually burned us was the 2026-07-27 run reporting
+  exactly 5,000 as if it were the total. A disclosure failure, not a truncation
+  one.
+- **`api_artifact.*` criteria CAN pass, including on a Container-CC turn.** They
+  are no longer resolved against a `run_root`. `build_artifact_index`
+  (`evaluate.py:92-141`) builds a per-turn basename -> path index from the turn's
+  own `query_complete`, reading `debug.report_saved_files`, `files`, `artifacts`
+  (file-typed entries only, so an inline `"table"` or `"preview"` label does not
+  fake a file) and `cc_raw_files`. The last two are what let a CC turn prove it
+  produced a file at all. Two real limits survive, both recorded in that
+  docstring:
+  - **A multi-deliverable CC turn only ever exposes `artifacts.zip`.**
+    `_publish_artifacts` zips whenever it finds more than one deliverable and
+    emits a SINGLE artifact so labelled; the member filenames never reach
+    `query_complete`. A reingest turn that writes a workbook plus anything else
+    resolves `api_artifact.upload.xlsx` **False** and only
+    `api_artifact.artifacts.zip` True. That is a payload limit with no
+    harness-side fix, not a product defect — CC criteria must assert
+    `artifacts.zip` for multi-file turns, and only a single-deliverable turn can
+    assert a real basename.
+  - **`.rows_gte` returns 0 for a CC artifact.** A CC or reporter artifact carries
+    no `path` and is indexed under its bare label, so `resolve_artifact`
+    (`evaluate.py:160-175`) returns 0 rather than resolving that label against the
+    harness cwd and counting rows out of an unrelated same-named file
+    (`samplesheet.csv` is asserted 3 times across 2 active variants,
+    `pipeline.end_to_end_emit` and `pipeline.happy_path_scrnaseq`). A failing
+    `.rows_gte` on a CC turn is unevaluable, not evidence.
 - **Cases are not isolated.** Pipeline agent state leaks across cases, so a failure
   may have been caused by the case before it. Check execution order in the
   manifest, which is append-order.
-- **Consistency groups never set `elapsed_s`**, so `0.0` is a reporting artifact,
-  not an instant failure.
+- **Consistency groups DO set `elapsed_s`** (`runner.py:327`, and `:353` on the
+  error path), so a `0.0` there is a genuinely instant result, not a reporting
+  artifact. They also record each query's `count` and `route` as `observations`,
+  so a group failure can be triaged from the manifest without re-running it.
 
 ## Do not
 

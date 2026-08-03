@@ -191,7 +191,11 @@ def test_the_floor_actually_moves_the_needle():
                # The 2026-07-28 floor rewrite renamed what it injects. These assert
                # the outcome was OBSERVED and DISCLOSED rather than asserting its
                # value, which is what made the old floor false-fail correct answers.
-               "api_outcome_observed", "graph_outcome_observed",
+               # 2026-08-03 collapsed the two engine-specific `*_outcome_observed`
+               # floors into one `outcome_observed`, so the floor asserts that an
+               # outcome exists rather than which engine produced it. The engine-
+               # specific names stay listed: a case may still assert one by hand.
+               "outcome_observed", "api_outcome_observed", "graph_outcome_observed",
                "graph_truncation_disclosed", "report_produced_output")
     merged = corpus.merged(_OV)
     weak = [v for v in merged
@@ -207,3 +211,111 @@ def test_every_floored_family_exists_in_the_corpus():
     families = {v.family for v in corpus.merged(_OV)}
     for fam in corpus.load_family_floor(_OV).get("floors", {}):
         assert fam in families, f"family_floor targets unknown family {fam!r}"
+
+
+# --------------------------------------------------------------------------- #
+# Figures quoted in the docs, recomputed.
+#
+# Every number below appears as PROSE in README.md, output-skill/SKILL.md or
+# output-skill/REFERENCE.md, and two of them had already gone false three commits
+# after being written — inside the branch that was written to stop exactly that.
+# The rule this section encodes: a number a triager will act on either gets
+# recomputed by a test that names the file to update, or it does not get written
+# down.
+#
+# The dangerous ones are the injection counts. SKILL.md and REFERENCE.md both
+# used to say routing was asserted "only" on the `route_gate` variants, and that
+# "nothing is injected" — so a triager seeing a `route` criterion on any of the
+# other 280 cases would conclude it was harness residue and discount a real
+# misroute.
+# --------------------------------------------------------------------------- #
+
+_DOCS = "nessie_tests/README.md, output-skill/SKILL.md and output-skill/REFERENCE.md"
+
+
+def _prepolicy():
+    """The resolved corpus with retirement and rewrites applied, but no injection."""
+    raw = corpus.load_overlay(OVERLAY)
+    by_id = {v.id: v for v in raw}
+    out = [by_id.pop(v.id, v) for v in corpus.load_base()]
+    out += [v for v in raw if v.id in by_id]
+    retired = corpus.load_retired_ids()
+    out = [v for v in out if v.id not in retired]
+    return corpus.apply_criterion_rewrites(out, corpus.load_criterion_rewrites(OVERLAY))
+
+
+def test_every_resolved_variant_carries_a_route_criterion():
+    merged = corpus.merged(OVERLAY)
+    with_route = [v for v in merged
+                  if any(c.field == "route" for t in v.turns for c in t.pass_criteria)]
+
+    assert len(with_route) == len(merged) == 283, (
+        f"{len(with_route)} of {len(merged)} carry a route criterion — update {_DOCS}")
+
+
+def test_only_three_variants_are_route_gate():
+    """The number the "asserted only on the route_gate variants" claim rested on."""
+    gates = sorted(v.id for v in corpus.merged(OVERLAY) if "route_gate" in v.tags)
+
+    assert gates == ["route.ns_advanced", "route.ns_plain_study_membership",
+                     "route.unrelated"], f"route_gate set changed — update {_DOCS}"
+
+
+def test_the_route_policy_injects_the_number_the_docs_quote():
+    """268 injected + 15 written inline = the 283 above."""
+    spec = corpus.load_route_policy(OVERLAY)
+    families = (spec or {}).get("families") or {}
+    overrides = (spec or {}).get("overrides") or {}
+    pre = _prepolicy()
+    injected = [v for v in pre
+                if (overrides.get(v.id) or families.get(v.family)) and v.turns
+                and not any(c.field == "route" for c in v.turns[0].pass_criteria)]
+    inline = [v for v in pre
+              if v.turns and any(c.field == "route" for c in v.turns[0].pass_criteria)]
+
+    assert len(injected) == 268, f"{len(injected)} injected — update {_DOCS}"
+    assert len(inline) == 15, f"{len(inline)} inline — update {_DOCS}"
+
+
+def test_the_family_floor_injects_the_numbers_the_docs_quote():
+    """`apply_family_floor` adds a criterion only where the last turn lacks that
+    FIELD, so the count is nothing like "every variant in a floored family"."""
+    spec = corpus.load_family_floor(OVERLAY)
+    floors = (spec or {}).get("floors") or {}
+    skip_tag = (spec or {}).get("exclude_tag", "no_floor")
+    pre = corpus.apply_route_policy(_prepolicy(), corpus.load_route_policy(OVERLAY))
+
+    per_field, variants = {}, 0
+    for v in pre:
+        floor = floors.get(v.family)
+        if not floor or skip_tag in v.tags or not v.turns:
+            continue
+        already = {c.field for c in v.turns[-1].pass_criteria}
+        added = [c["field"] for c in floor if c["field"] not in already]
+        if added:
+            variants += 1
+        for f in added:
+            per_field[f] = per_field.get(f, 0) + 1
+
+    assert variants == 203, f"{variants} variants floored — update {_DOCS}"
+    assert per_field == {"outcome_observed": 146, "report_produced_output": 57,
+                         "graph_truncation_disclosed": 36}, (
+        f"{per_field} — update {_DOCS}")
+
+
+def test_no_resolved_variant_is_tagged_known_fail():
+    """README says so, and says it about `known_fail` specifically — the 283 carry
+    plenty of other tags, including the injected route criterion above."""
+    assert not [v.id for v in corpus.merged(OVERLAY) if "known_fail" in v.tags]
+
+
+def test_samplesheet_csv_is_asserted_the_number_of_times_the_docs_quote():
+    """`resolve_artifact`'s docstring and SKILL.md both cite this to explain why a
+    bare artifact label is never resolved against the filesystem."""
+    hits = [(v.id, c.field) for v in corpus.merged(OVERLAY)
+            for t in v.turns for c in t.pass_criteria
+            if "samplesheet.csv" in f"{c.field} {c.value}"]
+
+    assert len(hits) == 3, f"{hits} — update evaluate.py:resolve_artifact and SKILL.md"
+    assert {vid for vid, _ in hits} == {"pipeline.end_to_end_emit",
+                                        "pipeline.happy_path_scrnaseq"}

@@ -29,6 +29,38 @@ ARTIFACT_INDEX_KEY = "nessie_artifact_index"
 # consistency.py can use it without importing e2e.criteria and openpyxl.
 from nessie_tests.limits import GRAPH_LIMIT_SENTINELS  # noqa: E402,F401
 
+# Provider-outage detection. Re-exported rather than reimplemented: consistency.py
+# needs the same verdict and cannot import this module (openpyxl, e2e.criteria), so
+# the detector itself lives in the dependency-free nessie_tests.outage.
+from nessie_tests.outage import (  # noqa: E402,F401
+    OUTAGE_REASON, PROVIDER_OUTAGE_MARKER, is_provider_outage,
+)
+
+
+def classify_turn_status(passed: bool, last_reply: str | None) -> str:
+    """Map one turn's criterion outcome to a manifest status.
+
+    An outaged turn is ``error`` no matter what its criteria did.
+
+    * Not ``failed``, because nothing was tested: the provider chain gave up
+      before the parser ran, so the reply is an infrastructure message and
+      scoring it as a product regression is how ten of the eighteen reds in the
+      2026-08-03 seed-6 run came to be triaged by hand.
+    * Not ``passed`` either, even when a criterion is satisfied. ``route`` is
+      resolved from ``route_decided``, which fires BEFORE the LLM call, and
+      ``last_reply nonempty`` is satisfied by the error text itself — so an
+      outaged turn can look green while having exercised nothing. Recording that
+      as a pass is the same lie in the other direction.
+
+    ``error`` is the status the runner already uses for infrastructure
+    (runner.py:171), so no new status is introduced; what IS new is the
+    ``outage`` flag the runner sets alongside it, which is what exempts the entry
+    from the gate. A non-outage error stays gate-failing.
+    """
+    if is_provider_outage(last_reply):
+        return "error"
+    return "passed" if passed else "failed"
+
 
 def _last(payload, name):
     data = None
@@ -60,19 +92,52 @@ def _collect_paths(value: Any, out: list[str]) -> None:
 def build_artifact_index(debug: dict, payload: dict) -> dict[str, str]:
     """Map produced-artifact basename -> absolute path for this turn.
 
-    Sources: ``report_saved_files`` in the debug payload (reporter/pipeline
-    writes) and any ``files`` carried on the query_complete event.
+    Sources, all on the query_complete event except the first:
+
+    * ``debug.report_saved_files`` — reporter/pipeline writes (NS).
+    * ``files`` — anything the NS turn attached.
+    * ``artifacts`` — emitted by BOTH the Container-CC publish path
+      (``cc_engine.py:789``) and the NS reporter path (``orchestrator.py:813-839``
+      via ``extract_table_artifacts``). Only ``artifact_type == "file"`` entries
+      are indexed: the reporter also emits ``"table"`` and ``"preview"`` entries
+      whose ``label`` is a human string ("GEO Report Preview", "Sample Types")
+      with no file behind it, and ``api_artifact.<name>`` means "a file with this
+      basename was produced", so indexing those would make it true for an inline
+      table. Neither producer sets ``path``, so ``label`` is the fallback.
+    * ``cc_raw_files`` — Container-CC scratch/raw writes, plain path strings.
+
+    The last two exist because a CC turn emits NEITHER of the first two: without
+    them every ``api_artifact.<name>`` criterion resolved False on every CC turn,
+    so the three file-producing families could never be scored at all.
+
+    KNOWN LIMIT — a multi-deliverable CC turn only ever exposes ``artifacts.zip``.
+    ``_publish_artifacts`` (``cc_engine.py:954-961``) zips whenever it finds more
+    than one deliverable and emits a SINGLE artifact labelled ``artifacts.zip``;
+    the member filenames never reach ``query_complete``. So a reingest turn that
+    writes a workbook plus anything else resolves ``api_artifact.upload.xlsx``
+    False and only ``api_artifact.artifacts.zip`` True. There is no harness-side
+    fix — the names are not in the payload. CC criteria must assert
+    ``api_artifact.artifacts.zip`` for multi-file turns; only a single-deliverable
+    turn can assert a real basename.
     """
     paths: list[str] = []
     _collect_paths(debug.get("report_saved_files") or {}, paths)
     qc = _last(payload, "query_complete") or {}
-    for entry in qc.get("files") or []:
-        if isinstance(entry, dict):
-            candidate = entry.get("path") or entry.get("name")
-            if candidate:
-                paths.append(str(candidate))
-        elif isinstance(entry, str):
-            paths.append(entry)
+
+    def _add(entries, *keys: str, files_only: bool = False) -> None:
+        for entry in entries or []:
+            if isinstance(entry, dict):
+                if files_only and entry.get("artifact_type") not in (None, "file"):
+                    continue
+                candidate = next((entry.get(k) for k in keys if entry.get(k)), None)
+                if candidate:
+                    paths.append(str(candidate))
+            elif isinstance(entry, str):
+                paths.append(entry)
+
+    _add(qc.get("files"), "path", "name")
+    _add(qc.get("artifacts"), "path", "label", files_only=True)
+    _add(qc.get("cc_raw_files"), "path", "name")
     return {PurePosixPath(p).name: p for p in paths if p}
 
 
@@ -98,7 +163,15 @@ def resolve_artifact(index: dict[str, str], field: str) -> Any:
     if sub.endswith(".rows_gte"):
         name = sub[: -len(".rows_gte")]
         path = index.get(name)
-        return 0 if path is None else _count_rows(Path(path))
+        # A CC/reporter artifact carries no path and is indexed under its bare
+        # label, so Path(label) would resolve against the harness cwd (/app in
+        # the container lane) and count rows out of an unrelated same-named file
+        # — `samplesheet.csv` is asserted 3x across 2 variants. A value with no
+        # separator is a label, not a path: return the 0 this branch returned
+        # before artifacts were indexed at all, without touching the filesystem.
+        if path is None or "/" not in path:
+            return 0
+        return _count_rows(Path(path))
     return sub in index
 
 
@@ -117,7 +190,35 @@ def augment_debug(debug: dict, obs: ro.RouteObservation, bundle_summary: dict | 
     debug["report_produced_output"] = _report_produced_output(debug)
     debug["graph_outcome_observed"] = _graph_outcome_observed(debug)
     debug["api_outcome_observed"] = _api_outcome_observed(debug)
+    debug["outcome_observed"] = _outcome_observed(debug)
     return debug
+
+
+def _outcome_observed(debug: dict) -> bool:
+    """True when the turn produced an outcome by ANY engine.
+
+    The family floor is attached at corpus-BUILD time keyed on `v.family`
+    (`corpus.py:45`), and the family names are engine-shaped: `search_advanced`
+    means the REST advanced_search endpoint, `graph_query` means Cypher. The parser
+    is free to answer the same question with either, and in the 2026-08-03 seed-6
+    run three `search_advanced` cases routed NS correctly, answered correctly via
+    the graph, and went red on `api_ok` / `api_outcome_observed` — both False on a
+    graph turn by construction. The operator's note on all three was "this was
+    correct".
+
+    `apply_family_floor` cannot know which engine will run, so the fix has to live
+    here, where the outcome is already in hand. The floor now asserts THAT an
+    outcome was produced; asserting WHICH engine produced it is a per-case decision
+    and the three engine-specific booleans stay available for exactly that.
+
+    Strictly the disjunction of those three — nothing else. It must stay that way:
+    a floor that is true unconditionally is worse than no floor, because it reports
+    green. `test_a_turn_that_produced_no_outcome_at_all_still_fails_the_floor` and
+    `test_outcome_observed_is_exactly_the_disjunction_of_the_three` pin it.
+    """
+    return (_graph_outcome_observed(debug)
+            or _api_outcome_observed(debug)
+            or _report_produced_output(debug))
 
 
 def _graph_outcome_observed(debug: dict) -> bool:
@@ -136,9 +237,14 @@ def _api_outcome_observed(debug: dict) -> bool:
 
     A follow-up that resolves against a previously recalled bundle carries
     `source_mode` and no `row_count` of its own, and that is correct rather than a
-    gap. `retrieve.then_inspect` is the only multi-turn variant in any floored
-    family, and the floor lands on the LAST turn, so without this it would be a
-    guaranteed false failure.
+    gap. The floor lands on the LAST turn, so without this branch such a follow-up
+    would be a guaranteed false failure.
+
+    CORRECTION: this docstring used to name `retrieve.then_inspect` as "the only
+    multi-turn variant in any floored family". That variant has since been
+    RETIRED; `tree.then_ask_about` is now the only one
+    (`test_it_is_still_the_only_multi_turn_variant_in_a_floored_family`). The
+    branch itself is unchanged and still needed — only the example was stale.
     """
     meta = debug.get("api_result_meta") or {}
     return meta.get("row_count") is not None or meta.get("source_mode") is not None
@@ -267,11 +373,71 @@ _UNOBSERVABLE_FIELD_PREFIXES = ("pipeline_agent.", "chat_log.", "ui_text.")
 _UNOBSERVABLE_OPS = ("trio_match",)
 UNOBSERVABLE_REASON = "field family not observable over HTTP"
 
+# The four DERIVED outcome fields `augment_debug` computes, all of them off keys
+# that live on `query_complete.debug`. A Container-CC `query_complete` carries no
+# `debug` key AT ALL — `cc_engine` emits {reply, mode, artifacts, cc_raw_files} —
+# so `graph_result`, `api_result_meta`, `reporter_result` and `report_saved_files`
+# are absent and every one of these four resolves False by construction,
+# regardless of what the CC turn actually did.
+#
+# Part 1 of this fix made the family floor engine-AGNOSTIC by flooring on
+# `outcome_observed` instead of `api_ok`/`neo4j_ok`. Necessary but not sufficient:
+# `outcome_observed` is exactly the disjunction of the other three, so it is
+# constant-false on a CC turn too, and every CC-routed case in a floored family
+# stayed an automatic red that proved nothing. `green.refine_recall` failed for
+# precisely this reason in the 2026-08-03 seed-6 run.
+#
+# The scope is deliberately NARROW: only these four derived fields, and only when
+# the OBSERVED route is container_cc. `api_ok`, `neo4j_ok`, `parser_plan.*`,
+# `api_plan.*` and `graph_result.*` are inline, case-level assertions someone
+# wrote by hand — a case carrying them is claiming a particular engine answered
+# it. A CC-routed case carrying an inline `api_ok` therefore STILL FAILS, and
+# that is intended: widening the skip to cover it is a corpus decision with a
+# much bigger blast radius, not a harness one.
+CC_ROUTE = "container_cc"
+CC_UNOBSERVABLE_FIELDS = frozenset({
+    "api_outcome_observed", "graph_outcome_observed",
+    "report_produced_output", "outcome_observed",
+})
+# Names the route, so a manifest reader can tell this skip from the HTTP one
+# above. Two skips with the same reason string would be untriageable.
+CC_UNOBSERVABLE_REASON = f"NS outcome field not observable on a {CC_ROUTE} turn"
 
-def is_unobservable(field: str | None, op: str | None) -> bool:
-    return bool(
-        (field or "").startswith(_UNOBSERVABLE_FIELD_PREFIXES) or op in _UNOBSERVABLE_OPS
-    )
+# What the runner records when a case evaluated ZERO criteria. Lives here, next
+# to the two reasons that cause it, so the three read as one story.
+NO_ASSERTIONS_REASON = (
+    "every criterion this case evaluated was skipped as unobservable, so the "
+    "case asserted nothing about the product"
+)
+
+
+def unobservable_reason(field: str | None, op: str | None,
+                        route: str | None = None) -> str | None:
+    """Why this criterion cannot be evaluated on this turn, or None if it can.
+
+    ``route`` is optional and defaults to None so the HTTP-family check keeps
+    working for callers that have no route in hand; it is only consulted for the
+    container_cc case.
+    """
+    if (field or "").startswith(_UNOBSERVABLE_FIELD_PREFIXES) or op in _UNOBSERVABLE_OPS:
+        return UNOBSERVABLE_REASON
+    if route == CC_ROUTE and field in CC_UNOBSERVABLE_FIELDS:
+        return CC_UNOBSERVABLE_REASON
+    return None
+
+
+def is_unobservable(field: str | None, op: str | None, route: str | None = None) -> bool:
+    return unobservable_reason(field, op, route) is not None
+
+
+def any_criterion_evaluated(results: list[dict]) -> bool:
+    """Did this turn actually TEST anything?
+
+    False both when every result was skipped and when there were no criteria at
+    all — the two are the same claim about the turn, and the runner turns a case
+    made entirely of such turns into ``no_assertions`` rather than ``passed``.
+    """
+    return any(not r.get("skipped") for r in results)
 
 
 def evaluate_turn(payload, criteria, obs, *, last_reply=None, bundle_summary=None):
@@ -279,17 +445,22 @@ def evaluate_turn(payload, criteria, obs, *, last_reply=None, bundle_summary=Non
     debug = augment_debug(raw_debug, obs, bundle_summary,
                           artifact_index=build_artifact_index(raw_debug, payload))
 
-    skipped = [c for c in criteria if is_unobservable(*_criterion_parts(c)[:2])]
-    criteria = [c for c in criteria if not is_unobservable(*_criterion_parts(c)[:2])]
+    # The route is read off `debug` rather than plumbed through from the runner:
+    # `augment_debug` has just set it from the SAME observation the criteria are
+    # about to be evaluated against, so there is no second source to drift from.
+    route = debug.get("route")
+    paired = [(c, unobservable_reason(*_criterion_parts(c)[:2], route=route)) for c in criteria]
+    skipped = [(c, why) for c, why in paired if why]
+    criteria = [c for c, why in paired if not why]
 
     local_criteria, delegated = _split_local_criteria(criteria)
     passed, results = check_pass(debug, delegated, last_reply=last_reply)
 
-    for crit in skipped:
+    for crit, why in skipped:
         field, op, expected = _criterion_parts(crit)
         results.append({"field": field, "op": op, "value": expected,
                         "passed": True, "skipped": True,
-                        "reason": f"{field}: SKIPPED — {UNOBSERVABLE_REASON}"})
+                        "reason": f"{field}: SKIPPED — {why}"})
 
     index = debug.get(ARTIFACT_INDEX_KEY) or {}
     for crit in local_criteria:

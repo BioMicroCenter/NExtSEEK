@@ -38,8 +38,14 @@ docker exec -w /app nextseek uv run manage.py nessie \
     --tier {route,full} --scope {specific,all} --sample <ratio> --out /app/nessie_out_X
 ```
 
-`route` tier is cheap and needs no seed data. `full` executes real turns, costs
+`route` tier is cheaper and needs no seed data. `full` executes real turns, costs
 money, and needs the seeded v2 instance (project ids 2-14).
+
+**`route` is not free, and its printed cost is `unmeasured`, not `$0`.** It stops
+the *client* polling at `route_decided`; the server finishes and bills for every
+gate anyway. Read the Cadence section of `nessie_tests/README.md` before drawing
+any conclusion about what a run spent — a `$…` figure in a triage report is a
+floor, never a total.
 
 Deploy a harness change with no rebuild, since it is test tooling and not the
 served app:
@@ -130,16 +136,33 @@ object. `chat_nextseek/e2e/criteria.py` resolves them:
 | `entity_sampletype_codes` | codes from `entity_result.sampletypes[]` |
 | `entity_assay_codes` | codes from `entity_result.assays[]` |
 | `last_reply` | the reply text, HTML stripped |
-| `api_artifact.<file>` | a **filesystem** check under `run_root/files/<file>` |
+| `api_artifact.<file>` | in **e2e**, a filesystem check under `run_root/files/<file>`; in **nessie**, the turn's own artifact index (see below) |
 | `bundle.*` | injected by nessie's bundle reader |
 | `route`, `engine`, `route_source` | injected by `nessie_tests/evaluate.py` |
 | anything else | dot-notation walk of the debug dict |
 
-`api_artifact.*` is the trap: `evaluate.py` calls `check_pass` **without**
-`run_root`, so it always resolves to `None` and any `op: "true"` fails. Those
-criteria are permanently unevaluable in this harness. The expected filenames are
-also stale; the reporter now writes `merged_report_SRA_SRA_metadata_filled.xlsx`
-rather than `sra_seq.xlsx`.
+**`api_artifact.*` is no longer the trap it was.** This used to say the criteria
+were permanently unevaluable because `evaluate.py` calls `check_pass` without a
+`run_root`. It still calls it without one — the async endpoint reuses a single run
+root per gunicorn process, so there is no per-turn root to hand it — but
+`evaluate.py` now resolves these criteria itself, before delegating, out of a
+per-turn index built from the turn's own `query_complete`
+(`_split_local_criteria`, `build_artifact_index`, `resolve_artifact`). It reads
+`debug.report_saved_files`, `files`, `artifacts` (file-typed entries only) and
+`cc_raw_files`, so **a Container-CC turn can now prove it produced a file**.
+
+Two limits survive, and a triager must not read either as a product defect:
+
+- **A multi-deliverable CC turn only ever exposes `artifacts.zip`.** The publish
+  path zips whenever it finds more than one deliverable and emits one artifact so
+  labelled; member filenames never reach `query_complete`. Assert
+  `api_artifact.artifacts.zip`, not a member name.
+- **`.rows_gte` returns 0 for a CC artifact**, which is indexed under a bare label
+  with no path on disk. Returning 0 is deliberate: resolving that label against
+  the harness cwd would count rows out of an unrelated same-named file.
+
+Expected filenames in the base corpus are still stale, separately: the reporter
+now writes `merged_report_SRA_SRA_metadata_filled.xlsx` rather than `sra_seq.xlsx`.
 
 ---
 
@@ -211,6 +234,13 @@ relying on any of it.
   and 737 (hijacked).
 - **Graph `LIMIT 250` cap.** 3 of 11 graph queries returned exactly 250. Invisible
   to the suite; one capped case passed all assertions.
+  **The cap is now 5000.** `nessie_tests/limits.py` keeps
+  `GRAPH_LIMIT_SENTINELS = (250, 5000)` so old evidence is still caught, but a
+  count landing on a limit is only a guess at truncation. The real signal is
+  `graph_result.truncated`, and the criterion to read is
+  `graph_truncation_disclosed`, which passes a capped result only when it also
+  reports a `total` exceeding the rows returned. Do not triage a 2026-08 run
+  against 250.
 - **Node-resolution instability.** "study X" resolves sometimes to `Study.title`,
   sometimes to `Investigation.title`, sometimes both. Same question shape returned
   0 rows in one case and 250 in another. This is the mechanism behind issue #33.
@@ -222,16 +252,39 @@ relying on any of it.
 - **Classification inconsistency.** Near-identical assay questions classified
   `new_search` vs `system_question`.
 
-**Harness gaps**
+**Harness gaps** — as recorded then. Most have since CLOSED; the status after
+each is current as of 2026-08-03 (`a85dde9`). Do not triage against the
+left-hand column.
 
 - Manifest stores criterion names only, never observed values.
+  **CLOSED** — entries carry an `observations` list of `CriterionObservation`.
 - 30s socket timeout turns infra latency into a test `error` and loses the route.
+  **CLOSED** — `SOCKET_TIMEOUT_S` is **120**, and a single mid-poll failure is
+  swallowed into `poll_errors`; only five consecutive failures raise.
 - `default_route_criterion` injects `route == nextseek_query` into all imported
-  variants.
-- `api_artifact.*` unevaluable (no `run_root`).
-- No xpass detection.
-- No session isolation between cases.
-- Consistency groups never set `elapsed_s`.
+  variants. **CLOSED** — it returns `None`. Injection did not stop, though; it
+  became CURATED, and reading this line as "nothing is injected" is how a real
+  route failure gets discounted as residue. `corpus.apply_route_policy` attaches
+  a `route` criterion to turn 0 of **268** of the 283 resolved variants — 15 more
+  write one inline, so **all 283** carry one, against only 3 tagged `route_gate`
+  — plus `last_reply nonempty` to 241. `apply_family_floor` adds 239 outcome
+  criteria across 203 variants (`outcome_observed` to 146,
+  `report_produced_output` to 57, `graph_truncation_disclosed` to 36). All of it
+  comes from the `route_policy` and `family_floor` blocks in `overlay.json`,
+  which are reviewable data, so a route failure today is a curated expectation
+  rather than a harness assumption.
+- `api_artifact.*` unevaluable (no `run_root`). **CLOSED** — resolved from the
+  turn's own artifact index; see §2 for the two limits that remain.
+- No xpass detection. **CLOSED** — `runner._apply_xpass` promotes a passing
+  `known_fail` (variant *or* consistency group) to `status="xpass"`, which counts
+  as a real failure.
+- No session isolation between cases. **PARTLY CLOSED** — the runner passes
+  `force_new` on each case's FIRST turn (`runner.py:203`) and on every consistency
+  query (`:301`), so cases no longer inherit each other's ChatSession, pinned
+  bundles or `results_history`. The pipeline-agent hijack above is a separate,
+  product-side leak; it is recorded as open and was NOT re-verified this wave.
+- Consistency groups never set `elapsed_s`. **CLOSED** — they set it on both the
+  normal and the error path, and also record each query's `count` and `route`.
 
 **Corrections to the 2026-07-27 handoff** (it was wrong on these):
 
