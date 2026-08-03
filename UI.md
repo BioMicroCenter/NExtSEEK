@@ -137,7 +137,7 @@ All pages extend `base.html` and inject content via `{% block main %}`.
 | New Search | `/seek/newsearch/` | `views.newSearch` | `seek/templates/newSearch.html` | `pages/samples_newsearch.embed.html` |
 | Data File Query | `/seek/datafile/query/` | `views.datafileQuery` | `seek/templates/dataFilesPage.html` | `pages/datafile_table.embed.html` |
 | Protocol (SOP) Query | `/seek/sop/query/` | `views.sopQuery` | `seek/templates/sopsPage.html` | `pages/sops_table.embed.html` |
-| Smart Query (AI) | `/seek/salt/` | `views.smartSearch` | `seek/templates/smartSearch.html` | - |
+| Smart Query (AI) | `/seek/assistant/` | `views.smartSearch` | `seek/templates/smartSearch.html` | - |
 
 ---
 

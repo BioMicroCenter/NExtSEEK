@@ -32,6 +32,32 @@ _FALLBACK_CHAINS: dict[tuple[str, str], list[str]] = {
     ("anth:lite",    "anth"): ["gcp:lite",     "anth:current", "gcp:current"],
 }
 
+# Two provider vocabularies exist and they are not the same.
+#   * catalog vocabulary  — the `provider` field in agent_model_catalog.json and the keys
+#     of config.LLM_CLIENTS: "gcp", "anth", "oai". _FALLBACK_CHAINS above is keyed on it.
+#   * client vocabulary   — BaseLLMClient.provider on the concrete client classes:
+#     "openai", "gcp", "anthropic", "bedrock". LLMError.provider surfaces it to logs.
+# Only "gcp" coincides. Translate at the lookup site so a 503 from BedrockClient finds
+# the ("default", "anth") chain instead of an empty list. Neither vocabulary is renamed:
+# config.LLM_CLIENTS is keyed by the catalog one and the log lines report the client one.
+_CLIENT_TO_CATALOG_PROVIDER: dict[str, str] = {
+    "bedrock": "anth",
+    "anthropic": "anth",
+    "gcp": "gcp",
+    "openai": "oai",
+}
+
+
+def _catalog_provider(client) -> str:
+    """Translate a client's `provider` into the catalog vocabulary _FALLBACK_CHAINS uses.
+
+    Unknown providers pass through unchanged: a client class that is not in the map yet
+    must not be silently reclassified — it simply finds no chain and fails fast, exactly
+    as it did before. See tests/test_llm_fallback_chain.py for the anti-drift lock.
+    """
+    raw = getattr(client, "provider", None) or ""
+    return _CLIENT_TO_CATALOG_PROVIDER.get(raw, raw)
+
 
 def _get_fallback_agent_configs(
     config: "ChatConfig",
@@ -253,7 +279,11 @@ def call_llm_structured(
                 thinking_budget=target_thinking_budget,
             )
         except LLMServiceUnavailableError as sue:
+            # Raw client vocabulary ("bedrock", "anthropic", "gcp", "openai") — this is
+            # what an operator needs to see in the log during an outage. The chain
+            # lookup below needs the catalog vocabulary, so keep the two separate.
             failed_provider = getattr(target_client, "provider", None)
+            failed_catalog_provider = _catalog_provider(target_client)
             print(
                 f"[STRUCTURED_PARSE][{model.__name__}] 503 from provider='{failed_provider}' "
                 f"model='{target_model_name}' attempt {attempt+1}/{retries+1}: {sue}"
@@ -265,7 +295,7 @@ def call_llm_structured(
             ))
             # Build fallback list on first 503
             if not _fallback_iter and _effective_agent_label:
-                _fallback_iter = _get_fallback_agent_configs(config, _effective_agent_label, failed_provider or "")
+                _fallback_iter = _get_fallback_agent_configs(config, _effective_agent_label, failed_catalog_provider)
             if _fallback_iter:
                 fb_client, fb_model, fb_budget = _fallback_iter.pop(0)
                 print(

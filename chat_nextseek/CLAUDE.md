@@ -8,7 +8,7 @@ Conversational multi-agent AI over the NExtSEEK biological sample database. Pyth
 - **Data**: NExtSEEK REST API (`requests`/`aiohttp`), MySQL (`mysql-connector-python`), Neo4j (`neo4j`).
 - **Schemas**: Pydantic 2 in `src/chat_nextseek/schemas/`.
 - **Eval**: BAML (`baml-py`) under `src/chat_nextseek/evaluator/`.
-- **Pipelines**: nf-core + Seqera Tower REST in `src/chat_nextseek/seqera/`.
+- **Pipelines**: nf-core. Launch target is MIT's **Luria** SLURM cluster (ssh + sbatch) in `src/chat_nextseek/luria/`; samplesheet/params/launch emission and the curated param + reference bundles stay in `src/chat_nextseek/seqera/`. The Seqera Tower client there is **retired but dormant** (see Code Style & Conventions).
 
 ## Build & Run
 - **Install**: `uv sync` (or `nix develop` for a reproducible shell).
@@ -19,7 +19,7 @@ Conversational multi-agent AI over the NExtSEEK biological sample database. Pyth
 
 ## Testing
 - **Unit tests**: `uv run pytest tests/` — files match `tests/test_*.py`. The `tests/evaluator/` subdir is Django-stack dependent; exclude it by default: `uv run pytest tests/ --ignore=tests/evaluator -q`.
-- **E2E tests**: `uv run e2e.py` (catalog `e2e/catalog.json` — 362 variants across 11 task families; default samples at ratio 0.33). `uv run e2e.py --ratio full` runs all variants; `--family <name>` / `--variant <id>` scope it. See chat_nextseek/README.md → Testing for the full flag set.
+- **E2E tests**: `uv run e2e.py` (catalog `e2e/catalog.json`, 11 task families; default samples at ratio 0.33). The variant count drifts as cases are added, so do not quote a frozen number: `uv run e2e.py --list` prints every family with its live count. `uv run e2e.py --ratio full` runs all variants; `--family <name>` / `--variant <id>` scope it. See chat_nextseek/README.md → Testing for the full flag set.
 - `cli.py -st` (sample) and `cli.py -ft` (full) are thin shims over `e2e.py`. The old `smart_test.py` / `test.py` / `testing.json` harness was retired.
 
 ## Project Structure
@@ -27,7 +27,7 @@ Conversational multi-agent AI over the NExtSEEK biological sample database. Pyth
 cli.py / app.py / mcp_server.py      CLI, Streamlit UI, MCP server entry points
 e2e.py                               E2E runner (cli.py -st/-ft shim over it)
 agent_model_catalog.json             Per-agent model/provider/thinking routing
-e2e/catalog.json                     E2E variant catalog (362 variants / 11 families)
+e2e/catalog.json                     E2E variant catalog (11 families; `e2e.py --list` for counts)
 
 src/chat_nextseek/
   orchestrator.py                    Multi-agent dispatcher (standard + planner pipelines)
@@ -35,10 +35,12 @@ src/chat_nextseek/
                                      (entity, parser, api, reporter, chatter, memory,
                                      system, graph, seqera) + planner/ subpackage
   pipeline/                          Full-agentic nf-core agent: agent.py (one Bedrock
-                                     tool loop) + agent_tools.py (resolve_samples,
-                                     write_samplesheet, configure_run, submit_to_tower,
-                                     conclude) — configure_run builds params.yml +
-                                     launch.yml (curated params + species references)
+                                     tool loop) + agent_tools.py. Tools exposed to the
+                                     model: resolve_samples, write_samplesheet,
+                                     configure_run, submit_to_luria (only when
+                                     config.LURIA_ENV_COMPLETE), conclude, handoff.
+                                     configure_run builds params.yml + launch.yml
+                                     (curated params + species references)
   helpers/                           Shared utilities (dates, lineage, lab_code, results,
                                      text, json_io) + tools/ (nextseek_api, neo4j,
                                      catalog_match, memory_code)
@@ -51,7 +53,16 @@ src/chat_nextseek/
                                      planner, router, tools, system)
   prompts/                           *.txt prompts loaded at runtime
   context/                           Cached catalogs (API spec, sampletypes, assays, Neo4j)
-  seqera/                            Tower client + Datasets v2 + ENA + samplesheet emitter
+  luria/                             Luria SLURM launch backend: ssh.py, submitter.py,
+                                     run_script.py, fetchngs_helpers.py + templates/ +
+                                     pipelines/scrnaseq_2_7_1_star/ (provision.sh clones
+                                     and patches the nf-core/scrnaseq 2.7.1 tree on Luria
+                                     for the whitelist-less STARsolo path;
+                                     run_star_validation.sh is the SLURM batch script that
+                                     runs a validation job against that clone)
+  seqera/                            Samplesheet/params/launch emitter, ENA, curated
+                                     params + reference bundles. Also the dormant
+                                     Tower client + Datasets v2 (retired, see below)
   reports/                           Report templates incl. nf-core
   evaluator/                         BAML eval harness + dashboard
 
@@ -64,6 +75,8 @@ tests/evaluator/                     Evaluator subsystem tests
 - **Prompts live in `prompts/*.txt`** — edit prompt text there, not in the agent module. New agent → new `prompts/<name>.txt` + loader call.
 - **Schemas live in `schemas/`** — re-export new models from `schemas/__init__.py` so callers import from the package.
 - **Agent names are stable string keys** (`entity`, `parser`, `api`, `reporter`, `report_writer`, `report_coder`, `chatter`, `memory`, `memory_coder`, `graph`, `system`, `multi_parser`, `planner`, `context_engineer`, `evaluator`, `seqera_agent`, `pipeline_agent`). **Adding an agent requires registering it in every profile of `agent_model_catalog.json`.**
+- **Seqera Tower is retired, not deleted.** `build_pipeline_tool_schemas` (`pipeline/agent_tools.py`) never appends `submit_to_tower`, so the model cannot call it; Luria is the only exposed launch target. `tool_submit_to_tower`, its schema, `seqera/tower_client.py`, `seqera/tower_datasets.py` and `emitter.emit_launch_artifacts` are all left intact and dormant for a future re-enable. Do not "clean them up" as dead code.
+- **`handoff` is always exposed** and is a terminal tool like `conclude`. When a pipeline build is open and the user asks about something else (a sample search, a lineage question, a report), the agent calls `handoff`; `pipeline/agent.py` clears the build state and returns `action="passthrough"` so the orchestrator's normal parser takes the turn. Without it an open build could trap the conversation.
 - **Context catalogs are cached JSON in `src/chat_nextseek/context/`** — delete a file to force a refresh from the live source.
 - **Logs/artifacts** land under `LOG_DIR` (Streamlit) or `NEXTSEEK_OUTPUTS_DIR` (CLI) per run. `outputs/` is gitignored.
 - **Don't commit**: `.env`, `*.sqlite`, `.mcp.json`, `AGENTS.md` (all gitignored).
@@ -76,7 +89,7 @@ tests/evaluator/                     Evaluator subsystem tests
 ## When Modifying Common Areas
 - **Routing change** → `prompts/parser_core_routing.txt` + parser logic in `agents/parser.py` + `schemas/router.py` + add a variant in `e2e/catalog.json`.
 - **New agent** → implement as `agents/<name>.py`, add prompt in `prompts/`, register in `agent_model_catalog.json` (every profile), wire dispatch in `orchestrator.py`.
-- **Pipeline / Tower change** → `pipeline/agent.py`, `pipeline/agent_tools.py`, `seqera/*.py` (incl. `seqera/pipeline_params.py`), `prompts/pipeline_agent.txt`. Curated run params + species→reference bundles live in `reports/templates/nfcore/<key>.json` + `reports/templates/nfcore/reference_bundles.json`.
+- **Pipeline / launch change** → `pipeline/agent.py`, `pipeline/agent_tools.py`, `luria/*.py` (submit path), `seqera/*.py` (incl. `seqera/pipeline_params.py` and `seqera/emitter.py::emit_luria_launch_artifacts`), `prompts/pipeline_agent.txt`. Curated run params + species→reference bundles live in `reports/templates/nfcore/<key>.json` + `reports/templates/nfcore/reference_bundles.json`. Launch env: `LURIA_USER`, `LURIAKEY`, `LURIA_WORKING_PATH` (host is hardcoded `luria.mit.edu`); `PIPELINE_LAUNCH_MODE` defaults to `luria`.
 - **Touching `helpers/` or `agents/`** → these are packages with one module per concern; keep edits scoped to the relevant module.
 
 ## Logs (debugging failures)

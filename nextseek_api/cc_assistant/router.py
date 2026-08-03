@@ -62,11 +62,13 @@ _NS_PATTERNS = re.compile(
 
 @dataclass(frozen=True)
 class RouteDecision:
-    route: str                 # ROUTE_NS | ROUTE_CC
+    route: str                 # ROUTE_NS | ROUTE_CC | ROUTE_UNRELATED
     model_class: str | None    # "opus" | "sonnet" | "haiku" | None
     model_id: str | None       # Bedrock-qualified id for the CC route
     reasoning: str
-    source: str                # "baml" | "heuristic"
+    # Who decided. "baml"/"heuristic" are set here; "forced"/"pipeline"/"sticky"
+    # are set by _decide_route in nextseek_api/services/cc_assistant.py.
+    source: str                # "baml" | "heuristic" | "forced" | "pipeline" | "sticky"
 
 
 def _build_context_dir() -> Path | None:
