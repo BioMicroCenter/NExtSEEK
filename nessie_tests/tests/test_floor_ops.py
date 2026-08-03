@@ -21,6 +21,7 @@ result shapes.
 import ast
 import json
 import pathlib
+import re
 
 import pytest
 
@@ -999,3 +1000,102 @@ def test_the_d_seq_case_still_fails_when_a_different_sample_type_came_back():
     passed, per_field = _evaluate(_resolved(vid), debug, last_reply=GOOD_REPLY[vid])
     assert not passed
     assert per_field["entity_sampletype_codes"] is False
+
+
+# ── 2026-08-03 (c): the `could not` escape hatch, deleted ────────────────────
+#
+# All three `advanced.*` reply guards carried a `|could not` branch. It was added
+# to tolerate a reply like
+#
+#     **The request could not be completed.** All provider fallbacks exhausted ...
+#
+# so a provider outage would not read as a product failure. Task 3 made that
+# unnecessary: `evaluate.classify_turn_status` returns `error` for an outaged turn
+# BEFORE any criterion is scored, and `runner` sets `outage=True` alongside it,
+# which exempts the entry from the gate. The branch could no longer save an
+# outage — it could only let a NON-outage zero-result non-answer score green,
+# which is precisely the failure these three guards exist to catch.
+#
+# The honest-negative branches (`no samples`, `no sequencing`, `no files`) stay.
+# The point was never to forbid a negative answer; it was to forbid a confident
+# answer about the wrong entity, and to stop "I could not do that" counting as one.
+
+COULD_NOT_GUARDED = (
+    "advanced.find_me_nhp_samples_from_study_2",
+    "advanced.find_me_sequencing_files_assoc",
+    "advanced.find_me_d_seq_samples_in_proje",
+)
+
+# Per case, an honest negative the guard must still accept. These are the branch
+# the deletion had to leave alone.
+HONEST_NEGATIVE = {
+    "advanced.find_me_nhp_samples_from_study_2":
+        "No samples matched the IMPACT study.",
+    "advanced.find_me_sequencing_files_assoc":
+        "No sequencing files are associated with Short Read Sequencing.",
+    "advanced.find_me_d_seq_samples_in_proje":
+        "No samples of that type are in project IMPACT.",
+}
+
+# The exact shape the deleted branch existed to tolerate, and two plainer
+# non-answers that were riding on it.
+NON_ANSWERS = (
+    "**The request could not be completed.**\n\nAll provider fallbacks exhausted "
+    "� agent 'graph_planner': provider bedrock returned 503",
+    "I could not complete that request.",
+    "The search could not be run against the graph.",
+)
+
+
+def _reply_guard(vid):
+    """The one `last_reply matches_re` this case runs."""
+    return next(c.value for c in _resolved(vid)
+                if c.field == "last_reply" and c.op == "matches_re")
+
+
+@pytest.mark.parametrize("vid", COULD_NOT_GUARDED)
+@pytest.mark.parametrize("reply", NON_ANSWERS)
+def test_a_zero_result_non_answer_no_longer_scores_green(vid, reply):
+    passed, per_field = _evaluate(_resolved(vid), GOOD_DEBUG, last_reply=reply)
+    assert not passed
+    assert per_field["last_reply"] is False
+
+
+@pytest.mark.parametrize("vid", COULD_NOT_GUARDED)
+def test_an_honest_negative_is_still_accepted(vid):
+    """The deletion must not turn "there are none" into a failure. That would be a
+    guard that only a non-empty answer can satisfy, on questions whose correct
+    answer might legitimately be zero."""
+    passed, per_field = _evaluate(_resolved(vid), GOOD_DEBUG,
+                                  last_reply=HONEST_NEGATIVE[vid])
+    assert per_field["last_reply"] is True, HONEST_NEGATIVE[vid]
+    assert passed, per_field
+
+
+@pytest.mark.parametrize("vid", COULD_NOT_GUARDED)
+def test_the_deleted_branch_is_really_gone_from_the_resolved_criterion(vid):
+    """Held against the criterion the harness runs, not against the overlay text,
+    so re-adding it through a rewrite or an override would also fail."""
+    assert "could not" not in _reply_guard(vid)
+
+
+def test_an_outage_is_classified_before_any_criterion_is_scored():
+    """Why the branch is obsolete rather than merely unfashionable: the reply it
+    was written for never reaches the reply guard at all."""
+    outage = NON_ANSWERS[0]
+    assert evaluate.classify_turn_status(True, outage) == "error"
+    assert evaluate.classify_turn_status(False, outage) == "error"
+
+
+@requires_seed6b
+@pytest.mark.parametrize("vid", COULD_NOT_GUARDED)
+def test_seed6_the_tightened_guard_still_passes_the_reply_the_run_produced(vid):
+    """The one that stops this being a tightening nobody checked. All three of
+    these answered correctly in the stored seed-6 run; if the deletion had broken
+    any of them, this is where it would show."""
+    entry = _seed6_entry(vid)
+    recorded = next(o["observed"] for o in entry["observations"]
+                    if o["field"] == "last_reply")
+
+    assert re.search(_reply_guard(vid), str(recorded), re.IGNORECASE), (
+        f"{vid}: the tightened guard rejects the reply the run actually produced")
