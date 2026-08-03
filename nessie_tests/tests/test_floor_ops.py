@@ -18,6 +18,7 @@ result shapes.
 2026-08-03 adds a fourth: the floor must not mandate an ENGINE either. See the
 ``outcome_observed`` section below.
 """
+import ast
 import json
 import pathlib
 
@@ -454,13 +455,24 @@ RETIRED_FLOOR = {
     "reporting": ["report_produced_output"],
 }
 
-# The complete set of variants that lost a criterion when api_ok/neo4j_ok left the
-# floor. Everywhere else the entry was inert.
+# The complete set of variants the retired floor entries would inject into TODAY.
+# Everywhere else the entry is inert because the case asserts the field itself.
+#
+# The first four are the original measurement: those are the variants that lost a
+# criterion when api_ok/neo4j_ok left the floor. The last two joined the set the
+# moment their overlay OVERRIDE landed later the same day — dropping the inline
+# `api_ok` is what took them out of the "asserts it itself" bucket, so a floor
+# still carrying api_ok would now reach them. They did not lose anything from the
+# floor change; they lost it from the override, which is the point of listing them
+# separately rather than quietly widening the set.
 LOST_API_OK = {
     "advanced.find_me_nhp_samples_from_study_2",
     "retrieve.mixed_valid_invalid",
     "pbct.no_match",
     "tree.then_ask_about",
+} | {
+    "advanced.find_me_sequencing_files_assoc",
+    "advanced.find_me_d_seq_samples_in_proje",
 }
 
 
@@ -591,18 +603,25 @@ def test_a_graph_query_case_answered_by_rest_satisfies_its_floor():
 # engine (1,765 / 408 / 1,858 rows), and the operator's note on each was that the
 # answer was correct. All three went red.
 #
-# ONLY `advanced.find_me_nhp_samples_from_study_2` goes green from this change.
-# Its overlay override REPLACES the base variant, and that override asserts route,
-# graph_not_truncated and last_reply only — so BOTH criteria it failed on
+# `advanced.find_me_nhp_samples_from_study_2` goes green from the FLOOR change
+# alone. Its overlay override REPLACES the base variant, and that override asserts
+# route, graph_not_truncated and last_reply only — so BOTH criteria it failed on
 # (`api_ok`, `api_outcome_observed`) came from the floor, and both are gone.
 #
-# The other two are BASE variants that assert `api_ok true`, `parser_plan.mode eq
-# new_search` and `api_plan.endpoint contains advanced_search` in their own text.
-# `apply_family_floor` skips a floor entry whose field the case already asserts, so
-# their `api_ok` was never the floor's to remove. They satisfy the floor and STILL
-# FAIL, and this test asserts that explicitly. Claiming otherwise would be the
-# exact false green this whole plan exists to remove. Fixing them means editing the
-# cases, which this task is not permitted to do.
+# The other two could NOT be reached by any floor change, and the version of this
+# block written when the floor went engine-agnostic said so: they were BASE
+# variants asserting `api_ok true`, `parser_plan.mode eq new_search` and
+# `api_plan.endpoint contains advanced_search` in their own text, and
+# `apply_family_floor` skips a floor entry whose field the case already asserts.
+# They satisfied the floor and still failed.
+#
+# That is no longer where they stand. Later the same day both got an overlay
+# override of their own (the "2026-08-03 (b)" block at the end of this file), which
+# is what drops the three inline mandates — so all three cases are now green, but
+# for two different reasons, and the tests below keep those reasons apart:
+# `SEED6_FLOOR_ONLY` is fixed by the floor, `OVERRIDDEN_2026_08_03B` needed the
+# case rewritten. Collapsing them into one "all green" claim would lose the fact
+# that the floor change on its own was not enough.
 
 _EVIDENCE = pathlib.Path("/home/cdemu/nessie-run-seed6b")
 _MANIFEST = _EVIDENCE / "manifest.json"
@@ -612,10 +631,20 @@ requires_seed6b = pytest.mark.skipif(
     not (_MANIFEST.exists() and _TURNS.exists()),
     reason="stored 2026-08-03 seed-6 run evidence is not on this host")
 
-# id -> the criteria it asserts in its own text that were RED in that run.
+# The one case of the three the floor change fixed by itself.
+SEED6_FLOOR_ONLY = "advanced.find_me_nhp_samples_from_study_2"
+
+# id -> the criteria it asserts IN ITS OWN TEXT that were red in that run, under
+# the corpus as it resolves TODAY.
+#
+# All three are empty, and two of them only became empty when their override
+# landed. What they were red on before that is not lost: it is
+# `REST_MANDATES` at the end of this file, and
+# `test_the_base_catalog_still_writes_the_rest_mandates_this_override_removes`
+# holds it against the vendored catalog rather than against this comment.
 SEED6_GRAPH_ANSWERED = {
-    "advanced.find_me_sequencing_files_assoc": {"parser_plan.mode", "api_plan.endpoint", "api_ok"},
-    "advanced.find_me_d_seq_samples_in_proje": {"parser_plan.mode", "api_plan.endpoint", "api_ok"},
+    "advanced.find_me_sequencing_files_assoc": set(),
+    "advanced.find_me_d_seq_samples_in_proje": set(),
     "advanced.find_me_nhp_samples_from_study_2": set(),
 }
 
@@ -682,9 +711,19 @@ def test_seed6_graph_answered_case_now_satisfies_its_floor(vid):
 
 @requires_seed6b
 @pytest.mark.parametrize("vid", sorted(SEED6_GRAPH_ANSWERED))
-def test_seed6_inline_criteria_are_untouched_by_this_change(vid):
-    """The honest half. The floor no longer mandates an engine; a criterion the CASE
-    wrote still does, and two of these three still fail on exactly that."""
+def test_seed6_no_inline_criterion_of_these_three_still_mandates_an_engine(vid):
+    """The honest half, and it changed twice in one day.
+
+    When the floor went engine-agnostic this test asserted the opposite for two of
+    the three: the floor no longer mandated an engine, but the CASE still did, and
+    they still failed on exactly that. The 2026-08-03 (b) override is what emptied
+    those sets — see `test_the_rest_mandates_are_gone_from_the_resolved_variant`,
+    which asserts the removal directly rather than inferring it from a stored run,
+    and `test_the_base_catalog_still_writes_the_rest_mandates_this_override_removes`,
+    which keeps the record of what was removed.
+
+    So this now says: nothing either case writes for itself was red in that run.
+    """
     entry = _seed6_entry(vid)
     inline_red = {f.split(":", 1)[-1] for f in entry["failed_criteria"]} & _inline_fields(vid)
     assert inline_red == SEED6_GRAPH_ANSWERED[vid], (
@@ -692,22 +731,23 @@ def test_seed6_inline_criteria_are_untouched_by_this_change(vid):
 
 
 @requires_seed6b
-def test_only_the_overlay_overridden_case_goes_fully_green():
+def test_the_floor_only_case_goes_fully_green_without_its_case_being_rewritten():
     """`..._study_2` failed on `api_ok` and `api_outcome_observed` and on nothing
-    else, and its overlay text asserts neither — both were floor entries. So it is
-    the one case of the three that this change takes all the way to green."""
-    entry = _seed6_entry("advanced.find_me_nhp_samples_from_study_2")
+    else, and its overlay text asserts neither — both were floor entries. It is the
+    one case of the three the floor change takes all the way to green on its own.
+    Its two siblings needed their cases overridden as well, which is what keeps this
+    test worth running separately from
+    `test_seed6_the_overridden_cases_now_pass_on_the_real_evidence`."""
+    entry = _seed6_entry(SEED6_FLOOR_ONLY)
     # From the manifest, not from the OBS fixture: the `route eq nextseek_query`
     # criterion below resolves off `augment_debug`, which takes route from OBS, so
     # without this the green would be partly fixture-supplied.
     assert entry["route"] == "nextseek_query"
     assert {f.split(":", 1)[-1] for f in entry["failed_criteria"]} == {
         "api_ok", "api_outcome_observed"}
-    assert not ({"api_ok", "api_outcome_observed"}
-                & _inline_fields("advanced.find_me_nhp_samples_from_study_2"))
+    assert not ({"api_ok", "api_outcome_observed"} & _inline_fields(SEED6_FLOOR_ONLY))
 
-    variant = next(v for v in corpus.merged(OVERLAY)
-                   if v.id == "advanced.find_me_nhp_samples_from_study_2")
+    variant = next(v for v in corpus.merged(OVERLAY) if v.id == SEED6_FLOOR_ONLY)
     debug, reply = _seed6_debug(entry, variant)
     passed, per_field = _evaluate(variant.turns[-1].pass_criteria, debug, last_reply=reply)
     assert passed, per_field
@@ -727,3 +767,232 @@ def test_the_seed6_turn_that_produced_no_outcome_is_still_red_under_the_new_floo
     passed, per_field = _evaluate(_floor_added(variant), debug, last_reply=reply)
     assert not passed, per_field
     assert per_field["outcome_observed"] is False
+
+
+# ── 2026-08-03 (b): the two siblings the floor change could not reach ─────────
+#
+# `apply_family_floor` only ADDS a criterion when the field is absent from the
+# variant's LAST turn — it can never relax an INLINE one. So making the floor
+# engine-agnostic could only ever fix a case whose REST mandates came FROM the
+# floor. `advanced.find_me_nhp_samples_from_study_2` was that case.
+#
+# Its two siblings write the mandates in their own text:
+#
+#     parser_plan.mode   eq       new_search
+#     api_plan.endpoint  contains advanced_search
+#     api_ok             true
+#
+# and no floor change can touch those. Both went red on every run while the
+# product answered correctly. In the stored seed-6 run both routed
+# `nextseek_query`, both were answered by the graph (1,765 and 1,858 rows), and
+# the operator reviewed both and wrote "also correct".
+#
+# Both cases live ONLY in the vendored base catalog, which is out of bounds, so
+# the fix is an overlay OVERRIDE: an overlay variant whose id matches a base one
+# replaces it in place, keeping base ordering and id (`corpus.merged`). Same
+# mechanism `..._study_2` already uses, and it must not grow the corpus.
+#
+# What the overrides assert instead:
+#
+#   route eq nextseek_query   the engine was never the question; the route is.
+#                             Written out inline even though the search_advanced
+#                             route policy would add it, so the resolved criterion
+#                             is visible at the case. Same choice `..._study_2`
+#                             makes.
+#   graph_not_truncated       inert on a REST turn by design (`_graph_not_truncated`
+#                             returns True with no graph_result), so it mandates no
+#                             engine — but a silently capped graph answer fails it.
+#   last_reply matches_re     a UID of the right type came back, OR the answer was
+#                             an honest negative. A confident answer about the
+#                             wrong entity fails this, which is the point.
+#   entity_sampletype_codes   kept on the D.SEQ case only. It was observed
+#                             `['D.SEQ']` and PASSED on the graph turn, so it is
+#                             already engine-agnostic.
+#
+# Deliberately NO count assertion. Ground truth for these two numbers is unsettled
+# (issue #33 — the same intent splits REST 139 vs a graph 250-cap), so asserting a
+# value would be inventing one.
+
+REST_MANDATES = {"parser_plan.mode", "api_plan.endpoint", "api_ok"}
+
+# id -> its query, so a replay cannot silently match some other turn.
+OVERRIDDEN_2026_08_03B = {
+    "advanced.find_me_sequencing_files_assoc":
+        "Find me sequencing files associated with Short Read Sequencing",
+    "advanced.find_me_d_seq_samples_in_proje":
+        "Find me D.SEQ samples in project IMPACT",
+}
+
+
+def _resolved(vid):
+    """The variant's LAST-turn criteria as the harness will actually run them."""
+    return next(v for v in corpus.merged(OVERLAY) if v.id == vid).turns[-1].pass_criteria
+
+
+@pytest.mark.parametrize("vid", sorted(OVERRIDDEN_2026_08_03B))
+def test_the_base_catalog_still_writes_the_rest_mandates_this_override_removes(vid):
+    """The record of WHY these two were red, held against the vendored file rather
+    than against a comment. If the base catalog is ever revendored without them the
+    override becomes dead weight, and that is worth hearing about."""
+    base = {v.id: v for v in corpus.load_base()}[vid]
+    inline = {c.field for t in base.turns for c in t.pass_criteria}
+    assert REST_MANDATES <= inline, sorted(REST_MANDATES - inline)
+
+
+@pytest.mark.parametrize("vid", sorted(OVERRIDDEN_2026_08_03B))
+def test_the_rest_mandates_are_gone_from_the_resolved_variant(vid):
+    """The fix itself: no criterion the harness runs still demands the REST engine."""
+    v = next(v for v in corpus.merged(OVERLAY) if v.id == vid)
+    fields = {c.field for t in v.turns for c in t.pass_criteria}
+    assert not (REST_MANDATES & fields), sorted(REST_MANDATES & fields)
+    assert v.turns[-1].query == OVERRIDDEN_2026_08_03B[vid]
+
+
+def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
+    """An override REPLACES; it must not append a second case asking the same
+    question, which would double the cost of every full run and let the base
+    variant keep failing next to its replacement."""
+    merged = corpus.merged(OVERLAY)
+    assert len(merged) == 280
+    ids = [v.id for v in merged]
+    for vid in OVERRIDDEN_2026_08_03B:
+        assert ids.count(vid) == 1, vid
+        assert vid in corpus.overridden_ids(OVERLAY), vid
+
+    # "In place" means base ORDER is kept too: the merged list starts with every
+    # non-retired base id, in base order, before any overlay-only variant.
+    retired = corpus.load_retired_ids()
+    base_ids = [v.id for v in corpus.load_base() if v.id not in retired]
+    assert ids[:len(base_ids)] == base_ids
+
+
+# ── the new criteria replayed against the STORED seed-6 run ───────────────────
+
+def _seed6_entities(entry):
+    """`entity_result` recovered from the manifest's OWN recorded observation.
+
+    `entity_sampletype_codes` resolves off `entity_result.sampletypes`
+    (`e2e/criteria.py`), and turns.json stores the parser and graph plans but not
+    the entity block — so a debug rebuilt from turns.json alone cannot answer that
+    criterion. The manifest did record the resolved value, as the repr of the list
+    the run saw, so the codes below come from the run and not from here.
+
+    Returns None when the run never resolved that field, so a caller cannot
+    mistake a missing observation for an empty one.
+    """
+    obs = next((o for o in entry["observations"]
+                if o["field"] == "entity_sampletype_codes"), None)
+    if obs is None:
+        return None
+    return {"sampletypes": [{"code": c} for c in ast.literal_eval(str(obs["observed"]))]}
+
+
+def _seed6_debug_with_entities(entry, variant):
+    debug, reply = _seed6_debug(entry, variant)
+    entities = _seed6_entities(entry)
+    if entities is not None:
+        debug["entity_result"] = entities
+    return debug, reply
+
+
+@requires_seed6b
+@pytest.mark.parametrize("vid", sorted(OVERRIDDEN_2026_08_03B))
+def test_seed6_the_overridden_cases_now_pass_on_the_real_evidence(vid):
+    """Every criterion the override writes is satisfied by what the run ACTUALLY
+    observed — not by a fixture shaped to agree with it."""
+    entry = _seed6_entry(vid)
+    assert entry["status"] == "failed" and entry["engine"] == "graph_query"
+    assert entry["route"] == "nextseek_query", "these routed correctly; only the engine differed"
+    # What it was red on: the three inline mandates, plus the floor's
+    # api_outcome_observed that the 2026-08-03 floor change already retired.
+    was_red = {f.split(":", 1)[-1] for f in entry["failed_criteria"]}
+    assert was_red == REST_MANDATES | {"api_outcome_observed"}, sorted(was_red)
+
+    variant = next(v for v in corpus.merged(OVERLAY) if v.id == vid)
+    debug, reply = _seed6_debug_with_entities(entry, variant)
+    assert debug["api_result_meta"] is None, "graph-answered: there is no REST result"
+
+    passed, per_field = _evaluate(variant.turns[-1].pass_criteria, debug, last_reply=reply)
+    assert passed, per_field
+    # Not a rubber stamp: the mandates are GONE, not merely satisfied.
+    assert not (REST_MANDATES & set(per_field)), sorted(REST_MANDATES & set(per_field))
+
+
+# ── the vacuity guard: these criteria must still be able to FAIL ──────────────
+#
+# Fixture-driven on purpose, so it keeps running on a checkout with no stored run.
+# Every shape below is one the product could really produce.
+
+# A graph turn that answered correctly, in the shape `augment_debug` consumes.
+GOOD_DEBUG = {"graph_result": {"ok": True, "count": 1765, "total": 1765, "truncated": False},
+              "entity_result": {"sampletypes": [{"code": "D.SEQ"}]}}
+
+GOOD_REPLY = {
+    "advanced.find_me_sequencing_files_assoc":
+        "A total of 1,765 Sequencing Data (D.SEQ) files are associated with Short "
+        "Read Sequencing.\n\n- D.SEQ-230512FOR-287-PUB",
+    "advanced.find_me_d_seq_samples_in_proje":
+        "A total of 1,858 Sequencing Data (D.SEQ) samples match project IMPACT.\n\n"
+        "* `D.SEQ-220823SHA-9-PUB`",
+}
+
+
+@pytest.mark.parametrize("vid", sorted(OVERRIDDEN_2026_08_03B))
+def test_the_new_criteria_pass_a_correctly_shaped_graph_answer(vid):
+    """The control. Without it the four negatives below could all be passing for
+    some reason other than the one they name."""
+    passed, per_field = _evaluate(_resolved(vid), GOOD_DEBUG, last_reply=GOOD_REPLY[vid])
+    assert passed, per_field
+
+
+@pytest.mark.parametrize("vid", sorted(OVERRIDDEN_2026_08_03B))
+def test_the_new_criteria_still_fail_an_empty_answer(vid):
+    passed, per_field = _evaluate(_resolved(vid), GOOD_DEBUG, last_reply="")
+    assert not passed
+    assert per_field["last_reply"] is False
+
+
+@pytest.mark.parametrize("vid", sorted(OVERRIDDEN_2026_08_03B))
+def test_the_new_criteria_still_fail_a_confident_answer_about_the_wrong_entity(vid):
+    """The shape the reply regex exists for: fluent, non-empty, plausible — and
+    about mice. No UID of the right type and no disclaimer, so it must go red."""
+    passed, per_field = _evaluate(
+        _resolved(vid), GOOD_DEBUG,
+        last_reply="A total of 12 Mouse (A.MUS) records were returned for that request.")
+    assert not passed
+    assert per_field["last_reply"] is False
+
+
+@pytest.mark.parametrize("vid", sorted(OVERRIDDEN_2026_08_03B))
+def test_the_new_criteria_still_fail_a_silently_capped_graph_answer(vid):
+    """`graph_not_truncated` is inert on a REST turn, which is why it is safe here —
+    but on a graph turn that hit its LIMIT it is the whole reason it was kept."""
+    debug = {**GOOD_DEBUG,
+             "graph_result": {"ok": True, "count": 5000, "total": 12000, "truncated": True}}
+    passed, per_field = _evaluate(_resolved(vid), debug, last_reply=GOOD_REPLY[vid])
+    assert not passed
+    assert per_field["graph_not_truncated"] is False
+
+
+@pytest.mark.parametrize("vid", sorted(OVERRIDDEN_2026_08_03B))
+def test_the_new_criteria_still_fail_a_turn_that_went_to_the_wrong_route(vid):
+    """`route` is the one thing these cases still pin absolutely."""
+    cc = RouteObservation("container_cc", None, "baml", "", None, None)
+    payload = {"status": "completed", "progress": [
+        {"event": "route_decided", "data": {"route": "container_cc", "source": "baml"}},
+        {"event": "query_complete", "data": {"reply": "ok", "debug": GOOD_DEBUG}}]}
+    passed, results, _ = evaluate.evaluate_turn(
+        payload, _resolved(vid), cc, last_reply=GOOD_REPLY[vid])
+    per_field = {r["field"]: r["passed"] for r in results}
+    assert not passed
+    assert per_field["route"] is False
+
+
+def test_the_d_seq_case_still_fails_when_a_different_sample_type_came_back():
+    """The one criterion kept from the base case. It PASSED on the graph turn, so it
+    survived the override — and it still has teeth."""
+    vid = "advanced.find_me_d_seq_samples_in_proje"
+    debug = {**GOOD_DEBUG, "entity_result": {"sampletypes": [{"code": "A.MUS"}]}}
+    passed, per_field = _evaluate(_resolved(vid), debug, last_reply=GOOD_REPLY[vid])
+    assert not passed
+    assert per_field["entity_sampletype_codes"] is False
