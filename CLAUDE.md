@@ -44,10 +44,16 @@ stream over the one existing websocket consumer
   failure (or dmac's own `<router_unavailable>` sentinel, which would otherwise
   send *everything* to CC) it falls back to a keyword heuristic. A vendoring or
   `uv sync` hiccup degrades routing; it never stops Django booting.
-- **Overrides** live in `_decide_route` (`nextseek_api/services/cc_assistant.py`).
+- **Overrides** live in `_decide_route` (`nextseek_api/services/cc_assistant.py`),
+  in precedence order `force_route` > `pipeline_agent` > sticky CC > the router.
   An admin-only `force_route` (`ns`/`cc`) and the `cc/query/async/` endpoint beat
   the router; non-admin `force_route` is ignored. An open `pipeline_agent` wizard
-  only keeps a turn the router *already* sent to NExtSEEK.
+  only keeps a turn the router *already* sent to NExtSEEK. **Sticky CC**: when the
+  previous turn in the chat routed `container_cc` *and* completed, an NS-classified
+  turn is converted to `container_cc` (`source: "sticky"`); `unrelated` is never
+  converted, and a CC turn that errored does not make the chat sticky. The chat
+  then stays on CC until a new chat or an admin `force_route`, an accepted
+  consequence of the rule rather than a bug.
 - **`dmac_assistant/`** is a vendored subset of the upstream dmac-assistant repo.
   Only the BAML router (`dmac_assistant.router.*`) and `run_tracker.diff_files`
   are imported; the FastAPI/websocket bridge is deliberately not vendored. The
@@ -104,14 +110,29 @@ docker-compose.yml Dockerfile gunicorn.conf.py
 uv run pytest                 # config in [tool.pytest.ini_options]
 ```
 
-- `DJANGO_SETTINGS_MODULE = dmac.test_settings`
-- `testpaths = seek, nextseek_api, api_app`
-- test files: `test_*.py`, `*_test.py`, `tests.py`
+The whole pytest config is two keys under `[tool.pytest.ini_options]` in
+`pyproject.toml`, so a bare `uv run pytest` is blunter than it looks:
 
-`chat_nextseek/` has its own separate test suite — run it from inside that
-directory per `chat_nextseek/CLAUDE.md`. `nessie_tests/` also sits outside
-`testpaths`: its unit tests run from that directory and its `tests_container/`
-tests run inside the `nextseek` container. See `nessie_tests/README.md`.
+- `DJANGO_SETTINGS_MODULE = "dmac.settings"`, the **real** settings, not
+  `dmac.test_settings`
+- no `testpaths` key, so collection starts at the repo root and walks the whole tree
+- no `python_files` key either, so only pytest's defaults (`test_*.py`,
+  `*_test.py`) are collected; the legacy Django `tests.py` modules are not
+- `markers = ["host_only: ..."]`, for source-tree/host-lane tests that in-container
+  runs exclude
+
+In practice pass the test settings module and the paths explicitly:
+
+```
+docker exec -e DJANGO_SETTINGS_MODULE=dmac.test_settings nextseek \
+  sh -c 'cd /app && uv run pytest <paths> --no-migrations -q'
+```
+
+`chat_nextseek/` has its own separate test suite. Run it from inside that
+directory per `chat_nextseek/CLAUDE.md`. `nessie_tests/` likewise has its own
+runners rather than being driven by the root pytest invocation: its unit tests
+run from that directory in an isolated env and its `tests_container/` tests run
+inside the `nextseek` container. See `nessie_tests/README.md`.
 
 ## Development workflow
 

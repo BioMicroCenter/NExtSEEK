@@ -7,7 +7,9 @@ wired into NExtSEEK as an **additive** integration (see
 
 ## What the NExtSEEK integration actually uses
 
-Exactly two imports, both from `nextseek_api/cc_assistant/`:
+Runtime code uses exactly two imports, both from `nextseek_api/cc_assistant/`
+(tests reach in from elsewhere: `nextseek_api/assistant/tests/test_route_capabilities.py`
+imports `router.agent._ROUTE_ALIAS` and `router.capabilities.load_capabilities`):
 
 - `dmac_assistant.router.*` — the BAML-backed LLM **router** (`RouteQuery`) that
   decides, per turn, between the deterministic NExtSEEK query pipeline
