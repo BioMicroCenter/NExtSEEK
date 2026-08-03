@@ -246,7 +246,7 @@
           "family": "export_and_file_delivery",
           "id": "cc.export_lineage_to_excel",
           "name": "Export a sample and its descendants (real, 1 run)",
-          "_why": "The operator's real question. NHP-220630FLY-1-PUB exists and has 221 descendants by lineage, so this is a genuine multi-step: resolve lineage, then write a file. Reply-only assertion because api_artifact.* cannot resolve on a CC turn.",
+          "_why": "The operator's real question. NHP-220630FLY-1-PUB exists and has 221 descendants by lineage, so this is a genuine multi-step: resolve lineage, then write a file. Reply-only assertion because the agent chooses its own filename, NOT because artifacts are unobservable: api_artifact.* does resolve on a CC turn now (evaluate.build_artifact_index indexes query_complete's artifacts and cc_raw_files). The remaining obstacle is that a multi-deliverable CC turn only ever exposes artifacts.zip, so no specific basename is safe to assert here. Assert api_artifact.artifacts.zip if this is ever tightened.",
           "tags": ["nessie", "probe", "cc", "full"],
           "requires_env": [],
           "turns": [

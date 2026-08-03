@@ -16,11 +16,49 @@ vendored `chat_nextseek`.
 - `--scope all` → the full imported NS corpus + overlay.
 
 ## Run
-Unit tests (host, isolated env): `cd nessie_tests && uv run pytest tests/ -v`
-DB/contract tests (in-container): `docker cp` then
-`docker exec -e DJANGO_SETTINGS_MODULE=dmac.test_settings nextseek sh -c 'cd /app && uv run pytest nessie_tests/tests_container/ --no-migrations -v'`
 
-Live route gate: `python -m nessie_tests --base-url http://localhost:8000 --tier route --scope specific`
+### Unit tests — host lane (fast, no container)
+
+From the **repo root**, this exact invocation:
+
+```bash
+uv run --no-project --with pytest --with pydantic --with requests --with beautifulsoup4 \
+  python -m pytest nessie_tests/tests -q -p no:cacheprovider
+```
+
+Baseline **403 passed** (measured 2026-08-03 at `a85dde9`).
+
+`--no-project` and the explicit `--with` list are load-bearing, not decoration.
+Both ways of getting them wrong fail in a way that does not name the cause:
+
+- **Plain `uv run pytest` never reaches a test**, and neither does
+  `cd nessie_tests && uv run pytest tests/` — `nessie_tests/` has no
+  `pyproject.toml`, so uv resolves the repo-root project, which depends on
+  `mysqlclient`, which will not build on the host
+  (`Exception: Can not find valid pkg-config name`).
+- **Dropping `--with beautifulsoup4` does not present as a missing dependency.**
+  `chat_nextseek/e2e/playwright/trio.py:11` imports `bs4`, and `run_suite` catches
+  every `Exception` as infrastructure (`runner.py:268`), so a case that hit the
+  import is recorded `status="error"`. At HEAD that is **63 failures**: 43 do name
+  `ModuleNotFoundError: No module named 'bs4'`, but the other 20 surface as
+  `AssertionError: assert 'error' == 'passed'` (or `'failed'`, `'xpass'`,
+  `'no_assertions'`) and never mention bs4 at all. **The reliable tell is the
+  string `bs4` appearing anywhere in the output** — the counts move with the
+  suite, the string does not. Do not chase those 20 as real regressions.
+
+### DB/contract tests — in-container lane
+
+`nessie_tests/tests_container/` needs Django settings and a live database, so it
+cannot run on the host lane. `docker cp` the tree in, then:
+
+```bash
+docker exec -e DJANGO_SETTINGS_MODULE=dmac.test_settings nextseek \
+  sh -c 'cd /app && uv run pytest nessie_tests/tests_container/ --no-migrations -v'
+```
+
+### Live runs
+
+Route gate: `python -m nessie_tests --base-url http://localhost:8000 --tier route --scope specific`
 Full pass: `python -m nessie_tests --base-url http://localhost:8000 --tier full --scope all`
 
 ## Cadence
@@ -49,11 +87,31 @@ and a CC turn that ends in `query_error` carries no cost field either. Any run
 mixing the two prints `PARTIAL`.
 
 ## Known-fail (RED) cases
-`nessie_repro` family + the `#33` consistency group are tagged `known_fail`:
-they encode #32/#33 + the EOF/cypher bugs and are EXPECTED to fail until fixed.
-`gate_failed()` excludes them, so they don't break the gate. Remove the
-`known_fail` tag when the corresponding fix lands (that flips them into real
-regressions).
+
+**No variant in the resolved corpus is tagged `known_fail` any more.** All 283
+variants returned by `corpus.merged(Path('nessie_tests/overlay.json'))` are
+untagged. Four variants still carry the tag in `overlay.json` —
+`repro.parent_attr_aggregate` (#32a), `repro.thin_bundle_recall` (#32b),
+`repro.eof_truncation_reporter` (the reporter EOF bonus) and
+`advanced.find_me_nhp_samples_from_study_ns_graph` — but all four were retired on
+2026-07-30 in the issue-#35 review, and `merged()` filters retired ids out
+(`corpus.py:266-268`). Reading `overlay.json` alone will tell you there are four;
+in a run there are none. (The whole `nessie_repro` family is retired, including
+`repro.cypher_uid_dot`, which was already re-tagged `fixed` before that.)
+
+The one `known_fail` entity a run still produces is the consistency group
+`cons.nhp_sequencing_engine` (#33 — the same NHP-sequencing question asked two
+ways must agree on route and count). It survives because **retirement applies to
+variants only**: groups are loaded separately by `load_consistency_groups()`,
+which reads `overlay.json` directly and never consults `retired.json`.
+
+`_is_real_failure` excludes an expected failure (`runner.py:415-416`), so
+`gate_failed()` does not count it and the group does not break the gate. Two
+things the tag does NOT excuse, both deliberate: a `known_fail` that PASSES is
+recorded `xpass`, and one that evaluated zero criteria is recorded
+`no_assertions`. Both count as real failures — the tag is a claim that the case
+fails, and neither outcome demonstrated that. Remove the tag when the fix lands
+(which flips the case into a real regression guard).
 
 ## Cases that asserted nothing (`no_assertions`)
 
