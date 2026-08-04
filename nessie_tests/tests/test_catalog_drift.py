@@ -20,10 +20,17 @@ UNIFIED = ROOT / "corpus.json"
 def test_recorded_catalog_hash_matches_the_vendored_file():
     """Fails the moment the vendored catalog changes at all.
 
-    To resolve: run `python -m nessie_tests.scripts.build_corpus --out /tmp/new.json`,
-    diff it against corpus.json, adopt what you want, then update
-    provenance.catalog_sha256. Do NOT update the hash without looking at the diff;
-    that turns this guard into a rubber stamp.
+    To resolve: diff the vendored catalog against what corpus.json carries for the
+    ids it touches, hand-adopt what you want, then update provenance.catalog_sha256.
+    Do NOT update the hash without looking at the diff; that turns this guard into a
+    rubber stamp.
+
+    There is no regenerate-and-diff shortcut any more. `scripts/build_corpus.py`,
+    `overlay.json` and `retired.json` were deleted on 2026-08-04 with the 28-family
+    remap: a generator whose source still carried the old 16-family taxonomy would
+    have reverted the remap on every rebuild. corpus.json is hand-owned, so this
+    test is now the ONLY thing that notices upstream moving, which is why it must
+    stay strict.
     """
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
     recorded = payload["provenance"]["catalog_sha256"]

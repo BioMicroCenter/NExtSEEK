@@ -126,10 +126,19 @@ def test_copying_a_block_brings_retired_cases_and_their_tags(tmp_path):
     """
     payload = json.loads(CORPUS.read_text(encoding="utf-8"))
     meta = corpus.variant_meta(CORPUS)
-    name, block = max(payload["families"].items(), key=lambda kv: len(kv[1]["variants"]))
+    # The LARGEST block was the pick until the 2026-08-04 remap; `graph_traversal`
+    # now holds 25 retirements spanning 5 different reasons, which breaks assertion
+    # (b) below without saying anything about the hazard. So pick on the property
+    # (b) actually needs: the biggest block whose retirements share ONE reason.
+    def _reasons(b):
+        return {meta[v["id"]]["retirement"]["reason"]
+                for v in b["variants"] if v["status"] == "retired"}
+    candidates = {n: b for n, b in payload["families"].items() if len(_reasons(b)) == 1}
+    assert candidates, "no block has retirements sharing a single reason"
+    name, block = max(candidates.items(), key=lambda kv: len(kv[1]["variants"]))
     retired_in_block = [v["id"] for v in block["variants"] if v["status"] == "retired"]
     assert retired_in_block, (
-        f"the largest block ({name}) has no retired bodies, so this proves nothing. "
+        f"the chosen block ({name}) has no retired bodies, so this proves nothing. "
         f"Pick a block that has some, or delete the warning this test backs.")
 
     path = _write(tmp_path, {"families": {name: block}})

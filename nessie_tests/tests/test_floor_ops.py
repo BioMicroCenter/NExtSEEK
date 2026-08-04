@@ -273,8 +273,11 @@ CORPUS = pathlib.Path(__file__).resolve().parents[1] / "corpus.json"
 
 # Families where the parser may legitimately pick either engine. `reporting` is NOT
 # one of them: a report that produced no output is a real failure whatever ran.
-ENGINE_FLEXIBLE = ("search_advanced", "search_retrieve", "search_parents_by_child",
-                   "search_tree", "graph_query")
+# Post-2026-08-04 names. search_tree and search_parents_by_child merged into
+# lineage_tree; graph_query became graph_traversal; reporting split, and both
+# halves keep report_produced_output.
+ENGINE_FLEXIBLE = ("sample_search", "sample_retrieve", "lineage_tree",
+                   "graph_traversal")
 
 
 def _floor_criteria(variant_id, merged):
@@ -350,12 +353,12 @@ def test_the_floor_still_asserts_something_on_every_family_it_covers():
     assertion, just one its correct answers can satisfy."""
     merged = corpus.merged(CORPUS)
     expected = {
-        "graph_query": {"outcome_observed", "graph_truncation_disclosed"},
-        "search_advanced": {"outcome_observed"},
-        "search_retrieve": {"outcome_observed"},
-        "search_parents_by_child": {"outcome_observed"},
-        "search_tree": {"outcome_observed"},
-        "reporting": {"report_produced_output"},
+        "graph_traversal": {"outcome_observed", "graph_truncation_disclosed"},
+        "sample_search": {"outcome_observed"},
+        "sample_retrieve": {"outcome_observed"},
+        "lineage_tree": {"outcome_observed"},
+        "project_summary_report": {"report_produced_output"},
+        "submission_package": {"report_produced_output"},
     }
     assert set(expected) == set(corpus.load_family_floor(CORPUS).get("floors", {})), (
         "a family gained or lost a floor without this pin being updated")
@@ -395,7 +398,7 @@ def test_graph_query_keeps_its_truncation_disclosure_floor():
     non-graph turn by design, so it stays inert on a REST-answered turn — and it
     catches a hidden cap, which is a real defect class. It stays."""
     floors = corpus.load_family_floor(CORPUS).get("floors", {})
-    fields = {c["field"] for c in floors.get("graph_query", [])}
+    fields = {c["field"] for c in floors.get("graph_traversal", [])}
     assert "graph_truncation_disclosed" in fields, fields
 
 
@@ -444,13 +447,15 @@ def _evaluate(criteria, debug, *, last_reply="ok"):
 # radius is written down, and because a future floor edit that changes it should
 # have to say so out loud.
 
+_CURATED_IDS = {v.id for v in corpus.curated(corpus.merged(CORPUS))}
+
 RETIRED_FLOOR = {
-    "search_advanced": ["api_ok", "api_outcome_observed"],
-    "search_retrieve": ["api_ok", "api_outcome_observed"],
-    "search_parents_by_child": ["api_ok", "api_outcome_observed"],
-    "search_tree": ["api_ok"],
-    "graph_query": ["neo4j_ok", "graph_outcome_observed", "graph_truncation_disclosed"],
-    "reporting": ["report_produced_output"],
+    "sample_search": ["api_ok", "api_outcome_observed"],
+    "sample_retrieve": ["api_ok", "api_outcome_observed"],
+    "lineage_tree": ["api_ok", "api_outcome_observed"],
+    "graph_traversal": ["neo4j_ok", "graph_outcome_observed", "graph_truncation_disclosed"],
+    "project_summary_report": ["report_produced_output"],
+    "submission_package": ["report_produced_output"],
 }
 
 # The complete set of variants the retired floor entries would inject into TODAY.
@@ -468,9 +473,36 @@ LOST_API_OK = {
     "retrieve.mixed_valid_invalid",
     "pbct.no_match",
     "tree.then_ask_about",
-} | {
-    "advanced.find_me_sequencing_files_assoc",
     "advanced.find_me_d_seq_samples_in_proje",
+} | {
+    # Gained on 2026-08-04. `nessie_green` and `routing_lab` had no floor of their
+    # own; the remap filed these three into `sample_search`, which floors.
+    "green.global_count",
+    "routing.lab_ooc_kamm_casual",
+    "routing.lab_ooc_kamm_count",
+}
+
+# `neo4j_ok` was injected into ZERO variants when this was first measured, because
+# every `graph_query` member asserted it inline. The 2026-08-04 remap moved 11
+# assay-phrased searches out of `search_advanced` into `graph_traversal` -- assay
+# lives only on DERIVED_FROM, so REST cannot filter on it -- and none of the 11
+# asserts `neo4j_ok` in its own text. `advanced.find_me_sequencing_files_assoc`
+# moved with them, which is why it left LOST_API_OK above.
+#
+# This measures a RETIRED floor, so the shift changes no live assertion. It is
+# pinned because the set is the evidence for "the swap added, it did not trade".
+LOST_NEO4J_OK = {
+    "advanced.find_mass_spectrometry_data_of",
+    "advanced.find_me_cd8_antibodies_associa",
+    "advanced.find_me_fibrin_imaging_data",
+    "advanced.find_me_gpt_assay_data",
+    "advanced.find_me_sequencing_files_assoc",
+    "advanced.find_tissues_that_underwent_sh",
+    "advanced.nextseq_instrument",
+    "advanced.show_me_analyzed_sequencing_da",
+    "advanced.show_me_flow_cytometry_data_wi",
+    "advanced.show_me_tis_samples_that_have",
+    "advanced.what_proteomics_data_exists_in",
 }
 
 
@@ -502,13 +534,22 @@ def _floor_added_under(spec_fields):
 def test_the_retired_floor_entries_were_inert_almost_everywhere():
     """`neo4j_ok` was floor-added to ZERO variants and `api_ok` to exactly four.
 
+    Both counts moved on 2026-08-04 with the 28-family remap, for one reason: 11
+    assay-phrased searches left `search_advanced` for `graph_traversal`. See
+    LOST_NEO4J_OK. The argument is unchanged -- the swap added criteria rather
+    than trading them away -- only the variants it lands on.
+
     Every other variant in those five families already asserted the field in its own
     text, where `apply_family_floor` leaves it alone. So removing them from the floor
     is not the broad loosening the spec diff suggests — it removed one criterion from
     four cases.
     """
+    # Curated only: the retired floor is a historical measurement over the corpus
+    # somebody wrote, and 79 atlas variants landing in floored families would
+    # rewrite the evidence set without changing what it is evidence for.
     added = _floor_added_under(RETIRED_FLOOR)
-    assert {vid for vid, f in added.items() if "neo4j_ok" in f} == set()
+    added = {vid: f for vid, f in added.items() if vid in _CURATED_IDS}
+    assert {vid for vid, f in added.items() if "neo4j_ok" in f} == LOST_NEO4J_OK
     assert {vid for vid, f in added.items() if "api_ok" in f} == LOST_API_OK
 
     # The mirror above must reproduce the real corpus, or none of this is measuring
@@ -533,8 +574,12 @@ def test_search_tree_got_stricter_not_looser_on_all_but_one_variant():
     this change that one swap has no stored evidence behind it.
     """
     merged = {v.id: v for v in corpus.merged(CORPUS)}
+    # `search_tree` merged into `lineage_tree` with `search_parents_by_child` on
+    # 2026-08-04. The 13 measured here are the tree.* half; the pbct.* half floored
+    # on api_ok + api_outcome_observed and never carried the trade risk.
     floored = [v for v in merged.values()
-               if v.family == "search_tree" and "no_floor" not in v.tags]
+               if v.family == "lineage_tree" and v.id.startswith("tree.")
+               and "no_floor" not in v.tags and "atlas" not in v.tags]
     assert len(floored) == 13, [v.id for v in floored]
 
     traded = {v.id for v in floored if "api_ok" not in _inline_fields(v.id)}
@@ -844,7 +889,7 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     """An override REPLACES; it must not append a second case asking the same
     question, which would double the cost of every full run and let the base
     variant keep failing next to its replacement."""
-    merged = corpus.merged(CORPUS)
+    merged = corpus.curated(corpus.merged(CORPUS))
     # 280 -> 283 on 2026-08-03: the create/update/delete refusal coverage came
     # back (one reinstated, two authored). This is the ONLY hardcoded corpus size
     # in the suite, so it is the one place that has to move.
@@ -874,7 +919,17 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     retired = {vid for vid, m in corpus.variant_meta(CORPUS).items()
                if m["status"] == "retired"}
     base_ids = [v.id for v in corpus.load_base() if v.id not in retired]
-    assert [i for i in ids if i in set(base_ids)] == base_ids
+    # GLOBAL base order stopped holding on 2026-08-04: the 28-family remap regroups
+    # variants by their new family, so anything that moved family (the 12 assay
+    # searches to graph_traversal, say) necessarily moves in the flat list. What the
+    # remap DID preserve is relative order WITHIN a family, which is the property
+    # `corpus.sample` depends on, so that is what this pins now.
+    fam_of = {v.id: v.family for v in corpus.merged(CORPUS)}
+    base_set = set(base_ids)
+    for fam in sorted(set(fam_of.values())):
+        got = [i for i in ids if i in base_set and fam_of.get(i) == fam]
+        want = [i for i in base_ids if fam_of.get(i) == fam]
+        assert got == want, f"{fam}: base order not preserved within the family"
 
 
 # ── the new criteria replayed against the STORED seed-6 run ───────────────────

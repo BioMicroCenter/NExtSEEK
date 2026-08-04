@@ -142,7 +142,7 @@ downloads a `nessie-notes.json` the reviewer sends back:
 ```json
 { "report": "...", "saved_at": "...", "overall": "...",
   "cases": { "advanced.find_me_nhp_samples_from_study":
-             {"verdict": "real", "family": "search_advanced",
+             {"verdict": "real", "family": "sample_search",
               "status": "failed", "note": "reviewer's text"} } }
 ```
 

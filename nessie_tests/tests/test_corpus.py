@@ -18,8 +18,11 @@ def test_every_definition_carries_its_origin_as_a_tag():
     definitions came from the overlay rather than from the vendored catalog."""
     defs = corpus.load_all_definitions(CORPUS)
     for v in defs:
-        assert {"base", "overlay"} & set(v.tags) , f"{v.id} carries no origin tag"
+        # "atlas" is the third origin, added 2026-08-04: 79 generated variants,
+        # one per expressible capability assertion. See corpus.curated.
+        assert {"base", "overlay", "atlas"} & set(v.tags), f"{v.id} carries no origin tag"
     assert len([v for v in defs if "overlay" in v.tags]) == 47
+    assert len([v for v in defs if "atlas" in v.tags]) == 79
 
 
 def test_merged_is_exactly_the_active_definitions():
@@ -29,7 +32,8 @@ def test_merged_is_exactly_the_active_definitions():
     all_defs = corpus.load_all_definitions(CORPUS)
     meta = corpus.variant_meta(CORPUS)
     retired = {vid for vid, m in meta.items() if m["status"] == "retired"}
-    merged = corpus.merged(CORPUS)
+    merged = corpus.curated(corpus.merged(CORPUS))
+    all_defs = corpus.curated(all_defs)
     assert len(merged) == len(all_defs) - len(retired) == 283
     assert len({v.id for v in merged}) == len(merged)  # no duplicate ids
     assert not ({v.id for v in merged} & retired)
@@ -43,8 +47,12 @@ def test_the_strengthened_refine_and_recall_cases_assert_outcomes_not_labels():
     fix was an overlay override of the imported variant; post-migration those are
     just the refine_and_recall definitions whose origin is `overlay`.
     """
+    # `refine_and_recall` split on 2026-08-04 into the two parser modes its
+    # variants already asserted: ask_about_last_results -> followup_over_results,
+    # refine_last_search -> search_refinement. The guard covers both halves.
     refrec = [v for v in corpus.merged(CORPUS)
-              if v.family == "refine_and_recall" and "overlay" in v.tags]
+              if v.family in ("followup_over_results", "search_refinement")
+              and "overlay" in v.tags]
     assert refrec, "expected the strengthened refine_and_recall cases to still exist"
     for v in refrec:
         fields = {c.field for turn in v.turns for c in turn.pass_criteria}
@@ -59,8 +67,8 @@ def test_select_scope_specific_keeps_route_gate():
 
 def test_select_by_family_and_variant():
     merged = corpus.merged(CORPUS)
-    fam = corpus.select(merged, family="search_advanced")
-    assert fam and all(v.family == "search_advanced" for v in fam)
+    fam = corpus.select(merged, family="sample_search")
+    assert fam and all(v.family == "sample_search" for v in fam)
     one = corpus.select(merged, variant_id="advanced.basic_ndma")
     assert len(one) == 1 and one[0].id == "advanced.basic_ndma"
 
@@ -231,6 +239,7 @@ def _prepolicy():
 
 def test_every_resolved_variant_carries_a_route_criterion():
     merged = corpus.merged(CORPUS)
+    merged = corpus.curated(merged)
     with_route = [v for v in merged
                   if any(c.field == "route" for t in v.turns for c in t.pass_criteria)]
 
@@ -258,6 +267,8 @@ def test_the_route_policy_injects_the_number_the_docs_quote():
     inline = [v for v in pre
               if v.turns and any(c.field == "route" for c in v.turns[0].pass_criteria)]
 
+    injected = corpus.curated(injected)
+    inline = corpus.curated(inline)
     assert len(injected) == 268, f"{len(injected)} injected — update {_DOCS}"
     assert len(inline) == 15, f"{len(inline)} inline — update {_DOCS}"
 
@@ -271,7 +282,7 @@ def test_the_family_floor_injects_the_numbers_the_docs_quote():
     pre = corpus.apply_route_policy(_prepolicy(), corpus.load_route_policy(CORPUS))
 
     per_field, variants = {}, 0
-    for v in pre:
+    for v in corpus.curated(pre):
         floor = floors.get(v.family)
         if not floor or skip_tag in v.tags or not v.turns:
             continue
@@ -282,9 +293,13 @@ def test_the_family_floor_injects_the_numbers_the_docs_quote():
         for f in added:
             per_field[f] = per_field.get(f, 0) + 1
 
-    assert variants == 203, f"{variants} variants floored — update {_DOCS}"
-    assert per_field == {"outcome_observed": 146, "report_produced_output": 57,
-                         "graph_truncation_disclosed": 36}, (
+    # Moved 203 -> 207 with the 28-family remap on 2026-08-04, for three reasons:
+    # 11 assay searches left sample_search for graph_traversal (so they now take
+    # graph_truncation_disclosed as well, 36 -> 47), and green.* plus routing.*
+    # landed in floored families where their old ones had no floor (146 -> 150).
+    assert variants == 207, f"{variants} variants floored — update {_DOCS}"
+    assert per_field == {"outcome_observed": 150, "report_produced_output": 57,
+                         "graph_truncation_disclosed": 47}, (
         f"{per_field} — update {_DOCS}")
 
 
