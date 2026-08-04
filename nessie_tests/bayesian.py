@@ -2,7 +2,10 @@
 
 Selection is `corpus.bayesian_ids()` and nothing else. No tier, no scope, no
 sample, no seed: one flag, one source, so "what ran" always has exactly one
-answer. `--cases` already refuses to mix selection sources for the same reason.
+answer. `run_suite`'s `cases_path` makes the same call for the same reason: an
+explicit running order replaces scope, family, variant, sample and seed outright
+rather than combining with them. (It is `cases_path`, not `--cases`: no flag on
+this branch's parser reaches it.)
 """
 from __future__ import annotations
 

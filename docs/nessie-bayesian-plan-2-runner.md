@@ -309,17 +309,32 @@ In `nessie_tests/runner.py`, above `run_case`:
 STRIPPED_UNDER_FORCING = frozenset({"route", "engine"})
 ```
 
+and a reader for the two criterion shapes, since `criteria` mixes them:
+
+```python
+def _criterion_field(c):
+    """`criteria` mixes PassCriterion objects with the plain dicts
+    `default_route_criterion` is declared to return, so both shapes are read."""
+    return c.get("field") if isinstance(c, dict) else getattr(c, "field", None)
+```
+
 Inside `run_case`, where `criteria` is currently built:
 
 ```python
-                criteria = list(turn.pass_criteria) + ([extra] if extra else [])
-                if strip_route_criteria:
-                    kept = [c for c in criteria
-                            if getattr(c, "field", c.get("field") if isinstance(c, dict) else None)
-                            not in STRIPPED_UNDER_FORCING]
-                    stripped += len(criteria) - len(kept)
-                    criteria = kept
+            criteria = list(turn.pass_criteria) + ([extra] if extra else [])
+            if strip_route_criteria:
+                kept = [c for c in criteria
+                        if _criterion_field(c) not in STRIPPED_UNDER_FORCING]
+                stripped += len(criteria) - len(kept)
+                criteria = kept
 ```
+
+> **Corrected 2026-08-04 (whole-branch fix wave).** The field read was originally inline as
+> `getattr(c, "field", c.get("field") if isinstance(c, dict) else None)`, which reads as if
+> the attribute were the normal case and evaluates a dict lookup as a `getattr` default.
+> It is a named `_criterion_field` helper in the shipped code, stating plainly that
+> `criteria` holds two shapes. The snippet's indentation was also one level too deep for
+> the loop it lives in.
 
 Initialise `stripped = 0` beside the other per-case accumulators near the top of `run_case`, and before building the entry:
 
@@ -457,6 +472,7 @@ without a second implementation that can drift from the first.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 
 from pydantic import BaseModel, Field
@@ -565,6 +581,10 @@ def completed_arms(m: BayesManifest) -> set[tuple[str, str]]:
 > 259 writes recorded. It is now a sibling temp file plus `os.replace`, pinned by
 > `test_an_interrupted_write_leaves_the_previous_manifest_intact`. The temp file must stay
 > a SIBLING (same filesystem, so the rename is really atomic) and keep the pid suffix.
+> The snippet's import block gained `import os` in the same correction (2026-08-04,
+> whole-branch fix wave): the atomic write above needs `os.getpid` and `os.replace`, and
+> the import list had been left on the pre-atomic version, so re-executing this task from
+> the document would have produced a `NameError` on the first write.
 
 - [ ] **Step 4: Run and commit**
 
@@ -671,6 +691,7 @@ router instead of the engines.
 from __future__ import annotations
 
 from nessie_tests import http_driver
+from nessie_tests import route_observer as ro
 
 PROBE_QUERY = "What is the weather in Boston tomorrow?"
 
@@ -686,20 +707,66 @@ def assert_force_route_works(post_query, get_progress) -> None:
     ROUTE_UNRELATED, so a question the router WOULD call unrelated gives a clean
     two-valued answer: `nextseek_query` means the force landed, `unrelated` means
     it did not. Cheapest possible discriminator, and it is an NS turn either way.
+
+    A turn that never emits `route_decided` leaves both fields None, which is
+    inconclusive rather than refused -- it takes the raising path too, because
+    proceeding on an unproven force is the exact failure this guard exists for.
+    It gets its own message: the two conditions have different remedies, and
+    telling an operator whose endpoint is hung to switch accounts sends them
+    somewhere that cannot help.
+
+    Driven at `route` tier, not `full`. `route_decided` is emitted before either
+    engine runs (cc_assistant.py:403, immediately after `_decide_route`), so the
+    discriminator is identical -- but the poll loop breaks at the event in ~2s
+    and a hung probe hits `route_timeout_s=60` instead of `full_timeout_s=600`.
     """
-    res = http_driver.drive(PROBE_QUERY, tier="full", post_query=post_query,
+    res = http_driver.drive(PROBE_QUERY, tier="route", post_query=post_query,
                             get_progress=get_progress, force_new=True, force_route="ns")
     route, source = res.route_obs.route, res.route_obs.source
     if source == "forced" and route != "unrelated":
         return
+    observed = f"route={route!r} source={source!r}"
+    if not ro.has_route_decided(res.payload):
+        # No `route_decided` event at all: the turn never reported a routing
+        # decision, so there is no observation to contradict. Claiming the force
+        # was dropped here would be asserting a cause we cannot see -- the same
+        # refusal `cost_summary` makes when it reports `unmeasured` over $0.00.
+        raise ForceRouteRejected(
+            f"the probe turn produced NO routing decision: {observed}, "
+            f"status={res.status!r}, no `route_decided` event arrived.\n"
+            f"This is INCONCLUSIVE, not evidence that force_route was dropped: a "
+            f"hung, erroring or unreachable endpoint looks exactly like this, and "
+            f"so does a turn that died before it routed. Check the stack is up and "
+            f"that one turn completes at all before suspecting the account.\n"
+            f"Raising regardless -- an UNPROVEN force is as unsafe to spend a "
+            f"300-turn run on as a refused one.")
     raise ForceRouteRejected(
-        f"force_route was not honoured: route={route!r} source={source!r}, expected "
+        f"force_route was not honoured: {observed}, expected "
         f"route='nextseek_query' source='forced'.\n"
         f"force_route is gated on is_staff/is_superuser and a non-admin's value is "
         f"dropped silently. Run --bayesian as a staff account; the harness default "
         f"'demo' is not one. Without this the whole run measures the router, not "
         f"the engines.")
 ```
+
+> **Corrected 2026-08-04 (whole-branch fix wave).** The snippet above was left on the
+> as-planned version after two changes landed during execution, and re-executing it would
+> have undone both:
+>
+> 1. **The inconclusive case is split out.** A turn that never emits `route_decided` leaves
+>    `route` and `source` both None, and the single message told that operator their
+>    account was not staff -- a cause the probe cannot see, and a remedy that cannot help
+>    someone whose endpoint is simply down. It still RAISES; only the diagnosis is split.
+>    Pinned by `test_a_probe_that_never_routed_is_not_diagnosed_as_a_dropped_force` and
+>    `test_a_demonstrably_dropped_force_keeps_the_staff_account_guidance`.
+> 2. **The probe drives `route` tier, not `full`.** `route_decided` is emitted before
+>    either engine runs, so the discriminator is identical, but the poll loop then breaks
+>    at the event: a hung probe costs `route_timeout_s=60` rather than `full_timeout_s=600`.
+>    Pinned by `test_the_probe_runs_at_route_tier_so_a_hang_costs_60s_not_600s` and
+>    `test_the_route_tier_probe_still_observes_the_routing_decision`.
+>
+> Step 1's test list is likewise the original four; the shipped `tests/test_preflight.py`
+> carries six more, including the two pairs named above.
 
 - [ ] **Step 4: Run and commit**
 
@@ -885,7 +952,10 @@ Create `nessie_tests/bayesian.py`:
 
 Selection is `corpus.bayesian_ids()` and nothing else. No tier, no scope, no
 sample, no seed: one flag, one source, so "what ran" always has exactly one
-answer. `--cases` already refuses to mix selection sources for the same reason.
+answer. `run_suite`'s `cases_path` makes the same call for the same reason: an
+explicit running order replaces scope, family, variant, sample and seed outright
+rather than combining with them. (It is `cases_path`, not `--cases`: no flag on
+this branch's parser reaches it.)
 """
 from __future__ import annotations
 
@@ -893,7 +963,8 @@ import time
 
 from nessie_tests import corpus, http_driver, preflight, runner
 from nessie_tests.bayes_manifest import (
-    BayesManifest, BayesPair, completed_arms, read_bayes_manifest, write_bayes_manifest,
+    MANIFEST_NAME, BayesManifest, BayesPair, completed_arms, read_bayes_manifest,
+    write_bayes_manifest,
 )
 
 ARMS = ("ns", "cc")
@@ -913,13 +984,31 @@ class PriorRunWouldBeOverwritten(RuntimeError):
     """
 
 
+class NoRunToResume(RuntimeError):
+    """`--resume` was given but `out_dir` holds no paired manifest.
+
+    The mirror of `PriorRunWouldBeOverwritten`, and the same defect class: that
+    one refuses a fresh run onto a prior record, and nothing refused a resume
+    onto NOTHING, which silently starts a fresh ~322-arm paid run.
+
+    The likely route in is the budget abort's own advice -- "rerun the SAME
+    command with a higher --max-usd and --resume" -- retyped without `--out`,
+    which defaults to `nessie_out_bayes` rather than to the run's directory. The
+    operator pays twice and the original run is never continued.
+    """
+
+
 class CorpusChanged(RuntimeError):
-    """The corpus is not the one the run being resumed was selected from.
+    """The corpus is not PROVABLY the one the run being resumed was selected from.
 
     Protects completed PAID pairs, and the comparability the fingerprint exists
     for. `manifest.pairs` is rebuilt from the CURRENT selection rather than
     merged with the prior pairs, so any id that left the selection loses its
     paid result silently -- and selection can only change if corpus.json did.
+
+    Two routes here, one refusal and two different messages: the fingerprints
+    disagree, or the prior manifest records none at all. Their remedies do not
+    overlap, so they do not share wording.
     """
 
 
@@ -953,17 +1042,48 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
             f"onward.\nThose pairs were PAID FOR and are not recoverable once "
             f"overwritten.\nEither continue that run with --resume, or send this "
             f"one somewhere else with --out.")
+    if existing is None and resume:
+        # The other direction of the same guard. `--resume` is a promise that a
+        # run exists here; if none does, honouring it silently would spend a
+        # FULL fresh run while the paid arms it was meant to continue sit
+        # untouched in the directory the operator meant to name.
+        raise NoRunToResume(
+            f"--resume was given but {out_dir} holds no paired manifest (no "
+            f"{MANIFEST_NAME}), so there is nothing to continue -- this would "
+            f"start a FRESH full paid run instead of finishing one.\n"
+            f"The likeliest cause is a missing or mistyped --out. The budget "
+            f"abort tells you to rerun the SAME command with a higher --max-usd "
+            f"and --resume; dropping --out from that rerun sends it to the "
+            f"default nessie_out_bayes/ rather than to your run's directory, and "
+            f"the arms you already paid for are never continued.\n"
+            f"Point --out at the directory holding {MANIFEST_NAME}, or drop "
+            f"--resume if a fresh run really is what you want.")
 
     fresh_fingerprint = runner.corpus_fingerprint(corpus_path)
     prior = existing if resume else None
     if prior is not None:
         prior_fingerprint = prior.run_meta.get("corpus_fingerprint")
+        if prior_fingerprint is None:
+            # Its own message, not the drift one. `preflight` was split for
+            # exactly this reason: the two conditions reach the same refusal by
+            # different routes and have DIFFERENT remedies, and the drift
+            # message's two exits are both wrong here -- the corpus did not
+            # change, so there is nothing to "restore", and "start a fresh run"
+            # costs a whole paid run to escape a missing JSON key.
+            raise CorpusChanged(
+                f"this manifest records NO corpus_fingerprint, so the corpus it "
+                f"was selected from cannot be identified.\n"
+                f"`run_paired` always writes that key, so nothing it produced can "
+                f"land here: a manifest without one was hand-edited or truncated. "
+                f"An UNPROVEN match is as unsafe to resume a paid run onto as a "
+                f"refused one -- pairs are rebuilt from the CURRENT selection, so "
+                f"any id that has since left it loses its paid result silently. "
+                f"`preflight` makes the same call on its own inconclusive case.\n"
+                f"If you know these pairs came from the corpus in this checkout, "
+                f"add \"corpus_fingerprint\": {fresh_fingerprint!r} to run_meta in "
+                f"{out_dir}/{MANIFEST_NAME} and resume. Do NOT delete the "
+                f"manifest to clear this: that repays for every arm on disk.")
         if prior_fingerprint != fresh_fingerprint:
-            # A missing fingerprint takes this path too. `run_paired` always
-            # writes the key, so nothing it produced can land here: a manifest
-            # without one was hand-edited or truncated. `preflight` makes the
-            # same call on its own inconclusive case -- an UNPROVEN match is as
-            # unsafe to resume a paid run onto as a refused one.
             raise CorpusChanged(
                 f"the corpus is not the one this run was selected from: prior "
                 f"fingerprint {prior_fingerprint!r}, current {fresh_fingerprint!r}.\n"
@@ -985,6 +1105,23 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
     done = completed_arms(prior) if prior else set()
     pairs = {p.id: p for p in (prior.pairs if prior else [])}
 
+    # A resumed run's arms were NOT all produced by the build recorded below.
+    # `run_meta` is rebuilt from scratch every time, so a resume after a rebuild
+    # silently restated one `git_sha` and one `base_url` for a two-build run --
+    # the inverse of the honesty `corpus_fingerprint` is guarded for, which stops
+    # the QUESTIONS changing mid-run while nothing recorded that the thing being
+    # MEASURED had. A changed sha does not raise: unlike a corpus edit, finishing
+    # a run after a rebuild is legitimate and sometimes the only way to finish it.
+    # It is made visible instead, oldest segment first, flattened so a reader gets
+    # one list rather than a chain of nested manifests: every build and base_url
+    # that contributed arms is `[m["git_sha"] for m in superseded] + [git_sha]`.
+    # Always present, `[]` on a fresh run, so plan 3 need not special-case it.
+    superseded = []
+    if prior is not None:
+        prior_meta = dict(prior.run_meta)
+        superseded = list(prior_meta.pop("superseded_runs", []))
+        superseded.append(prior_meta)
+
     manifest = BayesManifest(
         run_meta={
             "mode": "bayesian",
@@ -995,6 +1132,7 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
             "selected_ids": selected,
             "max_usd": max_usd,
             "resumed": bool(prior),
+            "superseded_runs": superseded,
         },
         pairs=[],
     )
@@ -1077,6 +1215,44 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
 > `test_a_crash_between_the_arms_of_one_pair_keeps_the_completed_ns_arm`. Each was
 > verified by mutation: disabling any one guard fails its own tests and no others.
 
+> **Also corrected 2026-08-04 (whole-branch fix wave).** Three more changes are in the
+> snippet above; the first is the third instance of the same data-destroying defect class
+> as `MANIFEST_NAME` and `PriorRunWouldBeOverwritten`:
+>
+> 1. **`NoRunToResume`.** The overwrite guard was one-directional. Nothing refused
+>    `--resume` onto an EMPTY directory, and `run_paired(resume=True)` there drove all
+>    ~322 arms and billed for them. The likely route in is the budget abort's own advice
+>    — "rerun the SAME command with a higher `--max-usd` and `--resume`" — retyped without
+>    `--out`, which defaults to `nessie_out_bayes` rather than the run's own directory, so
+>    a full fresh paid run executes while the arms already bought are never continued. It
+>    sits beside the overwrite guard and, like it, BEFORE the preflight. Wired to its own
+>    exit code 8 in `cli.py`. Pinned by
+>    `test_resume_onto_a_directory_holding_no_run_refuses_instead_of_paying_twice`,
+>    `test_the_resume_guard_fires_before_the_preflight_spends_a_turn` and
+>    `test_a_run_that_is_not_a_resume_still_starts_normally_in_an_empty_directory`.
+> 2. **`run_meta.superseded_runs`.** `run_meta` was rebuilt from scratch on resume, so a
+>    run finished after a rebuild silently restated one `git_sha` and one `base_url` for
+>    what was a two-build run — the inverse of the honesty `corpus_fingerprint` is guarded
+>    for, which stops the QUESTIONS changing mid-run while nothing recorded that the thing
+>    being MEASURED had. The superseded `run_meta` is now carried forward under that key,
+>    oldest segment first and flattened so plan 3 reads one list rather than walking a
+>    chain; it is always present, `[]` on a fresh run. A changed `git_sha` deliberately
+>    does NOT raise: unlike a corpus edit, finishing a run after a rebuild is legitimate
+>    and sometimes the only way to finish it. Pinned by
+>    `test_a_resume_after_a_rebuild_keeps_the_prior_runs_provenance`,
+>    `test_a_changed_build_is_recorded_rather_than_refused`,
+>    `test_a_fresh_run_records_an_empty_provenance_chain`,
+>    `test_repeated_resumes_flatten_into_one_readable_list` and
+>    `test_the_provenance_chain_survives_the_round_trip_to_disk`.
+> 3. **The no-fingerprint refusal gets its own message.** It reaches `CorpusChanged` by a
+>    different route and both of the drift message's remedies are wrong for it: the corpus
+>    did not change, so there is nothing to "restore", and "start a fresh run in a new
+>    `--out`" costs a whole paid run to escape a missing JSON key. The real exit — add the
+>    key, whose value the message now prints — was unnamed. Same split `preflight` already
+>    made, for the same reason. Pinned by
+>    `test_the_missing_fingerprint_refusal_names_its_own_way_out` and
+>    `test_the_drift_refusal_keeps_its_own_message`.
+
 - [ ] **Step 4: Run the whole suite**
 
 ```bash
@@ -1106,7 +1282,7 @@ are skipped rather than summed as zero."
 - Test: `nessie_tests/tests/test_cli.py`
 
 **Interfaces:**
-- Consumes: `bayesian.run_paired`, `bayesian.BudgetExceeded`.
+- Consumes: `bayesian.run_paired`, `bayesian.BudgetExceeded`, `bayesian.PriorRunWouldBeOverwritten`, `bayesian.NoRunToResume`, `bayesian.CorpusChanged`, `preflight.ForceRouteRejected`.
 - Produces: `--bayesian`, `--max-usd`, `--resume`, `--full-timeout` on the existing parser.
 
 - [ ] **Step 1: Write the failing test**
@@ -1120,22 +1296,64 @@ def test_bayesian_flag_parses_with_its_own_options():
     assert a.bayesian is True and a.max_usd == 40.0 and a.resume is True
 
 
-def test_bayesian_defaults_its_own_output_directory():
-    a = cli.build_parser().parse_args(["--base-url", "http://x", "--bayesian"])
-    assert str(a.out) == "nessie_out_bayes"
+def test_bayesian_defaults_its_own_output_directory(monkeypatch):
+    """Asserted on what `run_paired` RECEIVES, not on `parse_args`.
+
+    `--out`'s default depends on `--bayesian`, which argparse cannot express, so
+    it is resolved in `main` and the parsed value is None. Pinning the parsed
+    value would pin None; pinning the passed value pins the directory the paid
+    run actually writes into.
+    """
+    captured = _capture_paired(monkeypatch)
+    assert cli.main(["--base-url", "http://x", "--bayesian"]) == 0
+    assert captured["out_dir"] == Path("nessie_out_bayes")
 
 
 @pytest.mark.parametrize("extra", [
-    ["--tier", "full"], ["--scope", "all"], ["--sample", "0.5"],
-    ["--seed", "3"], ["--cases", "p.json"],
+    ["--tier", "full"], ["--scope", "all"], ["--sample", "0.5"], ["--seed", "3"],
+    ["--family", "reporting"], ["--variant", "green.mus_ndma"], ["--consistency"],
+    # ...and the same flags at their DEFAULT values, which a value comparison
+    # cannot see: ["--tier", "route"], ["--scope", "specific"], ["--sample", "1.0"],
+    # ["--seed", "0"]. See the correction note below.
 ])
-def test_bayesian_refuses_every_other_selection_source(extra, capsys):
+def test_bayesian_refuses_every_other_selection_source(extra, monkeypatch, capsys):
     """is_bayesian IS the selection. Two sources for 'what ran' makes a run
-    unexplainable, which is the same reason --cases already refuses them."""
-    with pytest.raises(SystemExit):
+    unexplainable, which is the same reason `run_suite`'s cases_path refuses them."""
+    _tripwire_on_every_spend(monkeypatch)
+    with pytest.raises(SystemExit) as e:
         cli.main(["--base-url", "http://x", "--bayesian", *extra])
-    assert "--bayesian" in capsys.readouterr().err
+    assert e.value.code == 2, "argparse.error() owns 2; see the abort-code test"
+    # Only the text AFTER argparse's "error:" prefix counts. The usage line above
+    # it lists every option name on the parser, so asserting against the whole of
+    # stderr would pass for any flag whether or not the check names it.
+    msg = capsys.readouterr().err.split("error:", 1)[1]
+    assert "--bayesian" in msg and extra[0] in msg
 ```
+
+> **Corrected 2026-08-04 (whole-branch fix wave).** Three things in this test snippet were
+> wrong by the time the branch shipped, and re-executing it as written would have
+> reintroduced two live defects:
+>
+> - **`--cases` does not exist on this branch.** Nothing on the parser exposes it
+>   (`run_suite` takes `cases_path`; no flag reaches it), so argparse rejects it as
+>   unrecognized and the parametrize case proved nothing. It is dropped.
+> - **`--family` and `--variant` were missing.** Both are live on the parser, and `--scope`
+>   defaults to `"specific"`, so `--bayesian --family reporting` cleared the whole check
+>   and was then SILENTLY IGNORED — the exact second-selection-source hazard the check
+>   exists to prevent. `--consistency` is in for the same reason: `run_paired` has no
+>   consistency-group parameter at all.
+> - **`assert str(a.out) == "nessie_out_bayes"` cannot hold.** `--out`'s default depends on
+>   another flag, which argparse cannot express, so it is resolved in `main` and
+>   `parse_args` returns None. The assertion moved onto the value `run_paired` receives,
+>   which is the one that decides where the paid run writes.
+>
+> The parametrize list must also cover each conflicting flag AT ITS DEFAULT VALUE
+> (`--tier route`, `--scope specific`, `--sample 1.0`, `--seed 0`): see the second
+> correction note under Step 3. The shipped tests carry those as a separate parametrized
+> case, `test_bayesian_refuses_a_conflicting_flag_set_to_its_default_value`. Both tests
+> use `_tripwire_on_every_spend`, which replaces `run_paired`, `run_suite` and
+> `make_default_clients` with raisers so an argument-validation test that reached a
+> spending path fails loudly instead of buying turns.
 
 - [ ] **Step 2: Run it and watch it fail**
 
@@ -1147,64 +1365,272 @@ In `nessie_tests/cli.py`, add to `build_parser()` before `return p`:
 
 ```python
     p.add_argument("--bayesian", action="store_true", default=False,
-                   help="Paired dual-route run over the is_bayesian corpus selection. "
-                        "Forces each variant down BOTH engines, interleaved.")
+                   help="PAID, ~260 turns. Paired dual-route run over the corpus's is_bayesian "
+                        "selection (130 variants today): each one is driven down BOTH engines, "
+                        "NS then CC, interleaved per question, with the router forced out. "
+                        "Full depth, every case, no sampling. Needs a STAFF account, since "
+                        "force_route is silently dropped for anyone else. Budget it with "
+                        "--max-usd and resume it with --resume.")
     p.add_argument("--max-usd", type=float, default=None,
-                   help="Run-level USD ceiling. Aborts cleanly; resume with --resume.")
+                   help="--bayesian only. Run-level USD ceiling, cumulative across resumes. "
+                        "Aborts cleanly before the arm that would breach it, keeping every "
+                        "completed arm; exit 3. Only container_cc reports cost, so NS spend "
+                        "is invisible to this ceiling and the real total is higher.")
     p.add_argument("--resume", action="store_true", default=False,
-                   help="Skip (variant, arm) pairs already recorded in --out.")
-    p.add_argument("--full-timeout", type=float, default=600.0,
-                   help="Per-turn deadline in seconds for full-depth turns.")
+                   help="--bayesian only. Continue the paired run in --out: every (variant, arm) "
+                        "already recorded there is skipped rather than repaid.")
+    p.add_argument("--full-timeout", type=float, default=FULL_TIMEOUT_DEFAULT_S,
+                   help="--bayesian only. Per-turn deadline in seconds for full-depth turns.")
 ```
 
-Change the `--out` default so `--bayesian` gets its own directory:
+Change the `--out` default so `--bayesian` gets its own directory, and describe the
+resolution rule in its help:
 
 ```python
-    p.add_argument("--out", type=Path, default=None)
+    p.add_argument("--out", type=Path, default=None,
+                   help="Output directory. Default nessie_out, or nessie_out_bayes under "
+                        "--bayesian, which keeps a paired run out of a normal run's directory.")
 ```
 
-and at the top of `main`, after parsing:
+Above the parser, the exit-code epilog, the mutual-exclusion tables, and the probe that
+answers "was this flag SUPPLIED":
 
 ```python
+EXIT_CODES = """exit codes
+  0  the run completed
+  1  a normal run had real failures (--bayesian never returns this: in a paired
+     run a wrong answer is the measurement, not a gate failure)
+  2  bad arguments. Owned by argparse, which is why no abort below reuses it:
+     a wrapper that retried "the budget code" would loop forever on a typo.
+  3  --bayesian: the budget ceiling was reached. MONEY WAS SPENT and every
+     completed arm is on disk; rerun with a higher --max-usd and --resume.
+  4  --bayesian: refused, --out already holds a paired run. Nothing was billed.
+  5  --bayesian: refused, the server did not honour force_route. The preflight's
+     own probe turn WAS sent, so one turn was billed; no paired arm was.
+  6  --bayesian: refused, the corpus changed under a --resume. Nothing was billed.
+  7  --bayesian: could not talk to --base-url. Any completed arms are on disk.
+  8  --bayesian: refused, --resume was given but --out holds no paired run to
+     continue. Nothing was billed.
+"""
+
+# The default per-turn deadline. It is a named constant so the parser's help and
+# this module agree on one value; it is NOT how the mutual-exclusion checks tell a
+# supplied flag from a default one. Comparing `a.full_timeout != 600.0` cannot:
+# `--full-timeout 600` is indistinguishable from silence and slipped straight
+# through. `_supplied_flags` answers that question directly.
+FULL_TIMEOUT_DEFAULT_S = 600.0
+
+
+class _NotSupplied:
+    """Sentinel for "argparse never saw this flag on the command line"."""
+
+    def __repr__(self) -> str:
+        return "<not supplied>"
+
+
+_NOT_SUPPLIED = _NotSupplied()
+
+# The two mutual-exclusion lists, as (flag name, parser dest). Named here rather
+# than inline so the refusal messages and the supplied-ness probe cannot drift
+# apart, and so the order the flags are reported in is fixed.
+_SELECTION_FLAGS = (
+    ("--tier", "tier"), ("--scope", "scope"), ("--sample", "sample"),
+    ("--seed", "seed"), ("--family", "family"), ("--variant", "variant"),
+    ("--consistency", "consistency"),
+)
+_PAIRED_ONLY_FLAGS = (
+    ("--max-usd", "max_usd"), ("--resume", "resume"), ("--full-timeout", "full_timeout"),
+)
+
+
+def _supplied_flags(argv) -> set[str]:
+    """The dests the operator actually typed, whatever value they typed.
+
+    Value-based exclusion is not the same question and got the answer wrong in
+    both directions: `--bayesian --tier route` was ACCEPTED (route is the default
+    value, so nothing looked conflicting) and bought a ~322-arm full-depth paid
+    run for an operator who had explicitly asked for the cheap tier; on the other
+    side `--full-timeout 600` on a normal run was accepted and silently ignored.
+
+    Answered by re-parsing the same argv through a parser whose watched defaults
+    are a sentinel: anything still holding the sentinel was not supplied. That
+    delegates every parsing rule -- `--tier=full`, prefix abbreviations, `store_true`
+    -- to argparse instead of re-implementing them over raw argv. `set_defaults`
+    is argparse's own public API for this, and the sentinel is deliberately not a
+    `str`, so argparse's string-default conversion and `choices` checks never see
+    it. The first parse in `main` has already accepted this argv, so this parse
+    cannot be the one that errors.
+    """
+    watched = {dest for _name, dest in _SELECTION_FLAGS + _PAIRED_ONLY_FLAGS}
+    p = build_parser()
+    p.set_defaults(**{d: _NOT_SUPPLIED for d in watched})
+    seen = p.parse_args(argv)
+    return {d for d in watched if getattr(seen, d) is not _NOT_SUPPLIED}
+```
+
+Then the paired run itself, split out of `main` so its abort paths read as one unit:
+
+```python
+def _run_bayesian(a, auth, supplied) -> int:
+    """The paired dual-route run. Split out of `main` so the abort paths read as
+    one unit and `main` stays a dispatcher over two unrelated run shapes."""
+    # `is_bayesian` IS the selection. Accepting a second selection source would
+    # make "what ran" depend on two things at once.
+    #
+    # Keyed on SUPPLIED-ness, not on value: `--bayesian --tier route` names the
+    # default value, so a value comparison saw no conflict and let it through --
+    # a full-depth ~322-arm paid run for an operator who asked for the cheap tier.
+    #
+    # --family and --variant are in this list even though the plan omitted them:
+    # --scope defaults to "specific", so `--bayesian --family reporting` cleared
+    # the whole check and was then SILENTLY IGNORED. --consistency is here for the
+    # same reason: `run_paired` has no consistency-group parameter at all, so it
+    # was accepted and dropped on the floor. --cases is not, because this branch's
+    # parser has no such flag (run_suite takes cases_path; nothing exposes it) and
+    # argparse already rejects it as unrecognized.
+    conflicting = [name for name, dest in _SELECTION_FLAGS if dest in supplied]
+    if conflicting:
+        build_parser().error(
+            f"--bayesian selects on the corpus's is_bayesian flag and cannot be "
+            f"combined with {', '.join(conflicting)}.")
+
+    from nessie_tests import bayes_manifest, bayesian, preflight
+    try:
+        m = bayesian.run_paired(
+            base_url=a.base_url, auth_header=auth, out_dir=a.out,
+            # Named, not left to `run_paired`'s default, so both run shapes
+            # resolve the corpus by the same rule. The paired run fingerprints
+            # this file and refuses a `--resume` onto a different one.
+            corpus_path=_CORPUS,
+            max_usd=a.max_usd, resume=a.resume,
+            full_timeout_s=a.full_timeout, pace_s=a.pace)
+    # Six aborts, six exit codes, none of them 0, 1 or 2. They share nothing an
+    # operator would act on: the first spent real money and left resumable work on
+    # disk, three of the rest refused before a single turn was billed, one refused
+    # after the preflight's single probe turn, and each has a different remedy. A
+    # single code would force a wrapper script to parse English out of stdout to
+    # tell "raise the ceiling and continue" from "you are on the wrong account" --
+    # and 2 in particular is argparse's own usage error, so a wrapper that retried
+    # on "the budget code" would loop forever on a mistyped flag if the budget
+    # code were 2.
+    except bayesian.BudgetExceeded as e:
+        print("nessie: budget ceiling reached, run stopped (exit 3).")
+        print(f"nessie: {e}")
+        print(f"nessie: {a.out}/{bayes_manifest.MANIFEST_NAME} holds every completed "
+              f"arm. Rerun the SAME command with a higher --max-usd and --resume; "
+              f"completed arms are skipped, not repaid.")
+        return 3
+    except bayesian.PriorRunWouldBeOverwritten as e:
+        print("nessie: refused, nothing was billed (exit 4).")
+        print(f"nessie: {e}")
+        return 4
+    except bayesian.NoRunToResume as e:
+        print("nessie: refused the resume, nothing was billed (exit 8).")
+        print(f"nessie: {e}")
+        return 8
+    # NOT "nothing was billed". The preflight drives a REAL forced-NS turn against
+    # the endpoint, and a turn keeps billing after the harness stops polling it
+    # (http_driver.py:96-98 vs cc_assistant.py:352-366) -- which is exactly why
+    # the normal run's cost line below reports `unmeasured` rather than $0.00.
+    # Claiming $0 here would be the one claim `manifest.cost_summary` refuses to
+    # make. One probe turn was sent; the run's ~322 arms were not.
+    except preflight.ForceRouteRejected as e:
+        print("nessie: preflight refused the run, no paired arm was billed (exit 5).")
+        print(f"nessie: {e}")
+        print("nessie: the preflight's own probe turn WAS sent to the endpoint and "
+              "keeps billing after the harness stops polling it, so this cost one "
+              "turn -- not zero, and not ~322.")
+        return 5
+    except bayesian.CorpusChanged as e:
+        print("nessie: refused the resume, nothing was billed (exit 6).")
+        print(f"nessie: {e}")
+        return 6
+    # The likeliest first-run failure of all is a wrong port, and it is raised by
+    # urllib inside the preflight's own POST -- before any harness guard can see
+    # it. Uncaught it reached the operator as fifteen lines of urllib frames under
+    # exit 1, the code that means "a normal run had real failures". HTTPError is a
+    # URLError subclass, so a 500 or a 403 lands here too and prints its own status.
+    except urllib.error.URLError as e:
+        print("nessie: could not talk to the endpoint, run stopped (exit 7).")
+        print(f"nessie: {a.base_url}: {e}")
+        print(f"nessie: check the stack is up and --base-url is right. Any arms "
+              f"that did complete are in {a.out}/{bayes_manifest.MANIFEST_NAME} "
+              f"and --resume will skip them.")
+        return 7
+
+    both = sum(1 for p in m.pairs if p.ns and p.cc)
+    print(f"nessie: {both}/{len(m.pairs)} complete pairs "
+          f"({2 * len(m.pairs)} arms); manifest → {a.out}/{bayes_manifest.MANIFEST_NAME}")
+    return 0
+```
+
+and `main` becomes a dispatcher over the two run shapes, with the mirror check on the
+normal path:
+
+```python
+def main(argv=None) -> int:
+    a = build_parser().parse_args(argv)
+    # Resolved here rather than as an argparse default because it depends on
+    # another flag. A paired run gets its own directory: its manifest, its report
+    # and a normal run's are three different schemas that must not share a home.
     if a.out is None:
         a.out = Path("nessie_out_bayes" if a.bayesian else "nessie_out")
+    auth = http_driver.basic_auth(a.user, a.password)
+    supplied = _supplied_flags(argv)
 
     if a.bayesian:
-        # `is_bayesian` IS the selection. Accepting a second selection source
-        # would make "what ran" depend on two things at once.
-        conflicting = [name for name, val in (
-            ("--tier", a.tier != "route"), ("--scope", a.scope != "specific"),
-            ("--sample", a.sample != 1.0), ("--seed", a.seed != 0),
-            ("--cases", getattr(a, "cases", None) is not None),
-        ) if val]
-        if conflicting:
-            build_parser().error(
-                f"--bayesian selects on the corpus's is_bayesian flag and cannot be "
-                f"combined with {', '.join(conflicting)}.")
-        from nessie_tests import bayes_manifest, bayesian
-        try:
-            m = bayesian.run_paired(
-                base_url=a.base_url, auth_header=auth, out_dir=a.out,
-                max_usd=a.max_usd, resume=a.resume,
-                full_timeout_s=a.full_timeout, pace_s=a.pace)
-        except bayesian.BudgetExceeded as e:
-            print(f"nessie: {e}")
-            return 2
-        both = sum(1 for p in m.pairs if p.ns and p.cc)
-        print(f"nessie: {both}/{len(m.pairs)} complete pairs "
-              f"({2 * len(m.pairs)} arms); manifest -> {a.out}/{bayes_manifest.MANIFEST_NAME}")
-        return 0
+        return _run_bayesian(a, auth, supplied)
+
+    # The mirror of `_run_bayesian`'s mutual exclusion, and keyed on supplied-ness
+    # for the same reason: `--full-timeout 600` names the default value, so a
+    # value comparison saw nothing and accepted it. `run_suite` has no budget
+    # ceiling, no resume and no per-turn deadline parameter, so silently accepting
+    # these would leave an operator believing a spending cap is in force on a paid
+    # full-tier run while nothing at all is capped.
+    paired_only = [name for name, dest in _PAIRED_ONLY_FLAGS if dest in supplied]
+    if paired_only:
+        build_parser().error(
+            f"{', '.join(paired_only)} only applies to --bayesian; a normal run has "
+            f"no budget ceiling, no resume and no per-turn deadline.")
 ```
 
-Note the parser must define `--cases` if it does not already; if `--cases` is absent from this branch, drop that one entry from `conflicting` rather than inventing the flag.
-
-> **Corrected 2026-08-04 (whole-branch fix wave).** The success line above originally
-> printed `{a.out}/manifest.json`. That is the file `runner.run_suite` writes for a NORMAL
-> run and is the exact name Task 3's `MANIFEST_NAME` override exists to keep OUT of the
-> paired output directory (see the block at Task 3, Step 3). Shipping it would have told
-> the operator to open a path that does not exist, named after the collision. Print
-> `bayes_manifest.MANIFEST_NAME` rather than any literal, so the CLI and the writer cannot
-> drift apart again.
+> **Corrected 2026-08-04 (whole-branch fix wave).** The block above is the shipped code;
+> the plan's original version has been replaced wholesale rather than patched, because
+> five separate things in it were superseded during execution:
+>
+> 1. **`--cases` is not a flag on this branch.** `run_suite` takes a `cases_path`
+>    argument but nothing on the parser reaches it, so `("--cases", ...)` guarded a value
+>    that could never be set. Dropped. **`--family`, `--variant` and `--consistency` take
+>    its place**: all three are live, and `--scope` defaults to `"specific"`, so
+>    `--bayesian --family reporting` cleared the entire check and was then silently
+>    ignored.
+> 2. **The exclusion asks about SUPPLIED-ness, not value.** `--bayesian --tier route`
+>    passed a value comparison (route IS the default) and reached `run_paired`, buying a
+>    ~322-arm full-depth paid run for an operator who had explicitly asked for the cheap
+>    tier. Design §7.6 says `--bayesian` refuses to combine with `--tier`, not with some
+>    of its values. `_supplied_flags` re-parses the same argv through a parser whose
+>    watched defaults are a sentinel, so `--tier=full` and prefix abbreviations stay
+>    argparse's problem. The same correction applies to the mirror check in `main`, where
+>    `--full-timeout 600` had been slipping past.
+> 3. **The aborts are six, and none of them is 2.** The plan returned 2 for
+>    `BudgetExceeded`; 2 is argparse's own usage error, so a wrapper script that raised
+>    `--max-usd` and retried on "the budget code" would have looped forever on a mistyped
+>    flag. Budget is 3, and 4/5/6/7/8 are the prior-run, dropped-force, corpus-drift,
+>    unreachable-endpoint and nothing-to-resume refusals. `urllib.error.URLError` is
+>    caught because the likeliest first-run failure of all, a wrong port, is raised inside
+>    the preflight's own POST where no harness guard can see it.
+> 4. **Exit 5 does not say "nothing was billed".** The preflight drives a real forced-NS
+>    turn, and a turn keeps billing after the harness stops polling it — the same reason
+>    the cost line reports `unmeasured` rather than `$0.00`. It reports one probe turn.
+> 5. **The success line prints `bayes_manifest.MANIFEST_NAME`, never a literal.** The
+>    original printed `{a.out}/manifest.json`, which is the file `runner.run_suite` writes
+>    for a NORMAL run and the exact name Task 3's `MANIFEST_NAME` override exists to keep
+>    OUT of a paired output directory (see the block at Task 3, Step 3). It would have
+>    sent the operator to a path that does not exist, named after the collision.
+>
+> The `--out` default also moved off the parser and into `main`, because it depends on
+> another flag and argparse cannot express that; `parse_args().out` is therefore `None`,
+> which is why Step 1's assertion had to move onto the value `run_paired` receives.
 
 - [ ] **Step 4: Run and commit**
 
@@ -1212,8 +1638,9 @@ Note the parser must define `--cases` if it does not already; if `--cases` is ab
 git add nessie_tests/cli.py nessie_tests/tests/test_cli.py
 git commit -m "feat(nessie): --bayesian CLI with budget, resume and mutual exclusion
 
-Refuses --tier/--scope/--sample/--seed/--cases: the is_bayesian flag is the
-selection, and two sources for 'what ran' makes a run unexplainable."
+Refuses --tier/--scope/--sample/--seed/--family/--variant/--consistency when
+SUPPLIED, whatever their value: the is_bayesian flag is the selection, and two
+sources for 'what ran' makes a run unexplainable."
 ```
 
 ---
@@ -1226,5 +1653,7 @@ selection, and two sources for 'what ran' makes a run unexplainable."
 - [ ] `--bayesian` interleaves NS then CC per question, provable from the recorded call order.
 - [ ] Killing a run mid-way and rerunning with `--resume` re-runs zero completed arms.
 - [ ] A budget ceiling aborts with a resumable manifest on disk.
+- [ ] No paid arm can be lost or repaid by an `--out` mistake in either direction: a fresh run onto a prior manifest and a `--resume` onto nothing both refuse before the preflight, with their own exit codes (4 and 8).
+- [ ] A run finished after a rebuild says so: `run_meta.superseded_runs` lists every earlier build and base_url that contributed arms.
 
 **Then** proceed to plan 3 (`docs/nessie-bayesian-plan-3-evaluation.md`).
