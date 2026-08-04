@@ -244,9 +244,9 @@ class TestUsersViewSetCreate:
         response = UsersViewSet().create(request)
         assert response.status_code == 422
 
-    @patch.object(IsDjangoSuperuser, "has_permission", return_value=True)
     @patch("nextseek_api.services.users.Users")
-    def test_create_grant_superuser_forbidden_403(self, mock_users, _perm):
+    def test_create_grant_superuser_forbidden_403(self, mock_users):
+        """View-level defense: non-superuser caller cannot set is_superuser on create."""
         mock_users.objects.using.return_value.filter.return_value.exists.return_value = False
         body = dict(CREATE_BODY, is_superuser=True)
         factory = APIRequestFactory()
@@ -254,6 +254,7 @@ class TestUsersViewSetCreate:
         request.user = _staff_only()
         response = UsersViewSet().create(request)
         assert response.status_code == 403
+        assert b"cannot grant is_superuser" in response.content
 
     @patch("nextseek_api.services.users.Users")
     @patch("nextseek_api.services.users.run_seek_rails_runner")
@@ -592,9 +593,9 @@ class TestUsersViewSetPatchExtra:
         assert response.status_code == 200
         created.save.assert_called_once()
 
-    @patch.object(IsDjangoSuperuser, "has_permission", return_value=True)
     @patch("nextseek_api.services.users.Users")
-    def test_patch_grant_superuser_forbidden(self, mock_users, _perm):
+    def test_patch_grant_superuser_forbidden(self, mock_users):
+        """View-level defense: non-superuser caller cannot set is_superuser on patch."""
         seek_user = MagicMock(id=5, person_id=6, login="demo")
         mock_users.objects.using.return_value.filter.return_value.first.return_value = seek_user
         factory = APIRequestFactory()
@@ -602,6 +603,7 @@ class TestUsersViewSetPatchExtra:
         request.user = _staff_only()
         response = UsersViewSet().partial_update(request, uid="5")
         assert response.status_code == 403
+        assert b"cannot grant is_superuser" in response.content
 
     @patch("nextseek_api.services.users.Users")
     def test_patch_password_partial_422(self, mock_users):
@@ -694,6 +696,13 @@ class TestUsersViewSetDRFPermissions:
 
     def test_staff_forbidden_create(self):
         request = APIRequestFactory().post("/nextseek_api/users/", CREATE_BODY, format="json")
+        force_authenticate(request, user=self._staff_user())
+        response = UsersViewSet.as_view({"post": "create"})(request)
+        assert response.status_code == 403
+
+    def test_staff_forbidden_create_with_superuser_flag(self):
+        body = dict(CREATE_BODY, is_superuser=True)
+        request = APIRequestFactory().post("/nextseek_api/users/", body, format="json")
         force_authenticate(request, user=self._staff_user())
         response = UsersViewSet.as_view({"post": "create"})(request)
         assert response.status_code == 403
