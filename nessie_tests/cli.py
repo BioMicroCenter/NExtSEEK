@@ -103,8 +103,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Output directory. Default nessie_out, or nessie_out_bayes under "
                         "--bayesian, which keeps a paired run out of a normal run's directory.")
     p.add_argument("--bayesian", action="store_true", default=False,
-                   help="PAID, ~260 turns. Paired dual-route run over the corpus's is_bayesian "
-                        "selection (130 variants today): each one is driven down BOTH engines, "
+                   help="PAID, ~254 arms / ~316 turns. Paired dual-route run over the corpus's "
+                        "is_bayesian selection (127 variants today): each is driven down BOTH engines, "
                         "NS then CC, interleaved per question, with the router forced out. "
                         "Full depth, every case, no sampling. Needs a STAFF account, since "
                         "force_route is silently dropped for anyone else. Budget it with "

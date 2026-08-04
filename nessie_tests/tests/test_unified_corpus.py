@@ -293,13 +293,67 @@ def test_hibayes_meta_raises_on_an_unknown_id():
 
 
 def test_bayesian_selection_is_nonempty_active_and_family_balanced():
+    """Every family that CAN be measured under --bayesian is represented.
+
+    "Can be measured" is the qualifier, and it was added when the three
+    `route_gate` variants left the selection (see
+    `test_no_route_gate_variant_is_selected_for_the_paid_paired_run`). A family
+    whose every active variant is a route gate has nothing left to contribute,
+    and `nessie_route` is exactly that family: all 3 of its active variants are
+    gates. Demanding it be represented would demand re-flagging one of the three
+    cases this fix removed.
+
+    The exemption is DERIVED from the tags rather than spelled as a family name,
+    so it evaporates on its own the day a non-gate variant joins `nessie_route`.
+    """
     ids = corpus.bayesian_ids(UNIFIED)
     assert 100 <= len(ids) <= 150, f"selection is {len(ids)}; spec asks for 100-150"
-    active = {v.id for v in corpus.load_unified(UNIFIED)}
-    assert set(ids) <= active, "a retired variant cannot be selected"
-    fams = {v.family for v in corpus.load_unified(UNIFIED) if v.id in set(ids)}
-    all_fams = {v.family for v in corpus.load_unified(UNIFIED)}
-    assert fams == all_fams, f"families with no bayesian variant: {sorted(all_fams - fams)}"
+    active = [v for v in corpus.load_unified(UNIFIED)]
+    assert set(ids) <= {v.id for v in active}, "a retired variant cannot be selected"
+    fams = {v.family for v in active if v.id in set(ids)}
+    measurable = {v.family for v in active if "route_gate" not in v.tags}
+    assert fams == measurable, \
+        f"families with no bayesian variant: {sorted(measurable - fams)}"
+    gate_only = {v.family for v in active} - measurable
+    assert gate_only == {"nessie_route"}, (
+        f"a new gate-only family appeared: {sorted(gate_only)}. Confirm it really "
+        f"has nothing measurable in it before widening this.")
+
+
+def test_no_route_gate_variant_is_selected_for_the_paid_paired_run():
+    """A `route_gate` variant in `bayesian_ids` is money spent to measure nothing.
+
+    Three of them were selected (`route.ns_advanced`, `route.unrelated`,
+    `route.ns_plain_study_membership`) until 2026-08-04. What that cost, in order:
+
+      1. `runner.run_case` sets `case_tier = "route" if is_gate else tier`, so a
+         gate variant is driven route-only whatever `--bayesian` asks for, and
+         its ONLY pass_criteria are `route` assertions.
+      2. `bayesian.run_paired` passes `strip_route_criteria=True`, which removes
+         exactly those. Under a FORCED route a `route` assertion tests the
+         harness's own request body, not the product, so stripping is right.
+      3. 1 and 2 together leave zero criteria, so every arm returns
+         `no_assertions`, which `runner._is_real_failure` counts as a REAL
+         FAILURE. Six guaranteed red arms per run, every run.
+      4. And they are not even cheap. Route-tier polling is a CLIENT-side stop:
+         `http_driver.drive` breaks at `route_decided` while the SERVER runs the
+         turn to completion. The 3 `cc` arms are billed as full Opus turns whose
+         `total_cost_usd` is never read back -- so their spend is invisible to
+         `--max-usd`, which is the one control that is supposed to stop the run.
+
+    Selection is `is_bayesian` in corpus.json and nothing else, by design, so
+    this cannot be enforced by a filter in `bayesian.py` without creating the
+    second selection source that design forbids. It is enforced here instead:
+    re-flag any gate variant and this test goes red before the money does.
+    """
+    gates = {v.id for v in corpus.load_unified(UNIFIED) if "route_gate" in v.tags}
+    assert gates, "fixture drifted: no active route_gate variants left to guard"
+    assert not (gates & set(corpus.bayesian_ids(UNIFIED))), (
+        f"route_gate variants are selected for --bayesian: "
+        f"{sorted(gates & set(corpus.bayesian_ids(UNIFIED)))}. Each evaluates zero "
+        f"criteria under strip_route_criteria and returns no_assertions, and its cc "
+        f"arm is billed as a full turn whose cost --max-usd never sees. Clear "
+        f"`is_bayesian` in corpus.json rather than filtering in bayesian.py.")
 
 
 def test_bayesian_selection_is_in_corpus_order_and_has_no_duplicates():
