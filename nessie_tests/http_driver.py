@@ -57,6 +57,7 @@ def make_default_clients(base_url: str, auth_header: str, timeout_s: float = SOC
 def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
           get_progress: Callable[[str], dict], session_id: str | None = None,
           force_new: bool = False,
+          force_route: str | None = None,
           mode: str = "standard", poll_interval_s: float = 2.0,
           route_timeout_s: float = 60.0, full_timeout_s: float = 600.0,
           max_consecutive_poll_errors: int = MAX_CONSECUTIVE_POLL_ERRORS,
@@ -71,6 +72,11 @@ def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
     is known, so a case's later turns stay in the session its seed opened.
     """
     body = {"query": query, "mode": mode}
+    if force_route:
+        # Admin-only server side; a non-admin's value is silently dropped back to
+        # the router (cc_assistant.py:245-251). `preflight.assert_force_route_works`
+        # is what stops that turning into a whole run of meaningless data.
+        body["force_route"] = force_route
     if session_id:
         body["session_id"] = session_id
     elif force_new:

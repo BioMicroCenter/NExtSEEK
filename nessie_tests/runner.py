@@ -95,6 +95,181 @@ def _trim(value):
     return text if len(text) <= _MAX_OBSERVED_CHARS else text[:_MAX_OBSERVED_CHARS] + " …[trimmed]"
 
 
+def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
+             pace_s=0.0, force_route=None, strip_route_criteria=False,
+             full_timeout_s=600.0, sleep=time.sleep, clock=time.monotonic
+             ) -> NessieManifestEntry:
+    """Drive one variant to an entry. The body `run_suite` used to inline.
+
+    Extracted so `bayesian.py` can call it twice per variant with opposite
+    `force_route` values without forking the poll loop, the route observation
+    rules, the outage handling or the cost accounting. Every one of those has been
+    a bug at least once; there must go on being exactly one of each.
+
+    `force_route` and `strip_route_criteria` are inert unless set, so `run_suite`
+    behaves exactly as it did before the extraction.
+    """
+    expected_fail = "known_fail" in v.tags
+    is_gate = "route_gate" in v.tags
+    # requires_env skip (both tiers): a variant needing an unset env var is
+    # not runnable here — record it skipped, don't fail the gate.
+    missing_env = [name for name in v.requires_env if name not in os.environ]
+    if missing_env:
+        return NessieManifestEntry(
+            id=v.id, family=v.family, tier=tier, status="skipped",
+            reason=f"requires_env unset: {missing_env}", expected_fail=expected_fail)
+    # tier selection: the route tier only exercises route_gate cases (route
+    # assertions only). Anything else needs a real turn/launch — skip it,
+    # don't fail, so a route-tier run stays SMALL. It does not stay
+    # side-effect-free: the gates it does run execute to completion on the
+    # server (see the `case_tier` comment below), so a pipeline-launch gate
+    # really launches. Skipping is what stops a route run doing that 283
+    # times, not something that makes any single case free.
+    if tier == "route" and not is_gate:
+        return NessieManifestEntry(
+            id=v.id, family=v.family, tier=tier, status="skipped",
+            reason="needs execution; skipped at route tier", expected_fail=expected_fail)
+    # per-case DEPTH: route_gate cases are ALWAYS driven route-only, even in
+    # a full run; everything else is driven at the global tier's depth.
+    #
+    # Route-only is a CLIENT-side stop and NOTHING ELSE. This comment used to
+    # claim these cases "never execute a real turn/launch". They do.
+    # `http_driver.drive` breaks its own poll loop at `route_decided`
+    # (http_driver.py:96-98); there is no cancel, no abort and no DELETE
+    # anywhere in the harness or in the endpoint. The server has already
+    # started the turn on a daemon thread and returned 202, and its only
+    # early return is ROUTE_UNRELATED (cc_assistant.py:352-366) — both the NS
+    # and the CC branches fall straight through into full execution. So every
+    # gate whose route is not `unrelated` runs to completion, and on a CC gate
+    # that is a full Opus turn, launch included.
+    #
+    # NO ROUTE IS FREE, `unrelated` included. It is merely the cheapest: the
+    # BAML router call (`_decide_route` at cc_assistant.py:203 →
+    # `cc_router.decide` → `_baml_decision`) is made on EVERY turn, and
+    # `route_decided` is emitted at cc_assistant.py:347-350, before the
+    # ROUTE_UNRELATED check at :352. What `unrelated` skips is the answering
+    # turn, not the router that decided to skip it.
+    #
+    # What route-only actually buys is WALL CLOCK and a shorter window for the
+    # harness to trip over a slow turn — not money, and not blast radius. It
+    # also costs the run its accounting: `v_cost` below is read off
+    # `query_complete`, which route-tier polling never observes, so the spend
+    # is real and unmeasurable from here. `manifest.cost_summary` reports that
+    # as `unmeasured` rather than as $0.
+    case_tier = "route" if is_gate else tier
+    session_id = None
+    v_status, v_route, v_engine, v_cost, failed, reason = "passed", None, None, None, [], ""
+    v_route_source = None
+    v_route_sources: list[str] = []
+    v_outage = False
+    observations: list[CriterionObservation] = []
+    poll_errors = 0
+    # Did ANY turn of this case really test something? Accumulated across the
+    # whole case on purpose — `status` is a case-level field, so claiming
+    # "no assertions" about a case that asserted four real criteria on its
+    # first turn would be the instrument lying in the other direction. The
+    # vacuous TURN stays visible: every one of its observation rows is
+    # recorded `skipped` with the reason that skipped it.
+    evaluated_any = False
+    t0 = clock()
+    extra = default_route_criterion(v)
+    try:
+        for i, turn in enumerate(v.turns):
+            if pace_s and i > 0:
+                sleep(pace_s)
+            # force_new ONLY on a case's first turn: isolate the case, but
+            # keep its own follow-ups in the session its seed opened.
+            res = http_driver.drive(turn.query, tier=case_tier, post_query=post_query,
+                                    get_progress=get_progress, session_id=session_id,
+                                    force_new=(session_id is None),
+                                    force_route=force_route, full_timeout_s=full_timeout_s,
+                                    sleep=sleep, clock=clock)
+            session_id = res.session_id
+            poll_errors += res.poll_errors
+            v_route, v_engine = res.route_obs.route, res.route_obs.engine
+            # `route` and `engine` stay LAST-write-wins: the report displays
+            # the route the case ended on, and changing that would change
+            # what every existing report says.
+            #
+            # `route_source` deliberately does NOT. corpus.apply_route_policy
+            # attaches its route criterion to turns[0], which is always a COLD
+            # turn, so pinning the recorded source to turn 0 makes the field
+            # describe the same turn the assertion tests. Assigning it every
+            # turn left an entry carrying its LAST turn's source — a follow-up
+            # that went `sticky` was never what the route criterion was about.
+            if i == 0:
+                v_route_source = res.route_obs.source
+            # ...and the whole sequence, because one value cannot say whether
+            # some middle turn fell to the keyword regex. A turn with no
+            # `route_decided` event contributes nothing: it observed no routing
+            # decision at all, which is not a router that fell back.
+            if res.route_obs.source is not None:
+                v_route_sources.append(res.route_obs.source)
+            qc = next((e["data"] for e in reversed(res.payload.get("progress") or [])
+                       if e.get("event") == "query_complete"), {})
+            v_cost = qc.get("total_cost_usd", v_cost)
+            bundle_summary = None
+            if case_tier == "full" and bundle_reader is not None and session_id is not None:
+                bundle_summary = bundle_reader(session_id)
+            last_reply = qc.get("reply")
+            criteria = list(turn.pass_criteria) + ([extra] if extra else [])
+            passed, results, observed = evaluate.evaluate_turn(
+                res.payload, criteria, res.route_obs,
+                last_reply=last_reply, bundle_summary=bundle_summary)
+            observations += [
+                CriterionObservation(
+                    turn=turn.label, field=r["field"], op=r["op"], expected=r.get("value"),
+                    observed=_trim(observed.get(r["field"])),
+                    passed=r["passed"], skipped=r.get("skipped", False),
+                    reason=r.get("reason", ""))
+                for r in results
+            ]
+            evaluated_any = evaluated_any or evaluate.any_criterion_evaluated(results)
+            # One authority for this turn's status: passed / failed / error.
+            turn_status = evaluate.classify_turn_status(passed, last_reply)
+            if turn_status == "error":
+                # Provider outage: the fallback chain gave up before the
+                # product ran, so this turn is infrastructure, not evidence.
+                # The case stops here either way — its remaining turns share a
+                # session with a turn that never reached the product, so they
+                # cost money and prove nothing.
+                if failed:
+                    # ...but an EARLIER turn already produced a genuine red,
+                    # and an outage on a later turn does not un-fail it. Stay
+                    # `failed`, stay gate-visible. Overwriting here sent a real
+                    # regression out as an exempt grey `outage` row.
+                    reason = (f"{evaluate.OUTAGE_REASON}. Recorded AFTER "
+                              f"{len(failed)} criterion failure(s) on an earlier "
+                              "turn, which still count")
+                else:
+                    v_status, v_outage, reason = "error", True, evaluate.OUTAGE_REASON
+                break
+            if turn_status == "failed":
+                v_status = "failed"
+                failed += [f"{turn.label}:{r['field']}" for r in results if not r["passed"]]
+    except Exception as exc:  # infra/endpoint failure ≠ assertion failure
+        v_status, reason = "error", f"{type(exc).__name__}: {exc}"
+    # A case that evaluated nothing is not a pass. Guarded on "passed" so
+    # every other outcome wins: `failed` (a red is evidence, and it stands),
+    # `error`/outage (which say WHY nothing was proved, and the outage
+    # exemption depends on the status staying `error`).
+    #
+    # Placed BEFORE _apply_xpass deliberately — a known_fail case that
+    # asserted nothing must not be promoted to `xpass`, which would claim the
+    # expected failure had stopped happening. It demonstrated neither.
+    if v_status == "passed" and not evaluated_any:
+        v_status, reason = "no_assertions", evaluate.NO_ASSERTIONS_REASON
+    v_status, xpass_reason = _apply_xpass(v_status, expected_fail)
+    if xpass_reason:
+        reason = xpass_reason
+    return NessieManifestEntry(
+        id=v.id, family=v.family, tier=tier, status=v_status, route=v_route, engine=v_engine,
+        route_source=v_route_source, route_sources=v_route_sources,
+        cost=v_cost, elapsed_s=round(clock() - t0, 3), failed_criteria=failed,
+        observations=observations, poll_errors=poll_errors,
+        reason=reason, expected_fail=expected_fail, outage=v_outage)
+
+
 def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, variant_id=None,
               corpus_path, out_dir, post_query=None, get_progress=None, bundle_reader=None,
               pace_s=0.0, run_consistency: bool = False, sample: float = 1.0, seed: int = 0,
@@ -130,166 +305,9 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
     started = _iso(clock)
     entries: list[NessieManifestEntry] = []
     for v in variants:
-        expected_fail = "known_fail" in v.tags
-        is_gate = "route_gate" in v.tags
-        # requires_env skip (both tiers): a variant needing an unset env var is
-        # not runnable here — record it skipped, don't fail the gate.
-        missing_env = [name for name in v.requires_env if name not in os.environ]
-        if missing_env:
-            entries.append(NessieManifestEntry(
-                id=v.id, family=v.family, tier=tier, status="skipped",
-                reason=f"requires_env unset: {missing_env}", expected_fail=expected_fail))
-            continue
-        # tier selection: the route tier only exercises route_gate cases (route
-        # assertions only). Anything else needs a real turn/launch — skip it,
-        # don't fail, so a route-tier run stays SMALL. It does not stay
-        # side-effect-free: the gates it does run execute to completion on the
-        # server (see the `case_tier` comment below), so a pipeline-launch gate
-        # really launches. Skipping is what stops a route run doing that 283
-        # times, not something that makes any single case free.
-        if tier == "route" and not is_gate:
-            entries.append(NessieManifestEntry(
-                id=v.id, family=v.family, tier=tier, status="skipped",
-                reason="needs execution; skipped at route tier", expected_fail=expected_fail))
-            continue
-        # per-case DEPTH: route_gate cases are ALWAYS driven route-only, even in
-        # a full run; everything else is driven at the global tier's depth.
-        #
-        # Route-only is a CLIENT-side stop and NOTHING ELSE. This comment used to
-        # claim these cases "never execute a real turn/launch". They do.
-        # `http_driver.drive` breaks its own poll loop at `route_decided`
-        # (http_driver.py:96-98); there is no cancel, no abort and no DELETE
-        # anywhere in the harness or in the endpoint. The server has already
-        # started the turn on a daemon thread and returned 202, and its only
-        # early return is ROUTE_UNRELATED (cc_assistant.py:352-366) — both the NS
-        # and the CC branches fall straight through into full execution. So every
-        # gate whose route is not `unrelated` runs to completion, and on a CC gate
-        # that is a full Opus turn, launch included.
-        #
-        # NO ROUTE IS FREE, `unrelated` included. It is merely the cheapest: the
-        # BAML router call (`_decide_route` at cc_assistant.py:203 →
-        # `cc_router.decide` → `_baml_decision`) is made on EVERY turn, and
-        # `route_decided` is emitted at cc_assistant.py:347-350, before the
-        # ROUTE_UNRELATED check at :352. What `unrelated` skips is the answering
-        # turn, not the router that decided to skip it.
-        #
-        # What route-only actually buys is WALL CLOCK and a shorter window for the
-        # harness to trip over a slow turn — not money, and not blast radius. It
-        # also costs the run its accounting: `v_cost` below is read off
-        # `query_complete`, which route-tier polling never observes, so the spend
-        # is real and unmeasurable from here. `manifest.cost_summary` reports that
-        # as `unmeasured` rather than as $0.
-        case_tier = "route" if is_gate else tier
-        session_id = None
-        v_status, v_route, v_engine, v_cost, failed, reason = "passed", None, None, None, [], ""
-        v_route_source = None
-        v_route_sources: list[str] = []
-        v_outage = False
-        observations: list[CriterionObservation] = []
-        poll_errors = 0
-        # Did ANY turn of this case really test something? Accumulated across the
-        # whole case on purpose — `status` is a case-level field, so claiming
-        # "no assertions" about a case that asserted four real criteria on its
-        # first turn would be the instrument lying in the other direction. The
-        # vacuous TURN stays visible: every one of its observation rows is
-        # recorded `skipped` with the reason that skipped it.
-        evaluated_any = False
-        t0 = clock()
-        extra = default_route_criterion(v)
-        try:
-            for i, turn in enumerate(v.turns):
-                if pace_s and i > 0:
-                    sleep(pace_s)
-                # force_new ONLY on a case's first turn: isolate the case, but
-                # keep its own follow-ups in the session its seed opened.
-                res = http_driver.drive(turn.query, tier=case_tier, post_query=post_query,
-                                        get_progress=get_progress, session_id=session_id,
-                                        force_new=(session_id is None),
-                                        sleep=sleep, clock=clock)
-                session_id = res.session_id
-                poll_errors += res.poll_errors
-                v_route, v_engine = res.route_obs.route, res.route_obs.engine
-                # `route` and `engine` stay LAST-write-wins: the report displays
-                # the route the case ended on, and changing that would change
-                # what every existing report says.
-                #
-                # `route_source` deliberately does NOT. corpus.apply_route_policy
-                # attaches its route criterion to turns[0], which is always a COLD
-                # turn, so pinning the recorded source to turn 0 makes the field
-                # describe the same turn the assertion tests. Assigning it every
-                # turn left an entry carrying its LAST turn's source — a follow-up
-                # that went `sticky` was never what the route criterion was about.
-                if i == 0:
-                    v_route_source = res.route_obs.source
-                # ...and the whole sequence, because one value cannot say whether
-                # some middle turn fell to the keyword regex. A turn with no
-                # `route_decided` event contributes nothing: it observed no routing
-                # decision at all, which is not a router that fell back.
-                if res.route_obs.source is not None:
-                    v_route_sources.append(res.route_obs.source)
-                qc = next((e["data"] for e in reversed(res.payload.get("progress") or [])
-                           if e.get("event") == "query_complete"), {})
-                v_cost = qc.get("total_cost_usd", v_cost)
-                bundle_summary = None
-                if case_tier == "full" and bundle_reader is not None and session_id is not None:
-                    bundle_summary = bundle_reader(session_id)
-                last_reply = qc.get("reply")
-                criteria = list(turn.pass_criteria) + ([extra] if extra else [])
-                passed, results, observed = evaluate.evaluate_turn(
-                    res.payload, criteria, res.route_obs,
-                    last_reply=last_reply, bundle_summary=bundle_summary)
-                observations += [
-                    CriterionObservation(
-                        turn=turn.label, field=r["field"], op=r["op"], expected=r.get("value"),
-                        observed=_trim(observed.get(r["field"])),
-                        passed=r["passed"], skipped=r.get("skipped", False),
-                        reason=r.get("reason", ""))
-                    for r in results
-                ]
-                evaluated_any = evaluated_any or evaluate.any_criterion_evaluated(results)
-                # One authority for this turn's status: passed / failed / error.
-                turn_status = evaluate.classify_turn_status(passed, last_reply)
-                if turn_status == "error":
-                    # Provider outage: the fallback chain gave up before the
-                    # product ran, so this turn is infrastructure, not evidence.
-                    # The case stops here either way — its remaining turns share a
-                    # session with a turn that never reached the product, so they
-                    # cost money and prove nothing.
-                    if failed:
-                        # ...but an EARLIER turn already produced a genuine red,
-                        # and an outage on a later turn does not un-fail it. Stay
-                        # `failed`, stay gate-visible. Overwriting here sent a real
-                        # regression out as an exempt grey `outage` row.
-                        reason = (f"{evaluate.OUTAGE_REASON}. Recorded AFTER "
-                                  f"{len(failed)} criterion failure(s) on an earlier "
-                                  "turn, which still count")
-                    else:
-                        v_status, v_outage, reason = "error", True, evaluate.OUTAGE_REASON
-                    break
-                if turn_status == "failed":
-                    v_status = "failed"
-                    failed += [f"{turn.label}:{r['field']}" for r in results if not r["passed"]]
-        except Exception as exc:  # infra/endpoint failure ≠ assertion failure
-            v_status, reason = "error", f"{type(exc).__name__}: {exc}"
-        # A case that evaluated nothing is not a pass. Guarded on "passed" so
-        # every other outcome wins: `failed` (a red is evidence, and it stands),
-        # `error`/outage (which say WHY nothing was proved, and the outage
-        # exemption depends on the status staying `error`).
-        #
-        # Placed BEFORE _apply_xpass deliberately — a known_fail case that
-        # asserted nothing must not be promoted to `xpass`, which would claim the
-        # expected failure had stopped happening. It demonstrated neither.
-        if v_status == "passed" and not evaluated_any:
-            v_status, reason = "no_assertions", evaluate.NO_ASSERTIONS_REASON
-        v_status, xpass_reason = _apply_xpass(v_status, expected_fail)
-        if xpass_reason:
-            reason = xpass_reason
-        entries.append(NessieManifestEntry(
-            id=v.id, family=v.family, tier=tier, status=v_status, route=v_route, engine=v_engine,
-            route_source=v_route_source, route_sources=v_route_sources,
-            cost=v_cost, elapsed_s=round(clock() - t0, 3), failed_criteria=failed,
-            observations=observations, poll_errors=poll_errors,
-            reason=reason, expected_fail=expected_fail, outage=v_outage))
+        entries.append(run_case(
+            v, tier=tier, post_query=post_query, get_progress=get_progress,
+            bundle_reader=bundle_reader, pace_s=pace_s, sleep=sleep, clock=clock))
     if run_consistency:
         from nessie_tests import consistency
         for g in corpus.load_consistency_groups(corpus_path):
