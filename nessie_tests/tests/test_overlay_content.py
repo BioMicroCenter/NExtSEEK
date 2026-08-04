@@ -22,8 +22,15 @@ def test_every_route_gate_case_asserts_route():
 
 def test_has_cc_unrelated_and_green_families():
     ov = _overlay_origin()
-    fams = {v.family for v in ov}
-    assert {"nessie_route", "nessie_green"} <= fams
+    # `nessie_route` and `nessie_green` were provenance groupings, not intents, and
+    # the 2026-08-04 remap dissolved them: every member was filed by question
+    # content and kept its `route_gate` / `green` tag. So assert on the tags, which
+    # are what actually carried the meaning, rather than on the family names.
+    tags = {t for v in ov for t in v.tags}
+    assert {"route_gate", "green"} <= tags
+    assert {v.family for v in ov if "route_gate" in v.tags} <= {
+        "sample_search", "graph_traversal", "unsupported",
+        "pipeline_launch", "pipeline_output_reingest", "entity_write"}
     routes = {c.value for v in ov for t in v.turns for c in t.pass_criteria if c.field == "route"}
     assert {"container_cc", "unrelated", "nextseek_query"} <= routes
 

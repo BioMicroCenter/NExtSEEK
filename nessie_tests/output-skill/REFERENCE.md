@@ -268,8 +268,12 @@ left-hand column.
   a `route` criterion to turn 0 of **268** of the 283 resolved variants — 15 more
   write one inline, so **all 283** carry one, against only 3 tagged `route_gate`
   — plus `last_reply nonempty` to 241. `apply_family_floor` adds 239 outcome
-  criteria across 203 variants (`outcome_observed` to 146,
-  `report_produced_output` to 57, `graph_truncation_disclosed` to 36). All of it
+  criteria across 207 variants (`outcome_observed` to 150,
+  `report_produced_output` to 57, `graph_truncation_disclosed` to 47). Those
+  moved with the 28-family remap on 2026-08-04: 11 assay-phrased searches left
+  `sample_search` for `graph_traversal`, where the floor also asks for truncation
+  disclosure, and the former `nessie_green` / `routing_lab` members landed in
+  floored families where their old ones had none. All of it
   comes from the `route_policy` and `family_floor` blocks in `corpus.json`,
   which are reviewable data, so a route failure today is a curated expectation
   rather than a harness assumption.

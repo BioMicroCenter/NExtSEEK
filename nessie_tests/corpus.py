@@ -38,20 +38,6 @@ def load_base() -> list[Variant]:
     return _flatten(load_catalog(_BASE_CATALOG), "base")
 
 
-def load_overlay(path: Path) -> list[Variant]:
-    """Read an overlay-shaped catalog file. NOT a corpus source since 2026-08-04.
-
-    It has exactly ONE caller, `scripts/build_corpus.py`, which is the manual
-    adoption tool you run when the vendored catalog moves -- it reads
-    `overlay.json` and `retired.json` by design and forever. Deleting this with
-    the rest of the three-file machinery would have left that tool raising
-    AttributeError with no test to catch it, since nothing imports it any more.
-
-    Nothing in a RUN calls this. `merged()` reads corpus.json.
-    """
-    return _flatten(load_catalog(path), "overlay")
-
-
 _UNIFIED = Path(__file__).resolve().parent / "corpus.json"
 
 # The keys that are nessie metadata rather than part of the e2e Variant schema.
@@ -69,20 +55,30 @@ _META_KEYS = ("status", "origin", "is_bayesian", "hibayes_subtype",
 def _read_unified(path=None) -> dict:
     """Parse the unified corpus, refusing anything that is not one.
 
-    Without the version check a legacy path resolves to ZERO variants in silence:
-    overlay.json and retired.json both have a `families` block, no variant in
-    either carries `status`, and `load_unified` keeps only `status == "active"`.
-    `merged(Path("nessie_tests/overlay.json"))` returned `[]` rather than raising,
-    which is a silent no-op run for any stale script, README line or muscle-memory
-    invocation -- and both files are still on disk by design.
+    `corpus.json` is HAND-OWNED as of 2026-08-04. It is not generated from
+    anything: `scripts/build_corpus.py`, `overlay.json` and `retired.json` were
+    deleted with the 28-family remap, because a generator whose source still
+    carried the old 16-family taxonomy would revert the remap on every rebuild.
+    One file, one owner, and no class of edit that silently disappears.
+
+    The one thing the generator bought that is still wanted is knowing when the
+    vendored `chat_nextseek/e2e/catalog.json` moves under us. That is now
+    `tests/test_catalog_drift.py` alone, which reports the divergence and does
+    not auto-merge it -- adopting an upstream change is a deliberate edit.
+
+    The version check stays. An old three-file payload has a `families` block and
+    no `status` on any variant, and `load_unified` keeps only `status ==
+    "active"`, so pointing this at one resolved to ZERO variants in silence
+    rather than raising. Those files are gone now, but a stale copy in someone's
+    tree or a README line is not.
     """
     path = Path(path or _UNIFIED)
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("version") != 2:
         raise ValueError(
             f"{path} is not a v2 unified corpus (version={payload.get('version')!r}). "
-            f"nessie_tests reads nessie_tests/corpus.json; overlay.json and "
-            f"retired.json are superseded and resolve to zero variants.")
+            f"nessie_tests reads nessie_tests/corpus.json, which is hand-owned; "
+            f"overlay.json and retired.json were deleted on 2026-08-04.")
     return payload
 
 
@@ -131,10 +127,11 @@ _HIBAYES_KEYS = ("hibayes_subtype", "expected_behavior", "artifact_expected", "a
 def load_family_defaults(path=None) -> dict[str, dict]:
     """The per-DECLARED-family HiBayes defaults block.
 
-    16 entries, not 14. The 14 in the plan's table are the families with an
-    ACTIVE variant; `nessie_repro` and `routing_graph` are retired-only and still
-    need defaults, because a retired definition stays loadable and `hibayes_meta`
-    resolves it like any other.
+    28 entries as of the 2026-08-04 remap: one per family, including the 15 that
+    hold no variant yet. A family without defaults would fail the moment its first
+    case is written, and two of the 28 (`pipeline_output_reingest`, `entity_write`)
+    hold only a RETIRED variant -- a retired definition stays loadable and
+    `hibayes_meta` resolves it exactly like an active one.
 
     `_`-prefixed annotation keys are stripped, so every key returned is a family
     name and the mapping can be iterated without a filter at each call site.
@@ -183,13 +180,13 @@ def bayesian_ids(path=None) -> list[str]:
     when it was retired, and without this filter retiring a selected case would
     leave it silently in the paid run.
 
-    That flag is dormant, not lost: `scripts/build_corpus.py` carries `status`,
-    `retirement` and `is_bayesian` forward from this file, so flipping a case back
-    to active restores it to the selection. The round trip is real -- and it was
-    not, in the first version of this task. `_carry_forward` then re-derived
-    `status` from `retired.json`, so a rebuild RESURRECTED a corpus.json-only
-    retirement and, because the flag was already carried, brought it back
-    selected. `test_a_rebuild_preserves_a_corpus_json_only_retirement` is the pin.
+    That flag is dormant, not lost: the definition keeps `status`, `retirement` and
+    `is_bayesian` together in this file, so flipping a case back to active restores
+    it to the selection in one edit. That used to be a two-file edit with a trap in
+    it -- the generator re-derived `status` from `retired.json`, so a rebuild
+    RESURRECTED a corpus.json-only retirement and, because the flag was carried,
+    brought it back selected. Both the generator and `retired.json` were deleted on
+    2026-08-04, which removed the trap rather than guarding it.
     """
     payload = _read_unified(path)
     return [raw["id"] for fam in payload["families"].values() for raw in fam["variants"]
@@ -396,9 +393,9 @@ def merged(path=None) -> list[Variant]:
     the call SHAPE is unchanged -- but it now names corpus.json, and only
     corpus.json: `_read_unified` requires `version == 2`, so passing a superseded
     overlay path raises rather than resolving to zero variants. Every RUN path
-    was repointed in the cutover commit; ``scripts/build_corpus.py`` still reads
-    the superseded files, deliberately and permanently, because adopting from
-    them is the whole reason it exists.
+    was repointed in the cutover commit, and on 2026-08-04 the superseded files
+    and the generator that read them were deleted outright, so corpus.json is not
+    merely the source of truth -- it is the only source there is.
     """
     return merged_from_unified(path)
 

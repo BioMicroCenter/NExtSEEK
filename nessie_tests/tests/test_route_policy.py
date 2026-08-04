@@ -112,6 +112,11 @@ def test_a_route_assertion_alone_cannot_tell_a_working_turn_from_a_dead_one():
     for v in corpus.merged(CORPUS):
         if v.family not in ("unsupported", "writes_unsupported"):
             continue
+        # A route gate asserts the ROUTE and deliberately nothing else; that is the
+        # whole point of the tag, and `family_floor` already exempts them. Two
+        # landed in `unsupported` when the 2026-08-04 remap dissolved nessie_route.
+        if "route_gate" in v.tags:
+            continue
         fields = {c.field for t in v.turns for c in t.pass_criteria}
         assert "last_reply" in fields, (
             f"{v.id} asserts the route and nothing about the answer, so a dead "

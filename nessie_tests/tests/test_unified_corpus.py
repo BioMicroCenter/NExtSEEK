@@ -29,17 +29,14 @@ import pathlib
 import pytest
 
 from nessie_tests import corpus
-from nessie_tests.scripts import build_corpus
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 UNIFIED = ROOT / "corpus.json"
 CORPUS = UNIFIED
-OVERLAY = ROOT / "overlay.json"
-RETIRED = ROOT / "retired.json"
 
 
 def test_corpus_json_exists_and_parses():
-    assert UNIFIED.is_file(), "run: python -m nessie_tests.scripts.build_corpus"
+    assert UNIFIED.is_file(), "nessie_tests/corpus.json is missing; it is hand-owned and nothing regenerates it"
     json.loads(UNIFIED.read_text(encoding="utf-8"))
 
 
@@ -97,22 +94,6 @@ def test_unified_resolution_preserves_turn_count():
     assert sum(len(v.turns) for v in corpus.merged_from_unified(UNIFIED)) == 314
 
 
-@pytest.mark.parametrize("legacy", ["overlay.json", "retired.json"])
-def test_a_superseded_file_is_refused_rather_than_resolving_to_nothing(legacy):
-    """The failure mode that made this worth a guard is SILENCE.
-
-    Both superseded files still have a `families` block and stay on disk by
-    operator ruling, but no variant in either carries `status`, and
-    `_to_variants` keeps only `status == "active"`. So `merged(overlay.json)`
-    returned `[]` — a zero-case run, no error, for any stale script, README line
-    or muscle-memory invocation. A wrong path must be loud.
-    """
-    path = ROOT / legacy
-    assert path.is_file(), "the superseded files are kept on disk by design"
-    with pytest.raises(ValueError, match="not a v2 unified corpus"):
-        corpus.merged(path)
-
-
 def test_the_hand_written_annotations_survived_adoption():
     """`_why` and its dated siblings are prose a human wrote next to a case, and
     `Variant` has six fields with `extra="ignore"` — so nothing loaded through the
@@ -152,6 +133,15 @@ def test_variant_meta_covers_every_definition():
     assert all(isinstance(m["is_bayesian"], bool) for m in meta.values())
 
 
+# dmac-assistant/tools/hibayes/expected_behavior.py FAMILIES_22. Not ours to
+# extend: `expected_behavior_rule` raises KeyError on anything outside it.
+CANONICAL_22 = frozenset({
+    "Edge", "Graph-Assay", "Graph-Count", "Graph-Lineage", "Graph-Study", "Memory",
+    "Report-GEO", "Report-NFCORE", "Report-PRIDE", "Report-SRA", "Reporter-Summary",
+    "Retrieve", "SampleTree", "Search-Attribute", "Search-Basic", "Search-MultiAssay",
+    "Search-Refine", "System-Capabilities", "System-Entity", "Unsupported",
+    "Write-Create", "Write-Update"})
+
 VALID_BEHAVIORS = {"AnswerDirectly", "GenerateArtifact", "ClarifyIfAmbiguous",
                    "UsePriorContext", "StateUnsupportedBoundary", "RefuseUnsafeOnly"}
 VALID_KINDS = {"GEO_XLSX", "SRA_PACKAGE", "PRIDE_PACKAGE", "NFCORE_RNASEQ_CSV",
@@ -166,10 +156,12 @@ def test_every_declared_family_has_defaults():
     `graph_query` holds one declaring `routing_graph`. Block-keyed defaults would
     hand all three the wrong values.
 
-    (The plan cites `graph_stale` and `reporting_artifacts` as the example. Those
-    blocks do not appear in corpus.json at all -- every member overrides a base id
-    and `build_corpus.py` pins it to its BASE position -- so the example is
-    restated here against blocks that exist. The argument is unchanged.)
+    (Historical: `graph_stale` and `reporting_artifacts` never appeared in
+    corpus.json, because every member overrode a base id and the since-deleted
+    generator pinned it to its BASE position. The 2026-08-04 remap made block ==
+    family everywhere, so the divergence this guards against no longer exists in
+    the file -- but the resolution order still keys on the declared family, and
+    this keeps it that way.)
     """
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
     declared = {v["family"] for fam in payload["families"].values()
@@ -180,7 +172,15 @@ def test_every_declared_family_has_defaults():
         assert d["expected_behavior"] in VALID_BEHAVIORS, name
         assert d["artifact_kind"] in VALID_KINDS, name
         assert isinstance(d["artifact_expected"], bool), name
-        assert isinstance(d["hibayes_subtype"], str) and d["hibayes_subtype"], name
+        # A NULL subtype is deliberate, not missing. `hibayes_subtype` is a foreign
+        # key into dmac-assistant/tools/hibayes/expected_behavior.py FAMILIES_22,
+        # kept so these rows concatenate with upstream runs (design decision D5).
+        # Eight of the 28 families test surface upstream has no label for, and
+        # inventing one would put those rows in a stratum of size ours-only; the
+        # posterior pools them on `task_family` instead. What is NOT allowed is a
+        # value outside the 22: `expected_behavior_rule` raises KeyError on those.
+        st = d["hibayes_subtype"]
+        assert st is None or st in CANONICAL_22, f"{name}: {st!r} is not one of the canonical 22"
 
 
 def test_defaults_cover_the_retired_only_families_too():
@@ -200,12 +200,22 @@ def test_defaults_cover_the_retired_only_families_too():
               for v in fam["variants"] if v.get("status") == "active"}
     declared = {v["family"] for fam in payload["families"].values()
                 for v in fam["variants"]}
-    assert len(active) == 14
-    assert declared - active == {"nessie_repro", "routing_graph"}
+    assert len(active) == 13, sorted(active)
+    # pipeline_output_reingest and entity_write hold one RETIRED variant each and
+    # no active one. They are not slop: a retired definition stays loadable and
+    # `hibayes_meta` resolves it exactly like an active one.
+    assert declared - active == {"pipeline_output_reingest", "entity_write"}
     # `_`-prefixed keys are the file's annotation convention, not families.
     # `corpus.load_family_defaults` strips them so a consumer can iterate.
-    assert {k for k in payload["family_defaults"] if not k.startswith("_")} == declared
-    assert set(corpus.load_family_defaults(UNIFIED)) == declared
+    # Defaults cover every family in the block, not just the ones holding a
+    # variant today. 15 of the 28 start empty by design -- that gap is the whole
+    # point of the 2026-08-04 remap -- and a family without defaults would fail
+    # the moment its first case is written.
+    blocks = set(payload["families"])
+    assert len(blocks) == 28, sorted(blocks)
+    assert declared <= blocks
+    assert {k for k in payload["family_defaults"] if not k.startswith("_")} == blocks
+    assert set(corpus.load_family_defaults(UNIFIED)) == blocks
 
 
 def test_hibayes_meta_falls_back_to_the_family_default():
@@ -228,7 +238,7 @@ def test_reporting_overrides_prove_the_override_mechanism_works():
 def test_every_reporting_deposit_variant_overrides_its_family_default():
     """The override set is complete, not just the one the test above samples.
 
-    Every `reporting` variant whose query names GEO, SRA or PRIDE is a deposit
+    Every `submission_package` variant whose query names GEO, SRA or PRIDE is a deposit
     request and must resolve to GenerateArtifact. Left on the family default it
     would be scored as a chat answer, which is the exact mis-labelling the
     defaults-plus-override design exists to prevent.
@@ -237,7 +247,7 @@ def test_every_reporting_deposit_variant_overrides_its_family_default():
              "PRIDE": ("Report-PRIDE", "PRIDE_PACKAGE")}
     seen = collections.Counter()
     for v in corpus.load_all_definitions(UNIFIED):
-        if v.family != "reporting":
+        if v.family != "submission_package":
             continue
         hit = [k for k in kinds if k in v.turns[0].query.upper()]
         if not hit:
@@ -281,10 +291,21 @@ def test_a_none_override_means_inherit_rather_than_null():
 
 
 def test_hibayes_meta_resolves_against_the_declared_family_not_the_block():
-    """routing.lab_ooc_kamm_count sits in the `search_advanced` block and declares
-    `routing_lab`. Block-keyed defaults would hand it Search-Basic."""
+    """Before 2026-08-04 a block was not always a family: routing.lab_ooc_kamm_count
+    sat in the `search_advanced` block and declared `routing_lab`, so block-keyed
+    defaults handed it the wrong values. The 28-family remap made block == family
+    everywhere, which dissolves that hazard rather than fixing it.
+
+    So this now pins the stronger property: no variant declares a family other
+    than the block it sits in. `hibayes_meta` keys on the declared family, and the
+    day those two diverge again it must still be the declared one that wins.
+    """
+    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
+    for block, body in payload["families"].items():
+        for v in body["variants"]:
+            assert v["family"] == block, f"{v['id']}: declares {v['family']}, sits in {block}"
     m = corpus.hibayes_meta("routing.lab_ooc_kamm_count", UNIFIED)
-    assert m["hibayes_subtype"] == "Reporter-Summary"
+    assert m["hibayes_subtype"] == "Search-Basic"
 
 
 def test_hibayes_meta_raises_on_an_unknown_id():
@@ -315,9 +336,14 @@ def test_bayesian_selection_is_nonempty_active_and_family_balanced():
     assert fams == measurable, \
         f"families with no bayesian variant: {sorted(measurable - fams)}"
     gate_only = {v.family for v in active} - measurable
-    assert gate_only == {"nessie_route"}, (
-        f"a new gate-only family appeared: {sorted(gate_only)}. Confirm it really "
-        f"has nothing measurable in it before widening this.")
+    assert gate_only == set(), (
+        f"a gate-only family appeared: {sorted(gate_only)}. Confirm it really has "
+        f"nothing measurable in it before widening this.\n"
+        f"There were none as of the 2026-08-04 remap: `nessie_route` was a "
+        f"provenance grouping rather than an intent, so its 3 gates were filed by "
+        f"question content (sample_search, graph_traversal, unsupported) and kept "
+        f"their `route_gate` tag. Each landed in a family with plenty of "
+        f"measurable variants, which is why the exemption now covers nothing.")
 
 
 def test_no_route_gate_variant_is_selected_for_the_paid_paired_run():
@@ -366,9 +392,9 @@ def test_bayesian_selection_is_in_corpus_order_and_has_no_duplicates():
 
 def test_bayesian_ids_drops_a_flagged_variant_that_was_later_retired(tmp_path):
     """Retirement is a flag flip, not a deletion, so a retired definition KEEPS the
-    `is_bayesian` it was curated with -- and `scripts/build_corpus.py` carries that
-    forward on purpose, so un-retiring restores the curation. Without the status
-    filter in `bayesian_ids` the retired case would stay in the paid run.
+    `is_bayesian` it was curated with, so un-retiring restores the curation in one
+    edit. Without the status filter in `bayesian_ids` the retired case would stay in
+    the paid run.
 
     Tested against a synthetic payload rather than by asserting no such row exists
     in corpus.json today: that would only restate the current data, and would fail
@@ -391,8 +417,16 @@ def test_bayesian_selection_takes_the_whole_refine_and_recall_family():
     """The family where NS and CC differ most, and the reason the row unit is a
     variant rather than a turn. Sampling it would defeat the point."""
     ids = set(corpus.bayesian_ids(UNIFIED))
-    rr = [v.id for v in corpus.load_unified(UNIFIED) if v.family == "refine_and_recall"]
+    # The 2026-08-04 remap split `refine_and_recall` in two on the parser mode the
+    # variants already asserted: `ask_about_last_results` became
+    # `followup_over_results`, `refine_last_search` became `search_refinement`.
+    # Both halves must still be taken whole, so assert the union, not either name.
+    halves = ("followup_over_results", "search_refinement")
+    active = corpus.load_unified(UNIFIED)
+    rr = [v.id for v in active if v.family in halves]
     assert rr and set(rr) <= ids
+    for half in halves:
+        assert any(v.family == half for v in active), half
 
 
 def test_bayesian_selection_includes_the_two_job_launching_pipeline_cases():
@@ -404,84 +438,6 @@ def test_bayesian_selection_includes_the_two_job_launching_pipeline_cases():
 
 
 # --- Fix round 2026-08-04: the generator pin, the hand overrides, and typing ---
-
-def test_the_committed_file_matches_what_the_generator_produces():
-    """Pins the ARTIFACT to its generator. Restored after Task 4.
-
-    It was deleted on the premise that a hand-owned corpus.json could not equal
-    `build(...)`. `_carry_forward` disproved that FOR THE CATEGORIES IT CARRIES:
-    the generator reads those back out of the committed file, so the equality
-    holds over an edit to `family_defaults`, to a non-null per-variant HiBayes
-    override, to `is_bayesian`, or to a RETIREMENT (`status` + `retirement` as a
-    pair). Measured over 8 rebuild experiments on 2026-08-04, that is 4 of the 10
-    edit categories a curator actually makes. The equality does NOT hold over the
-    other six -- un-retiring, the four policy blocks, a variant body change, a
-    hand-added variant, a family description, a hand-added `_why` -- and this test
-    is what tells you which kind you just made, because the six fail here.
-
-    Without it, nothing tests that the generator round-trips, and the failure
-    that escaped was not hypothetical -- a rebuild re-derived `status` from
-    `retired.json` and resurrected a corpus.json-only retirement, still flagged
-    `is_bayesian`. This test fails on exactly that.
-    """
-    built = build_corpus.build(corpus._BASE_CATALOG, OVERLAY, RETIRED, UNIFIED)
-    assert built == json.loads(UNIFIED.read_text(encoding="utf-8")), (
-        "corpus.json is out of step with build_corpus.py.\n"
-        "DO NOT REFLEXIVELY REGENERATE: a rebuild is what DESTROYS a "
-        "non-surviving hand edit, and this failure is how you find out you made "
-        "one. Work out which case you are in first.\n"
-        "SURVIVES a rebuild (so regenerating is safe, and the drift is real "
-        "generator drift): `family_defaults`, the per-variant NON-NULL HiBayes "
-        "overrides, `is_bayesian`, and RETIRING a variant (`status` + "
-        "`retirement` together).\n"
-        "DOES NOT SURVIVE (regenerating silently reverts it): un-retiring a "
-        "variant -- retired.json is still authoritative in that direction, so a "
-        "reinstatement must also drop the id from retired.json; the four policy "
-        "blocks criterion_rewrites / route_policy / family_floor / "
-        "consistency_groups, which are copied from overlay.json and can ONLY be "
-        "changed there, in the file stamped SUPERSEDED; any variant body; a "
-        "variant added only to corpus.json; a family description; a hand-added "
-        "`_why` annotation, which is re-read from the source body.\n"
-        "If the edit is in the first list, regenerate with `python -m "
-        "nessie_tests.scripts.build_corpus`. If it is in the second, move it to "
-        "overlay.json / retired.json and regenerate. Otherwise explain the drift.")
-
-
-def test_a_rebuild_preserves_a_corpus_json_only_retirement(tmp_path):
-    """corpus.json is authoritative for retirement, not just for definitions.
-
-    `retired.json` is the adoption tool's input for a variant this file has never
-    seen. Once a definition is IN corpus.json, its `status`/`retirement` are hand
-    curation like everything else. Re-deriving them from `retired.json` on every
-    rebuild resurrected any retirement recorded only here -- and, because
-    `is_bayesian` is carried, resurrected it SELECTED, straight back into a paid
-    run.
-
-    The two keys are carried as a PAIR. `status: retired` without a `retirement`
-    record is the state `test_no_active_variant_carries_a_stale_retirement_record`
-    forbids from the other direction.
-    """
-    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
-    target = "green.mus_ndma"  # active, selected, and NOT in retired.json
-    for fam in payload["families"].values():
-        for v in fam["variants"]:
-            if v["id"] == target:
-                assert v["status"] == "active" and v["is_bayesian"], "fixture drifted"
-                v["status"] = "retired"
-                v["retirement"] = {"retired_on": "2026-08-04", "reason": "test"}
-    prior = tmp_path / "corpus.json"
-    prior.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-    rebuilt = build_corpus.build(corpus._BASE_CATALOG, OVERLAY, RETIRED, prior)
-    got = {v["id"]: v for f in rebuilt["families"].values() for v in f["variants"]}[target]
-    assert got["status"] == "retired", "the rebuild resurrected a corpus.json-only retirement"
-    assert got["retirement"]["reason"] == "test"
-    # The flag survives so un-retiring restores the curation; `bayesian_ids`
-    # filters on status, so it is dormant rather than live.
-    assert got["is_bayesian"] is True
-    out = tmp_path / "rebuilt.json"
-    out.write_text(json.dumps(rebuilt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    assert target not in corpus.bayesian_ids(out)
 
 
 # id -> the keys it overrides and the values they must resolve to. Every entry is
@@ -504,15 +460,19 @@ HAND_OVERRIDES = {
     "pipeline.build_an_nfcore_samplesheet_fo": {"expected_behavior": "ClarifyIfAmbiguous",
                                                 "artifact_expected": False,
                                                 "artifact_kind": "NONE_EXPECTED"},
-    # Read-only exports: nothing unsafe is being refused.
-    "write.download_all_samples_from_the": {"hibayes_subtype": "Write-Export",
+    # Read-only exports: nothing unsafe is being refused. `Write-Export` was not
+    # among the canonical 22 in dmac-assistant/tools/hibayes/expected_behavior.py,
+    # so expected_behavior_rule raised KeyError on it. Corrected 2026-08-04.
+    "write.download_all_samples_from_the": {"hibayes_subtype": "Unsupported",
                                             "expected_behavior": "StateUnsupportedBoundary"},
-    "write.export_all_metadata_for_nhp_22": {"hibayes_subtype": "Write-Export",
+    "write.export_all_metadata_for_nhp_22": {"hibayes_subtype": "Unsupported",
                                              "expected_behavior": "StateUnsupportedBoundary"},
-    # Destructive writes: propose and confirm, never perform.
+    # Destructive writes: propose and confirm, never perform. `Write-Delete` was
+    # likewise outside the 22; upstream maps every Write-* to RefuseUnsafeOnly,
+    # so Write-Update carries the identical behaviour.
     "write.update_scientist_must_confirm_first": {"hibayes_subtype": "Write-Update",
                                                   "expected_behavior": "RefuseUnsafeOnly"},
-    "write.delete_sample_must_confirm_first": {"hibayes_subtype": "Write-Delete",
+    "write.delete_sample_must_confirm_first": {"hibayes_subtype": "Write-Update",
                                                "expected_behavior": "RefuseUnsafeOnly"},
     # Route-gate members that are not plain NS searches.
     "route.unrelated": {"hibayes_subtype": "Unsupported",
@@ -619,11 +579,11 @@ def test_resolved_artifact_expectation_and_kind_agree():
 def test_the_hibayes_key_set_has_exactly_one_definition():
     """`_META_KEYS` says it is "THE ONE PLACE" a metadata key is registered, and
     three separate spellings of the HiBayes subset quietly undercut that: this
-    module's tuple, `build_corpus.HIBAYES_KEYS`, and a literal re-listing inside
-    `_variant_dict`. A fifth key added to `_META_KEYS` alone would be un-emitted,
-    un-carried and un-resolved, all in silence.
+    module's tuple, the generator's `HIBAYES_KEYS`, and a literal re-listing inside
+    `_variant_dict`. Two of the three went with `scripts/build_corpus.py` on
+    2026-08-04, leaving `corpus._HIBAYES_KEYS` as the single definition -- which is
+    what this now pins.
     """
-    assert build_corpus.HIBAYES_KEYS is corpus._HIBAYES_KEYS
     assert set(corpus._HIBAYES_KEYS) <= set(corpus._META_KEYS)
     # And the generator really emits every one of them on every definition.
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))

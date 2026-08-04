@@ -43,8 +43,12 @@ def test_the_strengthened_refine_and_recall_cases_assert_outcomes_not_labels():
     fix was an overlay override of the imported variant; post-migration those are
     just the refine_and_recall definitions whose origin is `overlay`.
     """
+    # `refine_and_recall` split on 2026-08-04 into the two parser modes its
+    # variants already asserted: ask_about_last_results -> followup_over_results,
+    # refine_last_search -> search_refinement. The guard covers both halves.
     refrec = [v for v in corpus.merged(CORPUS)
-              if v.family == "refine_and_recall" and "overlay" in v.tags]
+              if v.family in ("followup_over_results", "search_refinement")
+              and "overlay" in v.tags]
     assert refrec, "expected the strengthened refine_and_recall cases to still exist"
     for v in refrec:
         fields = {c.field for turn in v.turns for c in turn.pass_criteria}
@@ -59,8 +63,8 @@ def test_select_scope_specific_keeps_route_gate():
 
 def test_select_by_family_and_variant():
     merged = corpus.merged(CORPUS)
-    fam = corpus.select(merged, family="search_advanced")
-    assert fam and all(v.family == "search_advanced" for v in fam)
+    fam = corpus.select(merged, family="sample_search")
+    assert fam and all(v.family == "sample_search" for v in fam)
     one = corpus.select(merged, variant_id="advanced.basic_ndma")
     assert len(one) == 1 and one[0].id == "advanced.basic_ndma"
 
@@ -282,9 +286,13 @@ def test_the_family_floor_injects_the_numbers_the_docs_quote():
         for f in added:
             per_field[f] = per_field.get(f, 0) + 1
 
-    assert variants == 203, f"{variants} variants floored — update {_DOCS}"
-    assert per_field == {"outcome_observed": 146, "report_produced_output": 57,
-                         "graph_truncation_disclosed": 36}, (
+    # Moved 203 -> 207 with the 28-family remap on 2026-08-04, for three reasons:
+    # 11 assay searches left sample_search for graph_traversal (so they now take
+    # graph_truncation_disclosed as well, 36 -> 47), and green.* plus routing.*
+    # landed in floored families where their old ones had no floor (146 -> 150).
+    assert variants == 207, f"{variants} variants floored — update {_DOCS}"
+    assert per_field == {"outcome_observed": 150, "report_produced_output": 57,
+                         "graph_truncation_disclosed": 47}, (
         f"{per_field} — update {_DOCS}")
 
 
