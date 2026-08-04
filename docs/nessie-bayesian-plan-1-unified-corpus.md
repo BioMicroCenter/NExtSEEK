@@ -34,8 +34,8 @@
 | `nessie_tests/corpus.json` | **New.** The unified corpus. Hand-owned after Task 1 generates it. |
 | `nessie_tests/corpus.py` | **Modified.** Gains `load_unified()`, `_variant_meta()`, `bayesian_ids()`. `merged()` switches source. `load_overlay`/`load_retired_ids`/`overridden_ids` retire. |
 | `nessie_tests/runner.py:52-66` | **Modified.** `corpus_fingerprint()` hashes `corpus.json` instead of catalog + overlay. |
-| `nessie_tests/overlay.json` | **Deleted** in Task 3. |
-| `nessie_tests/retired.json` | **Deleted** in Task 3. |
+| `nessie_tests/overlay.json` | **Kept on disk, unread** after Task 3. No longer an input; retained as a hand-diffable reference. |
+| `nessie_tests/retired.json` | **Kept on disk, unread** after Task 3. Same. |
 | `nessie_tests/tests/test_unified_corpus.py` | **New.** Equivalence, schema, and metadata tests. |
 | `nessie_tests/tests/test_catalog_drift.py` | **New.** Fails when upstream `catalog.json` diverges from what nessie adopted. |
 | `nessie_tests/tests/test_probe_files.py` | **New.** Every committed probe resolves through `select_cases()`. Closes 2026-08-04 review finding 1. |
@@ -474,7 +474,7 @@ The cutover. One commit, because a half-switched corpus is worse than either end
 - Modify: `nessie_tests/corpus.py`, `nessie_tests/runner.py:52-66`, `nessie_tests/cli.py`
 - Modify (test path constants): `tests/test_corpus.py`, `test_overlay_content.py`, `test_retired.py`, `test_floor_ops.py`, `test_route_policy.py`, `test_route_policy_drop.py`, `test_route_policy_gate.py`, `test_inline_route_assertions.py`, `test_consistency.py`, `test_repro_and_consistency_wiring.py`, `test_case_file.py`, `test_manifest_report.py`, `test_runner.py`, `test_evaluate.py`, `test_write_refusal_coverage.py`
 - Modify: `nessie_tests/output-skill/scripts/build_report.py`
-- Delete: `nessie_tests/overlay.json`, `nessie_tests/retired.json`
+- **Not deleted:** `nessie_tests/overlay.json` and `nessie_tests/retired.json` stay on disk. Operator ruling 2026-08-04: they are retained as a hand-diffable reference of what the corpus looked like before adoption. Nothing reads them after this task.
 
 **Interfaces:**
 - Consumes: `corpus.merged_from_unified`, `corpus.load_unified`, `corpus.load_all_definitions`, `corpus.variant_meta` from Task 2.
@@ -601,10 +601,19 @@ Then delete the `OVERLAY` and `RETIRED` module constants and the `from nessie_te
 
 Everything else in `test_unified_corpus.py` survives unchanged: the duplicate-id guard, the retirement-record guard, the 283/314 resolution counts, and `variant_meta` coverage all read only the unified file.
 
-- [ ] **Step 7: Delete the old files**
+- [ ] **Step 7: Demote the old files rather than deleting them**
+
+They stay on disk by operator ruling, but nothing may read them. Prove it:
 
 ```bash
-git rm nessie_tests/overlay.json nessie_tests/retired.json
+grep -rn "overlay\.json\|retired\.json" nessie_tests/ --include=*.py | grep -v "^nessie_tests/tests/"
+```
+Expected: no output. A hit means a caller was missed in Step 5.
+
+Add a header note to each so the next reader does not mistake a stale file for a live one. In `overlay.json` and `retired.json`, set `_note` to:
+
+```
+"SUPERSEDED 2026-08-04. Not an input any more; nessie_tests reads corpus.json. Kept only as a hand-diffable record of the pre-adoption corpus. Editing this file has NO effect on any run."
 ```
 
 - [ ] **Step 8: Run the whole suite**
@@ -630,11 +639,15 @@ Expected exactly: `variants: 283 turns: 314`.
 
 ```bash
 git add -A nessie_tests/
-git commit -m "refactor(nessie)!: one corpus file, overlay.json and retired.json deleted
+git commit -m "refactor(nessie)!: one corpus file; overlay.json and retired.json demoted
 
 merged() now reads nessie_tests/corpus.json. Resolution is unchanged: 283
 variants, 314 turns, proven variant-for-variant against the three-file merge
 before the switch.
+
+overlay.json and retired.json stay on disk by operator ruling as a
+hand-diffable record of the pre-adoption corpus, but nothing reads them and
+editing them has no effect.
 
 corpus_fingerprint now hashes corpus.json alone; fingerprints do not compare
 across this commit, which is correct because the corpus file really did change.
@@ -1029,7 +1042,7 @@ through select_cases. Closes the 2026-08-04 review's finding 1."
 ## Done when
 
 - [ ] `corpus.merged()` returns 283 variants and 314 turns from `nessie_tests/corpus.json` alone.
-- [ ] `overlay.json` and `retired.json` no longer exist.
+- [ ] `overlay.json` and `retired.json` still exist but no non-test module reads them, proven by the Task 3 Step 7 grep.
 - [ ] The full suite is green at the Step 1 baseline, minus one deliberately deleted test, plus the new ones.
 - [ ] `corpus.bayesian_ids()` returns 100 to 150 ids covering all 14 families.
 - [ ] Every file in `nessie_tests/probes/` resolves through `select_cases()`.
