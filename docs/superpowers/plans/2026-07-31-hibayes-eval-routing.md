@@ -2,12 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **VETTED-HARDENED V2 (2026-08-04):** The binding amendment below supersedes every
-> conflicting code sketch, command, success condition, failure condition, and rollback statement
-> in the original task bodies. The original prose remains as design history; it is not permission
-> to bypass a V2 gate. This plan is still **0/15 executed**. Vetting is not execution authorization.
+> **VETTED-HARDENED V4 (2026-08-04):** V4 below was produced only after
+> re-inventorying every fetched NExtSEEK ref and worktree, the deployed service-account clone, and
+> the running image. V4 supersedes every conflicting V2/V3/original code sketch, command, success
+> condition, failure condition, and rollback statement. Earlier prose remains design history; it
+> is not permission to bypass a V4 gate. The original 15 tasks and all V4 prerequisite work remain
+> **unexecuted**. Vetting is neither implementation nor execution authorization.
 
-**Goal:** Build a Bayesian router for the NExtSEEK assistant. A forced-route experiment runs one question corpus down the NExtSEEK path and down the Container-CC path and establishes the baseline probability that a question of a given kind reaches a desired outcome on each route (V3-C). The online telemetry loop then updates those probabilities from real user interactions, so the baseline is a prior and real usage is the evidence. Routing consults the resulting posterior and falls back to the LLM routing function whenever the posterior is too uncertain to decide (V3-D).
+**Goal:** Build a Bayesian router for the NExtSEEK assistant. A forced-route experiment runs one
+question corpus down the NExtSEEK path and down the Container-CC path and estimates a paired,
+family-conditional route difference (V4-1 through V4-4). Policy-selected online telemetry remains a
+separate route-conditional monitoring product unless a later reviewed causal-assignment strategy
+authorizes comparative updating (V4-7). Routing may consult only an approved, activated paired
+generation and otherwise falls back to the LLM routing function (V4-5 and V4-6).
 
 **Architecture:** A split router feeding three stages.
 
@@ -15,7 +22,10 @@
 
 **Stage 1 — baseline (V3-C).** The `nessie_tests` harness runs the corpus under forced routes and the paired results are fitted into the prior. This is an experiment, not observation: the same question goes down both routes.
 
-**Stage 2 — online.** `task_family` comes back from the classification call and a durable per-turn ledger row is written alongside the existing JSON envelope; a nightly Celery task exports ledger rows, judges only new/changed turns against a fingerprinted cache, refits, and publishes posteriors to a table. Real usage updates the baseline. This is what the original Tasks 0–10 build.
+**Stage 2 — online monitoring.** `task_family` comes back from the classification call and a durable
+per-turn ledger row is written alongside the existing JSON envelope; a nightly Celery task exports
+ledger rows and judges only new/changed turns against a fingerprinted cache. These observations
+support route-conditional monitoring and playbooks, not the paired comparative fit (V4-7).
 
 **Stage 3 — consumers.** Published posteriors feed playbook guidance first, then routing itself (V3-D), with the LLM routing function retained as the fallback.
 
@@ -25,7 +35,8 @@ pytest / pytest-django, Docker.
 
 ## Global Constraints
 
-- **Verified implementation base:** `6db194770abd040f9a28711eb457635fdf1812f3` (`origin/dev` on 2026-08-04). The reviewed anchor files are byte-unchanged from the original `9edd36958b6be06098d2cbdd8a5e3a0561e6623d` anchor. Re-run the V2 preflight if the base moves.
+- **Verified implementation base:** `dfbccaf89010c468bdb1b9eba3d04f050fd7cb81` (`origin/dev` on
+  2026-08-04). V4-0 requires a renewed full-file drift review if this base moves.
 - **Coverage target: 95%**, across unit, integration and live end-to-end tests.
 - **No paid model call runs automatically.** Every paid path is behind an explicit opt-in env gate and is never invoked by CI or by a default test run.
 - **No new credentials into the agent sandbox.** The isolation invariants are untouched by every task here.
@@ -46,16 +57,16 @@ pytest / pytest-django, Docker.
 
 This amendment applies the independently reviewed and claim-checked findings in:
 
-- `PLAN018-ADVERSARIAL-RISK-REVIEW-2026-08-04.md`
-- `PLAN018-GAMEABILITY-REVIEW-2026-08-04.md`
-- `PLAN018-CLAIM-VERIFICATION-2026-08-04.md`
+- `_plan018-refs/reviews/PLAN018-ADVERSARIAL-RISK-REVIEW-2026-08-04.md`
+- `_plan018-refs/reviews/PLAN018-GAMEABILITY-REVIEW-2026-08-04.md`
+- `_plan018-refs/reviews/PLAN018-CLAIM-VERIFICATION-2026-08-04.md`
 
 These three live in the maintainer's private state directory on the development host and are
 deliberately not reproduced here: this repository is public, so specifics stay in the private notes
 and the public artifact references them by name only.
 
 The preserved pre-vetting plan is:
-`2026-07-31-hibayes-eval-routing.md.bak-pre-plan-vetting-20260804T113805-0400.md`
+`docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md.bak-pre-plan-vetting-20260804T113805-0400.md`
 (SHA-256 `71686cfc18ae9255cb9d0479cb145aabfdbad2c28028bb5b71015dc186557847`).
 
 Rules of precedence:
@@ -73,7 +84,7 @@ Rules of precedence:
 ### V2-0 — Mandatory execution preflight (before original Task 0)
 
 - [ ] Start from the exact base above, or stop and re-run the spec drift protocol over every file
-  in the File Structure table plus `chat_nextseek/orchestrator.py`, generated BAML clients,
+  in the File Structure table plus `chat_nextseek/src/chat_nextseek/orchestrator.py`, generated BAML clients,
   `docker/scripts/entrypoint.sh`, and the deployment/test harness.
 - [ ] Create a feature worktree only after execution authorization. Record base SHA, current SHA,
   dirty-diff SHA-256, and the pre-task full-suite result in `evidence/plan018-preflight.json`.
@@ -141,7 +152,7 @@ available fixture smoke executes successfully. A fixture body that raises must m
 #### V2-T1 — Full turn snapshot model and safe migrations
 
 - Replace the nonexistent `align_charset_for_fk` recipe with a reviewed, table-parameterized
-  migration operation derived from `_cc_transcript_heal.py`; translate no table-specific constant
+  migration operation derived from `nextseek_api/migrations/_cc_transcript_heal.py`; translate no table-specific constant
   blindly. MySQL DDL uses the proven non-atomic migration pattern where required.
 - The ledger implements the complete durable contract above, not the metadata-only sketch.
 - Deliberately update/replace `test_no_new_migrations` in the same task with a guard that permits
@@ -167,7 +178,7 @@ routine code rollback and must never silently drop evaluation data.
 #### V2-T3 — Compiled BAML/Python family contract
 
 - Do not redeclare the existing BAML `class TaskFamily`; use a distinct exact enum/type name whose
-  members are **generated** from the families declared in `route_capabilities.json` (8 at time of
+  members are **generated** from the families declared in `dmac_assistant/build_context/route_capabilities.json` (8 at time of
   writing — the count is an observation, not a contract), and add it to the existing
   decision object returned by the **classification** function (see V3-B), not by the routing
   function. No task may hardcode a family count.
@@ -175,7 +186,7 @@ routine code rollback and must never silently drop evaluation data.
   generated artifacts in the task diff. Update fallback construction, Python `RouteDecision`, and
   `route_decided` telemetry. `unrelated` has explicit family state `None/unrelated`.
 - Compile/parse the BAML, assert the generated enum set **equals** the families declared in
-  `route_capabilities.json` — drift in either direction fails, so a family added to the JSON but
+  `dmac_assistant/build_context/route_capabilities.json` — drift in either direction fails, so a family added to the JSON but
   missing from the generated enum is caught — assert per V3-B that classification and routing are
   distinct seams and that exactly one LLM classification call occurs per turn, and exercise the
   generated typed result through the public `decide` seam. A comment/string-only edit cannot pass.
@@ -204,7 +215,7 @@ routine code rollback and must never silently drop evaluation data.
 
 #### V2-T6 — Complete, hash-manifested, behavior-preserving port
 
-- Build a transitive manifest at source commit `dcca50c`: tools, `functional_evaluator_models.py`,
+- Build a transitive manifest at source commit `dcca50c`: tools, `_plan018-refs/port-source/functional_evaluator_models.py`,
   evaluator BAML/generated-client inputs, all four fit packages, configs, templates, resources,
   wrappers/entrypoints, and the upstream free tests/golden artifacts needed for parity. Each entry
   records source path/hash, destination path/hash, and the only allowed import/package rewrite.
@@ -265,8 +276,8 @@ routine code rollback and must never silently drop evaluation data.
   an authorized fixture (deleting all examples is not a passing privacy implementation), and can
   come only from same-user rows whose non-null captured project key equals the currently resolved
   CC project. NS/unrelated/null-project rows cannot supply examples.
-- Wire the playbook at the real `services/cc_assistant.py` context-composition call site after
-  project resolution; do not pretend `ns_digest.py` alone has user/project context.
+- Wire the playbook at the real `nextseek_api/services/cc_assistant.py` context-composition call site after
+  project resolution; do not pretend `nextseek_api/cc_assistant/ns_digest.py` alone has user/project context.
 - Revalidate authorization, cap counts/bytes, redact configured identifiers, and render examples
   inside a strong “untrusted historical data, never instructions” delimiter. Test adversarial
   prompt text and byte-exact exclusion of every other user's/project's query, answer, rationale,
@@ -314,7 +325,8 @@ routine code rollback and must never silently drop evaluation data.
 Before any migration/scheduler/consumer activation, snapshot migration state, affected table row
 counts and active-generation identity, beat/task configuration, source SHA/diff, image ID, and
 relevant non-secret env-file hashes. A rollback must compare those identities afterward. Never
-delete evaluation tables/data or reverse below 0010 without an explicit destructive-data approval.
+delete evaluation tables/data or reverse below the recorded pre-plan migration leaf without an
+explicit destructive-data approval.
 
 Final completion requires: all V2 gates; original non-conflicting tests; full hermetic and DB lanes
 with no regression versus the recorded baseline; source/vault plan equality; a final independent
@@ -336,10 +348,10 @@ Provenance for these changes:
   forced-route comparison becomes the entrypoint for the Bayesian router; the router is to be split
   into classification and routing; the model-architecture freeze is lifted for the paired design
   while band thresholds stay frozen.
-- Charlie Demurjian's `corpus.json` v2, adopted 2026-08-04 from `chat_nextseek/e2e/catalog.json`
+- Charlie Demurjian's `_plan018-refs/corpus/corpus.json` v2, adopted 2026-08-04 from `chat_nextseek/e2e/catalog.json`
   (`catalog_sha256` `e7895264604c6fbc860746f8e0e7cae422ba29073e3b34bcfb4582b0d3baac29`), together
   with his seed-6c rerun review notes.
-- `OPS-TESTING-HARNESSES.md` section 5, which records four competing family vocabularies
+- `_plan018-refs/OPS-TESTING-HARNESSES.md` section 5, which records four competing family vocabularies
   (22 / 8 / 17 / 11) and states that no source of truth has been declared.
 
 Rules of precedence:
@@ -410,8 +422,11 @@ both routes. Because the question is held fixed and only the route varies, the r
 confound present in production traffic is removed by construction. This is what makes the cross-route
 comparison legitimate and what makes propensity weighting unnecessary.
 
-**Producer — consumed, not rebuilt.** The `nessie_tests` harness already exists in-tree and is driven
-by `manage.py nessie`. This plan **consumes** its run output; it does not reimplement a runner.
+**Producer status — required, not present.** Full-scope ref inspection found no `nessie_tests`
+harness or `manage.py nessie` command on the execution base. The reviewed
+`origin/dev-v3-merge@0aca6fc` generation contains an ordinary-Nessie harness only. V4-0 and V4-2
+therefore make the reviewed port and a new NExtSEEK-owned forced paired producer explicit
+prerequisites; an ordinary manifest cannot be relabelled as paired output.
 
 **No field-level schema is pinned here, deliberately.** The ingestion models, the converter that
 builds judge input, and the Bayesian row are all downstream of the harness output schema, and that
@@ -436,15 +451,15 @@ existing row and manifest shapes are a **reference, not a constraint**. Where th
 evidence that is genuinely useful for deciding which route is better, that evidence is carried into
 the models rather than discarded to fit the older shapes.
 
-**Cost is optional and forward-compatible.** Computing true cost on the NExtSEEK path is non-trivial,
-so the model does **not** require it: latency (`elapsed_s`) is sufficient for the routing comparison.
-The ingestion schema must nonetheless carry `cost` as an optional field and the model must use it if
-it is ever populated. A null `cost` is never treated as zero cost, and never as a failure.
+**Cost is optional data, not an implicit utility rule.** Computing true cost on the NExtSEEK path is
+non-trivial. The ingestion schema carries nullable `cost` and measured latency, but V4-4 must state
+whether and how either enters operational utility. A null cost is unknown, never zero and never a
+failure; populated cost does not automatically alter the winner without the approved rule.
 
-**Verified paired-run output shape**, supplied by the harness author 2026-08-04. Status at that date:
-the paired runner is built and merged, so the manifest below is real and stable; the grading/export
-half is specified with only its first task built, so the CSV shapes below are the **target**, not yet
-shipped.
+**Prospective paired-run output shape, not an implemented claim.** The names below record V3's
+proposed interface only. Full-scope verification found no paired runner or these Bayesian types on
+any fetched ref or in the deployment. V4-2 may revise the concrete strict schema after the producer
+is implemented and reviewed; the invariants and provenance requirements remain mandatory.
 
 **Read `bayes_manifest.json`, never `manifest.json`.** The paired run writes
 `<out_dir>/bayes_manifest.json`. A normal unpaired run writes `manifest.json`. Pointing a reader at
@@ -471,12 +486,11 @@ BayesPair
 blocks, so a run completed across a rebuild records every build that contributed instead of asserting
 a single one.
 
-**All three properties a paired design requires are already satisfied**, so no delta is outstanding:
-pairing is **structural** — one `BayesPair` carries both arms, so no join key has to be constructed
-and no two independent runs are ever stitched together; the forced run is marked in `run_meta.mode`
-and `run_meta.arms`; and provenance is persisted in the machine-readable artifact rather than only in
-a rendered summary. Ingestion must tolerate either arm being `None` mid-run, and **must never treat a
-missing arm as a failed arm** — an absent observation is not evidence of failure.
+**These paired properties are acceptance requirements, not current facts.** Pairing must be
+structural: one validated pair carries two independently executed arms under one immutable question
+identity, and independent runs may never be stitched together. Forced status and actual per-turn
+route provenance must be machine-verifiable. Ingestion may observe either arm as pending, but a pair
+does not enter the fit until both validated arms exist, and a missing arm is never a failed arm.
 
 Each arm is a full harness entry carrying `status` (`passed` / `failed` / `skipped` / `error` /
 `xpass` / `no_assertions`), `route`, `engine`, `route_source`, `cost`, `elapsed_s`,
@@ -510,9 +524,9 @@ judge, and "better" means *did it succeed*, not *did it avoid erroring* and not 
   and CC arm alike. The judge **produces** a functional outcome for that one arm; it never compares
   arms and is never shown the other arm's answer. Comparison is the model's job, downstream.
 - **Three sequential calls per query, aggregated per field** (locked DD-44): plurality with a
-  failure-partition tie-break for the outcome; majority with a severity tie-break, most-severe-first,
-  for the primary issue; max-of-three for confidence; and the rationale taken from the call matching
-  the aggregate outcome.
+  failure-partition tie-break for the outcome; majority with a severity tie-break for the primary
+  issue; median for usefulness score; maximum for review priority; OR for needs-human-review; and
+  the rationale from the first call matching the aggregate outcome. DD-44 has no confidence field.
 - **An unassessable case is recorded, not scored.** The judge's abstention value is an honest result:
   it is excluded from the fit rather than silently counted as either a pass or a failure.
 - **No model or provider is named by this plan.** The judge is referenced only through its BAML client
@@ -607,12 +621,348 @@ enabled, a decisive posterior changes the route and a `TooUncertain` posterior d
 back to the LLM routing function; a missing, stale or malformed posterior falls back rather than
 failing the turn; and the fallback path is exercised by tests rather than only reasoned about.
 
+## V4 full-scope replan and hardening amendment (2026-08-04)
+
+### Why V4 is required
+
+The V3 plan materially changed the system after the V2 review. The first V3 review pass did not
+inspect every NExtSEEK generation or the deployment and is void. V4 incorporates the replacement
+full-scope evidence and reviews:
+
+- `_plan018-refs/reviews/PLAN018-V3-ALL-VERSIONS-INVENTORY-2026-08-04.md`
+- `_plan018-refs/reviews/PLAN018-V3-DEPLOYED-VERSION-INVENTORY-2026-08-04.md`
+- `_plan018-refs/reviews/PLAN018-V3-FULLSCOPE-ADVERSARIAL-RISK-REVIEW-2026-08-04.md`
+- `_plan018-refs/reviews/PLAN018-V3-FULLSCOPE-GAMEABILITY-REVIEW-2026-08-04.md`
+- `_plan018-refs/reviews/PLAN018-V3-FULLSCOPE-CLAIM-VERIFICATION-2026-08-04.md`
+
+Those files are private maintainer evidence and are named, not reproduced, in this public plan.
+The exact pre-V4 copy is preserved as
+`docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md.bak-pre-plan-vetting-v3-20260804T163615-0400.md`
+(SHA-256 `4bac691e0449d34ac7ae7645378449d13ae99752d1f78374c77f14f56a195f4d`).
+
+The replacement review established these facts:
+
+1. The execution base is `origin/dev@dfbccaf89010c468bdb1b9eba3d04f050fd7cb81`, not the V2
+   base named above. It contains the V3 plan but no ordinary or Bayesian `nessie_tests` producer.
+2. `origin/dev-v3-merge@0aca6fc` contains the most complete reviewed ordinary-Nessie harness, but
+   it does not produce forced paired arms, a `BayesManifest`, `BayesPair`, `bayes_manifest.json`,
+   posterior generations, or posterior-driven routes. It is a porting source, not a satisfied
+   prerequisite.
+3. Other fetched generations have different 8-, 10-, or 15-family taxonomies. No fetched ref
+   implements the V3 Bayesian pipeline. A branch name, filename, fixture, or manifest label is not
+   evidence that it does.
+4. The deployed service-account tree is a dirty `dev-v3-merge` generation at `04a20bf5`, and the
+   running image matches its sampled ordinary-Nessie files. It has an older/intermediate ordinary
+   schema and no Bayesian symbols. Both are evidence only and must never be used as source,
+   modified, or treated as the implementation/test harness.
+5. The standalone DD-44 evaluator has no confidence field. It aggregates `usefulness_score` by
+   median, `review_priority` by maximum, `needs_human_review` by OR, `outcome` by plurality with a
+   failure-partition tie-break, `primary_issue` by majority with a severity tie-break, and
+   `rationale` from the first call matching the aggregate outcome. Every V2/V3 reference to a
+   max-of-three confidence value is void.
+6. There is no current migration-number collision between `dfbccaf` and `0aca6fc`; both currently
+   end at `0009`. A future port can still create a collision and must run the preflight below.
+
+The V3 architecture reverses portions of the older design (forced dual execution, separate
+classification and routing, and cross-route posterior selection). Those choices are binding here
+only to the extent recorded in V3 and this V4 amendment. The older design must not be used to
+silently fill the contracts that V3 left undefined.
+
+### V4 precedence and execution order
+
+1. V4 controls whenever it conflicts with V3, V2, an original task body, a code sketch, or a DONE
+   clause. V2 safety, privacy, paid-call, provenance, and per-action approval gates survive unless
+   V4 explicitly strengthens them.
+2. Original Tasks 0–13 are retained as historical implementation decomposition. They must be
+   resequenced under V4-0 through V4-9. No original task may start merely because its old local
+   prerequisites appear satisfied.
+3. No product-code commit, push, deployment, live mutation, paid call, schedule activation,
+   posterior activation, or destructive rollback is authorized by this document or its vetting.
+4. A STOP gate requires a recorded maintainer decision. An implementation agent may not invent a
+   taxonomy crosswalk, statistical threshold, spend amount, deployment target, or rollback target.
+5. A DONE claim requires executable evidence from the recorded source worktree. Hand-authored
+   fixtures, mocks of the unit under proof, filename greps, skipped tests, copied answers, or
+   assertions against the deployed tree cannot satisfy a V4 gate.
+
+### V4-0 — Exact base, port provenance, and isolated harness
+
+- [ ] Fetch immediately before execution and prove that the implementation starts from the exact
+  approved `origin/dev` SHA. If it differs from `dfbccaf89010c468bdb1b9eba3d04f050fd7cb81`, stop
+  and repeat the all-file drift review; do not merge by assumption.
+- [ ] Create an implementation worktree only after execution authorization. Record base SHA,
+  dirty-diff hash, submodule state, dependency locks, and baseline test result.
+- [ ] Treat `origin/dev-v3-merge@0aca6fc` as the only currently reviewed ordinary-Nessie porting
+  source. Enumerate every selected commit/file and review its diff onto the exact base. Do not copy
+  from the dirty deployed clone or running container. A newer source must receive the same review.
+- [ ] Before creating migrations, compute the graph on the merged source. Renumber/depend on the
+  actual leaf rather than assuming `0010`; prove forward migration on an empty DB and a
+  production-shaped disposable snapshot.
+- [ ] Build a worktree-mounted, non-live harness and record source mount, image digest, test DB,
+  settings, network, and exact argv. Refuse the live application DB and the deployed `/app` tree.
+- [ ] Produce a reviewed file/interface ownership map before implementation. It must assign one
+  canonical owner and explicit producer/consumer contracts for the ordinary port, forced paired
+  runner, strict manifests, annotation sidecar, raw attempts, aggregate results, paired fitter,
+  generation store/activation, classifier, selector, ledger/export, authorization/reservation, and
+  every mirrored/generated file. The retained File Structure table below is historical and
+  incomplete; it cannot authorize an unowned V4 surface.
+- [ ] Run commands with pipe-failure preservation and machine-readable pass/fail/skip/xfail/
+  deselection counts. Unexpected non-execution or a zero-test selection fails.
+
+**V4-0 DONE:** the exact port set and its reviewed provenance are recorded, the isolated harness
+can test the approved base, the pre-change suite passes there, and no deployed or paid resource was
+used. The ordinary-harness port itself occurs only in V4-2 after V4-1 approval.
+
+### V4-1 — Canonical taxonomy and common estimand decision (STOP)
+
+The observed 8-, 10-, and 15-family schemes are not interchangeable. Before a paired corpus or a
+posterior schema is authored, prepare a decision artifact that contains:
+
+- every source taxonomy with source SHA and file hash;
+- proposed canonical family IDs, version, descriptions, aliases, renames, splits, merges, and
+  tombstones;
+- a total crosswalk for corpus labels, online labels, ordinary-Nessie labels, and both routes;
+- route feasibility and explicit common-support status for every canonical family;
+- counts by source and route, plus unmapped/ambiguous rows that remain errors rather than being
+  silently assigned; and
+- migration/compatibility rules for stored observations and published generations.
+
+The paired target is a within-question comparison on a pinned corpus: for family `f`, estimate the
+difference in desired-outcome probability between a genuinely forced Container-CC arm and a
+genuinely forced NExtSEEK arm while preserving pair identity. This statement does not select the
+practical-effect threshold, precision requirement, minimum sample, or operational winner rule.
+
+**STOP:** the maintainer must approve the canonical comparison taxonomy, common-support policy,
+and estimand before V4-2. Families without support on both routes cannot yield a comparative route
+claim; they must fall back or be reported route-conditionally.
+
+### V4-2 — Own and prove the ordinary and paired producers
+
+- [ ] Port the reviewed ordinary-Nessie harness as an explicit task with source-by-source tests.
+  Its existing `manifest.json` remains an ordinary run artifact and must never be renamed and
+  presented as Bayesian evidence.
+- [ ] Implement a NExtSEEK-owned paired producer. It must execute the same immutable question
+  identity exactly once per requested arm using two unique session/execution IDs and a server-side
+  route override that cannot be undone by sticky-session or downstream router state.
+- [ ] Record requested route, actual route, route source, question/corpus hashes, execution/session
+  IDs, source SHA/diff hash, image digest, model/client identity, timestamps, status, and raw result
+  references for both arms and for every turn in a multi-turn arm. Validate every per-turn route and
+  route source against the forced arm; a final-summary label is not enough.
+- [ ] Reject missing, duplicate, swapped, copied, same-session, or same-execution arms;
+  requested/actual route mismatches on any turn; unapproved models; changed questions; sticky
+  overrides; and partial pairs. A missing arm is pending/excluded, never a loss.
+- [ ] Emit a non-empty, schema-versioned `bayes_manifest.json` only from real completed paired
+  executions. Validate with strict models (`extra=forbid`), canonical hashes, referential integrity,
+  and conservation counts. No hand-authored `BayesManifest` fixture may prove the producer.
+
+**V4-2 DONE:** a verifier can replay a tiny free/fake corpus end to end and prove from independent
+route traces that each arm actually traversed its declared route. Mocks may test failure handling
+but cannot satisfy the route-enforcement acceptance test.
+
+### V4-3 — Judgment attempts, exact DD-44 aggregation, and outcome conservation
+
+- [ ] Keep DD-44 at three evaluator calls unless a separately approved quantitative pilot and plan
+  amendment changes it. Store every immutable canonical raw request and response payload (or a
+  durable content-addressed artifact reference that is retrieved and hash-verified during replay),
+  including failed attempts, with stable attempt ID, provider request ID when available, input
+  fingerprint, model/client, prompt/evaluator versions, start/end timestamps, retry linkage,
+  token/cost facts, status/error class, and payload hashes. A hash without retrievable bytes is not
+  replay evidence.
+- [ ] Implement and golden-test the actual DD-44 aggregation stated in the verified facts above.
+  Do not add, infer, or route on a nonexistent confidence output.
+- [ ] Define one total outcome mapping from DD-44 output to desired/not-desired/excluded. Unknown
+  enum values and incomplete aggregation fail closed; they are not coerced to success.
+- [ ] Inspect criterion-level `unevaluable`, zero-criteria, provider-outage, missing-arm, timeout,
+  and infrastructure statuses before scoring. Publish counts for each exclusion reason.
+- [ ] Own human annotations with a strict, versioned, `extra=forbid` schema. Bind each annotation
+  to run, corpus, case, question hash, arm/execution, annotator authority/provenance, vocabulary
+  version, timestamp, and immutable content hash; reject orphan, duplicate, stale, unauthorized, or
+  conflicting annotations. The complete observed vocabulary (`pass`, `real`, `masked`, `policy`,
+  `drift`, `notrun`) and every future/unknown value must have an approved total mapping to scored,
+  excluded-by-reason, pending, or hard failure. Sidecar labels never override judge output silently.
+- [ ] Enforce the conservation equation for every run and each arm:
+  `input = scored_desired + scored_not_desired + excluded_by_reason + pending`.
+  Pair inclusion additionally requires two retained arms.
+- [ ] The maintainer-approved analysis contract must set minimum retained pairs and differential-
+  attrition bounds. Report sensitivity bounds; do not hide a route-specific exclusion imbalance.
+
+**V4-3 DONE:** raw-attempt replay deterministically reproduces aggregates and totals, deliberate
+failure/outage/unknown-status tests fail safely, and no excluded or pending case reaches the fit.
+
+### V4-4 — Paired model and operational decision contract (STOP)
+
+Before fitting real evidence, write and review a versioned statistical contract defining:
+
+- the paired likelihood or other dependence-preserving model and exact priors;
+- the canonical family/corpus/common-support population to which each claim applies;
+- minimum retained pairs, precision/calibration requirements, practical-effect threshold, winner/
+  tie/indecisive rules, multiplicity policy, and fallback behaviour;
+- whether latency and nullable cost are excluded, reported as secondary outcomes, constrained, or
+  incorporated into operational utility; the units, normalization, missing-cost treatment, and
+  trade-off rule must be explicit, and unknown cost can never be imputed as zero by convenience;
+- treatment of missingness, outages, unevaluable criteria, differential attrition, and sensitivity
+  bounds;
+- holdout or cross-validation discipline plus simulation-recovery tests for null, positive,
+  negative, sparse, imbalanced, and adversarial cases; and
+- compatibility/staleness keys for taxonomy, corpus, producer, judge, aggregation, model, client,
+  and source versions.
+
+`TooUncertain` is an uncertainty band, not by itself an operational definition of which route a
+posterior “favours.” No implementation may hardcode a route for a favourable-looking fixture or
+select a winner from posterior mean alone.
+
+**STOP:** the maintainer must approve the numeric thresholds, priors, validation criteria, and
+decision rule. **V4-4 DONE** only when blinded fixtures/simulations recover their generating cases,
+negative controls do not publish a winner, and an independent recomputation matches the fit.
+
+### V4-5 — Immutable generation publication and activation
+
+- [ ] Publish immutable candidate generations containing complete input/attempt/aggregate hashes,
+  all compatibility keys, counts/exclusions, fit diagnostics, decision results, source provenance,
+  creation time, and parent generation. Candidate creation and active-generation selection are
+  separate transactions and permissions.
+- [ ] Validate schema, hashes, taxonomy/corpus compatibility, staleness, sample/precision gates,
+  and decision status before activation. Partial publication, mutable overwrite, or filename-only
+  validation fails closed.
+- [ ] Use atomic compare-and-swap activation with an audit row and retain the prior active
+  generation for rollback. Readers use one snapshotted generation per turn.
+- [ ] Preserve the V2 observational risk overlay as telemetry-only (`may_reroute=false`). V4's
+  comparative selector is the sole possible posterior reroute seam.
+
+**V4-5 DONE:** corruption, mixed generations, incompatibility, failed validation, concurrent
+activation, and rollback are exercised against the real store; none can produce a partial reader
+view or silently activate a candidate.
+
+### V4-6 — Router split and explicit call-count contract
+
+The classifier and router must be structurally separate. The classifier schema returns only a
+taxonomy version plus family/unrelated classification and classification provenance; it contains no
+destination or model field. The route function alone may select destination/model.
+
+| Mode | Classification calls | LLM routing calls | Result |
+|---|---:|---:|---|
+| feature flag off | 0 | 1 | destination/model byte-for-byte legacy |
+| flag on, unrelated | 1 | 0 | existing unrelated behaviour |
+| flag on, compatible decisive generation | 1 | 0 | route from approved V4 decision rule |
+| flag on, missing/stale/malformed/incompatible/indecisive | 1 | 1 | legacy LLM route fallback |
+
+The last row is intentionally a two-call path with explicit cost/latency consequences. If that is
+unacceptable, implementation stops for a revised architecture; it may not fake separation with two
+thin wrappers around one route-bearing output.
+
+- [ ] Test every row with real generated clients and call tracing, including model/destination
+  equivalence when off and fallback on parse/storage/compatibility failures.
+- [ ] A selected route must carry generation ID and decision provenance to the ledger. Failures
+  never block a turn and never silently choose a posterior route.
+- [ ] Prevent sticky-session and downstream stages from overriding the audited selection unless an
+  explicit safety fallback records both attempted and actual routes.
+
+### V4-7 — Separate experimental evidence from observational monitoring
+
+Forced paired evidence and policy-selected online traffic are different data products with distinct
+schemas, lineage, storage, fit entry points, and publication labels.
+
+- [ ] The comparative route posterior may update only from approved forced/randomized paired
+  evidence under the V4 estimand. Policy-selected online outcomes must not update it unless a
+  separately reviewed assignment/causal-identification strategy is approved.
+- [ ] Online observations may update route-conditional quality monitoring and playbook guidance.
+  They must carry assignment propensity/policy/generation where available and display selection
+  caveats. They cannot claim the counterfactual route would be better.
+- [ ] Add a hard schema/type boundary and tests proving online rows cannot enter the paired fitter.
+  Alert on policy drift, family mix, missingness, and route-specific outcome changes.
+
+This replaces the goal/Stage 2 sentence that says real usage updates the comparative baseline.
+Allowing the routing policy to train its own comparison from its selected traffic would create a
+self-confirming feedback loop.
+
+### V4-8 — Paid-run authorization, reservation, and resumability
+
+No live/provider call occurs before a maintainer approves an immutable run manifest hash binding:
+corpus and question IDs/hashes, taxonomy, requested pairs/turns/arms, three judge calls for every
+eligible completed arm scheduled for judgment (not merely the unknown post-judgment retained set),
+the maximum approved retry calls, clients/models and versions, retry policy, rate source/timestamp,
+per-call and worst-case total estimates, hard caps, source SHA/diff hash, image digest, schemas,
+output location, and approval expiry. Retained-arm count is a post-run reconciliation field only.
+
+- [ ] Atomically reserve budget before each provider call. Concurrency cannot overspend; retries
+  consume the same run's cap; exhaustion stops cleanly. Approval is for one exact hash and cannot
+  be replayed for changed inputs or a later run.
+- [ ] Resume by stable arm and attempt IDs. Completed calls are never repeated; partial work remains
+  pending; cache keys bind the complete judge input and every relevant version.
+- [ ] Reconcile estimates, reservations, provider usage, attempts, cache hits, exclusions, and
+  outputs after the run. No schedule or default command can enter this lane.
+
+Unit/integration tests use fake providers. The first real pilot and every larger paid run are
+separate approval events and cannot be bundled with implementation authorization.
+
+### V4-9 — Coverage, deployment, and recoverable rollback
+
+- [ ] Replace Task 13's narrow coverage surface with all new/modified V4 producer, schema, force,
+  judgment, aggregation, fitter, publication, activation, classifier, router, store, task, and
+  authorization modules. Meet 95% line and branch coverage per critical module and overall.
+- [ ] Record test collection and mutation/fault-injection results for route enforcement, exclusion
+  mapping, conservation, DD-44 aggregation, paired dependence, winner rule, hash validation,
+  activation, fallback, spend reservation, and evidence provenance. Unexpected skip/xfail/
+  deselection or an unchanged mutation fails.
+- [ ] Keep paid and deployed live E2E outside default/CI lanes. A free/fake end-to-end must cover
+  question → two genuinely forced arms → three raw judgments → aggregate → fit → candidate →
+  activation → routing/fallback before any paid pilot is proposed.
+- [ ] Before enabling posterior routing, bind a deploy record to source SHA/diff, immutable image
+  digest, migration set, settings, schedule state, flag state, active generation, smoke checks, and
+  owner. The currently running image is baseline evidence, not a rollback image.
+- [ ] Create and verify a recoverable prior image and a rollback procedure that restores image,
+  active generation, schedule, flag, and compatible DB state. Current assumed git/image tags are
+  absent; `git revert` and the existing unchecked rollback script are not sufficient. Do not use a
+  destructive reverse migration without separate approval and a verified restore.
+
+**V4-9 DONE:** an authorized disposable deployment demonstrates forward deploy and rollback to the
+recorded prior state without data loss. Production enablement remains a separate explicit gate.
+
+### V4 completion matrix
+
+| Before this action | Required V4 gates |
+|---|---|
+| any product implementation | V4-0 and approved V4-1 |
+| paired fitting implementation | V4-2, V4-3, and approved V4-4 contract |
+| comparative candidate publication | V4-0 through V4-5 |
+| posterior-routing implementation | V4-0 through V4-7 |
+| any provider call | approved immutable V4-8 manifest and reservation controls |
+| any deployment or schedule change | V4-0 through V4-9 plus separate deployment approval |
+| production posterior-routing enablement | all gates, recoverable image, rollback rehearsal, and separate enablement approval |
+
+Until the STOP decisions are recorded, the only permissible next work is decision-artifact
+preparation and read-only verification. No “mostly complete” status may count an unapproved or
+unexecuted gate as done.
+
+## Referenced artifacts (dev box)
+
+Every external artifact this plan cites has a reference copy inside this checkout under
+`_plan018-refs/`, so a reviewer can open it without hunting the filesystem. That directory is
+**untracked and locally excluded** (via the common gitdir's `info/exclude`); it is a convenience
+copy for review and is never committed. This repository is public, which is why references are
+repo-relative rather than absolute paths into anyone's home directory.
+
+| Under `_plan018-refs/` | What it is | Copied from |
+|---|---|---|
+| `corpus/corpus.json` | Charlie's nessie_tests corpus — the family taxonomy, `route_policy`, `family_floor`, `criterion_rewrites`, `consistency_groups` | the `NExtSEEK-dev` working clone |
+| `corpus/seed-6c-ntoes.json` | seed-6 rerun review notes (per-case verdicts) | same |
+| `corpus/nessie-*.html` | the two Nessie review reports | same |
+| `reviews/PLAN018-*.md` | the 12 plan-018 vetting documents | the maintainer's private state directory |
+| `port-source/functional_evaluator{,_models}.py` | Stage C judge port sources at `dcca50c` | the standalone `dmac-assistant` clone |
+| `OPS-TESTING-HARNESSES.md` | harness inventory; section 5 records the competing family vocabularies | maintainer's work directory |
+| `plan-backups/*.bak-pre-plan-vetting-*.md` | pre-vetting snapshots of this plan | `docs/superpowers/plans/` |
+
+Copies were verified byte-identical to their sources at staging time. If a source changes, the
+copy here does not follow it — re-stage before relying on one for a DONE claim.
+
 ## File Structure
+
+**Historical/incomplete under V4.** This retained table describes the original decomposition only.
+The approved V4-0 ownership map must supersede and extend it before any implementation begins.
 
 | Path | Responsibility |
 |---|---|
 | `nextseek_api/assistant/models_db.py` | **Modify.** Add `TurnLedger` model. |
-| `nextseek_api/migrations/0010_turn_ledger.py` | **Create.** Ledger table + FK + unique constraint, reusing the charset-alignment helper. |
+| `nextseek_api/migrations/0010_turn_ledger.py` | **Historical prospective name only.** Actual filename/dependency comes from the V4-0 merged migration graph. |
 | `nextseek_api/cc_assistant/turn_ledger.py` | **Create.** Single write path for ledger rows; both route writers call it. |
 | `dmac_assistant/baml_src/router.baml` | **Modify.** `task_family` on the decision. |
 | `docker/cc-runtime/baml_src/router.baml` | **Modify.** Byte-identical mirror. |
@@ -636,8 +986,19 @@ failing the turn; and the fallback path is exercised by tests rather than only r
 and they would drift.
 
 **Files:**
-- Create: `nextseek_api/cc_assistant/tests/conftest_eval.py`
-- Modify: `nextseek_api/cc_assistant/tests/conftest.py` (import the new fixtures)
+- Create: `nextseek_api/cc_assistant/tests/conftest.py`
+
+**Verified precondition (base `dfbccaf`).** `nextseek_api/cc_assistant/tests/conftest.py` does
+**not** exist — absent on disk and in the tree on every NExtSEEK worktree — so this task creates it
+rather than modifying it. `nextseek_api/cc_assistant/tests/__init__.py` is also absent, so that
+directory is **not an importable package**: a `from .conftest_eval import *` style registration
+would fail at collection. pytest discovers `conftest.py` per directory with no package requirement,
+so the fixtures are defined directly in the new file and no separate module is introduced.
+
+`nextseek_api/conftest.py` already exists one level up and defines `api_user`, `admin_user`,
+`api_client`, `auth_client`, `admin_client`, `factory`, `mock_seek_client`, `mock_seek_auth` and
+`mock_assistant_permission`. pytest walks upward, so those remain available to these tests. None of
+the names below collide with them; a task that adds a colliding name must rename rather than shadow.
 
 **Interfaces:**
 - Produces: `eval_row`, `one_row`, `many_rows`, `cached_rows`, `fake_judge`, `failing_judge`,
@@ -648,7 +1009,7 @@ and they would drift.
 - [ ] **Step 1: Write the fixtures**
 
 ```python
-# nextseek_api/cc_assistant/tests/conftest_eval.py
+# nextseek_api/cc_assistant/tests/conftest.py
 """Shared fixtures for the evaluation-loop tests.
 
 `fake_judge` never performs a network call. `live_judge` is the only fixture that
@@ -811,12 +1172,15 @@ def cc_turn_factory(db):
     return _make
 ```
 
-- [ ] **Step 2: Register them**
+- [ ] **Step 2: Confirm no registration import is needed**
 
-```python
-# nextseek_api/cc_assistant/tests/conftest.py — append
-from .conftest_eval import *  # noqa: F401,F403
-```
+There is nothing to register. pytest loads `conftest.py` automatically for every test in that
+directory and below. Do **not** add `from .conftest_eval import *` or any relative import: that
+directory has no `__init__.py`, so a relative import raises at collection time and takes the whole
+`cc_assistant` suite down with it.
+
+Run: `docker exec -w /app nextseek uv run --no-sync python -m pytest nextseek_api/cc_assistant/tests/ --collect-only -q 2>&1 | tail -3`
+Expected: collection succeeds; no `ImportError`, no `attempted relative import`.
 
 - [ ] **Step 3: Verify the fixtures load**
 
@@ -826,7 +1190,7 @@ Expected: collection succeeds with no fixture errors
 - [ ] **Step 4: Commit**
 
 ```bash
-git add nextseek_api/cc_assistant/tests/conftest_eval.py nextseek_api/cc_assistant/tests/conftest.py
+git add nextseek_api/cc_assistant/tests/conftest.py
 git commit -m "test(eval): shared fixtures for the evaluation-loop test suite"
 ```
 
@@ -930,7 +1294,7 @@ class TurnLedger(models.Model):
 
 Run: `docker exec -w /app nextseek uv run --no-sync python manage.py makemigrations nextseek_api --name turn_ledger`
 
-Then edit the generated `0010_turn_ledger.py` to run the charset alignment **before** the FK is created, mirroring `0008_heal_cc_transcript_fk.py`:
+Then edit the generated `0010_turn_ledger.py` to run the charset alignment **before** the FK is created, mirroring `nextseek_api/migrations/0008_heal_cc_transcript_fk.py`:
 
 ```python
 # nextseek_api/migrations/0010_turn_ledger.py — add above the CreateModel operation
@@ -1191,7 +1555,7 @@ git commit -m "feat(router): return task_family from the classification call"
 - Test: `nextseek_api/cc_assistant/tests/test_family_fallback.py`
 
 **Interfaces:**
-- Consumes: `route_capabilities.json`.
+- Consumes: `dmac_assistant/build_context/route_capabilities.json`.
 - Produces: `family_for(route: str, query: str) -> tuple[str | None, str]` returning `(family, source)`.
 
 The maintainer's ruling is that a family is always classified, including on forced and heuristic
@@ -1431,7 +1795,7 @@ Expected: FAIL — `ModuleNotFoundError: nextseek_api.eval`
 
 Copy from the `dmac-assistant` checkout **once**, verbatim, adjusting only import paths:
 - `tools/hibayes/{exporter,expected_behavior,artifact_validator,functional_inputs,enums}.py` → `nextseek_api/eval/`
-- `tools/e2e/functional_evaluator.py` → `nextseek_api/eval/judge.py`
+- `tools/e2e/functional_evaluator.py` (local copy: `_plan018-refs/port-source/functional_evaluator.py`) → `nextseek_api/eval/judge.py`
 - `src/dmac_assistant/eval/hibayes_{runtime_reliability,artifact_validity,functional_usefulness,combined_report}/` → `nextseek_api/eval/fit/` including their `config/*.yaml` and templates
 
 Do not change thresholds, band logic, model selection, or control flow. Record the source commit in a
@@ -2166,7 +2530,7 @@ git commit -m "feat(taxonomy): map live nextseek ops under the declared task fam
 
 **Success condition:** Met only if the pytest command above exits 0 with output at
 `evidence/task12b.log`; the recomputed sha256 of the capabilities file equals the constant now in
-`test_f_constraint_pins.py`; and both directions of the drift check pass (no declared op missing from
+`nextseek_api/cc_assistant/tests/test_f_constraint_pins.py`; and both directions of the drift check pass (no declared op missing from
 the bin inventory, no live bin unclaimed).
 
 **Failure conditions:** the pin left stale (that test goes red); an invented op name; a live bin left
