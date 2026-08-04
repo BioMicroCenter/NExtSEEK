@@ -12,6 +12,12 @@ _BASE_CATALOG = Path(__file__).resolve().parents[1] / "chat_nextseek" / "e2e" / 
 _RETIRED = Path(__file__).resolve().parent / "retired.json"
 
 
+def sha256_of(path) -> str:
+    """Hex sha256 of a file's bytes. Used to pin what `corpus.json` was adopted from."""
+    import hashlib
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
 def _flatten(cat: Catalog, source_tag: str) -> list[Variant]:
     out: list[Variant] = []
     for fam in cat.families.values():
