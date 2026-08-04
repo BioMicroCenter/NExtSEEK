@@ -64,8 +64,27 @@ def test_the_four_policy_blocks_survive_verbatim():
 
 
 def test_rebuilding_is_deterministic():
-    """The script must be re-runnable. A non-deterministic build makes the drift
-    test in Task 5 meaningless."""
+    """The script must be re-runnable and byte-stable.
+
+    Compared as SERIALISED JSON, not as dicts: `==` on dicts ignores key order, so
+    a generator that emitted family blocks in a different order every run would
+    pass a dict comparison while producing a file that diffs against itself. The
+    docstring in build_corpus.py claims the output is "stable enough to diff", and
+    that is the property this pins.
+    """
     once = build_corpus.build(corpus._BASE_CATALOG, OVERLAY, RETIRED)
     twice = build_corpus.build(corpus._BASE_CATALOG, OVERLAY, RETIRED)
-    assert once == twice
+    assert json.dumps(once) == json.dumps(twice)
+
+
+def test_the_committed_file_matches_what_the_generator_produces():
+    """Pins the ARTIFACT to its generator, which nothing else in this task does.
+
+    Without it a hand-edited or stale corpus.json passes every other test here as
+    long as the id set, the retirement count and the four policy blocks survive --
+    queries, criteria and turn bodies are unchecked until Task 2's content gate.
+    """
+    built = build_corpus.build(corpus._BASE_CATALOG, OVERLAY, RETIRED)
+    assert built == json.loads(UNIFIED.read_text(encoding="utf-8")), (
+        "corpus.json is out of step with build_corpus.py: regenerate with "
+        "`python -m nessie_tests.scripts.build_corpus`, or explain the drift.")

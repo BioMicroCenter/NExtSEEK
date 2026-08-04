@@ -1,24 +1,26 @@
 """One-shot migration: catalog.json + overlay.json + retired.json -> corpus.json.
 
-Kept after the migration rather than deleted, because `tests/test_catalog_drift.py`
-re-runs its base-variant extraction to detect upstream changes nessie has not
-adopted. It is a reference implementation, not dead code.
+Kept after the migration rather than deleted, and NOT because a test imports it --
+after Task 3 nothing does. It is the manual adoption tool: when the vendored
+`catalog.json` moves and `tests/test_catalog_drift.py` fails, you run this with
+`--out /tmp/new.json` and diff that against `corpus.json` to see what upstream
+changed before deciding what to adopt. That is a workflow, not a caller.
 
 Ordering rules, which exist so the output is stable enough to diff:
   * families in the order catalog.json declares them, then overlay-only families
   * variants in catalog order within a family, then overlay-only variants
   * an overlay variant with a base id REPLACES the base one IN PLACE, keeping the
     base position (this mirrors `corpus.merged`, which keeps base ordering)
-  * overlay-only variants are appended at the end of the WHOLE list, not the end
-    of their block, because that is what `corpus.merged` does and the equivalence
-    gate compares ordered
+  * overlay-only variants are appended at the end of THEIR BLOCK. `corpus.merged`
+    instead appends them at the end of the whole list, which no block-structured
+    file can reproduce -- see KNOWN DIVERGENCE below
 
 The output MIRRORS THE SOURCE NESTING rather than regrouping by declared family.
 Operator ruling 2026-08-04: structure follows the source so global order is
 reproducible. Each variant carries its own declared `family`, which is the
 authoritative one -- the block it sits in is NOT.
 
-KNOWN DIVERGENCE from the fourth rule, measured 2026-08-04. Full detail in
+KNOWN DIVERGENCE from `corpus.merged`, measured 2026-08-04. Full detail in
 .superpowers/sdd/nessie-bayesian-plan-1-unified-corpus/task-1-report.md.
 14 of the 17 overlay-only variants do land at the end of the whole list, because
 their blocks (`nessie_route`, `nessie_green`, `nessie_repro`) exist only in the
@@ -38,8 +40,8 @@ sorted by id, all 283 active variants match `corpus.merged` with zero diffs.
 
 Blocks `graph_stale`, `reporting_artifacts` and `routing_graph` do not appear in
 the output. Every variant in them overrides a base id, and the in-place rule above
-pins those to their BASE position. Giving them their own blocks would move 30
-overrides out of base order -- ten times the divergence it would remove.
+pins those to their BASE position. Giving every override its own block would move
+30 overrides out of base order -- ten times the divergence it would remove.
 """
 from __future__ import annotations
 
