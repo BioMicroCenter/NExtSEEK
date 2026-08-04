@@ -166,6 +166,15 @@ Ordering rules, which exist so the output is stable enough to diff:
   * variants in catalog order within a family, then overlay-only variants
   * an overlay variant with a base id REPLACES the base one IN PLACE, keeping the
     base position (this mirrors `corpus.merged`, which keeps base ordering)
+  * overlay-only variants are appended at the end of the WHOLE list, not the end
+    of their block, because that is what `corpus.merged` does and the equivalence
+    gate compares ordered
+
+The output MIRRORS THE SOURCE NESTING, including blocks like `graph_stale` and
+`reporting_artifacts` that are not real families. Operator ruling 2026-08-04:
+structure follows the source so global order is reproducible and the ordered
+equivalence assertion passes verbatim. Each variant carries its own declared
+`family`, which is the authoritative one.
 """
 from __future__ import annotations
 
@@ -183,6 +192,14 @@ def _variant_dict(v, *, origin: str, retirement: dict | None) -> dict:
     """One variant, definition first then metadata, so a diff reads naturally."""
     return {
         "id": v.id,
+        # The DECLARED family, not the nesting key. `Variant.family` is read from
+        # the variant BODY (chat_nextseek/e2e/catalog.py:24), and 7 variants
+        # declare a family that differs from the block they sit in -- e.g.
+        # routing.lab_ooc_kamm_count sits under `search_advanced` and declares
+        # `routing_lab`. `corpus.sample()` buckets on v.family, so re-deriving it
+        # from the nesting key silently moves those 7 into different sampling
+        # buckets and changes every seeded case set.
+        "family": v.family,
         "name": v.name,
         "tags": [t for t in v.tags if t not in ("base", "overlay")],
         "requires_env": list(v.requires_env),
@@ -404,7 +421,10 @@ def _to_variants(payload: dict, *, include_retired: bool) -> list[Variant]:
             if not include_retired and raw.get("status") != "active":
                 continue
             body = {k: val for k, val in raw.items() if k not in _META_KEYS}
-            body["family"] = fam_name
+            # Declared family wins; the nesting key is only a fallback. See the
+            # comment in build_corpus._variant_dict for the 7 variants where they
+            # differ and why sampling depends on getting this right.
+            body["family"] = raw.get("family") or fam_name
             # `origin` becomes the source tag the rest of the harness already
             # reads off `tags`, so nothing downstream has to learn a new field.
             tag = raw.get("origin", "base")
@@ -684,11 +704,16 @@ VALID_KINDS = {"GEO_XLSX", "SRA_PACKAGE", "PRIDE_PACKAGE", "NFCORE_RNASEQ_CSV",
                "NFCORE_SCRNASEQ_CSV", "SVG_CHART", "UNKNOWN_FILE", "NONE_EXPECTED"}
 
 
-def test_every_family_declares_defaults():
+def test_every_declared_family_has_defaults():
+    """Keyed by DECLARED family, not by the nesting block: the file mirrors the
+    source nesting, where graph_stale and reporting_artifacts are blocks that are
+    not families."""
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
-    for name, fam in payload["families"].items():
-        d = fam.get("defaults")
-        assert d, f"{name} has no defaults block"
+    declared = {v["family"] for fam in payload["families"].values()
+                for v in fam["variants"]}
+    for name in declared:
+        d = payload["family_defaults"].get(name)
+        assert d, f"{name} has no defaults"
         assert d["expected_behavior"] in VALID_BEHAVIORS, name
         assert d["artifact_kind"] in VALID_KINDS, name
         assert isinstance(d["artifact_expected"], bool), name
@@ -737,7 +762,11 @@ Expected: `KeyError: 'defaults'` on the first test.
 
 - [ ] **Step 3: Add the family defaults**
 
-Add a `defaults` block to each of the 14 families in `corpus.json`. Use exactly these values:
+Add a **top-level `family_defaults`** map to `corpus.json`, keyed by DECLARED
+family name. It does NOT go inside each family block: the file mirrors the source
+nesting, so blocks like `graph_stale` and `reporting_artifacts` are not families
+and block-keyed defaults would apply the wrong ones to the 7 variants whose
+declared family differs from their block. Use exactly these values:
 
 | Family | hibayes_subtype | expected_behavior | artifact_expected | artifact_kind |
 |---|---|---|---|---|
@@ -791,7 +820,9 @@ def hibayes_meta(variant_id: str, path=None) -> dict:
         for raw in fam["variants"]:
             if raw["id"] != variant_id:
                 continue
-            defaults = fam.get("defaults", {})
+            # Keyed on the variant's DECLARED family, never on the block it sits
+            # in: 7 variants differ, and the block is not always a real family.
+            defaults = payload.get("family_defaults", {}).get(raw["family"], {})
             return {k: (raw.get(k) if raw.get(k) is not None else defaults.get(k))
                     for k in _HIBAYES_KEYS}
     raise KeyError(f"no such variant: {variant_id}")
