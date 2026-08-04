@@ -190,6 +190,37 @@ def test_preflight_runs_by_default_and_aborts_the_run(tmp_path):
                             get_progress=get_progress)
 
 
+def test_the_preflight_gets_this_runs_clock_and_this_runs_deadline(tmp_path, monkeypatch):
+    """The preflight polls its probe turn to completion, so it takes the same
+    injected `sleep`/`clock` `run_case` does -- otherwise a test that drives
+    `run_paired` past the force check blocks on the real clock for the whole
+    per-turn timeout. Nothing reaches it today: all three preflight-reaching
+    tests raise before the poll loop, which is exactly why it needs pinning.
+
+    And the deadline is `--full-timeout`, not a constant. The probe is a real NS
+    turn, so an operator running `--full-timeout 900` on a slow stack would
+    otherwise be refused at 600s with an INCONCLUSIVE and lose a run that was
+    about to succeed -- a guard that aborts a healthy run is its own defect.
+    """
+    from nessie_tests import preflight
+
+    seen = {}
+    monkeypatch.setattr(preflight, "assert_force_route_works",
+                        lambda *a, **kw: seen.update(kw))
+    post_query, get_progress, _calls = _recording_fakes()
+    marker_sleep, marker_clock = (lambda _s: None), (lambda: 0.0)
+
+    bayesian.run_paired(base_url="http://x", auth_header="", out_dir=tmp_path,
+                        corpus_path=CORPUS, post_query=post_query,
+                        get_progress=get_progress, full_timeout_s=900.0,
+                        sleep=marker_sleep, clock=marker_clock)
+
+    assert seen.get("sleep") is marker_sleep, "the preflight sleeps on the real clock"
+    assert seen.get("clock") is marker_clock
+    assert seen.get("ns_run_root_timeout_s") == 900.0, \
+        "the preflight's deadline ignores --full-timeout"
+
+
 # --- Task 5 fix round 1: guards on the paid record --------------------------
 
 

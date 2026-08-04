@@ -659,9 +659,16 @@ def query_text(variant) -> str:
     "those" against, and an LLM grader marking it unanswerable while the human
     reads the thread is a disagreement about the CSV, not about the engines.
 
-    A variant with no declared turns yields `""`. Unreachable through the loader
-    used here -- `e2e.catalog.Variant` requires `turns` -- and left rather than
-    raised because this function does not own corpus validation.
+    A variant with no declared turns yields `""`. That is REACHABLE, not
+    impossible: `e2e.catalog.Variant` requires the `turns` KEY, not a non-empty
+    list, so `Variant(family=..., id=..., name=..., turns=[])` validates --
+    and `corpus.py:258,363` already treat `not v.turns` as a live case. No
+    variant in the corpus is one today (the shortest declares 1 turn), but a
+    variant that became one would be blank in BOTH text columns and defeat the
+    "an empty `final_answer` means the arm produced no reply" guarantee
+    `export_stage_b` documents. Left unhandled rather than raised because this
+    function does not own corpus validation; recorded so the next reader knows
+    which of the two it is.
     """
     turns = list(getattr(variant, "turns", ()) or ())
     if not turns:

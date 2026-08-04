@@ -37,9 +37,12 @@ PROBE_QUERY = "What is the weather in Boston tomorrow?"
 # `collect._run_roots` reads the same string off the collected rows.
 NS_RUN_ROOT_EVENT = "ns_run_root"
 
-# The probe turn is a real NS turn and has to finish before the event can exist.
-# It is the harness's `full_timeout_s` by construction -- the endpoint's own
-# ceiling for one turn -- and is only ever waited out when something is wrong.
+# The probe turn is a real NS turn and has to finish before the event can exist,
+# so its ceiling is the run's own per-turn ceiling. This is only the DEFAULT, for
+# a caller that drives this function directly: `run_paired` passes the operator's
+# `--full-timeout` through, because a hardcoded 600s under `--full-timeout 900`
+# refuses a healthy run as INCONCLUSIVE and aborts a run that would have
+# succeeded. It is only ever waited out when something is already wrong.
 NS_RUN_ROOT_TIMEOUT_S = 600.0
 
 

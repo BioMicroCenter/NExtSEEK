@@ -146,8 +146,21 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
 
     if not skip_preflight:
         # Before anything is spent. A dropped force makes the entire run measure
-        # the router instead of the engines.
-        preflight.assert_force_route_works(post_query, get_progress)
+        # the router instead of the engines, and an image with no `ns_run_root`
+        # loses the join key on all 127 NS arms.
+        #
+        # `sleep`/`clock` are threaded exactly as they are into `run_case` below:
+        # the preflight now polls its probe turn to completion, so a test driving
+        # `run_paired` past the force check with the real clock would block for
+        # the whole timeout.
+        #
+        # The timeout IS `--full-timeout`. The probe is a real NS turn, so the
+        # operator's own per-turn ceiling is what governs it; a hardcoded 600s
+        # under `--full-timeout 900` refuses a healthy run as INCONCLUSIVE and
+        # aborts a run that would have succeeded.
+        preflight.assert_force_route_works(
+            post_query, get_progress, sleep=sleep, clock=clock,
+            ns_run_root_timeout_s=full_timeout_s)
 
     selected = corpus.bayesian_ids(corpus_path)
     by_id = {v.id: v for v in corpus.merged(corpus_path)}

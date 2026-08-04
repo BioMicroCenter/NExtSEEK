@@ -155,7 +155,11 @@ def test_failure_mode_priority_is_timeout_then_error_then_no_answer():
     assert export.failure_mode(answer_provided=True, is_error=False, timed_out=False) == "none"
 
 
-@pytest.mark.parametrize("status, reason, expected", [
+# The outcome variable, once, as literals. Used BOTH for the 14-column row and
+# for Stage B's copy of the same three columns: `runtime_success` is derived
+# twice in this module, so a table that only ever reaches one of them leaves the
+# other free to drift -- and it is the Stage B copy that the LLM grader is fed.
+_RUNTIME_CASES = [
     # answered, no error, no timeout -- the only combination that is a success
     ("passed", "", {"answer_provided": True, "is_error": False, "timed_out": False,
                     "runtime_success": True, "failure_mode": "none"}),
@@ -174,7 +178,17 @@ def test_failure_mode_priority_is_timeout_then_error_then_no_answer():
     ("passed", "TimeOut waiting for query_complete",
      {"answer_provided": True, "is_error": False, "timed_out": True,
       "runtime_success": False, "failure_mode": "timeout"}),
-])
+]
+
+# The three column names that appear in BOTH locked tuples.
+_SHARED_COLUMNS = ("answer_provided", "runtime_success", "failure_mode")
+
+
+def _as_csv(value) -> str:
+    return ("true" if value else "false") if isinstance(value, bool) else str(value)
+
+
+@pytest.mark.parametrize("status, reason, expected", _RUNTIME_CASES)
 def test_runtime_success_is_the_conjunction_upstream_validates(status, reason, expected):
     """The study's OUTCOME VARIABLE, pinned against literals.
 
@@ -633,18 +647,35 @@ def test_stage_b_excludes_exactly_what_the_runtime_export_excludes(tmp_path):
     assert n == 2
 
 
-def test_the_two_files_never_disagree_about_the_same_column(tmp_path):
+@pytest.mark.parametrize("status, reason, expected", _RUNTIME_CASES)
+def test_the_two_files_never_disagree_about_the_same_column(
+        status, reason, expected, tmp_path):
     """`runtime_success`, `answer_provided` and `failure_mode` appear in BOTH
     locked tuples. Two derivations of one column name is the drift this codebase
-    refuses everywhere else."""
-    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f",
-                                       ns=_entry(status="no_assertions"))])
-    export.export(m, tmp_path, corpus_path=_corpus(tmp_path))
-    export.export_stage_b(m, tmp_path, corpus_path=_corpus(tmp_path))
+    refuses everywhere else.
+
+    `export_stage_b` restates the `runtime_success` conjunction rather than
+    calling `runtime_row`, so it is a SECOND copy -- and this test ran one entry
+    (`no_assertions`) whose three columns are the same under every plausible
+    mutation, so reducing the Stage B copy to `answer_provided` left the whole
+    suite green. That copy is the one the LLM grader is fed.
+
+    So: every case in `_RUNTIME_CASES`, both files, and against the LITERALS
+    rather than against each other -- two copies that drift TOGETHER would
+    satisfy an equality check while still teaching the posterior the wrong thing.
+    """
+    e = _entry(status=status)
+    e.reason = reason
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", ns=e)])
+    corpus_path = _corpus(tmp_path)
+
+    export.export(m, tmp_path, corpus_path=corpus_path)
+    export.export_stage_b(m, tmp_path, corpus_path=corpus_path)
+
     a = _rows(tmp_path / "hibayes_eval_rows_ns.csv")[0]
     b = _rows(tmp_path / "hibayes_functional_eval_inputs.csv")[0]
-    for col in ("answer_provided", "runtime_success", "failure_mode"):
-        assert a[col] == b[col], col
+    for col in _SHARED_COLUMNS:
+        assert a[col] == b[col] == _as_csv(expected[col]), col
 
 
 def test_stage_b_carries_the_corpus_metadata_the_grader_is_given(tmp_path):
