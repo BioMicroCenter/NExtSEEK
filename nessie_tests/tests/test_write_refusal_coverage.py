@@ -164,8 +164,10 @@ def _raw_bodies():
 
     Keyed by id across ALL family blocks, not indexed into
     `families["writes_unsupported"]`. In corpus.json the block a variant sits in
-    is NOT authoritative — its declared `family` is — so keying on the block
-    would make these silently stop finding their cases if one ever moved.
+    is NOT authoritative — its declared `family` is. Block-keying would still
+    FAIL LOUDLY on a moved case (`KeyError` / `StopIteration`), so this is not a
+    silence fix; it is that a block move is a legal edit which should not require
+    touching a test about destructive-write warnings.
     """
     raw = json.loads(CORPUS.read_text(encoding="utf-8"))
     return {v["id"]: v for fam in raw["families"].values() for v in fam["variants"]}

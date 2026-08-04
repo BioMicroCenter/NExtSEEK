@@ -319,8 +319,11 @@ def merged(path=None) -> list[Variant]:
     """The resolved active corpus: 283 variants, 314 turns.
 
     One source since 2026-08-04. The parameter is kept, and kept positional, so
-    every existing `merged(OVERLAY)` call site still works during the cutover; it
-    now names corpus.json rather than the overlay.
+    the call SHAPE is unchanged -- but it now names corpus.json, and only
+    corpus.json: `_read_unified` requires `version == 2`, so passing a superseded
+    overlay path raises rather than resolving to zero variants. Callers were
+    repointed wholesale in the same commit; nothing is left pointing at the old
+    files.
     """
     return merged_from_unified(path)
 

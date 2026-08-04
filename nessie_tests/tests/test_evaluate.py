@@ -155,7 +155,7 @@ def test_reporter_table_and_preview_artifacts_are_not_indexed_as_files():
     string ("GEO Report Preview", "Sample Types") with nothing on disk. Indexing
     those would make `api_artifact.<name> op:true` — contract: "a file with this
     basename was produced" — return True for an inline table. The SRA reporting
-    case `report.sra_submission_package` in corpus.json is exactly such a turn.
+    case `report.sra_submission` in corpus.json is exactly such a turn.
     """
     payload = _artifact_payload({})
     payload["progress"][-1]["data"]["artifacts"] = [

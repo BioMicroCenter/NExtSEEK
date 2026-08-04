@@ -57,7 +57,7 @@ def test_no_route_expectation_is_injected_into_imported_variants():
     The blanket `route == nextseek_query` injection is what made deliberate
     container_cc routing (open-ended analysis, resource creation) read as a
     product failure. Routing is asserted only where it was actually decided:
-    the route_gate variants in overlay.json.
+    the route_gate variants in corpus.json.
     """
     from e2e.catalog import Variant, Turn
     base = Variant(family="f", id="b", name="n", tags=["base"], turns=[Turn(label="m", query="q")])

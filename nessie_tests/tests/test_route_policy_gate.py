@@ -62,7 +62,7 @@ def test_a_normal_variant_still_gets_the_reply_guard():
 
 
 def test_no_route_gate_case_in_the_real_corpus_asserts_last_reply():
-    """The regression this guards, against the shipped overlay."""
+    """The regression this guards, against the shipped corpus."""
     offenders = [v.id for v in corpus.merged(CORPUS)
                  if "route_gate" in v.tags
                  for t in v.turns for c in t.pass_criteria if c.field == "last_reply"]

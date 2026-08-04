@@ -7,11 +7,16 @@ its full definition in `corpus.json` under `status: "retired"`, next to a
 `retirement` record saying why and when — and `merged()` drops it.
 
 Until 2026-08-04 that record lived in a separate `retired.json`, whose `retired`
-map listed the ids and whose `families` block held the bodies. Two guards here
+map listed the ids and whose `families` block held the bodies. THREE guards here
 existed only because those two halves could disagree: a typo'd id retired
-nothing, and a kept body with no matching id read as gone when it was not. Both
-are structurally impossible now — the status IS on the definition — so they are
-replaced by the one failure the new shape does admit, an unrecognised status.
+nothing, a kept body with no matching id read as gone when it was not, and a
+retired id could lack a definition entirely. None is expressible now — the
+status IS on the definition, so there are no longer two halves to disagree.
+
+They are replaced by the two failures the new shape does admit: an unrecognised
+`status` string, and a `status`/`retirement` pair that contradict each other.
+Both become live risks at Task 4, where this file stops being generated and
+starts being hand-edited.
 """
 import json
 from pathlib import Path
@@ -30,12 +35,38 @@ def _retired_ids():
     return {vid for vid, m in _meta().items() if m["status"] == "retired"}
 
 
-def test_a_retired_variant_keeps_its_full_definition():
-    ids = _retired_ids()
-    assert ids, "corpus.json should mark at least the issue-#35 retirements retired"
-    # every retired id also keeps its full definition, so it can come back
-    kept = {v.id for v in corpus.load_all_definitions(CORPUS)}
-    assert ids <= kept, f"retired without keeping the definition: {sorted(ids - kept)}"
+def test_no_active_variant_carries_a_stale_retirement_record():
+    """The reinstatement half of the invariant, and the half nothing else checks.
+
+    `test_a_retired_variant_keeps_its_full_definition` stood here until the
+    2026-08-04 review, asserting `retired_ids <= {v.id for v in
+    load_all_definitions()}`. Both sides iterate the same raw variant list in the
+    same file, so a retired id without a definition was not EXPRESSIBLE — the
+    reviewer stripped `turns` from all 100 retired bodies and it still ran green.
+    It was a survivor of the three-file layout, where the ids and the bodies
+    really did live in two blocks that could disagree, rewritten when it should
+    have been retired alongside `test_unknown_retired_id_is_loud`. The concept it
+    meant to guard is genuinely covered by
+    `test_unified_corpus.py::test_every_retired_definition_is_still_loadable`,
+    which asserts all 100 bodies have turns and non-empty queries.
+
+    What replaces it is the one direction nothing asserted and the unified shape
+    CAN violate. Reinstating is `status: "retired"` -> `"active"`, and the
+    `retirement` record sits right beside it: flip one, forget the other, and the
+    corpus claims a live case was retired on a date for a reason. `merged()` would
+    return it and every report would carry the contradiction. Generated files
+    could not drift (`build_corpus` derives both from one source), but
+    `corpus.json` is hand-owned from Task 4 on, which is exactly when a
+    half-finished reinstatement becomes possible.
+
+    Not a restatement of `test_every_retirement_records_why`: that one checks the
+    RETIRED side's record is complete, this one checks the ACTIVE side has none.
+    """
+    stale = {vid: m["retirement"] for vid, m in _meta().items()
+             if m["status"] == "active" and m["retirement"] is not None}
+    assert stale == {}, (
+        f"active variants still carrying a retirement record: {sorted(stale)}. "
+        f"Reinstating means clearing the record as well as flipping the status.")
 
 
 def test_every_retirement_records_why():

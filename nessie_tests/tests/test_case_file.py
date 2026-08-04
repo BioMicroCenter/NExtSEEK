@@ -7,11 +7,12 @@ Those questions are not in the corpus, and waiting for a seed to draw the five
 cases you care about is not a plan — the 2026-07-28 run dropped three of the
 fixes it was meant to verify because the seed did not select them.
 
-The file is CORPUS-SHAPED on purpose, so `families` blocks can be copy-pasted
-straight out of overlay.json and get the same PassCriterion validation. Two keys:
+The file is CATALOG-SHAPED on purpose, so `families` blocks can be copy-pasted
+straight out of corpus.json and get the same PassCriterion validation. Two keys:
 
   include_ids   pull existing corpus variants in, by id, in file order
-  families      define new ad-hoc variants inline (standard overlay structure)
+  families      define new ad-hoc variants inline (plain catalog structure --
+                no `status`/`origin`, so it is NOT a unified corpus)
 
 Inline variants run EXACTLY as written: no family floor, no route policy. A
 hand-authored probe is a precise instrument, and silently bolting extra

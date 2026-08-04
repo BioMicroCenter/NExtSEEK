@@ -138,7 +138,7 @@ def test_an_unlisted_family_gets_nothing():
     assert _fields(v) == ["parser_plan.mode"]
 
 
-# ------------------------------------------------- against the real overlay
+# -------------------------------------------------- against the real corpus
 
 
 def test_refine_and_recall_never_gets_a_row_count_floor():

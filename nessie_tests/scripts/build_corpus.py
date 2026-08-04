@@ -108,9 +108,15 @@ def build(catalog_path, overlay_path, retired_path) -> dict:
 
     # The RAW source bodies, keyed by id. `_variant_dict` needs them because the
     # parsed `Variant` cannot carry a `_why`: the model has six fields and
-    # pydantic's `extra="ignore"` drops the rest without a word. Indexed by
-    # ORIGIN, so an overlay override's annotations come from the overlay body it
-    # is actually emitting rather than from the base body it replaces.
+    # pydantic's `extra="ignore"` drops the rest without a word.
+    #
+    # Indexed by ORIGIN rather than flattened. `{**base_raw, **overlay_raw}` would
+    # also be correct -- overlay-wins is exactly the precedence `_emit` is called
+    # with below -- but that is the same rule written twice, in two places that
+    # can drift. Keying on the origin the caller already decided makes the body
+    # come from the definition being emitted BY CONSTRUCTION. (The two disagree
+    # on 28 ids, so getting the precedence backwards is not a hypothetical: it
+    # would attach the base body's absent annotations to an overlay override.)
     raw_bodies = {
         "base": {v["id"]: v for f in raw_catalog["families"].values() for v in f["variants"]},
         "overlay": {v["id"]: v for f in raw_overlay["families"].values() for v in f["variants"]},
