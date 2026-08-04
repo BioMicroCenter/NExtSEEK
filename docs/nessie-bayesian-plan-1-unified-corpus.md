@@ -191,11 +191,23 @@ Ordering rules, which exist so the output is stable enough to diff:
     instead appends them at the end of the whole list, which no block-structured
     file can reproduce -- see KNOWN DIVERGENCE below
 
-The output MIRRORS THE SOURCE NESTING, including blocks like `graph_stale` and
-`reporting_artifacts` that are not real families. Operator ruling 2026-08-04:
-structure follows the source so global order is reproducible and the ordered
-equivalence assertion passes verbatim. Each variant carries its own declared
-`family`, which is the authoritative one.
+The output MIRRORS THE SOURCE NESTING. Operator ruling 2026-08-04: structure
+follows the source. Each variant carries its own declared `family`, which is the
+authoritative one -- 7 variants declare a family differing from the block they
+sit in.
+
+(Blocks whose every member overrides a base id -- `graph_stale`,
+`reporting_artifacts`, `routing_graph` -- do NOT survive as blocks: the in-place
+override rule pins their members to their base positions. Measured, not assumed.)
+
+KNOWN DIVERGENCE from `corpus.merged`: global flat order is not reproducible.
+`corpus.merged` appends overlay-only variants at the end of the WHOLE list, so
+`writes_unsupported` occupies idx 247-249 (base members) AND 281-282
+(overlay-only), with `refine_and_recall` at 250-274 between them. A JSON object
+cannot hold two blocks of one name and a block flattens to one contiguous run.
+Measured 2026-08-04: 2 active variants genuinely displaced, 31 more are their
+shift cascade; content sorted by id is identical and within-family order --
+the ordering `corpus.sample` actually consumes -- is preserved exactly.
 """
 from __future__ import annotations
 
@@ -656,12 +668,19 @@ In `nessie_tests/output-skill/scripts/build_report.py`, repoint its corpus read 
 
 - [ ] **Step 6: Retire the migration-gate tests, which are now unrunnable by construction**
 
-Four tests in `test_unified_corpus.py` exist only to compare the new world against the old one, and they call `corpus.load_overlay`, `corpus.merged(OVERLAY)` and the `OVERLAY` / `RETIRED` constants that this task deletes. They did their job at Tasks 1 and 2. Delete exactly these four:
+**Seven** tests in `test_unified_corpus.py` exist only to compare the new world against the old one, or to pin the artifact to its generator. All seven call `corpus.load_overlay`, `corpus.merged(OVERLAY)`, `build_corpus.build(...)` or the `OVERLAY` / `RETIRED` constants that this task removes from that file. They did their job at Tasks 1 and 2. Delete exactly these seven:
 
 - `test_unified_holds_every_definition_from_all_three_sources`
 - `test_the_four_policy_blocks_survive_verbatim`
 - `test_rebuilding_is_deterministic`
-- `test_unified_resolves_variant_for_variant_to_the_three_file_corpus`
+- `test_the_committed_file_matches_what_the_generator_produces`
+- `test_unified_resolves_to_the_same_content_as_the_three_file_corpus`
+- `test_within_family_order_is_preserved_because_sampling_consumes_it`
+- `test_seeded_sampling_is_unchanged_by_the_migration`
+
+The last three are Task 2's. The fourth is the artifact-to-generator pin, and retiring it here is deliberate rather than an oversight: from Task 4 onward `corpus.json` is HAND-OWNED. `is_bayesian`, the HiBayes metadata, a retirement, a reworded question -- every one of those is an edit the generator will not reproduce, so an exact `build(...) == corpus.json` assertion would fail on correct work. It is a migration-time instrument exactly like the equivalence gate beside it, and it earns its keep across Tasks 1 to 3, where `corpus.json` genuinely is generator-owned. From Task 4 the guards that survive are the self-consistency tests here and the catalog drift test in Task 5.
+
+Keeping it would also falsify `build_corpus.py`'s own module docstring, which states that after this task nothing imports it.
 
 Replace the first with one that no longer needs the old sources, so the count stays pinned:
 
@@ -683,9 +702,12 @@ Everything else in `test_unified_corpus.py` survives unchanged: the duplicate-id
 They stay on disk by operator ruling, but nothing may read them. Prove it:
 
 ```bash
-grep -rn "overlay\.json\|retired\.json" nessie_tests/ --include=*.py | grep -v "^nessie_tests/tests/"
+grep -rn "overlay\.json\|retired\.json" nessie_tests/ --include=*.py \
+  | grep -v "^nessie_tests/tests/" | grep -v "^nessie_tests/scripts/build_corpus.py"
 ```
 Expected: no output. A hit means a caller was missed in Step 5.
+
+`build_corpus.py` is excluded on purpose, not to make the check pass. Reading those two files is the whole reason that module exists, permanently: it is the manual adoption tool you run when the vendored `catalog.json` moves. It is not a runtime caller.
 
 Add a header note to each so the next reader does not mistake a stale file for a live one. In `overlay.json` and `retired.json`, set `_note` to:
 
@@ -855,7 +877,7 @@ for v in corpus.merged():
 "
 ```
 
-Add `build_corpus.py` support so a rebuild does not wipe these: it reads any existing `corpus.json` and carries `defaults` and every non-null per-variant override forward by id.
+Add `build_corpus.py` support so a rebuild does not wipe these: it reads any existing `corpus.json` and carries the top-level `family_defaults` map and every non-null per-variant override forward by id.
 
 - [ ] **Step 4: Add the accessor functions**
 
