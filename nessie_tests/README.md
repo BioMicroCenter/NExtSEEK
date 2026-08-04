@@ -2,8 +2,15 @@
 
 Router-aware e2e harness for the Nessie assistant. Drives cases through the real
 top-level router (`POST /nextseek_api/cc-assistant/query/async/`), reusing
-`chat_nextseek/e2e`'s corpus + `PassCriterion` DSL, with **zero edits** to the
-vendored `chat_nextseek`.
+`chat_nextseek/e2e`'s `PassCriterion` DSL, with **zero edits** to the vendored
+`chat_nextseek`.
+
+The corpus is **forked, not reused**: nessie reads its own
+`nessie_tests/corpus.json`, adopted from `chat_nextseek/e2e/catalog.json` on
+2026-08-04 and hand-curated since. `catalog.json` is unchanged and still serves
+its own ten readers; `tests/test_catalog_drift.py` fails when it moves, so the
+divergence is never silent, and adopting an upstream change stays a deliberate
+edit.
 
 ## Tiers
 - **route** (fast, pre-merge): stops at the `route_decided` event; asserts

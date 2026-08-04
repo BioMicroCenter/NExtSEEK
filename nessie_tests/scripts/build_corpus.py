@@ -73,8 +73,8 @@ def _carry_forward(prior_path) -> tuple[dict, dict]:
     Rebuilding from the sources without this returns every one of them to the
     generator's placeholder -- `is_bayesian: false` on all 383, all four HiBayes
     keys null, no defaults block at all -- and the loss is silent, because the
-    rebuild is a diff-then-adopt workflow and 130 flipped booleans in a 1.4 MB
-    diff do not announce themselves.
+    rebuild is a diff-then-adopt workflow and 130 flipped booleans in a diff of
+    this file's size do not announce themselves.
 
     `status`/`retirement` are carried as a PAIR, and that was a correction. They
     were first left to be re-derived from `retired.json`, on the reasoning that
@@ -82,9 +82,28 @@ def _carry_forward(prior_path) -> tuple[dict, dict]:
     retirement recorded only in corpus.json -- and, because the flags below are
     carried, brought it back still SELECTED for the paid run. Before Task 4 a
     rebuild reset every flag to false, so the resurrection was survivable; the
-    carry-forward is what made it dangerous. corpus.json is the single source of
-    truth for the corpus, so it is the single source of truth for retirement too.
-    `retired.json` remains the input for a variant this file has never seen.
+    carry-forward is what made it dangerous.
+
+    RETIREMENT IS ASYMMETRIC ACROSS A REBUILD, and that asymmetry is the thing to
+    know before hand-editing `status`:
+
+      * RETIRING in corpus.json SURVIVES. The loop below carries `status:
+        "retired"` plus its `retirement` record forward, so a retirement recorded
+        only here is not re-derived away.
+      * UN-RETIRING does NOT survive. The carry is one-directional: it copies
+        `retired` forward and has no branch that copies `active` forward, so
+        `retirements.get(...)` in `_variant_dict` re-derives the retired status
+        straight back out of `retired.json`. Hand-setting `status: "active"` with
+        `retirement: null` and then rebuilding yields `status: "retired"` again --
+        verified 2026-08-04 on `advanced.find_samples_of_pbmc_type_from`.
+        `test_a_rebuild_does_not_preserve_a_corpus_json_only_reinstatement` pins it.
+
+    So REINSTATEMENT IS A TWO-FILE EDIT: flip `status` (and clear `retirement`)
+    in corpus.json for the running harness, AND remove the id from
+    `retired.json`, or the next rebuild undoes it. `retired.json` is superseded
+    for every other purpose but remains authoritative in the retire direction; it
+    is not the input only "for a variant this file has never seen", because that
+    set is empty -- all 100 retired ids appear in both files.
 
     Carried as a pair, never separately: `status: "retired"` with no `retirement`
     record, or the reverse, is the exact state
@@ -216,9 +235,21 @@ def build(catalog_path, overlay_path, retired_path, prior_path=None) -> dict:
             "The single source of truth for nessie_tests. Adopted from "
             "chat_nextseek/e2e/catalog.json, which is NOT edited and still serves its "
             "own ten readers. Retirement is a `status` flip, not a deletion. "
-            "HAND-OWNED since Task 4: `family_defaults`, the per-variant HiBayes "
-            "overrides and `is_bayesian` are curation, and a rebuild carries them "
-            "forward from this file rather than regenerating them."
+            "HAND-OWNED since Task 4 -- an edit here SURVIVES `python -m "
+            "nessie_tests.scripts.build_corpus`: `family_defaults`, the per-variant "
+            "NON-NULL HiBayes overrides, `is_bayesian`, and RETIRING a variant "
+            "(`status` and `retirement`, carried as a pair). "
+            "NOT hand-owned -- an edit here is DISCARDED by the next rebuild: "
+            "UN-retiring (retired.json stays authoritative in that direction, so a "
+            "reinstatement must ALSO remove the id from retired.json); the four "
+            "policy blocks criterion_rewrites / route_policy / family_floor / "
+            "consistency_groups, copied wholesale from overlay.json; any variant BODY "
+            "(query, pass_criteria, tags, name, family); a variant added only here; "
+            "the family block descriptions; and `_why`-style annotations, which are "
+            "re-read from the SOURCE body. Changing any of those means editing "
+            "overlay.json or retired.json -- the files this one supersedes and which "
+            "the adoption tool still reads. Rebuild is diff-then-adopt: emit to a "
+            "scratch path and diff, never over this file with a non-surviving edit in it."
         ),
         "provenance": {
             "adopted_from": "chat_nextseek/e2e/catalog.json",

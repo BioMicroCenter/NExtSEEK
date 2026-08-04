@@ -3,9 +3,17 @@
 **101 distinct questions** actually asked in chat, that do **not** appear anywhere in
 `chat_nextseek/e2e/catalog.json` or `nessie_tests/overlay.json`.
 
-Recovered from `assistant_query_task.query` on the dev box (451 tasks, 184 distinct) plus
+**Historical snapshot — the recipe below no longer runs.** Recovered on 2026-07-30 from
+`assistant_query_task.query` on the dev box (451 tasks, 184 distinct) plus
 `outputs/*/api_requests.json` locally, deduped case/punctuation-insensitively against the
-447-turn corpus. The local `outputs/` folder contributed no questions the dev box DB did not
+447-turn corpus, which was then resolved by pointing `corpus.merged()` at
+`catalog.json` + `overlay.json`. Since the 2026-08-04 unification `merged()` reads
+`nessie_tests/corpus.json` and nothing else — `_read_unified` requires `version == 2`, so
+an overlay path now raises `ValueError` instead of silently resolving to zero variants.
+To redo the dedupe today, diff against `corpus.merged()` with no argument — but note it
+now resolves 314 turns, not 447, so 100 retirements have moved questions INTO the
+"not in the corpus" bucket and the count will exceed 101.
+The local `outputs/` folder contributed no questions the dev box DB did not
 already have, so the DB is a superset.
 
 A further **12** CC infrastructure probes (bash/codeword plumbing tests such as

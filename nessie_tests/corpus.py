@@ -202,8 +202,8 @@ def merged_from_unified(path=None) -> list[Variant]:
     No base-versus-overlay merge step, because there is one definition per id.
     No retirement filter step either: `_to_variants` already excludes them.
 
-    ONE parse. It used to read the ~1.4 MB file twice -- once for the policy
-    blocks and once inside `load_unified` -- which was harmless while this was a
+    ONE parse. It used to read the whole file twice -- once for the policy blocks
+    and once inside `load_unified` -- which was harmless while this was a
     test-only path and is not, now that it is the path every run takes.
     """
     payload = _read_unified(path)
@@ -225,10 +225,13 @@ def load_family_floor(path=None) -> dict:
 def apply_family_floor(variants: list[Variant], floor_spec: dict) -> list[Variant]:
     """Add each family's minimum outcome assertion to the LAST turn of its variants.
 
-    Of 381 merged variants, 108 assert plan shape only and 194 assert only plumbing
+    Measured over the 381-variant corpus of the 2026-07-30 review, BEFORE the 100
+    retirements: 108 asserted plan shape only and 194 asserted only plumbing
     (``api_ok`` / ``neo4j_ok`` say a request COMPLETED, not that it returned
-    anything). 79% of the corpus therefore cannot detect a wrong answer, and
-    hand-editing 300 variants is not viable — so the floor is applied structurally.
+    anything), so 79% could not detect a wrong answer. ``merged()`` returns 283
+    today and that split has not been re-measured — but retiring bad questions
+    added no outcome assertion to any survivor, so the reason stands: hand-editing
+    hundreds of variants is not viable, and the floor is applied structurally.
 
     Two rules keep it from doing harm:
 

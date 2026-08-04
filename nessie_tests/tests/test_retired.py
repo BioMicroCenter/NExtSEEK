@@ -22,9 +22,12 @@ import json
 from pathlib import Path
 
 from nessie_tests import corpus
+from nessie_tests.scripts import build_corpus
 
 HERE = Path(__file__).resolve().parents[1]
 CORPUS = HERE / "corpus.json"
+OVERLAY = HERE / "overlay.json"
+RETIRED = HERE / "retired.json"
 
 
 def _meta():
@@ -94,7 +97,15 @@ def test_gbm_is_gone_from_the_active_corpus():
 
 
 def test_retirement_can_be_reversed_by_flipping_the_status(tmp_path):
-    """Reinstating is a data edit, not a code change.
+    """Reinstating is a data edit, not a code change — TO THE LOADER.
+
+    Scope, because the pair of tests below it is asymmetric and the asymmetry is
+    real: this proves only that `corpus.load_unified` picks the variant back up.
+    It says nothing about whether the edit SURVIVES
+    `scripts/build_corpus.py`. It does not —
+    `test_a_rebuild_does_not_preserve_a_corpus_json_only_reinstatement` is the
+    mirror of `test_a_rebuild_preserves_a_corpus_json_only_retirement` and pins
+    that direction.
 
     Drives the real loader over a copy of the real file, so what is proved is
     that the harness picks the variant back up — not that a hand-built fixture
@@ -118,6 +129,57 @@ def test_retirement_can_be_reversed_by_flipping_the_status(tmp_path):
     active = {v.id for v in corpus.load_unified(reinstated)}
     assert victim["id"] in active
     assert len(active) == 284
+
+
+def test_a_rebuild_does_not_preserve_a_corpus_json_only_reinstatement(tmp_path):
+    """The mirror of `test_a_rebuild_preserves_a_corpus_json_only_retirement`.
+
+    Retirement is HAND-OWNED IN ONE DIRECTION ONLY, and two documents used to
+    claim otherwise: `build_corpus._carry_forward` said corpus.json was "the
+    single source of truth for retirement too", and the design spec §6.3 said
+    reinstating "becomes a one-word edit rather than moving a definition between
+    files". Neither is true, because `_carry_forward` copies `status: "retired"`
+    forward and has no branch that copies `active` forward — so
+    `retirements.get(...)` re-derives the retirement out of `retired.json` and
+    the reinstatement is silently reverted.
+
+    That matters more than it sounds: the un-retire is the edit that puts a
+    question BACK into a paid run, and a rebuild-and-adopt in between would
+    quietly drop it. Reinstatement is a TWO-FILE edit, and the second half of
+    this test is the recipe.
+
+    (The "for a variant this file has never seen" carve-out in the old comment
+    described an empty set: all 100 retired ids appear in BOTH files.)
+    """
+    victim = "advanced.find_samples_of_pbmc_type_from"
+    payload = json.loads(CORPUS.read_text(encoding="utf-8"))
+    found = [v for fam in payload["families"].values()
+             for v in fam["variants"] if v["id"] == victim]
+    assert len(found) == 1 and found[0]["status"] == "retired", "fixture drifted"
+    found[0]["status"] = "active"
+    found[0]["retirement"] = None
+
+    prior = tmp_path / "corpus.json"
+    prior.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+                     encoding="utf-8")
+
+    def _status(retired_path):
+        built = build_corpus.build(corpus._BASE_CATALOG, OVERLAY, retired_path, prior)
+        got = {v["id"]: v for f in built["families"].values() for v in f["variants"]}
+        return got[victim]["status"]
+
+    assert _status(RETIRED) == "retired", (
+        "the rebuild preserved a corpus.json-only reinstatement — if this now "
+        "passes by carrying `active` forward, say so in _carry_forward, in the "
+        "corpus.json _note, in the pin's failure message and in design spec §6.3, "
+        "all four of which document the asymmetry this pins")
+
+    # The other half of the edit: drop the id from retired.json too, and it sticks.
+    raw_retired = json.loads(RETIRED.read_text(encoding="utf-8"))
+    del raw_retired["retired"][victim]
+    trimmed = tmp_path / "retired.json"
+    trimmed.write_text(json.dumps(raw_retired), encoding="utf-8")
+    assert _status(trimmed) == "active"
 
 
 def test_every_definition_has_a_status_the_loader_recognises():

@@ -14,6 +14,7 @@
 
 - **Outages are excluded, never scored.** An outage means the provider fallback chain died before the product ran. Emitting it as `is_error=true` teaches the posterior that Bedrock downtime is CC incapability. `nessie_tests/outage.py` holds the one definition; do not write a second.
 - **`None` is not zero.** Only `container_cc` emits `total_cost_usd`. An NS arm's cost is unobserved, and the CSV must carry an empty cell rather than `0`.
+- **A row is a VARIANT, but the spend behind it is TURNS.** The selection is 130 variants and **161 turns**, so the CSVs have ~130 rows per arm while the run that produced them paid for 161 turns per arm. Any cost figure derived by multiplying rows by a per-turn price runs about 24% low. The skew concentrates in `refine_and_recall`: 25 variants, **50 turns**, and its `cost_usd` cells will look disproportionately large for the same reason. That is correct, not a collector bug — do not "normalise" it.
 - **The two HiBayes column tuples are locked upstream.** Copy them verbatim from `dmac-assistant/tools/hibayes/exporter.py` (`HIBAYES_CSV_COLUMNS`, 14) and `tools/hibayes/functional_inputs.py` (`CSV_HEADER_12`). A test pins our header against our pinned copy. It **cannot** detect upstream drift, because the repos are separate. Do not claim otherwise in a docstring.
 - **Test command, exactly this, from the repo root:**
   ```bash

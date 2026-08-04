@@ -1,7 +1,15 @@
 # Corpus question inventory — manual review
 
 **381 variants / 447 turns** across 16 families.
-Generated from `chat_nextseek/e2e/catalog.json` + `nessie_tests/overlay.json` via `corpus.merged()`.
+
+**Historical snapshot — the recipe below no longer runs.** Generated on 2026-07-30 from
+`chat_nextseek/e2e/catalog.json` + `nessie_tests/overlay.json` via `corpus.merged()`, back
+when `merged()` took either source path. Since the 2026-08-04 unification `merged()` reads
+`nessie_tests/corpus.json` and nothing else: `_read_unified` requires `version == 2`, so
+passing an overlay path now raises `ValueError` rather than resolving to zero variants.
+The equivalent today is `corpus.merged()` with no argument, which returns the **283**
+active variants / 314 turns that remain after this review's 100 retirements — a different
+set from the 381 inventoried below, which is the whole point of keeping this file.
 
 Two problems to look for, per the 2026-07-29 review:
 

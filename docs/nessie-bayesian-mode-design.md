@@ -114,8 +114,16 @@ nessie_tests/corpus.json   (is_bayesian: true)
   merge_grades.py -> graded table -> HiBayes posterior
 ```
 
-New modules, all under `nessie_tests/`: `bayes_corpus.py`, `bayesian.py`,
-`collect.py`, `export.py`, and `output-skill-bayesian/`.
+New modules, all under `nessie_tests/`: `bayesian.py`, `collect.py`, `export.py`,
+and `output-skill-bayesian/`.
+
+**Deviation, phase 1 as built (2026-08-04):** this section originally promised a
+`bayes_corpus.py`. There is no such module. The corpus-side functions
+(`bayesian_ids`, `hibayes_meta`, `load_family_defaults`, `merged_from_unified`)
+landed in the existing `nessie_tests/corpus.py` instead, because splitting them
+out would have meant a second reader of `corpus.json` and a second place for the
+`_HIBAYES_KEYS` tuple to drift. Plans 2 and 3 already consume them as
+`corpus.*`; nothing imports `bayes_corpus`.
 
 ## 6. Phase 1: the unified corpus
 
@@ -126,11 +134,22 @@ New modules, all under `nessie_tests/`: `bayes_corpus.py`, `bayesian.py`,
 | `chat_nextseek/e2e/catalog.json` | 366 | vendored |
 | `nessie_tests/overlay.json` | 47 | 30 override a base id, 17 new |
 | `nessie_tests/retired.json` | 100 | 91 from base, 9 overlay-only |
-| `probes/probe-cc-2026-07-31.json` | 13 | inline, in no corpus file |
+| ~~`probes/probe-cc-2026-07-31.json`~~ | ~~13~~ | **NOT absorbed — see below** |
 | **resolved active today** | **283** | of 383 defined, 314 turns |
 
 Plus four non-variant blocks in `overlay.json`: `criterion_rewrites`,
 `route_policy`, `family_floor`, `consistency_groups`.
+
+**Deviation, phase 1 as built (2026-08-04): the probe variants were deliberately
+NOT adopted.** `corpus.json` carries `origin` values `base` (336) and `overlay`
+(47) and nothing else. Adopting the inline variants from the three probe files
+(13 + 7 + 2) would have taken `merged()` to 296 and broken the §6.4 acceptance
+gate, which is the one check that the migration changed no resolved behaviour. A
+gate that the migration itself moves proves nothing, so the gate won and the
+probe files keep their inline variants. They still parse — §6.3's last line holds:
+nothing in the turn schema changed, and `--cases` reads them exactly as before.
+Absorbing them later is a separate, deliberate curation change with its own new
+expected count, not a migration step.
 
 ### 6.2 The constraint that shapes it
 
@@ -192,12 +211,25 @@ So the unified file becomes nessie's source of truth. It does **not** replace
 
 Field decisions:
 
-- **`status`** (`active` / `retired`) replaces `retired.json` entirely. `merged()`
-  filters on it. The retirement record (`reason`, `retired_on`, `decided_by`)
-  moves inline as `retirement`. Reinstating becomes a one-word edit rather than
-  moving a definition between files.
-- **`origin`** (`base` / `overlay` / `probe`) preserves provenance so the drift
-  test knows which variants to compare against upstream.
+- **`status`** (`active` / `retired`) replaces `retired.json` for every RUN path.
+  `merged()` filters on it. The retirement record (`reason`, `retired_on`,
+  `decided_by`) moves inline as `retirement`.
+
+  **Correction, as built (2026-08-04): retirement is hand-owned in one direction
+  only, and reinstating is NOT a one-word edit.** `build_corpus._carry_forward`
+  copies `status: "retired"` (with its `retirement` record) forward, so RETIRING
+  in `corpus.json` survives a rebuild. It has no branch that copies `active`
+  forward, so UN-retiring does not: hand-setting `status: "active"` with
+  `retirement: null` and rebuilding re-derives `retired` out of `retired.json`.
+  Verified on `advanced.find_samples_of_pbmc_type_from`. Reinstatement is a
+  two-file edit — flip the status here AND remove the id from `retired.json` —
+  and `retired.json` therefore remains authoritative in the retire direction
+  rather than being replaced "entirely".
+  `test_a_rebuild_does_not_preserve_a_corpus_json_only_reinstatement` pins it.
+- **`origin`** (`base` / `overlay`) preserves provenance so the drift test knows
+  which variants to compare against upstream. The vocabulary has two values, not
+  three: a `probe` origin was specified but never issued, because the probe
+  variants were not adopted (§6.1).
 - **`is_bayesian`** defaults `false`. `--bayesian` selects on it and nothing else.
 - **Family `defaults` with per-variant override** is how `reporting` becomes
   honest: the family default is `Reporter-Summary` / `AnswerDirectly`, and the
@@ -230,12 +262,18 @@ adopting an upstream change is a deliberate edit.
 
 ### 6.6 Side benefit
 
-This dissolves three of the five findings from the 2026-08-04 review by
+This dissolves two of the five findings from the 2026-08-04 review by
 construction: one loader means finding 3 (`load_overlay` seeing a
-pre-retirement world) cannot recur; one definition per id makes finding 4
-(15 dual-defined variants) impossible; adopting the 13 probe-cc inline variants
-reduces probe files to pure `include_ids` lists, which is finding 1's territory.
-Finding 1 still needs its own test (§10).
+pre-retirement world) cannot recur, and one definition per id makes finding 4
+(15 dual-defined variants) impossible.
+
+A third was expected to fall out of adopting the 13 probe-cc inline variants,
+which would have reduced the probe files to pure `include_ids` lists. **That did
+not happen and was not attempted** — adoption breaks the §6.4 gate (§6.1). The
+probe files still carry 13, 7 and 2 inline variants, so finding 1's territory is
+untouched here and finding 1 keeps its own test (§10), which is what actually
+covers it: `tests/test_probe_files.py` loads every committed probe and fails when
+one names an id the corpus no longer has.
 
 ## 7. Phase 2 and 3: the runner
 

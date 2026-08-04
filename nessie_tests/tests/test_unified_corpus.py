@@ -7,12 +7,16 @@ they compared against sources nothing reads any more.
 
 The GENERATOR PIN went with them too, on the premise that `corpus.json` is
 hand-owned from Task 4 so `build(...) == corpus.json` would fail on correct work.
-That premise turned out to be false. Task 4's carry-forward makes the generator
-read the hand-owned metadata back out of the committed file, so the equality
-holds byte-identically over hand edits -- and while the pin was absent, a rebuild
-silently resurrected a retirement recorded only in `corpus.json` AND brought it
-back flagged for the paid run. The pin is restored below; it would have caught
-that on its own.
+That premise turned out to be false FOR THE CARRIED CATEGORIES. Task 4's
+carry-forward makes the generator read `family_defaults`, the non-null per-variant
+HiBayes overrides, `is_bayesian` and a RETIREMENT back out of the committed file,
+so the equality holds byte-identically over an edit to any of those four -- and
+while the pin was absent, a rebuild silently resurrected a retirement recorded
+only in `corpus.json` AND brought it back flagged for the paid run. The pin is
+restored below; it would have caught that on its own. The other six edit
+categories a curator makes (un-retiring, the four policy blocks, a variant body,
+a hand-added variant, a family description, a hand-added `_why`) do NOT survive a
+rebuild, and the pin's failure message is where that list is spelled out.
 
 What this file covers: the counts, the duplicate-id guard, the retirement
 records, the guarantee that a retired definition is still loadable, the HiBayes
@@ -351,9 +355,15 @@ def test_the_committed_file_matches_what_the_generator_produces():
     """Pins the ARTIFACT to its generator. Restored after Task 4.
 
     It was deleted on the premise that a hand-owned corpus.json could not equal
-    `build(...)`. `_carry_forward` disproved that: the generator reads the
-    hand-owned metadata back out of the committed file, so the equality holds
-    over hand edits and the pin costs nothing.
+    `build(...)`. `_carry_forward` disproved that FOR THE CATEGORIES IT CARRIES:
+    the generator reads those back out of the committed file, so the equality
+    holds over an edit to `family_defaults`, to a non-null per-variant HiBayes
+    override, to `is_bayesian`, or to a RETIREMENT (`status` + `retirement` as a
+    pair). Measured over 8 rebuild experiments on 2026-08-04, that is 4 of the 10
+    edit categories a curator actually makes. The equality does NOT hold over the
+    other six -- un-retiring, the four policy blocks, a variant body change, a
+    hand-added variant, a family description, a hand-added `_why` -- and this test
+    is what tells you which kind you just made, because the six fail here.
 
     Without it, nothing tests that the generator round-trips, and the failure
     that escaped was not hypothetical -- a rebuild re-derived `status` from
@@ -362,8 +372,25 @@ def test_the_committed_file_matches_what_the_generator_produces():
     """
     built = build_corpus.build(corpus._BASE_CATALOG, OVERLAY, RETIRED, UNIFIED)
     assert built == json.loads(UNIFIED.read_text(encoding="utf-8")), (
-        "corpus.json is out of step with build_corpus.py: regenerate with "
-        "`python -m nessie_tests.scripts.build_corpus`, or explain the drift.")
+        "corpus.json is out of step with build_corpus.py.\n"
+        "DO NOT REFLEXIVELY REGENERATE: a rebuild is what DESTROYS a "
+        "non-surviving hand edit, and this failure is how you find out you made "
+        "one. Work out which case you are in first.\n"
+        "SURVIVES a rebuild (so regenerating is safe, and the drift is real "
+        "generator drift): `family_defaults`, the per-variant NON-NULL HiBayes "
+        "overrides, `is_bayesian`, and RETIRING a variant (`status` + "
+        "`retirement` together).\n"
+        "DOES NOT SURVIVE (regenerating silently reverts it): un-retiring a "
+        "variant -- retired.json is still authoritative in that direction, so a "
+        "reinstatement must also drop the id from retired.json; the four policy "
+        "blocks criterion_rewrites / route_policy / family_floor / "
+        "consistency_groups, which are copied from overlay.json and can ONLY be "
+        "changed there, in the file stamped SUPERSEDED; any variant body; a "
+        "variant added only to corpus.json; a family description; a hand-added "
+        "`_why` annotation, which is re-read from the source body.\n"
+        "If the edit is in the first list, regenerate with `python -m "
+        "nessie_tests.scripts.build_corpus`. If it is in the second, move it to "
+        "overlay.json / retired.json and regenerate. Otherwise explain the drift.")
 
 
 def test_a_rebuild_preserves_a_corpus_json_only_retirement(tmp_path):
