@@ -18,6 +18,7 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "common_assays": ["RNA-seq", "bulk RNA", "RNA Sample", "D.SEQ"],
         "default_genome": "GRCh38",
         "default_profile": "docker",
+        "reference_cli_flags": ["genome", "fasta", "gtf"],
         "required_columns": ["sample", "fastq_1", "fastq_2", "strandedness"],
         "samplesheet_input_kind": "fastq",
         "accepted_leaf_sample_types": ["D.SEQ"],
@@ -38,6 +39,7 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "common_assays": ["scRNA-seq", "single cell", "single-cell"],
         "default_genome": "GRCh38",
         "default_profile": "docker",
+        "reference_cli_flags": ["genome", "fasta", "gtf"],
         "required_columns": ["sample", "fastq_1", "fastq_2", "expected_cells"],
         "samplesheet_input_kind": "fastq",
         "accepted_leaf_sample_types": ["D.SEQ"],
@@ -59,6 +61,7 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "common_assays": ["ATAC-seq", "ATAC", "chromatin accessibility"],
         "default_genome": "GRCh38",
         "default_profile": "docker",
+        "reference_cli_flags": ["genome", "fasta", "gtf"],
         "required_columns": ["sample", "fastq_1", "fastq_2", "replicate"],
         "samplesheet_input_kind": "fastq",
         "accepted_leaf_sample_types": ["D.SEQ"],
@@ -79,6 +82,7 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "common_assays": ["ChIP-seq", "ChIP"],
         "default_genome": "GRCh38",
         "default_profile": "docker",
+        "reference_cli_flags": ["genome", "fasta", "gtf"],
         "required_columns": [
             "sample", "fastq_1", "fastq_2", "antibody", "control", "control_replicate",
         ],
@@ -100,6 +104,7 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "common_assays": ["WGS", "WES", "DNA-seq", "variant"],
         "default_genome": "GATK.GRCh38",
         "default_profile": "docker",
+        "reference_cli_flags": ["genome", "fasta"],
         "required_columns": [
             "patient", "sample", "lane", "fastq_1", "fastq_2", "sex", "status",
         ],
@@ -123,6 +128,7 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "common_assays": ["WGBS", "RRBS", "EM-seq", "methylation"],
         "default_genome": "GRCh38",
         "default_profile": "docker",
+        "reference_cli_flags": ["genome", "fasta"],
         "required_columns": ["sample", "fastq_1", "fastq_2"],
         "samplesheet_input_kind": "fastq",
         "accepted_leaf_sample_types": ["D.SEQ"],
@@ -144,6 +150,7 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "common_assays": ["16S", "ITS", "amplicon", "microbiome"],
         "default_genome": None,
         "default_profile": "docker",
+        "reference_cli_flags": [],
         "required_columns": ["sampleID", "forwardReads", "reverseReads"],
         "samplesheet_input_kind": "fastq",
         "accepted_leaf_sample_types": ["D.SEQ"],
@@ -162,6 +169,7 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "common_assays": [],
         "default_genome": None,
         "default_profile": "docker",
+        "reference_cli_flags": [],
         "required_columns": ["accession"],
         "samplesheet_input_kind": "accession",
         "accepted_leaf_sample_types": [],
@@ -169,6 +177,34 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "pipeline_kind_description": (
             "Download FASTQs from SRA/ENA/DDBJ/GEO accessions. Input is "
             "accession strings, not NExtSEEK lineage."
+        ),
+    },
+    "seqinspector": {
+        "repo": "https://github.com/nf-core/seqinspector",
+        "default_revision": "1.1.0",
+        "description": "QC-only inspection of sequencing data (FastQC, seqfu, sequali, fastq_screen).",
+        # Deliberately broad: seqinspector is assay-agnostic QC, so it is a valid
+        # target for ANY D.SEQ cohort rather than one library type.
+        "common_assays": ["QC", "sequencing QC", "RNA-seq", "scRNA-seq", "ATAC-seq",
+                          "ChIP-seq", "WGS", "WES", "D.SEQ"],
+        # No genome. seqinspector's reference options are all optional; without one it
+        # skips the BWAMEM2 alignment step and the tools that depend on it, which is
+        # exactly what we want — the alignment path would need a bwamem2 index, and
+        # the Luria refs tree carries only fasta+gtf (no indices).
+        "default_genome": None,
+        "reference_cli_flags": [],
+        "default_profile": "singularity",
+        "required_columns": ["sample", "fastq_1", "fastq_2"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        # Intentionally empty: QC applies to every assay, so gating on assay title
+        # would only ever produce false negatives.
+        "accepted_assay_patterns": [],
+        "pipeline_kind_description": (
+            "Quality-control inspection of raw sequencing reads. Needs FASTQ and "
+            "nothing else — no genome, no index. Produces MultiQC reports, globally "
+            "and per tag group. Use it to triage a cohort before committing to a "
+            "full analysis pipeline, or to audit data already in NExtSEEK."
         ),
     },
 }

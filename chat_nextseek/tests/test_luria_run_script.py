@@ -341,3 +341,50 @@ def test_render_fetch_block_rejects_bad_cache():
 def test_render_fetch_block_rejects_bad_revision():
     with pytest.raises(ValueError):
         _render(needs_fetch=True, fastq_cache="/w/fastq_cache", fetchngs_revision="1.12.0; evil")
+
+
+# --- reference CLI flags are gated on the pipeline's own schema -----------------
+# nf-schema ABORTS a run on an unrecognised param, so the reference flags cannot be
+# emitted unconditionally: methylseq/sarek/seqinspector have no `gtf` param and
+# ampliseq declares none of genome/fasta/gtf.
+
+def _cmd(out):
+    """Just the `nextflow run` invocation — comments mention flag names too."""
+    return out.split("nextflow run", 1)[1].split("conda deactivate")[0]
+
+
+def test_reference_flags_none_keeps_all_three():
+    # Back-compat: callers predating the catalog field still get genome+fasta+gtf.
+    cmd = _cmd(_render(reference_cli_flags=None))
+    assert "--genome" in cmd and "--fasta" in cmd and "--gtf" in cmd
+
+
+def test_reference_flags_drops_gtf_when_schema_lacks_it():
+    # methylseq / sarek / seqinspector: fasta yes, gtf would kill the run.
+    cmd = _cmd(_render(reference_cli_flags=["genome", "fasta"]))
+    assert "--genome" in cmd and "--fasta" in cmd
+    assert "--gtf" not in cmd
+
+
+def test_reference_flags_empty_emits_no_reference_flags():
+    # ampliseq / seqinspector: the schema declares none of the three.
+    cmd = _cmd(_render(reference_cli_flags=[]))
+    assert "--genome" not in cmd and "--fasta" not in cmd and "--gtf" not in cmd
+    assert "--input samplesheet.csv" in cmd          # the run is still well-formed
+    assert "--outdir ." in cmd
+
+
+def test_catalog_reference_flags_match_each_pipeline_schema():
+    # Guards the catalog against drift: every entry must declare the subset it accepts,
+    # and it must be a subset of the three flags run.sh knows how to emit.
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
+    for key, entry in NFCORE_PIPELINE_CATALOG.items():
+        flags = entry.get("reference_cli_flags")
+        assert flags is not None, f"{key} is missing reference_cli_flags"
+        assert set(flags) <= {"genome", "fasta", "gtf"}, f"{key} declares an unknown flag: {flags}"
+    # Verified against each pinned revision's nextflow_schema.json on 2026-08-04.
+    assert NFCORE_PIPELINE_CATALOG["rnaseq"]["reference_cli_flags"] == ["genome", "fasta", "gtf"]
+    assert NFCORE_PIPELINE_CATALOG["sarek"]["reference_cli_flags"] == ["genome", "fasta"]
+    assert NFCORE_PIPELINE_CATALOG["methylseq"]["reference_cli_flags"] == ["genome", "fasta"]
+    assert NFCORE_PIPELINE_CATALOG["ampliseq"]["reference_cli_flags"] == []
+    assert NFCORE_PIPELINE_CATALOG["seqinspector"]["reference_cli_flags"] == []

@@ -31,15 +31,16 @@ cd {{RUN_DIR}}
 
 # Per-pipeline scientific params come from params.yml (built from the curated
 # per-pipeline JSON in reports/templates/nfcore/); local reference genomes come
-# from luria.config (-c). The CLI flags below (--input/--outdir/--genome)
+# from luria.config (-c). The CLI flags below (--input/--outdir + REFS_FLAGS)
 # override params.yml so the run uses the staged samplesheet, this run dir, and
-# the species-resolved genome key.
+# the species-resolved genome key. REFS_FLAGS carries only the reference flags
+# this pipeline's schema declares (genome / fasta / gtf) — nf-schema aborts the
+# run on an unrecognised param, so they cannot be emitted unconditionally.
 nextflow run {{PIPELINE}}{{REVISION_FLAG}} -profile singularity \
     -c luria.config \
     -params-file params.yml \
     --input samplesheet.csv \
     --outdir . \
-    --genome {{GENOME}} \
     {{REFS_FLAGS}} \
     -w {{WORK_DIR}} \
     -resume

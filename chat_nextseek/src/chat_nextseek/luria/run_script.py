@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Sequence
 
 # Operator-specific slots. Both land inside a shell script executed on Luria, so
 # both are allow-listed fail-closed like every other slot in this module.
@@ -286,12 +287,22 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
                       resources: dict | None, refs_root: str | None = None,
                       aligner: str | None = None, working: str | None = None,
                       needs_fetch: bool = False, fastq_cache: str | None = None,
-                      fetchngs_revision: str = "1.12.0") -> str:
+                      fetchngs_revision: str = "1.12.0",
+                      reference_cli_flags: Sequence[str] | None = None) -> str:
     """Substitute the validated slots into the fixed run.sh template. When `refs_root` is given
     and `genome` has local refs registered (LURIA_GENOMES), explicit --fasta/--gtf flags are
     injected (path > iGenomes globally; the genomes-map resolution is unreliable). When
     (pipeline, aligner) has a vendored clone registered (LURIA_VENDORED_PIPELINES) and `working`
-    is given, the run uses that local clone with NO `-r` (else the tag checkout wipes the patches)."""
+    is given, the run uses that local clone with NO `-r` (else the tag checkout wipes the patches).
+
+    ``reference_cli_flags`` is the subset of ``{genome, fasta, gtf}`` the pipeline's
+    nextflow_schema.json actually declares (catalog field of the same name). Only those
+    are emitted. This is NOT cosmetic: nf-schema **fails the run** on an unrecognised
+    param, so passing --gtf to a pipeline without a gtf param (methylseq, sarek,
+    seqinspector) aborts it at validation, and ampliseq declares none of the three.
+    ``None`` means "emit all three", preserving the historical behaviour for callers
+    that predate the field.
+    """
     revision = validate_revision(revision)
     pipeline = validate_pipeline(pipeline)
     genome = validate_genome(genome)
@@ -299,13 +310,20 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
     source, rev = resolve_pipeline_source(pipeline, aligner, revision, working)
     source = validate_pipeline(source)          # clone path or stock name; both match _PIPELINE_RE
     revision_flag = f" {rev}" if rev else ""     # leading space only when present -> no double space
-    refs_flags = ""
+    accepts = {"genome", "fasta", "gtf"} if reference_cli_flags is None else set(reference_cli_flags)
+    flags: list[str] = []
+    if "genome" in accepts:
+        flags.append(f"--genome {genome}")
     if refs_root:
         if not _REFS_ROOT_RE.fullmatch(str(refs_root)):
             raise ValueError(f"invalid refs_root {refs_root!r}")
         fasta, gtf = genome_ref_paths(genome, refs_root)
-        if fasta and gtf:
-            refs_flags = f"--fasta {fasta} --gtf {gtf}"
+        # genome_ref_paths returns both or neither; gate each on the pipeline's schema.
+        if fasta and "fasta" in accepts:
+            flags.append(f"--fasta {fasta}")
+        if gtf and "gtf" in accepts:
+            flags.append(f"--gtf {gtf}")
+    refs_flags = " ".join(flags)
     fetchngs_block = ""
     if needs_fetch:
         if not fastq_cache or not _REFS_ROOT_RE.fullmatch(str(fastq_cache)):

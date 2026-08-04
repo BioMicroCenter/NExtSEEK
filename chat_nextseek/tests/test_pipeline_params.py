@@ -164,3 +164,50 @@ def test_build_run_params_strips_input_and_outdir():
         "rnaseq", agent_params={"input": "/x.csv", "outdir": "/out"}, bundle_key="GRCm39")
     assert "input" not in merged and "outdir" not in merged
     assert errors == []
+
+
+# --- seqinspector: QC-only, reference-free -------------------------------------
+
+def test_seqinspector_template_is_reference_free_and_well_formed():
+    doc = _load("seqinspector")
+    assert doc["report_type"] == "NFCORE_SEQINSPECTOR_SAMPLESHEET"
+    # The whole point of this pipeline as a first Tier-1 add: it needs no reference.
+    # The Luria refs tree carries only fasta+gtf (no bwamem2 index), so requesting
+    # the alignment-dependent tools would force a per-run index build.
+    assert doc["reference_resources"] == []
+    assert doc["pipeline"]["required_columns"] == ["sample", "fastq_1", "fastq_2"]
+    assert doc["pipeline"]["optional_columns"] == ["rundir", "tags"]
+    for key, spec in doc["params"].items():
+        assert "type" in spec and "default" in spec and "steerable" in spec, key
+    # Pinned-schema facts that would silently rot if the revision moved.
+    assert doc["params"]["sample_size"]["default"] == 0
+    assert doc["params"]["continue_with_lint_fail"]["default"] is True
+    assert doc["params"]["tools_bundle"]["default"] == "default"
+
+
+def test_seqinspector_is_registered_everywhere_a_pipeline_key_must_be():
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG, get_pipeline_entry
+    from chat_nextseek.reports.templates_meta import (
+        get_report_template_basename, nfcore_pipeline_from_report_type, normalize_report_type,
+    )
+    entry = get_pipeline_entry("seqinspector")
+    assert entry["default_revision"] == "1.1.0"
+    assert entry["accepted_leaf_sample_types"] == ["D.SEQ"]
+    assert entry["samplesheet_input_kind"] == "fastq"
+    assert entry["default_genome"] is None
+    assert "seqinspector" in NFCORE_PIPELINE_CATALOG
+    # Report-type aliases resolve to the pipeline key and its template basename.
+    for alias in ("NFCORE_SEQINSPECTOR", "nf-core seqinspector", "NFCORE_SEQINSPECTOR_SAMPLESHEET"):
+        assert normalize_report_type(alias) == "NFCORE_SEQINSPECTOR"
+        assert nfcore_pipeline_from_report_type(alias) == "seqinspector"
+        assert get_report_template_basename(alias) == "nfcore/seqinspector"
+
+
+def test_every_catalog_pipeline_has_a_loadable_template():
+    # A catalog entry whose template is missing fails at launch, not at import —
+    # so assert the pairing here instead of discovering it on Luria.
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
+    for key in NFCORE_PIPELINE_CATALOG:
+        doc = _load(key)
+        assert doc.get("params") is not None, f"{key} template has no params block"
+        assert doc.get("reference_resources") is not None, f"{key} template has no reference_resources"
