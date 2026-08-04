@@ -200,6 +200,25 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     return metas
 
 
+def _emit_ns_run_root(send_event, session) -> None:
+    """Publish the NS engine's per-turn output directory to the event stream.
+
+    `run_root` is set into the chat_nextseek session dict by the orchestrator and
+    otherwise never leaves it, so a test harness or a support request cannot join
+    a task_id to its console.txt, api_requests.json or files/.
+
+    Deliberately total: this is instrumentation, and instrumentation must never be
+    able to fail a real user's turn. A session object that raises, or one with no
+    run_root, emits nothing.
+    """
+    try:
+        run_root = session.get("run_root_dir") if session is not None else None
+    except Exception:
+        return
+    if run_root:
+        send_event("ns_run_root", {"run_root": str(run_root)})
+
+
 def _prev_route_was_cc(history: list[router_context.HistoryTurn] | None) -> bool:
     """True when the most recent ENGINE-RUNNING turn in this chat ran CC and completed.
 
@@ -427,6 +446,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         run_query_plan(adapter, chat_config, req.query, send_event, credentials=creds)
                     else:
                         run_query(adapter, chat_config, req.query, send_event, credentials=creds)
+                    _emit_ns_run_root(send_event, adapter)
                 else:
                     ok, detail = cc_engine.cc_runner_available()
                     if not ok:
