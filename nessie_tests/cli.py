@@ -16,8 +16,9 @@ EXIT_CODES = """exit codes
   3  --bayesian: the budget ceiling was reached. MONEY WAS SPENT and every
      completed arm is on disk; rerun with a higher --max-usd and --resume.
   4  --bayesian: refused, --out already holds a paired run. Nothing was billed.
-  5  --bayesian: refused, the server did not honour force_route. The preflight's
-     own probe turn WAS sent, so one turn was billed; no paired arm was.
+  5  --bayesian: the preflight refused the run -- the server did not honour
+     force_route, or its image emits no ns_run_root event. The preflight's own
+     probe turn WAS sent, so one turn was billed; no paired arm was.
   6  --bayesian: refused, the corpus changed under a --resume. Nothing was billed.
   7  --bayesian: could not talk to --base-url. Any completed arms are on disk.
   8  --bayesian: refused, --resume was given but --out holds no paired run to
@@ -185,7 +186,11 @@ def _run_bayesian(a, auth, supplied) -> int:
     # the normal run's cost line below reports `unmeasured` rather than $0.00.
     # Claiming $0 here would be the one claim `manifest.cost_summary` refuses to
     # make. One probe turn was sent; the run's ~322 arms were not.
-    except preflight.ForceRouteRejected as e:
+    # The BASE class, so both refusals land here: a dropped force_route and an
+    # endpoint whose image predates the ns_run_root event. Different remedies,
+    # carried in the exception's own message; identical consequence, which is
+    # what an exit code encodes -- refused, one probe turn billed, no paired arm.
+    except preflight.PreflightRefused as e:
         print("nessie: preflight refused the run, no paired arm was billed (exit 5).")
         print(f"nessie: {e}")
         print("nessie: the preflight's own probe turn WAS sent to the endpoint and "

@@ -332,6 +332,11 @@ def test_bayesian_points_at_the_paired_manifest_not_the_normal_one(monkeypatch, 
      ["130 pair(s)", "nothing was billed"]),
     (preflight.ForceRouteRejected("force_route was not honoured"), 5,
      ["force_route was not honoured", "no paired arm was billed"]),
+    # The SAME exit: refused, one probe turn billed, no paired arm. A different
+    # remedy, which is in the message rather than in the code -- a wrapper acts
+    # on "refused before the run" identically either way.
+    (preflight.NsRunRootMissing("no ns_run_root event: ./startup.sh rebuild"), 5,
+     ["./startup.sh rebuild", "no paired arm was billed"]),
     (bayesian.CorpusChanged("prior fingerprint 'a', current 'b'"), 6,
      ["prior fingerprint 'a'", "nothing was billed"]),
     (urllib.error.URLError("[Errno 111] Connection refused"), 7,
