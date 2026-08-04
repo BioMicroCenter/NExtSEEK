@@ -13,9 +13,10 @@
     "advanced.find_me_mice / pbct.* / sys.what_kinds_of_reports_can_i_ge": "All passed; unaffected."
   },
   "_note_consistency": "cons.nhp_sequencing_engine will run anyway: nessie.py sets run_consistency = opts['consistency'] or tier == 'full', and there is no way to switch it off. Two cheap NS turns, ~$0.02, and it re-confirms the 408.",
+  "_note": "repro.cypher_uid_dot was retired 2026-07-30 (issue #35 review, round 2). Its slot here is now advanced.basic_ndma so the running order keeps a search case. The behaviours it caught stay covered by chat_nextseek/tests/test_graph_canonical_uid.py and test_graph_property_guard.py.",
 
   "include_ids": [
-    "repro.cypher_uid_dot",
+    "advanced.basic_ndma",
     "write.export_all_metadata_for_nhp_22"
   ],
 

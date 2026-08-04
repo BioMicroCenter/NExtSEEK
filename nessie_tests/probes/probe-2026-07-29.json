@@ -9,9 +9,10 @@
   ],
   "_criteria_note": "Probe criteria are deliberately loose on the NEW families. We do not yet know what good output looks like for harmonization or reingest, and writing tight criteria from zero runs is exactly how the corpus got into the state issue #35 describes. Assert route and non-empty reply now; tighten from observed output afterwards.",
   "_cost_note": "6 CC-routed turns here. Task 957 hit error_max_budget_usd on ONE bulk export, so CC turns are the expensive ones. Do not add more without checking the budget cap.",
+  "_note": "repro.cypher_uid_dot was retired 2026-07-30 (issue #35 review, round 2). Its slot here is now advanced.basic_ndma so the running order keeps a search case. The behaviours it caught stay covered by chat_nextseek/tests/test_graph_canonical_uid.py and test_graph_property_guard.py.",
 
   "include_ids": [
-    "repro.cypher_uid_dot",
+    "advanced.basic_ndma",
     "advanced.find_me_mice",
     "pbct.find_me_monkeys_that_have_both_2",
     "sys.what_kinds_of_reports_can_i_ge",
