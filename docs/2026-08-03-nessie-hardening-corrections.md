@@ -73,6 +73,38 @@ uv run --no-project --with pytest --with pydantic --with requests --with beautif
 813, so the count is different (431 at the time it was measured). Use the presence of
 `ModuleNotFoundError: bs4` in the recorded reason, not a failure count.
 
+## 3b. A "correction" that was itself wrong
+
+**Retracted 2026-08-04.** While this work was being planned, `nessie-orientation.md`'s
+claim that "both `probe-2026-07-29*.json` raise `ValueError` on load" was reported to
+the operator as stale and untrue. **The orientation document was right.** The claim
+never reached this file, but it was acted on in conversation, so it is recorded here.
+
+Both probes do raise:
+
+```
+ValueError: --cases include_ids not found in the corpus: ['repro.cypher_uid_dot']
+```
+
+The mistake was in how it was checked. `corpus.load_case_file()` parses the file and
+does **not** resolve ids, so all three probes "load" fine. Resolution happens in
+`corpus.select_cases(variants, include_ids, inline)`, which is where the raise comes
+from. The original check called `select_cases` with keyword arguments that do not
+match its signature, got a `TypeError`, and never retried — then reported the files
+as healthy.
+
+`repro.cypher_uid_dot` was retired in the issue-#35 pass, and no test covers
+`include_ids` resolution, so nothing caught it.
+
+**`probes/probe-cc-2026-07-31.json` is unaffected** and resolves to its 13 cases. It
+carries no `include_ids` at all, only inline variants. The CC probe run is not blocked.
+
+Found by an independent review of `nessie_tests` on 2026-08-04, recorded in
+`.claude/reports/2026-08-04-nessie-tests-hardening-review.json`. The lesson is the
+same one this file already documents: a check that fails for the wrong reason is not
+a check. A `TypeError` from a bad call signature says nothing about the thing being
+tested.
+
 ## 4. Citation errors
 
 | document | claim | reality |
