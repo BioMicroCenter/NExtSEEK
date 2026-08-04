@@ -88,3 +88,75 @@ def test_the_committed_file_matches_what_the_generator_produces():
     assert built == json.loads(UNIFIED.read_text(encoding="utf-8")), (
         "corpus.json is out of step with build_corpus.py: regenerate with "
         "`python -m nessie_tests.scripts.build_corpus`, or explain the drift.")
+
+
+def _key(v):
+    """Everything about a variant that any caller can observe."""
+    return (v.family, v.id, v.name, sorted(v.tags), sorted(v.requires_env),
+            [(t.label, t.query, [(c.field, c.op, c.value) for c in t.pass_criteria])
+             for t in v.turns])
+
+
+def test_load_unified_returns_the_active_variants_only():
+    active = corpus.load_unified(UNIFIED)
+    assert len(active) == 283
+
+
+def test_load_all_definitions_returns_active_plus_retired():
+    assert len(corpus.load_all_definitions(UNIFIED)) == 383
+
+
+def test_unified_resolves_to_the_same_content_as_the_three_file_corpus():
+    """THE safety property: same 283 variants, same criteria, same everything.
+
+    Compared SORTED BY ID, not in list order. Global flat order is genuinely
+    unreproducible here and that is a property of the old format, not a defect in
+    the new one: `corpus.merged` appends overlay-only variants at the end of the
+    WHOLE list, so `writes_unsupported` occupies merged() idx 247-249 (its base
+    members) AND 281-282 (its overlay-only members), with refine_and_recall in
+    between. A JSON object cannot hold two blocks of one name, and a block
+    flattens to one contiguous run. Measured 2026-08-04: 2 active variants are
+    genuinely displaced, 31 more are their shift cascade.
+
+    Nothing reads global order but the loop that runs the cases. The ordering that
+    IS consumed -- `corpus.sample` buckets on v.family then draws with rng.sample
+    -- is within-family, and the next test pins it.
+    """
+    old = corpus.merged(OVERLAY)
+    new = corpus.merged_from_unified(UNIFIED)
+    assert len(new) == len(old) == 283
+    assert {v.id for v in new} == {v.id for v in old}
+    assert sorted(_key(v) for v in new) == sorted(_key(v) for v in old)
+
+
+def test_within_family_order_is_preserved_because_sampling_consumes_it():
+    """`corpus.sample` draws `rng.sample(vs, k)` from each family's list, so a
+    reordering inside a family silently changes every seeded case set even though
+    the corpus content is identical. This is the ordering that actually matters."""
+    def by_family(vs):
+        out = {}
+        for v in vs:
+            out.setdefault(v.family, []).append(v.id)
+        return out
+    assert by_family(corpus.merged_from_unified(UNIFIED)) == by_family(corpus.merged(OVERLAY))
+
+
+def test_seeded_sampling_is_unchanged_by_the_migration():
+    """The end-to-end consequence of the previous two, stated as the thing an
+    operator would actually notice: the same seed picks the same cases."""
+    for seed in (0, 6):
+        a = [v.id for v in corpus.sample(corpus.merged_from_unified(UNIFIED), 0.1, seed)]
+        b = [v.id for v in corpus.sample(corpus.merged(OVERLAY), 0.1, seed)]
+        assert a == b, f"seed {seed} selects a different case set after migration"
+
+
+def test_unified_resolution_preserves_turn_count():
+    assert sum(len(v.turns) for v in corpus.merged_from_unified(UNIFIED)) == 314
+
+
+def test_variant_meta_covers_every_definition():
+    meta = corpus.variant_meta(UNIFIED)
+    assert len(meta) == 383
+    assert meta["repro.cypher_uid_dot"]["status"] == "retired"
+    assert meta["green.mus_ndma"]["status"] == "active"
+    assert meta["green.mus_ndma"]["is_bayesian"] is False

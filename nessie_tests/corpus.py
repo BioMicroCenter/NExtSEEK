@@ -36,6 +36,69 @@ def load_overlay(path: Path) -> list[Variant]:
     return _flatten(load_catalog(path), "overlay")
 
 
+_UNIFIED = Path(__file__).resolve().parent / "corpus.json"
+
+# The keys that are nessie metadata rather than part of the e2e Variant schema.
+# Stripped before handing a variant to the vendored `Variant` model, which is
+# strict about its own fields.
+_META_KEYS = ("status", "origin", "is_bayesian", "hibayes_subtype",
+              "expected_behavior", "artifact_expected", "artifact_kind", "retirement")
+
+
+def _read_unified(path=None) -> dict:
+    return json.loads(Path(path or _UNIFIED).read_text(encoding="utf-8"))
+
+
+def _to_variants(payload: dict, *, include_retired: bool) -> list[Variant]:
+    out: list[Variant] = []
+    for fam_name, fam in payload["families"].items():
+        for raw in fam["variants"]:
+            if not include_retired and raw.get("status") != "active":
+                continue
+            body = {k: val for k, val in raw.items() if k not in _META_KEYS}
+            # Declared family wins; the nesting key is only a fallback. See the
+            # comment in build_corpus._variant_dict for the 7 variants where they
+            # differ and why sampling depends on getting this right.
+            body["family"] = raw.get("family") or fam_name
+            # `origin` becomes the source tag the rest of the harness already
+            # reads off `tags`, so nothing downstream has to learn a new field.
+            tag = raw.get("origin", "base")
+            body["tags"] = [*body.get("tags", []), tag] if tag not in body.get("tags", []) \
+                else list(body.get("tags", []))
+            out.append(Variant.model_validate(body))
+    return out
+
+
+def load_unified(path=None) -> list[Variant]:
+    """Active variants from the unified corpus, in file order."""
+    return _to_variants(_read_unified(path), include_retired=False)
+
+
+def load_all_definitions(path=None) -> list[Variant]:
+    """Active AND retired. For tests that must inspect a retired definition."""
+    return _to_variants(_read_unified(path), include_retired=True)
+
+
+def variant_meta(path=None) -> dict[str, dict]:
+    """id -> the nessie metadata block, for every definition including retired."""
+    payload = _read_unified(path)
+    return {raw["id"]: {k: raw.get(k) for k in _META_KEYS}
+            for fam in payload["families"].values() for raw in fam["variants"]}
+
+
+def merged_from_unified(path=None) -> list[Variant]:
+    """`merged()` over the unified corpus. Same pipeline, one source.
+
+    No base-versus-overlay merge step, because there is one definition per id.
+    No retirement filter step either: `load_unified` already excludes them.
+    """
+    payload = _read_unified(path)
+    out = load_unified(path)
+    out = apply_criterion_rewrites(out, payload.get("criterion_rewrites", {}))
+    out = apply_route_policy(out, payload.get("route_policy", {}))
+    return apply_family_floor(out, payload.get("family_floor", {}))
+
+
 def load_consistency_groups(path) -> list[dict]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     return payload.get("consistency_groups", [])
