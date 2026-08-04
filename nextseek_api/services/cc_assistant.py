@@ -203,20 +203,24 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
 def _emit_ns_run_root(send_event, session) -> None:
     """Publish the NS engine's per-turn output directory to the event stream.
 
-    `run_root` is set into the chat_nextseek session dict by the orchestrator and
-    otherwise never leaves it, so a test harness or a support request cannot join
-    a task_id to its console.txt, api_requests.json or files/.
+    `run_root` is set into the chat_nextseek session dict by the orchestrator
+    (orchestrator.py:339) and otherwise never leaves it, so a test harness or a
+    support request cannot join a task_id to its console.txt, api_requests.json
+    or files/.
 
     Deliberately total: this is instrumentation, and instrumentation must never be
-    able to fail a real user's turn. A session object that raises, or one with no
-    run_root, emits nothing.
+    able to fail a real user's turn. A session object that raises, a session with
+    no run_root, or a send_event that raises all emit nothing and return quietly.
+    The send_event call is inside the guard because the caller invokes this from a
+    `finally`, where an escaping exception would REPLACE the in-flight one and so
+    destroy the real error the user needs to see.
     """
     try:
         run_root = session.get("run_root_dir") if session is not None else None
+        if run_root:
+            send_event("ns_run_root", {"run_root": str(run_root)})
     except Exception:
         return
-    if run_root:
-        send_event("ns_run_root", {"run_root": str(run_root)})
 
 
 def _prev_route_was_cc(history: list[router_context.HistoryTurn] | None) -> bool:
@@ -442,11 +446,22 @@ class CCAssistantViewSet(viewsets.ViewSet):
                 if decision.route == cc_router.ROUTE_NS:
                     ran_ns = True
                     creds = {"api_user": api_user, "api_pass": api_pass}
-                    if mode == "plan":
-                        run_query_plan(adapter, chat_config, req.query, send_event, credentials=creds)
-                    else:
-                        run_query(adapter, chat_config, req.query, send_event, credentials=creds)
-                    _emit_ns_run_root(send_event, adapter)
+                    try:
+                        if mode == "plan":
+                            run_query_plan(adapter, chat_config, req.query, send_event, credentials=creds)
+                        else:
+                            run_query(adapter, chat_config, req.query, send_event, credentials=creds)
+                    finally:
+                        # In a `finally` deliberately. run_query writes run_root_dir
+                        # into the session three statements in (orchestrator.py:620),
+                        # long before anything can fail, and it re-raises anything
+                        # that is not an LLMFatalError. So a turn that RAISED still
+                        # left a populated outputs/<ts>_<user>/ behind -- and that is
+                        # exactly the turn whose console.txt a collector or a support
+                        # request most needs. The join key has to survive the raise.
+                        # _emit_ns_run_root is total, so it cannot mask the in-flight
+                        # exception on its way out.
+                        _emit_ns_run_root(send_event, adapter)
                 else:
                     ok, detail = cc_engine.cc_runner_available()
                     if not ok:

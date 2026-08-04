@@ -1,7 +1,7 @@
 """The NS engine's run_root must reach the event stream.
 
 Without it nothing can join a turn to its outputs/<ts>_<user>/ directory:
-run_root lives only in the chat_nextseek session dict (orchestrator.py:335) and
+run_root lives only in the chat_nextseek session dict (orchestrator.py:339) and
 QueryTask has no field for it. The collector's fallback is a timestamp window,
 which is only unambiguous while runs are strictly sequential.
 
@@ -35,3 +35,13 @@ def test_a_broken_session_object_never_breaks_the_turn():
     events = []
     svc._emit_ns_run_root(lambda e, d: events.append((e, d)), Hostile())
     assert events == []
+
+
+def test_a_raising_send_event_never_breaks_the_turn():
+    """The caller emits from a `finally`. An exception escaping this helper there
+    would REPLACE the in-flight exception, so a broken event bus would destroy the
+    real error instead of merely failing to record the join key."""
+    def exploding_send_event(_e, _d):
+        raise RuntimeError("event bus down")
+
+    svc._emit_ns_run_root(exploding_send_event, {"run_root_dir": "/app/outputs/x"})

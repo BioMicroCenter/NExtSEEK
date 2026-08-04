@@ -3,6 +3,7 @@ see. Runs ONLY in the repo-mounted container lane (within-chat-lane.sh).
 Select with -k within_chat_db (module name carries the marker token)."""
 from __future__ import annotations
 
+import logging
 import time
 from unittest.mock import patch
 
@@ -441,3 +442,85 @@ def test_within_chat_db_plan_mode_error_leaves_trace(client, monkeypatch):
     _wait_terminal(tid)
     log = ChatSession.objects.get(session_id=sid).extra_state["chat_log"]
     assert log[-1]["status"] == "error" and log[-1]["mode"] == "error_plan_pipeline"
+
+
+# --------------------------------------------------------------- ns_run_root
+# The hermetic tests in test_ns_run_root_event.py call _emit_ns_run_root
+# directly, so they cannot see the CALL SITE. A helper that is perfectly tested
+# and never correctly called reads as covered while being dead: the original
+# brief named the session `ns_session`, which does not exist in that scope, and
+# would have NameError'd on every NS turn with the hermetic suite fully green.
+# These two drive the real endpoint down the NS branch instead.
+
+def _progress_events(task_id, name):
+    return [e for e in (QueryTask.objects.get(task_id=task_id).progress or [])
+            if e["event"] == name]
+
+
+def test_within_chat_db_ns_run_root_reaches_the_event_stream(client, monkeypatch):
+    """A successful NS turn publishes the run_root the session carries, so a
+    collector can join the task_id to its outputs/<ts>_<user>/ directory."""
+    from nextseek_api.services import cc_assistant as svc
+
+    monkeypatch.setattr(
+        cc_router, "_baml_decision", lambda q, h=None: _decision(cc_router.ROUTE_NS)
+    )
+
+    def fake_run_query(session, config, query, send_event, credentials=None):
+        # Mirrors orchestrator._ensure_query_log_dir, which writes this key
+        # three statements into run_query.
+        session["run_root_dir"] = "/app/outputs/260804_101500_wc-user"
+        send_event("query_complete", {"reply": "ok", "bundle_id": None})
+
+    monkeypatch.setattr(svc, "run_query", fake_run_query)
+
+    tid, _ = _post_query(client, "how many mice")
+    _wait_terminal(tid)
+
+    assert _progress_events(tid, "ns_run_root") == [
+        {"event": "ns_run_root",
+         "data": {"run_root": "/app/outputs/260804_101500_wc-user"}}
+    ]
+
+
+def test_within_chat_db_ns_run_root_survives_a_raising_orchestrator(
+    client, monkeypatch, caplog
+):
+    """The turn a collector most needs is the one that BLEW UP -- run_root_dir is
+    written before anything can fail, so the directory exists and holds a
+    console.txt. The emit therefore lives in a `finally`.
+
+    Second half matters as much as the first: instrumentation must not swallow a
+    real failure, so the original RuntimeError must still propagate out of the NS
+    branch unchanged and be the exception the catch-all logs."""
+    from nextseek_api.services import cc_assistant as svc
+
+    monkeypatch.setattr(
+        cc_router, "_baml_decision", lambda q, h=None: _decision(cc_router.ROUTE_NS)
+    )
+
+    def exploding_run_query(session, config, query, send_event, credentials=None):
+        session["run_root_dir"] = "/app/outputs/260804_101500_wc-user"
+        raise RuntimeError("graph agent exploded")
+
+    monkeypatch.setattr(svc, "run_query", exploding_run_query)
+
+    with caplog.at_level(logging.ERROR, logger="nextseek_api.services.cc_assistant"):
+        tid, _ = _post_query(client, "how many mice")
+        _wait_terminal(tid)
+
+    # 1. The join key survived the raise.
+    assert _progress_events(tid, "ns_run_root") == [
+        {"event": "ns_run_root",
+         "data": {"run_root": "/app/outputs/260804_101500_wc-user"}}
+    ]
+
+    # 2. The original exception propagated UNCHANGED -- not swallowed by the
+    #    finally, and not replaced by one raised from inside it.
+    logged = [r for r in caplog.records if r.msg == "cc-assistant pipeline error"]
+    assert len(logged) == 1, "the catch-all did not see the exception"
+    exc = logged[0].exc_info[1]
+    assert type(exc) is RuntimeError and str(exc) == "graph agent exploded"
+
+    # 3. And the turn is still reported as failed to the user.
+    assert QueryTask.objects.get(task_id=tid).status == "error"
