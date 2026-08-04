@@ -1,6 +1,6 @@
 {
   "version": "1.1",
-  "_note": "SUPERSEDED 2026-08-04. Not an input any more; nessie_tests reads corpus.json. Kept only as a hand-diffable record of the pre-adoption corpus. Editing this file has NO effect on any run.",
+  "_note": "SUPERSEDED 2026-08-04. Not read at RUN time; nessie_tests reads corpus.json. But STILL AN INPUT TO A REBUILD: `python -m nessie_tests.scripts.build_corpus` re-reads variant bodies, `_why` annotations and the four policy blocks below (criterion_rewrites, route_policy, family_floor, consistency_groups) out of this file, so an edit here DOES change a regenerated corpus.json. Those are the things that can ONLY be changed here. Workflow: edit, rebuild to a scratch path, diff, adopt.",
   "families": {
     "nessie_route": {
       "description": "Top-level router assertions (route tier, no seed data needed)",

@@ -1,6 +1,6 @@
 {
  "version": "1",
- "_note": "SUPERSEDED 2026-08-04. Not an input any more; nessie_tests reads corpus.json. Kept only as a hand-diffable record of the pre-adoption corpus. Editing this file has NO effect on any run.",
+ "_note": "SUPERSEDED 2026-08-04. Not read at RUN time; nessie_tests reads corpus.json, where retirement is a `status` flip. But STILL AN INPUT TO A REBUILD, and still authoritative in the RETIRE direction: `python -m nessie_tests.scripts.build_corpus` re-derives status from this list, so adding an id here retires it in a regenerated corpus.json. The carry is one-directional, so REINSTATING a variant is a two-file edit: drop the id from here AND clear `status`/`retirement` in corpus.json, or the rebuild puts it back.",
  "retired": {
   "advanced.find_me_nhp_samples_from_study": {
    "reason": "false premise: GBM does not exist as a Study, an Investigation, or in any sample json_metadata. Verified against Neo4j and seek_production 2026-07-30. The only correct answer is zero, so the question cannot tell a working system from a broken one.",
