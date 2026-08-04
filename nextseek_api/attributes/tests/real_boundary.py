@@ -206,7 +206,8 @@ class SqlTelemetry:
         token = self._next_token
         self._next_token += 1
         self._open[token] = {"thread_id": thread_id, "start_event": start_event,
-                             "baseline_bytes": baseline_bytes, "expected_markers": []}
+                             "baseline_bytes": baseline_bytes, "expected_markers": [],
+                             "expected_expansions": []}
         return token
 
     @contextmanager
@@ -235,6 +236,13 @@ class SqlTelemetry:
         state = self._open[token]
         marker = f"/*attribute-telemetry-{token}-{len(state['expected_markers'])}*/"
         state["expected_markers"].append(marker)
+        # MariaDB records one events_statements_history_long row per parameter
+        # set for executemany; count that expansion so finish can reconcile and
+        # then collapse back to one logical statement for sql_count ceilings.
+        expansion = len(params) if many else 1
+        if expansion < 1:
+            expansion = 1
+        state["expected_expansions"].append(expansion)
         tagged = marker + " " + sql if isinstance(sql, str) else marker.encode() + b" " + bytes(sql)
         return operation(tagged, params)
 
@@ -250,10 +258,23 @@ class SqlTelemetry:
         finally:
             admin.close()
         observed_markers = [str(row[2]).split("*/", 1)[0] + "*/" for row in rows]
-        if observed_markers != state["expected_markers"]:
-            raise RuntimeError(f"MariaDB statement history incomplete: expected {len(state['expected_markers'])}, observed {len(rows)}")
+        expected_flat = [
+            marker
+            for marker, expansion in zip(state["expected_markers"], state["expected_expansions"])
+            for _ in range(expansion)
+        ]
+        if observed_markers != expected_flat:
+            raise RuntimeError(
+                f"MariaDB statement history incomplete: expected {len(expected_flat)}, observed {len(rows)}"
+            )
+        collapsed = []
+        index = 0
+        for expansion in state["expected_expansions"]:
+            group = rows[index:index + expansion]
+            index += expansion
+            collapsed.append(max(group, key=lambda row: int(row[1] or 0)))
         packet_bytes = max(ending_bytes[name] - state["baseline_bytes"][name] for name in self._STATUS)
-        self._rows.append((rows, packet_bytes))
+        self._rows.append((collapsed, packet_bytes))
 
     def snapshot(self):
         if self._open:
@@ -284,14 +305,54 @@ class RailsLikeWorkload:
             database._assert_owned_shard(shard)
         target_database = database.database_name if shard is None else shard.database_name
         stop_event, failures = threading.Event(), []
+        # The kernel keyset-scans strictly upward from ``id > 0``
+        # (metadata._fetch_locked_rows starts at last_pk=0), and at benchmark
+        # selectivity (~every row matches the rewritten type) the optimizer
+        # uses the PRIMARY index, so the terminal exhaustion probe next-key
+        # locks everything from the seeded range to supremum — any positive
+        # sentinel id gets locked for the whole repetition transaction. Only
+        # ids <= 0 are outside every lockable scan range, so the sentinel
+        # lives at a negative primary key.
+        sentinel_type_id = sample_type_id + 10_000
+        sentinel_id = -int(sample_type_id)
+
         def run():
             connection = MySQLdb.connect(db=target_database, **database._connection_kwargs)
             try:
+                cursor = connection.cursor()
+                # Exclude this background thread from statement history so its
+                # tight SELECT/UPDATE loop cannot evict kernel telemetry rows
+                # from the global events_statements_history_long ring buffer.
+                cursor.execute(
+                    "UPDATE performance_schema.threads SET INSTRUMENTED='NO' "
+                    "WHERE PROCESSLIST_ID=CONNECTION_ID()"
+                )
+                cursor.execute(
+                    "INSERT INTO sample_types(id,title,created_at,updated_at) "
+                    "VALUES(%s,%s,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6)) "
+                    "ON DUPLICATE KEY UPDATE title=VALUES(title)",
+                    (sentinel_type_id, f"rails-sentinel-{sentinel_type_id}"),
+                )
+                cursor.execute(
+                    "INSERT INTO samples(id,sample_type_id,json_metadata,created_at,updated_at) "
+                    "VALUES(%s,%s,%s,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6)) "
+                    "ON DUPLICATE KEY UPDATE sample_type_id=VALUES(sample_type_id),"
+                    "json_metadata=VALUES(json_metadata)",
+                    (sentinel_id, sentinel_type_id, "{}"),
+                )
+                connection.commit()
                 while not stop_event.is_set():
                     cursor = connection.cursor()
-                    cursor.execute("SELECT id,json_metadata FROM samples WHERE sample_type_id=%s ORDER BY id LIMIT 25", (sample_type_id,))
+                    cursor.execute(
+                        "SELECT id,json_metadata FROM samples WHERE sample_type_id=%s "
+                        "ORDER BY id LIMIT 25",
+                        (sample_type_id,),
+                    )
                     cursor.fetchall()
-                    cursor.execute("UPDATE samples SET updated_at=updated_at WHERE sample_type_id<>%s ORDER BY id LIMIT 1", (sample_type_id,))
+                    cursor.execute(
+                        "UPDATE samples SET updated_at=updated_at WHERE id=%s",
+                        (sentinel_id,),
+                    )
                     connection.commit()
             except BaseException as exc:
                 failures.append(exc)

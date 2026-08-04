@@ -163,7 +163,13 @@ run_id="${ATTRIBUTE_EVIDENCE_RUN_ID:-$(date --utc +%Y%m%dT%H%M%S.%NZ)-$$-${RANDO
 [[ "$run_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "invalid evidence run id" >&2; exit 64; }
 evidence_root="/home/taishajo/work/state/attribute-viewset/evidence/${task_id}/${lane}/${run_id}"
 mkdir -p "$(dirname "$evidence_root")"
-mkdir "$evidence_root" || { echo "evidence run collision" >&2; exit 73; }
+mkdir "$evidence_root" 2>/dev/null || {
+  if [[ "${ATTRIBUTE_EVIDENCE_RESUME:-0}" == "1" && -d "$evidence_root" ]]; then
+    echo "resuming into existing evidence root: $evidence_root" >&2
+  else
+    echo "evidence run collision" >&2; exit 73
+  fi
+}
 export ATTRIBUTE_EVIDENCE_TASK_ID="$task_id"
 export ATTRIBUTE_EVIDENCE_RUN_ROOT="$evidence_root"
 export ATTRIBUTE_TEST_FAULT_CONTROL="$evidence_root/fault-control.json"
@@ -177,7 +183,7 @@ if [[ "$lane" != "lint" && "$lane" != "coverage" && "$lane" != "mutants" ]]; the
   command+=("${test_args[@]}")
 fi
 reference_image_id="$(docker image inspect --format '{{.Id}}' nextseek-nextseek)" || exit 65
-if [[ "$reference_image_id" != "sha256:1b7b67839e1b2dd4ca80df1e04534dc496af2e132f8321947f6586b76b9862e2" ]]; then
+if [[ "$reference_image_id" != "sha256:3fa7a17770baa386dbb22a0dc9f8104aaec62ab13c73dcbe95000ad263f4a443" ]]; then
   echo "reference image identity drift" >&2; exit 65
 fi
 if [[ "$lane" == "coverage" || "$lane" == "full" || "$lane" == "raw-full" ]]; then
@@ -233,7 +239,8 @@ network_id="$(docker network inspect --format '{{.Id}}' "$network_name")" || exi
 docker run -d --name "$db_container" --network "$network_name" --network-alias "$db_alias" \
   --label com.nextseek.attribute-evidence=true --label "com.nextseek.attribute-network=$network_id" \
   -e MYSQL_ROOT_PASSWORD="$ATTRIBUTE_TEST_DB_PASSWORD" "$database_image_id" \
-  --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci >/dev/null || exit 65
+  --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci \
+  --performance-schema-events-statements-history-long-size=65536 >/dev/null || exit 65
 for _ in {1..120}; do
   docker exec "$db_container" mysqladmin ping -uroot -p"$ATTRIBUTE_TEST_DB_PASSWORD" --silent >/dev/null 2>&1 && break
   sleep 0.25
@@ -282,6 +289,42 @@ if [[ "$task_id" != "task-00" && "$task_id" != "task-01" ]]; then
   oracle="$repo_root/nextseek_api/attributes/tests/rails_auth_oracle.rb"
   docker run --rm --network "$network_name" -e DATABASE_URL="$rails_database_url" \
     "$seek_image_id" bundle exec rake db:schema:load
+  # T03 physical safeguards are a frozen dependency of every kernel lane
+  # (dependency-shas task-03): apply the managed indexes to the disposable
+  # database through the product's own disposable-DB path, then hard-verify
+  # the kernel-critical index exists. Without idx_samples_sample_type_id the
+  # kernel's keyset FOR UPDATE scan X-locks the entire PK space and no
+  # concurrent writer can coexist with a repetition.
+  docker run --rm --network "$network_name" -v "$repo_root:/work" -w /work \
+    -e PATH=/app/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    -e ATTRIBUTE_TEST_DATABASE_NAME="$ATTRIBUTE_TEST_DATABASE_NAME" \
+    -e ATTRIBUTE_TEST_DISPOSABLE_DB_UUID="$ATTRIBUTE_TEST_DISPOSABLE_DB_UUID" \
+    -e ATTRIBUTE_APPLY_DB_HOST="$db_alias" \
+    -e ATTRIBUTE_TEST_DB_PASSWORD="$ATTRIBUTE_TEST_DB_PASSWORD" \
+    "$reference_image_id" python - <<'PY' || exit 65
+import os
+import MySQLdb
+from startup.steps.schema_fixups import (
+    _NoopFaultController,
+    apply_managed_indexes_on_connection,
+    indexes_for_database,
+)
+database = os.environ["ATTRIBUTE_TEST_DATABASE_NAME"]
+connection = MySQLdb.connect(
+    host=os.environ["ATTRIBUTE_APPLY_DB_HOST"], port=3306, user="root",
+    passwd=os.environ["ATTRIBUTE_TEST_DB_PASSWORD"], db=database, charset="utf8mb4",
+)
+try:
+    apply_managed_indexes_on_connection(
+        connection, indexes_for_database(database), _NoopFaultController()
+    )
+    cursor = connection.cursor()
+    cursor.execute("SHOW INDEX FROM samples WHERE Key_name='idx_samples_sample_type_id'")
+    if not cursor.fetchall():
+        raise SystemExit("idx_samples_sample_type_id absent after managed-index apply")
+finally:
+    connection.close()
+PY
   oracle_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
   oracle_key_file="$evidence_root/.oracle-verify-key.hex"
   printf '%s' "$oracle_key" >"$oracle_key_file"

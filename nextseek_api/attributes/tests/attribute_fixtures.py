@@ -1,4 +1,3 @@
-import json
 import os
 from pathlib import Path
 
@@ -17,6 +16,23 @@ from nextseek_api.attributes.tests.real_boundary import (
 MANIFEST = Path("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")
 
 
+def _purge_disposable_binlogs(database):
+    # Bound disposable-server disk: heavy benchmark cells rotate 10-30GB of
+    # binlog each, and across the 162-cell matrix that exhausts the host.
+    # Runs in per-case teardown after telemetry has closed, so measured
+    # statements keep their real binlog write cost; only rotated log files
+    # are deleted from the disposable server.
+    import MySQLdb
+
+    connection = MySQLdb.connect(db="performance_schema", **database._connection_kwargs)
+    try:
+        cursor = connection.cursor()
+        cursor.execute("FLUSH BINARY LOGS")
+        cursor.execute("PURGE BINARY LOGS BEFORE '2038-01-19 00:00:00'")
+    finally:
+        connection.close()
+
+
 @pytest.fixture
 def disposable_attribute_db():
     database = DisposableAttributeDatabase.from_environment()
@@ -32,11 +48,12 @@ def disposable_attribute_db():
         else:
             database.teardown()
             database.assert_torn_down()
+        _purge_disposable_binlogs(database)
 
 
 @pytest.fixture
 def attribute_faults():
-    points = set(json.loads(MANIFEST.read_text())["fault_points"])
+    points = set(orjson.loads(MANIFEST.read_bytes())["fault_points"])
     controller = AttributeFaultController(points)
     yield controller
     controller.clear()
