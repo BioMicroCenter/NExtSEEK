@@ -14,6 +14,15 @@ as an EMPTY `BayesManifest` rather than raising, and two reproduced data-loss
 defects on this branch came from exactly that collision; a filename literal here
 would survive a rename of the constant and quietly reintroduce it.
 
+The COLLECTED TREE is named the same way, through `collect.artifacts_dir(run)`,
+and for a sharper reason than symmetry: `export`'s CLI derives it from the same
+function, and the two MUST read the same tree. `_exclusion` reads the collected
+task row to see a deadline abort, so a page built over `<run>/artifacts` while
+the CSVs were exported over nothing bands an arm ungradable that the CSVs scored
+-- and `merge_grades` then raises `IncompleteGrading` naming a row the page gave
+the operator no controls to grade. Pinned by
+`test_the_export_and_the_report_agree_on_which_arms_are_gradable`.
+
 Output is ONE self-contained HTML file that a human grades every answer in,
 BLIND, and then downloads as `grades.json`.
 
@@ -65,7 +74,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from nessie_tests import bayes_manifest, export  # noqa: E402
+from nessie_tests import bayes_manifest, collect, export  # noqa: E402
 
 TPL_DEFAULT = pathlib.Path(__file__).resolve().parent.parent / "templates" / "report_bayes.html.tpl"
 CORPUS_DEFAULT = pathlib.Path(__file__).resolve().parents[2] / "corpus.json"
@@ -201,7 +210,7 @@ def _artifacts(run, pair_id, arm) -> dict:
     carries, so the page and the CSV can never disagree about how much an arm
     produced. The listing is only so a grader can see WHAT it produced.
     """
-    art_root = run / "artifacts"
+    art_root = collect.artifacts_dir(run)
     evidence = export.artifact_evidence(art_root, pair_id, arm)
     names: list[str] = []
     if arm == "cc":
@@ -238,7 +247,7 @@ def _observations(entry) -> list[dict]:
 
 
 def _arm_payload(entry, *, run, pair_id, arm, turn_defs) -> dict:
-    rows = export._turn_rows(run / "artifacts", pair_id, arm)
+    rows = export._turn_rows(collect.artifacts_dir(run), pair_id, arm)
     verdict = export._exclusion(entry, rows)
     trace = _trace(rows, turn_defs)
     # The LAST turn's reply. A follow-up's answer is the one under grade; turn 1

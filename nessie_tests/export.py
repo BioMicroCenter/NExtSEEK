@@ -45,16 +45,23 @@ dict identifies nothing.
 
 WHAT `artifacts_dir` IS. `collect.collect(manifest, out_dir, ...)` writes
 `<out_dir>/artifacts/<variant>/<arm>/`, so `artifacts_dir` is that `artifacts`
-directory -- not the collector's `out_dir`.
+directory -- not the collector's `out_dir`. It is DERIVED, by
+`collect.artifacts_dir(run)`, and never spelled out here or in the report
+builder: the two must read the same tree or they disagree about which arms are
+gradable, and `merge_grades` then tells the operator to grade a row the page
+gives them no controls for. `main` below passes it for exactly that reason, and
+warns when the tree is absent rather than exporting a quietly under-excluded run.
 """
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import os
 import pathlib
+import sys
 
-from nessie_tests import corpus, outage
+from nessie_tests import bayes_manifest, collect, corpus, outage
 
 # Imported, never restated. `collect` owns the task-row status vocabulary and
 # `manifest` owns the statuses that mean the harness never issued a request; a
@@ -632,3 +639,91 @@ def export_stage_b(manifest, out_dir, artifacts_dir=None, corpus_path=None) -> i
             })
     _write(out_dir / "hibayes_functional_eval_inputs.csv", CSV_HEADER_12, rows)
     return len(rows)
+
+
+# --- the command SKILL.md names ----------------------------------------------
+# This module was documented as `python -m nessie_tests.export --run <dir>` and had
+# no entry point at all, so the documented step exited 0, printed nothing and
+# wrote nothing -- and the failure surfaced four steps later, after the grading
+# pass, as a FileNotFoundError out of `merge_grades`.
+
+_NO_ARTIFACTS_WARNING = (
+    "WARNING: no {art} -- the collected artifact tree is absent, so this export "
+    "is DEGRADED:\n"
+    "  * no arm can be excluded as a {cause}: the only evidence is a collected, "
+    "still-non-terminal task row, so a turn that blew the deadline exports as a "
+    "SUCCESS.\n"
+    "  * every `tool_calls_total` and `artifact_count` is an absence rather than "
+    "a measurement, and lands in unobserved.csv.\n"
+    "Collection is not runnable yet (see nessie_tests/output-skill-bayesian/"
+    "SKILL.md step 1 and `python -m nessie_tests.collect`). Exporting anyway is "
+    "supported; reading the result as a measured run is not."
+)
+
+
+def main(argv=None) -> int:
+    """Write every CSV for one paired run directory. Returns a process exit code.
+
+    `artifacts_dir` is DERIVED from the run through `collect.artifacts_dir`, the
+    same function the report builder uses, so the CSVs and the page can never
+    disagree about which arms `_exclusion` dropped.
+    """
+    ap = argparse.ArgumentParser(
+        description="Export a paired (--bayesian) run to the HiBayes CSVs.")
+    ap.add_argument("--run", required=True,
+                    help=f"the paired run directory: the one holding "
+                         f"{bayes_manifest.MANIFEST_NAME} and "
+                         f"{collect.ARTIFACTS_DIRNAME}/")
+    ap.add_argument("--out", default=None,
+                    help="where the CSVs go; default is the run directory itself")
+    ap.add_argument("--corpus", default=None,
+                    help="default nessie_tests/corpus.json. Read by the Stage B "
+                         "export only, which RAISES on a variant the corpus no "
+                         "longer holds")
+    args = ap.parse_args(argv)
+
+    run = pathlib.Path(args.run)
+    m = bayes_manifest.read_bayes_manifest(run)
+    if m is None:
+        # The same collision the report builder refuses: a normal run's
+        # `manifest.json` is a different schema that validates as an EMPTY paired
+        # manifest, so reading it here would write four empty CSVs and call the
+        # run exported.
+        extra = (f"  ({run / 'manifest.json'} exists -- that is a NORMAL run's "
+                 f"manifest and a DIFFERENT schema: it validates as an EMPTY "
+                 f"paired manifest rather than raising, so reading it here would "
+                 f"export a run of nothing.)\n"
+                 if (run / "manifest.json").is_file() else "")
+        print(f"no {bayes_manifest.MANIFEST_NAME} in {run}\n{extra}"
+              f"Run the suite with --bayesian first.", file=sys.stderr)
+        return 2
+    if not m.pairs:
+        print(f"{run / bayes_manifest.MANIFEST_NAME} records no pairs",
+              file=sys.stderr)
+        return 2
+
+    art = collect.artifacts_dir(run)
+    if not art.is_dir():
+        print(_NO_ARTIFACTS_WARNING.format(art=art, cause=CAUSE_DEADLINE),
+              file=sys.stderr)
+
+    out_dir = pathlib.Path(args.out) if args.out else run
+    summary = export(m, out_dir, artifacts_dir=art, corpus_path=args.corpus)
+    stage_b = export_stage_b(m, out_dir, artifacts_dir=art, corpus_path=args.corpus)
+
+    print(f"{len(m.pairs)} pair(s) -> {out_dir}")
+    print(f"  hibayes_eval_rows_ns.csv   {summary['ns']} row(s)")
+    print(f"  hibayes_eval_rows_cc.csv   {summary['cc']} row(s)")
+    print(f"  hibayes_functional_eval_inputs.csv  {stage_b} row(s)")
+    # Never a bare total. `excluded_deadline` can be a run's headline result, and
+    # it must not have to be grepped out of a reason column to be seen.
+    print(f"  excluded.csv               {summary['excluded']} arm(s): " +
+          ", ".join(f"{k.removeprefix('excluded_')} {summary[k]}"
+                    for k in ("excluded_outage", "excluded_never_executed",
+                              "excluded_deadline")))
+    print(f"  unobserved.csv             {summary['unobserved_cells']} cell(s)")
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())

@@ -2,10 +2,12 @@
 import csv
 import json
 import pathlib
+import subprocess
+import sys
 
 import pytest
 
-from nessie_tests import export, outage
+from nessie_tests import collect, export, outage
 from nessie_tests.bayes_manifest import BayesManifest, BayesPair
 from nessie_tests.manifest import NessieManifestEntry
 
@@ -593,3 +595,108 @@ def test_a_timeout_reason_outranks_the_error_status(tmp_path):
     export.export(m, tmp_path)
     row = _rows(tmp_path / "hibayes_eval_rows_cc.csv")[0]
     assert row["timed_out"] == "true" and row["failure_mode"] == "timeout"
+
+
+# --------------------------------------------------------------------------- #
+# The command SKILL.md names. This module had no `main` and no `__main__` block
+# at all, so the documented `python -m nessie_tests.export --run <dir>` exited 0,
+# printed nothing and wrote nothing -- and the operator found out four steps
+# later, after grading 254 blank arms, when `merge_grades` raised
+# FileNotFoundError over the CSVs this step was supposed to write.
+# --------------------------------------------------------------------------- #
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+
+def _run_dir(tmp_path, *, pairs=None, artifacts=True):
+    from nessie_tests import bayes_manifest
+
+    run = tmp_path / "run"
+    run.mkdir()
+    m = BayesManifest(run_meta={"mode": "bayesian"},
+                      pairs=pairs if pairs is not None else
+                      [BayesPair(id="a.one", family="f", hibayes_subtype="S",
+                                 ns=_entry(), cc=_entry())])
+    bayes_manifest.write_bayes_manifest(m, run)
+    if artifacts:
+        collect.artifacts_dir(run).mkdir()
+    return run
+
+
+def test_the_documented_export_command_actually_writes_the_csvs(tmp_path):
+    """The whole finding, as the operator's own command line. Run as a
+    SUBPROCESS through `-m`, because that is the form SKILL.md prints and a
+    module with no `__main__` block satisfies an in-process `main()` test while
+    still exiting 0 and doing nothing from the shell."""
+    run = _run_dir(tmp_path)
+
+    proc = subprocess.run([sys.executable, "-m", "nessie_tests.export",
+                           "--run", str(run), "--corpus", str(_corpus(tmp_path))],
+                          cwd=str(ROOT), capture_output=True, text=True)
+
+    assert proc.returncode == 0, proc.stderr
+    for name in ("hibayes_eval_rows_ns.csv", "hibayes_eval_rows_cc.csv",
+                 "hibayes_functional_eval_inputs.csv", "excluded.csv",
+                 "unobserved.csv"):
+        assert (run / name).is_file(), f"{name} was not written"
+    assert _rows(run / "hibayes_eval_rows_ns.csv")[0]["query_id"] == "a.one"
+    # It also SAYS what it did. A silent success is how the no-op survived.
+    assert "hibayes_eval_rows_ns.csv" in proc.stdout
+
+
+def test_the_export_cli_reads_the_collected_tree_the_report_reads(tmp_path):
+    """`artifacts_dir` is DERIVED, not defaulted to None. The deadline abort below
+    is visible only in the collected task row, so a CLI that passed no tree would
+    score this arm as a success -- while the report, which does read the tree,
+    bands it ungradable and gives the operator no way to grade it."""
+    run = _run_dir(tmp_path)
+    _task_json(collect.artifacts_dir(run), "a.one", "cc", [], status="pending")
+
+    assert export.main(["--run", str(run), "--corpus", str(_corpus(tmp_path))]) == 0
+
+    assert _rows(run / "hibayes_eval_rows_cc.csv") == []
+    excluded = _rows(run / "excluded.csv")
+    assert [(e["arm"], e["cause"]) for e in excluded] == [("cc", export.CAUSE_DEADLINE)]
+
+
+def test_an_export_with_no_collected_tree_says_the_run_is_degraded(tmp_path, capsys):
+    """Collection is not runnable yet, so exporting without an artifacts tree is
+    supported -- but it cannot see a deadline abort at all, and reading the result
+    as a measured run is the mistake this warning exists to prevent."""
+    run = _run_dir(tmp_path, artifacts=False)
+
+    assert export.main(["--run", str(run), "--corpus", str(_corpus(tmp_path))]) == 0
+
+    err = capsys.readouterr().err
+    assert str(collect.artifacts_dir(run)) in err
+    assert export.CAUSE_DEADLINE in err
+
+
+def test_the_export_cli_refuses_a_normal_runs_manifest(tmp_path):
+    """The same collision the report builder refuses. A normal run's
+    `manifest.json` validates as an EMPTY paired manifest, so reading it here
+    would write four empty CSVs and call the run exported."""
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "manifest.json").write_text(json.dumps(
+        {"started_at": "t0", "ended_at": "t1", "tier": "full", "scope": "all",
+         "entries": []}), encoding="utf-8")
+
+    proc = subprocess.run([sys.executable, "-m", "nessie_tests.export",
+                           "--run", str(run)],
+                          cwd=str(ROOT), capture_output=True, text=True)
+
+    assert proc.returncode != 0
+    assert "bayes_manifest.json" in proc.stderr
+    assert not (run / "hibayes_eval_rows_ns.csv").exists()
+
+
+def test_the_export_cli_names_the_manifest_through_the_constant():
+    """A filename literal would survive a rename of the constant and reintroduce
+    the collision above."""
+    from nessie_tests import bayes_manifest
+
+    src = (ROOT / "nessie_tests" / "export.py").read_text(encoding="utf-8")
+
+    assert bayes_manifest.MANIFEST_NAME not in src
+    assert "MANIFEST_NAME" in src

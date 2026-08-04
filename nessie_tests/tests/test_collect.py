@@ -620,3 +620,40 @@ def test_run_case_records_every_turns_task_id():
     entry = runner.run_case(v, tier="full", post_query=post_query,
                             get_progress=get_progress, sleep=lambda _s: None)
     assert entry.task_ids == [f"task-{i}" for i in range(1, len(v.turns) + 1)]
+
+
+# --------------------------------------------------------------------------- #
+# Where the tree goes, and why this module is not a command.
+# --------------------------------------------------------------------------- #
+
+def test_the_collector_writes_where_artifacts_dir_points(tmp_path):
+    """ONE derivation of `<run>/artifacts`, owned by the module that writes it.
+
+    `export`'s CLI and the report builder both read the tree back through this
+    function. If either spelled the path itself the two could disagree about
+    which arms `_exclusion` dropped, and `merge_grades` would then tell the
+    operator to grade a row the page gives no controls for.
+    """
+    src = FakeSources(rows={"t-ns": {"progress": [], "result": None}})
+
+    collect.collect(_manifest(), tmp_path, src)
+
+    assert (collect.artifacts_dir(tmp_path) / "a.one" / "ns").is_dir()
+    assert collect.artifacts_dir(tmp_path) == tmp_path / collect.ARTIFACTS_DIRNAME
+
+
+def test_running_the_collector_as_a_command_fails_loudly(capsys):
+    """It cannot run: `collect.collect` needs a concrete `Sources` and no task in
+    this plan builds one. SKILL.md used to print a command for it that exited 0,
+    printed nothing and wrote nothing -- so the operator built the report over an
+    empty tree, graded 254 arms reading "No reply was recorded", and discovered it
+    four steps later when `merge_grades` raised FileNotFoundError.
+    """
+    assert collect.main([]) != 0
+
+    err = capsys.readouterr().err
+    assert "not runnable" in err
+    # It names exactly what is missing, so the gap is actionable rather than a
+    # bare refusal.
+    for name in ("Sources", "task_rows", "cc_transcript", "copy_tree"):
+        assert name in err

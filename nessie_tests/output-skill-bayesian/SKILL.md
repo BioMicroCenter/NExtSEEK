@@ -24,8 +24,9 @@ without regrading.
 # 0. the paid run (see nessie_tests/README.md; this is the expensive step)
 python -m nessie_tests --bayesian --out ./nessie_bayes_out
 
-# 1. pull the artifacts the run left behind
-python -m nessie_tests.collect --run ./nessie_bayes_out       # writes artifacts/ + collection.json
+# 1. pull the artifacts the run left behind -- NOT RUNNABLE YET. See below.
+#    There is no command. `nessie_tests.collect` is importable machinery and
+#    running it as a module prints why and exits non-zero.
 
 # 2. the HiBayes CSVs (also decides which arms are EXCLUDED, see below)
 python -m nessie_tests.export --run ./nessie_bayes_out        # writes hibayes_eval_rows_{ns,cc}.csv,
@@ -63,6 +64,51 @@ than local, pull it with the sibling skill's copy, unchanged:
 ```bash
 python nessie_tests/output-skill/scripts/fetch_run.py --out ./nessie_bayes_out ...
 ```
+
+## Step 1 has no command yet, and that is a known gap
+
+`nessie_tests/collect.py` implements the collection, but it takes its four
+sources by INJECTION -- `collect.collect(manifest, out_dir, sources)` -- and
+**nothing in this plan builds a concrete `Sources`**. There is nothing for a CLI
+to inject, so there is no CLI. `python -m nessie_tests.collect` prints this and
+exits non-zero rather than pretending.
+
+What is missing is one class implementing the three methods documented on
+`collect.Sources`:
+
+| method | what it has to do |
+|---|---|
+| `task_rows(task_ids) -> {task_id: row}` | read `assistant_query_task` out of MySQL: `status`, `progress`, `result` |
+| `cc_transcript(session_id) -> bytes \| None` | the zstd `CCSessionTranscript` blob(s) for a chat session, concatenated in turn order |
+| `copy_tree(src, dest) -> bool` | `docker cp` off the `dmac-cc-users` volume; **raise `collect.CopyFailed`** when the copy mechanism broke, return `False` when the source is simply absent |
+
+That split in `copy_tree` is not decoration: "cc_sweep reaped the scratch" is a
+fact about the run and "docker is not running" is a fact about the collector, and
+a hundred of the second must not read as a hundred of the first.
+
+**Until it exists, everything downstream is degraded rather than broken, and each
+step says so when it runs.** `export` warns that with no `artifacts/` tree it
+cannot see a deadline abort at all -- the only evidence is a collected,
+still-non-terminal task row, so a turn that blew the deadline exports as a
+SUCCESS -- and that every `tool_calls_total` and `artifact_count` is an absence
+rather than a measurement. The report renders arms with no reply. Neither is a
+run you can read as measured.
+
+## One artifacts tree, derived once
+
+`export` and the report builder MUST read the same collected tree, and they do:
+both call `collect.artifacts_dir(run)`, which is `<run>/artifacts` and is owned by
+the module that writes it. Do not pass a different `artifacts_dir` to one of them,
+and do not call `export.export(...)` from a Python shell without it.
+
+The reason is specific. The page decides which arms carry grade controls with
+`export._exclusion`, and a **deadline abort is visible only in the collected task
+row**. Export over a different tree (or over none, which is what
+`export.export(manifest, out)` in a shell does) and that arm gets a scored CSV
+row while the page bands it ungradable -- so `merge_grades` raises
+`IncompleteGrading: ... 'deadline.pair::cc'. Finish the grading pass...`, which
+instructs the operator to grade a row the page gave them no way to grade.
+`test_the_export_and_the_report_agree_on_which_arms_are_gradable` pins it.
 
 ## Grading, in practice
 
@@ -129,9 +175,22 @@ pins all of this in `GRADE_CONTRACT` and builds its keys from it;
 
 ```
 scripts/build_bayes_report.py     paired manifest + artifacts + stage_c.json -> the page
-scripts/merge_grades.py           grades.json + stage_c.json + the CSVs -> graded_rows.csv
+scripts/merge_grades.py           a THIN entry point; the logic is the module below
 templates/report_bayes.html.tpl   the page: three columns per question, blind gate, autosave
 ```
+
+`merge_grades`'s logic lives in the importable package
+`nessie_tests/output_skill_bayesian/merge_grades.py` (underscores), under test in
+`nessie_tests/tests/test_merge_grades.py`. A hyphenated directory is not a Python
+identifier, so nothing under `output-skill-bayesian/` can be imported, and a
+script that cannot be imported cannot be unit tested -- both scripts in the
+sibling `output-skill/` rotted for exactly that reason. The script here exists
+only to give this file a path to name. Change behaviour in the package, not in
+the script.
+
+The other three modules the sequence uses are plain `nessie_tests` modules, not
+skill files: `nessie_tests/collect.py`, `nessie_tests/export.py` and
+`nessie_tests/bayes_manifest.py`.
 
 `build_bayes_report.py` takes `--run` (the run directory), `--out`, and
 optionally `--corpus` (defaults to `nessie_tests/corpus.json`, which is where the

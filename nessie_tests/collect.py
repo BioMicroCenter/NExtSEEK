@@ -67,9 +67,32 @@ from __future__ import annotations
 
 import json
 import pathlib
+import sys
 import time
 
 ARMS = ("ns", "cc")
+
+# WHERE THE COLLECTED TREE LIVES, DERIVED IN ONE PLACE. This module WRITES
+# `<run>/artifacts/<variant>/<arm>/`, so this module owns the name; `export`'s CLI
+# and the report builder read it back through `artifacts_dir` rather than each
+# spelling `/ "artifacts"` for itself.
+#
+# That is a correctness rule, not a tidiness one. An `export` that runs WITHOUT
+# the artifacts tree cannot see a deadline abort at all -- the only evidence is
+# the collected, still-non-terminal task row -- so it writes a scored CSV row for
+# an arm the report bands ungradable and strips of grade controls. `merge_grades`
+# then raises `IncompleteGrading` naming that row, which instructs the operator to
+# grade something the page gives them no way to grade. Two independent defaults
+# for this path is exactly how the two sides come to disagree.
+ARTIFACTS_DIRNAME = "artifacts"
+
+
+def artifacts_dir(run_dir) -> pathlib.Path:
+    """`<run_dir>/artifacts` -- the value `export(..., artifacts_dir=)` wants.
+
+    NOT the collector's `out_dir`, which is the run directory one level up.
+    """
+    return pathlib.Path(run_dir) / ARTIFACTS_DIRNAME
 
 # Seconds to wait before the ONE retry for a late `ns_run_root`. See fact 3 in
 # the module docstring. One retry and no more: a collector that keeps polling
@@ -319,7 +342,7 @@ def collect(manifest, out_dir, sources, outputs_root=None, *,
     # host lane that has no zstandard.
     decompress = decompress or (lambda blob: decompress_transcript(blob))
     out_dir = pathlib.Path(out_dir)
-    art_root = out_dir / "artifacts"
+    art_root = artifacts_dir(out_dir)
     missing: list[dict] = []
     shared_run_roots: list[dict] = []
     arms_seen = arms_outage = turns_seen = run_roots_copied = cc_scratch_copied = 0
@@ -530,3 +553,46 @@ def collect(manifest, out_dir, sources, outputs_root=None, *,
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_json(out_dir / "collection.json", payload)
     return payload
+
+
+# --- why this module is not a command ----------------------------------------
+# `collect` needs a CONCRETE `Sources`, and no task in this plan builds one. That
+# gap is known and accepted; it is not something a CLI can paper over, because
+# there is nothing for it to inject.
+#
+# The entry point exists ONLY so that running it SAYS so. An argparse that
+# accepted `--run` and exited 0 would leave a run directory with no `artifacts/`
+# in it and an operator who believes collection happened -- and the next thing
+# they see is every arm on the report reading "No reply was recorded", which they
+# discover after grading them, if at all. Exiting loudly here costs one line and
+# removes that whole failure.
+_NO_CLI_REASON = """\
+nessie_tests.collect is not runnable as a command yet, and running it has done
+NOTHING. It is importable machinery: `collect.collect(manifest, out_dir, sources)`
+needs a concrete `Sources`, and this plan does not build one.
+
+What is missing is one class implementing the three methods on `collect.Sources`:
+
+  task_rows(task_ids) -> {task_id: row}   assistant_query_task rows out of MySQL
+                                          (status, progress, result)
+  cc_transcript(session_id) -> bytes|None the zstd CCSessionTranscript blob(s)
+  copy_tree(src, dest) -> bool            a `docker cp` off the dmac-cc-users
+                                          volume; raise collect.CopyFailed when
+                                          the copy MECHANISM broke, return False
+                                          when the source is simply absent
+
+Until that exists there is no artifacts/ tree, and every downstream step is
+degraded rather than broken: `export` cannot see a deadline abort, and the report
+renders arms with no reply. Both say so when they run. See
+nessie_tests/output-skill-bayesian/SKILL.md, step 1.
+"""
+
+
+def main(argv=None) -> int:
+    """Refuse, with the reason. See `_NO_CLI_REASON`."""
+    print(_NO_CLI_REASON, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())
