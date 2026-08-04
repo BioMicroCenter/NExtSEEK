@@ -94,6 +94,10 @@ def _run_bayesian(a, auth) -> int:
     try:
         m = bayesian.run_paired(
             base_url=a.base_url, auth_header=auth, out_dir=a.out,
+            # Named, not left to `run_paired`'s default, so both run shapes
+            # resolve the corpus by the same rule. The paired run fingerprints
+            # this file and refuses a `--resume` onto a different one.
+            corpus_path=_CORPUS,
             max_usd=a.max_usd, resume=a.resume,
             full_timeout_s=a.full_timeout, pace_s=a.pace)
     # Five aborts, five exit codes, none of them 0, 1 or 2. They share nothing an

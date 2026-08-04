@@ -192,6 +192,17 @@ def test_bayesian_threads_its_whole_run_shape_through(monkeypatch, tmp_path):
     assert captured["auth_header"].startswith("Basic ")
 
 
+def test_bayesian_names_the_same_corpus_the_normal_path_names(monkeypatch):
+    """`_CORPUS` exists so the CLI names its corpus instead of inheriting whatever
+    default the callee happens to hold. Letting the paired path fall through to
+    `run_paired`'s own default made the two run shapes resolve the corpus by
+    different rules, and the paired run's fingerprint is precisely what makes
+    `--resume` refuse to continue onto a changed corpus."""
+    captured = _capture_paired(monkeypatch)
+    cli.main(["--base-url", "http://x", "--bayesian"])
+    assert captured["corpus_path"] == cli._CORPUS
+
+
 @pytest.mark.parametrize("extra", [
     ["--tier", "full"], ["--scope", "all"], ["--sample", "0.5"], ["--seed", "3"],
     ["--family", "reporting"], ["--variant", "green.mus_ndma"],
