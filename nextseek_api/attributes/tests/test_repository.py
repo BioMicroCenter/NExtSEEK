@@ -1476,53 +1476,109 @@ def test_search_missing_sample_type(disposable_attribute_db, django_db_blocker):
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_mutation_create_target_passthrough(disposable_attribute_db, django_db_blocker):
-    """Gap 1: a create-definition operation (`AttributeCreate`-shaped dict,
-    no `attribute` key -- DD-26) is passed through into the resolved
-    envelope's `operations` list untouched instead of being silently
-    dropped (`_is_create_definition`). Independent oracle: the exact
-    submitted dicts, byte-compared against the emitted `definition` field."""
+def test_resolve_mutation_relationship_identifiers_resolved(disposable_attribute_db, django_db_blocker):
+    """Task-04d (user ruling 2026-08-04; DD-15): a create definition's and a
+    patch `changes` sub-object's submitted relationship identifiers
+    (`sample_attribute_type`/`unit`/`sample_controlled_vocab`/
+    `linked_sample_type`) are resolved to verified `*_id` planning
+    identities inside the resolved envelope, across all three DD-03
+    spellings (integer id, numeric-string id, exact title). Supersedes the
+    task-04c byte-compare passthrough oracle
+    (`test_resolve_mutation_create_target_passthrough`), whose assertions
+    pinned the pre-04d unresolved contract this task was ruled to close.
+    Still asserted from that oracle: wrapper key sets stay exactly
+    {attribute_id, attribute_index, resolution_errors, definition|changes},
+    non-relationship fields pass through byte-identically, and the
+    submitted envelope dicts are never mutated in place. Patch tri-state is
+    preserved exactly: an omitted relationship key stays omitted, an
+    explicit null becomes `*_id: None` (clear), an identifier resolves."""
     django_db_blocker.unblock()
     database = disposable_attribute_db
     _reset_seek_tables(database)
     database.execute_sql(
         [
-            ("INSERT INTO sample_attribute_types(id,title,created_at,updated_at) VALUES(1,'String',NOW(6),NOW(6))", ()),
-            ("INSERT INTO sample_types(id,title,created_at,updated_at) VALUES(1,'Blood',NOW(6),NOW(6))", ()),
+            ("INSERT INTO sample_attribute_types(id,title,created_at,updated_at) VALUES(1,'String',NOW(6),NOW(6)),(3,'Float',NOW(6),NOW(6))", ()),
+            ("INSERT INTO units(id,title,symbol) VALUES(5,'nanogram','ng')", ()),
+            ("INSERT INTO sample_controlled_vocabs(id,title,created_at,updated_at) VALUES(8,'Terms',NOW(6),NOW(6))", ()),
+            ("INSERT INTO sample_types(id,title,created_at,updated_at) VALUES(1,'Blood',NOW(6),NOW(6)),(2,'Tissue',NOW(6),NOW(6))", ()),
+            (
+                "INSERT INTO sample_attributes(id,sample_type_id,sample_attribute_type_id,title,required,pos,is_title,created_at,updated_at) "
+                "VALUES(10,1,1,'RNA',0,1,0,NOW(6),NOW(6))",
+                (),
+            ),
         ]
     )
     repo = AttributeRepository(SeekAttributeGateway())
     definition_one = {
-        "title": "New1", "sample_attribute_type": 1, "required": False, "pos": None,
-        "is_title": False, "description": None, "unit": None,
-        "sample_controlled_vocab": None, "linked_sample_type": None,
+        "title": "New1", "sample_attribute_type": "Float", "required": False, "pos": None,
+        "is_title": False, "description": None, "unit": "nanogram",
+        "sample_controlled_vocab": "Terms", "linked_sample_type": "Tissue",
     }
-    definition_two = {
-        "title": "New2", "sample_attribute_type": "String", "required": True, "pos": 1,
-        "is_title": False, "description": "second", "unit": None,
-        "sample_controlled_vocab": None, "linked_sample_type": None,
-    }
+    definition_two = {"title": "New2", "sample_attribute_type": "3", "unit": None}
+    patch_changes = {"title": "Renamed", "unit": 5, "sample_controlled_vocab": None}
+    submitted_one, submitted_two = dict(definition_one), dict(definition_two)
+    submitted_changes = dict(patch_changes)
     resolved = repo.resolve_mutation(
-        {"targets": [{"sample_type": 1, "attributes": [definition_one, definition_two]}]}
+        {
+            "targets": [
+                {
+                    "sample_type": 1,
+                    "attributes": [
+                        submitted_one,
+                        submitted_two,
+                        {"attribute": 10, "changes": submitted_changes},
+                    ],
+                }
+            ]
+        }
     )
     target = resolved["targets"][0]
     assert target["sample_type_id"] == 1
     assert target["sample_type_title"] == "Blood"
     assert not target["resolution_errors"]
-    assert target["operations"] == [
-        {"attribute_id": None, "attribute_index": 0, "resolution_errors": [], "definition": definition_one},
-        {"attribute_id": None, "attribute_index": 1, "resolution_errors": [], "definition": definition_two},
-    ]
+    create_one, create_two, patched = target["operations"]
+    assert set(create_one) == {"attribute_id", "attribute_index", "resolution_errors", "definition"}
+    assert set(patched) == {"attribute_id", "attribute_index", "resolution_errors", "changes"}
+    assert create_one == {
+        "attribute_id": None, "attribute_index": 0, "resolution_errors": [],
+        "definition": {
+            "title": "New1", "required": False, "pos": None, "is_title": False, "description": None,
+            "sample_attribute_type_id": 3, "unit_id": 5,
+            "sample_controlled_vocab_id": 8, "linked_sample_type_id": 2,
+        },
+    }
+    # Numeric-string spelling resolves via ID grammar; an explicit null maps
+    # to `*_id: None`; omitted relationship keys stay omitted entirely.
+    assert create_two == {
+        "attribute_id": None, "attribute_index": 1, "resolution_errors": [],
+        "definition": {"title": "New2", "sample_attribute_type_id": 3, "unit_id": None},
+    }
+    assert patched == {
+        "attribute_id": 10, "attribute_index": 2, "resolution_errors": [],
+        "changes": {"title": "Renamed", "unit_id": 5, "sample_controlled_vocab_id": None},
+    }
+    for op in (create_one, create_two):
+        for key, value in op["definition"].items():
+            if key.endswith("_id") and value is not None:
+                assert isinstance(value, int) and not isinstance(value, bool)
+    # Resolution never mutates the submitted envelope dicts in place.
+    assert submitted_one == definition_one
+    assert submitted_two == definition_two
+    assert submitted_changes == patch_changes
 
 
 def test_resolve_mutation_create_target_statement_bound(disposable_attribute_db, sql_telemetry, django_db_blocker):
-    """Gap 1 gate: a create-only envelope issues exactly one statement (the
-    single target's sample-type resolution) regardless of how many create
-    definitions it carries -- zero per-item SQL, since a create definition
-    has no existing identity to resolve. 5,000 definitions on one target
+    """Gap 1 gate, task-04d revision: a create-only envelope issues exactly
+    two statements regardless of how many create definitions it carries --
+    the single target's sample-type resolution plus ONE bulk relationship
+    statement for the deduplicated `sample_attribute_type` identifier set
+    (5,000 definitions all submit id 1, deduplicating to a single 500-cap
+    chunk; DD-15 requires every supplied reference to be validated, integer
+    spellings included -- pre-04d this envelope cost exactly 1 statement
+    and passed the unverified FK through). 5,000 definitions on one target
     would cost ~10,001 statements under the old per-target/per-op N+1 shape
-    (RCA-T04-FINDINGS-2026-08-03.md Section A); this path issues none for
-    the definitions themselves."""
+    (RCA-T04-FINDINGS-2026-08-03.md Section A); this path issues none that
+    scale with definition count."""
     django_db_blocker.unblock()
     database = disposable_attribute_db
     _reset_seek_tables(database)
@@ -1570,11 +1626,23 @@ def test_resolve_mutation_create_target_statement_bound(disposable_attribute_db,
     assert len(operations) == 5000
     assert [op["attribute_id"] for op in operations] == [None] * 5000
     assert [op["attribute_index"] for op in operations] == list(range(5000))
-    assert [op["definition"] for op in operations] == definitions
-    # A create-only envelope costs exactly one statement: the pass-1
-    # sample-type resolution. Create definitions carry no existing
-    # identifiers, so no attribute-resolution statements are issued.
-    assert len(statements) == 1
+    resolved_definitions = [
+        {"title": f"New{i}", "required": False, "pos": None, "is_title": False, "description": None,
+         "sample_attribute_type_id": 1, "unit_id": None,
+         "sample_controlled_vocab_id": None, "linked_sample_type_id": None}
+        for i in range(5000)
+    ]
+    assert [op["definition"] for op in operations] == resolved_definitions
+    assert [op["resolution_errors"] for op in operations] == [[]] * 5000
+    # The submitted envelope's own dicts are never mutated in place: the
+    # independent copies fed into the envelope must still equal the
+    # originals after resolution.
+    assert envelope["targets"][0]["attributes"] == definitions
+    # A create-only envelope costs exactly two statements: the pass-1
+    # sample-type resolution plus one bulk relationship statement for the
+    # deduplicated sample_attribute_type identifier set ({1}). Nothing
+    # scales with definition count.
+    assert len(statements) == 2
 
 
 def test_sample_type_populations_counts_and_absent_types(disposable_attribute_db, sql_telemetry, django_db_blocker):
@@ -1834,3 +1902,204 @@ def test_display_fields_for_statement_bound(disposable_attribute_db, sql_telemet
     )
     assert set(fields) == set(attribute_ids)
     assert len(statements) == math.ceil(len(attribute_ids) / 500) == 3
+
+
+# ---------------------------------------------------------------------------
+# Task-04d bounded relationship-identifier resolution (user ruling 2026-08-04)
+#
+# Closes the capability gap `resolve_mutation_envelope`'s task-04c docstring
+# named verbatim: a create definition's / patch `changes` sub-object's own
+# relationship identifiers (`sample_attribute_type` / `unit` /
+# `sample_controlled_vocab` / `linked_sample_type`) were passed through
+# unresolved. Like the task-04c nodes above, these are NOT frozen Section
+# 11.8 primary nodes -- diagnostic evidence only; `_run_observed` is reused
+# for its external statement capture and no-write assertions.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_mutation_relationship_errors_have_provenance(disposable_attribute_db, django_db_blocker):
+    """Task-04d: unresolvable relationship identifiers surface as
+    per-(target_index, attribute_index) errors in the `_error_to_dict`
+    provenance shape on the OPERATION wrapper's `resolution_errors` list --
+    never a silent None, never an unverified passthrough -- using the
+    established per-table codes (`RELATIONSHIP_NOT_FOUND_CODE` /
+    `RELATIONSHIP_AMBIGUOUS_CODE`). Ambiguous duplicate titles fail per the
+    DD-03 duplicate-conflict precedent; unit identifiers keep DD-19's
+    id/title-only grammar (a unit SYMBOL spelling never matches, mirroring
+    `test_duplicate_unit_symbol_is_not_an_identifier`); an integer id that
+    matches no row fails as `*_not_found` instead of planning an unverified
+    FK (SEEK MySQL has no FK constraints). The failed field keeps its
+    submitted spelling; sibling fields in the same operation still resolve;
+    sibling operations are unaffected; target-level `resolution_errors`
+    stays reserved for sample-type failures."""
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    _reset_seek_tables(database)
+    database.execute_sql(
+        [
+            ("INSERT INTO sample_attribute_types(id,title,created_at,updated_at) VALUES(3,'Float',NOW(6),NOW(6))", ()),
+            ("INSERT INTO units(id,title,symbol) VALUES(5,'nanogram','ng'),(6,'gram','g'),(7,'gram','g2')", ()),
+            ("INSERT INTO sample_types(id,title,created_at,updated_at) VALUES(1,'Blood',NOW(6),NOW(6))", ()),
+            (
+                "INSERT INTO sample_attributes(id,sample_type_id,sample_attribute_type_id,title,required,pos,is_title,created_at,updated_at) "
+                "VALUES(10,1,3,'RNA',0,1,0,NOW(6),NOW(6))",
+                (),
+            ),
+        ]
+    )
+    repo = AttributeRepository(SeekAttributeGateway())
+    resolved = repo.resolve_mutation(
+        {
+            "targets": [
+                {
+                    "sample_type": 1,
+                    "attributes": [
+                        {"title": "C1", "sample_attribute_type": "Float", "unit": "NoSuchUnit"},
+                        {"title": "C2", "sample_attribute_type": 3, "unit": "gram"},
+                        {"title": "C3", "sample_attribute_type": 999},
+                        {"title": "C4", "sample_attribute_type": "Float", "unit": "ng"},
+                        {"attribute": 10, "changes": {"linked_sample_type": "Ghost"}},
+                    ],
+                }
+            ]
+        }
+    )
+    target = resolved["targets"][0]
+    assert target["sample_type_id"] == 1
+    assert target["resolution_errors"] == []
+    ops = target["operations"]
+    assert [op["attribute_index"] for op in ops] == [0, 1, 2, 3, 4]
+    # Op 0: unit title miss; the sibling sample_attribute_type still resolves.
+    assert ops[0]["resolution_errors"] == [
+        {"code": "unit_not_found", "target_index": 0, "attribute_index": 0,
+         "field": "unit", "submitted_identifier": "NoSuchUnit"},
+    ]
+    assert ops[0]["definition"] == {"title": "C1", "sample_attribute_type_id": 3, "unit": "NoSuchUnit"}
+    # Op 1: two units share the exact title 'gram' -> ambiguous, DD-03.
+    assert ops[1]["resolution_errors"] == [
+        {"code": "unit_ambiguous", "target_index": 0, "attribute_index": 1,
+         "field": "unit", "submitted_identifier": "gram"},
+    ]
+    assert ops[1]["definition"] == {"title": "C2", "sample_attribute_type_id": 3, "unit": "gram"}
+    # Op 2: integer id with no matching row is validated, not trusted.
+    assert ops[2]["resolution_errors"] == [
+        {"code": "sample_attribute_type_not_found", "target_index": 0, "attribute_index": 2,
+         "field": "sample_attribute_type", "submitted_identifier": 999},
+    ]
+    assert ops[2]["definition"] == {"title": "C3", "sample_attribute_type": 999}
+    # Op 3: 'ng' is unit 5's SYMBOL and no unit's title -- DD-19 forbids
+    # symbol matching, so this is a miss, never a resolution to id 5.
+    assert ops[3]["resolution_errors"] == [
+        {"code": "unit_not_found", "target_index": 0, "attribute_index": 3,
+         "field": "unit", "submitted_identifier": "ng"},
+    ]
+    assert ops[3]["definition"] == {"title": "C4", "sample_attribute_type_id": 3, "unit": "ng"}
+    # Op 4: patch changes miss keeps the submitted spelling and provenance.
+    assert ops[4]["attribute_id"] == 10
+    assert ops[4]["resolution_errors"] == [
+        {"code": "linked_sample_type_not_found", "target_index": 0, "attribute_index": 4,
+         "field": "linked_sample_type", "submitted_identifier": "Ghost"},
+    ]
+    assert ops[4]["changes"] == {"linked_sample_type": "Ghost"}
+
+
+def test_resolve_mutation_relationship_statement_bound(disposable_attribute_db, sql_telemetry, django_db_blocker):
+    """Task-04d gate: the relationship pass is bulk-per-table and bounded --
+    statements scale only with each table's DISTINCT submitted identifier
+    count in 500-cap chunks, never with operation count. Adversarial
+    envelope: 600 create definitions, each carrying 4 distinct relationship
+    identifiers (600 value-type titles, 600 unit integer ids, 600 vocab
+    titles, 600 linked-type titles). Expected exactly
+    1 (pass-1 sample-type resolution)
+    + 2 (600 sample_attribute_types titles -> ceil(600/500) chunks)
+    + 2 (600 units ids) + 2 (600 sample_controlled_vocabs titles)
+    + 2 (600 linked sample_types titles) = 9 statements, observed through
+    the external `_capture_statements` wrapper (never gateway
+    self-counters); a per-operation implementation would issue >= 2,400.
+    Also asserted against the frozen manifest planner budget
+    `18 + 9*ceil(unique_identifiers/500) + distinct_resolved_types`: the
+    manifest never formally defines `unique_identifiers`; the existing
+    gates instantiate it as the submitted operation count n (=600), and
+    under the alternative all-distinct-identifiers reading (2,401 here) the
+    bound only loosens, so the strictest reading is asserted."""
+    import MySQLdb
+
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    _reset_seek_tables(database)
+    count = 600
+    connection = MySQLdb.connect(db=database.database_name, **database._connection_kwargs)
+    try:
+        cursor = connection.cursor()
+        cursor.execute("INSERT INTO sample_types(id,title,created_at,updated_at) VALUES(1,'Blood',NOW(6),NOW(6))")
+        cursor.executemany(
+            "INSERT INTO sample_attribute_types(id,title,created_at,updated_at) VALUES(%s,%s,NOW(6),NOW(6))",
+            [(3000 + i, f"VT{i}") for i in range(count)],
+        )
+        cursor.executemany(
+            "INSERT INTO units(id,title,symbol) VALUES(%s,%s,%s)",
+            [(2000 + i, f"U{i}", f"s{i}") for i in range(count)],
+        )
+        cursor.executemany(
+            "INSERT INTO sample_controlled_vocabs(id,title,created_at,updated_at) VALUES(%s,%s,NOW(6),NOW(6))",
+            [(4000 + i, f"CV{i}") for i in range(count)],
+        )
+        cursor.executemany(
+            "INSERT INTO sample_types(id,title,created_at,updated_at) VALUES(%s,%s,NOW(6),NOW(6))",
+            [(5000 + i, f"LT{i}") for i in range(count)],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    repo = AttributeRepository(SeekAttributeGateway())
+    envelope = {
+        "targets": [
+            {
+                "sample_type": 1,
+                "attributes": [
+                    {"title": f"New{i}", "sample_attribute_type": f"VT{i}", "unit": 2000 + i,
+                     "sample_controlled_vocab": f"CV{i}", "linked_sample_type": f"LT{i}"}
+                    for i in range(count)
+                ],
+            }
+        ]
+    }
+
+    def operate():
+        return repo.resolve_mutation(envelope)
+
+    def result_builder(resolved):
+        identities = [
+            (op["attribute_index"],
+             op["definition"].get("sample_attribute_type_id"), op["definition"].get("unit_id"),
+             op["definition"].get("sample_controlled_vocab_id"), op["definition"].get("linked_sample_type_id"))
+            for op in resolved["targets"][0]["operations"]
+        ]
+        return len(identities), {
+            "ordered_identity_sha256": _sha256_json(identities),
+            "logical_record_sha256": _sha256_json(identities),
+            "total": len(identities),
+            "offset": 0,
+            "page_size": max(1, len(identities)),
+            "returned_count": len(identities),
+        }
+
+    resolved, statements = _run_observed(
+        database, sql_telemetry,
+        case_id="test_resolve_mutation_relationship_statement_bound",
+        selector_count=count,
+        operate=operate,
+        result_builder=result_builder,
+    )
+    target = resolved["targets"][0]
+    assert target["resolution_errors"] == []
+    ops = target["operations"]
+    assert len(ops) == count
+    assert [op["resolution_errors"] for op in ops] == [[]] * count
+    assert [op["definition"] for op in ops] == [
+        {"title": f"New{i}", "sample_attribute_type_id": 3000 + i, "unit_id": 2000 + i,
+         "sample_controlled_vocab_id": 4000 + i, "linked_sample_type_id": 5000 + i}
+        for i in range(count)
+    ]
+    assert len(statements) == 9
+    assert len(statements) <= 18 + 9 * math.ceil(count / 500) + 1

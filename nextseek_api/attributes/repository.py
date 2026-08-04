@@ -31,8 +31,11 @@ multi-pass operations: every target's sample type is resolved in one
 `resolve_types` call, every operation's attribute identifier in one
 `resolve_attributes_bulk` (typed) call or at most two
 `resolve_global_attribute_ids` (untyped) calls -- one per identifier kind,
-since ID and TITLE sets cannot share a sorted lookup -- never one
-statement per target or per operation. The only
+since ID and TITLE sets cannot share a sorted lookup -- and every supplied
+relationship identifier (a create definition's or patch `changes`'
+`sample_attribute_type`/`unit`/`sample_controlled_vocab`/
+`linked_sample_type`) in at most one bulk `resolve_relationship` call per
+relationship table -- never one statement per target or per operation. The only
 per-submitted-identifier SQL anywhere in this module is bounded
 existence/resolution lookup (id/title matching, selection re-validation,
 per-type counting), capped at `IDENTIFIER_CHUNK_SIZE` identifiers per
@@ -76,6 +79,19 @@ RELATIONSHIP_AMBIGUOUS_CODE = {
     "sample_controlled_vocabs": "sample_controlled_vocab_ambiguous",
     "sample_types": "linked_sample_type_ambiguous",
     "sample_attribute_types": "sample_attribute_type_ambiguous",
+}
+# The four submitted relationship-identifier field names a create definition
+# or a patch `changes` sub-object may carry (T01 `AttributeCreate` /
+# `AttributePatchChanges`), mapped to their physical lookup tables. The
+# resolved planning spelling for each field is `f"{field}_id"`. Note
+# `linked_sample_type` deliberately reuses the `sample_types` table with the
+# `linked_sample_type_*` error codes -- a target's own owning sample type is
+# resolved via `resolve_types` instead, with `sample_type_*` codes.
+RELATIONSHIP_FIELD_TABLES = {
+    "sample_attribute_type": "sample_attribute_types",
+    "unit": "units",
+    "sample_controlled_vocab": "sample_controlled_vocabs",
+    "linked_sample_type": "sample_types",
 }
 
 
@@ -351,6 +367,73 @@ def _is_create_definition(operation: Any) -> bool:
     distinguished exactly by this key's presence -- a create definition has
     no existing physical identity, so it never carries an `attribute` key."""
     return isinstance(operation, dict) and "attribute" not in operation
+
+
+def _relationship_source(operation: Any) -> dict | None:
+    """The dict whose submitted relationship-identifier fields
+    (`RELATIONSHIP_FIELD_TABLES` keys) one envelope operation carries for
+    resolution: the definition itself for a create operation, the `changes`
+    sub-object for a patch operation, and nothing for a bare patch/delete
+    selector (which submits no relationship fields at all). Used by both the
+    harvest pass and the assembly pass of `resolve_mutation_envelope` so the
+    two can never disagree about which values were bulk-resolved."""
+    if _is_create_definition(operation):
+        return operation
+    if isinstance(operation, dict) and isinstance(operation.get("changes"), dict):
+        return operation["changes"]
+    return None
+
+
+def _resolve_relationship_fields(
+    source: dict,
+    matches_by_table: dict[str, dict[tuple, list[tuple]]],
+    *,
+    target_index: int,
+    attribute_index: int,
+) -> tuple[dict, list[dict]]:
+    """Rewrite one create definition / patch `changes` dict from submitted
+    relationship spellings to resolved planning identities without mutating
+    the submitted dict. For each relationship field PRESENT in `source`: an
+    explicit ``None`` becomes ``<field>_id: None`` (patch clear semantics --
+    an omitted field stays omitted, preserving the T01 tri-state exactly); a
+    submitted identifier matching exactly one row becomes ``<field>_id:
+    <verified id>`` with the submitted spelling dropped (single source of
+    truth -- the original spelling survives in the submitted request, not in
+    the resolved envelope); a miss or a duplicate-title match (DD-03
+    duplicate-conflict precedent) leaves the submitted spelling in place
+    untouched and contributes one `_error_to_dict`-shaped error carrying the
+    established per-table code and full provenance. Integer and
+    numeric-string ID spellings are existence-verified, never trusted: SEEK
+    MySQL has no FK constraints, so an unverified passthrough would let a
+    dangling reference plan real writes (DD-15)."""
+    resolved = dict(source)
+    errors: list[dict] = []
+    for field, table in RELATIONSHIP_FIELD_TABLES.items():
+        if field not in source:
+            continue
+        value = source[field]
+        if value is None:
+            resolved.pop(field)
+            resolved[f"{field}_id"] = None
+            continue
+        matches = matches_by_table.get(table, {}).get(normalize_identifier(value).key, [])
+        if not matches:
+            errors.append(_error_to_dict(ResolutionError(
+                RELATIONSHIP_NOT_FOUND_CODE[table], f"{field} not found",
+                target_index=target_index, attribute_index=attribute_index,
+                field=field, submitted_identifier=value,
+            )))
+            continue
+        if len(matches) > 1:
+            errors.append(_error_to_dict(ResolutionError(
+                RELATIONSHIP_AMBIGUOUS_CODE[table], f"{field} is ambiguous",
+                target_index=target_index, attribute_index=attribute_index,
+                field=field, submitted_identifier=value,
+            )))
+            continue
+        resolved.pop(field)
+        resolved[f"{field}_id"] = int(matches[0][0])
+    return resolved, errors
 
 
 # ---------------------------------------------------------------------------
@@ -959,29 +1042,42 @@ class SeekAttributeGateway:
         physical identities within their explicit sample-type ownership,
         preserving submitted target/attribute provenance for every error.
 
-        Three bulk passes over the *whole* envelope rather than one gateway
+        Four bulk passes over the *whole* envelope rather than one gateway
         round trip per target/operation: (1) every target's sample-type
         identifier through one `resolve_types` call, (2) every typed
         operation's attribute identifier through one `resolve_attributes_bulk`
         call grouped by sample type, (3) every untyped operation's identifier
         through `resolve_global_attribute_ids`, split only by ID/TITLE kind
         (never mixed in one call -- `_fetch_rows_by_id` sorts its identifier
-        set, which cannot compare `int` and `str`). A final assembly pass
-        rebuilds each target's result in submitted order from the three bulk
-        maps; no pass's statement count depends on target/operation count,
-        only on distinct identifier count.
+        set, which cannot compare `int` and `str`), (4) every supplied
+        relationship identifier -- a create definition's or a patch `changes`
+        sub-object's `sample_attribute_type`/`unit`/`sample_controlled_vocab`/
+        `linked_sample_type` -- through at most one bulk
+        `resolve_relationship` call per relationship table over that table's
+        deduplicated identifier set (task-04d, DD-15: supplied references
+        resolve AND validate, integer spellings included; DD-19: unit
+        symbols are never a match key). A final assembly pass rebuilds each
+        target's result in submitted order from the bulk maps; no pass's
+        statement count depends on target/operation count, only on distinct
+        identifier count.
 
         A create-definition operation (`_is_create_definition`; an
         `AttributeCreate`-shaped dict with no `attribute` key, DD-26) has no
-        existing physical identity to resolve, so it never enters the
-        identifier passes above -- it is passed through into the resolved
-        envelope untouched: `{"attribute_id": None, "attribute_index": i,
-        "resolution_errors": [], "definition": <submitted dict>}`, issuing
-        zero additional statements. This is target-level passthrough, not
-        identifier resolution -- the definition's own relationship
-        identifiers (`sample_attribute_type`/`unit`/`sample_controlled_vocab`/
-        `linked_sample_type`) are unresolved here, same as a patch
-        operation's `changes` sub-object."""
+        existing physical identity, so it never enters passes 2/3; it is
+        emitted as `{"attribute_id": None, "attribute_index": i,
+        "resolution_errors": [...], "definition": <resolved dict>}` where the
+        definition's relationship fields are rewritten by pass 4
+        (`_resolve_relationship_fields`) from submitted spellings to
+        verified `*_id` planning identities -- the exact int-or-None
+        currency T05's planner consumes -- and every other field passes
+        through byte-identically. A patch operation's `changes` sub-object
+        is rewritten the same way. An unresolvable relationship identifier
+        keeps its submitted spelling in place and appends one
+        provenance-carrying error to that OPERATION's own
+        `resolution_errors` list (the wrapper channel T05 already merges),
+        while sibling fields and sibling operations resolve normally;
+        target-level `resolution_errors` remains reserved for sample-type
+        failures. Submitted envelope dicts are never mutated in place."""
         targets = data["targets"]
 
         # Pass 1: bulk-resolve every target's sample-type identifier in one call.
@@ -1063,8 +1159,33 @@ class SeekAttributeGateway:
             for target_index, attribute_index, _value, normalized in group:
                 untyped_resolved[(target_index, attribute_index)] = global_resolved.get(normalized.value, [])
 
-        # Pass 4: assemble every target's result in submitted order from the
-        # three bulk maps -- no further gateway round trips.
+        # Pass 4: harvest every non-terminal create definition's and patch
+        # `changes` sub-object's supplied relationship identifiers, then
+        # resolve each relationship table's set in ONE bulk
+        # `resolve_relationship` call (deduplication and 500-cap chunking
+        # happen inside `_resolve_matches`): at most
+        # `ceil(unique_ids/500) + ceil(unique_titles/500)` statements per
+        # table, never one per operation. Explicit-null and omitted fields
+        # never reach the database; unit identifiers resolve by id/title
+        # only -- the bulk matcher has no symbol match key (DD-19).
+        relationship_normalized: dict[str, list[NormalizedIdentifier]] = {}
+        for state in target_states:
+            if state["terminal"]:
+                continue
+            for operation in state["operations"]:
+                source = _relationship_source(operation)
+                if source is None:
+                    continue
+                for field, table in RELATIONSHIP_FIELD_TABLES.items():
+                    if source.get(field) is not None:
+                        relationship_normalized.setdefault(table, []).append(normalize_identifier(source[field]))
+        relationship_matches = {
+            table: self.resolve_relationship(table, normalized)
+            for table, normalized in relationship_normalized.items()
+        }
+
+        # Assembly: rebuild every target's result in submitted order from
+        # the bulk maps -- no further gateway round trips.
         resolved_targets = []
         for state in target_states:
             target_index = state["target_index"]
@@ -1080,9 +1201,13 @@ class SeekAttributeGateway:
             resolution_errors: list[dict] = []
             for attribute_index, operation in enumerate(state["operations"]):
                 if _is_create_definition(operation):
+                    definition, relationship_errors = _resolve_relationship_fields(
+                        operation, relationship_matches,
+                        target_index=target_index, attribute_index=attribute_index,
+                    )
                     resolved_operations.append({
                         "attribute_id": None, "attribute_index": attribute_index,
-                        "resolution_errors": [], "definition": operation,
+                        "resolution_errors": relationship_errors, "definition": definition,
                     })
                     continue
                 attribute_value = operation["attribute"] if isinstance(operation, dict) and "attribute" in operation else operation
@@ -1106,7 +1231,14 @@ class SeekAttributeGateway:
                         "attribute_id": row.id, "attribute_index": attribute_index, "resolution_errors": [],
                     }
                     if isinstance(operation, dict) and "changes" in operation:
-                        entry["changes"] = operation["changes"]
+                        changes = operation["changes"]
+                        if isinstance(changes, dict):
+                            changes, relationship_errors = _resolve_relationship_fields(
+                                changes, relationship_matches,
+                                target_index=target_index, attribute_index=attribute_index,
+                            )
+                            entry["resolution_errors"] = relationship_errors
+                        entry["changes"] = changes
                     resolved_operations.append(entry)
                 except ResolutionError as error:
                     resolution_errors.append(_error_to_dict(error))
