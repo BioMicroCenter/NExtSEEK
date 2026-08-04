@@ -193,11 +193,11 @@ def test_preflight_runs_by_default_and_aborts_the_run(tmp_path):
 # --- Task 5 fix round 1: guards on the paid record --------------------------
 
 
-def _prior_manifest(out_dir, *, fingerprint="unset", ids=("green.mus_ndma",)):
+def _prior_manifest(out_dir, *, fingerprint="unset", ids=("green.mus_ndma",), **meta):
     """A plausible completed paired manifest on disk, without paying for a run."""
     fp = runner.corpus_fingerprint(CORPUS) if fingerprint == "unset" else fingerprint
     m = bm.BayesManifest(
-        run_meta={"mode": "bayesian", "corpus_fingerprint": fp},
+        run_meta={"mode": "bayesian", "corpus_fingerprint": fp, **meta},
         pairs=[bm.BayesPair(id=i, family="f", hibayes_subtype=None,
                             ns=_entry(i), cc=_entry(i, cost=0.10)) for i in ids])
     bm.write_bayes_manifest(m, out_dir)
@@ -280,6 +280,177 @@ def test_resume_refuses_a_prior_manifest_that_records_no_fingerprint(tmp_path):
                             corpus_path=CORPUS, post_query=post_query,
                             get_progress=get_progress, skip_preflight=True, resume=True)
     assert calls == []
+
+
+def test_the_missing_fingerprint_refusal_names_its_own_way_out(tmp_path):
+    """It reaches `CorpusChanged` by a different route and needs a different exit.
+
+    The drift message offers two remedies and both are wrong here: the corpus did
+    not change, so there is nothing to restore, and "start a fresh run in a new
+    --out" costs a full paid run to escape a missing JSON key. The real exit --
+    hand-add the key -- has to be the one named. `preflight` was split for
+    exactly this reason.
+    """
+    m = bm.BayesManifest(run_meta={"mode": "bayesian"},
+                         pairs=[bm.BayesPair(id="green.mus_ndma", family="f", ns=_entry())])
+    bm.write_bayes_manifest(m, tmp_path)
+    post_query, get_progress, _ = _recording_fakes()
+    with pytest.raises(bayesian.CorpusChanged) as e:
+        bayesian.run_paired(base_url="http://x", auth_header="", out_dir=tmp_path,
+                            corpus_path=CORPUS, post_query=post_query,
+                            get_progress=get_progress, skip_preflight=True, resume=True)
+    msg = str(e.value)
+    assert "NO corpus_fingerprint" in msg
+    assert runner.corpus_fingerprint(CORPUS) in msg, "the value to add is not shown"
+    assert bm.MANIFEST_NAME in msg, "the file to edit is not named"
+    assert "Restore the corpus" not in msg, "that remedy belongs to the drift case"
+    assert "fresh run in a new --out" not in msg, "that remedy costs a paid run"
+
+
+def test_the_drift_refusal_keeps_its_own_message(tmp_path):
+    """Non-vacuity for the split above: the drift case must still say what it said."""
+    _prior_manifest(tmp_path, fingerprint="sha256:something-else-entirely")
+    post_query, get_progress, _ = _recording_fakes()
+    with pytest.raises(bayesian.CorpusChanged) as e:
+        bayesian.run_paired(base_url="http://x", auth_header="", out_dir=tmp_path,
+                            corpus_path=CORPUS, post_query=post_query,
+                            get_progress=get_progress, skip_preflight=True, resume=True)
+    msg = str(e.value)
+    assert "sha256:something-else-entirely" in msg
+    assert "Restore the corpus" in msg
+
+
+def test_resume_onto_a_directory_holding_no_run_refuses_instead_of_paying_twice(tmp_path):
+    """The mirror of the overwrite guard, and the same defect class.
+
+    `--resume` onto an empty directory drove all ~322 arms and charged for them.
+    The route in is the budget abort's own advice -- rerun with a higher
+    --max-usd and --resume -- retyped without `--out`, which defaults to
+    `nessie_out_bayes` and not to the run's own directory. The operator pays for
+    a second full run and the arms already bought are never continued.
+    """
+    post_query, get_progress, calls = _recording_fakes()
+    with pytest.raises(bayesian.NoRunToResume) as e:
+        bayesian.run_paired(base_url="http://x", auth_header="", out_dir=tmp_path,
+                            corpus_path=CORPUS, post_query=post_query,
+                            get_progress=get_progress, skip_preflight=True, resume=True)
+    assert calls == [], "the guard fired only after spending turns"
+    assert "--out" in str(e.value), "the likeliest cause is not named"
+
+
+def test_the_resume_guard_fires_before_the_preflight_spends_a_turn(tmp_path):
+    """Same ordering requirement as the overwrite guard: zero turns, not one.
+
+    These fakes make the preflight raise `ForceRouteRejected`. Getting
+    `NoRunToResume` instead proves the guard runs first.
+    """
+    def post_query(_body):
+        return {"task_id": "t", "session_id": "s"}
+
+    def get_progress(_):
+        return {"status": "completed", "progress": [
+            {"event": "route_decided", "data": {"route": "unrelated", "source": "baml"}},
+            {"event": "query_complete", "data": {"reply": "r", "session_id": "s"}},
+        ]}
+
+    with pytest.raises(bayesian.NoRunToResume):
+        bayesian.run_paired(base_url="http://x", auth_header="", out_dir=tmp_path,
+                            corpus_path=CORPUS, post_query=post_query,
+                            get_progress=get_progress, resume=True)
+
+
+def test_a_run_that_is_not_a_resume_still_starts_normally_in_an_empty_directory(tmp_path):
+    """Non-vacuity: the guard must key on --resume, not on the empty directory."""
+    post_query, get_progress, calls = _recording_fakes()
+    m = bayesian.run_paired(base_url="http://x", auth_header="", out_dir=tmp_path,
+                            corpus_path=CORPUS, post_query=post_query,
+                            get_progress=get_progress, skip_preflight=True)
+    assert calls and m.pairs
+
+
+# --- Task 5 fix round 2: provenance across a resume ---------------------------
+
+
+def test_a_resume_after_a_rebuild_keeps_the_prior_runs_provenance(tmp_path):
+    """`run_meta` is rebuilt every run, so a resume overwrote `git_sha` and
+    `base_url` and the manifest then asserted ONE build for a TWO-build run.
+
+    Resume exists so a run can finish later, and "later" plausibly follows a
+    rebuild of the stack. The corpus fingerprint is guarded so the QUESTIONS
+    cannot change mid-run; nothing recorded that the thing being MEASURED did.
+    """
+    _prior_manifest(tmp_path, git_sha="0000aaa", base_url="http://old:8000",
+                    max_usd=10.0)
+    post_query, get_progress, _ = _recording_fakes()
+    m = bayesian.run_paired(base_url="http://new:8000", auth_header="", out_dir=tmp_path,
+                            corpus_path=CORPUS, post_query=post_query,
+                            get_progress=get_progress, skip_preflight=True,
+                            resume=True, max_usd=99.0)
+
+    assert m.run_meta["base_url"] == "http://new:8000"
+    prior = m.run_meta["superseded_runs"]
+    assert [p["git_sha"] for p in prior] == ["0000aaa"]
+    assert prior[0]["base_url"] == "http://old:8000"
+    assert prior[0]["max_usd"] == 10.0
+
+
+def test_a_changed_build_is_recorded_rather_than_refused(tmp_path):
+    """Unlike a corpus change, finishing a run after a rebuild is legitimate and
+    sometimes the only way to finish it. Make it visible, not forbidden."""
+    _prior_manifest(tmp_path, git_sha="0000aaa")
+    post_query, get_progress, _ = _recording_fakes()
+    m = bayesian.run_paired(base_url="http://x", auth_header="", out_dir=tmp_path,
+                            corpus_path=CORPUS, post_query=post_query,
+                            get_progress=get_progress, skip_preflight=True, resume=True)
+    assert m.run_meta["superseded_runs"][0]["git_sha"] == "0000aaa"
+    assert m.pairs, "the resume was refused instead of recorded"
+
+
+def test_a_fresh_run_records_an_empty_provenance_chain(tmp_path):
+    """Always present, `[]` when nothing was superseded, so a downstream reader
+    never has to tell 'no resumes' from 'this key predates the fix'."""
+    post_query, get_progress, _ = _recording_fakes()
+    m = bayesian.run_paired(base_url="http://x", auth_header="", out_dir=tmp_path,
+                            corpus_path=CORPUS, post_query=post_query,
+                            get_progress=get_progress, skip_preflight=True)
+    assert m.run_meta["superseded_runs"] == []
+
+
+def test_repeated_resumes_flatten_into_one_readable_list(tmp_path):
+    """Every build that contributed arms in ONE list, oldest first. Nesting each
+    resume inside the last would make 'which builds produced this run' a
+    recursive walk of unknown depth for plan 3."""
+    _prior_manifest(tmp_path, git_sha="aaa111")
+    post_query, get_progress, _ = _recording_fakes()
+
+    def resume():
+        bayesian.run_paired(base_url="http://x", auth_header="", out_dir=tmp_path,
+                            corpus_path=CORPUS, post_query=post_query,
+                            get_progress=get_progress, skip_preflight=True, resume=True)
+
+    resume()
+    # Stand in for a rebuild between the two resumes: the run that just finished
+    # a segment now carries its own sha, and the next resume must supersede that
+    # one WITHOUT losing aaa111 underneath it.
+    m = bm.read_bayes_manifest(tmp_path)
+    m.run_meta["git_sha"] = "bbb222"
+    bm.write_bayes_manifest(m, tmp_path)
+    resume()
+
+    chain = bm.read_bayes_manifest(tmp_path).run_meta["superseded_runs"]
+    assert [seg["git_sha"] for seg in chain] == ["aaa111", "bbb222"]
+    assert all("superseded_runs" not in seg for seg in chain), "the chain nested"
+
+
+def test_the_provenance_chain_survives_the_round_trip_to_disk(tmp_path):
+    """Plan 3 reads the FILE, not the return value."""
+    _prior_manifest(tmp_path, git_sha="0000aaa")
+    post_query, get_progress, _ = _recording_fakes()
+    bayesian.run_paired(base_url="http://x", auth_header="", out_dir=tmp_path,
+                        corpus_path=CORPUS, post_query=post_query,
+                        get_progress=get_progress, skip_preflight=True, resume=True)
+    on_disk = json.loads((tmp_path / bm.MANIFEST_NAME).read_text(encoding="utf-8"))
+    assert on_disk["run_meta"]["superseded_runs"][0]["git_sha"] == "0000aaa"
 
 
 def test_a_crash_between_the_arms_of_one_pair_keeps_the_completed_ns_arm(tmp_path):

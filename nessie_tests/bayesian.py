@@ -10,7 +10,8 @@ import time
 
 from nessie_tests import corpus, http_driver, preflight, runner
 from nessie_tests.bayes_manifest import (
-    BayesManifest, BayesPair, completed_arms, read_bayes_manifest, write_bayes_manifest,
+    MANIFEST_NAME, BayesManifest, BayesPair, completed_arms, read_bayes_manifest,
+    write_bayes_manifest,
 )
 
 ARMS = ("ns", "cc")
@@ -30,13 +31,31 @@ class PriorRunWouldBeOverwritten(RuntimeError):
     """
 
 
+class NoRunToResume(RuntimeError):
+    """`--resume` was given but `out_dir` holds no paired manifest.
+
+    The mirror of `PriorRunWouldBeOverwritten`, and the same defect class: that
+    one refuses a fresh run onto a prior record, and nothing refused a resume
+    onto NOTHING, which silently starts a fresh ~322-arm paid run.
+
+    The likely route in is the budget abort's own advice -- "rerun the SAME
+    command with a higher --max-usd and --resume" -- retyped without `--out`,
+    which defaults to `nessie_out_bayes` rather than to the run's directory. The
+    operator pays twice and the original run is never continued.
+    """
+
+
 class CorpusChanged(RuntimeError):
-    """The corpus is not the one the run being resumed was selected from.
+    """The corpus is not PROVABLY the one the run being resumed was selected from.
 
     Protects completed PAID pairs, and the comparability the fingerprint exists
     for. `manifest.pairs` is rebuilt from the CURRENT selection rather than
     merged with the prior pairs, so any id that left the selection loses its
     paid result silently -- and selection can only change if corpus.json did.
+
+    Two routes here, one refusal and two different messages: the fingerprints
+    disagree, or the prior manifest records none at all. Their remedies do not
+    overlap, so they do not share wording.
     """
 
 
@@ -70,17 +89,48 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
             f"onward.\nThose pairs were PAID FOR and are not recoverable once "
             f"overwritten.\nEither continue that run with --resume, or send this "
             f"one somewhere else with --out.")
+    if existing is None and resume:
+        # The other direction of the same guard. `--resume` is a promise that a
+        # run exists here; if none does, honouring it silently would spend a
+        # FULL fresh run while the paid arms it was meant to continue sit
+        # untouched in the directory the operator meant to name.
+        raise NoRunToResume(
+            f"--resume was given but {out_dir} holds no paired manifest (no "
+            f"{MANIFEST_NAME}), so there is nothing to continue -- this would "
+            f"start a FRESH full paid run instead of finishing one.\n"
+            f"The likeliest cause is a missing or mistyped --out. The budget "
+            f"abort tells you to rerun the SAME command with a higher --max-usd "
+            f"and --resume; dropping --out from that rerun sends it to the "
+            f"default nessie_out_bayes/ rather than to your run's directory, and "
+            f"the arms you already paid for are never continued.\n"
+            f"Point --out at the directory holding {MANIFEST_NAME}, or drop "
+            f"--resume if a fresh run really is what you want.")
 
     fresh_fingerprint = runner.corpus_fingerprint(corpus_path)
     prior = existing if resume else None
     if prior is not None:
         prior_fingerprint = prior.run_meta.get("corpus_fingerprint")
+        if prior_fingerprint is None:
+            # Its own message, not the drift one. `preflight` was split for
+            # exactly this reason: the two conditions reach the same refusal by
+            # different routes and have DIFFERENT remedies, and the drift
+            # message's two exits are both wrong here -- the corpus did not
+            # change, so there is nothing to "restore", and "start a fresh run"
+            # costs a whole paid run to escape a missing JSON key.
+            raise CorpusChanged(
+                f"this manifest records NO corpus_fingerprint, so the corpus it "
+                f"was selected from cannot be identified.\n"
+                f"`run_paired` always writes that key, so nothing it produced can "
+                f"land here: a manifest without one was hand-edited or truncated. "
+                f"An UNPROVEN match is as unsafe to resume a paid run onto as a "
+                f"refused one -- pairs are rebuilt from the CURRENT selection, so "
+                f"any id that has since left it loses its paid result silently. "
+                f"`preflight` makes the same call on its own inconclusive case.\n"
+                f"If you know these pairs came from the corpus in this checkout, "
+                f"add \"corpus_fingerprint\": {fresh_fingerprint!r} to run_meta in "
+                f"{out_dir}/{MANIFEST_NAME} and resume. Do NOT delete the "
+                f"manifest to clear this: that repays for every arm on disk.")
         if prior_fingerprint != fresh_fingerprint:
-            # A missing fingerprint takes this path too. `run_paired` always
-            # writes the key, so nothing it produced can land here: a manifest
-            # without one was hand-edited or truncated. `preflight` makes the
-            # same call on its own inconclusive case -- an UNPROVEN match is as
-            # unsafe to resume a paid run onto as a refused one.
             raise CorpusChanged(
                 f"the corpus is not the one this run was selected from: prior "
                 f"fingerprint {prior_fingerprint!r}, current {fresh_fingerprint!r}.\n"
@@ -102,6 +152,23 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
     done = completed_arms(prior) if prior else set()
     pairs = {p.id: p for p in (prior.pairs if prior else [])}
 
+    # A resumed run's arms were NOT all produced by the build recorded below.
+    # `run_meta` is rebuilt from scratch every time, so a resume after a rebuild
+    # silently restated one `git_sha` and one `base_url` for a two-build run --
+    # the inverse of the honesty `corpus_fingerprint` is guarded for, which stops
+    # the QUESTIONS changing mid-run while nothing recorded that the thing being
+    # MEASURED had. A changed sha does not raise: unlike a corpus edit, finishing
+    # a run after a rebuild is legitimate and sometimes the only way to finish it.
+    # It is made visible instead, oldest segment first, flattened so a reader gets
+    # one list rather than a chain of nested manifests: every build and base_url
+    # that contributed arms is `[m["git_sha"] for m in superseded] + [git_sha]`.
+    # Always present, `[]` on a fresh run, so plan 3 need not special-case it.
+    superseded = []
+    if prior is not None:
+        prior_meta = dict(prior.run_meta)
+        superseded = list(prior_meta.pop("superseded_runs", []))
+        superseded.append(prior_meta)
+
     manifest = BayesManifest(
         run_meta={
             "mode": "bayesian",
@@ -112,6 +179,7 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
             "selected_ids": selected,
             "max_usd": max_usd,
             "resumed": bool(prior),
+            "superseded_runs": superseded,
         },
         pairs=[],
     )
