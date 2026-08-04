@@ -8,11 +8,32 @@ from django.contrib.auth.models import User as DjangoUser
 from pydantic import ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.request import Request
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from nextseek_api.models import UserAdminRecord, UserCreateRequest, UserUpdateRequest
 from nextseek_api.services.seek_rails_runner import SeekRailsRunnerError, SeekRailsUnavailableError
-from nextseek_api.services.users import IsDjangoSuperuser, UsersViewSet, _build_record, _validate_seek_user_id
+from nextseek_api.services.users import (
+    IsDjangoSuperuser,
+    UsersViewSet,
+    _build_record,
+    _upsert_people_mirror,
+    _validate_seek_user_id,
+)
+
+_PASSWORD_KEYS = frozenset({"password", "password_confirmation"})
+
+
+def _assert_no_password_in_json(content: bytes) -> None:
+    body = json.loads(content)
+    stack = [body]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                assert key not in _PASSWORD_KEYS, f"password field leaked in response: {key}"
+                stack.append(value)
+        elif isinstance(node, list):
+            stack.extend(node)
 
 
 def _wrap(factory_request):
@@ -122,12 +143,42 @@ class TestBuildRecordHelpers:
         assert _membership_for_person(99) == (None, None)
 
 
+class TestUpsertPeopleMirror:
+    @patch("nextseek_api.services.users.timezone")
+    @patch("nextseek_api.services.users.People")
+    def test_upsert_updates_changed_fields(self, mock_people, mock_tz):
+        mock_tz.now.return_value = "2026-08-04T12:00:00Z"
+        person = MagicMock(
+            email="old@example.com",
+            first_name="Old",
+            last_name="Name",
+        )
+        mock_people.objects.using.return_value.filter.return_value.first.return_value = person
+
+        result = _upsert_people_mirror(
+            20,
+            email="new@example.com",
+            first_name="New",
+            last_name="Person",
+        )
+
+        assert result is person
+        person.save.assert_called_once()
+        assert person.email == "new@example.com"
+
+    @patch("nextseek_api.services.users.People")
+    def test_upsert_missing_person_raises(self, mock_people):
+        mock_people.objects.using.return_value.filter.return_value.first.return_value = None
+        with pytest.raises(LookupError):
+            _upsert_people_mirror(99, email="a@b.com", first_name="A", last_name="B")
+
+
 class TestUsersViewSetCreate:
     @patch("nextseek_api.services.users._sync_django_user")
-    @patch("nextseek_api.services.users.People")
+    @patch("nextseek_api.services.users._upsert_people_mirror")
     @patch("nextseek_api.services.users.Users")
     @patch("nextseek_api.services.users.run_seek_rails_runner")
-    def test_create_success(self, mock_runner, mock_users, mock_people, mock_sync):
+    def test_create_success(self, mock_runner, mock_users, mock_upsert, mock_sync):
         mock_runner.return_value = {
             "ok": True,
             "user_id": 10,
@@ -140,8 +191,8 @@ class TestUsersViewSetCreate:
         }
         mock_users.objects.using.return_value.filter.return_value.exists.return_value = False
         seek_user = MagicMock(id=10, person_id=20, login="testuser", activation_code=None)
-        mock_users.objects.using.return_value.get.return_value = seek_user
-        mock_people.objects.using.return_value.filter.return_value.exists.return_value = True
+        mock_users.objects.using.return_value.filter.return_value.first.return_value = seek_user
+        mock_upsert.return_value = MagicMock()
 
         with patch("nextseek_api.services.users._build_record") as mock_build:
             mock_build.return_value = UserAdminRecord(
@@ -163,7 +214,9 @@ class TestUsersViewSetCreate:
             response = UsersViewSet().create(request)
 
         assert response.status_code == 201
+        _assert_no_password_in_json(response.content)
         mock_runner.assert_called_once()
+        mock_upsert.assert_called_once()
         mock_sync.assert_called_once()
 
     @patch("nextseek_api.services.users.Users")
@@ -214,19 +267,41 @@ class TestUsersViewSetCreate:
         assert response.status_code == 502
         assert b"Invalid upstream response" in response.content
 
-    @patch("nextseek_api.services.users.People")
+    @patch("nextseek_api.services.users._compensate_failed_create")
+    @patch("nextseek_api.services.users._upsert_people_mirror")
     @patch("nextseek_api.services.users.Users")
     @patch("nextseek_api.services.users.run_seek_rails_runner")
-    def test_create_person_mirror_missing_502(self, mock_runner, mock_users, mock_people):
+    def test_create_person_mirror_missing_502(self, mock_runner, mock_users, mock_upsert, mock_compensate):
         mock_users.objects.using.return_value.filter.return_value.exists.return_value = False
         mock_runner.return_value = {"user_id": 1, "person_id": 99}
-        mock_people.objects.using.return_value.filter.return_value.exists.return_value = False
+        mock_upsert.side_effect = LookupError("Person 99 not found")
         factory = APIRequestFactory()
         request = _wrap(factory.post("/nextseek_api/users/", CREATE_BODY, format="json"))
         request.user = _superuser()
         response = UsersViewSet().create(request)
         assert response.status_code == 502
         assert b"Invalid upstream response" in response.content
+        mock_compensate.assert_called_once_with(1)
+
+    @patch("nextseek_api.services.users._compensate_failed_create")
+    @patch("nextseek_api.services.users._sync_django_user")
+    @patch("nextseek_api.services.users._upsert_people_mirror")
+    @patch("nextseek_api.services.users.Users")
+    @patch("nextseek_api.services.users.run_seek_rails_runner")
+    def test_create_django_sync_failure_compensates(
+        self, mock_runner, mock_users, mock_upsert, mock_sync, mock_compensate
+    ):
+        mock_users.objects.using.return_value.filter.return_value.exists.return_value = False
+        mock_runner.return_value = {"user_id": 7, "person_id": 20, "project_id": 1, "institution_id": 1}
+        mock_upsert.return_value = MagicMock()
+        mock_sync.side_effect = RuntimeError("django down")
+        factory = APIRequestFactory()
+        request = _wrap(factory.post("/nextseek_api/users/", CREATE_BODY, format="json"))
+        request.user = _superuser()
+        response = UsersViewSet().create(request)
+        assert response.status_code == 502
+        assert b"Django user sync failed" in response.content
+        mock_compensate.assert_called_once_with(7)
 
     @patch("nextseek_api.services.users.Users")
     @patch("nextseek_api.services.users.run_seek_rails_runner")
@@ -345,6 +420,7 @@ class TestUsersViewSetPatch:
         response = UsersViewSet().partial_update(request, uid="5")
 
         assert response.status_code == 200
+        _assert_no_password_in_json(response.content)
         assert dj.is_active is False
         mock_runner.assert_called_once()
 
@@ -473,12 +549,13 @@ class TestUsersViewSetPatchExtra:
         assert response.status_code == 503
 
     @patch("nextseek_api.services.users._build_record")
+    @patch("nextseek_api.services.users._upsert_people_mirror")
     @patch("nextseek_api.services.users.People")
     @patch("nextseek_api.services.users.DjangoUser")
     @patch("nextseek_api.services.users.run_seek_rails_runner")
     @patch("nextseek_api.services.users.Users")
     def test_patch_creates_django_user_when_missing(
-        self, mock_users, mock_runner, mock_dj, mock_people, mock_build
+        self, mock_users, mock_runner, mock_dj, mock_people, mock_upsert, mock_build
     ):
         seek_user = MagicMock(id=5, person_id=6, login="newbie", activation_code=None)
         mock_users.objects.using.return_value.filter.return_value.first.return_value = seek_user
@@ -590,3 +667,68 @@ class TestRoutingAndSchema:
         assert create_op["responses"]["502"]["content"]["application/json"]["schema"]["$ref"].endswith(
             "AdminUserErrorResponse"
         )
+
+
+class TestUsersViewSetDRFPermissions:
+    """Permission checks through DRF view dispatch (not direct view method calls)."""
+
+    @staticmethod
+    def _staff_user():
+        return DjangoUser(username="staffonly", is_staff=True, is_superuser=False)
+
+    @staticmethod
+    def _superuser():
+        return DjangoUser(username="superadmin", is_staff=True, is_superuser=True)
+
+    def test_staff_forbidden_list(self):
+        request = APIRequestFactory().get("/nextseek_api/users/")
+        force_authenticate(request, user=self._staff_user())
+        response = UsersViewSet.as_view({"get": "list"})(request)
+        assert response.status_code == 403
+
+    def test_staff_forbidden_retrieve(self):
+        request = APIRequestFactory().get("/nextseek_api/users/1/")
+        force_authenticate(request, user=self._staff_user())
+        response = UsersViewSet.as_view({"get": "retrieve"})(request, uid="1")
+        assert response.status_code == 403
+
+    def test_staff_forbidden_create(self):
+        request = APIRequestFactory().post("/nextseek_api/users/", CREATE_BODY, format="json")
+        force_authenticate(request, user=self._staff_user())
+        response = UsersViewSet.as_view({"post": "create"})(request)
+        assert response.status_code == 403
+
+    def test_staff_forbidden_patch(self):
+        request = APIRequestFactory().patch("/nextseek_api/users/1/", {"active": False}, format="json")
+        force_authenticate(request, user=self._staff_user())
+        response = UsersViewSet.as_view({"patch": "partial_update"})(request, uid="1")
+        assert response.status_code == 403
+
+    @patch("nextseek_api.services.users.Users")
+    def test_superuser_allowed_list(self, mock_users):
+        mock_users.objects.using.return_value.all.return_value.order_by.return_value = []
+        request = APIRequestFactory().get("/nextseek_api/users/")
+        force_authenticate(request, user=self._superuser())
+        response = UsersViewSet.as_view({"get": "list"})(request)
+        assert response.status_code == 200
+
+
+class TestUsersViewSetPatchValidation:
+    @patch("nextseek_api.services.users.Users")
+    def test_patch_missing_user_404(self, mock_users):
+        mock_users.objects.using.return_value.filter.return_value.first.return_value = None
+        factory = APIRequestFactory()
+        request = _wrap(factory.patch("/nextseek_api/users/5/", {"active": False}, format="json"))
+        request.user = _superuser()
+        response = UsersViewSet().partial_update(request, uid="5")
+        assert response.status_code == 404
+
+    @patch("nextseek_api.services.users.Users")
+    def test_patch_invalid_body_422(self, mock_users):
+        seek_user = MagicMock(id=5, person_id=6, login="demo")
+        mock_users.objects.using.return_value.filter.return_value.first.return_value = seek_user
+        factory = APIRequestFactory()
+        request = _wrap(factory.patch("/nextseek_api/users/5/", {"project_id": "bad"}, format="json"))
+        request.user = _superuser()
+        response = UsersViewSet().partial_update(request, uid="5")
+        assert response.status_code == 422

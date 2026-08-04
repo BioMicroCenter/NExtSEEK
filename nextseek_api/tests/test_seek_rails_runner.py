@@ -76,3 +76,47 @@ def test_run_seek_rails_runner_unavailable_when_container_missing():
     with patch("docker.from_env", return_value=fake_client):
         with pytest.raises(SeekRailsUnavailableError):
             run_seek_rails_runner("puts '{}'")
+
+
+def test_run_seek_rails_runner_raises_on_invalid_json():
+    fake_container = MagicMock()
+    fake_container.exec_run.return_value = (0, (b"not-json", b""))
+    fake_client = MagicMock()
+    fake_client.containers.get.return_value = fake_container
+
+    with patch("docker.from_env", return_value=fake_client):
+        with pytest.raises(SeekRailsRunnerError, match="not valid JSON"):
+            run_seek_rails_runner("puts 'broken'")
+
+
+def test_run_seek_rails_runner_handles_non_tuple_output():
+    fake_container = MagicMock()
+    fake_container.exec_run.return_value = (
+        0,
+        json.dumps({"ok": True, "user_id": 1}).encode(),
+    )
+    fake_client = MagicMock()
+    fake_client.containers.get.return_value = fake_container
+
+    with patch("docker.from_env", return_value=fake_client):
+        result = run_seek_rails_runner("puts '{}'")
+    assert result["user_id"] == 1
+
+
+def test_run_seek_rails_runner_unavailable_on_exec_api_error():
+    from docker.errors import APIError
+
+    fake_container = MagicMock()
+    fake_container.exec_run.side_effect = APIError("exec failed")
+    fake_client = MagicMock()
+    fake_client.containers.get.return_value = fake_container
+
+    with patch("docker.from_env", return_value=fake_client):
+        with pytest.raises(SeekRailsUnavailableError, match="Docker exec"):
+            run_seek_rails_runner("puts '{}'")
+
+
+def test_run_seek_rails_runner_unavailable_on_connect_error():
+    with patch("docker.from_env", side_effect=OSError("no socket")):
+        with pytest.raises(SeekRailsUnavailableError, match="Cannot connect"):
+            run_seek_rails_runner("puts '{}'")

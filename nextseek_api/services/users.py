@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib.auth.models import User as DjangoUser
 from django.db import connections
 from django.http import HttpResponse
+from django.utils import timezone
 from pydantic import ValidationError
 from rest_framework import viewsets
 from rest_framework.authentication import TokenAuthentication, BasicAuthentication
@@ -40,6 +41,16 @@ from seek.models import People, Users
 logger = logging.getLogger(__name__)
 
 USERS_ADMIN_TAG = "Users (admin)"
+
+_SEEK_ADMIN_PREAMBLE = """
+admin = User.joins(:person).detect { |u| u.person&.is_admin? }
+raise 'No SEEK admin user available for rails runner' if admin.nil?
+User.with_current_user(admin) do
+"""
+
+_SEEK_ADMIN_EPILOG = """
+end
+"""
 
 _EXAMPLE_USER_RECORD = {
     "user_id": 10,
@@ -94,8 +105,7 @@ _ADMIN_MUTATION_RESPONSES = {
     503: AdminUserErrorResponse,
 }
 
-SEEK_CREATE_RUBY = """
-begin
+SEEK_CREATE_RUBY = _SEEK_ADMIN_PREAMBLE + """
   project = Project.find(payload['project_id'])
   institution = Institution.find(payload['institution_id'])
   person = Person.create!(
@@ -129,11 +139,21 @@ rescue ActiveRecord::RecordInvalid => e
 rescue => e
   puts({ ok: false, error: e.message, class: e.class.name }.to_json)
   exit 1
-end
-"""
+""" + _SEEK_ADMIN_EPILOG
 
-SEEK_PATCH_RUBY = """
-begin
+SEEK_COMPENSATE_CREATE_RUBY = _SEEK_ADMIN_PREAMBLE + """
+  user = User.find(payload['user_id'])
+  if user.active?
+    user.send(:make_activation_code)
+    user.save(validate: false)
+  end
+  puts({ ok: true, user_id: user.id, compensated: true }.to_json)
+rescue => e
+  puts({ ok: false, error: e.message, class: e.class.name }.to_json)
+  exit 1
+""" + _SEEK_ADMIN_EPILOG
+
+SEEK_PATCH_RUBY = _SEEK_ADMIN_PREAMBLE + """
   user = User.find(payload['user_id'])
   person = user.person
   raise 'User has no linked person' if person.nil?
@@ -161,7 +181,7 @@ begin
     if payload['active']
       user.activate unless user.active?
     elsif user.active?
-      user.make_activation_code
+      user.send(:make_activation_code)
       user.save(validate: false)
     end
   end
@@ -189,8 +209,7 @@ begin
 rescue => e
   puts({ ok: false, error: e.message, class: e.class.name }.to_json)
   exit 1
-end
-"""
+""" + _SEEK_ADMIN_EPILOG
 
 
 class IsDjangoSuperuser(BasePermission):
@@ -267,6 +286,44 @@ def _build_record(
         project_id=project_id,
         institution_id=institution_id,
     )
+
+
+def _upsert_people_mirror(
+    person_id: int,
+    *,
+    email: str,
+    first_name: str,
+    last_name: str,
+) -> People:
+    """Ensure the SEEK People row exists and profile fields match the admin request."""
+    db = settings.SEEK_DATABASE
+    person = People.objects.using(db).filter(id=person_id).first()
+    if person is None:
+        raise LookupError(f"Person {person_id} not found")
+
+    update_fields: List[str] = []
+    if person.email != email:
+        person.email = email
+        update_fields.append("email")
+    if person.first_name != first_name:
+        person.first_name = first_name
+        update_fields.append("first_name")
+    if person.last_name != last_name:
+        person.last_name = last_name
+        update_fields.append("last_name")
+    if update_fields:
+        person.updated_at = timezone.now()
+        update_fields.append("updated_at")
+        person.save(using=db, update_fields=update_fields)
+    return person
+
+
+def _compensate_failed_create(user_id: int) -> None:
+    """Best-effort SEEK deactivation when Django mirroring fails after Rails create."""
+    try:
+        run_seek_rails_runner(SEEK_COMPENSATE_CREATE_RUBY, {"user_id": user_id})
+    except Exception:
+        logger.exception("SEEK compensation failed for user_id=%s", user_id)
 
 
 def _sync_django_user(
@@ -447,20 +504,39 @@ class UsersViewSet(viewsets.ViewSet):
             return _error_response("Invalid upstream response", 502, detail=detail)
 
         person_id = int(result["person_id"])
-        if not People.objects.using(settings.SEEK_DATABASE).filter(id=person_id).exists():
+        try:
+            _upsert_people_mirror(
+                person_id,
+                email=body.email,
+                first_name=body.first_name,
+                last_name=body.last_name,
+            )
+        except LookupError:
+            _compensate_failed_create(int(result["user_id"]))
             return _error_response("Invalid upstream response", 502, detail=f"person_id={person_id}")
 
-        _sync_django_user(
-            login=body.login,
-            email=body.email,
-            password=body.password,
-            first_name=body.first_name,
-            last_name=body.last_name,
-            is_active=body.activate,
-            is_superuser=body.is_superuser,
-        )
+        try:
+            _sync_django_user(
+                login=body.login,
+                email=body.email,
+                password=body.password,
+                first_name=body.first_name,
+                last_name=body.last_name,
+                is_active=body.activate,
+                is_superuser=body.is_superuser,
+            )
+        except Exception as exc:
+            logger.exception("Django user sync failed after SEEK create for login=%s", body.login)
+            _compensate_failed_create(int(result["user_id"]))
+            return _error_response(
+                "Invalid upstream response",
+                502,
+                detail=f"Django user sync failed: {exc}",
+            )
 
-        seek_user = Users.objects.using(settings.SEEK_DATABASE).get(id=int(result["user_id"]))
+        seek_user = Users.objects.using(settings.SEEK_DATABASE).filter(id=int(result["user_id"])).first()
+        if seek_user is None:
+            return _error_response("Invalid upstream response", 502, detail=f"user_id={result['user_id']}")
         record = _build_record(
             seek_user,
             project_id=int(result.get("project_id", body.project_id)),
@@ -572,6 +648,21 @@ class UsersViewSet(viewsets.ViewSet):
             }
 
         person = People.objects.using(settings.SEEK_DATABASE).get(id=seek_user.person_id)
+        if any(
+            getattr(body, field) is not None
+            for field in ("email", "first_name", "last_name")
+        ):
+            try:
+                _upsert_people_mirror(
+                    int(seek_user.person_id),
+                    email=body.email if body.email is not None else (person.email or ""),
+                    first_name=body.first_name if body.first_name is not None else (person.first_name or ""),
+                    last_name=body.last_name if body.last_name is not None else (person.last_name or ""),
+                )
+            except LookupError:
+                return _error_response("User not found", 404)
+            person.refresh_from_db(using=settings.SEEK_DATABASE)
+
         django_user = DjangoUser.objects.filter(username__exact=seek_user.login).first()
 
         if django_user is None:
