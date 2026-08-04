@@ -54,19 +54,37 @@ def _file(path, body=b"x"):
     path.write_bytes(body)
 
 
+ONE_TURN = [{"label": "main", "query": "How many mice?"}]
+
+
 def _corpus(tmp_path, *, artifact_expected=True, artifact_kind="GEO-xlsx",
-            subtype="S", behavior="GenerateArtifact", vid="a.one"):
+            subtype="S", behavior="GenerateArtifact", vid="a.one", ids=None,
+            turns=None):
+    """A real v2 corpus row, `name` and `turns` included.
+
+    Both are REQUIRED by `e2e.catalog.Variant`, which is what `export_stage_b`
+    now loads the question text through. A fixture that omits them is not a
+    corpus this harness could ever read.
+    """
     p = tmp_path / "corpus.json"
     p.write_text(json.dumps({
         "version": 2,
         "families": {"f": {"variants": [{
-            "id": vid, "family": "f", "status": "active", "is_bayesian": True,
+            "id": i, "family": "f", "name": i, "status": "active",
+            "is_bayesian": True, "turns": turns if turns is not None else ONE_TURN,
             "hibayes_subtype": subtype, "expected_behavior": behavior,
             "artifact_expected": artifact_expected, "artifact_kind": artifact_kind,
-        }]}},
+        } for i in (ids or [vid])]}},
         "family_defaults": {"f": {}},
     }), encoding="utf-8")
     return p
+
+
+def _reply(artifacts_dir, vid, arm, reply, status="completed"):
+    """A collected task row carrying an answer, the way the endpoint records one."""
+    (_arm_dir(artifacts_dir, vid, arm) / "task.json").write_text(
+        json.dumps({"status": status, "progress": [],
+                    "result": {"reply": reply}}), encoding="utf-8")
 
 
 # --- the brief's pinned tests -------------------------------------------------
@@ -137,10 +155,39 @@ def test_failure_mode_priority_is_timeout_then_error_then_no_answer():
     assert export.failure_mode(answer_provided=True, is_error=False, timed_out=False) == "none"
 
 
-def test_runtime_success_is_the_conjunction_upstream_validates():
-    row = export.runtime_row(_entry(), arm="ns", family="f", subtype="S", artifact_count=0)
-    assert row["runtime_success"] is (
-        row["answer_provided"] and not row["is_error"] and not row["timed_out"])
+@pytest.mark.parametrize("status, reason, expected", [
+    # answered, no error, no timeout -- the only combination that is a success
+    ("passed", "", {"answer_provided": True, "is_error": False, "timed_out": False,
+                    "runtime_success": True, "failure_mode": "none"}),
+    # `failed` means the CRITERIA failed; the engine still answered
+    ("failed", "", {"answer_provided": True, "is_error": False, "timed_out": False,
+                    "runtime_success": True, "failure_mode": "none"}),
+    ("no_assertions", "", {"answer_provided": True, "is_error": False,
+                           "timed_out": False, "runtime_success": True,
+                           "failure_mode": "none"}),
+    ("error", "", {"answer_provided": False, "is_error": True, "timed_out": False,
+                   "runtime_success": False, "failure_mode": "error"}),
+    # THE CASE THAT SEPARATES `runtime_success` FROM `answer_provided`. A socket
+    # TimeoutError out of urlopen leaves the status inside `_ANSWERED` and the
+    # exception's text in `reason`, so `answer_provided` is true and the turn
+    # still did not succeed.
+    ("passed", "TimeOut waiting for query_complete",
+     {"answer_provided": True, "is_error": False, "timed_out": True,
+      "runtime_success": False, "failure_mode": "timeout"}),
+])
+def test_runtime_success_is_the_conjunction_upstream_validates(status, reason, expected):
+    """The study's OUTCOME VARIABLE, pinned against literals.
+
+    This test used to recompute its expectation from the row under test
+    (`row["runtime_success"] is (row["answer_provided"] and ...)`), which is an
+    identity: reducing the implementation to `answer_provided` alone left the
+    whole suite green. A tautology over the one column the posterior is fitted
+    to is worse than no test, because it reads as coverage.
+    """
+    e = _entry(status=status)
+    e.reason = reason
+    row = export.runtime_row(e, arm="ns", family="f", subtype="S", artifact_count=0)
+    assert {k: row[k] for k in expected} == expected
 
 
 def test_tool_calls_total_is_never_a_false_zero_for_ns(tmp_path):
@@ -296,16 +343,30 @@ def test_a_terminal_row_is_scored_normally(tmp_path):
     assert out["excluded_deadline"] == 0 and out["cc"] == 1
 
 
-def test_a_row_with_no_status_at_all_is_not_evidence_of_a_deadline_abort(tmp_path):
-    """Positive evidence only. Excluding on an ABSENT key would silently discard
-    paid arms whenever a source returns a partial row, and an absent status is not
-    a claim that the turn is unfinished."""
+@pytest.mark.parametrize("row, why", [
+    ({"progress": []}, "the key is absent"),
+    ({"status": None, "progress": []}, "the key is present and null"),
+    ({"status": "", "progress": []}, "a NULL status column mapped to an empty string"),
+    ({"status": "   ", "progress": []}, "whitespace is the same absence in a hat"),
+])
+def test_a_row_with_no_status_at_all_is_not_evidence_of_a_deadline_abort(
+        row, why, tmp_path):
+    """Positive evidence only, and `""` is not evidence either.
+
+    The docstring on `_deadline_aborted` has always said so; the code said
+    otherwise, and `""` is the obvious shape for a `Sources` that maps a NULL
+    MySQL status column straight through. On a reproduced run it excluded 8 of 8
+    arms: both eval CSVs and Stage B were written EMPTY, and every arm was
+    stamped "the turn blew full_timeout_s" beside `status=passed`.
+    """
     art = tmp_path / "artifacts"
     (_arm_dir(art, "a.one", "cc") / "task.json").write_text(
-        json.dumps({"progress": [_search("Bash")]}), encoding="utf-8")
+        json.dumps(row), encoding="utf-8")
     m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
     out = export.export(m, tmp_path, artifacts_dir=art)
-    assert out["excluded_deadline"] == 0 and out["cc"] == 1
+    assert (out["excluded_deadline"], out["cc"]) == (0, 1), why
+    assert export.export_stage_b(m, tmp_path, artifacts_dir=art,
+                                 corpus_path=_corpus(tmp_path)) == 1, why
 
 
 def test_an_outage_outranks_a_deadline_abort(tmp_path):
@@ -533,17 +594,43 @@ def test_stage_b_is_one_file_covering_both_arms(tmp_path):
     assert "image" not in rows[0] and "is_opus" not in rows[0]
 
 
-def test_a_stage_b_query_id_round_trips_to_its_pair_and_arm():
+@pytest.mark.parametrize("vid", [
+    "cons.nhp_sequencing_engine",
+    # Nothing forbids a variant id containing the separator, which is the whole
+    # reason the split is a `rpartition`. Under `partition` this id round-trips
+    # to ("weird", "held::cc") -- a pair id no manifest holds and an arm no CSV
+    # has, so `merge_grades` reports the row ungraded and refuses the table.
+    "weird::held",
+])
+def test_a_stage_b_query_id_round_trips_to_its_pair_and_arm(vid):
     """Task 4 joins Stage C's grades back onto the 14-column rows through this."""
-    qid = export.stage_b_query_id("cons.nhp_sequencing_engine", "cc")
-    assert export.split_stage_b_query_id(qid) == ("cons.nhp_sequencing_engine", "cc")
+    qid = export.stage_b_query_id(vid, "cc")
+    assert export.split_stage_b_query_id(qid) == (vid, "cc")
 
 
 def test_stage_b_excludes_exactly_what_the_runtime_export_excludes(tmp_path):
-    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f",
-                                       ns=_entry(status="skipped"),
-                                       cc=_entry(status="error", outaged=True))])
-    assert export.export_stage_b(m, tmp_path, corpus_path=_corpus(tmp_path)) == 0
+    """EXACTLY: the same rows, not merely no more than the same rows.
+
+    Asserting `== 0` over an all-excluded manifest -- which this test used to do
+    -- passes just as happily when Stage B drops arms the runtime export scored,
+    and an over-excluding Stage B is the same defect as an under-excluding one:
+    `merge_grades` then names a row the page offered no controls for.
+    """
+    m = BayesManifest(pairs=[
+        BayesPair(id="a.one", family="f", ns=_entry(status="skipped"),
+                  cc=_entry(status="error", outaged=True)),
+        BayesPair(id="a.two", family="f", ns=_entry("a.two"), cc=_entry("a.two")),
+    ])
+    corpus_path = _corpus(tmp_path, ids=["a.one", "a.two"])
+
+    n = export.export_stage_b(m, tmp_path, corpus_path=corpus_path)
+    export.export(m, tmp_path, corpus_path=corpus_path)
+
+    stage_b = {r["query_id"] for r in _rows(tmp_path / "hibayes_functional_eval_inputs.csv")}
+    runtime = {export.stage_b_query_id(r["query_id"], arm) for arm in export.ARMS
+               for r in _rows(tmp_path / f"hibayes_eval_rows_{arm}.csv")}
+    assert stage_b == runtime == {"a.two::ns", "a.two::cc"}
+    assert n == 2
 
 
 def test_the_two_files_never_disagree_about_the_same_column(tmp_path):
@@ -571,14 +658,98 @@ def test_stage_b_carries_the_corpus_metadata_the_grader_is_given(tmp_path):
     assert row["expected_behavior"] == "GenerateArtifact"
 
 
-def test_stage_b_leaves_the_two_text_columns_for_task_4(tmp_path):
-    """A staged build, not a placeholder: `query_text` and `final_answer` are
-    filled by Task 4's report builder, the only place holding both the corpus and
-    the collection. Pinned so the emptiness is deliberate and visible."""
+# --- the two columns Stage C actually grades on ------------------------------
+# These were emitted EMPTY on every row and nothing on the branch ever filled
+# them, so the LLM grader was handed 254 blank answers: `functional_evaluator.py`
+# maps `""` to None, the BAML template renders an empty `final_answer`, the
+# verdicts join without error, and the disagreement set -- the whole output of
+# the paired design -- is noise. The old test here pinned the emptiness.
+
+def test_a_fully_collected_arm_carries_the_answer_stage_c_grades(tmp_path):
+    """THE finding, as the two columns on disk."""
+    art = tmp_path / "artifacts"
+    _reply(art, "a.one", "ns", "There are 705 mice.")
     m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", ns=_entry())])
-    export.export_stage_b(m, tmp_path, corpus_path=_corpus(tmp_path))
+
+    export.export_stage_b(m, tmp_path, artifacts_dir=art,
+                          corpus_path=_corpus(tmp_path))
+
     row = _rows(tmp_path / "hibayes_functional_eval_inputs.csv")[0]
-    assert row["query_text"] == "" and row["final_answer"] == ""
+    assert row["final_answer"] == "There are 705 mice."
+    assert row["query_text"] == "How many mice?"
+
+
+def test_the_answer_is_the_last_turns_and_the_question_is_the_conversation(tmp_path):
+    """A `refine_and_recall` arm: the follow-up's answer is the one under grade,
+    and the grader is shown every turn that led to it -- a bare "and only the
+    females?" has nothing to resolve against, while the human grading the same
+    row reads the whole card."""
+    art = tmp_path / "artifacts"
+    (_arm_dir(art, "a.one", "cc") / "turns.json").write_text(json.dumps([
+        {"task_id": "t1", "row": {"status": "completed", "progress": [],
+                                  "result": {"reply": "705 mice."}}},
+        {"task_id": "t2", "row": {"status": "completed", "progress": [],
+                                  "result": {"reply": "412 of them are female."}}},
+    ]), encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+
+    export.export_stage_b(m, tmp_path, artifacts_dir=art, corpus_path=_corpus(
+        tmp_path, turns=[{"label": "main", "query": "How many mice?"},
+                         {"label": "refine", "query": "And only the females?"}]))
+
+    row = _rows(tmp_path / "hibayes_functional_eval_inputs.csv")[0]
+    assert row["final_answer"] == "412 of them are female."
+    assert row["query_text"] == ("turn 1 (main): How many mice?\n"
+                                 "turn 2 (refine): And only the females?")
+
+
+def test_an_arm_with_no_reply_is_blank_in_ONE_column_not_two(tmp_path):
+    """What an empty `final_answer` is allowed to mean.
+
+    It means this arm's row carried no reply. It must not be able to mean "the
+    column was never wired up", and the two are told apart structurally rather
+    than by trust: `query_text` comes from the corpus, which RAISES on a variant
+    it does not hold, so no row can be blank in both columns.
+    """
+    art = tmp_path / "artifacts"
+    (_arm_dir(art, "a.one", "ns") / "task.json").write_text(
+        json.dumps({"status": "completed", "progress": [], "result": None}),
+        encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", ns=_entry())])
+    stats: dict = {}
+
+    export.export_stage_b(m, tmp_path, artifacts_dir=art,
+                          corpus_path=_corpus(tmp_path), stats=stats)
+
+    row = _rows(tmp_path / "hibayes_functional_eval_inputs.csv")[0]
+    assert row["final_answer"] == ""
+    assert row["query_text"] == "How many mice?"
+    assert stats == {"rows": 1, "no_reply": 1}
+
+
+def test_the_reply_is_recovered_from_query_complete_when_the_result_never_landed(tmp_path):
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", ns=_entry())])
+    art = tmp_path / "artifacts"
+    (_arm_dir(art, "a.one", "ns") / "task.json").write_text(json.dumps(
+        {"status": "completed", "result": None,
+         "progress": [{"event": "query_complete", "data": {"reply": "705 mice."}}]}),
+        encoding="utf-8")
+
+    export.export_stage_b(m, tmp_path, artifacts_dir=art,
+                          corpus_path=_corpus(tmp_path))
+
+    assert _rows(tmp_path / "hibayes_functional_eval_inputs.csv")[0][
+        "final_answer"] == "705 mice."
+
+
+def test_the_operator_is_told_how_many_rows_have_no_answer_to_grade(tmp_path, capsys):
+    """The count reaches the terminal on the line before the operator pays for a
+    grading pass over it. A run whose Stage B is answer-less costs exactly as
+    much to grade as one that is not."""
+    run = _run_dir(tmp_path)
+    assert export.main(["--run", str(run), "--corpus", str(_corpus(tmp_path))]) == 0
+    out = capsys.readouterr().out
+    assert "2 row(s), 2 with NO answer to grade" in out
 
 
 def test_a_variant_missing_from_the_corpus_names_itself(tmp_path):

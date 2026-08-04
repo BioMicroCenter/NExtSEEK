@@ -272,6 +272,48 @@ def _turn_rows(artifacts_dir, variant_id: str, arm: str) -> list[dict]:
     return []
 
 
+def reply_of(row) -> str:
+    """The answer ONE collected turn produced, or `""` when it produced none.
+
+    `result.reply` first because that is the endpoint's own final field; the
+    `query_complete` event is the fallback for a row whose result never landed.
+
+    ONE definition, and the report builder imports it rather than keeping a
+    second. The human grades what this returns and Stage C grades what this
+    returns, so two extractions would put one verdict pair on two different
+    answers -- and the disagreement between the two graders IS the study's
+    output, so noise introduced here is indistinguishable from the result.
+    """
+    result = row.get("result")
+    if isinstance(result, dict) and result.get("reply"):
+        return str(result["reply"])
+    for ev in reversed(row.get("progress") or []):
+        data = ev.get("data") or {}
+        if isinstance(data, dict) and data.get("reply"):
+            return str(data["reply"])
+    return ""
+
+
+def final_answer(rows) -> str:
+    """The answer under grade: the LAST collected turn's reply.
+
+    THE LAST TURN, not the last turn that happened to produce something. A
+    `refine_and_recall` arm whose follow-up errored answered nothing, and
+    substituting turn 1's reply presents an answer to a DIFFERENT question under
+    the heading the grader is judging -- which biases both graders the same way,
+    upward, in the 25-variant family the paired design keeps precisely because it
+    is where the two engines differ most.
+
+    RESIDUAL, stated because it is not covered: `collect` writes a row only for a
+    turn whose task row joined, so if the FINAL turn's row is the one that failed
+    to join, this returns turn n-1's reply against turn n's question. That gap is
+    recorded by the collector in `collection.json`'s `missing` list; it is not
+    recoverable from the artifact tree alone, because `turns.json` carries the
+    task_id of each row it kept and no marker for the ones it did not.
+    """
+    return reply_of(rows[-1]) if rows else ""
+
+
 def _deadline_aborted(rows) -> bool:
     """True when any of an arm's collected turn rows is EXPLICITLY non-terminal.
 
@@ -291,9 +333,10 @@ def _deadline_aborted(rows) -> bool:
     follow-up asked after a turn that produced nothing is not the engine's answer
     to the question the corpus posed.
 
-    POSITIVE EVIDENCE ONLY -- an absent `status` key is not a claim that the turn
-    is unfinished, and excluding on it would silently discard paid arms whenever a
-    `Sources` returned a partial row.
+    POSITIVE EVIDENCE ONLY -- see `_is_unfinished`. Neither an absent `status`
+    key nor an empty one is a claim that the turn is unfinished, and excluding on
+    either would silently discard paid arms whenever a `Sources` returned a
+    partial row.
 
     The RESIDUAL, stated because it is not covered: a turn the harness abandoned
     at 600s that then finished at 620s has a terminal row by collection time and
@@ -301,8 +344,30 @@ def _deadline_aborted(rows) -> bool:
     the `Sources` contract guarantees, so there is nothing to compare against.
     Its `latency_seconds` is the harness's elapsed time and therefore a floor.
     """
-    return any(r.get("status") is not None and r.get("status") not in _TERMINAL
-               for r in rows)
+    return any(_is_unfinished(r.get("status")) for r in rows)
+
+
+def _is_unfinished(status) -> bool:
+    """True only for a status that POSITIVELY says the turn had not finished.
+
+    THE ABSENCE OF A STATUS COMES IN TWO SHAPES AND NEITHER IS EVIDENCE. `None`
+    is the key missing from the row; `""` is a `Sources` that mapped a NULL
+    status column straight through, which is the obvious MySQL shape and the one
+    a real implementation reaches for first. Treating the second as non-terminal
+    excluded 8 of 8 arms of a reproduced run: both eval CSVs and Stage B were
+    written EMPTY, and every arm was stamped "the turn blew full_timeout_s"
+    beside `status=passed`.
+
+    A whitespace-only status is the same absence wearing a different hat, so it
+    is read the same way. Anything else that is not terminal is real evidence:
+    `pending`, `running`, or a status this harness has never heard of, which is
+    a row that at least claims to be in some state.
+    """
+    if status is None:
+        return False
+    if isinstance(status, str) and not status.strip():
+        return False
+    return status not in _TERMINAL
 
 
 def _ns_roots(base: pathlib.Path) -> tuple[list[pathlib.Path], list[pathlib.Path]]:
@@ -581,16 +646,59 @@ def export(manifest, out_dir, artifacts_dir=None, corpus_path=None) -> dict:
     return summary
 
 
-def export_stage_b(manifest, out_dir, artifacts_dir=None, corpus_path=None) -> int:
+def query_text(variant) -> str:
+    """The question this variant asked, as the grader is shown it.
+
+    Single-turn (97 of the 127 selected): the query verbatim. Multi-turn (30, of
+    which 25 are `refine_and_recall`): one labelled line per turn, in order.
+
+    The conversation and not just its last line, because that is what the human
+    grader reads off the page -- the card renders every declared turn -- and the
+    two graders must judge the same answer against the same question. A bare
+    "now group those by genotype" handed to Stage C alone has nothing to resolve
+    "those" against, and an LLM grader marking it unanswerable while the human
+    reads the thread is a disagreement about the CSV, not about the engines.
+
+    A variant with no declared turns yields `""`. Unreachable through the loader
+    used here -- `e2e.catalog.Variant` requires `turns` -- and left rather than
+    raised because this function does not own corpus validation.
+    """
+    turns = list(getattr(variant, "turns", ()) or ())
+    if not turns:
+        return ""
+    if len(turns) == 1:
+        return turns[0].query
+    return "\n".join(f"turn {i + 1} ({t.label}): {t.query}"
+                     for i, t in enumerate(turns))
+
+
+def export_stage_b(manifest, out_dir, artifacts_dir=None, corpus_path=None,
+                   stats=None) -> int:
     """The 12-column Stage C input. One file covering BOTH arms: Stage C grades an
     answer, and which engine produced it is not part of that judgement -- naming
     the engine in the grader's input is an invitation to grade the engine.
 
-    `query_text` and `final_answer` are filled from the collected `task.json` in
-    Task 4's report builder, which is the only place that has both the corpus and
-    the collection in hand. Leaving them empty here is a staged build, not a
-    placeholder; `test_stage_b_leaves_the_two_text_columns_for_task_4` pins that
-    and is the test to replace once the wiring exists.
+    `query_text` and `final_answer` ARE FILLED HERE, from the corpus this
+    function already reads and the collected turn rows it already reads. They
+    were left empty through Task 4 on the theory that the report builder would
+    fill them; it never did, nothing else on the branch ever referenced either
+    column, and Stage C therefore graded 254 blank answers. Those verdicts join
+    cleanly and mean nothing: `functional_evaluator.py:216` maps `""` to `None`
+    and the BAML template renders an empty `final_answer`, at up to 3 calls a row.
+
+    `final_answer` is `final_answer(rows)` -- the LAST collected turn's reply,
+    the same string `build_bayes_report` shows a human under "Final answer".
+    `query_text` is `query_text(variant)`. Both graders read the same pair or the
+    disagreement set measures this file instead of the engines.
+
+    AN EMPTY `final_answer` NOW MEANS EXACTLY ONE THING: this arm's collected row
+    carried no reply (or nothing was collected for it at all). It can no longer
+    mean "the column was never wired up", and the two are told apart
+    structurally rather than by trust -- `query_text` comes from the corpus,
+    which RAISES on a variant it does not hold, so no row can be blank in both
+    columns. `main` prints the count of reply-less rows, and `stats`, when a dict
+    is passed, receives `{"rows": int, "no_reply": int}`; the return value stays
+    the row count because that is what the caller and its tests read.
 
     A variant in the manifest but not in the corpus RAISES. That is a
     disagreement between the run's record and the corpus, which makes the
@@ -604,7 +712,14 @@ def export_stage_b(manifest, out_dir, artifacts_dir=None, corpus_path=None) -> i
     """
     out_dir = pathlib.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Read ONCE, through the harness's own loader, and keyed by id the way
+    # `hibayes_meta` keys its own lookup -- including retired definitions, because
+    # a variant retired since the run was paid for still has an answer on disk and
+    # `hibayes_meta` would still resolve its metadata.
+    questions = {v.id: query_text(v)
+                 for v in corpus.load_all_definitions(corpus_path)}
     rows = []
+    no_reply = 0
     for pair in manifest.pairs:
         meta = corpus.hibayes_meta(pair.id, corpus_path)
         for arm in ARMS:
@@ -621,11 +736,17 @@ def export_stage_b(manifest, out_dir, artifacts_dir=None, corpus_path=None) -> i
             answer_provided, is_error, timed_out = runtime_flags(entry)
             expected = bool(meta["artifact_expected"])
             evidence = artifact_evidence(artifacts_dir, pair.id, arm)
+            answer = final_answer(turn_rows)
+            if not answer:
+                no_reply += 1
             rows.append({
                 "query_id": stage_b_query_id(pair.id, arm),
                 "task_family": pair.family,
-                "query_text": "",
-                "final_answer": "",
+                # `questions[...]`, not `.get(...)`: a KeyError here is the same
+                # manifest/corpus disagreement `hibayes_meta` raises on three
+                # lines above, and it must not degrade into a blank question.
+                "query_text": questions[pair.id],
+                "final_answer": answer,
                 "answer_provided": answer_provided,
                 "runtime_success": answer_provided and not is_error and not timed_out,
                 "failure_mode": failure_mode(answer_provided=answer_provided,
@@ -638,6 +759,8 @@ def export_stage_b(manifest, out_dir, artifacts_dir=None, corpus_path=None) -> i
                 "expected_behavior": meta["expected_behavior"],
             })
     _write(out_dir / "hibayes_functional_eval_inputs.csv", CSV_HEADER_12, rows)
+    if stats is not None:
+        stats.update({"rows": len(rows), "no_reply": no_reply})
     return len(rows)
 
 
@@ -647,17 +770,37 @@ def export_stage_b(manifest, out_dir, artifacts_dir=None, corpus_path=None) -> i
 # wrote nothing -- and the failure surfaced four steps later, after the grading
 # pass, as a FileNotFoundError out of `merge_grades`.
 
-_NO_ARTIFACTS_WARNING = (
-    "WARNING: no {art} -- the collected artifact tree is absent, so this export "
-    "is DEGRADED:\n"
-    "  * no arm can be excluded as a {cause}: the only evidence is a collected, "
-    "still-non-terminal task row, so a turn that blew the deadline exports as a "
-    "SUCCESS.\n"
-    "  * every `tool_calls_total` and `artifact_count` is an absence rather than "
-    "a measurement, and lands in unobserved.csv.\n"
+# ONE voice for the missing tree, shared with the report builder. `collect` exits
+# 2 and this module warned in detail, while the BUILDER -- step 3, immediately
+# before a 254-arm human grading pass -- printed "8 arms 8 gradable" and said
+# nothing at all. The deadline consequence reads the same wherever it is printed
+# from, so it is written once and each caller adds only its own tail.
+_DEADLINE_CONSEQUENCE = (
+    "no arm can be excluded as a {cause}: the only evidence is a collected, "
+    "still-non-terminal task row, so a turn that blew the deadline is "
+    "indistinguishable here from one that answered.")
+
+_COLLECTION_GAP = (
     "Collection is not runnable yet (see nessie_tests/output-skill-bayesian/"
-    "SKILL.md step 1 and `python -m nessie_tests.collect`). Exporting anyway is "
-    "supported; reading the result as a measured run is not."
+    "SKILL.md step 1 and `python -m nessie_tests.collect`). Proceeding anyway is "
+    "supported; reading the result as a measured run is not.")
+
+
+def no_artifacts_warning(art, *, step: str, consequences=()) -> str:
+    """The warning for an absent collected tree, in one voice for both callers."""
+    lines = [f"WARNING: no {art} -- the collected artifact tree is absent, so "
+             f"this {step} is DEGRADED:",
+             "  * " + _DEADLINE_CONSEQUENCE.format(cause=CAUSE_DEADLINE)]
+    lines += [f"  * {c}" for c in consequences]
+    lines.append(_COLLECTION_GAP)
+    return "\n".join(lines)
+
+
+_EXPORT_CONSEQUENCES = (
+    "every `tool_calls_total` and `artifact_count` is an absence rather than a "
+    "measurement, and lands in unobserved.csv.",
+    "every `final_answer` is empty, so Stage C grades 254 blank answers and "
+    "returns verdicts that join cleanly and mean nothing.",
 )
 
 
@@ -704,17 +847,24 @@ def main(argv=None) -> int:
 
     art = collect.artifacts_dir(run)
     if not art.is_dir():
-        print(_NO_ARTIFACTS_WARNING.format(art=art, cause=CAUSE_DEADLINE),
+        print(no_artifacts_warning(art, step="export",
+                                   consequences=_EXPORT_CONSEQUENCES),
               file=sys.stderr)
 
     out_dir = pathlib.Path(args.out) if args.out else run
     summary = export(m, out_dir, artifacts_dir=art, corpus_path=args.corpus)
-    stage_b = export_stage_b(m, out_dir, artifacts_dir=art, corpus_path=args.corpus)
+    stage_b_stats: dict = {}
+    stage_b = export_stage_b(m, out_dir, artifacts_dir=art, corpus_path=args.corpus,
+                             stats=stage_b_stats)
 
     print(f"{len(m.pairs)} pair(s) -> {out_dir}")
     print(f"  hibayes_eval_rows_ns.csv   {summary['ns']} row(s)")
     print(f"  hibayes_eval_rows_cc.csv   {summary['cc']} row(s)")
-    print(f"  hibayes_functional_eval_inputs.csv  {stage_b} row(s)")
+    # The blank count is on the same line as the row count, because a Stage C
+    # input whose answers are missing costs the same to grade and is worth
+    # nothing, and the operator's next command is the one that pays for it.
+    print(f"  hibayes_functional_eval_inputs.csv  {stage_b} row(s), "
+          f"{stage_b_stats['no_reply']} with NO answer to grade")
     # Never a bare total. `excluded_deadline` can be a run's headline result, and
     # it must not have to be grepped out of a reason column to be seen.
     print(f"  excluded.csv               {summary['excluded']} arm(s): " +
