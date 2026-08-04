@@ -346,12 +346,20 @@ def load_case_file(path) -> tuple[list[str], list[Variant]]:
     not being marked active.
 
     Which is exactly why copying a block out of ``corpus.json`` needs care:
-    ``load_catalog`` does not look at ``status``, so RETIRED bodies come along
-    and RUN. Copying the ``search_advanced`` block yields 69 cases, 5 of them
-    retired -- four of those are GBM questions retired because the study does
-    not exist, so the probe pays for questions whose only correct answer is
-    zero. Strip them, or name ids in ``include_ids`` instead: that resolves
-    against ``merged()`` and cannot select a retired case.
+    ``load_catalog`` reads neither ``status`` nor any of the corpus's resolution
+    rules, so a copied block brings RETIRED bodies with it and they RUN. Every
+    retired case in the largest block is a GBM question retired because the study
+    does not exist, so the probe pays real money to ask questions whose only
+    correct answer is zero. Their ``tags`` come too, ``known_fail`` included,
+    which nothing on this path interprets. Strip them, or name ids in
+    ``include_ids`` instead: that resolves against ``merged()`` and cannot select
+    a retired case.
+
+    Measured by ``tests/test_case_file.py::
+    test_copying_a_block_brings_retired_cases_and_their_tags`` rather than quoted
+    as figures here -- ``corpus.json`` is hand-owned from Task 4 on, and a count
+    written into a docstring goes quietly wrong the first time someone adds or
+    retires a case.
     """
     path = Path(path)
     payload = json.loads(path.read_text(encoding="utf-8"))
