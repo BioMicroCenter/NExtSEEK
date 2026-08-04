@@ -112,7 +112,17 @@ def test_the_stripped_count_is_recorded_rather_than_silent():
 def test_known_fail_does_not_become_xpass_under_forcing():
     """The tag records an expectation about ROUTER-DECIDED NS behaviour. A forced
     arm says nothing about it, so promoting a pass to xpass would claim the
-    expected failure had stopped happening on evidence that cannot support it."""
+    expected failure had stopped happening on evidence that cannot support it.
+
+    NOTE: this test is VACUOUS as a pin and is kept only as a smoke test. Its
+    fixture (`green.mus_ndma`) reds four criteria against the doubles, so the case
+    lands on `failed` and `_apply_xpass` is never reached at all -- the assertion
+    holds identically with the guard in place and with it deleted. The guard is
+    really pinned by `test_a_forced_pass_is_not_promoted_where_an_unforced_one_is`
+    below, which swaps in a variant that PASSES against the doubles (`unsup.weather`)
+    and runs it down both arms, so the differing status is attributable to the
+    guard. Do not delete that one as a near-duplicate of this one; it is the only
+    coverage the guard has."""
     v = _variant().model_copy(update={"tags": ["nessie", "full", "known_fail"]})
     post_query, get_progress = _fakes()
     entry = runner.run_case(v, tier="full", force_route="cc", strip_route_criteria=True,

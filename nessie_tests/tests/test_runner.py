@@ -142,6 +142,47 @@ def test_first_turn_isolates_the_case_later_turns_share_it(tmp_path, monkeypatch
     assert bodies[1].get("session_id") == "sess-A" and "force_new" not in bodies[1]
 
 
+def test_run_suite_never_forces_the_route(tmp_path, monkeypatch):
+    """A normal run must let the ROUTER decide, on every turn of every case.
+
+    `run_suite` and the paired bayesian runner share one `run_case`, and only the
+    latter passes `force_route`. Nothing else pinned that split: adding
+    `force_route="ns"` to `run_suite`'s single `run_case` callsite leaves the
+    whole suite green, because the exact-body tests all call `drive()` directly
+    rather than through `run_suite`.
+
+    What that costs is the instrument: every turn would be forced to NS while the
+    283 `route` criteria kept being evaluated and reported as router evidence.
+    They would all pass -- a forced route satisfies its own assertion -- so the
+    gate stays green while the run measures the harness instead of the router.
+    `run_case(strip_route_criteria=True)` is what makes forcing honest, and
+    `run_suite` does not pass that either.
+    """
+    from e2e.catalog import Variant, Turn
+    v = Variant(family="refine_and_recall", id="multi.noforce", name="n", tags=["overlay"],
+                turns=[Turn(label="seed", query="q1"), Turn(label="followup", query="q2")])
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [v])
+    bodies = []
+
+    def post_query(body):
+        bodies.append(dict(body))
+        return {"task_id": "t", "session_id": "sess-A"}
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        overlay_path=OVERLAY, out_dir=tmp_path,
+        post_query=post_query, get_progress=lambda tid: NS_DONE,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    assert len(bodies) == 2
+    assert all("force_route" not in b for b in bodies), \
+        f"run_suite forced the route: {bodies}"
+    # ...and the criteria that a force would invalidate are still being scored,
+    # which is what makes the forced-and-still-reporting failure mode possible.
+    entry = next(e for e in m.entries if e.id == "multi.noforce")
+    assert "stripped" not in (entry.reason or "")
+
+
 def test_known_fail_that_passes_is_reported_as_xpass(tmp_path, monkeypatch):
     from e2e.catalog import Variant, Turn
     v = Variant(family="nessie_repro", id="repro.stale", name="n",
