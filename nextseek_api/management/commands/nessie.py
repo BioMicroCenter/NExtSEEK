@@ -21,7 +21,7 @@ from django.core.management.base import BaseCommand
 # This file is nextseek_api/management/commands/nessie.py; the repo root (which
 # holds the top-level ``nessie_tests`` package) is four parents up.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_OVERLAY = _REPO_ROOT / "nessie_tests" / "overlay.json"
+_CORPUS = _REPO_ROOT / "nessie_tests" / "corpus.json"
 
 
 class Command(BaseCommand):
@@ -44,7 +44,7 @@ class Command(BaseCommand):
                             help="Fraction of selected variants to run, sampled per family (e.g. 0.1 for a tenth). Default 1.0 = all.")
         parser.add_argument("--seed", type=int, default=0, help="Deterministic sampling seed.")
         parser.add_argument("--cases", default=None,
-                            help="Path to an overlay-shaped JSON file listing exactly which cases to "
+                            help="Path to a catalog-shaped JSON file listing exactly which cases to "
                                  "run, instead of a seeded sample. Keys: include_ids (existing corpus "
                                  "variants, by id, in file order) and/or families (new ad-hoc variants "
                                  "inline). Overrides --scope/--family/--variant/--sample/--seed; "
@@ -69,7 +69,7 @@ class Command(BaseCommand):
             scope=opts["scope"],
             family=opts["family"],
             variant_id=opts["variant"],
-            overlay_path=_OVERLAY,
+            corpus_path=_CORPUS,
             out_dir=Path(opts["out"]),
             bundle_reader=bundle_reader,
             pace_s=opts["pace"],

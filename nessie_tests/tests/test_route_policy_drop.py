@@ -24,7 +24,7 @@ import pytest
 from nessie_tests import corpus
 
 HERE = Path(__file__).resolve().parents[1]
-OVERLAY = HERE / "overlay.json"
+CORPUS = HERE / "corpus.json"
 
 
 def _variant(family, criteria):
@@ -77,8 +77,8 @@ def test_alternation_of_only_ns_spellings_keeps_it():
 
 def test_the_real_corpus_keeps_parser_mode_on_ns_families():
     """The regression this guards: 256 variants must not silently lose the field."""
-    merged = corpus.merged(OVERLAY)
-    policy = corpus.load_route_policy(OVERLAY)
+    merged = corpus.merged(CORPUS)
+    policy = corpus.load_route_policy(CORPUS)
     ns_families = {f for f, r in (policy.get("families") or {}).items()
                    if r.get("op") == "eq" and r.get("value") == "nextseek_query"}
     if not ns_families:

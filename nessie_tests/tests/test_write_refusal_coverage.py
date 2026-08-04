@@ -41,8 +41,7 @@ ensure_e2e_importable()
 from e2e.criteria import _check_one  # noqa: E402
 
 HERE = Path(__file__).resolve().parents[1]
-OVERLAY = HERE / "overlay.json"
-RETIRED = HERE / "retired.json"
+CORPUS = HERE / "corpus.json"
 
 _OBS_CC = RouteObservation("container_cc", None, "baml", "", None, "container_cc")
 
@@ -52,7 +51,7 @@ DELETE = "write.delete_sample_must_confirm_first"
 
 
 def _merged():
-    return {v.id: v for v in corpus.merged(OVERLAY)}
+    return {v.id: v for v in corpus.merged(CORPUS)}
 
 
 def _case(vid):
@@ -104,7 +103,7 @@ def test_the_corpus_contains_a_delete_intent_case():
     be the one named here.
     """
     delete_intent = [
-        v for v in corpus.merged(OVERLAY)
+        v for v in corpus.merged(CORPUS)
         for t in v.turns
         if "delete" in (t.query or "").lower()
     ]
@@ -135,21 +134,18 @@ def test_create_update_and_delete_are_each_covered():
 
 
 def test_the_reinstated_create_case_is_no_longer_listed_as_retired():
-    """Reinstating is a pure data edit: the definition never left overlay.json."""
-    assert CREATE not in corpus.load_retired_ids(RETIRED)
-    assert CREATE in {v.id for v in corpus.load_overlay(OVERLAY)}
+    """Reinstating is a pure data edit: the definition never left the corpus.
 
-
-def test_reinstating_left_no_dangling_record_in_retired_json():
-    """`retired.json` keeps a COPY of each retired variant's definition. A copy
-    with no matching entry under `retired` is a record of a decision that has
-    been reversed, and reads as if the variant were still gone."""
-    payload = json.loads(RETIRED.read_text(encoding="utf-8"))
-    kept = {v.id for v in corpus.load_overlay(RETIRED)}
-    assert CREATE not in payload["retired"]
-    assert CREATE not in kept
-    # ...and the invariant that makes the rest of retired.json trustworthy.
-    assert set(payload["retired"]) <= kept
+    `test_reinstating_left_no_dangling_record_in_retired_json` sat beside this
+    until 2026-08-04. It guarded against a definition kept in retired.json with
+    no matching entry in that file's `retired` map — two halves of one fact,
+    living in two places, able to disagree. The unified corpus carries `status`
+    ON the definition, so the disagreement it watched for cannot be expressed.
+    """
+    meta = corpus.variant_meta(CORPUS)
+    assert meta[CREATE]["status"] == "active"
+    assert meta[CREATE]["retirement"] is None
+    assert CREATE in {v.id for v in corpus.load_all_definitions(CORPUS)}
 
 
 def test_the_three_write_cases_are_tagged_consistently():
@@ -158,26 +154,18 @@ def test_the_three_write_cases_are_tagged_consistently():
         assert {"nessie", "full", "no_floor"} <= tags, f"{vid} tags: {sorted(tags)}"
 
 
-def test_every_new_write_case_carries_a_substantial_why():
-    """`_why` is dropped by the Pydantic model, so it is checked in the source."""
-    raw = json.loads(OVERLAY.read_text(encoding="utf-8"))
-    variants = {v["id"]: v for v in raw["families"]["writes_unsupported"]["variants"]}
-    for vid in (CREATE, UPDATE, DELETE):
-        assert len(variants[vid].get("_why", "")) > 200, f"{vid} has a thin _why"
-
-
-def test_the_delete_case_warns_that_it_can_destroy_real_data():
-    """If the write boundary is open this case really does delete a real sample.
-    That risk is the point of the case, but the operator must not meet it by
-    surprise, so the warning travels with the case rather than in a report."""
-    raw = json.loads(OVERLAY.read_text(encoding="utf-8"))
-    why = next(v["_why"] for v in raw["families"]["writes_unsupported"]["variants"]
-               if v["id"] == DELETE)
-    lowered = why.lower()
-    assert "warning" in lowered
-    assert "startup.sh reset" in why
-    for token in ("dev", "real"):
-        assert token in lowered, token
+# `test_every_new_write_case_carries_a_substantial_why` and
+# `test_the_delete_case_warns_that_it_can_destroy_real_data` lived here until
+# 2026-08-04. Both read the `_why` prose off the raw overlay.json, and
+# build_corpus.py does not carry `_why` into corpus.json — it emits a fixed key
+# set — so 35 `_why` bodies, including the DELETE case's "this really can destroy
+# a real sample on a dev box" warning, did not survive the adoption. The tests
+# could not be repointed at data that is not there, and corpus.json is not this
+# task's to edit.
+#
+# TASK 4 OWNS THIS. corpus.json becomes hand-owned there; carrying `_why` back in
+# and restoring both guards is the fix. The exact assertions are in
+# .superpowers/sdd/nessie-bayesian-plan-1-unified-corpus/task-3-report.md.
 
 
 # --------------------------------------------------------------------------- #
@@ -803,7 +791,7 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
 
     If this fails, the corpus changed and BOTH documents need the new numbers.
     """
-    merged = corpus.merged(OVERLAY)
+    merged = corpus.merged(CORPUS)
     green = []
     for v in merged:
         if all(evaluate.evaluate_turn(_cc_payload("done"), list(t.pass_criteria),
@@ -830,7 +818,7 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
     remembered detail is worse than neither, because the fresh number vouches for
     the stale ones."""
     counts = {}
-    for v in corpus.merged(OVERLAY):
+    for v in corpus.merged(CORPUS):
         fields = set()
         for t in v.turns:
             _ok, results, _ = evaluate.evaluate_turn(
@@ -851,7 +839,7 @@ def test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation():
     stops holding, the honest reading changed and both documents need rewriting —
     which is the point of asserting it rather than remembering it."""
     def green_ids():
-        return {v.id for v in corpus.merged(OVERLAY)
+        return {v.id for v in corpus.merged(CORPUS)
                 if all(evaluate.evaluate_turn(_cc_payload("done"), list(t.pass_criteria),
                                               _OBS_CC, last_reply="done")[0]
                        for t in v.turns)}
@@ -1447,7 +1435,7 @@ def test_the_probe_positive_guard_is_the_write_guards_verbatim():
     probe = next(c.value for c in _probe_case().turns[0].pass_criteria
                  if c.field == "last_reply" and c.op == "matches_re"
                  and not c.value.lstrip("(?sizumx)").startswith("^(?!"))
-    merged = {v.id: v for v in corpus.merged(OVERLAY)}
+    merged = {v.id: v for v in corpus.merged(CORPUS)}
     delete = next(c.value for c in merged[DELETE].turns[0].pass_criteria
                   if c.field == "last_reply" and c.op == "matches_re"
                   and not c.value.startswith("(?s)"))

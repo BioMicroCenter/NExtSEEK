@@ -1,12 +1,19 @@
 from pathlib import Path
 from nessie_tests import corpus
 
-OVERLAY = Path(__file__).resolve().parents[1] / "overlay.json"
+CORPUS = Path(__file__).resolve().parents[1] / "corpus.json"
+
+
+def _overlay_origin():
+    """The 47 definitions that came from overlay.json rather than the vendored
+    catalog. `origin` is stamped onto `tags`, so this is the post-migration
+    spelling of the old `corpus.load_overlay(OVERLAY)`; retired ones included,
+    exactly as the overlay file included them."""
+    return [v for v in corpus.load_all_definitions(CORPUS) if "overlay" in v.tags]
 
 
 def test_every_route_gate_case_asserts_route():
-    ov = corpus.load_overlay(OVERLAY)
-    gate = [v for v in ov if "route_gate" in v.tags]
+    gate = [v for v in _overlay_origin() if "route_gate" in v.tags]
     assert len(gate) >= 3
     for v in gate:
         fields = {c.field for t in v.turns for c in t.pass_criteria}
@@ -14,7 +21,7 @@ def test_every_route_gate_case_asserts_route():
 
 
 def test_has_cc_unrelated_and_green_families():
-    ov = corpus.load_overlay(OVERLAY)
+    ov = _overlay_origin()
     fams = {v.family for v in ov}
     assert {"nessie_route", "nessie_green"} <= fams
     routes = {c.value for v in ov for t in v.turns for c in t.pass_criteria if c.field == "route"}
@@ -31,14 +38,11 @@ import re
 from pathlib import Path as _Path
 from nessie_tests import corpus as _corpus
 
-_OVERLAY = _Path(__file__).resolve().parents[1] / "overlay.json"
+_CORPUS = _Path(__file__).resolve().parents[1] / "corpus.json"
 
 
 def _merged():
-    return {v.id: v for v in _corpus.merged(_OVERLAY)}
-
-
-_RETIRED_FILE = Path(__file__).resolve().parents[1] / "retired.json"
+    return {v.id: v for v in _corpus.merged(_CORPUS)}
 
 
 def _retired():
@@ -49,7 +53,9 @@ def _retired():
     account: if any of them is ever reinstated, the guards it carries must
     already be sound rather than needing to be rediscovered.
     """
-    return {v.id: v for v in _corpus.load_overlay(_RETIRED_FILE)}
+    meta = _corpus.variant_meta(_CORPUS)
+    return {v.id: v for v in _corpus.load_all_definitions(_CORPUS)
+            if meta[v.id]["status"] == "retired"}
 
 
 def _fields(variant):
@@ -158,7 +164,7 @@ def test_every_negative_guard_is_dotall():
     """matches_re has no DOTALL. Without (?s), `^(?!.*X).*$` fails on ANY multi-line
     reply — clean or not — so the guard can never go green."""
     offenders = []
-    for v in _corpus.load_overlay(_OVERLAY):
+    for v in _overlay_origin():
         for t in v.turns:
             for c in t.pass_criteria:
                 if c.op == "matches_re" and isinstance(c.value, str) and "(?!" in c.value:
@@ -195,7 +201,7 @@ def _skipped_if_cc(c):
 
 
 def _vacuous_variants(predicate):
-    return sorted(v.id for v in _corpus.merged(_OVERLAY)
+    return sorted(v.id for v in _corpus.merged(_CORPUS)
                   if all(predicate(c) for t in v.turns for c in t.pass_criteria))
 
 
@@ -221,7 +227,7 @@ def test_the_turns_that_evaluate_nothing_are_a_known_named_set():
     NEW vacuous turn has to be acknowledged rather than appearing silently.
     """
     def turns_where(predicate):
-        return sorted(f"{v.id}:{t.label}" for v in _corpus.merged(_OVERLAY) for t in v.turns
+        return sorted(f"{v.id}:{t.label}" for v in _corpus.merged(_CORPUS) for t in v.turns
                       if t.pass_criteria and all(predicate(c) for c in t.pass_criteria))
 
     assert turns_where(_skipped_now) == [
@@ -238,7 +244,7 @@ def test_the_turns_that_evaluate_nothing_are_a_known_named_set():
 
 def test_every_such_case_still_asserts_real_criteria_on_another_turn():
     """The justification for the case-level rule, not an assumption about it."""
-    merged = {v.id: v for v in _corpus.merged(_OVERLAY)}
+    merged = {v.id: v for v in _corpus.merged(_CORPUS)}
     for vid in ("pipeline.activation_rnaseq", "pipeline.end_to_end_emit",
                 "tree.then_ask_about"):
         real = [c.field for t in merged[vid].turns for c in t.pass_criteria

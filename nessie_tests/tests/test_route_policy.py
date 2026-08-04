@@ -9,21 +9,21 @@ seed-0 failures were exactly this (unsup.weather, write.export_all_metadata,
 write.download_all_samples).
 
 The policy was settled by the operator on 2026-07-28: bulk export is CC's job.
-That matches what the overlay already blesses in its route_gate family —
+That matches what the corpus already blesses in its route_gate family —
 route.cc_write_investigation ("writes are deliberately CC's, not an NS
 'unsupported'") and route.cc_open_ended_analysis. It also matches the three
 variants a previous wave already converted by hand, which carry exactly the
 shape this rule produces: a `route` criterion and a `last_reply`, no
 `parser_plan.mode`.
 
-Applied structurally rather than as 23 overlay overrides for the same reason the
+Applied structurally rather than as 23 hand-written overrides for the same reason the
 family floor is: the correction belongs in one reviewable place.
 """
 import pathlib
 
 from nessie_tests import corpus
 
-OVERLAY = pathlib.Path(__file__).resolve().parents[1] / "overlay.json"
+CORPUS = pathlib.Path(__file__).resolve().parents[1] / "corpus.json"
 
 
 def _crits(variant):
@@ -31,10 +31,7 @@ def _crits(variant):
 
 
 def _by_id():
-    return {v.id: v for v in corpus.merged(OVERLAY)}
-
-
-RETIRED = pathlib.Path(__file__).resolve().parents[1] / "retired.json"
+    return {v.id: v for v in corpus.merged(CORPUS)}
 
 
 def _by_id_incl_retired():
@@ -47,8 +44,11 @@ def _by_id_incl_retired():
     rather than an unobservable `parser_plan.mode`.
     """
     out = _by_id()
+    meta = corpus.variant_meta(CORPUS)
     retired = corpus.apply_route_policy(
-        corpus.load_overlay(RETIRED), corpus.load_route_policy(OVERLAY))
+        [v for v in corpus.load_all_definitions(CORPUS)
+         if meta[v.id]["status"] == "retired"],
+        corpus.load_route_policy(CORPUS))
     for v in retired:
         out.setdefault(v.id, v)
     return out
@@ -56,7 +56,7 @@ def _by_id_incl_retired():
 
 def test_no_cc_routed_family_asserts_an_ns_internal_parser_mode():
     """`parser_plan.mode` is unobservable on a turn that never reaches NS."""
-    offenders = [v.id for v in corpus.merged(OVERLAY)
+    offenders = [v.id for v in corpus.merged(CORPUS)
                  if v.family in ("unsupported", "writes_unsupported")
                  for t in v.turns for c in t.pass_criteria
                  if c.field == "parser_plan.mode"]
@@ -109,7 +109,7 @@ def test_a_route_assertion_alone_cannot_tell_a_working_turn_from_a_dead_one():
     error_max_budget_usd and produced nothing. Every rule-converted variant needs
     an outcome assertion next to the route.
     """
-    for v in corpus.merged(OVERLAY):
+    for v in corpus.merged(CORPUS):
         if v.family not in ("unsupported", "writes_unsupported"):
             continue
         fields = {c.field for t in v.turns for c in t.pass_criteria}

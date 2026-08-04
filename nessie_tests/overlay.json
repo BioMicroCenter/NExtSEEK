@@ -1,6 +1,6 @@
 {
   "version": "1.1",
-  "_note": "Variants whose id matches a base (chat_nextseek/e2e/catalog.json) variant OVERRIDE it. That is how an imported expectation gets corrected or strengthened without editing the vendored catalog. See corpus.merged().",
+  "_note": "SUPERSEDED 2026-08-04. Not an input any more; nessie_tests reads corpus.json. Kept only as a hand-diffable record of the pre-adoption corpus. Editing this file has NO effect on any run.",
   "families": {
     "nessie_route": {
       "description": "Top-level router assertions (route tier, no seed data needed)",

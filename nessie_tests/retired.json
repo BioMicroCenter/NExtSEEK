@@ -1,6 +1,6 @@
 {
  "version": "1",
- "_note": "Variants retired from the active corpus. NOT deleted: each entry keeps its full definition, so reinstating one is a matter of moving it back into chat_nextseek/e2e/catalog.json or nessie_tests/overlay.json and removing it here. corpus.merged() drops every id listed under `retired`.",
+ "_note": "SUPERSEDED 2026-08-04. Not an input any more; nessie_tests reads corpus.json. Kept only as a hand-diffable record of the pre-adoption corpus. Editing this file has NO effect on any run.",
  "retired": {
   "advanced.find_me_nhp_samples_from_study": {
    "reason": "false premise: GBM does not exist as a Study, an Investigation, or in any sample json_metadata. Verified against Neo4j and seek_production 2026-07-30. The only correct answer is zero, so the question cannot tell a working system from a broken one.",

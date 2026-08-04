@@ -22,7 +22,7 @@ from pathlib import Path
 from nessie_tests import corpus
 
 HERE = Path(__file__).resolve().parents[1]
-OVERLAY = HERE / "overlay.json"
+CORPUS = HERE / "corpus.json"
 
 
 def _variant(vid, family, tags):
@@ -63,7 +63,7 @@ def test_a_normal_variant_still_gets_the_reply_guard():
 
 def test_no_route_gate_case_in_the_real_corpus_asserts_last_reply():
     """The regression this guards, against the shipped overlay."""
-    offenders = [v.id for v in corpus.merged(OVERLAY)
+    offenders = [v.id for v in corpus.merged(CORPUS)
                  if "route_gate" in v.tags
                  for t in v.turns for c in t.pass_criteria if c.field == "last_reply"]
     assert offenders == [], (
@@ -71,6 +71,6 @@ def test_no_route_gate_case_in_the_real_corpus_asserts_last_reply():
 
 
 def test_every_route_gate_case_still_asserts_a_route():
-    for v in corpus.merged(OVERLAY):
+    for v in corpus.merged(CORPUS):
         if "route_gate" in v.tags:
             assert "route" in _fields(v), f"{v.id} lost its route assertion"

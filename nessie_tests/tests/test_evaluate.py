@@ -155,7 +155,7 @@ def test_reporter_table_and_preview_artifacts_are_not_indexed_as_files():
     string ("GEO Report Preview", "Sample Types") with nothing on disk. Indexing
     those would make `api_artifact.<name> op:true` — contract: "a file with this
     basename was produced" — return True for an inline table. The SRA reporting
-    case at overlay.json:198-203 is exactly such a turn.
+    case `report.sra_submission_package` in corpus.json is exactly such a turn.
     """
     payload = _artifact_payload({})
     payload["progress"][-1]["data"]["artifacts"] = [
@@ -695,8 +695,8 @@ _OBS_TREE_NS = RouteObservation("nextseek_query", None, "baml", "", "new_search"
 
 def _merged_variant(vid):
     from nessie_tests import corpus
-    overlay = Path(__file__).resolve().parents[1] / "overlay.json"
-    return next(v for v in corpus.merged(overlay) if v.id == vid)
+    corpus_json = Path(__file__).resolve().parents[1] / "corpus.json"
+    return next(v for v in corpus.merged(corpus_json) if v.id == vid)
 
 
 def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
@@ -740,10 +740,10 @@ def test_it_is_still_the_only_multi_turn_variant_in_a_floored_family():
     now the one. The recall branch it justifies is still correct and still needed.
     """
     from nessie_tests import corpus
-    overlay = Path(__file__).resolve().parents[1] / "overlay.json"
-    floors = (corpus.load_family_floor(overlay).get("floors") or {})
-    multi = [v.id for v in corpus.merged(overlay)
+    corpus_json = Path(__file__).resolve().parents[1] / "corpus.json"
+    floors = (corpus.load_family_floor(corpus_json).get("floors") or {})
+    multi = [v.id for v in corpus.merged(corpus_json)
              if v.family in floors and len(v.turns) > 1]
 
     assert multi == ["tree.then_ask_about"]
-    assert "retrieve.then_inspect" in corpus.load_retired_ids()
+    assert corpus.variant_meta(corpus_json)["retrieve.then_inspect"]["status"] == "retired"

@@ -1,7 +1,7 @@
 from pathlib import Path
 from nessie_tests import runner
 
-OVERLAY = Path(__file__).resolve().parents[1] / "overlay.json"
+CORPUS = Path(__file__).resolve().parents[1] / "corpus.json"
 
 CC_ROUTED = {"status": "running", "progress": [
     {"event": "route_decided", "data": {"route": "container_cc", "model_class": "opus", "source": "baml", "reasoning": ""}}]}
@@ -43,7 +43,7 @@ def test_run_suite_route_tier_specific(tmp_path, monkeypatch):
     monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_cc_gate()])
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: CC_ROUTED,
         sleep=lambda s: None, clock=lambda: 0.0)
     entry = next(e for e in m.entries if e.id == "gate.cc")
@@ -72,7 +72,7 @@ def test_route_tier_skips_full_tagged_variant(tmp_path):
     # A `full`-tagged (non-route_gate) variant needs execution → skipped in route tier.
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="route", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="green.global_count",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
         post_query=_post(), get_progress=lambda tid: CC_ROUTED,
         sleep=lambda s: None, clock=lambda: 0.0)
     entry = next(e for e in m.entries if e.id == "green.global_count")
@@ -88,7 +88,7 @@ def test_full_tier_drives_route_gate_cc_route_only(tmp_path, monkeypatch):
     monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_cc_gate()])
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: CC_ROUTED, bundle_reader=boom_bundle,
         sleep=lambda s: None, clock=lambda: 0.0)
     entry = next(e for e in m.entries if e.id == "gate.cc")
@@ -106,7 +106,7 @@ def test_unsatisfied_requires_env_is_skipped(tmp_path, monkeypatch):
     monkeypatch.delenv("NESSIE_DEFINITELY_UNSET_ENV", raising=False)
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: CC_ROUTED,
         sleep=lambda s: None, clock=lambda: 0.0)
     entry = next(e for e in m.entries if e.id == "needs.env")
@@ -133,7 +133,7 @@ def test_first_turn_isolates_the_case_later_turns_share_it(tmp_path, monkeypatch
 
     runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=post_query, get_progress=lambda tid: NS_DONE,
         sleep=lambda s: None, clock=lambda: 0.0)
 
@@ -151,7 +151,7 @@ def test_known_fail_that_passes_is_reported_as_xpass(tmp_path, monkeypatch):
     monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [v])
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: NS_DONE,
         sleep=lambda s: None, clock=lambda: 0.0)
     entry = next(e for e in m.entries if e.id == "repro.stale")
@@ -165,7 +165,7 @@ def test_criteria_miss_marks_failed_with_reasons(tmp_path, monkeypatch):
     monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_cc_gate()])
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: NS_ROUTED,
         sleep=lambda s: None, clock=lambda: 0.0)
     entry = next(e for e in m.entries if e.id == "gate.cc")
@@ -210,7 +210,7 @@ def test_the_consistency_branch_uses_the_shared_helper(monkeypatch, tmp_path):
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
-        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.ns_advanced",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="route.ns_advanced",
         post_query=_post(), get_progress=lambda tid: CC_ROUTED,
         sleep=lambda s: None, clock=lambda: 0.0, run_consistency=True)
 
@@ -293,7 +293,7 @@ def test_an_outaged_case_is_error_and_cannot_fail_the_gate(tmp_path, monkeypatch
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: NS_OUTAGE,
         sleep=lambda s: None, clock=lambda: 0.0)
 
@@ -313,7 +313,7 @@ def test_an_outage_still_records_what_the_criteria_saw(tmp_path, monkeypatch):
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: NS_OUTAGE,
         sleep=lambda s: None, clock=lambda: 0.0)
 
@@ -335,7 +335,7 @@ def test_an_outage_stops_driving_the_rest_of_the_case(tmp_path, monkeypatch):
 
     runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=post_query, get_progress=lambda tid: NS_OUTAGE,
         sleep=lambda s: None, clock=lambda: 0.0)
 
@@ -351,7 +351,7 @@ def test_a_non_outage_error_still_fails_the_gate(tmp_path, monkeypatch):
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=dead,
         sleep=lambda s: None, clock=lambda: 0.0)
 
@@ -369,7 +369,7 @@ def test_an_ordinary_failure_is_untouched_by_the_outage_path(tmp_path, monkeypat
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: NS_DONE,
         sleep=lambda s: None, clock=lambda: 0.0)
 
@@ -387,7 +387,7 @@ def test_an_outaged_consistency_group_is_error_not_a_count_failure(monkeypatch, 
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: NS_OUTAGE,
         sleep=lambda s: None, clock=lambda: 0.0, run_consistency=True)
 
@@ -438,7 +438,7 @@ def test_an_outage_after_a_real_failure_does_not_erase_it(tmp_path, monkeypatch)
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: next(payloads),
         sleep=lambda s: None, clock=lambda: 0.0)
 
@@ -468,7 +468,7 @@ def test_an_outage_on_the_first_turn_of_a_multi_turn_case_is_still_exempt(tmp_pa
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: next(payloads),
         sleep=lambda s: None, clock=lambda: 0.0)
 
@@ -543,7 +543,7 @@ def _two_turn_run(tmp_path, monkeypatch, second_payload, vid="multi.route_src"):
     payloads = iter([NS_DONE, second_payload])
     return runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: next(payloads),
         sleep=lambda s: None, clock=lambda: 0.0)
 
@@ -662,7 +662,7 @@ def _run(tmp_path, monkeypatch, variant, payloads):
     monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [variant])
     return runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: next(payloads),
         sleep=lambda s: None, clock=lambda: 0.0)
 
@@ -736,7 +736,7 @@ def test_an_infrastructure_error_beats_no_assertions(tmp_path, monkeypatch):
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=dead, sleep=lambda s: None, clock=lambda: 0.0)
 
     entry = next(e for e in m.entries if e.id == "cc.dead")
@@ -975,7 +975,7 @@ def test_a_route_tier_run_does_not_claim_it_spent_nothing(tmp_path, monkeypatch)
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: CC_ROUTED,
         sleep=lambda s: None, clock=lambda: 0.0)
 
@@ -1022,7 +1022,7 @@ def test_an_unrelated_gate_is_unmeasured_rather_than_free(tmp_path, monkeypatch)
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=_post(), get_progress=lambda tid: unrelated,
         sleep=lambda s: None, clock=lambda: 0.0)
 

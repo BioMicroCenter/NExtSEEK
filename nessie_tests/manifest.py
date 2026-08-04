@@ -90,9 +90,11 @@ class NessieManifest(BaseModel):
     The bookkeeping fields below exist so two runs can be diffed honestly. Without
     them three run directories are indistinguishable: same tier, same scope, no
     record of the seed or of which cases were selected. ``corpus_fingerprint`` is the
-    load-bearing one — if the overlay changed between runs then the SAME seed selected
+    load-bearing one — if corpus.json changed between runs then the SAME seed selected
     a DIFFERENT set of cases, and a diff tool must say so rather than silently
-    mis-pairing them.
+    mis-pairing them. It hashed catalog.json + overlay.json until 2026-08-04, so
+    fingerprints do not compare across that commit; that is correct, because the
+    corpus file really did change.
     """
     started_at: str
     ended_at: str
@@ -105,6 +107,9 @@ class NessieManifest(BaseModel):
     # sampled run, which otherwise look identical in the manifest.
     cases_file: str | None = None
     selected_ids: list[str] = Field(default_factory=list)
+    # DEAD since 2026-08-04 and kept only so manifests written before then still
+    # parse: it named the ids where an overlay variant replaced a base one, and
+    # the unified corpus has one definition per id, so no run writes it any more.
     overridden_ids: list[str] = Field(default_factory=list)
     corpus_fingerprint: str | None = None
     base_url: str | None = None

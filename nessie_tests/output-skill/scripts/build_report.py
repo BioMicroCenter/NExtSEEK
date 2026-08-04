@@ -5,8 +5,7 @@ Inputs
 ------
   manifest.json  what the harness recorded          (from fetch_run.py)
   turns.json     routing + full engine calls        (from fetch_run.py)
-  catalog.json   the imported corpus expectations   (chat_nextseek/e2e/catalog.json)
-  overlay.json   nessie's own variants              (nessie_tests/overlay.json)
+  corpus.json    every case expectation             (nessie_tests/corpus.json)
   triage.json    YOUR analysis: verdicts, findings, gaps, next steps
 
 Everything a reviewer needs to judge a case ends up in that one case's record:
@@ -183,11 +182,14 @@ def main():
     tasks = lj(run / "turns.json")
     triage = lj(a.triage)
 
-    overlay_raw = lj(repo / "nessie_tests" / "overlay.json")
-    base = flatten(lj(repo / "chat_nextseek" / "e2e" / "catalog.json"))
-    overlay = flatten(overlay_raw)
-    variants = {**base, **overlay}
-    cgroups = {g["id"]: g for g in overlay_raw.get("consistency_groups", [])}
+    # ONE source since 2026-08-04. It used to read the vendored catalog and
+    # overlay.json and merge them here, which meant this script had to reproduce
+    # `corpus.merged`'s override rule to describe the right case. corpus.json has
+    # one definition per id, retired ones included -- and reading those matters,
+    # because an OLD manifest can name a case retired since.
+    corpus_raw = lj(repo / "nessie_tests" / "corpus.json")
+    variants = flatten(corpus_raw)
+    cgroups = {g["id"]: g for g in corpus_raw.get("consistency_groups", [])}
 
     verdicts = triage.get("verdicts", {})
     cases, flat_turns = [], []
@@ -229,8 +231,10 @@ def main():
     coverage = triage.get("coverage")
     if not coverage:
         ran = Counter(e["family"] for e in manifest["entries"])
-        corpus = Counter(v["family"] for v in base.values())
-        corpus.update(v["family"] for v in overlay.values())
+        # Active definitions only: a retired case cannot be run, so counting it
+        # in the denominator would report permanent under-coverage.
+        corpus = Counter(v["family"] for v in variants.values()
+                         if v.get("status", "active") == "active")
         coverage = [[f, corpus.get(f, 0) or ran.get(f, 0), ran.get(f, 0)]
                     for f in sorted(set(corpus) | set(ran))]
 

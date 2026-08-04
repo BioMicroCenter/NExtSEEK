@@ -31,26 +31,25 @@ import pytest
 
 from nessie_tests import corpus, evaluate, route_observer
 
-OVERLAY = pathlib.Path(__file__).resolve().parents[1] / "overlay.json"
+CORPUS = pathlib.Path(__file__).resolve().parents[1] / "corpus.json"
 
 REFINE_RECALL = "green.refine_recall"
 GLOBAL_COUNT = "green.global_count"
 
 
 def _merged():
-    return {v.id: v for v in corpus.merged(OVERLAY)}
+    return {v.id: v for v in corpus.merged(CORPUS)}
 
 
 def _source(vid):
     """The variant's own TEXT, before any policy or floor is applied.
 
-    Mirrors `corpus.merged`: an overlay variant whose id matches a base one
-    REPLACES it wholesale, so the overlay entry is the case's own text wherever
-    one exists, never the union of the two.
+    One definition per id since 2026-08-04, so this is simply the definition as
+    written in corpus.json. It used to have to mirror `corpus.merged`'s override
+    rule — overlay entry where one exists, base entry otherwise, never the union
+    — and getting that wrong would have mis-attributed inline route criteria.
     """
-    overlay = {v.id: v for v in corpus.load_overlay(OVERLAY)}
-    base = {v.id: v for v in corpus.load_base()}
-    return overlay.get(vid) or base.get(vid)
+    return {v.id: v for v in corpus.load_all_definitions(CORPUS)}.get(vid)
 
 
 def _inline_route(variant):
@@ -65,11 +64,11 @@ def _inline_route(variant):
 
 
 def _overrides():
-    return (corpus.load_route_policy(OVERLAY) or {}).get("overrides") or {}
+    return (corpus.load_route_policy(CORPUS) or {}).get("overrides") or {}
 
 
 def _families():
-    return (corpus.load_route_policy(OVERLAY) or {}).get("families") or {}
+    return (corpus.load_route_policy(CORPUS) or {}).get("families") or {}
 
 
 def _ids_with_inline_route():

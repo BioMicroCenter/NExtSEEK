@@ -270,7 +270,7 @@ left-hand column.
   — plus `last_reply nonempty` to 241. `apply_family_floor` adds 239 outcome
   criteria across 203 variants (`outcome_observed` to 146,
   `report_produced_output` to 57, `graph_truncation_disclosed` to 36). All of it
-  comes from the `route_policy` and `family_floor` blocks in `overlay.json`,
+  comes from the `route_policy` and `family_floor` blocks in `corpus.json`,
   which are reviewable data, so a route failure today is a curated expectation
   rather than a harness assumption.
 - `api_artifact.*` unevaluable (no `run_root`). **CLOSED** — resolved from the

@@ -1,5 +1,4 @@
 from __future__ import annotations
-import hashlib
 import os
 import subprocess
 import time
@@ -38,7 +37,7 @@ def default_route_criterion(variant) -> dict | None:
     one ever curated that: it was an assumption, and it made deliberate
     ``container_cc`` routing (open-ended analysis, resource creation) read as a
     product failure. Routing is asserted where it has actually been decided —
-    the ``route_gate`` variants in overlay.json, which carry explicit ``route``
+    the ``route_gate`` variants in corpus.json, which carry explicit ``route``
     criteria and run in the route tier — cheaper, but not free: see the
     ``case_tier`` comment in ``run_suite`` for what route-only does and does not
     stop.
@@ -50,21 +49,21 @@ def _iso(clock):  # avoid datetime.now() so tests are deterministic
     return f"t={clock():.3f}"
 
 
-def corpus_fingerprint(overlay_path) -> str:
-    """sha256 over the catalog + overlay bytes.
+def corpus_fingerprint(corpus_path=None) -> str:
+    """sha256 over the unified corpus bytes.
 
     This is what makes a two-run diff honest. `--seed` changes sampling, not the
     database, so the same seed picks the same cases — but only if the corpus is
-    unchanged. If the overlay was edited between runs the same seed selected a
+    unchanged. If corpus.json was edited between runs the same seed selected a
     DIFFERENT set, and a diff tool must say so rather than silently mis-pair cases.
+
+    It hashed catalog.json + overlay.json until 2026-08-04. Fingerprints do not
+    compare across that boundary, and should not: the corpus file really did change.
     """
-    h = hashlib.sha256()
-    for path in (corpus._BASE_CATALOG, overlay_path):
-        try:
-            h.update(Path(path).read_bytes())
-        except Exception:
-            h.update(b"<unreadable>")
-    return h.hexdigest()
+    try:
+        return corpus.sha256_of(corpus_path or corpus._UNIFIED)
+    except Exception:
+        return "<unreadable>"
 
 
 def git_sha() -> str | None:
@@ -96,7 +95,7 @@ def _trim(value):
 
 
 def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, variant_id=None,
-              overlay_path, out_dir, post_query=None, get_progress=None, bundle_reader=None,
+              corpus_path, out_dir, post_query=None, get_progress=None, bundle_reader=None,
               pace_s=0.0, run_consistency: bool = False, sample: float = 1.0, seed: int = 0,
               cases_path=None, sleep=time.sleep, clock=time.monotonic) -> NessieManifest:
     if post_query is None or get_progress is None:
@@ -105,21 +104,25 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
         # An explicit running order replaces sampling entirely: scope, family,
         # variant_id, sample and seed are all selection knobs and the file IS the
         # selection. Mixing them would make "what ran" depend on two sources.
-        variants = corpus.select_cases(corpus.merged(overlay_path),
+        variants = corpus.select_cases(corpus.merged(corpus_path),
                                        *corpus.load_case_file(cases_path))
     else:
-        variants = corpus.select(corpus.merged(overlay_path), scope=scope, family=family,
+        variants = corpus.select(corpus.merged(corpus_path), scope=scope, family=family,
                                  variant_id=variant_id)
         if sample < 1.0:
             variants = corpus.sample(variants, sample, seed)
     # Recorded so two run directories can be told apart and diffed honestly.
+    #
+    # `overridden_ids` is deliberately absent since 2026-08-04. It named the ids
+    # where an overlay variant replaced a base one, and that merge no longer
+    # happens: there is one definition per id. `manifest.py` keeps the field with
+    # a default_factory so old manifests keep their value and new ones record [].
     run_meta = {
         "seed": None if cases_path else seed,
         "sample": None if cases_path else sample,
         "cases_file": str(cases_path) if cases_path else None,
         "selected_ids": [v.id for v in variants],
-        "overridden_ids": corpus.overridden_ids(overlay_path),
-        "corpus_fingerprint": corpus_fingerprint(overlay_path),
+        "corpus_fingerprint": corpus_fingerprint(corpus_path),
         "base_url": base_url,
         "git_sha": git_sha(),
     }
@@ -288,7 +291,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
             reason=reason, expected_fail=expected_fail, outage=v_outage))
     if run_consistency:
         from nessie_tests import consistency
-        for g in corpus.load_consistency_groups(overlay_path):
+        for g in corpus.load_consistency_groups(corpus_path):
             def _drive(q):
                 # force_new: without it the API falls back to the caller's most
                 # recently updated session, so the group inherited whatever ran

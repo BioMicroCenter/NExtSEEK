@@ -3,7 +3,7 @@ import argparse
 from pathlib import Path
 from nessie_tests import runner, http_driver
 
-_OVERLAY = Path(__file__).resolve().parent / "overlay.json"
+_CORPUS = Path(__file__).resolve().parent / "corpus.json"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,7 +35,7 @@ def main(argv=None) -> int:
     run_consistency = a.consistency or (a.tier == "full")
     manifest = runner.run_suite(
         base_url=a.base_url, auth_header=auth, tier=a.tier, scope=a.scope,
-        family=a.family, variant_id=a.variant, overlay_path=_OVERLAY,
+        family=a.family, variant_id=a.variant, corpus_path=_CORPUS,
         out_dir=a.out, bundle_reader=bundle_reader, pace_s=a.pace,
         run_consistency=run_consistency, sample=a.sample, seed=a.seed)
     summary = runner.classify_entries(manifest)

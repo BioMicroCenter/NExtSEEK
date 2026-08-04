@@ -269,7 +269,7 @@ def test_the_engine_specific_booleans_are_still_available_to_assert_by_hand():
 
 from nessie_tests import corpus  # noqa: E402
 
-OVERLAY = pathlib.Path(__file__).resolve().parents[1] / "overlay.json"
+CORPUS = pathlib.Path(__file__).resolve().parents[1] / "corpus.json"
 
 # Families where the parser may legitimately pick either engine. `reporting` is NOT
 # one of them: a report that produced no output is a real failure whatever ran.
@@ -283,7 +283,7 @@ def _floor_criteria(variant_id, merged):
 
 
 def _floor_fields():
-    floors = corpus.load_family_floor(OVERLAY).get("floors", {})
+    floors = corpus.load_family_floor(CORPUS).get("floors", {})
     return [(fam, c) for fam, crits in floors.items() for c in crits]
 
 
@@ -339,7 +339,7 @@ def test_tissue_cell_impact_asserts_its_real_total_not_absence_of_truncation():
     checkable number, so assert THAT instead. The floor's graph_truncation_disclosed
     still covers the case that actually matters: a cap that hides its total.
     """
-    v = next(v for v in corpus.merged(OVERLAY) if v.id == "graph.tissue_cell_impact")
+    v = next(v for v in corpus.merged(CORPUS) if v.id == "graph.tissue_cell_impact")
     crits = {(c.field, c.op, c.value) for t in v.turns for c in t.pass_criteria}
     assert ("graph_not_truncated", "true", None) not in crits
     assert ("graph_result.total", "gte", 10000) in crits, sorted(crits)
@@ -348,7 +348,7 @@ def test_tissue_cell_impact_asserts_its_real_total_not_absence_of_truncation():
 def test_the_floor_still_asserts_something_on_every_family_it_covers():
     """Loosening must not become removing: each floored family keeps an outcome
     assertion, just one its correct answers can satisfy."""
-    merged = corpus.merged(OVERLAY)
+    merged = corpus.merged(CORPUS)
     expected = {
         "graph_query": {"outcome_observed", "graph_truncation_disclosed"},
         "search_advanced": {"outcome_observed"},
@@ -357,7 +357,7 @@ def test_the_floor_still_asserts_something_on_every_family_it_covers():
         "search_tree": {"outcome_observed"},
         "reporting": {"report_produced_output"},
     }
-    assert set(expected) == set(corpus.load_family_floor(OVERLAY).get("floors", {})), (
+    assert set(expected) == set(corpus.load_family_floor(CORPUS).get("floors", {})), (
         "a family gained or lost a floor without this pin being updated")
     for family, must_have in expected.items():
         sample = [v for v in merged if v.family == family and "no_floor" not in v.tags]
@@ -377,14 +377,14 @@ def test_the_floor_never_mandates_a_particular_engine():
 
     `reporting` is deliberately out of scope: it keeps `report_produced_output`.
     """
-    floors = corpus.load_family_floor(OVERLAY).get("floors", {})
+    floors = corpus.load_family_floor(CORPUS).get("floors", {})
     bad = [(fam, c["field"]) for fam in ENGINE_FLEXIBLE
            for c in floors.get(fam, []) if c["field"] in ("api_ok", "neo4j_ok")]
     assert bad == [], f"the floor still mandates an engine: {bad}"
 
 
 def test_every_engine_flexible_family_floors_on_outcome_observed():
-    floors = corpus.load_family_floor(OVERLAY).get("floors", {})
+    floors = corpus.load_family_floor(CORPUS).get("floors", {})
     for fam in ENGINE_FLEXIBLE:
         fields = {c["field"] for c in floors.get(fam, [])}
         assert "outcome_observed" in fields, f"{fam} floors on {sorted(fields)}"
@@ -394,7 +394,7 @@ def test_graph_query_keeps_its_truncation_disclosure_floor():
     """`graph_truncation_disclosed` is NOT engine-mandating — it returns True for a
     non-graph turn by design, so it stays inert on a REST-answered turn — and it
     catches a hidden cap, which is a real defect class. It stays."""
-    floors = corpus.load_family_floor(OVERLAY).get("floors", {})
+    floors = corpus.load_family_floor(CORPUS).get("floors", {})
     fields = {c["field"] for c in floors.get("graph_query", [])}
     assert "graph_truncation_disclosed" in fields, fields
 
@@ -405,25 +405,22 @@ def test_graph_query_keeps_its_truncation_disclosure_floor():
 def _inline_fields(variant_id):
     """Fields the CASE asserts itself on its LAST turn, before any floor is applied.
 
-    Two things this has to mirror exactly, or `_floor_added` lies:
+    One thing this has to mirror exactly, or `_floor_added` lies:
+    `apply_family_floor` decides from `v.turns[-1]` ONLY, so a field asserted on
+    an EARLIER turn does not suppress the floor entry. `tree.then_ask_about` is
+    exactly that shape — `api_ok` on turn 1, floor on turn 2 — and collecting
+    across all turns would have under-reported it.
 
-    * an overlay variant with a matching id REPLACES the base variant wholesale
-      (`corpus.merged`), so the overlay entry — not the union — is the case's own
-      text where one exists;
-    * `apply_family_floor` (`corpus.py:78`) decides from `v.turns[-1]` ONLY, so a
-      field asserted on an EARLIER turn does not suppress the floor entry.
-      `tree.then_ask_about` is exactly that shape — `api_ok` on turn 1, floor on
-      turn 2 — and collecting across all turns would have under-reported it.
+    It also had to mirror the base/overlay override rule until 2026-08-04. There
+    is one definition per id now, so the case's own text is simply its definition.
     """
-    overlay = {v.id: v for v in corpus.load_overlay(OVERLAY)}
-    base = {v.id: v for v in corpus.load_base()}
-    src = overlay.get(variant_id) or base[variant_id]
+    src = {v.id: v for v in corpus.load_all_definitions(CORPUS)}[variant_id]
     return {c.field for c in src.turns[-1].pass_criteria} if src.turns else set()
 
 
 def _floor_added(variant):
     """The criteria the FLOOR put on this variant's last turn."""
-    floors = corpus.load_family_floor(OVERLAY).get("floors", {})
+    floors = corpus.load_family_floor(CORPUS).get("floors", {})
     floor_fields = {c["field"] for c in floors.get(variant.family, [])}
     inline = _inline_fields(variant.id)
     return [c for c in variant.turns[-1].pass_criteria
@@ -480,19 +477,13 @@ LOST_API_OK = {
 def _pre_floor_corpus():
     """`corpus.merged` up to but NOT including `apply_family_floor`.
 
-    Mirrors `corpus.merged` (`corpus.py:248-271`). The equality assertion in
+    Mirrors `corpus.merged_from_unified`. The equality assertion in
     `test_the_retired_floor_entries_were_inert_almost_everywhere` re-derives the
     real corpus from this, so the mirror cannot silently drift out of step.
     """
-    overlay = corpus.load_overlay(OVERLAY)
-    by_id = {v.id: v for v in overlay}
-    out = [by_id.pop(v.id, v) for v in corpus.load_base()]
-    out += [v for v in overlay if v.id in by_id]
-    retired = corpus.load_retired_ids()
-    if retired:
-        out = [v for v in out if v.id not in retired]
-    out = corpus.apply_criterion_rewrites(out, corpus.load_criterion_rewrites(OVERLAY))
-    return corpus.apply_route_policy(out, corpus.load_route_policy(OVERLAY))
+    out = corpus.load_unified(CORPUS)
+    out = corpus.apply_criterion_rewrites(out, corpus.load_criterion_rewrites(CORPUS))
+    return corpus.apply_route_policy(out, corpus.load_route_policy(CORPUS))
 
 
 def _floor_added_under(spec_fields):
@@ -523,9 +514,9 @@ def test_the_retired_floor_entries_were_inert_almost_everywhere():
     # The mirror above must reproduce the real corpus, or none of this is measuring
     # the corpus the harness actually runs.
     rebuilt = corpus.apply_family_floor(_pre_floor_corpus(),
-                                        corpus.load_family_floor(OVERLAY))
+                                        corpus.load_family_floor(CORPUS))
     real = {v.id: sorted((c.field, c.op) for t in v.turns for c in t.pass_criteria)
-            for v in corpus.merged(OVERLAY)}
+            for v in corpus.merged(CORPUS)}
     assert {v.id: sorted((c.field, c.op) for t in v.turns for c in t.pass_criteria)
             for v in rebuilt} == real
 
@@ -541,7 +532,7 @@ def test_search_tree_got_stricter_not_looser_on_all_but_one_variant():
     `outcome_observed` instead. It was not in the seed-6 run, so unlike the rest of
     this change that one swap has no stored evidence behind it.
     """
-    merged = {v.id: v for v in corpus.merged(OVERLAY)}
+    merged = {v.id: v for v in corpus.merged(CORPUS)}
     floored = [v for v in merged.values()
                if v.family == "search_tree" and "no_floor" not in v.tags]
     assert len(floored) == 13, [v.id for v in floored]
@@ -560,7 +551,7 @@ def test_a_search_advanced_case_answered_by_the_graph_satisfies_its_floor():
     """`advanced.find_me_nhp_samples_from_study_2` is the seed-6 case whose ONLY
     failures were the two floor entries. With the floor engine-agnostic, a graph
     answer satisfies it."""
-    v = next(v for v in corpus.merged(OVERLAY) if v.id == "advanced.find_me_nhp_samples_from_study_2")
+    v = next(v for v in corpus.merged(CORPUS) if v.id == "advanced.find_me_nhp_samples_from_study_2")
     floor = _floor_added(v)
     assert {c.field for c in floor} == {"outcome_observed"}, [c.field for c in floor]
     passed, _ = _evaluate(floor, {"graph_result": {"count": 408, "total": 408,
@@ -571,7 +562,7 @@ def test_a_search_advanced_case_answered_by_the_graph_satisfies_its_floor():
 def test_a_search_advanced_case_that_produced_nothing_still_fails_its_floor():
     """The same variant, same floor, an empty turn. If this passes, the floor is
     decorative."""
-    v = next(v for v in corpus.merged(OVERLAY) if v.id == "advanced.find_me_nhp_samples_from_study_2")
+    v = next(v for v in corpus.merged(CORPUS) if v.id == "advanced.find_me_nhp_samples_from_study_2")
     passed, _ = _evaluate(_floor_added(v), {})
     assert not passed
 
@@ -586,7 +577,7 @@ def test_a_graph_query_case_answered_by_rest_satisfies_its_floor():
     manifest, and it still fails overall on its inline `neo4j_ok`. What this test
     shows is only that the floor no longer piles a second, engine-shaped failure on
     top of them."""
-    v = next(v for v in corpus.merged(OVERLAY) if v.id == "graph.what_investigations_exist_in_t")
+    v = next(v for v in corpus.merged(CORPUS) if v.id == "graph.what_investigations_exist_in_t")
     floor = _floor_added(v)
     assert {c.field for c in floor} == {"outcome_observed", "graph_truncation_disclosed"}
     # `graph_truncation_disclosed` is True on a turn with no graph_result at all,
@@ -695,7 +686,7 @@ def _seed6_debug(entry, variant):
 @requires_seed6b
 @pytest.mark.parametrize("vid", sorted(SEED6_GRAPH_ANSWERED))
 def test_seed6_graph_answered_case_now_satisfies_its_floor(vid):
-    variant = next(v for v in corpus.merged(OVERLAY) if v.id == vid)
+    variant = next(v for v in corpus.merged(CORPUS) if v.id == vid)
     entry = _seed6_entry(vid)
     assert entry["status"] == "failed" and entry["engine"] == "graph_query"
     assert entry["route"] == "nextseek_query", "these routed correctly; only the engine differed"
@@ -748,7 +739,7 @@ def test_the_floor_only_case_goes_fully_green_without_its_case_being_rewritten()
         "api_ok", "api_outcome_observed"}
     assert not ({"api_ok", "api_outcome_observed"} & _inline_fields(SEED6_FLOOR_ONLY))
 
-    variant = next(v for v in corpus.merged(OVERLAY) if v.id == SEED6_FLOOR_ONLY)
+    variant = next(v for v in corpus.merged(CORPUS) if v.id == SEED6_FLOOR_ONLY)
     debug, reply = _seed6_debug(entry, variant)
     passed, per_field = _evaluate(variant.turns[-1].pass_criteria, debug, last_reply=reply)
     assert passed, per_field
@@ -759,7 +750,7 @@ def test_the_seed6_turn_that_produced_no_outcome_is_still_red_under_the_new_floo
     """`graph.what_mice_are_in_the_impact_st`: the Bedrock chain gave up before the
     parser ran. Replayed through the WIDENED floor it must still fail. This is the
     vacuity guard measured against real evidence rather than a fixture."""
-    variant = next(v for v in corpus.merged(OVERLAY)
+    variant = next(v for v in corpus.merged(CORPUS)
                    if v.id == "graph.what_mice_are_in_the_impact_st")
     entry = _seed6_entry("graph.what_mice_are_in_the_impact_st")
     debug, reply = _seed6_debug(entry, variant)
@@ -827,7 +818,7 @@ OVERRIDDEN_2026_08_03B = {
 
 def _resolved(vid):
     """The variant's LAST-turn criteria as the harness will actually run them."""
-    return next(v for v in corpus.merged(OVERLAY) if v.id == vid).turns[-1].pass_criteria
+    return next(v for v in corpus.merged(CORPUS) if v.id == vid).turns[-1].pass_criteria
 
 
 @pytest.mark.parametrize("vid", sorted(OVERRIDDEN_2026_08_03B))
@@ -843,7 +834,7 @@ def test_the_base_catalog_still_writes_the_rest_mandates_this_override_removes(v
 @pytest.mark.parametrize("vid", sorted(OVERRIDDEN_2026_08_03B))
 def test_the_rest_mandates_are_gone_from_the_resolved_variant(vid):
     """The fix itself: no criterion the harness runs still demands the REST engine."""
-    v = next(v for v in corpus.merged(OVERLAY) if v.id == vid)
+    v = next(v for v in corpus.merged(CORPUS) if v.id == vid)
     fields = {c.field for t in v.turns for c in t.pass_criteria}
     assert not (REST_MANDATES & fields), sorted(REST_MANDATES & fields)
     assert v.turns[-1].query == OVERRIDDEN_2026_08_03B[vid]
@@ -853,21 +844,37 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     """An override REPLACES; it must not append a second case asking the same
     question, which would double the cost of every full run and let the base
     variant keep failing next to its replacement."""
-    merged = corpus.merged(OVERLAY)
+    merged = corpus.merged(CORPUS)
     # 280 -> 283 on 2026-08-03: the create/update/delete refusal coverage came
-    # back (one reinstated from retired.json, two authored). This is the ONLY
-    # hardcoded corpus size in the suite, so it is the one place that has to move.
+    # back (one reinstated, two authored). This is the ONLY hardcoded corpus size
+    # in the suite, so it is the one place that has to move.
     assert len(merged) == 283
     ids = [v.id for v in merged]
+    base_ids_all = {v.id for v in corpus.load_base()}
+    defs = {v.id: v for v in corpus.load_all_definitions(CORPUS)}
     for vid in OVERRIDDEN_2026_08_03B:
         assert ids.count(vid) == 1, vid
-        assert vid in corpus.overridden_ids(OVERLAY), vid
+        # What "override" means post-migration: one definition, carrying the
+        # overlay origin, under an id the vendored catalog also defines. Before
+        # 2026-08-04 this asked `corpus.overridden_ids`, which computed the same
+        # intersection across two files.
+        assert vid in base_ids_all, vid
+        assert "overlay" in defs[vid].tags, vid
 
-    # "In place" means base ORDER is kept too: the merged list starts with every
-    # non-retired base id, in base order, before any overlay-only variant.
-    retired = corpus.load_retired_ids()
+    # "In place" means base ORDER is kept: every non-retired base id appears in
+    # merged() in the order the vendored catalog declares it.
+    #
+    # RELATIVE order, not a prefix. It was a prefix while `corpus.merged`
+    # appended overlay-only variants to the end of the WHOLE list; corpus.json
+    # appends them to the end of their own BLOCK, so `writes_unsupported`'s two
+    # overlay-only members now sit mid-list rather than at 281-282. Measured
+    # 2026-08-04: 2 active variants genuinely displaced, 31 more the shift
+    # cascade. Nothing reads global order but the loop that runs the cases;
+    # `corpus.sample` buckets on family, and within-family order is unchanged.
+    retired = {vid for vid, m in corpus.variant_meta(CORPUS).items()
+               if m["status"] == "retired"}
     base_ids = [v.id for v in corpus.load_base() if v.id not in retired]
-    assert ids[:len(base_ids)] == base_ids
+    assert [i for i in ids if i in set(base_ids)] == base_ids
 
 
 # ── the new criteria replayed against the STORED seed-6 run ───────────────────
@@ -912,7 +919,7 @@ def test_seed6_the_overridden_cases_now_pass_on_the_real_evidence(vid):
     was_red = {f.split(":", 1)[-1] for f in entry["failed_criteria"]}
     assert was_red == REST_MANDATES | {"api_outcome_observed"}, sorted(was_red)
 
-    variant = next(v for v in corpus.merged(OVERLAY) if v.id == vid)
+    variant = next(v for v in corpus.merged(CORPUS) if v.id == vid)
     debug, reply = _seed6_debug_with_entities(entry, variant)
     assert debug["api_result_meta"] is None, "graph-answered: there is no REST result"
 

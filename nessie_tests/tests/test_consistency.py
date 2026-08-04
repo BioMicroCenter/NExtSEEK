@@ -254,18 +254,18 @@ def test_the_group_observations_still_carry_the_per_query_evidence_on_an_outage(
 # --------------------------------------------------------------------------- #
 
 _TURNS = Path("/home/cdemu/nessie-run-seed6b/turns.json")
-_OVERLAY = Path(__file__).resolve().parents[1] / "overlay.json"
+_CORPUS = Path(__file__).resolve().parents[1] / "corpus.json"
 
 
 @pytest.mark.skipif(not _TURNS.exists(), reason=f"stored run evidence absent: {_TURNS}")
 def test_replay_the_tenth_case_the_triage_missed():
     """cons.nhp_sequencing_engine, driven from its OWN turns in the stored run.
 
-    The group and its two queries come from overlay.json; the replies come from
+    The group and its two queries come from corpus.json; the replies come from
     turns.json. Nothing here is hand-authored, so the test cannot claim evidence
     the run did not produce.
     """
-    group = next(g for g in json.loads(_OVERLAY.read_text(encoding="utf-8"))
+    group = next(g for g in json.loads(_CORPUS.read_text(encoding="utf-8"))
                  ["consistency_groups"] if g["id"] == "cons.nhp_sequencing_engine")
     turns = json.loads(_TURNS.read_text(encoding="utf-8"))
     # last turn matching each query — the group forces a new session per query

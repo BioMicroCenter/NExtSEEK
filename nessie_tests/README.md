@@ -13,7 +13,7 @@ vendored `chat_nextseek`.
 
 ## Scope
 - `--scope specific` → only `route_gate`-tagged cases (+ consistency groups).
-- `--scope all` → the full imported NS corpus + overlay.
+- `--scope all` → the whole active corpus (`nessie_tests/corpus.json`).
 
 ## Run
 
@@ -37,7 +37,7 @@ uv run --no-project --with pytest --with pydantic --with requests --with beautif
 ```
 
 The figure that IS fixed, and is pinned by a test rather than by prose, is the
-size of the resolved corpus: `corpus.merged(Path('nessie_tests/overlay.json'))`
+size of the resolved corpus: `corpus.merged(Path('nessie_tests/corpus.json'))`
 returns **283** variants
 (`tests/test_floor_ops.py::test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus`).
 
@@ -105,23 +105,24 @@ mixing the two prints `PARTIAL`.
 ## Known-fail (RED) cases
 
 **No variant in the resolved corpus is tagged `known_fail` any more.** None of
-the 283 variants returned by `corpus.merged(Path('nessie_tests/overlay.json'))`
+the 283 variants returned by `corpus.merged(Path('nessie_tests/corpus.json'))`
 carries that tag — which is a statement about `known_fail` only; they carry
 plenty of other tags, and all 283 carry an injected `route` criterion (see
-"Scale" below). Four variants still carry `known_fail` in `overlay.json` —
+"Scale" below). Four DEFINITIONS still carry `known_fail` in `corpus.json` —
 `repro.parent_attr_aggregate` (#32a), `repro.thin_bundle_recall` (#32b),
 `repro.eof_truncation_reporter` (the reporter EOF bonus) and
 `advanced.find_me_nhp_samples_from_study_ns_graph` — but all four were retired on
-2026-07-30 in the issue-#35 review, and `merged()` filters retired ids out
-(`corpus.py:266-268`). Reading `overlay.json` alone will tell you there are four;
-in a run there are none. (The whole `nessie_repro` family is retired, including
+2026-07-30 in the issue-#35 review, and `merged()` returns active definitions
+only. `corpus.load_all_definitions()` will tell you there are four; in a run
+there are none. (The whole `nessie_repro` family is retired, including
 `repro.cypher_uid_dot`, which was already re-tagged `fixed` before that.)
 
 The one `known_fail` entity a run still produces is the consistency group
 `cons.nhp_sequencing_engine` (#33 — the same NHP-sequencing question asked two
 ways must agree on route and count). It survives because **retirement applies to
 variants only**: groups are loaded separately by `load_consistency_groups()`,
-which reads `overlay.json` directly and never consults `retired.json`.
+which reads the `consistency_groups` block of `corpus.json` and never looks at
+any variant's `status`.
 
 `_is_real_failure` excludes an expected failure (`runner.py:415-416`), so
 `gate_failed()` does not count it and the group does not break the gate. Two

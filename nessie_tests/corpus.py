@@ -9,7 +9,6 @@ ensure_e2e_importable()
 from e2e.catalog import load_catalog, Catalog, PassCriterion, Variant  # noqa: E402
 
 _BASE_CATALOG = Path(__file__).resolve().parents[1] / "chat_nextseek" / "e2e" / "catalog.json"
-_RETIRED = Path(__file__).resolve().parent / "retired.json"
 
 
 def sha256_of(path) -> str:
@@ -29,10 +28,27 @@ def _flatten(cat: Catalog, source_tag: str) -> list[Variant]:
 
 
 def load_base() -> list[Variant]:
+    """The VENDORED catalog, straight from chat_nextseek.
+
+    Not a corpus source any more -- ``corpus.json`` was adopted from it on
+    2026-08-04 and is now the single source of truth. This survives for the
+    drift test, which is the only thing that still has a reason to ask what
+    upstream currently says.
+    """
     return _flatten(load_catalog(_BASE_CATALOG), "base")
 
 
 def load_overlay(path: Path) -> list[Variant]:
+    """Read an overlay-shaped catalog file. NOT a corpus source since 2026-08-04.
+
+    It has exactly ONE caller, `scripts/build_corpus.py`, which is the manual
+    adoption tool you run when the vendored catalog moves -- it reads
+    `overlay.json` and `retired.json` by design and forever. Deleting this with
+    the rest of the three-file machinery would have left that tool raising
+    AttributeError with no test to catch it, since nothing imports it any more.
+
+    Nothing in a RUN calls this. `merged()` reads corpus.json.
+    """
     return _flatten(load_catalog(path), "overlay")
 
 
@@ -97,25 +113,26 @@ def merged_from_unified(path=None) -> list[Variant]:
     """`merged()` over the unified corpus. Same pipeline, one source.
 
     No base-versus-overlay merge step, because there is one definition per id.
-    No retirement filter step either: `load_unified` already excludes them.
+    No retirement filter step either: `_to_variants` already excludes them.
+
+    ONE parse. It used to read the ~1.4 MB file twice -- once for the policy
+    blocks and once inside `load_unified` -- which was harmless while this was a
+    test-only path and is not, now that it is the path every run takes.
     """
     payload = _read_unified(path)
-    out = load_unified(path)
+    out = _to_variants(payload, include_retired=False)
     out = apply_criterion_rewrites(out, payload.get("criterion_rewrites", {}))
     out = apply_route_policy(out, payload.get("route_policy", {}))
     return apply_family_floor(out, payload.get("family_floor", {}))
 
 
-def load_consistency_groups(path) -> list[dict]:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    return payload.get("consistency_groups", [])
+def load_consistency_groups(path=None) -> list[dict]:
+    return _read_unified(path).get("consistency_groups", [])
 
 
-def load_family_floor(path) -> dict:
-    """The per-family minimum OUTCOME assertion block from the overlay."""
-    if not path:
-        return {}
-    return json.loads(Path(path).read_text(encoding="utf-8")).get("family_floor", {})
+def load_family_floor(path=None) -> dict:
+    """The per-family minimum OUTCOME assertion block."""
+    return _read_unified(path).get("family_floor", {})
 
 
 def apply_family_floor(variants: list[Variant], floor_spec: dict) -> list[Variant]:
@@ -159,11 +176,9 @@ def apply_family_floor(variants: list[Variant], floor_spec: dict) -> list[Varian
     return variants
 
 
-def load_criterion_rewrites(path) -> dict:
+def load_criterion_rewrites(path=None) -> dict:
     """Structural corrections applied to every matching criterion in the corpus."""
-    if not path:
-        return {}
-    return json.loads(Path(path).read_text(encoding="utf-8")).get("criterion_rewrites", {})
+    return _read_unified(path).get("criterion_rewrites", {})
 
 
 def apply_criterion_rewrites(variants: list[Variant], spec: dict) -> list[Variant]:
@@ -179,7 +194,7 @@ def apply_criterion_rewrites(variants: list[Variant], spec: dict) -> list[Varian
 
     So a lab name is rewritten to assert the resolved lab code, and every other name
     becomes a case-insensitive regex. Doing it here rather than as 30 hand-written
-    overlay overrides keeps the correction in one reviewable place.
+    per-variant overrides keeps the correction in one reviewable place.
     """
     labs = {k.upper(): v for k, v in (spec or {}).get("reporter_project_labs", {}).items()}
     if not spec or not spec.get("reporter_project_case_insensitive", False):
@@ -202,11 +217,9 @@ def apply_criterion_rewrites(variants: list[Variant], spec: dict) -> list[Varian
     return variants
 
 
-def load_route_policy(path) -> dict:
+def load_route_policy(path=None) -> dict:
     """Which families are routed away from NS, and to where."""
-    if not path:
-        return {}
-    return json.loads(Path(path).read_text(encoding="utf-8")).get("route_policy", {})
+    return _read_unified(path).get("route_policy", {})
 
 
 def apply_route_policy(variants: list[Variant], spec: dict) -> list[Variant]:
@@ -219,11 +232,11 @@ def apply_route_policy(variants: list[Variant], spec: dict) -> list[Variant]:
     product did the right thing. Three of the fifteen seed-0 failures were this.
 
     The policy those 23 encode is stale rather than wrong-in-detail: writes,
-    exports and open-ended analysis are Container-CC's job. The overlay already
+    exports and open-ended analysis are Container-CC's job. The corpus already
     blesses that in its route_gate family (route.cc_write_investigation,
     route.cc_open_ended_analysis) and a previous wave hand-converted three variants
     to exactly the shape this produces. This finishes the job in one place instead
-    of 23 overlay overrides.
+    of 23 per-variant overrides.
 
     Per-variant ``overrides`` exist because the family is not uniform: weather is
     ``unrelated``, and a textbook-chemistry question is defensibly either, so it is
@@ -286,90 +299,38 @@ def apply_route_policy(variants: list[Variant], spec: dict) -> list[Variant]:
     return variants
 
 
-def load_retired_ids(path=None) -> set[str]:
-    """Ids retired from the active corpus, per ``nessie_tests/retired.json``.
+def merged(path=None) -> list[Variant]:
+    """The resolved active corpus: 283 variants, 314 turns.
 
-    Retirement is not deletion. The 2026-07-30 review found 26 variants asking
-    about a study that does not exist and 9 whose seed turn refers to state that
-    was never created, and the operator's instruction was to retire rather than
-    delete: a question that is wrong against today's data may be the right
-    question once the data or the product changes, and the reason it left is
-    worth keeping next to it.
-
-    So ``retired.json`` is overlay-shaped and holds each variant's FULL
-    definition alongside a reason and a date. Reinstating one is a data edit,
-    not a code change.
+    One source since 2026-08-04. The parameter is kept, and kept positional, so
+    every existing `merged(OVERLAY)` call site still works during the cutover; it
+    now names corpus.json rather than the overlay.
     """
-    path = Path(path or _RETIRED)
-    if not path.exists():
-        return set()
-    return set(json.loads(path.read_text(encoding="utf-8")).get("retired") or {})
-
-
-def check_retired_ids(retired: set[str], known: set[str]) -> None:
-    """Fail loudly on a retired id that matches nothing.
-
-    Silence here is the dangerous outcome: a typo would leave the variant
-    running while the review believes it is gone, so the corpus and the record
-    of what was decided would disagree with no signal.
-    """
-    unknown = retired - known
-    if unknown:
-        raise ValueError(
-            f"retired.json lists ids not found in the corpus: {sorted(unknown)}. "
-            f"Check spelling against chat_nextseek/e2e/catalog.json and "
-            f"nessie_tests/overlay.json.")
-
-
-def merged(overlay_path: Path | None = None) -> list[Variant]:
-    """Base catalog plus overlay, where an overlay variant may OVERRIDE a base one.
-
-    An overlay variant whose ``id`` matches a base variant replaces it in place,
-    keeping the base ordering and the base id. That is what lets us strengthen a
-    weak imported expectation — e.g. a refine/recall case that only asserted
-    ``parser_plan.mode``, and so passed while answering from the wrong result
-    bundle — without editing the vendored ``chat_nextseek/e2e/catalog.json``.
-    Overlay variants with a new id are appended as usual.
-    """
-    ov = load_overlay(overlay_path) if overlay_path else []
-    by_id = {v.id: v for v in ov}
-    base = load_base()
-    out = [by_id.pop(v.id, v) for v in base]
-    out += [v for v in ov if v.id in by_id]
-    # Filter only. The typo guard lives in the test suite rather than here,
-    # because merged() is also called with a monkeypatched base in unit tests,
-    # where a real retired id legitimately matches nothing.
-    retired = load_retired_ids()
-    if retired:
-        out = [v for v in out if v.id not in retired]
-    out = apply_criterion_rewrites(out, load_criterion_rewrites(overlay_path))
-    out = apply_route_policy(out, load_route_policy(overlay_path))
-    return apply_family_floor(out, load_family_floor(overlay_path))
-
-
-def overridden_ids(overlay_path: Path | None = None) -> list[str]:
-    """Ids where the overlay replaces a base variant (for reporting/debugging)."""
-    if not overlay_path:
-        return []
-    base_ids = {v.id for v in load_base()}
-    return sorted(v.id for v in load_overlay(overlay_path) if v.id in base_ids)
+    return merged_from_unified(path)
 
 
 def load_case_file(path) -> tuple[list[str], list[Variant]]:
     """Parse a ``--cases`` file into (include_ids, inline variants).
 
-    The file is OVERLAY-SHAPED so a ``families`` block can be copy-pasted straight
-    out of overlay.json and gets the same PassCriterion validation for free.
+    The file is CATALOG-SHAPED so a ``families`` block can be copy-pasted straight
+    out of corpus.json and gets the same PassCriterion validation for free.
 
-        {"include_ids": ["repro.cypher_uid_dot"],
+        {"include_ids": ["green.mus_ndma"],
          "families": {"manual": {"description": "...", "variants": [ ... ]}}}
 
     Either key may be omitted, but not both.
+
+    Loaded through ``load_catalog`` rather than through the unified reader on
+    purpose: a probe file carries no ``status`` / ``origin`` metadata, and
+    running it through the unified reader would drop every variant in it for
+    not being marked active.
     """
     path = Path(path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     include = list(payload.get("include_ids") or [])
-    inline = load_overlay(path) if payload.get("families") else []
+    # The "overlay" tag is what the harness has always stamped on an inline
+    # probe variant; kept verbatim so a probe's tag set does not change under it.
+    inline = _flatten(load_catalog(path), "overlay") if payload.get("families") else []
     return include, inline
 
 
@@ -396,8 +357,8 @@ def select_cases(variants: list[Variant], include_ids: list[str],
         # Loud, because a typo would silently shrink a run that costs money.
         raise ValueError(
             f"--cases include_ids not found in the corpus: {missing}. "
-            f"Check spelling against nessie_tests/overlay.json and "
-            f"chat_nextseek/e2e/catalog.json.")
+            f"Check spelling against nessie_tests/corpus.json. A RETIRED id will "
+            f"also land here: merged() returns active definitions only.")
     out = [by_id[i] for i in include_ids]
     out += inline
     if not out:

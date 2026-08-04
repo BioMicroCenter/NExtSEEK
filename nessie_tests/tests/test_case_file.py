@@ -7,7 +7,7 @@ Those questions are not in the corpus, and waiting for a seed to draw the five
 cases you care about is not a plan — the 2026-07-28 run dropped three of the
 fixes it was meant to verify because the seed did not select them.
 
-The file is OVERLAY-SHAPED on purpose, so `families` blocks can be copy-pasted
+The file is CORPUS-SHAPED on purpose, so `families` blocks can be copy-pasted
 straight out of overlay.json and get the same PassCriterion validation. Two keys:
 
   include_ids   pull existing corpus variants in, by id, in file order
@@ -25,7 +25,7 @@ import pytest
 
 from nessie_tests import corpus
 
-OVERLAY = pathlib.Path(__file__).resolve().parents[1] / "overlay.json"
+CORPUS = pathlib.Path(__file__).resolve().parents[1] / "corpus.json"
 
 
 def _write(tmp_path, payload):
@@ -36,14 +36,14 @@ def _write(tmp_path, payload):
 
 def test_include_ids_pull_existing_corpus_variants(tmp_path):
     path = _write(tmp_path, {"include_ids": ["route.unrelated", "green.mus_ndma"]})
-    picked = corpus.select_cases(corpus.merged(OVERLAY), *corpus.load_case_file(path))
+    picked = corpus.select_cases(corpus.merged(CORPUS), *corpus.load_case_file(path))
     assert [v.id for v in picked] == ["route.unrelated", "green.mus_ndma"]
 
 
 def test_include_ids_keep_file_order_not_corpus_order(tmp_path):
     """The file is a running order. A probe usually wants seed-then-followup."""
     path = _write(tmp_path, {"include_ids": ["green.mus_ndma", "route.unrelated"]})
-    picked = corpus.select_cases(corpus.merged(OVERLAY), *corpus.load_case_file(path))
+    picked = corpus.select_cases(corpus.merged(CORPUS), *corpus.load_case_file(path))
     assert [v.id for v in picked] == ["green.mus_ndma", "route.unrelated"]
 
 
@@ -51,7 +51,7 @@ def test_an_unknown_include_id_fails_loudly(tmp_path):
     """A typo must not silently shrink the run. Every id is paid for."""
     path = _write(tmp_path, {"include_ids": ["route.unrelated", "route.typoed_id"]})
     with pytest.raises(ValueError, match="route.typoed_id"):
-        corpus.select_cases(corpus.merged(OVERLAY), *corpus.load_case_file(path))
+        corpus.select_cases(corpus.merged(CORPUS), *corpus.load_case_file(path))
 
 
 def test_inline_variants_are_loaded_and_validated(tmp_path):
@@ -62,7 +62,7 @@ def test_inline_variants_are_loaded_and_validated(tmp_path):
                     "query": "Build a NExtSEEK upload sheet from the nf-core rnaseq outputs.",
                     "pass_criteria": [{"field": "route", "op": "eq", "value": "container_cc"}]}]}
     ]}}})
-    picked = corpus.select_cases(corpus.merged(OVERLAY), *corpus.load_case_file(path))
+    picked = corpus.select_cases(corpus.merged(CORPUS), *corpus.load_case_file(path))
     assert [v.id for v in picked] == ["manual.reingest"]
     assert picked[0].turns[0].pass_criteria[0].field == "route"
 
@@ -75,7 +75,7 @@ def test_inline_variants_run_exactly_as_written_with_no_floor(tmp_path):
          "turns": [{"label": "main", "query": "What studies have monkeys",
                     "pass_criteria": [{"field": "neo4j_ok", "op": "true", "value": None}]}]}
     ]}}})
-    picked = corpus.select_cases(corpus.merged(OVERLAY), *corpus.load_case_file(path))
+    picked = corpus.select_cases(corpus.merged(CORPUS), *corpus.load_case_file(path))
     fields = {c.field for t in picked[0].turns for c in t.pass_criteria}
     assert fields == {"neo4j_ok"}, f"the floor leaked into a hand-authored probe: {fields}"
 
@@ -88,11 +88,11 @@ def test_include_ids_and_inline_variants_compose(tmp_path):
              "turns": [{"label": "main", "query": "q",
                         "pass_criteria": [{"field": "route", "op": "eq", "value": "unrelated"}]}]}
         ]}}})
-    picked = corpus.select_cases(corpus.merged(OVERLAY), *corpus.load_case_file(path))
+    picked = corpus.select_cases(corpus.merged(CORPUS), *corpus.load_case_file(path))
     assert [v.id for v in picked] == ["route.unrelated", "manual.x"]
 
 
 def test_an_empty_case_file_fails_rather_than_running_nothing(tmp_path):
     path = _write(tmp_path, {})
     with pytest.raises(ValueError, match="no cases"):
-        corpus.select_cases(corpus.merged(OVERLAY), *corpus.load_case_file(path))
+        corpus.select_cases(corpus.merged(CORPUS), *corpus.load_case_file(path))

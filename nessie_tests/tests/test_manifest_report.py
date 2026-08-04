@@ -190,8 +190,8 @@ def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
     claim is held against the harness rather than against a hand-built entry."""
     from nessie_tests import corpus, runner
 
-    overlay = Path(__file__).resolve().parents[1] / "overlay.json"
-    assert any(v.id == "tree.then_ask_about" for v in corpus.merged(overlay))
+    corpus_json = Path(__file__).resolve().parents[1] / "corpus.json"
+    assert any(v.id == "tree.then_ask_about" for v in corpus.merged(corpus_json))
 
     ns_seed = {"status": "completed", "progress": [
         {"event": "route_decided", "data": {"route": "nextseek_query", "source": "baml"}},
@@ -212,7 +212,7 @@ def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
 
     m = runner.run_suite(
         base_url="http://dev:8000", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=overlay, out_dir=tmp_path, variant_id="tree.then_ask_about",
+        corpus_path=corpus_json, out_dir=tmp_path, variant_id="tree.then_ask_about",
         post_query=post_query,
         get_progress=lambda tid: ns_seed if tid == "t1" else cc_follow,
         sleep=lambda s: None, clock=lambda: 0.0)
@@ -237,11 +237,11 @@ def test_the_manifest_records_what_makes_a_diff_honest(tmp_path):
     ROUTED = {"status": "running", "progress": [
         {"event": "route_decided", "data": {"route": "container_cc", "model_class": "opus",
                                             "source": "baml", "reasoning": ""}}]}
-    OVERLAY = Path(__file__).resolve().parents[1] / "overlay.json"
+    CORPUS = Path(__file__).resolve().parents[1] / "corpus.json"
 
     m = runner.run_suite(
         base_url="http://dev:8000", auth_header="Basic x", tier="route", scope="specific",
-        overlay_path=OVERLAY, out_dir=tmp_path, variant_id="route.ns_advanced",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="route.ns_advanced",
         post_query=lambda b: {"task_id": "t", "session_id": "s"},
         get_progress=lambda tid: ROUTED, sleep=lambda s: None, clock=lambda: 0.0,
         sample=0.1, seed=7)
@@ -255,15 +255,15 @@ def test_the_manifest_records_what_makes_a_diff_honest(tmp_path):
     assert next(e for e in m.entries).route_source == "baml"
 
 
-def test_the_fingerprint_changes_when_the_overlay_changes(tmp_path):
+def test_the_fingerprint_changes_when_the_corpus_changes(tmp_path):
     from nessie_tests import runner
 
-    OVERLAY = Path(__file__).resolve().parents[1] / "overlay.json"
-    edited = tmp_path / "overlay.json"
-    edited.write_text(Path(OVERLAY).read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    CORPUS = Path(__file__).resolve().parents[1] / "corpus.json"
+    edited = tmp_path / "corpus.json"
+    edited.write_text(Path(CORPUS).read_text(encoding="utf-8") + "\n", encoding="utf-8")
 
-    assert runner.corpus_fingerprint(OVERLAY) != runner.corpus_fingerprint(edited), (
-        "an edited overlay must change the fingerprint, or a diff will mis-pair "
+    assert runner.corpus_fingerprint(CORPUS) != runner.corpus_fingerprint(edited), (
+        "an edited corpus.json must change the fingerprint, or a diff will mis-pair "
         "cases the same seed no longer selects"
     )
 

@@ -115,7 +115,7 @@ python scripts/build_report.py --run ./run-<date> \
 ```
 
 It joins each manifest entry to its declared turns, their asserted criteria (from
-`chat_nextseek/e2e/catalog.json` + `nessie_tests/overlay.json`), each turn's task
+`nessie_tests/corpus.json`), each turn's task
 and engine call, and your verdict. Coverage is computed automatically. It warns
 about non-passing cases you left unjudged.
 
@@ -189,7 +189,7 @@ re-derive rather than trusting this a third time.
   made deliberate `container_cc` routing (open-ended analysis, resource creation)
   read as a product failure. What ended is the BLANKET assumption, not injection:
   `corpus.apply_route_policy` reads the curated `route_policy` block in
-  `overlay.json` — twelve families plus seven per-variant overrides — and
+  `corpus.json` — twelve families plus seven per-variant overrides — and
   attaches a `route` criterion to turn 0 of **268** variants, while 15 more write
   one inline. **All 283 resolved variants carry a `route` criterion; only three
   are `route_gate`** (`route.ns_advanced`, `route.unrelated`,
