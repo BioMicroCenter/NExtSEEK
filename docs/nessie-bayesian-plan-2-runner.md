@@ -501,10 +501,27 @@ class BayesManifest(BaseModel):
 
 
 def write_bayes_manifest(m: BayesManifest, out_dir) -> pathlib.Path:
+    """Serialise to a sibling temp file and `os.replace` it into place.
+
+    ATOMIC ON PURPOSE. `bayesian.run_paired` writes after every ARM, so a
+    ~130-variant paired run rewrites this file ~260 times, and a plain
+    `write_text` truncates before it writes. A Ctrl-C, an OOM kill or a full disk
+    landing inside any one of those windows leaves half a JSON document, and
+    `read_bayes_manifest` then raises on the whole file — destroying every
+    completed arm recorded by the 259 writes that succeeded, which is precisely
+    what writing per arm exists to protect.
+
+    The temp file is a SIBLING so `os.replace` is a same-filesystem rename and
+    therefore actually atomic; `/tmp` would silently degrade to a copy across a
+    mount boundary. It carries the pid so two runs sharing an out_dir cannot
+    consume each other's partial file.
+    """
     out = pathlib.Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     path = out / MANIFEST_NAME
-    path.write_text(m.model_dump_json(indent=2), encoding="utf-8")
+    tmp = out / f".{MANIFEST_NAME}.{os.getpid()}.tmp"
+    tmp.write_text(m.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(tmp, path)
     return path
 
 
@@ -539,6 +556,15 @@ def completed_arms(m: BayesManifest) -> set[tuple[str, str]]:
 > name is now `bayes_manifest.json` and is pinned by
 > `test_a_normal_run_directory_is_not_mistaken_for_a_resumable_paired_run`. Do not
 > "restore" the shared name.
+
+> **Also changed during execution (2026-08-04, Task 5 fix round 1).** This plan
+> originally specified a plain `path.write_text`. Task 5 writes the manifest after every
+> ARM, so a ~130-variant run rewrites this file ~260 times, and `write_text` truncates
+> before it writes: a Ctrl-C inside any one of those windows leaves half a JSON document
+> and `read_bayes_manifest` then raises on the whole file, destroying every arm the other
+> 259 writes recorded. It is now a sibling temp file plus `os.replace`, pinned by
+> `test_an_interrupted_write_leaves_the_previous_manifest_intact`. The temp file must stay
+> a SIBLING (same filesystem, so the rename is really atomic) and keep the pid suffix.
 
 - [ ] **Step 4: Run and commit**
 
@@ -877,6 +903,26 @@ class BudgetExceeded(RuntimeError):
     """The run-level USD ceiling was reached. Resume with --resume after raising it."""
 
 
+class PriorRunWouldBeOverwritten(RuntimeError):
+    """`out_dir` already holds a paired manifest and this run is not a resume.
+
+    Protects completed PAID pairs. Pairs are written as they complete, so a
+    second non-resume run into the same directory replaces a finished record
+    with its own first pair and everything after that point is unrecoverable.
+    Reproduced at 130 pairs -> 2.
+    """
+
+
+class CorpusChanged(RuntimeError):
+    """The corpus is not the one the run being resumed was selected from.
+
+    Protects completed PAID pairs, and the comparability the fingerprint exists
+    for. `manifest.pairs` is rebuilt from the CURRENT selection rather than
+    merged with the prior pairs, so any id that left the selection loses its
+    paid result silently -- and selection can only change if corpus.json did.
+    """
+
+
 def _spent(costs) -> float:
     """Sum observed costs, skipping unobserved ones.
 
@@ -895,15 +941,47 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
     if post_query is None or get_progress is None:
         post_query, get_progress = http_driver.make_default_clients(base_url, auth_header)
 
+    # BEFORE the preflight, and before anything is selected: a mistyped --out must
+    # cost zero turns. Read first, decide, and only then spend. This guard lives in
+    # `run_paired` rather than in the CLI because `run_paired` is importable on its
+    # own and the damage happens here.
+    existing = read_bayes_manifest(out_dir)
+    if existing is not None and not resume:
+        raise PriorRunWouldBeOverwritten(
+            f"{out_dir} already holds a paired manifest with {len(existing.pairs)} "
+            f"pair(s), and this run would rewrite it from its own first pair "
+            f"onward.\nThose pairs were PAID FOR and are not recoverable once "
+            f"overwritten.\nEither continue that run with --resume, or send this "
+            f"one somewhere else with --out.")
+
+    fresh_fingerprint = runner.corpus_fingerprint(corpus_path)
+    prior = existing if resume else None
+    if prior is not None:
+        prior_fingerprint = prior.run_meta.get("corpus_fingerprint")
+        if prior_fingerprint != fresh_fingerprint:
+            # A missing fingerprint takes this path too. `run_paired` always
+            # writes the key, so nothing it produced can land here: a manifest
+            # without one was hand-edited or truncated. `preflight` makes the
+            # same call on its own inconclusive case -- an UNPROVEN match is as
+            # unsafe to resume a paid run onto as a refused one.
+            raise CorpusChanged(
+                f"the corpus is not the one this run was selected from: prior "
+                f"fingerprint {prior_fingerprint!r}, current {fresh_fingerprint!r}.\n"
+                f"Selection comes from corpus.json, so a changed corpus means a "
+                f"changed selection -- and pairs are rebuilt from the CURRENT "
+                f"selection, so resuming would silently DROP the paid result of "
+                f"every id that left it. The two runs are also no longer "
+                f"comparable, which is what the fingerprint is for.\n"
+                f"Restore the corpus to resume, or start a fresh run in a new --out.")
+
     if not skip_preflight:
-        # Before anything is selected or spent. A dropped force makes the entire
-        # run measure the router instead of the engines.
+        # Before anything is spent. A dropped force makes the entire run measure
+        # the router instead of the engines.
         preflight.assert_force_route_works(post_query, get_progress)
 
     selected = corpus.bayesian_ids(corpus_path)
     by_id = {v.id: v for v in corpus.merged(corpus_path)}
 
-    prior = read_bayes_manifest(out_dir) if resume else None
     done = completed_arms(prior) if prior else set()
     pairs = {p.id: p for p in (prior.pairs if prior else [])}
 
@@ -911,7 +989,7 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
         run_meta={
             "mode": "bayesian",
             "arms": list(ARMS),
-            "corpus_fingerprint": runner.corpus_fingerprint(corpus_path),
+            "corpus_fingerprint": fresh_fingerprint,
             "git_sha": runner.git_sha(),
             "base_url": base_url,
             "selected_ids": selected,
@@ -927,6 +1005,9 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
         meta = corpus.hibayes_meta(vid, corpus_path)
         pair = pairs.get(vid) or BayesPair(
             id=vid, family=v.family, hibayes_subtype=meta["hibayes_subtype"])
+        # Appended ONCE, before either arm runs, so the per-arm writes below
+        # persist this pair's partial state without ever duplicating it.
+        manifest.pairs.append(pair)
 
         # Both arms for THIS question before moving on. Two passes would confound
         # engine with wall-clock time, and a provider outage during one pass would
@@ -936,7 +1017,6 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
                 costs.append(getattr(pair, arm).cost if getattr(pair, arm) else None)
                 continue
             if max_usd is not None and _spent(costs) >= max_usd:
-                manifest.pairs.append(pair)
                 write_bayes_manifest(manifest, out_dir)
                 raise BudgetExceeded(
                     f"spent ${_spent(costs):.2f} of ${max_usd:.2f} before {vid}:{arm}. "
@@ -947,14 +1027,55 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
                 full_timeout_s=full_timeout_s, sleep=sleep, clock=clock)
             setattr(pair, arm, entry)
             costs.append(entry.cost)
+            # Per ARM, not per pair. `completed_arms` is keyed on the arm so that
+            # "a run interrupted between the NS and CC halves of one question must
+            # not repay for the NS half" -- but writing only once both arms were
+            # done meant no crash could ever persist a half pair, and that
+            # machinery was decorative on the exact path it names. Measured: a
+            # Ctrl-C on pair 2's cc arm paid for 3 arms and persisted 2.
+            write_bayes_manifest(manifest, out_dir)
 
-        manifest.pairs.append(pair)
-        # Per pair, not at the end: a crash, a timeout or a Ctrl-C must leave a
-        # resumable manifest rather than nothing.
-        write_bayes_manifest(manifest, out_dir)
-
+    # A run that resumed with nothing left to do never entered a write above, and
+    # would otherwise return a manifest whose `run_meta` (`resumed`, `max_usd`,
+    # `git_sha`) disagrees with the file on disk. One write makes "the file equals
+    # what was returned" true unconditionally.
+    write_bayes_manifest(manifest, out_dir)
     return manifest
 ```
+
+> **Changed during execution (2026-08-04, commit `4d7ca1f` + fix round 1).** The module
+> above carries three guards this plan did not originally specify. All three were
+> reproduced as real data loss against the as-planned code, and all three protect pairs
+> that have already been PAID FOR:
+>
+> 1. **`PriorRunWouldBeOverwritten`.** A second non-resume run in the same `--out`
+>    replaced a 130-pair manifest with its own first pair (measured: 130 → 2, dying at
+>    turn 5). This is the same defect class `MANIFEST_NAME` already overrode this plan to
+>    fix — Task 3 spends 19 lines making the *cross-schema* collision impossible, and the
+>    *same-schema* axis was simply left open. The guard lives in `run_paired`, not in the
+>    CLI, because `run_paired` is importable without `cli.py` and the damage happens here;
+>    it runs BEFORE the preflight so a mistyped `--out` costs zero turns.
+> 2. **`CorpusChanged`.** `manifest.pairs` is rebuilt from the CURRENT selection rather
+>    than merged with `prior.pairs`, so any id dropped from selection lost its paid result
+>    on resume (reproduced by clearing one completed id's `is_bayesian`: the pair vanished
+>    from the rewritten file). Selection can only change if corpus.json changed, so
+>    comparing the fingerprint closes the deletion path and the comparability question
+>    together. A prior manifest with NO fingerprint takes the raising path too, matching
+>    the call `preflight` already makes on its own inconclusive case.
+> 3. **Writing per ARM, not per pair.** `completed_arms`' docstring promises that "a run
+>    interrupted between the NS and CC halves of one question must not repay for the NS
+>    half", but with the write after the arm loop no crash could ever persist a half pair,
+>    so that machinery was decorative on the exact path it names (measured: Ctrl-C on pair
+>    2's `cc` paid for 3 arms, persisted 2, and the resume repaid the lost `ns`). The pair
+>    is appended once, before either arm, so per-arm writes never duplicate it. This is
+>    what makes the atomic `write_bayes_manifest` above load-bearing rather than tidy.
+>
+> Pinned by `test_a_fresh_run_refuses_to_overwrite_a_prior_paired_manifest`,
+> `test_the_overwrite_guard_fires_before_the_preflight_spends_a_turn`,
+> `test_resume_refuses_when_the_corpus_changed_underneath_it`,
+> `test_resume_refuses_a_prior_manifest_that_records_no_fingerprint` and
+> `test_a_crash_between_the_arms_of_one_pair_keeps_the_completed_ns_arm`. Each was
+> verified by mutation: disabling any one guard fails its own tests and no others.
 
 - [ ] **Step 4: Run the whole suite**
 

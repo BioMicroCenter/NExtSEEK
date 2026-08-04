@@ -7,6 +7,7 @@ without a second implementation that can drift from the first.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 
 from pydantic import BaseModel, Field
@@ -51,10 +52,27 @@ class BayesManifest(BaseModel):
 
 
 def write_bayes_manifest(m: BayesManifest, out_dir) -> pathlib.Path:
+    """Serialise to a sibling temp file and `os.replace` it into place.
+
+    ATOMIC ON PURPOSE. `bayesian.run_paired` writes after every ARM, so a
+    ~130-variant paired run rewrites this file ~260 times, and a plain
+    `write_text` truncates before it writes. A Ctrl-C, an OOM kill or a full disk
+    landing inside any one of those windows leaves half a JSON document, and
+    `read_bayes_manifest` then raises on the whole file — destroying every
+    completed arm recorded by the 259 writes that succeeded, which is precisely
+    what writing per arm exists to protect.
+
+    The temp file is a SIBLING so `os.replace` is a same-filesystem rename and
+    therefore actually atomic; `/tmp` would silently degrade to a copy across a
+    mount boundary. It carries the pid so two runs sharing an out_dir cannot
+    consume each other's partial file.
+    """
     out = pathlib.Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     path = out / MANIFEST_NAME
-    path.write_text(m.model_dump_json(indent=2), encoding="utf-8")
+    tmp = out / f".{MANIFEST_NAME}.{os.getpid()}.tmp"
+    tmp.write_text(m.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(tmp, path)
     return path
 
 
