@@ -171,6 +171,11 @@ def main():
     ap.add_argument("--run", required=True)
     ap.add_argument("--repo", required=True)
     ap.add_argument("--triage", required=True)
+    ap.add_argument("--cases", action="append", default=[],
+                    help="probe/--cases file whose INLINE variants are not in the corpus. "
+                         "Repeatable. Without it a probe run renders with no turns, no "
+                         "criteria and no engine call, because the corpus does not contain "
+                         "its variants.")
     ap.add_argument("--template", default=str(TPL_DEFAULT))
     ap.add_argument("--out", required=True)
     ap.add_argument("--standalone", action="store_true",
@@ -187,6 +192,12 @@ def main():
     base = flatten(lj(repo / "chat_nextseek" / "e2e" / "catalog.json"))
     overlay = flatten(overlay_raw)
     variants = {**base, **overlay}
+    # A --cases run is driven by variants defined INLINE in the probe file, which
+    # `corpus.select_cases` returns at run time but which never enter the corpus. The
+    # report joins each manifest entry to its declared turns via this dict, so without
+    # the probe file every inline case renders empty: no query, no criteria, no call.
+    for cf in a.cases:
+        variants.update(flatten(lj(pathlib.Path(cf))))
     cgroups = {g["id"]: g for g in overlay_raw.get("consistency_groups", [])}
 
     verdicts = triage.get("verdicts", {})

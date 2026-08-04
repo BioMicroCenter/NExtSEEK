@@ -78,12 +78,22 @@ q -e "SELECT JSON_OBJECT(
 
 
 def run_remote(host: str, user: str, script: str) -> str:
-    """Base64 the script so ssh/sudo/bash quoting cannot mangle it."""
+    """Base64 the script so ssh/sudo/bash quoting cannot mangle it.
+
+    ``host=""`` runs the same script against the LOCAL docker daemon instead of
+    SSHing. Runs used to happen only on the dev box, so this defaulted to
+    ``fairdata-dev`` and had no local path at all — which made the skill unusable
+    for a run executed on the workstation, and `ssh localhost` is not a fallback
+    (no sshd). The script body is identical either way; only the transport differs.
+    """
     b64 = base64.b64encode(script.encode()).decode()
-    cmd = ["ssh", "-o", "ConnectTimeout=30", host]
-    if user:
-        cmd += ["sudo", "-n", "-u", user]
-    cmd += ["bash", "-c", f'"echo {b64} | base64 -d | bash"']
+    if not host:
+        cmd = ["bash", "-c", f"echo {b64} | base64 -d | bash"]
+    else:
+        cmd = ["ssh", "-o", "ConnectTimeout=30", host]
+        if user:
+            cmd += ["sudo", "-n", "-u", user]
+        cmd += ["bash", "-c", f'"echo {b64} | base64 -d | bash"']
     proc = subprocess.run(
         cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, timeout=300,
@@ -96,7 +106,8 @@ def run_remote(host: str, user: str, script: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="fairdata-dev")
+    ap.add_argument("--host", default="fairdata-dev",
+                    help='ssh target; pass "" to run against the LOCAL docker daemon')
     ap.add_argument("--user", default="service-account", help="sudo -u target; pass '' to skip sudo")
     ap.add_argument("--app-container", default="nextseek")
     ap.add_argument("--db-container", default="seek-mysql")
