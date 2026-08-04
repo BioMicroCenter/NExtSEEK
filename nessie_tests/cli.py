@@ -6,8 +6,26 @@ from nessie_tests import runner, http_driver
 _CORPUS = Path(__file__).resolve().parent / "corpus.json"
 
 
+EXIT_CODES = """exit codes
+  0  the run completed
+  1  a normal run had real failures (--bayesian never returns this: in a paired
+     run a wrong answer is the measurement, not a gate failure)
+  2  --bayesian: the budget ceiling was reached. MONEY WAS SPENT and every
+     completed arm is on disk; rerun with a higher --max-usd and --resume.
+  3  --bayesian: refused, --out already holds a paired run. Nothing was billed.
+  4  --bayesian: refused, the server did not honour force_route. Nothing was billed.
+  5  --bayesian: refused, the corpus changed under a --resume. Nothing was billed.
+"""
+
+# The default per-turn deadline, named so `main` can tell "the operator asked for
+# 900s" from "argparse supplied the default" without a second sentinel value.
+FULL_TIMEOUT_DEFAULT_S = 600.0
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="nessie_tests", description="Router-aware assistant e2e harness")
+    p = argparse.ArgumentParser(prog="nessie_tests", description="Router-aware assistant e2e harness",
+                                epilog=EXIT_CODES,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--base-url", required=True, help="e.g. http://localhost:8000")
     p.add_argument("--tier", choices=["route", "full"], default="route")
     p.add_argument("--scope", choices=["specific", "all"], default="specific")
@@ -15,19 +33,121 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--variant", default=None)
     p.add_argument("--user", default="demo")
     p.add_argument("--password", default="demopassword")
-    p.add_argument("--pace", type=float, default=0.0)
+    p.add_argument("--pace", type=float, default=0.0,
+                   help="Seconds to sleep between the TURNS of one multi-turn case. It does "
+                        "not pace between cases, and under --bayesian it does not pace "
+                        "between the two arms of a pair or between pairs.")
     p.add_argument("--consistency", action="store_true", default=False,
                    help="Run the #33 consistency groups (auto-on for --tier full)")
     p.add_argument("--sample", type=float, default=1.0,
                    help="Fraction of selected variants to run, sampled per family (e.g. 0.1 for a tenth). Default 1.0 = all.")
     p.add_argument("--seed", type=int, default=0, help="Deterministic sampling seed.")
-    p.add_argument("--out", type=Path, default=Path("nessie_out"))
+    p.add_argument("--out", type=Path, default=None,
+                   help="Output directory. Default nessie_out, or nessie_out_bayes under "
+                        "--bayesian, which keeps a paired run out of a normal run's directory.")
+    p.add_argument("--bayesian", action="store_true", default=False,
+                   help="PAID, ~260 turns. Paired dual-route run over the corpus's is_bayesian "
+                        "selection (130 variants today): each one is driven down BOTH engines, "
+                        "NS then CC, interleaved per question, with the router forced out. "
+                        "Full depth, every case, no sampling. Needs a STAFF account, since "
+                        "force_route is silently dropped for anyone else. Budget it with "
+                        "--max-usd and resume it with --resume.")
+    p.add_argument("--max-usd", type=float, default=None,
+                   help="--bayesian only. Run-level USD ceiling, cumulative across resumes. "
+                        "Aborts cleanly before the arm that would breach it, keeping every "
+                        "completed arm; exit 2. Only container_cc reports cost, so NS spend "
+                        "is invisible to this ceiling and the real total is higher.")
+    p.add_argument("--resume", action="store_true", default=False,
+                   help="--bayesian only. Continue the paired run in --out: every (variant, arm) "
+                        "already recorded there is skipped rather than repaid.")
+    p.add_argument("--full-timeout", type=float, default=FULL_TIMEOUT_DEFAULT_S,
+                   help="--bayesian only. Per-turn deadline in seconds for full-depth turns.")
     return p
+
+
+def _run_bayesian(a, auth) -> int:
+    """The paired dual-route run. Split out of `main` so the four abort paths read
+    as one unit and `main` stays a dispatcher over two unrelated run shapes."""
+    # `is_bayesian` IS the selection. Accepting a second selection source would
+    # make "what ran" depend on two things at once.
+    #
+    # --family and --variant are in this list even though the plan omitted them:
+    # --scope defaults to "specific", so `--bayesian --family reporting` cleared
+    # the whole check and was then SILENTLY IGNORED. --cases is not, because this
+    # branch's parser has no such flag (run_suite takes cases_path; nothing
+    # exposes it) and argparse already rejects it as unrecognized.
+    conflicting = [name for name, val in (
+        ("--tier", a.tier != "route"), ("--scope", a.scope != "specific"),
+        ("--sample", a.sample != 1.0), ("--seed", a.seed != 0),
+        ("--family", a.family is not None), ("--variant", a.variant is not None),
+    ) if val]
+    if conflicting:
+        build_parser().error(
+            f"--bayesian selects on the corpus's is_bayesian flag and cannot be "
+            f"combined with {', '.join(conflicting)}.")
+
+    from nessie_tests import bayes_manifest, bayesian, preflight
+    try:
+        m = bayesian.run_paired(
+            base_url=a.base_url, auth_header=auth, out_dir=a.out,
+            max_usd=a.max_usd, resume=a.resume,
+            full_timeout_s=a.full_timeout, pace_s=a.pace)
+    # Four aborts, four exit codes. They share nothing an operator would act on:
+    # the first spent real money and left resumable work on disk, the other three
+    # refused before a single turn was billed, and each has a different remedy. A
+    # single code would force a wrapper script to parse English out of stdout to
+    # tell "raise the ceiling and continue" from "you are on the wrong account".
+    except bayesian.BudgetExceeded as e:
+        print("nessie: budget ceiling reached, run stopped (exit 2).")
+        print(f"nessie: {e}")
+        print(f"nessie: {a.out}/{bayes_manifest.MANIFEST_NAME} holds every completed "
+              f"arm. Rerun the SAME command with a higher --max-usd and --resume; "
+              f"completed arms are skipped, not repaid.")
+        return 2
+    except bayesian.PriorRunWouldBeOverwritten as e:
+        print("nessie: refused, nothing was billed (exit 3).")
+        print(f"nessie: {e}")
+        return 3
+    except preflight.ForceRouteRejected as e:
+        print("nessie: preflight refused the run, nothing was billed (exit 4).")
+        print(f"nessie: {e}")
+        return 4
+    except bayesian.CorpusChanged as e:
+        print("nessie: refused the resume, nothing was billed (exit 5).")
+        print(f"nessie: {e}")
+        return 5
+
+    both = sum(1 for p in m.pairs if p.ns and p.cc)
+    print(f"nessie: {both}/{len(m.pairs)} complete pairs "
+          f"({2 * len(m.pairs)} arms); manifest → {a.out}/{bayes_manifest.MANIFEST_NAME}")
+    return 0
 
 
 def main(argv=None) -> int:
     a = build_parser().parse_args(argv)
+    # Resolved here rather than as an argparse default because it depends on
+    # another flag. A paired run gets its own directory: its manifest, its report
+    # and a normal run's are three different schemas that must not share a home.
+    if a.out is None:
+        a.out = Path("nessie_out_bayes" if a.bayesian else "nessie_out")
     auth = http_driver.basic_auth(a.user, a.password)
+
+    if a.bayesian:
+        return _run_bayesian(a, auth)
+
+    # The mirror of `_run_bayesian`'s mutual exclusion. `run_suite` has no budget
+    # ceiling, no resume and no per-turn deadline parameter, so silently accepting
+    # these would leave an operator believing a spending cap is in force on a paid
+    # full-tier run while nothing at all is capped.
+    paired_only = [name for name, val in (
+        ("--max-usd", a.max_usd is not None), ("--resume", a.resume),
+        ("--full-timeout", a.full_timeout != FULL_TIMEOUT_DEFAULT_S),
+    ) if val]
+    if paired_only:
+        build_parser().error(
+            f"{', '.join(paired_only)} only applies to --bayesian; a normal run has "
+            f"no budget ceiling, no resume and no per-turn deadline.")
+
     bundle_reader = None
     if a.tier == "full":
         from nessie_tests.bundle import summary_for_session
