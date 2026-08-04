@@ -135,11 +135,30 @@ def test_the_four_policy_blocks_survive_verbatim():
 
 
 def test_rebuilding_is_deterministic():
-    """The script must be re-runnable. A non-deterministic build makes the drift
-    test in Task 5 meaningless."""
+    """The script must be re-runnable and byte-stable.
+
+    Compared as SERIALISED JSON, not as dicts: `==` on dicts ignores key order, so
+    a generator that emitted family blocks in a different order every run would
+    pass a dict comparison while producing a file that diffs against itself. The
+    docstring in build_corpus.py claims the output is "stable enough to diff", and
+    that is the property this pins.
+    """
     once = build_corpus.build(corpus._BASE_CATALOG, OVERLAY, RETIRED)
     twice = build_corpus.build(corpus._BASE_CATALOG, OVERLAY, RETIRED)
-    assert once == twice
+    assert json.dumps(once) == json.dumps(twice)
+
+
+def test_the_committed_file_matches_what_the_generator_produces():
+    """Pins the ARTIFACT to its generator, which nothing else in this task does.
+
+    Without it a hand-edited or stale corpus.json passes every other test here as
+    long as the id set, the retirement count and the four policy blocks survive --
+    queries, criteria and turn bodies are unchecked until Task 2's content gate.
+    """
+    built = build_corpus.build(corpus._BASE_CATALOG, OVERLAY, RETIRED)
+    assert built == json.loads(UNIFIED.read_text(encoding="utf-8")), (
+        "corpus.json is out of step with build_corpus.py: regenerate with "
+        "`python -m nessie_tests.scripts.build_corpus`, or explain the drift.")
 ```
 
 - [ ] **Step 3: Run it and watch it fail**
@@ -157,18 +176,20 @@ Create `nessie_tests/scripts/__init__.py` (empty) and `nessie_tests/scripts/buil
 ```python
 """One-shot migration: catalog.json + overlay.json + retired.json -> corpus.json.
 
-Kept after the migration rather than deleted, because `tests/test_catalog_drift.py`
-re-runs its base-variant extraction to detect upstream changes nessie has not
-adopted. It is a reference implementation, not dead code.
+Kept after the migration rather than deleted, and NOT because a test imports it --
+after Task 3 nothing does. It is the manual adoption tool: when the vendored
+`catalog.json` moves and `tests/test_catalog_drift.py` fails, you run this with
+`--out /tmp/new.json` and diff that against `corpus.json` to see what upstream
+changed before deciding what to adopt. That is a workflow, not a caller.
 
 Ordering rules, which exist so the output is stable enough to diff:
   * families in the order catalog.json declares them, then overlay-only families
   * variants in catalog order within a family, then overlay-only variants
   * an overlay variant with a base id REPLACES the base one IN PLACE, keeping the
     base position (this mirrors `corpus.merged`, which keeps base ordering)
-  * overlay-only variants are appended at the end of the WHOLE list, not the end
-    of their block, because that is what `corpus.merged` does and the equivalence
-    gate compares ordered
+  * overlay-only variants are appended at the end of THEIR BLOCK. `corpus.merged`
+    instead appends them at the end of the whole list, which no block-structured
+    file can reproduce -- see KNOWN DIVERGENCE below
 
 The output MIRRORS THE SOURCE NESTING, including blocks like `graph_stale` and
 `reporting_artifacts` that are not real families. Operator ruling 2026-08-04:
@@ -317,7 +338,7 @@ If the family count is not 14 or the variant count is not 383, stop. Do not adju
 uv run --no-project --with pytest --with pydantic --with requests --with beautifulsoup4 \
   python -m pytest nessie_tests/tests -q -p no:cacheprovider 2>&1 | tail -3
 ```
-Expected: your Step 1 baseline plus 6 new passes. Nothing else may change; no existing file reads `corpus.json` yet.
+Expected: your Step 1 baseline plus 7 new passes. Nothing else may change; no existing file reads `corpus.json` yet.
 
 - [ ] **Step 8: Commit**
 
