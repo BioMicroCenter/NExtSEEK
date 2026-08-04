@@ -9,19 +9,29 @@ path, and the read-side primitives (`resolve_mutation`, `snapshots_for`,
 reinterpreting identifiers itself. It creates no public routes and issues no
 INSERT/UPDATE/DELETE/DDL/job/outbox/broker/lock-acquiring statement.
 
-Design note on bounded final selection: rather than ever building one SQL
-statement whose parameter list scales with the submitted identifier count
-(the historical unbounded ``IN (...)`` pattern this task replaces), every
-catalog/search/retrieve fetch is scoped to at most a handful of explicitly
-resolved sample types and issues exactly one server-side statement per
-sample type (`WHERE sample_type_id = %s`, a single parameter regardless of
-how many attributes that type owns). Attribute-identifier selection within a
-type is then applied in Python against that type's own already-fetched,
-already-`logicalize_definitions`-ordered row set, and only the requested
-page slice is ever handed to a caller. Submitted identifiers are never
-concatenated into a SQL parameter list here; the only chunked/bounded SQL
-built from submitted identifiers is the existence/resolution lookup
-(id/title matching), capped at `IDENTIFIER_CHUNK_SIZE` per statement.
+Design note on bounded final selection: no SQL statement here ever builds a
+parameter list that scales with the submitted identifier count (the
+historical unbounded ``IN (...)`` pattern this task replaces) *or* with the
+catalog's own size. `catalog`'s count-plus-slice is SQL-side: one
+server-side `GROUP BY sample_type_id` statement (chunked at
+`IDENTIFIER_CHUNK_SIZE` when scoped to a submitted type set) yields every
+relevant type's row count without fetching a single attribute row; the
+requested page's cumulative-count window is then located in Python over
+those small per-type integers, and only the sample types that window
+actually intersects are fetched -- each via one chunked
+`sample_type_id IN (...)` statement -- before `logicalize_definitions`
+orders them and the exact page slice is taken. The planner-read adapters
+(`resolve_mutation_envelope`, `type_snapshots`) are likewise bulk,
+multi-pass operations: every target's sample type is resolved in one
+`resolve_types` call, every operation's attribute identifier in one
+`resolve_attributes_bulk` (typed) call or at most two
+`resolve_global_attribute_ids` (untyped) calls -- one per identifier kind,
+since ID and TITLE sets cannot share a sorted lookup -- never one
+statement per target or per operation. The only
+per-submitted-identifier SQL anywhere in this module is bounded
+existence/resolution lookup (id/title matching, selection re-validation,
+per-type counting), capped at `IDENTIFIER_CHUNK_SIZE` identifiers per
+statement.
 """
 from __future__ import annotations
 
@@ -378,10 +388,14 @@ def _row_to_raw_attribute(row) -> RawAttribute:
 
 class SeekAttributeGateway:
     """Bulk, bounded, real-database access to SEEK's physical attribute
-    schema. Never issues a query inside a per-item loop: every resolution
-    step processes at most `IDENTIFIER_CHUNK_SIZE` identifiers per
-    statement, and every catalog/type fetch issues exactly one statement per
-    resolved sample type."""
+    schema. Never issues a query per submitted item: every resolution step
+    collects its full identifier set first and processes it in at most
+    `IDENTIFIER_CHUNK_SIZE`-sized statements, the catalog count/window is
+    SQL-side per-type aggregation rather than a per-type fetch, and the
+    planner-read adapters resolve every target's/operation's identifier
+    through bulk passes rather than one call per item. Per-TYPE statement
+    counts are bounded by the number of distinct resolved sample types
+    (DD-25 requires type-scoped statements, a >=k floor for k types)."""
 
     def __init__(self, alias: str | None = None):
         self.alias = alias or settings.SEEK_DATABASE
@@ -570,19 +584,29 @@ class SeekAttributeGateway:
 
     # -- catalog/search -------------------------------------------------------
 
-    def _fetch_type_rows(self, type_id: int) -> tuple[RawAttribute, ...]:
-        """Fetch every attribute definition owned by exactly one sample
-        type in a single, single-parameter statement -- no per-attribute
-        chunking is possible or needed since the statement never carries a
-        submitted-identifier parameter list."""
-        sql = f"SELECT {_RAW_ATTRIBUTE_COLUMNS} {_RAW_ATTRIBUTE_JOINS} WHERE sa.sample_type_id = %s ORDER BY sa.id"
-        return tuple(_row_to_raw_attribute(row) for row in self._execute(sql, [type_id]))
-
-    def _relevant_type_ids(self, type_ids: Iterable[int] | None) -> list[int]:
-        if type_ids is not None:
-            return sorted(set(type_ids))
-        rows = self._execute("SELECT DISTINCT sample_type_id FROM sample_attributes ORDER BY sample_type_id")
-        return [int(row[0]) for row in rows]
+    def _relevant_type_counts(self, type_ids: Iterable[int] | None) -> dict[int, int]:
+        """SQL-side per-type row counts for exactly the relevant sample
+        types: every type owning at least one attribute row when `type_ids`
+        is `None` (one unparameterized `GROUP BY` statement -- there is no
+        submitted list to bound), or each caller-scoped type otherwise
+        (`ceil(k/500)` statements, chunked `WHERE sample_type_id IN (...)`).
+        Never fetches a single attribute row to produce a count."""
+        if type_ids is None:
+            rows = self._execute(
+                "SELECT sample_type_id, COUNT(*) FROM sample_attributes GROUP BY sample_type_id ORDER BY sample_type_id"
+            )
+            return {int(type_id): int(count) for type_id, count in rows}
+        result = {int(type_id): 0 for type_id in type_ids}
+        for chunk in bounded_identifier_chunks(sorted(result)):
+            self.chunk_sizes.append(len(chunk))
+            placeholders = ",".join(["%s"] * len(chunk))
+            sql = (
+                "SELECT sample_type_id, COUNT(*) FROM sample_attributes "
+                f"WHERE sample_type_id IN ({placeholders}) GROUP BY sample_type_id"
+            )
+            for type_id, count in self._execute(sql, list(chunk)):
+                result[int(type_id)] = int(count)
+        return result
 
     def catalog(
         self,
@@ -593,37 +617,96 @@ class SeekAttributeGateway:
         offset: int = 0,
         limit: int = 500,
     ) -> tuple[int, list[Definition]]:
-        """Bounded count-plus-slice over the global DD-35 order. Every
-        matching sample type is fetched with exactly one statement
-        (`SeekAttributeGateway._fetch_type_rows`, a single `sample_type_id`
-        parameter regardless of that type's attribute count -- so it never
-        scales with the submitted selector count). An explicit
-        `attribute_ids` selection is independently re-validated against the
-        real table through `bounded_selection_relation` rather than trusted
-        as already-resolved: even an arbitrarily large selection is checked
+        """Bounded count-plus-slice over the global DD-35 order that never
+        materializes the full matching catalog. `total` and the page window
+        are computed entirely from small per-type integers -- one SQL-side
+        `GROUP BY sample_type_id` count statement (chunked at
+        `IDENTIFIER_CHUNK_SIZE` when `type_ids` is given), with per-type
+        *selected* counts for an explicit `attribute_ids` filter falling out
+        of its own re-validation pass rather than a second query. The
+        cumulative-count window (types in ascending `sample_type_id` order,
+        the global DD-35 major order) is then walked in Python to find
+        exactly which sample types the requested page intersects, and only
+        those types are fetched -- each via one chunked
+        `sample_type_id IN (...)` statement -- before `logicalize_definitions`
+        orders them and the slice is taken. An explicit `attribute_ids`
+        selection is independently re-validated against the real table
+        through `bounded_selection_relation` rather than trusted as
+        already-resolved: even an arbitrarily large selection is checked
         through repeated bounded `id IN (...)` statements of at most
         `IDENTIFIER_CHUNK_SIZE` parameters each, never one unbounded
-        statement whose parameter list grows with the submitted count."""
+        statement whose parameter list grows with the submitted count.
+
+        Consistency caveats: the count statement and the window fetch run
+        as separate statements at READ COMMITTED, so a concurrent writer
+        can skew `total` against the fetched page within one call (same
+        exposure class as the prior implementation); and counts are taken
+        on bare `sample_attributes` rows while the window fetch inner-joins
+        `sample_types`/`sample_attribute_types` (SEEK MySQL has no FK
+        constraints), so a legacy orphan row is counted but never fetched
+        -- flagged for the root-side amendment."""
         if attribute_ids is None:
             attribute_id_set = None
+            selected_counts_by_type: dict[int, int] = {}
         else:
             attribute_id_set = set()
+            selected_counts_by_type = {}
             selection = bounded_selection_relation(attribute_ids, chunk_size=IDENTIFIER_CHUNK_SIZE)
             for chunk in selection:
                 self.chunk_sizes.append(len(chunk))
                 placeholders = ",".join(["%s"] * len(chunk))
-                sql = f"SELECT id FROM sample_attributes WHERE id IN ({placeholders})"
-                attribute_id_set.update(int(row[0]) for row in self._execute(sql, list(chunk)))
+                sql = f"SELECT id, sample_type_id FROM sample_attributes WHERE id IN ({placeholders})"
+                for row_id, row_type_id in self._execute(sql, list(chunk)):
+                    # A duplicate submitted id that spans two chunks returns one
+                    # row per statement; counting it twice would corrupt `total`
+                    # and shift page windows. Count each id exactly once.
+                    normalized_id = int(row_id)
+                    if normalized_id in attribute_id_set:
+                        continue
+                    attribute_id_set.add(normalized_id)
+                    type_id = int(row_type_id)
+                    selected_counts_by_type[type_id] = selected_counts_by_type.get(type_id, 0) + 1
         whole_type_id_set = frozenset(int(value) for value in (whole_type_ids or ()))
-        relevant_type_ids = self._relevant_type_ids(type_ids)
-        definitions: list[Definition] = []
+        raw_counts_by_type = self._relevant_type_counts(type_ids)
+        relevant_type_ids = sorted(raw_counts_by_type)
+        if attribute_id_set is None:
+            per_type_count = raw_counts_by_type
+        else:
+            per_type_count = {
+                type_id: (
+                    raw_counts_by_type.get(type_id, 0) if type_id in whole_type_id_set
+                    else selected_counts_by_type.get(type_id, 0)
+                )
+                for type_id in relevant_type_ids
+            }
+
+        # Locate the requested page's window purely over per-type counts --
+        # no row data touched -- then fetch only the sample types the window
+        # intersects, each with exactly one chunked statement.
+        window_type_ids: list[int] = []
+        window_base_offset = 0
+        found_window_start = False
+        cumulative = 0
         for type_id in relevant_type_ids:
-            type_definitions = logicalize_definitions(self._fetch_type_rows(type_id))
-            if attribute_id_set is not None and type_id not in whole_type_id_set:
-                type_definitions = tuple(item for item in type_definitions if item.id in attribute_id_set)
-            definitions.extend(type_definitions)
-        total = len(definitions)
-        page = definitions[offset : offset + limit]
+            count = per_type_count.get(type_id, 0)
+            if limit > 0 and count and cumulative < offset + limit and cumulative + count > offset:
+                if not found_window_start:
+                    window_base_offset = cumulative
+                    found_window_start = True
+                window_type_ids.append(type_id)
+            cumulative += count
+        total = cumulative
+
+        definitions: list[Definition] = []
+        if window_type_ids:
+            rows_by_type = self._fetch_rows_by_type_bulk(window_type_ids)
+            for type_id in window_type_ids:
+                type_definitions = logicalize_definitions(rows_by_type.get(type_id, ()))
+                if attribute_id_set is not None and type_id not in whole_type_id_set:
+                    type_definitions = tuple(item for item in type_definitions if item.id in attribute_id_set)
+                definitions.extend(type_definitions)
+        local_offset = offset - window_base_offset
+        page = definitions[local_offset : local_offset + limit]
         self._observe_rss()
         return total, page
 
@@ -694,15 +777,55 @@ class SeekAttributeGateway:
 
     # -- planner-read adapter -------------------------------------------------
 
+    def _resolve_type_titles(self, type_ids: Sequence[int]) -> dict[int, str]:
+        """Bulk, chunked `sample_types.title` lookup for exactly the
+        requested ids -- one statement per `IDENTIFIER_CHUNK_SIZE`-sized
+        chunk, never one per type."""
+        result: dict[int, str] = {}
+        for chunk in bounded_identifier_chunks(sorted(set(type_ids))):
+            self.chunk_sizes.append(len(chunk))
+            placeholders = ",".join(["%s"] * len(chunk))
+            sql = f"SELECT id, title FROM sample_types WHERE id IN ({placeholders})"
+            for type_id, title in self._execute(sql, list(chunk)):
+                result[int(type_id)] = title
+        return result
+
+    def _fetch_rows_by_type_bulk(self, type_ids: Sequence[int]) -> dict[int, list[RawAttribute]]:
+        """Bulk, chunked fetch of every attribute row owned by any of
+        `type_ids`, grouped by `sample_type_id` in Python. One statement per
+        `IDENTIFIER_CHUNK_SIZE`-sized chunk of *types* -- never one per type
+        and never one per attribute row."""
+        rows_by_type: dict[int, list[RawAttribute]] = {type_id: [] for type_id in type_ids}
+        for chunk in bounded_identifier_chunks(sorted(set(type_ids))):
+            self.chunk_sizes.append(len(chunk))
+            placeholders = ",".join(["%s"] * len(chunk))
+            sql = (
+                f"SELECT {_RAW_ATTRIBUTE_COLUMNS} {_RAW_ATTRIBUTE_JOINS} "
+                f"WHERE sa.sample_type_id IN ({placeholders}) ORDER BY sa.sample_type_id, sa.id"
+            )
+            for row in self._execute(sql, list(chunk)):
+                raw = _row_to_raw_attribute(row)
+                rows_by_type.setdefault(raw.sample_type_id, []).append(raw)
+        return rows_by_type
+
     def type_snapshots(self, type_ids: Iterable[int]) -> dict[int, "TypeSnapshot"]:
+        """Bulk, chunked planner-read snapshot of every requested sample
+        type: one bulk title lookup, one bulk chunked row fetch grouped by
+        type, and one bulk `invalid_json_counts` call -- `3*ceil(k/500)`
+        statements total for `k` distinct types, never one round trip per
+        type. The first type (in ascending id order) missing a title is
+        reported exactly as the single-type per-iteration form would have
+        raised on it -- rows for that type are simply never inspected."""
+        type_id_list = sorted(set(type_ids))
+        title_by_type = self._resolve_type_titles(type_id_list)
+        missing = next((type_id for type_id in type_id_list if type_id not in title_by_type), None)
+        if missing is not None:
+            raise ResolutionError("sample_type_not_found", "sample type not found", submitted_identifier=missing)
+        rows_by_type = self._fetch_rows_by_type_bulk(type_id_list)
+        invalid_counts = self.invalid_json_counts(type_id_list)
         result: dict[int, TypeSnapshot] = {}
-        for type_id in sorted(set(type_ids)):
-            raw_rows = self._fetch_type_rows(type_id)
-            title_rows = self._execute("SELECT title FROM sample_types WHERE id = %s", [type_id])
-            if not title_rows:
-                raise ResolutionError("sample_type_not_found", "sample type not found", submitted_identifier=type_id)
-            sample_type_title = title_rows[0][0]
-            definitions = logicalize_definitions(raw_rows)
+        for type_id in type_id_list:
+            definitions = logicalize_definitions(rows_by_type.get(type_id, ()))
             snapshots = tuple(
                 DefinitionSnapshot(
                     id=item.id, title=item.title, sample_type_id=item.sample_type_id,
@@ -713,7 +836,6 @@ class SeekAttributeGateway:
                 )
                 for item in definitions
             )
-            invalid_count = self.invalid_json_counts([type_id]).get(type_id, 0)
             fingerprint_source = tuple(
                 (s.id, s.title, s.sample_attribute_type_id, s.required, s.physical_pos, s.is_title,
                  s.description, s.unit_id, s.sample_controlled_vocab_id, s.linked_sample_type_id,
@@ -722,8 +844,8 @@ class SeekAttributeGateway:
             )
             fingerprint = hashlib.sha256(orjson.dumps(fingerprint_source, default=str)).hexdigest()
             result[type_id] = TypeSnapshot(
-                sample_type_id=type_id, sample_type_title=sample_type_title,
-                fingerprint=fingerprint, definitions=snapshots, invalid_json_count=invalid_count,
+                sample_type_id=type_id, sample_type_title=title_by_type[type_id],
+                fingerprint=fingerprint, definitions=snapshots, invalid_json_count=invalid_counts.get(type_id, 0),
             )
         return result
 
@@ -796,53 +918,118 @@ class SeekAttributeGateway:
     def resolve_mutation_envelope(self, data: dict, repository: "AttributeRepository") -> dict:
         """Resolve a validated patch/delete envelope's mixed identifiers to
         physical identities within their explicit sample-type ownership,
-        preserving submitted target/attribute provenance for every error."""
-        resolved_targets = []
-        for target_index, target in enumerate(data["targets"]):
+        preserving submitted target/attribute provenance for every error.
+
+        Three bulk passes over the *whole* envelope rather than one gateway
+        round trip per target/operation: (1) every target's sample-type
+        identifier through one `resolve_types` call, (2) every typed
+        operation's attribute identifier through one `resolve_attributes_bulk`
+        call grouped by sample type, (3) every untyped operation's identifier
+        through `resolve_global_attribute_ids`, split only by ID/TITLE kind
+        (never mixed in one call -- `_fetch_rows_by_id` sorts its identifier
+        set, which cannot compare `int` and `str`). A final assembly pass
+        rebuilds each target's result in submitted order from the three bulk
+        maps; no pass's statement count depends on target/operation count,
+        only on distinct identifier count."""
+        targets = data["targets"]
+
+        # Pass 1: bulk-resolve every target's sample-type identifier in one call.
+        type_values = [target.get("sample_type") for target in targets if target.get("sample_type") is not None]
+        type_matches_by_key = self.resolve_types(normalize_unique(type_values)) if type_values else {}
+
+        target_states: list[dict] = []
+        for target_index, target in enumerate(targets):
             sample_type_value = target.get("sample_type")
             operations = target.get("attributes", [])
-            resolution_errors: list[dict] = []
-            sample_type_id = None
-            sample_type_title = None
-            if sample_type_value is not None:
-                # Resolved directly against `resolve_types` (not the generic
-                # `resolve_relationship("sample_types", ...)` helper): that
-                # helper's error codes are scoped to the `linked_sample_type`
-                # relationship field, which would be the wrong code for a
-                # target's own owning sample type.
-                normalized_type = normalize_identifier(sample_type_value)
-                matches = self.resolve_types([normalized_type]).get(normalized_type.key, [])
-                if not matches:
-                    resolved_targets.append({
-                        "target_index": target_index, "sample_type_id": None, "sample_type_title": None,
-                        "operations": [], "resolution_errors": [_error_to_dict(ResolutionError(
-                            "sample_type_not_found", "sample type not found", target_index=target_index,
-                            field="sample_type", submitted_identifier=sample_type_value,
-                        ))],
-                    })
-                    continue
-                if len(matches) > 1:
-                    resolved_targets.append({
-                        "target_index": target_index, "sample_type_id": None, "sample_type_title": None,
-                        "operations": [], "resolution_errors": [_error_to_dict(ResolutionError(
-                            "sample_type_ambiguous", "sample type is ambiguous", target_index=target_index,
-                            field="sample_type", submitted_identifier=sample_type_value,
-                        ))],
-                    })
-                    continue
-                sample_type_id, sample_type_title = matches[0]
-            resolved_operations = []
-            for attribute_index, operation in enumerate(operations):
+            if sample_type_value is None:
+                target_states.append({
+                    "target_index": target_index, "sample_type_id": None, "sample_type_title": None,
+                    "operations": operations, "resolution_errors": [], "terminal": False,
+                })
+                continue
+            # Resolved directly against `resolve_types` (not the generic
+            # `resolve_relationship("sample_types", ...)` helper): that
+            # helper's error codes are scoped to the `linked_sample_type`
+            # relationship field, which would be the wrong code for a
+            # target's own owning sample type.
+            normalized_type = normalize_identifier(sample_type_value)
+            matches = type_matches_by_key.get(normalized_type.key, [])
+            if not matches:
+                target_states.append({
+                    "target_index": target_index, "sample_type_id": None, "sample_type_title": None,
+                    "operations": [], "resolution_errors": [_error_to_dict(ResolutionError(
+                        "sample_type_not_found", "sample type not found", target_index=target_index,
+                        field="sample_type", submitted_identifier=sample_type_value,
+                    ))],
+                    "terminal": True,
+                })
+                continue
+            if len(matches) > 1:
+                target_states.append({
+                    "target_index": target_index, "sample_type_id": None, "sample_type_title": None,
+                    "operations": [], "resolution_errors": [_error_to_dict(ResolutionError(
+                        "sample_type_ambiguous", "sample type is ambiguous", target_index=target_index,
+                        field="sample_type", submitted_identifier=sample_type_value,
+                    ))],
+                    "terminal": True,
+                })
+                continue
+            sample_type_id, sample_type_title = matches[0]
+            target_states.append({
+                "target_index": target_index, "sample_type_id": sample_type_id, "sample_type_title": sample_type_title,
+                "operations": operations, "resolution_errors": [], "terminal": False,
+            })
+
+        # Pass 2/3: bulk-resolve every operation's attribute identifier --
+        # typed ops grouped by sample type via `resolve_attributes_bulk`,
+        # untyped ops via `resolve_global_attribute_ids`, split by kind.
+        bulk_requests: list[tuple[int, int, int, NormalizedIdentifier]] = []
+        untyped_requests: list[tuple[int, int, Any, NormalizedIdentifier]] = []
+        for state in target_states:
+            if state["terminal"]:
+                continue
+            target_index = state["target_index"]
+            sample_type_id = state["sample_type_id"]
+            for attribute_index, operation in enumerate(state["operations"]):
                 attribute_value = operation["attribute"] if isinstance(operation, dict) and "attribute" in operation else operation
                 normalized_attribute = normalize_identifier(attribute_value)
+                if sample_type_id is not None:
+                    bulk_requests.append((target_index, attribute_index, sample_type_id, normalized_attribute))
+                else:
+                    untyped_requests.append((target_index, attribute_index, attribute_value, normalized_attribute))
+
+        typed_resolved = self.resolve_attributes_bulk(bulk_requests) if bulk_requests else {}
+        untyped_resolved: dict[tuple[int, int], list[RawAttribute]] = {}
+        for kind in (IdentifierKind.ID, IdentifierKind.TITLE):
+            group = [item for item in untyped_requests if item[3].kind is kind]
+            if not group:
+                continue
+            global_resolved = self.resolve_global_attribute_ids([normalized.value for *_, normalized in group])
+            for target_index, attribute_index, _value, normalized in group:
+                untyped_resolved[(target_index, attribute_index)] = global_resolved.get(normalized.value, [])
+
+        # Pass 4: assemble every target's result in submitted order from the
+        # three bulk maps -- no further gateway round trips.
+        resolved_targets = []
+        for state in target_states:
+            target_index = state["target_index"]
+            if state["terminal"]:
+                resolved_targets.append({
+                    "target_index": target_index, "sample_type_id": None, "sample_type_title": None,
+                    "operations": [], "resolution_errors": state["resolution_errors"],
+                })
+                continue
+            sample_type_id = state["sample_type_id"]
+            sample_type_title = state["sample_type_title"]
+            resolved_operations = []
+            resolution_errors: list[dict] = []
+            for attribute_index, operation in enumerate(state["operations"]):
+                attribute_value = operation["attribute"] if isinstance(operation, dict) and "attribute" in operation else operation
                 try:
                     if sample_type_id is not None:
-                        rows = self.resolve_attributes([sample_type_id], {sample_type_id: [normalized_attribute]}).get(
-                            (sample_type_id, normalized_attribute.key), []
-                        )
+                        rows = typed_resolved.get((target_index, attribute_index), [])
                     else:
-                        global_rows = self.resolve_global_attribute_ids([normalized_attribute.value])
-                        rows = global_rows.get(normalized_attribute.value, [])
+                        rows = untyped_resolved.get((target_index, attribute_index), [])
                     if not rows:
                         raise ResolutionError(
                             "attribute_not_found", "attribute not found", target_index=target_index,

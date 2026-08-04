@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import resource
 import uuid
@@ -26,6 +27,9 @@ from nextseek_api.attributes.repository import (
     AttributeRepository,
     SeekAttributeGateway,
     TitleCollationRequest,
+    _RAW_ATTRIBUTE_COLUMNS,
+    _RAW_ATTRIBUTE_JOINS,
+    _row_to_raw_attribute,
     bounded_identifier_chunks,
     dd35_order_key,
     logicalize_definitions,
@@ -286,6 +290,97 @@ def _seed_two_types_same_title(database) -> None:
     )
 
 
+def _bulk_seed_types(database, *, type_count: int, rows_per_type: int) -> tuple[list[int], dict[int, list[int]]]:
+    """Seed `type_count` sample types with `rows_per_type` real attribute
+    rows each via `executemany` batches on a raw (unwrapped) MySQL
+    connection -- T06's bulk-seed discipline (see
+    ``nextseek_api/attributes/tests/test_metadata_benchmark.py::
+    _bulk_seed_samples`` on the task-06 branch), never one INSERT per row
+    and never routed through the telemetry-wrapped Django connection this
+    module's statement captures observe. Returns `(type_ids,
+    {type_id: [attribute_id, ...]})` with attribute ids assigned in
+    ascending `(type_id, pos)` order, so the natural ascending-id order
+    already matches the DD-35 global logical order (no gaps, no NULLs) --
+    real rows only, never padded with non-existent ids."""
+    import MySQLdb
+
+    _reset_seek_tables(database)
+    connection = MySQLdb.connect(db=database.database_name, **database._connection_kwargs)
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "INSERT INTO sample_attribute_types(id,title,created_at,updated_at) VALUES(1,'String',NOW(6),NOW(6))"
+        )
+        type_ids = [1000 + n for n in range(type_count)]
+        cursor.executemany(
+            "INSERT INTO sample_types(id,title,created_at,updated_at) VALUES(%s,%s,NOW(6),NOW(6))",
+            [(type_id, f"BulkType{type_id}") for type_id in type_ids],
+        )
+        connection.commit()
+        attribute_ids_by_type: dict[int, list[int]] = {}
+        attribute_batch: list[tuple] = []
+        next_id = 1
+        for type_id in type_ids:
+            ids = []
+            for position in range(1, rows_per_type + 1):
+                attribute_id = next_id
+                next_id += 1
+                ids.append(attribute_id)
+                attribute_batch.append(
+                    (attribute_id, type_id, f"A{type_id}_{position}", 0, position, 1 if position == 1 else 0)
+                )
+            attribute_ids_by_type[type_id] = ids
+        fill_sql = (
+            "INSERT INTO sample_attributes(id,sample_type_id,sample_attribute_type_id,title,required,"
+            "pos,is_title,created_at,updated_at) VALUES(%s,%s,1,%s,%s,%s,%s,NOW(6),NOW(6))"
+        )
+        batch_size = 2000
+        for start in range(0, len(attribute_batch), batch_size):
+            cursor.executemany(fill_sql, attribute_batch[start : start + batch_size])
+        connection.commit()
+    finally:
+        connection.close()
+    return type_ids, attribute_ids_by_type
+
+
+def _independent_count_oracle(database, ids) -> int:
+    """Test-side `SELECT COUNT(*)` oracle, chunked for driver safety only --
+    never the gateway, never `bounded_selection_relation`."""
+    total = 0
+    ids = list(ids)
+    for start in range(0, len(ids), 1000):
+        chunk = ids[start : start + 1000]
+        if not chunk:
+            continue
+        placeholders = ",".join(["%s"] * len(chunk))
+        total += int(
+            database.query(f"SELECT COUNT(*) FROM sample_attributes WHERE id IN ({placeholders})", tuple(chunk))[0][0]
+        )
+    return total
+
+
+def _independent_type_snapshot_fingerprint(database, type_id: int) -> str:
+    """Per-type oracle for `type_snapshots` fingerprints: fetches exactly
+    one type's rows through an independent `sample_type_id = %s` query --
+    never the bulk `sample_type_id IN (...)` path `_fetch_rows_by_type_bulk`
+    uses -- then reuses the unchanged, frozen `logicalize_definitions`
+    primitive and the documented fingerprint tuple shape. Isolates bugs in
+    the bulk fetch/grouping specifically, since ordering and row-parsing are
+    trusted primitives covered by their own dedicated tests."""
+    sql = f"SELECT {_RAW_ATTRIBUTE_COLUMNS} {_RAW_ATTRIBUTE_JOINS} WHERE sa.sample_type_id = %s ORDER BY sa.id"
+    raw_rows = tuple(_row_to_raw_attribute(row) for row in database.query(sql, (type_id,)))
+    definitions = logicalize_definitions(raw_rows)
+    fingerprint_source = tuple(
+        (
+            item.id, item.title, item.sample_attribute_type_id, item.required, item.physical_pos, item.is_title,
+            item.description, item.unit_id, item.sample_controlled_vocab_id, item.linked_sample_type_id,
+            item.updated_at.isoformat(),
+        )
+        for item in definitions
+    )
+    return hashlib.sha256(orjson.dumps(fingerprint_source, default=str)).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Section 11.8 primary nodes
 # ---------------------------------------------------------------------------
@@ -533,19 +628,30 @@ def test_search_omitted_attributes_returns_complete_type_catalog(
 def test_global_page_total_and_slice_are_stable(
     disposable_attribute_db, sql_telemetry, django_db_blocker
 ):
+    """Strengthened per RCA-T04-FINDINGS-2026-08-03.md Section B-3: the
+    original 2-type/3-row fixture's page boundaries never landed mid-type,
+    so a window-walk arithmetic error (misplaced cumulative-count boundary,
+    double counting, or fetching the wrong type) could still pass. This
+    version seeds 3 types x 4 rows (12 total) and pages at size 5, so the
+    page1/page2 boundary lands 1 row into type index 1 and the page2/page3
+    boundary lands 2 rows into type index 2 -- both cross-type *and*
+    mid-type."""
     django_db_blocker.unblock()
     database = disposable_attribute_db
-    _seed_two_types_same_title(database)
+    type_ids, attribute_ids_by_type = _bulk_seed_types(database, type_count=3, rows_per_type=4)
+    expected_ids = [attribute_id for type_id in type_ids for attribute_id in attribute_ids_by_type[type_id]]
+    assert len(expected_ids) == 12
     repo = AttributeRepository(SeekAttributeGateway())
 
     def operate():
         full = repo.catalog(PageRequest(page=1, page_size=500))
-        page1 = repo.catalog(PageRequest(page=1, page_size=2))
-        page2 = repo.catalog(PageRequest(page=2, page_size=2))
-        return full, page1, page2
+        page1 = repo.catalog(PageRequest(page=1, page_size=5))
+        page2 = repo.catalog(PageRequest(page=2, page_size=5))
+        page3 = repo.catalog(PageRequest(page=3, page_size=5))
+        return full, page1, page2, page3
 
     def result_builder(outcome):
-        full, page1, page2 = outcome
+        full, page1, page2, page3 = outcome
         identities = [(item.sample_type_id, item.pos, item.id) for item in full.attributes]
         return len(identities), {
             "ordered_identity_sha256": _sha256_json(identities),
@@ -554,22 +660,30 @@ def test_global_page_total_and_slice_are_stable(
             ),
             "total": full.pagination.total_records,
             "offset": 0,
-            "page_size": 2,
+            "page_size": 5,
             "returned_count": len(page1.attributes),
         }
 
-    (full, page1, page2), _ = _run_observed(
+    (full, page1, page2, page3), _ = _run_observed(
         database, sql_telemetry,
         case_id="test_global_page_total_and_slice_are_stable",
         selector_count=0,
         operate=operate,
         result_builder=result_builder,
     )
-    assert full.pagination.total_records == 3
-    assert [item.id for item in page1.attributes] + [item.id for item in page2.attributes] == [
-        item.id for item in full.attributes
-    ]
-    assert page1.pagination.total_records == page2.pagination.total_records == 3
+    assert full.pagination.total_records == 12
+    assert [item.id for item in full.attributes] == expected_ids
+    # page1/page2 boundary: type index 1's 4 rows split 1 (page1) | 3 (page2).
+    assert [item.id for item in page1.attributes] == expected_ids[0:5]
+    assert [item.id for item in page2.attributes] == expected_ids[5:10]
+    # page2/page3 boundary: type index 2's 4 rows split 2 (page2) | 2 (page3).
+    assert [item.id for item in page3.attributes] == expected_ids[10:12]
+    assert (
+        page1.pagination.total_records
+        == page2.pagination.total_records
+        == page3.pagination.total_records
+        == 12
+    )
 
 
 @pytest.mark.parametrize("count", [499, 500, 501])
@@ -628,32 +742,39 @@ def test_resolution_chunk_boundaries(count, disposable_attribute_db, sql_telemet
 
 @pytest.mark.parametrize("count", [49999, 50000, 50001])
 def test_final_selection_boundaries(count, disposable_attribute_db, sql_telemetry, django_db_blocker):
+    """Defect B kill (RCA-T04-FINDINGS-2026-08-03.md Section B-1.4 item 1):
+    the pre-fix version of this test seeded 3 real attribute rows and padded
+    the selection with ~50,000 *non-existent* ids specifically so the
+    forbidden full-materialization path (`_fetch_type_rows` per relevant
+    type, then Python `len()`/slice) stayed cheap -- 1-2 real types meant
+    "materialize the whole catalog" and "materialize the page" were
+    indistinguishable, and the assertions never bounded statement count or
+    checked that `total` came from SQL. This version seeds 200 real sample
+    types x 250 real rows (50,000 real attributes, no padding beyond a
+    minority of not-found ids at count=50001) via bulk `executemany`. A
+    pre-fix run against this fixture (explicit `type_ids` filter) would
+    issue `ceil(count/500) + 200` statements -- 300 at count=50000, 301 at
+    count=50001 (the pre-fix `_relevant_type_ids(type_ids)` short-circuits
+    without SQL; the 200 comes from one `_fetch_type_rows` per type) -- and
+    materialize all 50,000 definitions; this test
+    bounds statement count by `count` instead, checks `total` against an
+    independent `SELECT COUNT(*)`, and bounds RSS growth to roughly one
+    window type's rows even though the catalog is 5,000x the page size.
+    """
     django_db_blocker.unblock()
     database = disposable_attribute_db
-    _reset_seek_tables(database)
-    database.seed_seek_fixture(
-        {
-            "sample_type_id": 1,
-            "sample_titles": ["UID", "Mass", "Volume"],
-            "samples": [{"id": 1, "json_metadata": {"UID": "u1"}}],
-        }
-    )
-    existing_ids = [row[0] for row in database.query("SELECT id FROM sample_attributes ORDER BY id")]
-    # Pad with non-existent IDs so statement chunking is exercised without
-    # materializing tens of thousands of definition rows. Include the real IDs
-    # so the ordered page result remains independently checkable.
-    padding = [1_000_000 + index for index in range(count - len(existing_ids))]
-    selectors = existing_ids + padding
+    type_ids, attribute_ids_by_type = _bulk_seed_types(database, type_count=200, rows_per_type=250)
+    all_real_ids = [attribute_id for type_id in type_ids for attribute_id in attribute_ids_by_type[type_id]]
+    assert len(all_real_ids) == 50000
+    real_ids = all_real_ids[: min(count, len(all_real_ids))]
+    padding = [10_000_000 + index for index in range(count - len(real_ids))]
+    selectors = real_ids + padding
     assert len(selectors) == count
     gateway = SeekAttributeGateway()
+    count_oracle = _independent_count_oracle(database, real_ids)
 
     def operate():
-        gateway.query_count = 0
-        gateway.chunk_sizes = []
-        total, definitions = gateway.catalog(
-            type_ids=[1], attribute_ids=selectors, offset=0, limit=10
-        )
-        return total, definitions
+        return gateway.catalog(type_ids=type_ids, attribute_ids=selectors, offset=0, limit=10)
 
     def result_builder(outcome):
         total, definitions = outcome
@@ -667,6 +788,7 @@ def test_final_selection_boundaries(count, disposable_attribute_db, sql_telemetr
             "returned_count": len(definitions),
         }
 
+    rss_before = _rss_bytes()
     (total, definitions), statements = _run_observed(
         database, sql_telemetry,
         case_id=f"test_final_selection_boundaries[{count}]",
@@ -674,12 +796,301 @@ def test_final_selection_boundaries(count, disposable_attribute_db, sql_telemetr
         operate=operate,
         result_builder=result_builder,
     )
-    assert total == len(existing_ids)
+    rss_after = _rss_bytes()
+
+    # (a) statement-count bound, from the externally captured list: one
+    # re-validation chunk per 500 selectors, one type-count chunk (200
+    # types < 500, so exactly 1), one window-fetch chunk (limit=10 <=
+    # rows_per_type=250, so the window never spans more than 1 type).
+    # Pre-fix issued ceil(count/500) + 200 statements on this filtered
+    # path (the unfiltered path's pre-fix cost was 1 + N_types).
+    expected_statement_bound = math.ceil(count / IDENTIFIER_CHUNK_SIZE) + 2
+    assert len(statements) <= expected_statement_bound
+    assert len(statements) < 1 + len(type_ids)
+    # (b) total from an independent SELECT COUNT(*) oracle, never the
+    # gateway's own len().
+    assert total == len(real_ids) == count_oracle
+    # (c) page equals the independent fixture oracle: the first 10 ids in
+    # ascending id order, which equals ascending (sample_type_id, pos) order
+    # since the seed helper assigned ids in that order.
+    assert [item.id for item in definitions] == all_real_ids[:10]
     assert all(row["parameter_count"] <= 50_000 for row in statements)
     assert all(size <= IDENTIFIER_CHUNK_SIZE for size in gateway.chunk_sizes if size)
     if count > IDENTIFIER_CHUNK_SIZE:
         assert any(size == IDENTIFIER_CHUNK_SIZE for size in gateway.chunk_sizes)
-    assert [item.id for item in definitions] == existing_ids[:10]
+    # (d) RSS delta bounded to roughly page + one window type (250 rows)
+    # even though the catalog is >=100x the page size -- the
+    # materialization detector. 16 MiB is an order of magnitude above a
+    # realistic few-hundred-KB windowed fetch and a factor of ~1.6-6 below
+    # the ~25-100MB cost of materializing all 50,000 rows (RCA B-1.5);
+    # the statement-count bound above is the decisive killer, this assert
+    # is the secondary detector.
+    assert len(all_real_ids) >= 100 * 10
+    assert rss_after - rss_before <= 16 * 1024 * 1024
+
+
+def test_catalog_statement_and_materialization_bound_unfiltered(
+    disposable_attribute_db, sql_telemetry, django_db_blocker
+):
+    """Defect B kill, direct T09/`GET /attributes` path (RCA Section B-1.4
+    item 2: the pre-fix catalog nodes used 1-2 sample types, so this
+    unfiltered, many-type path had no scale node at all). Pre-fix
+    `AttributeRepository.catalog()` -- the exact call T09's list route makes
+    with no type/attribute filter -- ran `_relevant_type_ids` (1 statement)
+    then `_fetch_type_rows` once per relevant type (1 + N_types total,
+    materializing every type's full row set to compute `total = len(...)`
+    and slice in Python). With 200 real sample types seeded here, a pre-fix
+    run issues 201 statements; this bound scales with the requested page
+    window instead.
+    """
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    type_ids, attribute_ids_by_type = _bulk_seed_types(database, type_count=200, rows_per_type=50)
+    repo = AttributeRepository(SeekAttributeGateway())
+    count_oracle = _independent_count_oracle(
+        database, [attribute_id for type_id in type_ids for attribute_id in attribute_ids_by_type[type_id]]
+    )
+
+    def operate():
+        return repo.catalog(PageRequest(page=1, page_size=10))
+
+    def result_builder(page):
+        identities = [(item.id, item.sample_type_id, item.pos) for item in page.attributes]
+        return len(identities), {
+            "ordered_identity_sha256": _sha256_json(identities),
+            "logical_record_sha256": _sha256_json(identities),
+            "total": page.pagination.total_records,
+            "offset": 0,
+            "page_size": 10,
+            "returned_count": len(page.attributes),
+        }
+
+    rss_before = _rss_bytes()
+    page, statements = _run_observed(
+        database, sql_telemetry,
+        case_id="test_catalog_statement_and_materialization_bound_unfiltered",
+        selector_count=0,
+        operate=operate,
+        result_builder=result_builder,
+    )
+    rss_after = _rss_bytes()
+
+    # Not 1 + N_types (pre-fix: 1 + 200 = 201). New bound: 1 unparameterized
+    # GROUP BY count statement + ceil(window_types/500) window-fetch
+    # statements; page_size=10 <= rows_per_type=50 keeps the window to
+    # exactly 1 type, so the bound is exactly 2.
+    assert len(statements) <= 2
+    assert len(statements) < 1 + len(type_ids)
+    assert page.pagination.total_records == count_oracle == 200 * 50
+    assert [item.id for item in page.attributes] == attribute_ids_by_type[type_ids[0]][:10]
+    assert all(item.sample_type_id == type_ids[0] for item in page.attributes)
+    # RSS delta bounded to page + one window type (50 rows); the catalog is
+    # 1000x the requested page size (10,000 rows vs a 10-row page).
+    assert (200 * 50) >= 100 * 10
+    assert rss_after - rss_before <= 16 * 1024 * 1024
+
+
+@pytest.mark.parametrize("n", [1, 5000])
+def test_resolve_mutation_statement_bound(n, disposable_attribute_db, sql_telemetry, django_db_blocker):
+    """Defect A kill for n=5000 (n=1 is a small-envelope sanity companion,
+    per RCA-T04-FINDINGS-2026-08-03.md Section A-3 -- pre-fix's
+    `1 + 2*1 = 3` statements already satisfies this bound at n=1, so only
+    n=5000 actually fails against the pre-fix implementation). Pre-fix
+    `resolve_mutation_envelope` issued one `resolve_types` call per target
+    plus up to two calls per operation (`T + 2K + K0` statements): for 1
+    target x 5,000 real ID operations that is ~10,001 statements, a ~93x
+    breach of the manifest `bounded_work_contract.planner_query_formula`
+    budget (`18 + 9*ceil(unique_identifiers/500)` = 108 at n=5000). Seeds n
+    *real* rows via bulk `executemany` -- never padding with non-existent
+    ids, so every operation actually resolves and the bound is exercised
+    honestly rather than short-circuited by not-found errors.
+    """
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    type_ids, attribute_ids_by_type = _bulk_seed_types(database, type_count=1, rows_per_type=n)
+    type_id = type_ids[0]
+    attribute_ids = attribute_ids_by_type[type_id]
+    repo = AttributeRepository(SeekAttributeGateway())
+    envelope = {"targets": [{"sample_type": type_id, "attributes": list(attribute_ids)}]}
+
+    def operate():
+        return repo.resolve_mutation(envelope)
+
+    def result_builder(resolved):
+        identities = [(op["attribute_id"], op["attribute_index"]) for op in resolved["targets"][0]["operations"]]
+        return len(identities), {
+            "ordered_identity_sha256": _sha256_json(identities),
+            "logical_record_sha256": _sha256_json(identities),
+            "total": len(identities),
+            "offset": 0,
+            "page_size": max(1, len(identities)),
+            "returned_count": len(identities),
+        }
+
+    resolved, statements = _run_observed(
+        database, sql_telemetry,
+        case_id=f"test_resolve_mutation_statement_bound[{n}]",
+        selector_count=n,
+        operate=operate,
+        result_builder=result_builder,
+    )
+    assert not resolved["targets"][0]["resolution_errors"]
+    assert [op["attribute_id"] for op in resolved["targets"][0]["operations"]] == attribute_ids
+    bound = 18 + 9 * math.ceil(n / 500)
+    assert len(statements) <= bound
+
+
+def test_resolve_mutation_statement_bound_mixed_titles(disposable_attribute_db, sql_telemetry, django_db_blocker):
+    """Defect A kill, title branch (RCA-T04-FINDINGS-2026-08-03.md Section
+    A-3's prescribed mixed-titles variant): pre-fix resolved every typed
+    TITLE operation per-op through `resolve_attribute_titles` +
+    `_fetch_rows_by_id` (2 statements per operation), exactly like the ID
+    branch, so an ID-only bound test leaves half the regression class
+    unguarded -- a future "titles are rare" re-inlining of per-op title
+    resolution would pass every ID-only gate. 2,500 real ID operations +
+    2,500 real TITLE operations on one type: pre-fix ~1 + 2*2500 + 2*2500 =
+    10,001 statements; the bulk implementation issues ~21 (1 type
+    resolution + 5 ID-existence + 5 title-resolution + 10 row-fetch
+    chunks), against the manifest budget `18 + 9*ceil(5000/500)` = 108.
+    """
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    type_ids, attribute_ids_by_type = _bulk_seed_types(database, type_count=1, rows_per_type=5000)
+    type_id = type_ids[0]
+    attribute_ids = attribute_ids_by_type[type_id]
+    id_half = list(attribute_ids[:2500])
+    title_half = [f"A{type_id}_{position}" for position in range(2501, 5001)]
+    repo = AttributeRepository(SeekAttributeGateway())
+    envelope = {"targets": [{"sample_type": type_id, "attributes": id_half + title_half}]}
+
+    def operate():
+        return repo.resolve_mutation(envelope)
+
+    def result_builder(resolved):
+        identities = [(op["attribute_id"], op["attribute_index"]) for op in resolved["targets"][0]["operations"]]
+        return len(identities), {
+            "ordered_identity_sha256": _sha256_json(identities),
+            "logical_record_sha256": _sha256_json(identities),
+            "total": len(identities),
+            "offset": 0,
+            "page_size": max(1, len(identities)),
+            "returned_count": len(identities),
+        }
+
+    resolved, statements = _run_observed(
+        database, sql_telemetry,
+        case_id="test_resolve_mutation_statement_bound_mixed_titles",
+        selector_count=5000,
+        operate=operate,
+        result_builder=result_builder,
+    )
+    assert not resolved["targets"][0]["resolution_errors"]
+    assert [op["attribute_id"] for op in resolved["targets"][0]["operations"]] == attribute_ids
+    assert len(statements) <= 18 + 9 * math.ceil(5000 / 500)
+
+
+def test_catalog_duplicate_selectors_stable_total_and_pages(disposable_attribute_db, sql_telemetry, django_db_blocker):
+    """Kills removal of the duplicate-selector dedup guard in `catalog`'s
+    re-validation counting (repository.py, the `normalized_id in
+    attribute_id_set` check): a duplicate submitted id spanning two
+    re-validation chunks returns one row per chunk statement; unguarded
+    counting inflates `selected_counts_by_type` and therefore `total`
+    (21 instead of 20 here) and shifts every subsequent page window,
+    serving one row on two different pages. 501 copies of the first id
+    force it into both chunks; assertions require the duplicate-invariant
+    total from an independent COUNT oracle and that consecutive pages
+    partition the selection with no overlap."""
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    type_ids, attribute_ids_by_type = _bulk_seed_types(database, type_count=2, rows_per_type=10)
+    first_type, second_type = type_ids
+    first_ids = attribute_ids_by_type[first_type]
+    second_ids = attribute_ids_by_type[second_type]
+    duplicated = first_ids[0]
+    selectors = [duplicated] * 501 + first_ids[1:] + second_ids
+    gateway = SeekAttributeGateway()
+
+    def operate():
+        total_one, page_one = gateway.catalog(
+            type_ids=None, attribute_ids=selectors, whole_type_ids=None, offset=0, limit=10,
+        )
+        total_two, page_two = gateway.catalog(
+            type_ids=None, attribute_ids=selectors, whole_type_ids=None, offset=10, limit=10,
+        )
+        total_three, page_three = gateway.catalog(
+            type_ids=None, attribute_ids=selectors, whole_type_ids=None, offset=20, limit=10,
+        )
+        return (total_one, page_one, total_two, page_two, total_three, page_three)
+
+    def result_builder(result):
+        total_one, page_one, total_two, page_two, total_three, page_three = result
+        ids = [item.id for item in page_one] + [item.id for item in page_two]
+        return len(ids), {
+            "ordered_identity_sha256": _sha256_json(ids),
+            "logical_record_sha256": _sha256_json(ids),
+            "total": total_one,
+            "offset": 0,
+            "page_size": 10,
+            "returned_count": len(ids),
+        }
+
+    result, _statements = _run_observed(
+        database, sql_telemetry,
+        case_id="test_catalog_duplicate_selectors_stable_total_and_pages",
+        selector_count=len(selectors),
+        operate=operate,
+        result_builder=result_builder,
+    )
+    total_one, page_one, total_two, page_two, total_three, page_three = result
+    expected_ids = sorted(set(first_ids) | set(second_ids))
+    assert total_one == total_two == total_three == len(expected_ids) == 20
+    served = [item.id for item in page_one] + [item.id for item in page_two]
+    assert served == expected_ids
+    assert len(set(served)) == len(served)
+    assert page_three == []
+
+
+def test_type_snapshots_statement_bound(disposable_attribute_db, sql_telemetry, django_db_blocker):
+    """Defect A kill: pre-fix `type_snapshots` issued 3 statements per type
+    inside a per-type loop (`3k` for k types) -- 60 statements for the 20
+    types seeded here, versus this test's `3*ceil(k/500)` = 3 bound. Also
+    checks every type's fingerprint against a per-type-computed oracle
+    (`_independent_type_snapshot_fingerprint`) that re-fetches that type's
+    rows through an independent, single-type `sample_type_id = %s` query
+    rather than the bulk `IN (...)` path `_fetch_rows_by_type_bulk` uses --
+    catching any cross-type mix-up the bulk grouping could introduce."""
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    type_ids, _attribute_ids_by_type = _bulk_seed_types(database, type_count=20, rows_per_type=5)
+    gateway = SeekAttributeGateway()
+
+    def operate():
+        return gateway.type_snapshots(type_ids)
+
+    def result_builder(snapshots):
+        payload = sorted((type_id, snap.fingerprint, len(snap.definitions)) for type_id, snap in snapshots.items())
+        return len(snapshots), {
+            "ordered_identity_sha256": _sha256_json(payload),
+            "logical_record_sha256": _sha256_json(payload),
+            "total": len(snapshots),
+            "offset": 0,
+            "page_size": len(snapshots),
+            "returned_count": len(snapshots),
+        }
+
+    snapshots, statements = _run_observed(
+        database, sql_telemetry,
+        case_id="test_type_snapshots_statement_bound",
+        selector_count=len(type_ids),
+        operate=operate,
+        result_builder=result_builder,
+    )
+    assert set(snapshots) == set(type_ids)
+    bound = 3 * math.ceil(len(type_ids) / 500)
+    assert len(statements) <= bound
+    for type_id in type_ids:
+        assert snapshots[type_id].fingerprint == _independent_type_snapshot_fingerprint(database, type_id)
+        assert len(snapshots[type_id].definitions) == 5
 
 
 @pytest.mark.parametrize("case_id", ["null-duplicate-gap"])
