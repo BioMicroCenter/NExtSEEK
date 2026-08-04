@@ -6,8 +6,13 @@ editor_options:
 
 # What else could Nessie run? — nf-core capability review
 
-**Date:** 2026-08-04 · **Branch:** `dev-v3-merge` · **Status:** findings
-for discussion
+**Date:** 2026-08-04 · **Branch:** `dev-v3-merge` · **Status:** survey,
+plus the work it prompted — findings for discussion
+
+Began as "what else could Nessie run?". Answering it surfaced a launch bug
+that made three of the eight existing pipelines unrunnable, so the survey
+and the fixes are recorded together. **Catalog went 8 → 17; pipelines able
+to launch went 5 → 17; pipelines verified on the cluster remains 2.**
 
 **Data source:** direct query against `seek_production` (51,359 samples,
 104 sample types)
@@ -79,13 +84,13 @@ distinct subset of multiplexed WSI data that I did not find.
 
 ------------------------------------------------------------------------
 
-## Where we are today
+## Where we started
 
-`chat_nextseek/src/chat_nextseek/seqera/catalog.py` curates 8 pipelines:
+`chat_nextseek/src/chat_nextseek/seqera/catalog.py` curated **8 pipelines**:
 `rnaseq`, `scrnaseq`, `atacseq`, `chipseq`, `methylseq`, `sarek`,
 `ampliseq`, `fetchngs`.
 
-Every one declares:
+Every one declared:
 
 ``` python
 "samplesheet_input_kind": "fastq",
@@ -96,7 +101,43 @@ Every one declares:
 that list, and `seqera/emitter.py::_fastq_from_meta` scans metadata for
 a FASTQ path. **That single assumption is load-bearing in three
 modules** — it, not the catalog size, is what would need to change for
-anything non-sequencing.
+anything non-sequencing. It still is.
+
+And of those 8, only **5 could actually launch.** `run.sh` passed
+`--genome` unconditionally and `--fasta --gtf` whenever local references
+existed, regardless of what each pipeline declares — and nf-schema aborts a
+run on an unrecognised parameter. `methylseq` and `sarek` have no `gtf`
+param; `ampliseq` declares none of the three and had therefore **never been
+launchable at all.**
+
+## Where we are now
+
+| | Started | Now |
+|-------------------------------|--------:|-----:|
+| Pipelines catalogued | 8 | **17** |
+| Generating a valid launch command | 5 | **17** |
+| Verified end-to-end on Luria | 2 | **2** |
+
+Nine pipelines added (`seqinspector`, `hlatyping`, `smrnaseq`, `riboseq`,
+`hic`, `rnavar`, `crisprseq`, `nanoseq`, `mag`), three repaired, and two
+mechanisms built that were not in the original survey:
+
+-   **Reference flags are now gated on each pipeline's own schema.** A
+    catalog field declares which of `genome`/`fasta`/`gtf` that revision
+    accepts; nothing else is emitted.
+-   **The launch wizard can ask the user for values nothing can derive** —
+    a CRISPR guide, a Nanopore protocol, a Hi-C digestion enzyme — with a
+    definition, a worked example, and validation. `configure_run` refuses
+    to build a run until they are answered. This is what turned three
+    "blocked on metadata" rejections into shipped pipelines.
+
+Separately, the reingest path now validates workbooks against the real
+sample-type catalog rather than against themselves — see the reingest
+plan; it is the 1.7% problem below, not this document's subject.
+
+**The number that has not moved is the third row.** Everything new passes
+unit tests proving the generated `run.sh` is well-formed; none of it has
+been run on the cluster. See *Luria verification status*.
 
 ------------------------------------------------------------------------
 
@@ -125,14 +166,14 @@ Classifying all 138 topic-tagged, non-archived nf-core pipelines:
 
 | Bucket | Count | Cost |
 |-------------------|------:|-------------------------------------|
-| Already supported | 8 | — |
+| Already supported | 8 → **17** | — |
 | **Tier 1** | **73** | Config only |
 | **Tier 2** | **9** | New file resolver + new reference concept |
 | **Tier 3** | **24** | Each its own design |
 | Not applicable | 24 | Astronomy, permafrost, reference-builders, sequence-only tools |
 | **Total** | **138** | |
 
-So ~106 are integrable in principle, 98 beyond what we have. **But
+So ~106 are integrable in principle — 89 still beyond what we now have. **But
 "integrable" is not "worth integrating"** — see the caveats below.
 
 **And "Tier 1" turned out to be optimistic.** An earlier version of this
