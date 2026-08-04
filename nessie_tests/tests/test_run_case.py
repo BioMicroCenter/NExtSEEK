@@ -77,3 +77,61 @@ def test_run_case_skips_a_non_gate_case_at_route_tier():
                             post_query=post_query, get_progress=get_progress)
     assert entry.status == "skipped"
     assert "skipped at route tier" in entry.reason
+
+
+def test_route_criteria_are_stripped_when_forcing():
+    """Forcing the route makes a route assertion tautological: it tests the harness,
+    not the product. Every one of them goes, whatever its origin, including what
+    corpus.apply_route_policy injects."""
+    v = _variant("route.unrelated")
+    post_query, get_progress = _fakes(route="nextseek_query")
+    entry = runner.run_case(v, tier="full", force_route="ns", strip_route_criteria=True,
+                            post_query=post_query, get_progress=get_progress)
+    fields = {o.field for o in entry.observations}
+    assert not (fields & runner.STRIPPED_UNDER_FORCING)
+
+
+def test_route_criteria_survive_when_not_forcing():
+    """run_suite must be unaffected. The flag is the only thing that changes this."""
+    v = _variant("route.unrelated")
+    post_query, get_progress = _fakes(route="unrelated")
+    entry = runner.run_case(v, tier="route",
+                            post_query=post_query, get_progress=get_progress)
+    fields = {o.field for o in entry.observations}
+    assert "route" in fields
+
+
+def test_the_stripped_count_is_recorded_rather_than_silent():
+    v = _variant("route.unrelated")
+    post_query, get_progress = _fakes()
+    entry = runner.run_case(v, tier="full", force_route="ns", strip_route_criteria=True,
+                            post_query=post_query, get_progress=get_progress)
+    assert "stripped" in entry.reason and "route criteri" in entry.reason
+
+
+def test_known_fail_does_not_become_xpass_under_forcing():
+    """The tag records an expectation about ROUTER-DECIDED NS behaviour. A forced
+    arm says nothing about it, so promoting a pass to xpass would claim the
+    expected failure had stopped happening on evidence that cannot support it."""
+    v = _variant().model_copy(update={"tags": ["nessie", "full", "known_fail"]})
+    post_query, get_progress = _fakes()
+    entry = runner.run_case(v, tier="full", force_route="cc", strip_route_criteria=True,
+                            post_query=post_query, get_progress=get_progress)
+    assert entry.status != "xpass"
+
+
+def test_a_forced_pass_is_not_promoted_where_an_unforced_one_is():
+    """Pins the xpass guard itself. The test above is satisfied by a case that
+    fails whatever the guard does (green.mus_ndma reds four criteria against the
+    doubles), so it would stay green if the promotion were left in. Here the
+    variant, the doubles and the observed route are identical on both arms and
+    forcing is the only difference — so the different status is the guard."""
+    v = _variant("unsup.weather").model_copy(
+        update={"tags": ["nessie", "full", "known_fail"]})
+    post_query, get_progress = _fakes(route="unrelated")
+    assert runner.run_case(v, tier="full",
+                           post_query=post_query, get_progress=get_progress).status == "xpass"
+    post_query, get_progress = _fakes(route="unrelated")
+    assert runner.run_case(v, tier="full", force_route="ns", strip_route_criteria=True,
+                           post_query=post_query,
+                           get_progress=get_progress).status == "passed"
