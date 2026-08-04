@@ -384,7 +384,7 @@ Create `nessie_tests/tests/test_bayesian.py`:
 import json
 
 from nessie_tests import bayes_manifest as bm
-from nessie_tests.manifest import NessieManifestEntry
+from nessie_tests.manifest import NessieManifest, NessieManifestEntry, write_manifest
 
 
 def _entry(vid="x.y", status="passed", cost=None):
@@ -413,6 +413,21 @@ def test_manifest_round_trips_through_disk(tmp_path):
 
 
 def test_read_returns_none_when_there_is_nothing_to_resume(tmp_path):
+    assert bm.read_bayes_manifest(tmp_path) is None
+
+
+def test_a_normal_run_directory_is_not_mistaken_for_a_resumable_paired_run(tmp_path):
+    """A `run_suite` manifest must not read back as a paired one.
+
+    Both models tolerate the other's JSON: pydantic ignores extra keys and both
+    `BayesManifest` fields default, so a normal manifest would validate as an
+    EMPTY paired manifest rather than raising. `--resume` would then see zero
+    completed arms and repay for every arm of a ~150-variant two-engine run, and
+    the first per-pair write would overwrite the prior run's record beyond
+    recovery. The manifests must therefore not share a filename.
+    """
+    write_manifest(NessieManifest(started_at="t0", ended_at="t1", tier="full", scope="all"),
+                   tmp_path / "manifest.json")
     assert bm.read_bayes_manifest(tmp_path) is None
 
 
@@ -448,7 +463,26 @@ from pydantic import BaseModel, Field
 
 from nessie_tests.manifest import NessieManifestEntry
 
-MANIFEST_NAME = "manifest.json"
+# NOT "manifest.json" — that is what `runner.run_suite` already writes for a
+# normal run (runner.py:412), and a paired manifest is a DIFFERENT SCHEMA that
+# happens to be structurally compatible in the worst possible way. Sharing the
+# name is silently destructive in both directions:
+#
+#   Reading — pydantic ignores extra keys and both `BayesManifest` fields have
+#   defaults, so a normal `manifest.json` validates as an EMPTY `BayesManifest`
+#   rather than raising. `completed_arms` then returns the empty set, `--resume`
+#   concludes nothing has run, and the whole paired run is repaid — the exact
+#   outcome `completed_arms` exists to prevent.
+#
+#   Writing — pairs are written as they complete, so the FIRST pair overwrites
+#   the prior run's record. `load_manifest` on the result fails with 4 missing
+#   required fields (`started_at`, `ended_at`, `tier`, `scope`) and that run's
+#   `entries` are gone for good.
+#
+# A distinct filename makes the collision impossible instead of merely unlikely,
+# which is worth more than the shared constant it costs. Pinned by
+# `test_a_normal_run_directory_is_not_mistaken_for_a_resumable_paired_run`.
+MANIFEST_NAME = "bayes_manifest.json"
 
 
 class BayesPair(BaseModel):
@@ -496,6 +530,15 @@ def completed_arms(m: BayesManifest) -> set[tuple[str, str]]:
             done.add((p.id, "cc"))
     return done
 ```
+
+> **Changed during execution (2026-08-04, commit `dca1e31` + fix commit).** This plan
+> originally specified `MANIFEST_NAME = "manifest.json"`, which collides with the file
+> `runner.run_suite` already writes at `runner.py:412`; the collision was reproduced as
+> both a silent empty-resume (repaying a whole paired run) and a destructive overwrite of
+> a prior run's manifest (`load_manifest` then fails with 4 missing required fields). The
+> name is now `bayes_manifest.json` and is pinned by
+> `test_a_normal_run_directory_is_not_mistaken_for_a_resumable_paired_run`. Do not
+> "restore" the shared name.
 
 - [ ] **Step 4: Run and commit**
 

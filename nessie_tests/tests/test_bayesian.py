@@ -1,7 +1,7 @@
 import json
 
 from nessie_tests import bayes_manifest as bm
-from nessie_tests.manifest import NessieManifestEntry
+from nessie_tests.manifest import NessieManifest, NessieManifestEntry, write_manifest
 
 
 def _entry(vid="x.y", status="passed", cost=None):
@@ -30,6 +30,21 @@ def test_manifest_round_trips_through_disk(tmp_path):
 
 
 def test_read_returns_none_when_there_is_nothing_to_resume(tmp_path):
+    assert bm.read_bayes_manifest(tmp_path) is None
+
+
+def test_a_normal_run_directory_is_not_mistaken_for_a_resumable_paired_run(tmp_path):
+    """A `run_suite` manifest must not read back as a paired one.
+
+    Both models tolerate the other's JSON: pydantic ignores extra keys and both
+    `BayesManifest` fields default, so a normal manifest would validate as an
+    EMPTY paired manifest rather than raising. `--resume` would then see zero
+    completed arms and repay for every arm of a ~150-variant two-engine run, and
+    the first per-pair write would overwrite the prior run's record beyond
+    recovery. The manifests must therefore not share a filename.
+    """
+    write_manifest(NessieManifest(started_at="t0", ended_at="t1", tier="full", scope="all"),
+                   tmp_path / "manifest.json")
     assert bm.read_bayes_manifest(tmp_path) is None
 
 

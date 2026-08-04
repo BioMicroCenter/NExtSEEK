@@ -13,7 +13,26 @@ from pydantic import BaseModel, Field
 
 from nessie_tests.manifest import NessieManifestEntry
 
-MANIFEST_NAME = "manifest.json"
+# NOT "manifest.json" — that is what `runner.run_suite` already writes for a
+# normal run (runner.py:412), and a paired manifest is a DIFFERENT SCHEMA that
+# happens to be structurally compatible in the worst possible way. Sharing the
+# name is silently destructive in both directions:
+#
+#   Reading — pydantic ignores extra keys and both `BayesManifest` fields have
+#   defaults, so a normal `manifest.json` validates as an EMPTY `BayesManifest`
+#   rather than raising. `completed_arms` then returns the empty set, `--resume`
+#   concludes nothing has run, and the whole paired run is repaid — the exact
+#   outcome `completed_arms` exists to prevent.
+#
+#   Writing — pairs are written as they complete, so the FIRST pair overwrites
+#   the prior run's record. `load_manifest` on the result fails with 4 missing
+#   required fields (`started_at`, `ended_at`, `tier`, `scope`) and that run's
+#   `entries` are gone for good.
+#
+# A distinct filename makes the collision impossible instead of merely unlikely,
+# which is worth more than the shared constant it costs. Pinned by
+# `test_a_normal_run_directory_is_not_mistaken_for_a_resumable_paired_run`.
+MANIFEST_NAME = "bayes_manifest.json"
 
 
 class BayesPair(BaseModel):
