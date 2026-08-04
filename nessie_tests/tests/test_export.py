@@ -30,15 +30,17 @@ def _arm_dir(artifacts_dir, vid, arm):
     return d
 
 
-def _task_json(artifacts_dir, vid, arm, progress):
+def _task_json(artifacts_dir, vid, arm, progress, status="completed"):
     (_arm_dir(artifacts_dir, vid, arm) / "task.json").write_text(
-        json.dumps({"status": "completed", "progress": progress}), encoding="utf-8")
+        json.dumps({"status": status, "progress": progress}), encoding="utf-8")
 
 
-def _turns_json(artifacts_dir, vid, arm, progress_per_turn):
+def _turns_json(artifacts_dir, vid, arm, progress_per_turn, statuses=None):
+    statuses = statuses or ["completed"] * len(progress_per_turn)
     (_arm_dir(artifacts_dir, vid, arm) / "turns.json").write_text(
-        json.dumps([{"task_id": f"t{i}", "row": {"progress": p}}
-                    for i, p in enumerate(progress_per_turn)]), encoding="utf-8")
+        json.dumps([{"task_id": f"t{i}", "row": {"progress": p, "status": s}}
+                    for i, (p, s) in enumerate(zip(progress_per_turn, statuses))]),
+        encoding="utf-8")
 
 
 def _search(source):
@@ -214,7 +216,186 @@ def test_a_skipped_arm_is_excluded_not_scored(tmp_path):
     assert _rows(tmp_path / "hibayes_eval_rows_ns.csv") == []
     ex = _rows(tmp_path / "excluded.csv")
     assert [e["arm"] for e in ex] == ["ns"] and "never issued" in ex[0]["reason"]
-    assert out == {"ns": 0, "cc": 1, "excluded": 1, "engine_ops_unobserved": 1}
+    assert ex[0]["cause"] == export.CAUSE_NEVER_EXECUTED
+    assert out["excluded"] == out["excluded_never_executed"] == 1
+    assert out["excluded_outage"] == out["excluded_deadline"] == 0
+    assert (out["ns"], out["cc"], out["engine_ops_unobserved"]) == (0, 1, 1)
+
+
+# --- the deadline abort -------------------------------------------------------
+
+def _pending(tmp_path, *, status="failed", reason=""):
+    """A CC arm whose collected row is still `pending`: `http_driver.drive` broke
+    on the `full_timeout_s` deadline (http_driver.py:107-108) rather than raising,
+    so `run_case` saw no exception, the criteria failed against a missing answer
+    and the entry reads `failed`."""
+    art = tmp_path / "artifacts"
+    _task_json(art, "a.one", "cc", [_search("Bash")], status="pending")
+    e = _entry(status=status)
+    e.reason = reason
+    return art, BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=e)])
+
+
+def test_a_deadline_abort_is_excluded_not_scored_as_a_success(tmp_path):
+    """THE corruption this guard exists for. `full_timeout_s` elapsing is a BREAK,
+    not a raise, so nothing reaches `reason` and the entry lands `failed` -- which
+    is in `_ANSWERED`. Scored, that arm reads answer_provided=true, timed_out=false,
+    runtime_success=true, failure_mode=none: the posterior is taught that an engine
+    which never finished answered successfully."""
+    art, m = _pending(tmp_path)
+    out = export.export(m, tmp_path, artifacts_dir=art)
+    assert _rows(tmp_path / "hibayes_eval_rows_cc.csv") == []
+    ex = _rows(tmp_path / "excluded.csv")
+    assert len(ex) == 1 and ex[0]["cause"] == export.CAUSE_DEADLINE
+    assert out["excluded_deadline"] == 1 and out["cc"] == 0
+
+
+def test_a_deadline_abort_is_not_filed_as_a_provider_outage(tmp_path):
+    """Different causes, different remedies. An outage means the provider chain
+    died BEFORE the product ran; a deadline abort means the product ran and did
+    not finish. Anyone triaging a run has to tell them apart."""
+    art, m = _pending(tmp_path)
+    m.pairs[0].ns = _entry(status="error", outaged=True)
+    export.export(m, tmp_path, artifacts_dir=art)
+    ex = {r["arm"]: r for r in _rows(tmp_path / "excluded.csv")}
+    assert ex["cc"]["cause"] == export.CAUSE_DEADLINE
+    assert ex["ns"]["cause"] == export.CAUSE_OUTAGE
+    assert ex["cc"]["cause"] != ex["ns"]["cause"]
+    assert ex["cc"]["reason"] != ex["ns"]["reason"]
+    assert outage.PROVIDER_OUTAGE_MARKER.lower() not in ex["cc"]["reason"].lower()
+
+
+def test_a_deadline_abort_never_reaches_the_grader_either(tmp_path):
+    """Excluded means excluded from BOTH files. A row Stage C grades but the
+    model never scores is wasted grading; the reverse is worse."""
+    art, m = _pending(tmp_path)
+    assert export.export_stage_b(m, tmp_path, artifacts_dir=art,
+                                 corpus_path=_corpus(tmp_path)) == 0
+
+
+def test_any_non_terminal_turn_condemns_the_whole_arm(tmp_path):
+    """A case is up to 3 turns. If turn 1 never finished, the follow-up was asked
+    against a turn that produced nothing, and the case's answer is not the
+    engine's answer to the question."""
+    art = tmp_path / "artifacts"
+    _turns_json(art, "a.one", "cc", [[_search("Bash")], [_search("Bash")]],
+                statuses=["pending", "completed"])
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+    out = export.export(m, tmp_path, artifacts_dir=art)
+    assert out["excluded_deadline"] == 1
+
+
+def test_a_terminal_row_is_scored_normally(tmp_path):
+    """The guard must not swallow the run. `completed` and `error` are terminal."""
+    art = tmp_path / "artifacts"
+    _task_json(art, "a.one", "cc", [_search("Bash")], status="error")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+    out = export.export(m, tmp_path, artifacts_dir=art)
+    assert out["excluded_deadline"] == 0 and out["cc"] == 1
+
+
+def test_a_row_with_no_status_at_all_is_not_evidence_of_a_deadline_abort(tmp_path):
+    """Positive evidence only. Excluding on an ABSENT key would silently discard
+    paid arms whenever a source returns a partial row, and an absent status is not
+    a claim that the turn is unfinished."""
+    art = tmp_path / "artifacts"
+    (_arm_dir(art, "a.one", "cc") / "task.json").write_text(
+        json.dumps({"progress": [_search("Bash")]}), encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+    out = export.export(m, tmp_path, artifacts_dir=art)
+    assert out["excluded_deadline"] == 0 and out["cc"] == 1
+
+
+def test_an_outage_outranks_a_deadline_abort(tmp_path):
+    """Both are true of the same arm when the provider died and the turn then sat
+    pending. The outage is the CAUSE; reporting the symptom would hide it."""
+    art, m = _pending(tmp_path)
+    m.pairs[0].cc.outage = True
+    export.export(m, tmp_path, artifacts_dir=art)
+    assert _rows(tmp_path / "excluded.csv")[0]["cause"] == export.CAUSE_OUTAGE
+
+
+# --- unobserved cells reach disk ---------------------------------------------
+
+def test_an_unobserved_cell_names_its_row_on_disk(tmp_path):
+    """`excluded.csv` exists because a count in a return dict identifies nothing.
+    A `tool_calls_total` of 0 that means "not collected" sits indistinguishable
+    among real counts unless something on disk says which rows they were."""
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", ns=_entry(), cc=_entry())])
+    out = export.export(m, tmp_path)
+    rows = _rows(tmp_path / "unobserved.csv")
+    assert {(r["query_id"], r["arm"], r["column"]) for r in rows} == {
+        ("a.one", "ns", "tool_calls_total"), ("a.one", "cc", "tool_calls_total"),
+        ("a.one", "ns", "artifact_count"), ("a.one", "cc", "artifact_count")}
+    assert {r["emitted"] for r in rows} == {"0"}
+    assert out["unobserved_cells"] == 4
+
+
+def test_a_collected_arm_records_no_unobserved_cell(tmp_path):
+    art = tmp_path / "artifacts"
+    _task_json(art, "a.one", "cc", [_search("Bash")])
+    (_arm_dir(art, "a.one", "cc") / "artifacts.json").write_text(
+        json.dumps({"artifacts": [], "cc_raw_files": []}), encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+    out = export.export(m, tmp_path, artifacts_dir=art)
+    assert out["unobserved_cells"] == 0
+    assert _rows(tmp_path / "unobserved.csv") == []
+    assert _rows(tmp_path / "hibayes_eval_rows_cc.csv")[0]["artifact_count"] == "0"
+
+
+def test_the_unobserved_file_is_written_even_when_nothing_was_unobserved(tmp_path):
+    export.export(BayesManifest(pairs=[]), tmp_path)
+    with open(tmp_path / "unobserved.csv", encoding="utf-8") as fh:
+        assert fh.readline().strip() == ",".join(export.UNOBSERVED_COLUMNS)
+
+
+# --- every NS root the collector wrote ---------------------------------------
+
+def test_a_second_ns_run_root_is_not_invisible(tmp_path):
+    """`collect.py:415-416` names an arm's extra roots `run_root_2/`. Reading
+    `run_root/` alone exports artifact_count=0 for an arm that produced files."""
+    art = tmp_path / "artifacts"
+    base = _arm_dir(art, "a.one", "ns")
+    _file(base / "run_root" / "files" / "one.xlsx")
+    _file(base / "run_root_2" / "files" / "two.csv")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", ns=_entry())])
+    export.export(m, tmp_path, artifacts_dir=art)
+    assert _rows(tmp_path / "hibayes_eval_rows_ns.csv")[0]["artifact_count"] == "2"
+
+
+def test_a_shared_run_root_is_not_reported_as_Missing(tmp_path):
+    """When another arm already holds the copy, `collect.py:430-431` writes only a
+    `run_root.shared.json` pointer and NO directory. The tree exists; this arm's
+    evidence is filed elsewhere. `Missing` would be a false negative."""
+    art = tmp_path / "artifacts"
+    base = _arm_dir(art, "a.one", "ns")
+    (base / "run_root.shared.json").write_text(
+        json.dumps({"run_root": "/o/x", "copied_under": "b.two/ns"}), encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", ns=_entry())])
+    export.export_stage_b(m, tmp_path, artifacts_dir=art, corpus_path=_corpus(tmp_path))
+    assert _rows(tmp_path / "hibayes_functional_eval_inputs.csv")[0][
+        "artifact_status"] == "Indeterminate"
+
+
+def test_a_shared_run_root_makes_the_count_unobserved_rather_than_guessed(tmp_path):
+    """The collector records WHICH arm owns the copy but not which of its
+    `run_root*` slots holds it, so this arm's file count cannot be recovered from
+    disk. Recorded as unobserved rather than guessed at or silently reported 0."""
+    art = tmp_path / "artifacts"
+    base = _arm_dir(art, "a.one", "ns")
+    (base / "run_root.shared.json").write_text(
+        json.dumps({"run_root": "/o/x", "copied_under": "b.two/ns"}), encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", ns=_entry())])
+    export.export(m, tmp_path, artifacts_dir=art)
+    cells = {(r["column"], r["arm"]) for r in _rows(tmp_path / "unobserved.csv")}
+    assert ("artifact_count", "ns") in cells
+
+
+def test_the_never_executed_vocabulary_is_manifests_and_not_a_second_copy():
+    """manifest.py:150 already owns the statuses that mean the harness never
+    issued a request. Two copies is the duplication the outage rule forbids."""
+    from nessie_tests import manifest
+    assert export._NEVER_EXECUTED is manifest._NEVER_EXECUTED
 
 
 def test_the_exclusions_file_is_written_even_when_nothing_was_excluded(tmp_path):
