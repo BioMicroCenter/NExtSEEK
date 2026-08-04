@@ -125,6 +125,64 @@ def variant_meta(path=None) -> dict[str, dict]:
             for fam in payload["families"].values() for raw in fam["variants"]}
 
 
+_HIBAYES_KEYS = ("hibayes_subtype", "expected_behavior", "artifact_expected", "artifact_kind")
+
+
+def load_family_defaults(path=None) -> dict[str, dict]:
+    """The per-DECLARED-family HiBayes defaults block.
+
+    16 entries, not 14. The 14 in the plan's table are the families with an
+    ACTIVE variant; `nessie_repro` and `routing_graph` are retired-only and still
+    need defaults, because a retired definition stays loadable and `hibayes_meta`
+    resolves it like any other.
+
+    `_`-prefixed annotation keys are stripped, so every key returned is a family
+    name and the mapping can be iterated without a filter at each call site.
+    `hibayes_meta` does not need the strip -- it looks a family up by name -- but
+    it would be the one place that did not, so it goes here.
+    """
+    return {k: v for k, v in _read_unified(path).get("family_defaults", {}).items()
+            if not k.startswith("_")}
+
+
+def hibayes_meta(variant_id: str, path=None) -> dict:
+    """The variant's HiBayes metadata with family defaults resolved.
+
+    A per-variant value of `None` means "inherit"; it never means "null". That
+    distinction is why `reporting` can default to Reporter-Summary/AnswerDirectly
+    while its GEO, SRA and PRIDE members override to GenerateArtifact. Store the
+    null through instead and 260 of the 283 active variants resolve to no
+    behaviour at all, every one of them unscoreable.
+    """
+    payload = _read_unified(path)
+    for fam in payload["families"].values():
+        for raw in fam["variants"]:
+            if raw["id"] != variant_id:
+                continue
+            # Keyed on the variant's DECLARED family, never on the block it sits
+            # in: 3 variants differ, and the block is not always a real family.
+            defaults = payload.get("family_defaults", {}).get(raw["family"], {})
+            return {k: (raw.get(k) if raw.get(k) is not None else defaults.get(k))
+                    for k in _HIBAYES_KEYS}
+    raise KeyError(f"no such variant: {variant_id}")
+
+
+def bayesian_ids(path=None) -> list[str]:
+    """Active variant ids flagged `is_bayesian`, in corpus order.
+
+    This IS the `--bayesian` selection. No sampling, no seed, no scope: one flag,
+    one source, so "what ran" always has exactly one answer.
+
+    The `status` check is not belt-and-braces. Retirement is a flag flip rather
+    than a deletion, so a retired definition keeps whatever `is_bayesian` it had
+    when it was retired, and without this filter retiring a selected case would
+    leave it silently in the paid run.
+    """
+    payload = _read_unified(path)
+    return [raw["id"] for fam in payload["families"].values() for raw in fam["variants"]
+            if raw.get("is_bayesian") and raw.get("status") == "active"]
+
+
 def merged_from_unified(path=None) -> list[Variant]:
     """`merged()` over the unified corpus. Same pipeline, one source.
 

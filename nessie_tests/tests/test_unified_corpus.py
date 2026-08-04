@@ -128,4 +128,206 @@ def test_variant_meta_covers_every_definition():
     assert len(meta) == 383
     assert meta["repro.cypher_uid_dot"]["status"] == "retired"
     assert meta["green.mus_ndma"]["status"] == "active"
-    assert meta["green.mus_ndma"]["is_bayesian"] is False
+    # `is_bayesian` used to be pinned False on this variant, which was a pin on
+    # the value every variant carried at adoption. Task 4 curates the flag and
+    # green.mus_ndma is in the selection, so the pin became a pin on a curation
+    # decision. Replaced with the invariant that actually has to hold: the key is
+    # a real bool on every definition, never null and never absent.
+    assert all(isinstance(m["is_bayesian"], bool) for m in meta.values())
+
+
+VALID_BEHAVIORS = {"AnswerDirectly", "GenerateArtifact", "ClarifyIfAmbiguous",
+                   "UsePriorContext", "StateUnsupportedBoundary", "RefuseUnsafeOnly"}
+VALID_KINDS = {"GEO_XLSX", "SRA_PACKAGE", "PRIDE_PACKAGE", "NFCORE_RNASEQ_CSV",
+               "NFCORE_SCRNASEQ_CSV", "SVG_CHART", "UNKNOWN_FILE", "NONE_EXPECTED"}
+
+
+def test_every_declared_family_has_defaults():
+    """Keyed by DECLARED family, not by the nesting block.
+
+    The file mirrors the source catalog's nesting, so a block is not always a
+    family: `search_advanced` holds two variants declaring `routing_lab`, and
+    `graph_query` holds one declaring `routing_graph`. Block-keyed defaults would
+    hand all three the wrong values.
+
+    (The plan cites `graph_stale` and `reporting_artifacts` as the example. Those
+    blocks do not appear in corpus.json at all -- every member overrides a base id
+    and `build_corpus.py` pins it to its BASE position -- so the example is
+    restated here against blocks that exist. The argument is unchanged.)
+    """
+    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
+    declared = {v["family"] for fam in payload["families"].values()
+                for v in fam["variants"]}
+    for name in declared:
+        d = payload["family_defaults"].get(name)
+        assert d, f"{name} has no defaults"
+        assert d["expected_behavior"] in VALID_BEHAVIORS, name
+        assert d["artifact_kind"] in VALID_KINDS, name
+        assert isinstance(d["artifact_expected"], bool), name
+        assert isinstance(d["hibayes_subtype"], str) and d["hibayes_subtype"], name
+
+
+def test_defaults_cover_the_retired_only_families_too():
+    """16 declared families, not 14.
+
+    The task-4 brief's defaults table lists 14, which is the count of families
+    with an ACTIVE variant. `test_every_declared_family_has_defaults` above scans
+    every DEFINITION, retired included, and two families are retired-only:
+    `nessie_repro` (4 repro cases, all retired 2026-08-03) and `routing_graph`
+    (its one variant went with the GBM retirement). Shipping only the 14 makes
+    that test fail on a KeyError-shaped assertion, so the map carries 16. This
+    test names the two so the next person does not read the extra rows as slop
+    and delete them.
+    """
+    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
+    active = {v["family"] for fam in payload["families"].values()
+              for v in fam["variants"] if v.get("status") == "active"}
+    declared = {v["family"] for fam in payload["families"].values()
+                for v in fam["variants"]}
+    assert len(active) == 14
+    assert declared - active == {"nessie_repro", "routing_graph"}
+    # `_`-prefixed keys are the file's annotation convention, not families.
+    # `corpus.load_family_defaults` strips them so a consumer can iterate.
+    assert {k for k in payload["family_defaults"] if not k.startswith("_")} == declared
+    assert set(corpus.load_family_defaults(UNIFIED)) == declared
+
+
+def test_hibayes_meta_falls_back_to_the_family_default():
+    m = corpus.hibayes_meta("green.mus_ndma", UNIFIED)
+    assert m["expected_behavior"] == "AnswerDirectly"
+    assert m["artifact_expected"] is False
+
+
+def test_reporting_overrides_prove_the_override_mechanism_works():
+    """The whole reason per-variant override exists: `reporting` spans two
+    behaviours. Reporter-Summary answers directly; Report-GEO builds a file. A
+    single family label is wrong for part of the family."""
+    geo = corpus.hibayes_meta("report.i_need_to_submit_these_samples", UNIFIED)
+    assert geo["hibayes_subtype"] == "Report-GEO"
+    assert geo["expected_behavior"] == "GenerateArtifact"
+    assert geo["artifact_expected"] is True
+    assert geo["artifact_kind"] == "GEO_XLSX"
+
+
+def test_every_reporting_deposit_variant_overrides_its_family_default():
+    """The override set is complete, not just the one the test above samples.
+
+    Every `reporting` variant whose query names GEO, SRA or PRIDE is a deposit
+    request and must resolve to GenerateArtifact. Left on the family default it
+    would be scored as a chat answer, which is the exact mis-labelling the
+    defaults-plus-override design exists to prevent.
+    """
+    kinds = {"GEO": ("Report-GEO", "GEO_XLSX"), "SRA": ("Report-SRA", "SRA_PACKAGE"),
+             "PRIDE": ("Report-PRIDE", "PRIDE_PACKAGE")}
+    seen = collections.Counter()
+    for v in corpus.load_all_definitions(UNIFIED):
+        if v.family != "reporting":
+            continue
+        hit = [k for k in kinds if k in v.turns[0].query.upper()]
+        if not hit:
+            continue
+        subtype, kind = kinds[hit[0]]
+        m = corpus.hibayes_meta(v.id, UNIFIED)
+        assert m["expected_behavior"] == "GenerateArtifact", v.id
+        assert m["artifact_expected"] is True, v.id
+        assert m["hibayes_subtype"] == subtype, v.id
+        assert m["artifact_kind"] == kind, v.id
+        seen[hit[0]] += 1
+    assert seen == {"GEO": 11, "SRA": 7, "PRIDE": 6}
+    # 24, not 23: `report.build_be_an_sra_submission_for` is RETIRED and still
+    # gets the override, because a retired definition stays loadable and
+    # `hibayes_meta` resolves it exactly like an active one.
+
+
+def test_no_override_uses_an_invalid_enum_value():
+    meta = corpus.variant_meta(UNIFIED)
+    for vid, m in meta.items():
+        if m["expected_behavior"] is not None:
+            assert m["expected_behavior"] in VALID_BEHAVIORS, vid
+        if m["artifact_kind"] is not None:
+            assert m["artifact_kind"] in VALID_KINDS, vid
+
+
+def test_a_none_override_means_inherit_rather_than_null():
+    """The distinction the whole resolver turns on.
+
+    Almost every variant stores `null` for all four keys, and `hibayes_meta` has
+    to read that as "take the family's value", never as "this variant's value is
+    None". If it ever returned the stored null through, 260 of the 283 active
+    variants would resolve to no behaviour at all and every one of them would be
+    unscoreable.
+    """
+    raw = corpus.variant_meta(UNIFIED)["advanced.basic_ndma"]
+    assert raw["expected_behavior"] is None and raw["hibayes_subtype"] is None
+    resolved = corpus.hibayes_meta("advanced.basic_ndma", UNIFIED)
+    assert resolved["expected_behavior"] == "AnswerDirectly"
+    assert resolved["hibayes_subtype"] == "Search-Basic"
+
+
+def test_hibayes_meta_resolves_against_the_declared_family_not_the_block():
+    """routing.lab_ooc_kamm_count sits in the `search_advanced` block and declares
+    `routing_lab`. Block-keyed defaults would hand it Search-Basic."""
+    m = corpus.hibayes_meta("routing.lab_ooc_kamm_count", UNIFIED)
+    assert m["hibayes_subtype"] == "Reporter-Summary"
+
+
+def test_hibayes_meta_raises_on_an_unknown_id():
+    with pytest.raises(KeyError):
+        corpus.hibayes_meta("no.such.variant", UNIFIED)
+
+
+def test_bayesian_selection_is_nonempty_active_and_family_balanced():
+    ids = corpus.bayesian_ids(UNIFIED)
+    assert 100 <= len(ids) <= 150, f"selection is {len(ids)}; spec asks for 100-150"
+    active = {v.id for v in corpus.load_unified(UNIFIED)}
+    assert set(ids) <= active, "a retired variant cannot be selected"
+    fams = {v.family for v in corpus.load_unified(UNIFIED) if v.id in set(ids)}
+    all_fams = {v.family for v in corpus.load_unified(UNIFIED)}
+    assert fams == all_fams, f"families with no bayesian variant: {sorted(all_fams - fams)}"
+
+
+def test_bayesian_selection_is_in_corpus_order_and_has_no_duplicates():
+    """`bayesian_ids` IS the --bayesian run order, so it has to be stable."""
+    ids = corpus.bayesian_ids(UNIFIED)
+    assert len(ids) == len(set(ids))
+    order = [v.id for v in corpus.load_unified(UNIFIED)]
+    assert ids == [i for i in order if i in set(ids)]
+
+
+def test_bayesian_ids_drops_a_flagged_variant_that_was_later_retired(tmp_path):
+    """Retirement is a flag flip, not a deletion, so a retired definition KEEPS the
+    `is_bayesian` it was curated with -- and `scripts/build_corpus.py` carries that
+    forward on purpose, so un-retiring restores the curation. Without the status
+    filter in `bayesian_ids` the retired case would stay in the paid run.
+
+    Tested against a synthetic payload rather than by asserting no such row exists
+    in corpus.json today: that would only restate the current data, and would fail
+    the day someone retires a selected case rather than telling them the guard held.
+    """
+    p = tmp_path / "corpus.json"
+    p.write_text(json.dumps({
+        "version": 2,
+        "families": {"f": {"description": "", "variants": [
+            {"id": "a", "family": "f", "name": "a", "tags": [], "requires_env": [],
+             "turns": [], "status": "active", "is_bayesian": True},
+            {"id": "b", "family": "f", "name": "b", "tags": [], "requires_env": [],
+             "turns": [], "status": "retired", "is_bayesian": True},
+        ]}},
+    }), encoding="utf-8")
+    assert corpus.bayesian_ids(p) == ["a"]
+
+
+def test_bayesian_selection_takes_the_whole_refine_and_recall_family():
+    """The family where NS and CC differ most, and the reason the row unit is a
+    variant rather than a turn. Sampling it would defeat the point."""
+    ids = set(corpus.bayesian_ids(UNIFIED))
+    rr = [v.id for v in corpus.load_unified(UNIFIED) if v.family == "refine_and_recall"]
+    assert rr and set(rr) <= ids
+
+
+def test_bayesian_selection_includes_the_two_job_launching_pipeline_cases():
+    """Spec risk R2, accepted deliberately: each ends on a literal `submit` turn,
+    so a paired NS/CC run launches four real jobs. Pinned here so nobody quietly
+    drops them to make a run cheaper without reopening the decision."""
+    ids = set(corpus.bayesian_ids(UNIFIED))
+    assert {"pipeline.end_to_end_emit", "pipeline.happy_path_scrnaseq"} <= ids

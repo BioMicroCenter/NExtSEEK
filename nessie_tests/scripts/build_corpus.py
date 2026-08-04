@@ -55,6 +55,41 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 POLICY_BLOCKS = ("criterion_rewrites", "route_policy", "family_floor", "consistency_groups")
 
 
+HIBAYES_KEYS = ("hibayes_subtype", "expected_behavior", "artifact_expected", "artifact_kind")
+
+
+def _carry_forward(prior_path) -> tuple[dict, dict]:
+    """Read the HAND-OWNED metadata out of an existing corpus.json.
+
+    From Task 4 on, `family_defaults` and the per-variant HiBayes overrides and
+    `is_bayesian` flags are hand curation, not generated output. Rebuilding from
+    the sources without this returns every one of them to the generator's
+    placeholder -- `is_bayesian: false` on all 383, all four HiBayes keys null,
+    no defaults block at all -- and the loss is silent, because the rebuild is a
+    diff-then-adopt workflow and 130 flipped booleans in a 1.4 MB diff do not
+    announce themselves.
+
+    Only NON-NULL per-variant values are carried. A null in the prior file means
+    "inherit from family_defaults", which is what a fresh emit already produces,
+    so carrying it would be a no-op that hides which variants were really
+    overridden. Returns ({}, {}) when there is no prior file, which is the
+    genuine first run.
+    """
+    prior_path = pathlib.Path(prior_path)
+    if not prior_path.is_file():
+        return {}, {}
+    prior = json.loads(prior_path.read_text(encoding="utf-8"))
+    overrides: dict[str, dict] = {}
+    for fam in prior.get("families", {}).values():
+        for v in fam["variants"]:
+            kept = {k: v[k] for k in HIBAYES_KEYS if v.get(k) is not None}
+            if v.get("is_bayesian"):
+                kept["is_bayesian"] = True
+            if kept:
+                overrides[v["id"]] = kept
+    return prior.get("family_defaults", {}), overrides
+
+
 def _variant_dict(v, *, origin: str, retirement: dict | None, raw: dict) -> dict:
     """One variant, definition first then metadata, so a diff reads naturally.
 
@@ -97,11 +132,12 @@ def _variant_dict(v, *, origin: str, retirement: dict | None, raw: dict) -> dict
     }
 
 
-def build(catalog_path, overlay_path, retired_path) -> dict:
+def build(catalog_path, overlay_path, retired_path, prior_path=None) -> dict:
     raw_catalog = json.loads(pathlib.Path(catalog_path).read_text(encoding="utf-8"))
     raw_overlay = json.loads(pathlib.Path(overlay_path).read_text(encoding="utf-8"))
     raw_retired = json.loads(pathlib.Path(retired_path).read_text(encoding="utf-8"))
     retirements = raw_retired.get("retired") or {}
+    family_defaults, hand_meta = _carry_forward(prior_path or (ROOT / "corpus.json"))
 
     base = {v.id: v for v in corpus.load_base()}
     overlay = {v.id: v for v in corpus.load_overlay(pathlib.Path(overlay_path))}
@@ -127,10 +163,13 @@ def build(catalog_path, overlay_path, retired_path) -> dict:
 
     def _emit(fam_name: str, description: str, variant, origin: str) -> None:
         fam = families.setdefault(fam_name, {"description": description, "variants": []})
-        fam["variants"].append(
-            _variant_dict(variant, origin=origin, retirement=retirements.get(variant.id),
-                          raw=raw_bodies[origin][variant.id])
-        )
+        entry = _variant_dict(variant, origin=origin, retirement=retirements.get(variant.id),
+                              raw=raw_bodies[origin][variant.id])
+        # Hand curation wins over the placeholder this script emits. Applied
+        # AFTER the dict is built so the key ORDER stays the generator's, which
+        # is what makes rebuild-and-diff readable.
+        entry.update(hand_meta.get(variant.id, {}))
+        fam["variants"].append(entry)
 
     # Base families, in catalog order. An overlay variant with a matching id takes
     # the base one's place so ordering matches `merged()`.
@@ -154,13 +193,17 @@ def build(catalog_path, overlay_path, retired_path) -> dict:
         "_note": (
             "The single source of truth for nessie_tests. Adopted from "
             "chat_nextseek/e2e/catalog.json, which is NOT edited and still serves its "
-            "own ten readers. Retirement is a `status` flip, not a deletion."
+            "own ten readers. Retirement is a `status` flip, not a deletion. "
+            "HAND-OWNED since Task 4: `family_defaults`, the per-variant HiBayes "
+            "overrides and `is_bayesian` are curation, and a rebuild carries them "
+            "forward from this file rather than regenerating them."
         ),
         "provenance": {
             "adopted_from": "chat_nextseek/e2e/catalog.json",
             "catalog_sha256": corpus.sha256_of(catalog_path),
             "adopted_on": "2026-08-04",
         },
+        "family_defaults": family_defaults,
         "families": families,
     }
     for block in POLICY_BLOCKS:
@@ -174,8 +217,12 @@ def main(argv=None) -> int:
     ap.add_argument("--overlay", type=pathlib.Path, default=ROOT / "overlay.json")
     ap.add_argument("--retired", type=pathlib.Path, default=ROOT / "retired.json")
     ap.add_argument("--out", type=pathlib.Path, default=ROOT / "corpus.json")
+    # NOT --out. The hand-owned metadata is read from the LIVE corpus.json even
+    # when you are emitting to /tmp to diff, which is the whole point: the diff
+    # has to show what upstream changed, not 130 curation flags reverting.
+    ap.add_argument("--prior", type=pathlib.Path, default=ROOT / "corpus.json")
     a = ap.parse_args(argv)
-    payload = build(a.catalog, a.overlay, a.retired)
+    payload = build(a.catalog, a.overlay, a.retired, a.prior)
     a.out.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     n = sum(len(f["variants"]) for f in payload["families"].values())
     print(f"{a.out}: {len(payload['families'])} families, {n} variants")
