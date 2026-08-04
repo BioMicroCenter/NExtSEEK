@@ -205,7 +205,7 @@ def test_bayesian_names_the_same_corpus_the_normal_path_names(monkeypatch):
 
 @pytest.mark.parametrize("extra", [
     ["--tier", "full"], ["--scope", "all"], ["--sample", "0.5"], ["--seed", "3"],
-    ["--family", "reporting"], ["--variant", "green.mus_ndma"],
+    ["--family", "reporting"], ["--variant", "green.mus_ndma"], ["--consistency"],
 ])
 def test_bayesian_refuses_every_other_selection_source(extra, monkeypatch, capsys):
     """is_bayesian IS the selection. Two sources for 'what ran' makes a run
@@ -214,7 +214,9 @@ def test_bayesian_refuses_every_other_selection_source(extra, monkeypatch, capsy
     `--family` and `--variant` are NOT in the plan's list and are live on the
     parser. `--scope` defaults to "specific", so `--bayesian --family reporting`
     cleared the entire check and was then silently ignored: exactly the
-    second-selection-source hazard the check exists to prevent.
+    second-selection-source hazard the check exists to prevent. `--consistency`
+    is here for the same reason: `run_paired` has no consistency-group parameter
+    at all, so it was accepted and dropped on the floor.
     """
     _tripwire_on_every_spend(monkeypatch)
     with pytest.raises(SystemExit) as e:
@@ -240,6 +242,67 @@ def test_the_paired_only_flags_refuse_to_be_silently_ignored(extra, monkeypatch,
     assert e.value.code == 2, "argparse.error() owns 2; see the abort-code test"
     msg = capsys.readouterr().err.split("error:", 1)[1]
     assert "--bayesian" in msg and extra[0] in msg
+
+
+# --- supplied, not merely different from the default -------------------------
+
+
+@pytest.mark.parametrize("extra", [
+    ["--tier", "route"], ["--scope", "specific"], ["--sample", "1.0"],
+    ["--seed", "0"], ["--consistency"],
+])
+def test_bayesian_refuses_a_conflicting_flag_set_to_its_default_value(
+        extra, monkeypatch, capsys):
+    """The exclusion asks the wrong question if it compares VALUES.
+
+    `--bayesian --tier route` was accepted and reached `run_paired`, returning 0:
+    a ~322-arm full-depth paid run for an operator who had explicitly asked for
+    the cheap route tier, because "route" happens to be `--tier`'s default. What
+    matters is whether the flag was SUPPLIED, and design §7.6 says `--bayesian`
+    refuses to combine with `--tier` -- not with some of its values.
+    """
+    _tripwire_on_every_spend(monkeypatch)
+    with pytest.raises(SystemExit) as e:
+        cli.main(["--base-url", "http://x", "--bayesian", *extra])
+    assert e.value.code == 2
+    msg = capsys.readouterr().err.split("error:", 1)[1]
+    assert "--bayesian" in msg and extra[0] in msg
+
+
+def test_a_normal_run_refuses_a_paired_only_flag_set_to_its_default_value(
+        monkeypatch, capsys):
+    """The same correction on the mirror check. `--full-timeout 600` is the
+    default value, so a value comparison saw nothing and accepted a flag that
+    `run_suite` has no parameter for and silently ignores."""
+    _tripwire_on_every_spend(monkeypatch)
+    with pytest.raises(SystemExit) as e:
+        cli.main(["--base-url", "http://x", "--tier", "full",
+                  "--full-timeout", str(cli.FULL_TIMEOUT_DEFAULT_S)])
+    assert e.value.code == 2
+    msg = capsys.readouterr().err.split("error:", 1)[1]
+    assert "--bayesian" in msg and "--full-timeout" in msg
+
+
+def test_supplied_flags_reports_only_what_was_typed():
+    """The primitive both checks now rest on, asserted directly: it must not be
+    fooled by a default-valued flag, and must not invent one that was absent."""
+    assert cli._supplied_flags(["--base-url", "http://x"]) == set()
+    assert cli._supplied_flags(["--base-url", "http://x", "--tier", "route"]) == {"tier"}
+    # `--tier=full` and abbreviations are argparse's rules, not ours; delegating
+    # to a second parse is why they hold rather than being re-implemented.
+    assert cli._supplied_flags(["--base-url", "http://x", "--tier=full"]) == {"tier"}
+    assert cli._supplied_flags(["--base-url", "http://x", "--resume"]) == {"resume"}
+
+
+def test_neither_check_disturbs_a_run_that_supplied_nothing_extra(monkeypatch, tmp_path):
+    """Non-vacuity for both corrections: the ordinary invocations must still run."""
+    captured = _capture(monkeypatch)
+    assert cli.main(["--base-url", "http://x", "--out", str(tmp_path)]) == 0
+    assert captured["tier"] == "route"
+
+    paired = _capture_paired(monkeypatch)
+    assert cli.main(["--base-url", "http://x", "--bayesian", "--out", str(tmp_path)]) == 0
+    assert paired["out_dir"] == tmp_path
 
 
 def test_bayesian_points_at_the_paired_manifest_not_the_normal_one(monkeypatch, tmp_path, capsys):
@@ -268,15 +331,17 @@ def test_bayesian_points_at_the_paired_manifest_not_the_normal_one(monkeypatch, 
     (bayesian.PriorRunWouldBeOverwritten("already holds 130 pair(s)"), 4,
      ["130 pair(s)", "nothing was billed"]),
     (preflight.ForceRouteRejected("force_route was not honoured"), 5,
-     ["force_route was not honoured", "nothing was billed"]),
+     ["force_route was not honoured", "no paired arm was billed"]),
     (bayesian.CorpusChanged("prior fingerprint 'a', current 'b'"), 6,
      ["prior fingerprint 'a'", "nothing was billed"]),
     (urllib.error.URLError("[Errno 111] Connection refused"), 7,
      ["http://x", "Connection refused"]),
+    (bayesian.NoRunToResume("--resume was given but ... holds no paired manifest"), 8,
+     ["holds no paired manifest", "nothing was billed"]),
 ])
 def test_every_paired_abort_is_legible_from_the_terminal_alone(
         exc, code, must_say, monkeypatch, tmp_path, capsys):
-    """Five aborts, five exit codes, and in every case the cause survives to the
+    """Six aborts, six exit codes, and in every case the cause survives to the
     terminal. A traceback would tell an operator who just spent real money that
     something raised, not whether the run is resumable or whether it ran at all.
 
@@ -301,3 +366,29 @@ def test_every_paired_abort_is_legible_from_the_terminal_alone(
     out = capsys.readouterr().out
     for phrase in must_say:
         assert phrase in out, f"{phrase!r} missing from:\n{out}"
+
+
+def test_the_preflight_abort_does_not_claim_a_zero_bill(monkeypatch, tmp_path, capsys):
+    """Exit 5 fires AFTER the preflight drove a real forced-NS turn, and a turn
+    keeps billing after the harness stops polling it -- which is exactly why the
+    normal run's cost line says `unmeasured` rather than $0.00. "$0" here is the
+    one claim `manifest.cost_summary` refuses to make. The other refusals fire
+    before any turn is sent and may keep saying it."""
+    _capture_paired(monkeypatch, raises=preflight.ForceRouteRejected("dropped"))
+    assert cli.main(["--base-url", "http://x", "--bayesian", "--out", str(tmp_path)]) == 5
+    out = capsys.readouterr().out
+    assert "nothing was billed" not in out
+    assert "probe turn" in out, "the one turn that WAS billed is not named"
+
+
+@pytest.mark.parametrize("exc", [
+    bayesian.PriorRunWouldBeOverwritten("prior run"),
+    bayesian.NoRunToResume("no prior run"),
+    bayesian.CorpusChanged("drift"),
+])
+def test_the_refusals_that_really_are_free_still_say_so(exc, monkeypatch, tmp_path, capsys):
+    """Non-vacuity for the line above: these three fire before the preflight, so
+    they genuinely cost nothing and must go on saying it."""
+    _capture_paired(monkeypatch, raises=exc)
+    cli.main(["--base-url", "http://x", "--bayesian", "--out", str(tmp_path)])
+    assert "nothing was billed" in capsys.readouterr().out

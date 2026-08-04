@@ -16,14 +16,67 @@ EXIT_CODES = """exit codes
   3  --bayesian: the budget ceiling was reached. MONEY WAS SPENT and every
      completed arm is on disk; rerun with a higher --max-usd and --resume.
   4  --bayesian: refused, --out already holds a paired run. Nothing was billed.
-  5  --bayesian: refused, the server did not honour force_route. Nothing was billed.
+  5  --bayesian: refused, the server did not honour force_route. The preflight's
+     own probe turn WAS sent, so one turn was billed; no paired arm was.
   6  --bayesian: refused, the corpus changed under a --resume. Nothing was billed.
   7  --bayesian: could not talk to --base-url. Any completed arms are on disk.
+  8  --bayesian: refused, --resume was given but --out holds no paired run to
+     continue. Nothing was billed.
 """
 
-# The default per-turn deadline, named so `main` can tell "the operator asked for
-# 900s" from "argparse supplied the default" without a second sentinel value.
+# The default per-turn deadline. It is a named constant so the parser's help and
+# this module agree on one value; it is NOT how the mutual-exclusion checks tell a
+# supplied flag from a default one. Comparing `a.full_timeout != 600.0` cannot:
+# `--full-timeout 600` is indistinguishable from silence and slipped straight
+# through. `_supplied_flags` answers that question directly.
 FULL_TIMEOUT_DEFAULT_S = 600.0
+
+
+class _NotSupplied:
+    """Sentinel for "argparse never saw this flag on the command line"."""
+
+    def __repr__(self) -> str:
+        return "<not supplied>"
+
+
+_NOT_SUPPLIED = _NotSupplied()
+
+# The two mutual-exclusion lists, as (flag name, parser dest). Named here rather
+# than inline so the refusal messages and the supplied-ness probe cannot drift
+# apart, and so the order the flags are reported in is fixed.
+_SELECTION_FLAGS = (
+    ("--tier", "tier"), ("--scope", "scope"), ("--sample", "sample"),
+    ("--seed", "seed"), ("--family", "family"), ("--variant", "variant"),
+    ("--consistency", "consistency"),
+)
+_PAIRED_ONLY_FLAGS = (
+    ("--max-usd", "max_usd"), ("--resume", "resume"), ("--full-timeout", "full_timeout"),
+)
+
+
+def _supplied_flags(argv) -> set[str]:
+    """The dests the operator actually typed, whatever value they typed.
+
+    Value-based exclusion is not the same question and got the answer wrong in
+    both directions: `--bayesian --tier route` was ACCEPTED (route is the default
+    value, so nothing looked conflicting) and bought a ~322-arm full-depth paid
+    run for an operator who had explicitly asked for the cheap tier; on the other
+    side `--full-timeout 600` on a normal run was accepted and silently ignored.
+
+    Answered by re-parsing the same argv through a parser whose watched defaults
+    are a sentinel: anything still holding the sentinel was not supplied. That
+    delegates every parsing rule -- `--tier=full`, prefix abbreviations, `store_true`
+    -- to argparse instead of re-implementing them over raw argv. `set_defaults`
+    is argparse's own public API for this, and the sentinel is deliberately not a
+    `str`, so argparse's string-default conversion and `choices` checks never see
+    it. The first parse in `main` has already accepted this argv, so this parse
+    cannot be the one that errors.
+    """
+    watched = {dest for _name, dest in _SELECTION_FLAGS + _PAIRED_ONLY_FLAGS}
+    p = build_parser()
+    p.set_defaults(**{d: _NOT_SUPPLIED for d in watched})
+    seen = p.parse_args(argv)
+    return {d for d in watched if getattr(seen, d) is not _NOT_SUPPLIED}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -69,22 +122,24 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _run_bayesian(a, auth) -> int:
-    """The paired dual-route run. Split out of `main` so the four abort paths read
-    as one unit and `main` stays a dispatcher over two unrelated run shapes."""
+def _run_bayesian(a, auth, supplied) -> int:
+    """The paired dual-route run. Split out of `main` so the abort paths read as
+    one unit and `main` stays a dispatcher over two unrelated run shapes."""
     # `is_bayesian` IS the selection. Accepting a second selection source would
     # make "what ran" depend on two things at once.
     #
+    # Keyed on SUPPLIED-ness, not on value: `--bayesian --tier route` names the
+    # default value, so a value comparison saw no conflict and let it through --
+    # a full-depth ~322-arm paid run for an operator who asked for the cheap tier.
+    #
     # --family and --variant are in this list even though the plan omitted them:
     # --scope defaults to "specific", so `--bayesian --family reporting` cleared
-    # the whole check and was then SILENTLY IGNORED. --cases is not, because this
-    # branch's parser has no such flag (run_suite takes cases_path; nothing
-    # exposes it) and argparse already rejects it as unrecognized.
-    conflicting = [name for name, val in (
-        ("--tier", a.tier != "route"), ("--scope", a.scope != "specific"),
-        ("--sample", a.sample != 1.0), ("--seed", a.seed != 0),
-        ("--family", a.family is not None), ("--variant", a.variant is not None),
-    ) if val]
+    # the whole check and was then SILENTLY IGNORED. --consistency is here for the
+    # same reason: `run_paired` has no consistency-group parameter at all, so it
+    # was accepted and dropped on the floor. --cases is not, because this branch's
+    # parser has no such flag (run_suite takes cases_path; nothing exposes it) and
+    # argparse already rejects it as unrecognized.
+    conflicting = [name for name, dest in _SELECTION_FLAGS if dest in supplied]
     if conflicting:
         build_parser().error(
             f"--bayesian selects on the corpus's is_bayesian flag and cannot be "
@@ -100,14 +155,15 @@ def _run_bayesian(a, auth) -> int:
             corpus_path=_CORPUS,
             max_usd=a.max_usd, resume=a.resume,
             full_timeout_s=a.full_timeout, pace_s=a.pace)
-    # Five aborts, five exit codes, none of them 0, 1 or 2. They share nothing an
+    # Six aborts, six exit codes, none of them 0, 1 or 2. They share nothing an
     # operator would act on: the first spent real money and left resumable work on
-    # disk, the next three refused before a single turn was billed, and each has a
-    # different remedy. A single code would force a wrapper script to parse English
-    # out of stdout to tell "raise the ceiling and continue" from "you are on the
-    # wrong account" -- and 2 in particular is argparse's own usage error, so a
-    # wrapper that retried on "the budget code" would loop forever on a mistyped
-    # flag if the budget code were 2.
+    # disk, three of the rest refused before a single turn was billed, one refused
+    # after the preflight's single probe turn, and each has a different remedy. A
+    # single code would force a wrapper script to parse English out of stdout to
+    # tell "raise the ceiling and continue" from "you are on the wrong account" --
+    # and 2 in particular is argparse's own usage error, so a wrapper that retried
+    # on "the budget code" would loop forever on a mistyped flag if the budget
+    # code were 2.
     except bayesian.BudgetExceeded as e:
         print("nessie: budget ceiling reached, run stopped (exit 3).")
         print(f"nessie: {e}")
@@ -119,9 +175,22 @@ def _run_bayesian(a, auth) -> int:
         print("nessie: refused, nothing was billed (exit 4).")
         print(f"nessie: {e}")
         return 4
-    except preflight.ForceRouteRejected as e:
-        print("nessie: preflight refused the run, nothing was billed (exit 5).")
+    except bayesian.NoRunToResume as e:
+        print("nessie: refused the resume, nothing was billed (exit 8).")
         print(f"nessie: {e}")
+        return 8
+    # NOT "nothing was billed". The preflight drives a REAL forced-NS turn against
+    # the endpoint, and a turn keeps billing after the harness stops polling it
+    # (http_driver.py:96-98 vs cc_assistant.py:352-366) -- which is exactly why
+    # the normal run's cost line below reports `unmeasured` rather than $0.00.
+    # Claiming $0 here would be the one claim `manifest.cost_summary` refuses to
+    # make. One probe turn was sent; the run's ~322 arms were not.
+    except preflight.ForceRouteRejected as e:
+        print("nessie: preflight refused the run, no paired arm was billed (exit 5).")
+        print(f"nessie: {e}")
+        print("nessie: the preflight's own probe turn WAS sent to the endpoint and "
+              "keeps billing after the harness stops polling it, so this cost one "
+              "turn -- not zero, and not ~322.")
         return 5
     except bayesian.CorpusChanged as e:
         print("nessie: refused the resume, nothing was billed (exit 6).")
@@ -154,18 +223,18 @@ def main(argv=None) -> int:
     if a.out is None:
         a.out = Path("nessie_out_bayes" if a.bayesian else "nessie_out")
     auth = http_driver.basic_auth(a.user, a.password)
+    supplied = _supplied_flags(argv)
 
     if a.bayesian:
-        return _run_bayesian(a, auth)
+        return _run_bayesian(a, auth, supplied)
 
-    # The mirror of `_run_bayesian`'s mutual exclusion. `run_suite` has no budget
+    # The mirror of `_run_bayesian`'s mutual exclusion, and keyed on supplied-ness
+    # for the same reason: `--full-timeout 600` names the default value, so a
+    # value comparison saw nothing and accepted it. `run_suite` has no budget
     # ceiling, no resume and no per-turn deadline parameter, so silently accepting
     # these would leave an operator believing a spending cap is in force on a paid
     # full-tier run while nothing at all is capped.
-    paired_only = [name for name, val in (
-        ("--max-usd", a.max_usd is not None), ("--resume", a.resume),
-        ("--full-timeout", a.full_timeout != FULL_TIMEOUT_DEFAULT_S),
-    ) if val]
+    paired_only = [name for name, dest in _PAIRED_ONLY_FLAGS if dest in supplied]
     if paired_only:
         build_parser().error(
             f"{', '.join(paired_only)} only applies to --bayesian; a normal run has "
