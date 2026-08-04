@@ -539,7 +539,7 @@ def merged_from_unified(path=None) -> list[Variant]:
 uv run --no-project --with pytest --with pydantic --with requests --with beautifulsoup4 \
   python -m pytest nessie_tests/tests -q -p no:cacheprovider 2>&1 | tail -3
 ```
-Expected: baseline plus 13 new passes.
+Expected: baseline plus 7 new passes (820 -> 827).
 
 If `test_unified_resolves_to_the_same_content_as_the_three_file_corpus` fails, the diff names the variant and the field. Fix `build_corpus.py`, regenerate, re-run. **Do not** relax it further: content equality and within-family order are both reachable and both proven, and operator ruling 2026-08-04 relaxed only the global-order comparison, on the measured finding that it is unsatisfiable by any nesting-mirrored file.
 
@@ -609,7 +609,9 @@ def merged(path=None) -> list[Variant]:
     return merged_from_unified(path)
 ```
 
-Delete `load_overlay`, `load_retired_ids`, `check_retired_ids`, `overridden_ids`, `_RETIRED`, and the now-unused `_flatten`/`load_base` **only if** nothing else imports them. `load_base` IS still needed by the drift test in Task 5, so keep `load_base` and `_flatten`. Keep `load_consistency_groups`, `load_family_floor`, `load_criterion_rewrites`, `load_route_policy`, but repoint each to read from `corpus.json`'s blocks:
+Delete `load_overlay`, `load_retired_ids`, `check_retired_ids`, `overridden_ids`, `_RETIRED`, and the now-unused `_flatten`/`load_base` **only if** nothing else imports them.
+
+`overridden_ids` has ONE consumer: `runner.py:121` puts it in `run_meta`. Delete that key from `run_meta` too. Do NOT try to reconstruct it from `origin == "overlay"` -- that is measurably wrong. `build_corpus` stamps `origin: "overlay"` on base-id overrides AND on overlay-only variants alike, so the filter yields 47 where the true answer is 30, over-reporting by the 17 overlay-only variants. The concept itself is gone: "the overlay replaced a base variant" describes a merge that no longer happens. Leave `manifest.py:108`'s field in place -- it has a `default_factory`, so old manifests keep their value and new ones record `[]`. `load_base` IS still needed by the drift test in Task 5, so keep `load_base` and `_flatten`. Keep `load_consistency_groups`, `load_family_floor`, `load_criterion_rewrites`, `load_route_policy`, but repoint each to read from `corpus.json`'s blocks:
 
 ```python
 def load_consistency_groups(path=None) -> list[dict]:
