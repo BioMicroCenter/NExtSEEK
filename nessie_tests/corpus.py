@@ -39,8 +39,13 @@ def load_overlay(path: Path) -> list[Variant]:
 _UNIFIED = Path(__file__).resolve().parent / "corpus.json"
 
 # The keys that are nessie metadata rather than part of the e2e Variant schema.
-# Stripped before handing a variant to the vendored `Variant` model, which is
-# strict about its own fields.
+# Stripped so the Variant body stays clean -- NOT because `Variant` would reject
+# them. `Variant.model_config` is `{}`, so pydantic's default `extra="ignore"`
+# applies and an unknown key is dropped in silence. That cuts the wrong way for
+# anyone adding a metadata key: forget to list it here and `Variant` swallows it,
+# while `variant_meta` (which returns only these keys) never surfaces it either.
+# Both halves of the round trip stay quiet. THIS TUPLE IS THE ONE PLACE a new
+# metadata key must be registered.
 _META_KEYS = ("status", "origin", "is_bayesian", "hibayes_subtype",
               "expected_behavior", "artifact_expected", "artifact_kind", "retirement")
 
@@ -56,9 +61,11 @@ def _to_variants(payload: dict, *, include_retired: bool) -> list[Variant]:
             if not include_retired and raw.get("status") != "active":
                 continue
             body = {k: val for k, val in raw.items() if k not in _META_KEYS}
-            # Declared family wins; the nesting key is only a fallback. See the
-            # comment in build_corpus._variant_dict for the 7 variants where they
-            # differ and why sampling depends on getting this right.
+            # Declared family wins; the nesting key is only a fallback. 3
+            # variants diverge in corpus.json (7 across the two source files; the
+            # overlay's 4 are base-id overrides emitted under their base block,
+            # which happens to match). `corpus.sample` buckets on v.family, so
+            # taking the block name here changes every seeded case set.
             body["family"] = raw.get("family") or fam_name
             # `origin` becomes the source tag the rest of the harness already
             # reads off `tags`, so nothing downstream has to learn a new field.
