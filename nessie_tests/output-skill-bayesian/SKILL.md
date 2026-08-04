@@ -87,12 +87,15 @@ fact about the run and "docker is not running" is a fact about the collector, an
 a hundred of the second must not read as a hundred of the first.
 
 **Until it exists, everything downstream is degraded rather than broken, and each
-step says so when it runs.** `export` warns that with no `artifacts/` tree it
-cannot see a deadline abort at all -- the only evidence is a collected,
-still-non-terminal task row, so a turn that blew the deadline exports as a
-SUCCESS -- and that every `tool_calls_total` and `artifact_count` is an absence
-rather than a measurement. The report renders arms with no reply. Neither is a
-run you can read as measured.
+step says so when it runs.** Steps 2 and 3 print the SAME warning
+(`export.no_artifacts_warning`, one voice, one place) with their own tail: with
+no `artifacts/` tree neither can see a deadline abort at all -- the only evidence
+is a collected, still-non-terminal task row -- so a turn that blew the deadline
+is indistinguishable from one that answered. On top of that the export's
+`tool_calls_total`, `artifact_count` and **`final_answer`** are all absences
+rather than measurements, which means Stage C would grade blank answers; and the
+report renders every arm with "No reply was recorded". Neither is a run you can
+read as measured.
 
 ## One artifacts tree, derived once
 

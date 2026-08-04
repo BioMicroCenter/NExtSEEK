@@ -134,13 +134,32 @@ def test_the_blind_gate_is_on_and_load_bearing(tmp_path):
     grade, `render` throws, and the page paints nothing -- but the feature this
     whole report exists for must not rest on a downstream accident, and a later
     null-guard in `verdictHTML` would turn that loud failure into a silent leak.
+
+    THE SENSE OF THE GUARD IS PINNED, NOT ONLY ITS PRESENCE. This test used to
+    assert the flag was `true` and that the identifier appeared somewhere in
+    `verdictHTML`; both survive dropping the `!`, which turns the gate inside out
+    so that the verdict is shown to exactly the rows that have NOT been graded --
+    every row, on first load, which is the leak the whole page exists to prevent.
+    So the condition is matched literally and the early return is required to
+    come BEFORE any use of `LLM`.
     """
     html = _build(tmp_path, MANIFEST)
 
     assert re.search(r"const BLIND_UNTIL_GRADED\s*=\s*true\s*;", html)
     gate = re.search(r"function verdictHTML\(.*?\n\}", html, re.S)
-    assert gate and "BLIND_UNTIL_GRADED" in gate.group(0), \
-        "the only path a verdict reaches the DOM by no longer reads the flag"
+    assert gate, "verdictHTML is gone"
+    body = gate.group(0)
+
+    guard = re.search(
+        r"if\s*\(\s*BLIND_UNTIL_GRADED\s*&&\s*!\s*\(\s*g\s*&&\s*"
+        r"GRADE_CONTRACT\.values\.includes\(\s*g\.grade\s*\)\s*\)\s*\)\s*"
+        r"return\s", body)
+    assert guard, ("the ungraded-row guard is not `BLIND_UNTIL_GRADED && "
+                   "!(<row is graded>)` followed by a return; its SENSE has "
+                   "changed or it is gone:\n" + body)
+    # ...and it returns before the verdict is built, not after.
+    assert guard.start() < body.index("LLM["), \
+        "the guard no longer precedes the only read of the LLM verdicts"
 
 
 def test_the_report_builds_without_stage_c_output(tmp_path):
@@ -177,22 +196,53 @@ def test_the_grade_vocabulary_is_exactly_pass_and_fail(tmp_path):
     assert c["values"] == ["pass", "fail"]
 
 
+def _fn(html, name):
+    """One JS function's source, from `function <name>(` to its closing brace."""
+    m = re.search(rf"function {name}\(.*?\n\}}", html, re.S)
+    return m.group(0) if m else None
+
+
 def test_a_grade_is_timestamped(tmp_path):
     """300 grades is a real human pass and late-pass fatigue is real. The
-    timestamp is what makes it measurable after the fact."""
-    c = _literal(_build(tmp_path, MANIFEST), "GRADE_CONTRACT")
+    timestamp is what makes it measurable after the fact.
+
+    The declarative `GRADE_CONTRACT.fields` entry is not enough on its own:
+    deleting `ts:` from the writer leaves it there, and grades.json then carries
+    no timestamp at all while the contract still advertises one. So the WRITER
+    is pinned too -- both of them, because a note saved before a grade is a
+    record of the pass as much as a grade is.
+    """
+    html = _build(tmp_path, MANIFEST)
+    c = _literal(html, "GRADE_CONTRACT")
 
     assert "ts" in c["fields"]
+    for writer in ("setGrade", "setNote"):
+        src = _fn(html, writer)
+        assert src, f"{writer} is gone"
+        assert re.search(r"\bts:\s*.*new Date\(\)\.toISOString\(\)", src), \
+            f"{writer} writes a grade record with no timestamp:\n{src}"
 
 
 def test_grading_is_keyboard_driven(tmp_path):
     """By mouse, 300 grades is its own failure mode. The bindings are read from
     this literal by the handler, so an unbound key breaks the page rather than
-    quietly disagreeing with the documentation."""
-    keys = _literal(_build(tmp_path, MANIFEST), "KEYS")
+    quietly disagreeing with the documentation.
+
+    The literal alone pins nothing: deleting the whole `keydown` listener leaves
+    `KEYS` sitting in the page, the documented shortcuts dead, and this test
+    green. So the HANDLER is required, and required to act on every binding.
+    """
+    html = _build(tmp_path, MANIFEST)
+    keys = _literal(html, "KEYS")
 
     assert [keys[k] for k in ("next", "prev", "pass", "fail", "note")] == \
         ["j", "k", "1", "2", "n"]
+
+    listener = re.search(r'addEventListener\(\s*"keydown".*?\n\}\);', html, re.S)
+    assert listener, "the page binds no keydown handler at all"
+    for binding in ("next", "prev", "pass", "fail", "note"):
+        assert f"KEYS.{binding}" in listener.group(0), \
+            f"nothing in the keydown handler reads KEYS.{binding}"
 
 
 # --------------------------------------------------------------------------- #
@@ -238,12 +288,32 @@ def test_a_deadline_aborted_arm_is_excluded_from_the_collected_row(tmp_path):
 
 def test_the_progress_denominator_counts_only_gradable_arms(tmp_path):
     """"127 of 254" against a denominator that includes arms nobody can grade
-    reads as an unfinished pass forever."""
-    meta = _literal(_build(tmp_path, _excluded_manifest(outage=True)), "META")
+    reads as an unfinished pass forever.
+
+    META is not the denominator. The bar reads `SLOTS.length`, which the page
+    builds from PAIRS in the browser, so a test that checks only `META.gradable`
+    -- as this one used to -- passes while the bar counts all 254. Both are
+    pinned: the numbers in META, and the two lines of page code that decide what
+    a slot is and what the bar divides by.
+    """
+    html = _build(tmp_path, _excluded_manifest(outage=True))
+    meta = _literal(html, "META")
 
     assert meta["arms"] == 2
     assert meta["gradable"] == 1
     assert meta["excluded_by_cause"] == {export.CAUSE_OUTAGE: 1}
+
+    # The excluded arm really is in PAIRS, so the SLOTS filter has something to
+    # drop -- without this the two assertions below are vacuous.
+    pairs = _literal(html, "PAIRS")
+    assert pairs[0]["ns"]["excluded"] and not pairs[0]["cc"]["excluded"]
+
+    slots = re.search(r"const SLOTS = \[\];.*?\n\}", html, re.S)
+    assert slots and re.search(r"if\(\s*a\s*&&\s*!\s*a\.excluded\s*\)\s*SLOTS\.push",
+                               slots.group(0)), \
+        f"an excluded arm is no longer kept out of SLOTS:\n{slots and slots.group(0)}"
+    assert re.search(r"const n = gradedCount\(\), total = SLOTS\.length;", html), \
+        "the progress bar's denominator is no longer the gradable-slot count"
 
 
 # --------------------------------------------------------------------------- #
@@ -278,9 +348,12 @@ def test_a_run_directory_with_no_paired_manifest_is_refused(tmp_path):
 # --------------------------------------------------------------------------- #
 
 def _corpus_for(tmp_path, vid="a.one"):
+    """`name` and `turns` included: both are required by `e2e.catalog.Variant`,
+    which is what `export_stage_b` reads `query_text` through."""
     p = tmp_path / "corpus_for_export.json"
     p.write_text(json.dumps({"version": 2, "families": {"f": {"variants": [
-        {"id": vid, "family": "f", "status": "active", "is_bayesian": True,
+        {"id": vid, "family": "f", "name": vid, "status": "active",
+         "is_bayesian": True, "turns": [{"label": "main", "query": "How many mice?"}],
          "hibayes_subtype": "S", "expected_behavior": "AnswerDirectly",
          "artifact_expected": False, "artifact_kind": None}]}},
         "family_defaults": {"f": {}}}), encoding="utf-8")
@@ -350,6 +423,74 @@ def test_the_answer_under_grade_reaches_the_page(tmp_path):
     pairs = _literal(_build(tmp_path, MANIFEST), "PAIRS")
 
     assert pairs[0]["ns"]["reply"] == "705 mice."
+
+
+def test_a_failed_follow_up_does_not_show_turn_1s_answer_as_the_final_one(tmp_path):
+    """THE bias this fix removes.
+
+    A `refine_and_recall` arm whose follow-up errored is gradable, not excluded:
+    `error` is terminal, so no deadline abort, and the manifest entry reads
+    `failed`. The page took the last NON-EMPTY reply, so it rendered turn 1's
+    answer -- to a DIFFERENT question -- under the heading "Final answer", and a
+    grader reading a coherent answer marks it a pass. That inflates
+    `human_success` systematically, in the 25-variant family the paired design
+    keeps precisely because it is where the two engines differ most.
+
+    The earlier turn is not hidden: it stays in the per-turn trace, beside the
+    question it actually answered.
+    """
+    art = collect.artifacts_dir(tmp_path) / "a.one" / "cc"
+    art.mkdir(parents=True)
+    (art / "turns.json").write_text(json.dumps([
+        {"task_id": "t1", "row": {"status": "completed", "progress": [],
+                                  "result": {"reply": "705 mice."}}},
+        {"task_id": "t2", "row": {"status": "error", "progress": [], "result": None}},
+    ]), encoding="utf-8")
+
+    cc = _literal(_build(tmp_path, MANIFEST), "PAIRS")[0]["cc"]
+
+    assert cc["excluded"] is None, "an errored follow-up is gradable, not excluded"
+    assert cc["reply"] == "", "turn 1's answer must not stand in for the final one"
+    assert [t["reply"] for t in cc["trace"]] == ["705 mice.", ""]
+
+
+def test_both_graders_are_shown_the_same_answer(tmp_path):
+    """The page's "Final answer" and Stage C's `final_answer` column are the same
+    string, because the study IS the comparison of the two verdicts on it. One
+    extraction (`export.reply_of`) is what makes that true rather than hoped."""
+    art = collect.artifacts_dir(tmp_path) / "a.one" / "ns"
+    art.mkdir(parents=True)
+    (art / "task.json").write_text(json.dumps(
+        {"status": "completed", "progress": [], "result": {"reply": "705 mice."}}),
+        encoding="utf-8")
+    html = _build(tmp_path, MANIFEST)
+
+    assert export.main(["--run", str(tmp_path),
+                        "--corpus", str(_corpus_for(tmp_path))]) == 0
+
+    on_page = _literal(html, "PAIRS")[0]["ns"]["reply"]
+    with open(tmp_path / "hibayes_functional_eval_inputs.csv", newline="",
+              encoding="utf-8") as fh:
+        in_csv = {r["query_id"]: r["final_answer"] for r in csv.DictReader(fh)}
+    assert on_page == in_csv["a.one::ns"] == "705 mice."
+
+
+def test_a_report_built_over_no_collected_tree_says_the_run_is_degraded(tmp_path):
+    """The one hole in the refusal chain. `collect` exits 2 and `export` warns in
+    detail; the BUILDER -- step 3, immediately before a 254-arm human grading
+    pass -- printed "8 arms 8 gradable" and said nothing at all, over a page on
+    which every answer is missing and no deadline abort can be seen."""
+    (tmp_path / bayes_manifest.MANIFEST_NAME).write_text(json.dumps(MANIFEST),
+                                                         encoding="utf-8")
+    assert not collect.artifacts_dir(tmp_path).exists()
+
+    proc = subprocess.run([sys.executable, str(SCRIPTS / "build_bayes_report.py"),
+                           "--run", str(tmp_path), "--out", str(tmp_path / "r.html")],
+                          capture_output=True, text=True, check=True)
+
+    assert str(collect.artifacts_dir(tmp_path)) in proc.stderr
+    assert export.CAUSE_DEADLINE in proc.stderr
+    assert "DEGRADED" in proc.stderr
 
 
 def test_the_question_text_reaches_the_page(tmp_path):

@@ -163,22 +163,6 @@ def _event_line(ev) -> dict | None:
     return {"e": name, "s": str(src), "d": _clip(detail)}
 
 
-def _reply_of(row) -> str:
-    """The answer this turn produced.
-
-    `result.reply` first because that is the endpoint's own final field; the
-    `query_complete` event is the fallback for a row whose result never landed.
-    """
-    result = row.get("result")
-    if isinstance(result, dict) and result.get("reply"):
-        return str(result["reply"])
-    for ev in reversed(row.get("progress") or []):
-        data = ev.get("data") or {}
-        if isinstance(data, dict) and data.get("reply"):
-            return str(data["reply"])
-    return ""
-
-
 def _trace(rows, turn_defs) -> list[dict]:
     """One record per collected turn, paired positionally with the declared turns.
 
@@ -197,7 +181,10 @@ def _trace(rows, turn_defs) -> list[dict]:
             "status": row.get("status") or "",
             "events": events[:MAX_EVENTS_PER_TURN],
             "dropped": max(0, len(events) - MAX_EVENTS_PER_TURN),
-            "reply": _reply_of(row),
+            # `export.reply_of`, not a second extraction here: Stage C's
+            # `final_answer` comes from the same function, and the study is the
+            # comparison of the two graders' verdicts on ONE answer.
+            "reply": export.reply_of(row),
         })
     return out
 
@@ -250,9 +237,16 @@ def _arm_payload(entry, *, run, pair_id, arm, turn_defs) -> dict:
     rows = export._turn_rows(collect.artifacts_dir(run), pair_id, arm)
     verdict = export._exclusion(entry, rows)
     trace = _trace(rows, turn_defs)
-    # The LAST turn's reply. A follow-up's answer is the one under grade; turn 1
-    # of a refine_and_recall case answered a different question.
-    reply = next((t["reply"] for t in reversed(trace) if t["reply"]), "")
+    # The LAST turn's reply, EMPTY INCLUDED. `export.final_answer` is the one
+    # definition, and Stage C's `final_answer` column comes from it too.
+    #
+    # This used to take the last NON-EMPTY reply, which is a different rule with
+    # a systematic bias: a refine_and_recall arm whose follow-up errored is
+    # gradable rather than excluded, so it rendered turn 1's answer -- to a
+    # different question -- under the heading "Final answer", in the 25-variant
+    # family the design keeps because it is where the two engines differ most.
+    # An empty reply is shown as one ("No reply was recorded for this arm").
+    reply = export.final_answer(rows)
     return {
         "status": entry.status,
         "route": entry.route,
@@ -284,6 +278,18 @@ def build(run: pathlib.Path, corpus_path: pathlib.Path, template: pathlib.Path,
                  f"Run the suite with --bayesian, then nessie_tests/collect.py.")
     if not manifest.pairs:
         sys.exit(f"{run / bayes_manifest.MANIFEST_NAME} records no pairs")
+
+    # The one hole in the refusal chain: `collect` exits 2 and `export` warns in
+    # detail when the tree is absent, while this step -- the last one before a
+    # 254-arm human grading pass -- printed "8 arms 8 gradable" and said nothing.
+    # Same warning, same voice, one tail of its own.
+    art = collect.artifacts_dir(run)
+    if not art.is_dir():
+        print(export.no_artifacts_warning(art, step="report", consequences=(
+            "every arm renders with NO answer and no artifacts: the replies a "
+            "human is here to grade are read from the collected task rows, and "
+            "there are none. The page will show 'No reply was recorded' for all "
+            "of them.",)), file=sys.stderr)
 
     corpus_raw = lj(corpus_path) if pathlib.Path(corpus_path).is_file() else {}
     variants = _flatten_corpus(corpus_raw)
