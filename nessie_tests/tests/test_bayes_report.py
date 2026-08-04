@@ -5,18 +5,22 @@ agreement by anchoring, and the disagreement set is the whole reason both grader
 exist. So the verdict ships in the page but is not rendered for a row until that
 row has a human grade.
 """
+import csv
 import json
 import pathlib
 import re
 import subprocess
 import sys
 
-from nessie_tests import bayes_manifest, export
+from nessie_tests import bayes_manifest, collect, export
 
-SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "output-skill-bayesian" / "scripts"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+SKILL_DIR = pathlib.Path(__file__).resolve().parents[1] / "output-skill-bayesian"
+SCRIPTS = SKILL_DIR / "scripts"
 
 
 def _build(tmp_path, manifest, llm=None):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / bayes_manifest.MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
     if llm is not None:
         (tmp_path / "stage_c.json").write_text(json.dumps(llm), encoding="utf-8")
@@ -31,10 +35,36 @@ def _literal(html, name):
     return json.loads(m.group(1)) if m else None
 
 
+_SCRIPT_BLOCK = re.compile(r"<script\b[^>]*>.*?</script>", re.S | re.I)
+
+
+def _outside_scripts(html: str) -> str:
+    """The whole document with every `<script>` block removed.
+
+    The blinding guard used to split on the FIRST `<script` and check only what
+    came before it, which left everything after `</script>` unexamined -- and a
+    browser paints that just as readily. The one guard the blind design has must
+    cover the whole document.
+    """
+    return _SCRIPT_BLOCK.sub("", html)
+
+
+def _grades_key_expr(html: str) -> str | None:
+    """The right-hand side of `const GRADES_KEY = ...;`, verbatim."""
+    m = re.search(r"const GRADES_KEY\s*=\s*(.+?);\s*$", html, re.M)
+    return m.group(1).strip() if m else None
+
+
 MANIFEST = {"run_meta": {"mode": "bayesian"}, "pairs": [
     {"id": "a.one", "family": "f", "hibayes_subtype": "Search-Basic",
      "ns": {"id": "a.one", "family": "f", "tier": "full", "status": "passed"},
      "cc": {"id": "a.one", "family": "f", "tier": "full", "status": "failed"}}]}
+
+
+def _with_run_id(run_id):
+    m = json.loads(json.dumps(MANIFEST))
+    m["run_meta"]["run_id"] = run_id
+    return m
 
 
 def test_every_pair_reaches_the_page_with_both_arms(tmp_path):
@@ -53,17 +83,64 @@ def test_the_llm_verdict_is_embedded_but_flagged_blind(tmp_path):
 
 def test_the_page_never_renders_a_verdict_before_a_grade_server_side(tmp_path):
     """The verdict must reach the reader only through the blind-gated JS path, not
-    as static markup a browser paints immediately."""
-    html = _build(tmp_path, MANIFEST,
-                  llm={"a.one::ns": {"outcome": "FullySatisfied", "usefulness_score": 4}})
-    body = html.split("<script", 1)[0]
-    assert "FullySatisfied" not in body
+    as static markup a browser paints immediately.
+
+    Checked over the WHOLE document outside `<script>` blocks. Checking only what
+    precedes the first `<script` -- which this test used to do -- leaves a verdict
+    emitted after `</script>` invisible to the guard, and the browser paints that
+    one exactly as readily.
+    """
+    llm = {"a.one::ns": {"outcome": "FullySatisfied", "usefulness_score": 4,
+                         "primary_issue": "invented the sample count"}}
+    html = _build(tmp_path, MANIFEST, llm=llm)
+    static = _outside_scripts(html)
+
+    # The strip removed the scripts and not the page: a guard over an empty string
+    # would pass forever.
+    assert "<script" in html
+    assert "Download grades.json" in static
+    for verdict_text in ("FullySatisfied", "invented the sample count"):
+        assert verdict_text in html, "the verdict must SHIP in the file"
+        assert verdict_text not in static, "...and only ever inside a script block"
 
 
 def test_grades_autosave_key_is_run_scoped(tmp_path):
-    """Two runs graded in the same browser must not share a localStorage bucket."""
+    """Two runs graded in the same browser must not share a localStorage bucket.
+
+    Asserting that the PREFIX appears somewhere in the page -- which this test
+    used to do -- passes for a hardcoded `"nessie-bayes-grades:shared"`, the exact
+    regression the name promises to prevent: two runs would then autosave into one
+    bucket and silently overwrite each other's grades. So this pins the key's
+    DERIVATION from the run instead of its prefix.
+    """
+    a = _build(tmp_path / "a", _with_run_id("run-A"))
+    b = _build(tmp_path / "b", _with_run_id("run-B"))
+    expr = _grades_key_expr(a)
+
+    assert expr is not None, "no `const GRADES_KEY = ...;` in the page at all"
+    # Built from the run this page reports on, not a constant.
+    assert "META.run_id" in expr
+    assert re.fullmatch(r"""["'].*["']""", expr) is None, f"constant key: {expr}"
+    # ONE derivation over two runs, and the runs it reads really do differ.
+    assert _grades_key_expr(b) == expr
+    assert _literal(a, "META")["run_id"] == "run-A"
+    assert _literal(b, "META")["run_id"] == "run-B"
+
+
+def test_the_blind_gate_is_on_and_load_bearing(tmp_path):
+    """`BLIND_UNTIL_GRADED` is the one flag that switches the feature off.
+
+    Setting it false fails loudly today -- `verdictHTML` dereferences an undefined
+    grade, `render` throws, and the page paints nothing -- but the feature this
+    whole report exists for must not rest on a downstream accident, and a later
+    null-guard in `verdictHTML` would turn that loud failure into a silent leak.
+    """
     html = _build(tmp_path, MANIFEST)
-    assert "nessie-bayes-grades:" in html
+
+    assert re.search(r"const BLIND_UNTIL_GRADED\s*=\s*true\s*;", html)
+    gate = re.search(r"function verdictHTML\(.*?\n\}", html, re.S)
+    assert gate and "BLIND_UNTIL_GRADED" in gate.group(0), \
+        "the only path a verdict reaches the DOM by no longer reads the flag"
 
 
 def test_the_report_builds_without_stage_c_output(tmp_path):
@@ -190,6 +267,64 @@ def test_a_run_directory_with_no_paired_manifest_is_refused(tmp_path):
     assert not (tmp_path / "r.html").exists()
 
 
+# --------------------------------------------------------------------------- #
+# The artifacts-tree invariant. `export` and the report builder must read the
+# SAME collected tree. The page bands an arm ungradable and strips its grade
+# controls using `export._exclusion`, and a deadline abort is visible ONLY in the
+# collected task row -- so an export run over a different (or no) tree scores a
+# row the page cannot grade, and `merge_grades` then raises `IncompleteGrading`
+# instructing the operator to grade it. One derivation, `collect.artifacts_dir`,
+# is what makes that impossible rather than merely documented.
+# --------------------------------------------------------------------------- #
+
+def _corpus_for(tmp_path, vid="a.one"):
+    p = tmp_path / "corpus_for_export.json"
+    p.write_text(json.dumps({"version": 2, "families": {"f": {"variants": [
+        {"id": vid, "family": "f", "status": "active", "is_bayesian": True,
+         "hibayes_subtype": "S", "expected_behavior": "AnswerDirectly",
+         "artifact_expected": False, "artifact_kind": None}]}},
+        "family_defaults": {"f": {}}}), encoding="utf-8")
+    return p
+
+
+def _csv_keys(run, arm):
+    with open(run / f"hibayes_eval_rows_{arm}.csv", newline="", encoding="utf-8") as fh:
+        return {export.stage_b_query_id(r["query_id"], arm) for r in csv.DictReader(fh)}
+
+
+def test_the_export_and_the_report_agree_on_which_arms_are_gradable(tmp_path):
+    """The demonstrated divergence, as a run: the CC arm blew the deadline, which
+    only its still-non-terminal collected row shows. Export the CSVs and build the
+    page from the same run directory, and the arms one scores must be exactly the
+    arms the other lets a human grade."""
+    art = collect.artifacts_dir(tmp_path) / "a.one" / "cc"
+    art.mkdir(parents=True)
+    (art / "task.json").write_text(json.dumps({"status": "pending", "progress": []}),
+                                   encoding="utf-8")
+    html = _build(tmp_path, MANIFEST)
+    assert export.main(["--run", str(tmp_path),
+                        "--corpus", str(_corpus_for(tmp_path))]) == 0
+
+    on_page = {export.stage_b_query_id(p["id"], arm) for p in _literal(html, "PAIRS")
+               for arm in export.ARMS if p[arm] and not p[arm]["excluded"]}
+    in_csv = _csv_keys(tmp_path, "ns") | _csv_keys(tmp_path, "cc")
+
+    assert in_csv == on_page
+    # And the divergence itself: the deadline abort is out on BOTH sides.
+    assert "a.one::cc" not in in_csv
+    assert "a.one::ns" in in_csv
+
+
+def test_the_builder_derives_the_collected_tree_rather_than_spelling_it():
+    """A second `/ "artifacts"` here is how the two sides come to disagree: the
+    predicate is already shared (`export._exclusion`), so the only hole left is
+    the INPUT it reads."""
+    src = (SCRIPTS / "build_bayes_report.py").read_text(encoding="utf-8")
+
+    assert "collect.artifacts_dir(" in src
+    assert '/ "artifacts"' not in src
+
+
 def test_the_builder_names_the_manifest_through_the_constant():
     """A literal `"bayes_manifest.json"` here would survive a rename of the
     constant and read a normal run's manifest as an empty paired one."""
@@ -234,3 +369,61 @@ def test_the_question_text_reaches_the_page(tmp_path):
     pairs = _literal(out.read_text(encoding="utf-8"), "PAIRS")
 
     assert pairs[0]["turns"][0]["query"] == "How many mice?"
+
+
+# --------------------------------------------------------------------------- #
+# The runbook itself. A documented step that silently does nothing is worse than
+# a missing one, because the operator believes it ran: BOTH `collect.py` and
+# `export.py` were printed in SKILL.md as `python -m` commands while having no
+# entry point at all, so steps 1 and 2 exited 0, printed nothing and wrote
+# nothing -- and the report was then built and graded over an empty tree.
+# --------------------------------------------------------------------------- #
+
+def _skill_text():
+    return (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+
+
+def test_every_module_command_in_the_runbook_has_an_entry_point():
+    """`python -m nessie_tests.X` needs BOTH a `main` and a `__main__` block. A
+    module carrying `main` alone still exits 0 and does nothing from a shell,
+    which is the exact shape of the defect."""
+    named = set(re.findall(r"python -m (nessie_tests\.[A-Za-z_.]+)", _skill_text()))
+
+    assert named, "the runbook names no module commands at all"
+    for dotted in sorted(named):
+        path = ROOT / (dotted.replace(".", "/") + ".py")
+        assert path.is_file(), f"{dotted} names no module"
+        src = path.read_text(encoding="utf-8")
+        assert re.search(r"^def main\(", src, re.M), f"{dotted} has no main()"
+        assert '__name__ == "__main__"' in src, f"{dotted} never calls its main()"
+
+
+def test_every_script_command_in_the_runbook_exists_and_is_executable():
+    named = set(re.findall(r"python (nessie_tests/[\w./-]+\.py)", _skill_text()))
+
+    assert named, "the runbook names no scripts at all"
+    for rel in sorted(named):
+        path = ROOT / rel
+        assert path.is_file(), rel
+        assert '__name__ == "__main__"' in path.read_text(encoding="utf-8"), rel
+
+
+def test_the_runbook_does_not_present_collection_as_a_runnable_command():
+    """It is not runnable: `collect.collect` needs a concrete `Sources` and no
+    task in this plan builds one. The runbook must say so and name what is
+    missing, rather than printing a command that exits 0."""
+    text = _skill_text()
+
+    assert "python -m nessie_tests.collect --run" not in text
+    assert "not runnable" in text.lower()
+    for name in ("Sources", "task_rows", "cc_transcript", "copy_tree"):
+        assert name in text
+
+
+def test_the_runbook_points_at_the_importable_merge_grades():
+    """The script is a thin entry point; every decision lives in the package, and
+    a Files table naming the script as the logic sends the next reader to edit
+    the wrong file."""
+    text = _skill_text()
+
+    assert "nessie_tests/output_skill_bayesian/merge_grades.py" in text
