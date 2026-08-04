@@ -287,6 +287,35 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             "dbsnp / known_indels / snpEff caches are not provisioned on Luria."
         ),
     },
+    "crisprseq": {
+        "repo": "https://github.com/nf-core/crisprseq",
+        "default_revision": "2.3.0",
+        "description": "CRISPR editing-efficiency analysis (targeted) and pooled sgRNA screens (screening).",
+        "common_assays": ["CRISPR", "CRISPR-seq", "amplicon sequencing", "gene editing",
+                          "knockout", "knock-in", "sgRNA screen"],
+        # No genome: crisprseq works against the supplied amplicon, not a whole-genome
+        # reference, so it needs nothing from the Luria refs tree.
+        "default_genome": None,
+        "reference_cli_flags": [],
+        "default_profile": "singularity",
+        # Only these two are required by assets/schema_input.json. reference /
+        # protospacer / template are OPTIONAL per-row columns, and the run-level
+        # --protospacer / --reference_fasta override them — which is what makes a
+        # shared-guide cohort answerable with a handful of questions.
+        "required_columns": ["sample", "fastq_1"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^CRISPR([-_ ]?seq)?$",
+            r"^gene[-_ ]editing$",
+            r"^(sg)?RNA[-_ ]screen$",
+        ],
+        "pipeline_kind_description": (
+            "CRISPR amplicon analysis. Needs FASTQ plus a guide sequence and amplicon "
+            "reference, which the user supplies at launch — they are not recorded in "
+            "NExtSEEK and must never be guessed."
+        ),
+    },
     "seqinspector": {
         "repo": "https://github.com/nf-core/seqinspector",
         "default_revision": "1.1.0",

@@ -150,5 +150,13 @@
       "mirtrace_species is set, or its absence is called out to the user.",
       "The mature/hairpin test-data caveat has been surfaced if defaults were used."
     ]
-  }
+  },
+  "required_user_params": [
+    {
+      "name": "mirtrace_species",
+      "scope": "run",
+      "definition": "The miRTrace species code for this cohort's organism. Without it the miRNA QC output is not meaningful.",
+      "example": "hsa   (human; mmu = mouse, mcc = rhesus macaque)"
+    }
+  ]
 }

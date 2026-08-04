@@ -1,0 +1,237 @@
+{
+  "report_type": "NFCORE_CRISPRSEQ_SAMPLESHEET",
+  "description": "nf-core/crisprseq samplesheet context, aligned to the pinned 2.3.0 schema. CRISPR editing analysis (targeted) and pooled screens (screening).",
+  "params": {
+    "analysis": {
+      "type": "enum",
+      "allowed": [
+        "targeted",
+        "screening"
+      ],
+      "default": null,
+      "steerable": true,
+      "help": "REQUIRED. targeted = edited a specific locus; screening = pooled sgRNA library screen."
+    },
+    "protospacer": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Run-level guide sequence; overrides any per-row protospacer. Use when the whole cohort shares one guide."
+    },
+    "reference_fasta": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Run-level amplicon FASTA path; overrides any per-row reference."
+    },
+    "library": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Screening only: tab-separated sgRNA-to-gene file."
+    },
+    "umi_clustering": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "Set true only if the libraries carry UMIs."
+    },
+    "skip_multiqc": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    }
+  },
+  "required_user_params": [
+    {
+      "name": "analysis",
+      "scope": "run",
+      "definition": "Which kind of CRISPR experiment this is. Choose 'targeted' if you edited a specific locus and want editing efficiency at that site; choose 'screening' for a pooled sgRNA library screen.",
+      "example": "targeted",
+      "allowed": [
+        "targeted",
+        "screening"
+      ]
+    },
+    {
+      "name": "protospacer",
+      "scope": "run",
+      "definition": "The guide RNA target sequence (~20 nt), WITHOUT the PAM. If every sample in this cohort used the same guide, one value covers the whole run.",
+      "example": "GGCACTGCGGCTGGAGGTGG",
+      "pattern": "^[ACTGNactgn]+$",
+      "pattern_hint": "DNA bases only (A/C/T/G/N) \u2014 no spaces, no 'U', and do not include the PAM",
+      "required_when": {
+        "analysis": "targeted"
+      }
+    },
+    {
+      "name": "reference_fasta",
+      "scope": "run",
+      "definition": "Path to a FASTA holding the wild-type amplicon sequence you sequenced across the cut site.",
+      "example": "/net/bmc-pub10/data1/bmc/refs/amplicon_EMX1.fa",
+      "required_when": {
+        "analysis": "targeted"
+      }
+    },
+    {
+      "name": "library",
+      "scope": "run",
+      "definition": "Tab-separated file mapping each sgRNA to its target gene, for a pooled screen.",
+      "example": "/net/bmc-pub10/data1/bmc/refs/brunello.tsv",
+      "required_when": {
+        "analysis": "screening"
+      }
+    }
+  ],
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/crisprseq",
+    "repository": "https://github.com/nf-core/crisprseq",
+    "documentation_url": "https://nf-co.re/crisprseq/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Only sample and fastq_1 are REQUIRED. reference / protospacer / template are optional per-row columns, and the run-level --protospacer and --reference_fasta override them.",
+    "required_columns": [
+      "sample",
+      "fastq_1"
+    ],
+    "optional_columns": [
+      "fastq_2",
+      "condition",
+      "reference",
+      "protospacer",
+      "template"
+    ],
+    "reference_requirement": "No genome. crisprseq works against the supplied amplicon, not a whole-genome reference \u2014 so it needs nothing from the Luria refs tree."
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null,
+      "condition": null
+    }
+  ],
+  "examples": {
+    "targeted_shared_guide": {
+      "sample": "D.SEQ-260711ENG-12-PUB",
+      "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz",
+      "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz",
+      "condition": "edited"
+    }
+  },
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "sample and fastq_1 must be populated; everything else is optional.",
+    "Sequence columns (reference/protospacer/template) must be DNA only: ^[ACTGNactgn]+$.",
+    "Prefer the run-level --protospacer / --reference_fasta when the cohort shares one guide and amplicon; only fall back to per-row columns when they genuinely differ.",
+    "If guides differ per sample, take them from an uploaded sheet \u2014 do NOT ask the user to type one sequence per row.",
+    "template is only needed for HDR / knock-in experiments; omit it for plain knockout.",
+    "Do NOT pass --gtf: crisprseq's schema has no gtf parameter."
+  ],
+  "notes": "Editing-efficiency analysis. The failure mode to guard against is silent: a wrong protospacer does not error, it reports a wrong efficiency. Echo the captured values back to the user and get an explicit confirmation before submitting.",
+  "sources": [
+    {
+      "label": "nf-core/crisprseq usage docs",
+      "url": "https://nf-co.re/crisprseq/latest/docs/usage/",
+      "notes": "Analysis modes and samplesheet description."
+    },
+    {
+      "label": "nf-core/crisprseq nextflow_schema.json @ 2.3.0",
+      "url": "https://raw.githubusercontent.com/nf-core/crisprseq/2.3.0/nextflow_schema.json",
+      "notes": "Confirms analysis enum, and the run-level --protospacer / --reference_fasta overrides."
+    },
+    {
+      "label": "nf-core/crisprseq assets/schema_input.json @ 2.3.0",
+      "url": "https://raw.githubusercontent.com/nf-core/crisprseq/2.3.0/assets/schema_input.json",
+      "notes": "Authoritative: only sample and fastq_1 are required; sequence columns are ^[ACTGNactgn]+$."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/crisprseq input samplesheet.",
+        "fields": {
+          "sample": {
+            "required": "required",
+            "position_rule": "Column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Custom sample name.",
+            "validation_hints": "Prefer the NExtSEEK D.SEQ UID.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "fastq_1": {
+            "required": "required",
+            "position_rule": "Column 2",
+            "expected_value": "path string",
+            "allowed_values": ".fastq.gz or .fq.gz",
+            "description": "Read 1 FASTQ.",
+            "validation_hints": "Absolute Luria path from the sample's primary-data metadata.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz"
+          },
+          "fastq_2": {
+            "required": "optional",
+            "position_rule": "Column 3",
+            "expected_value": "path or blank",
+            "allowed_values": ".fastq.gz or .fq.gz, or blank",
+            "description": "Read 2 FASTQ.",
+            "validation_hints": "Blank for single-end.",
+            "example": ""
+          },
+          "condition": {
+            "required": "optional",
+            "position_rule": "After the reads",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Experimental condition label, e.g. edited vs control.",
+            "validation_hints": "Derive from the sample's Treatment/Cohort metadata when present.",
+            "example": "edited"
+          },
+          "reference": {
+            "required": "optional",
+            "position_rule": "After condition",
+            "expected_value": "DNA sequence",
+            "allowed_values": "^[ACTGNactgn]+$",
+            "description": "Per-sample wild-type amplicon sequence. Superseded by run-level --reference_fasta.",
+            "validation_hints": "Only use when amplicons genuinely differ across the cohort.",
+            "example": "TTGCCCAGGCTGGAGTGCA"
+          },
+          "protospacer": {
+            "required": "optional",
+            "position_rule": "After reference",
+            "expected_value": "DNA sequence",
+            "allowed_values": "^[ACTGNactgn]+$",
+            "description": "Per-sample guide sequence without PAM. Superseded by run-level --protospacer.",
+            "validation_hints": "Only use when guides genuinely differ across the cohort.",
+            "example": "GGCACTGCGGCTGGAGGTGG"
+          },
+          "template": {
+            "required": "optional",
+            "position_rule": "Last",
+            "expected_value": "DNA sequence",
+            "allowed_values": "^[ACTGNactgn]+$",
+            "description": "HDR donor/repair template, for knock-in experiments only.",
+            "validation_hints": "Omit entirely for plain knockout experiments.",
+            "example": "TTGCCCAGGCTGGAGTGCA"
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/crisprseq samplesheet from a resolved NExtSEEK D.SEQ cohort of CRISPR amplicon libraries.",
+    "workflow_role": "Selected for CRISPR editing-efficiency or pooled-screen cohorts.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2,condition.",
+    "population_priority": [
+      "One row per D.SEQ leaf; sample = the UID.",
+      "Map R1/R2 from the sample's primary-data metadata.",
+      "Fill `condition` from Treatment / Cohort metadata when it exists; leave blank otherwise.",
+      "Do NOT populate reference/protospacer/template from guesswork \u2014 those come from the user via required_user_params, or from an uploaded sheet."
+    ],
+    "final_checks": [
+      "analysis has been answered by the user, not defaulted.",
+      "The captured guide/amplicon values have been echoed back and confirmed.",
+      "No sequence column was invented."
+    ]
+  }
+}

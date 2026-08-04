@@ -275,3 +275,45 @@ def test_rnavar_defaults_to_skipping_bqsr():
     """BQSR needs dbsnp + known_indels; neither is provisioned in the Luria refs tree,
     so the curated default must be to skip it rather than fail deep into a run."""
     assert _load("rnavar")["params"]["skip_baserecalibration"]["default"] is True
+
+
+def test_crisprseq_entry_and_template_agree_with_the_pinned_schema():
+    """Only sample+fastq_1 are required by assets/schema_input.json — the sequence
+    columns are optional, and the run-level --protospacer / --reference_fasta
+    override them. That is what makes a shared-guide cohort answerable in a few
+    questions rather than needing per-row curation."""
+    from chat_nextseek.seqera.catalog import get_pipeline_entry
+    from chat_nextseek.reports.templates_meta import (
+        get_report_template_basename, nfcore_pipeline_from_report_type,
+    )
+    entry = get_pipeline_entry("crisprseq")
+    assert entry["default_revision"] == "2.3.0"
+    assert entry["required_columns"] == ["sample", "fastq_1"]
+    assert entry["reference_cli_flags"] == []          # works off the amplicon, not a genome
+    assert entry["default_genome"] is None
+    doc = _load("crisprseq")
+    assert doc["pipeline"]["required_columns"] == entry["required_columns"]
+    assert "protospacer" in doc["pipeline"]["optional_columns"]
+    for alias in ("NFCORE_CRISPRSEQ", "NF_CORE_CRISPRSEQ", "NFCORE_CRISPRSEQ_SAMPLESHEET"):
+        assert nfcore_pipeline_from_report_type(alias) == "crisprseq"
+        assert get_report_template_basename(alias) == "nfcore/crisprseq"
+
+
+def test_declared_user_param_specs_are_well_formed():
+    """Every required_user_param must carry a definition and an example — the whole
+    point is that the user sees what is being asked for, not a bare param name."""
+    import re
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
+    from chat_nextseek.seqera.user_params import required_user_params
+    seen = 0
+    for key in NFCORE_PIPELINE_CATALOG:
+        for spec in required_user_params(key):
+            seen += 1
+            assert spec.get("definition"), f"{key}:{spec['name']} has no definition"
+            assert spec.get("example"), f"{key}:{spec['name']} has no example"
+            assert spec.get("scope") in ("run", "sample"), f"{key}:{spec['name']} scope"
+            if spec.get("pattern"):
+                re.compile(spec["pattern"])          # a bad regex would silently no-op
+            # A declared param must be one the pipeline actually accepts.
+            assert spec["name"] in _load(key)["params"], f"{key}:{spec['name']} not in params"
+    assert seen >= 6, "expected crisprseq (4) + smrnaseq (1) + hic (1)"

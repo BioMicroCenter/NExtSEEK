@@ -138,7 +138,7 @@ So ~106 are integrable in principle, 98 beyond what we have. **But
 **And "Tier 1" turned out to be optimistic.** An earlier version of this
 document put the realistic Tier 1 shortlist at 15–20. When each candidate's
 actual `nextflow_schema.json` was read instead of its one-line description,
-**6 of 22 qualified as config-only.** The rest are blocked on references,
+**7 of 22 qualified as config-only** (6 immediately, plus `crisprseq` once the wizard could ask the user for what it needs). The rest are blocked on references,
 experimental design, or input shape — see *What we rejected* below. Treat
 the 73 as an upper bound on *shape*, not on effort.
 
@@ -154,7 +154,7 @@ samplesheet headers are a dict entry, not code.
 
 Of the 73, most are bacterial, viral, metagenomic or ancient-DNA
 pipelines with no obvious demand here. Of the 22 plausible candidates,
-**6 have shipped** (catalog now 14, up from 8):
+**7 have shipped** (catalog now 15, up from 8):
 
 | Shipped | Rev | Reference need |
 |-----------------|---------|-----------------------------------------|
@@ -164,8 +164,9 @@ pipelines with no obvious demand here. Of the 22 plausible candidates,
 | `riboseq` | 1.2.0 | fasta + gtf |
 | `hic` | 2.1.0 | fasta (bowtie2 index built per run) |
 | `rnavar` | 1.3.0 | fasta + gtf (BQSR and annotation off) |
+| `crisprseq` | 2.3.0 | none — works off the supplied amplicon |
 
-The other 16 are in the rejection table below.
+The other 15 are in the rejection table below.
 
 ### Tier 2 — one new input kind (`spectra`) · **9 pipelines**
 
@@ -271,8 +272,9 @@ this list.
 
 ## What we rejected, and what each would actually take
 
-The 16 shortlist candidates that did **not** ship, grouped by what blocks
-them. Estimates are engineering effort for one competent person, and they
+The 15 shortlist candidates that did **not** ship, grouped by what blocks
+them. (A 16th, `crisprseq`, was rejected in the first draft and has since
+shipped — see below, because the reason it was wrong matters.) Estimates are engineering effort for one competent person, and they
 **exclude** review, real-data validation, and any time spent waiting for
 storage or approvals — which for the reference-heavy rows is likely to
 dominate. Read them as "how big is this", not as commitments.
@@ -312,11 +314,56 @@ to compare against which, and that judgement isn't in the file paths.
 | `demultiplex` | Input is a sequencer run directory (BCL) plus a per-flowcell sample sheet. It *produces* `D.SEQ` data rather than consuming it, so it doesn't fit the cohort model at all. | A different launch path: point at a run directory instead of resolving a sample cohort. | 1 week — but question whether it belongs here at all rather than upstream of NExtSEEK |
 | `funcscan` | Doubly blocked: needs Bakta/ABRicate/AMPcombi databases, *and* its input is assembled contigs and proteins (`sample,fasta,protein,gbk,gff`), not reads. | Provision the databases, add an assembly input kind, and decide which NExtSEEK sample type holds an assembly — there isn't an obvious one today. | 1–2 weeks |
 
-### Blocked on metadata NExtSEEK doesn't record
+### Resolved since first draft — `crisprseq` **has now shipped**
 
-| Pipeline | Why it didn't work | What it would take | Estimate |
-|---------------|--------------------------|--------------------------|----------|
-| `crisprseq` | Every row needs `reference`, `protospacer` and `template` sequences plus an `analysis` mode. NExtSEEK records no guide-RNA metadata. | Either add those fields to a sample type and get curators populating them, or treat them as per-run questions the user answers. **The blocker is curation practice, not code.** | 2–3 days of code; unknown lead time on the metadata itself |
+The original rejection was **wrong**, and the correction is worth recording
+because the same mistake would have cost us other pipelines.
+
+It said every row needs `reference`, `protospacer` and `template`. That came
+from reading the example samplesheet's header and assuming every column was
+mandatory. The authoritative `assets/schema_input.json` says:
+
+    REQUIRED columns: ['sample', 'fastq_1']
+
+Everything else is optional — and there are run-level overrides,
+`--protospacer` (*"the same protospacer sequence for all samples"*) and
+`--reference_fasta`, that supersede the per-row columns entirely. So for a
+targeted experiment where the cohort shares one guide and one amplicon —
+the common case — **three answers cover the whole run, at any sample count.**
+
+Which meant the real blocker was never curation practice. It was simply that
+nobody had asked the user. The launch wizard is already a multi-turn
+conversation, so now it does.
+
+**What shipped instead of the rejection:** a general
+`required_user_params` contract. A pipeline declares, in its template, the
+values nobody can derive — with a plain-English definition, a worked example,
+and a validation pattern. `configure_run` then **refuses to build a run**
+until they are answered, handing the agent back a ready-made question.
+
+The refusal lives in code, not in the prompt, deliberately: a prompt
+instruction can be forgotten mid-conversation, and the failure mode here is
+silent. A wrong guide sequence does not error — it reports a wrong editing
+efficiency. Validation catches pasted whitespace, an RNA `U` where DNA is
+wanted, and enum typos before any cluster time is spent.
+
+It generalises, which is the actual prize. Two pipelines already shipped were
+quietly carrying the same problem and now use it too:
+
+| Pipeline | Asked for | Why it can't be derived |
+|---------------|--------------------------|----------------------------------|
+| `crisprseq` | `analysis`, then guide + amplicon (targeted) **or** sgRNA library (screening) | Not recorded anywhere in NExtSEEK |
+| `smrnaseq` | `mirtrace_species` | Depends on the cohort's organism; without it the miRNA QC is meaningless |
+| `hic` | `digestion` — unless the library is DNase Hi-C | The enzyme protocol is a bench decision, not a file property |
+
+Still true, and still worth doing: storing guide and amplicon sequences on a
+sample type would make them **reusable and FAIR**, where a value typed into
+chat is a one-off. Prompting is a legitimate bridge, not a replacement for
+curation. And where guides genuinely differ per sample, the answer is an
+uploaded sheet, not typing N sequences — the templates say so.
+
+**Actual cost: about half a day**, against the 2–3 days plus "unknown lead
+time" estimated when the requirement was misread.
 
 ### Blocked externally
 

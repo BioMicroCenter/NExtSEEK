@@ -41,6 +41,11 @@ from ..seqera.pipeline_params import (
     resolve_bundle_for_species,
 )
 from ..seqera.submitter import submit_launch
+from ..seqera.user_params import (
+    missing_user_params,
+    render_elicitation,
+    validate_user_params,
+)
 from ..luria.submitter import submit_luria
 from ..luria.run_script import local_luria_ref_files
 
@@ -513,6 +518,22 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
 
     # A genome override in params can re-select the bundle; else use the detected-species bundle.
     agent_params = dict(tool_input.get("params") or {})
+
+    # Params only the user can supply (a CRISPR guide, a Hi-C digestion protocol, a
+    # miRTrace species). Enforced here rather than in the prompt: an instruction can
+    # be forgotten mid-conversation, this cannot. Fail-closed because a wrong value
+    # of this kind does not error — it silently produces a wrong result.
+    bad = validate_user_params(pipeline_key, agent_params)
+    if bad:
+        return json.dumps({"ok": False, "invalid_user_params": bad,
+                           "message": "Ask the user to correct these; do not guess."})
+    missing = missing_user_params(pipeline_key, agent_params)
+    if missing:
+        return json.dumps({"ok": False,
+                           "needs_user_input": [s["name"] for s in missing],
+                           "ask_the_user": render_elicitation(missing),
+                           "message": ("Relay `ask_the_user` to the user in plain text and STOP. "
+                                       "Do not call conclude, and do not invent values.")})
     override = agent_params.get("genome")
     bundle_key = state.get("bundle_key")
     if override:

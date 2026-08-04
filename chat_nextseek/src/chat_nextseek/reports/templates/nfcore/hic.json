@@ -137,5 +137,22 @@
       "No row has a blank fastq_2.",
       "digestion or dnase has been decided and stated to the user."
     ]
-  }
+  },
+  "required_user_params": [
+    {
+      "name": "digestion",
+      "scope": "run",
+      "definition": "The restriction enzyme protocol used to prepare the Hi-C library \u2014 it determines the restriction and ligation sites. If this was DNase Hi-C instead of an enzyme digestion, say so and I will set the dnase flag rather than a digestion protocol.",
+      "example": "arima",
+      "allowed": [
+        "hindiii",
+        "mboi",
+        "dpnii",
+        "arima"
+      ],
+      "required_unless": {
+        "dnase": true
+      }
+    }
+  ]
 }
