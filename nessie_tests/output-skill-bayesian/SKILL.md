@@ -58,12 +58,20 @@ python nessie_tests/output-skill-bayesian/scripts/merge_grades.py \
     --run ./nessie_bayes_out --grades ./grades.json --out ./nessie_bayes_out/graded_rows.csv
 ```
 
-`fetch_run.py` is **not duplicated here**. When the run is on the dev box rather
-than local, pull it with the sibling skill's copy, unchanged:
+`fetch_run.py` is **not duplicated here**. Pull the run with the sibling skill's
+copy, unchanged — it handles both transports:
 
 ```bash
+# run executed on the dev box (the default target is fairdata-dev)
 python nessie_tests/output-skill/scripts/fetch_run.py --out ./nessie_bayes_out ...
+
+# run executed on THIS workstation -- pass an empty --host to go straight to the
+# local docker daemon. `ssh localhost` is not a fallback; there is no sshd.
+python nessie_tests/output-skill/scripts/fetch_run.py --host "" --out ./nessie_bayes_out ...
 ```
+
+The local form is the one a `--bayesian` run needs today, because the container
+this pipeline was built against runs on the workstation.
 
 ## Step 1 has no command yet, and that is a known gap
 
