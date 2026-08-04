@@ -1,0 +1,168 @@
+{
+  "report_type": "NFCORE_RIBOSEQ_SAMPLESHEET",
+  "description": "nf-core/riboseq samplesheet context, aligned to the pinned 1.2.0 schema. Ribosome profiling (Ribo-seq).",
+  "params": {
+    "aligner": {
+      "type": "enum",
+      "allowed": [
+        "star"
+      ],
+      "default": "star",
+      "steerable": false,
+      "help": "only star is supported at this revision"
+    },
+    "save_reference": {
+      "type": "bool",
+      "default": true,
+      "steerable": true
+    },
+    "seq_center": {
+      "type": "string",
+      "default": null,
+      "steerable": true
+    },
+    "skip_multiqc": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    }
+  },
+  "reference_resources": [
+    "fasta",
+    "gtf",
+    "star_index",
+    "salmon_index"
+  ],
+  "pipeline": {
+    "name": "nf-core/riboseq",
+    "repository": "https://github.com/nf-core/riboseq",
+    "documentation_url": "https://nf-co.re/riboseq/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2, strandedness, type. strandedness and type are REQUIRED and enum-constrained.",
+    "required_columns": [
+      "sample",
+      "fastq_1",
+      "strandedness",
+      "type"
+    ],
+    "optional_columns": [
+      "fastq_2",
+      "sample_description",
+      "pair",
+      "treatment"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "strandedness": null,
+      "type": null,
+      "fastq_2": null,
+      "sample_description": null,
+      "pair": null,
+      "treatment": null
+    }
+  ],
+  "examples": {
+    "riboseq_example": {
+      "sample": "D.SEQ-260711ENG-12-PUB",
+      "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz",
+      "fastq_2": "",
+      "strandedness": "auto",
+      "type": "riboseq"
+    }
+  },
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "strandedness must be one of: forward, reverse, unstranded, auto.",
+    "type must be one of: riboseq, rnaseq, tiseq \u2014 and must reflect the real assay, not a default.",
+    "A cohort containing only rnaseq-type rows is an ordinary RNA-seq experiment: use nf-core/rnaseq instead."
+  ],
+  "notes": "Ribosome profiling. star_index and salmon_index are built from FASTA+GTF when absent; the Luria refs tree has no prebuilt indices, so expect a build on first run per genome.",
+  "sources": [
+    {
+      "label": "nf-core/riboseq usage docs",
+      "url": "https://nf-co.re/riboseq/latest/docs/usage/",
+      "notes": "Workflow overview and samplesheet description."
+    },
+    {
+      "label": "nf-core/riboseq nextflow_schema.json @ 1.2.0",
+      "url": "https://raw.githubusercontent.com/nf-core/riboseq/1.2.0/nextflow_schema.json",
+      "notes": "Authoritative param names, types and defaults for the pinned revision."
+    },
+    {
+      "label": "nf-core/riboseq assets/schema_input.json @ 1.2.0",
+      "url": "https://raw.githubusercontent.com/nf-core/riboseq/1.2.0/assets/schema_input.json",
+      "notes": "Authoritative required/optional samplesheet columns and allowed values."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/riboseq input samplesheet.",
+        "fields": {
+          "sample": {
+            "required": "required",
+            "position_rule": "Column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Custom sample name; repeat across lanes of one library.",
+            "validation_hints": "Prefer the NExtSEEK D.SEQ UID so results map back to the sample record.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "fastq_1": {
+            "required": "required",
+            "position_rule": "Column 2",
+            "expected_value": "path string",
+            "allowed_values": ".fastq.gz or .fq.gz",
+            "description": "Full path to read 1 FASTQ.",
+            "validation_hints": "Absolute Luria path, taken from the sample's Link_PrimaryData / File_PrimaryData.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz"
+          },
+          "fastq_2": {
+            "required": "optional",
+            "position_rule": "Column 3",
+            "expected_value": "path string or blank",
+            "allowed_values": ".fastq.gz or .fq.gz, or blank",
+            "description": "Read 2 FASTQ for paired-end.",
+            "validation_hints": "Blank for single-end; keep the header.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz"
+          },
+          "strandedness": {
+            "required": "required",
+            "position_rule": "After fastq_2",
+            "expected_value": "string",
+            "allowed_values": "forward | reverse | unstranded | auto",
+            "description": "Library strandedness.",
+            "validation_hints": "Use auto when unsure.",
+            "example": "auto"
+          },
+          "type": {
+            "required": "required",
+            "position_rule": "After strandedness",
+            "expected_value": "string",
+            "allowed_values": "riboseq | rnaseq | tiseq",
+            "description": "Which assay this library is. A Ribo-seq experiment normally pairs riboseq libraries with matched rnaseq libraries.",
+            "validation_hints": "Do NOT guess: mislabelling an RNA-seq library as riboseq silently corrupts the analysis. If the assay metadata does not say, ask.",
+            "example": "riboseq"
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/riboseq samplesheet from a resolved NExtSEEK D.SEQ cohort.",
+    "workflow_role": "Selected for ribosome-profiling / footprinting cohorts.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2,strandedness,type.",
+    "population_priority": [
+      "One row per D.SEQ leaf; sample = the UID.",
+      "Derive `type` from the sample's assay metadata \u2014 riboseq vs matched rnaseq. Never default it.",
+      "Set strandedness to auto unless the library metadata states otherwise."
+    ],
+    "final_checks": [
+      "Every row has a `type` justified by assay metadata, not assumed.",
+      "strandedness uses only the allowed values."
+    ]
+  }
+}

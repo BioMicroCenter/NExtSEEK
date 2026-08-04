@@ -1,0 +1,141 @@
+{
+  "report_type": "NFCORE_HIC_SAMPLESHEET",
+  "description": "nf-core/hic samplesheet context, aligned to the pinned 2.1.0 schema. Chromosome conformation capture (Hi-C).",
+  "params": {
+    "digestion": {
+      "type": "enum",
+      "allowed": [
+        "hindiii",
+        "mboi",
+        "dpnii",
+        "arima"
+      ],
+      "default": null,
+      "steerable": true,
+      "help": "Restriction enzyme protocol. REQUIRED unless the library is DNase Hi-C \u2014 it determines the restriction/ligation sites."
+    },
+    "dnase": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "set true for DNase Hi-C (no digestion protocol)"
+    },
+    "save_reference": {
+      "type": "bool",
+      "default": true,
+      "steerable": true,
+      "help": "keep the built bowtie2 index \u2014 worth it, the build is slow"
+    },
+    "skip_multiqc": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    }
+  },
+  "reference_resources": [
+    "fasta",
+    "bwt2_index"
+  ],
+  "pipeline": {
+    "name": "nf-core/hic",
+    "repository": "https://github.com/nf-core/hic",
+    "documentation_url": "https://nf-co.re/hic/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2. Hi-C is inherently paired-end, so fastq_2 should always be populated in practice.",
+    "required_columns": [
+      "sample",
+      "fastq_1"
+    ],
+    "optional_columns": [
+      "fastq_2"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null
+    }
+  ],
+  "examples": {
+    "paired_example": {
+      "sample": "D.SEQ-260711ENG-12-PUB",
+      "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz",
+      "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz"
+    }
+  },
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "fastq_2 must be populated: Hi-C is paired-end by construction.",
+    "Set either `digestion` (hindiii|mboi|dpnii|arima) or `dnase: true` \u2014 a run with neither has no restriction model.",
+    "Do NOT pass --gtf: hic's schema has no gtf parameter."
+  ],
+  "notes": "Hi-C contact maps. bwt2_index is built from the FASTA when absent and the Luria refs tree has no prebuilt bowtie2 index, so the first run per genome pays a long index build \u2014 keep save_reference on.",
+  "sources": [
+    {
+      "label": "nf-core/hic usage docs",
+      "url": "https://nf-co.re/hic/latest/docs/usage/",
+      "notes": "Workflow overview and samplesheet description."
+    },
+    {
+      "label": "nf-core/hic nextflow_schema.json @ 2.1.0",
+      "url": "https://raw.githubusercontent.com/nf-core/hic/2.1.0/nextflow_schema.json",
+      "notes": "Authoritative param names, types and defaults for the pinned revision."
+    },
+    {
+      "label": "nf-core/hic assets/schema_input.json @ 2.1.0",
+      "url": "https://raw.githubusercontent.com/nf-core/hic/2.1.0/assets/schema_input.json",
+      "notes": "Authoritative required/optional samplesheet columns and allowed values."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/hic input samplesheet.",
+        "fields": {
+          "sample": {
+            "required": "required",
+            "position_rule": "Column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Custom sample name; repeat across lanes of one library.",
+            "validation_hints": "Prefer the NExtSEEK D.SEQ UID so results map back to the sample record.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "fastq_1": {
+            "required": "required",
+            "position_rule": "Column 2",
+            "expected_value": "path string",
+            "allowed_values": ".fastq.gz or .fq.gz",
+            "description": "Full path to read 1 FASTQ.",
+            "validation_hints": "Absolute Luria path, taken from the sample's Link_PrimaryData / File_PrimaryData.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz"
+          },
+          "fastq_2": {
+            "required": "required in practice",
+            "position_rule": "Column 3",
+            "expected_value": "path string or blank",
+            "allowed_values": ".fastq.gz or .fq.gz, or blank",
+            "description": "Read 2 FASTQ. Hi-C is a paired assay; a blank fastq_2 almost certainly means the wrong files were resolved.",
+            "validation_hints": "Blank for single-end; keep the header.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz"
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/hic samplesheet from a resolved NExtSEEK D.SEQ cohort.",
+    "workflow_role": "Selected for Hi-C / chromosome-conformation cohorts.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2.",
+    "population_priority": [
+      "One row per D.SEQ leaf; sample = the UID.",
+      "Both reads must resolve \u2014 flag any row where fastq_2 is missing rather than emitting it blank.",
+      "Ask the user for the digestion protocol if the sample metadata does not record it."
+    ],
+    "final_checks": [
+      "No row has a blank fastq_2.",
+      "digestion or dnase has been decided and stated to the user."
+    ]
+  }
+}

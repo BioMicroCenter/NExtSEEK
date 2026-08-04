@@ -1,0 +1,144 @@
+{
+  "report_type": "NFCORE_HLATYPING_SAMPLESHEET",
+  "description": "nf-core/hlatyping samplesheet context, aligned to the pinned 2.2.0 schema. Precision HLA typing with OptiType.",
+  "params": {
+    "save_reference": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    },
+    "skip_multiqc": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    }
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/hlatyping",
+    "repository": "https://github.com/nf-core/hlatyping",
+    "documentation_url": "https://nf-co.re/hlatyping/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2, bam, seq_type. sample and seq_type are REQUIRED; supply EITHER fastq_1(/fastq_2) OR bam.",
+    "required_columns": [
+      "sample",
+      "seq_type"
+    ],
+    "optional_columns": [
+      "fastq_1",
+      "fastq_2",
+      "bam"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "seq_type": null,
+      "fastq_1": null,
+      "fastq_2": null,
+      "bam": null
+    }
+  ],
+  "examples": {
+    "dna_example": {
+      "sample": "D.SEQ-260711ENG-12-PUB",
+      "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz",
+      "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz",
+      "bam": "",
+      "seq_type": "dna"
+    }
+  },
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "seq_type must be exactly 'dna' or 'rna'.",
+    "Give EITHER fastq_1 (+ optional fastq_2) OR bam for a row \u2014 not both.",
+    "Do NOT pass --fasta or --gtf: hlatyping's schema declares neither."
+  ],
+  "notes": "OptiType ships its own HLA reference, so this pipeline needs no genome from us \u2014 which makes it one of the few that runs on the Luria refs tree as-is.",
+  "sources": [
+    {
+      "label": "nf-core/hlatyping usage docs",
+      "url": "https://nf-co.re/hlatyping/latest/docs/usage/",
+      "notes": "Workflow overview and samplesheet description."
+    },
+    {
+      "label": "nf-core/hlatyping nextflow_schema.json @ 2.2.0",
+      "url": "https://raw.githubusercontent.com/nf-core/hlatyping/2.2.0/nextflow_schema.json",
+      "notes": "Authoritative param names, types and defaults for the pinned revision."
+    },
+    {
+      "label": "nf-core/hlatyping assets/schema_input.json @ 2.2.0",
+      "url": "https://raw.githubusercontent.com/nf-core/hlatyping/2.2.0/assets/schema_input.json",
+      "notes": "Authoritative required/optional samplesheet columns and allowed values."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/hlatyping input samplesheet.",
+        "fields": {
+          "sample": {
+            "required": "required",
+            "position_rule": "Column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Custom sample name; repeat across lanes of one library.",
+            "validation_hints": "Prefer the NExtSEEK D.SEQ UID so results map back to the sample record.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "fastq_1": {
+            "required": "conditional",
+            "position_rule": "Column 2",
+            "expected_value": "path string",
+            "allowed_values": ".fastq.gz or .fq.gz",
+            "description": "Full path to read 1 FASTQ.",
+            "validation_hints": "Required unless a bam is given instead.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz"
+          },
+          "fastq_2": {
+            "required": "optional",
+            "position_rule": "Column 3",
+            "expected_value": "path string or blank",
+            "allowed_values": ".fastq.gz or .fq.gz, or blank",
+            "description": "Read 2 FASTQ for paired-end.",
+            "validation_hints": "Blank for single-end; keep the header.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz"
+          },
+          "bam": {
+            "required": "conditional",
+            "position_rule": "After fastq_2",
+            "expected_value": "path string",
+            "allowed_values": ".bam",
+            "description": "Aligned BAM, as an alternative to FASTQ input.",
+            "validation_hints": "Use EITHER bam OR fastq_1 for a given row, never both.",
+            "example": "/net/bmc-pub10/data1/bmc/aln/s.bam"
+          },
+          "seq_type": {
+            "required": "required",
+            "position_rule": "Last",
+            "expected_value": "string",
+            "allowed_values": "dna | rna",
+            "description": "Whether the library is DNA (WES/WGS) or RNA.",
+            "validation_hints": "Derive from the sample's assay: RNA-seq libraries are rna, WES/WGS are dna. It changes OptiType's configuration.",
+            "example": "dna"
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/hlatyping samplesheet from a resolved NExtSEEK D.SEQ cohort.",
+    "workflow_role": "Selected when the user asks for HLA typing / HLA alleles.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2,bam,seq_type.",
+    "population_priority": [
+      "One row per D.SEQ leaf; sample = the UID.",
+      "Set seq_type from the sample's assay (RNA-seq -> rna; WES/WGS -> dna). Ask if the assay is ambiguous.",
+      "Prefer FASTQ input; use bam only when the cohort has no FASTQ registered."
+    ],
+    "final_checks": [
+      "Every row has seq_type set from real assay metadata.",
+      "No row carries both bam and fastq_1.",
+      "No genome flags are requested."
+    ]
+  }
+}

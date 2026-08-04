@@ -179,6 +179,114 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             "accession strings, not NExtSEEK lineage."
         ),
     },
+    "smrnaseq": {
+        "repo": "https://github.com/nf-core/smrnaseq",
+        "default_revision": "2.4.1",
+        "description": "Small-RNA / miRNA sequencing quantification and QC.",
+        "common_assays": ["smRNA-seq", "small RNA", "miRNA", "microRNA", "miRNA-seq"],
+        "default_genome": "GRCh38",
+        # No gtf param in the 2.4.1 schema.
+        "reference_cli_flags": ["genome", "fasta"],
+        "default_profile": "singularity",
+        "required_columns": ["sample", "fastq_1"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^sm(all)?[-_ ]?RNA([-_ ]?seq)?$",
+            r"^mi(cro)?RNA([-_ ]?seq)?$",
+        ],
+        "pipeline_kind_description": (
+            "Small-RNA/miRNA quantification. Needs (usually single-end) FASTQ from "
+            "small-RNA libraries, plus a miRTrace species code."
+        ),
+    },
+    "riboseq": {
+        "repo": "https://github.com/nf-core/riboseq",
+        "default_revision": "1.2.0",
+        "description": "Ribosome profiling (Ribo-seq) analysis.",
+        "common_assays": ["Ribo-seq", "riboseq", "ribosome profiling", "ribosome footprinting"],
+        "default_genome": "GRCh38",
+        "reference_cli_flags": ["genome", "fasta", "gtf"],
+        "default_profile": "singularity",
+        # `type` is enum-constrained (riboseq|rnaseq|tiseq) and must come from real
+        # assay metadata: mislabelling an RNA-seq library as riboseq corrupts the run.
+        "required_columns": ["sample", "fastq_1", "strandedness", "type"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^ribo[-_ ]?seq$",
+            r"^ribosome[-_ ]?(profiling|footprinting)$",
+        ],
+        "pipeline_kind_description": (
+            "Ribosome profiling. Needs FASTQ plus a per-library type "
+            "(riboseq / rnaseq / tiseq) taken from assay metadata, never defaulted."
+        ),
+    },
+    "hlatyping": {
+        "repo": "https://github.com/nf-core/hlatyping",
+        "default_revision": "2.2.0",
+        "description": "Precision HLA typing from NGS data (OptiType).",
+        "common_assays": ["HLA typing", "HLA", "immunogenetics", "WES", "WGS", "RNA-seq"],
+        # OptiType ships its own HLA reference: no genome needed from us, which makes
+        # this one of the few pipelines that runs on the Luria refs tree as-is.
+        "default_genome": None,
+        "reference_cli_flags": ["genome"],
+        "default_profile": "singularity",
+        "required_columns": ["sample", "seq_type"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [r"^HLA([-_ ]?typing)?$"],
+        "pipeline_kind_description": (
+            "HLA typing. Needs FASTQ (or BAM) plus a per-sample seq_type of dna or rna, "
+            "derived from the library's assay. Carries its own reference."
+        ),
+    },
+    "hic": {
+        "repo": "https://github.com/nf-core/hic",
+        "default_revision": "2.1.0",
+        "description": "Hi-C chromosome conformation capture: contact maps and TADs.",
+        "common_assays": ["Hi-C", "HiC", "chromosome conformation", "3C", "Micro-C"],
+        "default_genome": "GRCh38",
+        # No gtf param in the 2.1.0 schema.
+        "reference_cli_flags": ["genome", "fasta"],
+        "default_profile": "singularity",
+        "required_columns": ["sample", "fastq_1"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^Hi[-_ ]?C$",
+            r"^Micro[-_ ]?C$",
+            r"^3C$",
+            r"^chromosome[-_ ]conformation.*$",
+        ],
+        "pipeline_kind_description": (
+            "Hi-C contact maps. Needs PAIRED FASTQ (the assay is paired by construction) "
+            "and a digestion protocol, or dnase mode."
+        ),
+    },
+    "rnavar": {
+        "repo": "https://github.com/nf-core/rnavar",
+        "default_revision": "1.3.0",
+        "description": "GATK4 short-variant calling from RNA-seq.",
+        "common_assays": ["RNA-seq variant calling", "RNA variants", "RNA-seq", "bulk RNA"],
+        "default_genome": "GRCh38",
+        "reference_cli_flags": ["genome", "fasta", "gtf"],
+        "default_profile": "singularity",
+        "required_columns": ["sample", "fastq_1"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        # Deliberately narrow: a plain "RNA-seq" cohort should route to rnaseq, not
+        # here. rnavar is for an explicit variant-calling ask.
+        "accepted_assay_patterns": [
+            r"^RNA[-_ ]?seq[-_ ]variant.*$",
+            r"^RNA[-_ ]variant[-_ ]calling$",
+        ],
+        "pipeline_kind_description": (
+            "Variant calling FROM RNA-seq (not DNA — use sarek for that). Base "
+            "recalibration and variant annotation are off by default: the required "
+            "dbsnp / known_indels / snpEff caches are not provisioned on Luria."
+        ),
+    },
     "seqinspector": {
         "repo": "https://github.com/nf-core/seqinspector",
         "default_revision": "1.1.0",

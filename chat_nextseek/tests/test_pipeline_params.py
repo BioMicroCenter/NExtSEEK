@@ -211,3 +211,67 @@ def test_every_catalog_pipeline_has_a_loadable_template():
         doc = _load(key)
         assert doc.get("params") is not None, f"{key} template has no params block"
         assert doc.get("reference_resources") is not None, f"{key} template has no reference_resources"
+
+
+# --- Tier-1 batch: 5 reference-light pipelines added 2026-08-04 -----------------
+
+_TIER1_BATCH = {
+    # key: (revision, reference_cli_flags, required samplesheet columns)
+    "smrnaseq":  ("2.4.1", ["genome", "fasta"], ["sample", "fastq_1"]),
+    "riboseq":   ("1.2.0", ["genome", "fasta", "gtf"], ["sample", "fastq_1", "strandedness", "type"]),
+    "hlatyping": ("2.2.0", ["genome"], ["sample", "seq_type"]),
+    "hic":       ("2.1.0", ["genome", "fasta"], ["sample", "fastq_1"]),
+    "rnavar":    ("1.3.0", ["genome", "fasta", "gtf"], ["sample", "fastq_1"]),
+}
+
+
+def test_tier1_batch_catalog_entries_match_their_pinned_schemas():
+    """reference_cli_flags and required columns were read off each pinned revision's
+    nextflow_schema.json / assets/schema_input.json on 2026-08-04. If a revision is
+    bumped, re-derive them — a stale gtf flag here aborts the run at nf-schema."""
+    from chat_nextseek.seqera.catalog import get_pipeline_entry
+    for key, (rev, flags, req_cols) in _TIER1_BATCH.items():
+        entry = get_pipeline_entry(key)
+        assert entry["default_revision"] == rev, key
+        assert entry["reference_cli_flags"] == flags, key
+        assert entry["required_columns"] == req_cols, key
+        assert entry["accepted_leaf_sample_types"] == ["D.SEQ"], key
+        assert entry["samplesheet_input_kind"] == "fastq", key
+
+
+def test_tier1_batch_templates_agree_with_the_catalog():
+    from chat_nextseek.seqera.catalog import get_pipeline_entry
+    for key, (_rev, _flags, req_cols) in _TIER1_BATCH.items():
+        doc = _load(key)
+        assert doc["pipeline"]["required_columns"] == req_cols, key
+        assert doc["pipeline"]["required_columns"] == get_pipeline_entry(key)["required_columns"], key
+        for name, spec in doc["params"].items():
+            assert "type" in spec and "default" in spec and "steerable" in spec, f"{key}:{name}"
+
+
+def test_tier1_batch_report_type_aliases_resolve():
+    from chat_nextseek.reports.templates_meta import (
+        get_report_template_basename, nfcore_pipeline_from_report_type,
+    )
+    for key in _TIER1_BATCH:
+        for alias in (f"NFCORE_{key.upper()}", f"NF_CORE_{key.upper()}",
+                      f"NFCORE_{key.upper()}_SAMPLESHEET"):
+            assert nfcore_pipeline_from_report_type(alias) == key, alias
+            assert get_report_template_basename(alias) == f"nfcore/{key}", alias
+
+
+def test_enum_constrained_columns_are_documented_with_their_allowed_values():
+    """riboseq `type` and hlatyping `seq_type` are enum-constrained and cannot be
+    guessed from a FASTQ path — they come from assay metadata. If the field
+    dictionary stops naming the allowed values, the agent will invent one."""
+    ribo = _load("riboseq")["schema"]["sections"]["samplesheet_columns"]["fields"]
+    assert "riboseq" in ribo["type"]["allowed_values"] and "rnaseq" in ribo["type"]["allowed_values"]
+    assert "forward" in ribo["strandedness"]["allowed_values"]
+    hla = _load("hlatyping")["schema"]["sections"]["samplesheet_columns"]["fields"]
+    assert hla["seq_type"]["allowed_values"] == "dna | rna"
+
+
+def test_rnavar_defaults_to_skipping_bqsr():
+    """BQSR needs dbsnp + known_indels; neither is provisioned in the Luria refs tree,
+    so the curated default must be to skip it rather than fail deep into a run."""
+    assert _load("rnavar")["params"]["skip_baserecalibration"]["default"] is True

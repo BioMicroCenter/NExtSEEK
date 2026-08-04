@@ -1,0 +1,154 @@
+{
+  "report_type": "NFCORE_SMRNASEQ_SAMPLESHEET",
+  "description": "nf-core/smrnaseq samplesheet context, aligned to the pinned 2.4.1 schema. Small-RNA / miRNA sequencing.",
+  "params": {
+    "mirtrace_species": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "miRTrace species code (hsa, mmu, mcc...). REQUIRED for a meaningful run \u2014 derive it from the cohort's organism."
+    },
+    "mature": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "miRBase mature.fa. The upstream DEFAULT points at an nf-core TEST dataset, not real miRBase \u2014 leave null only if the curator accepts that."
+    },
+    "hairpin": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "miRBase hairpin.fa; same test-data caveat as `mature`."
+    },
+    "mirna_gtf": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "miRBase GFF3 for the species"
+    },
+    "filter_contamination": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    },
+    "save_reference": {
+      "type": "bool",
+      "default": true,
+      "steerable": true,
+      "help": "keep built indices for reuse"
+    },
+    "skip_multiqc": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    }
+  },
+  "reference_resources": [
+    "fasta"
+  ],
+  "pipeline": {
+    "name": "nf-core/smrnaseq",
+    "repository": "https://github.com/nf-core/smrnaseq",
+    "documentation_url": "https://nf-co.re/smrnaseq/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2. Only sample and fastq_1 are required; small-RNA libraries are usually single-end.",
+    "required_columns": [
+      "sample",
+      "fastq_1"
+    ],
+    "optional_columns": [
+      "fastq_2"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null
+    }
+  ],
+  "examples": {
+    "single_end_example": {
+      "sample": "D.SEQ-260711ENG-12-PUB",
+      "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz",
+      "fastq_2": ""
+    }
+  },
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "sample must be non-empty; fastq_1 must be a gzipped FASTQ path.",
+    "Small-RNA libraries are usually single-end: leave fastq_2 blank unless the library really is paired.",
+    "Set mirtrace_species from the cohort organism \u2014 without it the miRNA QC output is not meaningful.",
+    "The upstream defaults for `mature`/`hairpin` point at an nf-core TEST miRBase subset. Do not present a run using them as a real miRBase analysis.",
+    "Do NOT pass --gtf: smrnaseq's schema has no gtf parameter."
+  ],
+  "notes": "Small-RNA/miRNA quantification. bowtie_index is built from the FASTA when not supplied; the Luria refs tree has no prebuilt index, so expect an index build on first run per genome.",
+  "sources": [
+    {
+      "label": "nf-core/smrnaseq usage docs",
+      "url": "https://nf-co.re/smrnaseq/latest/docs/usage/",
+      "notes": "Workflow overview and samplesheet description."
+    },
+    {
+      "label": "nf-core/smrnaseq nextflow_schema.json @ 2.4.1",
+      "url": "https://raw.githubusercontent.com/nf-core/smrnaseq/2.4.1/nextflow_schema.json",
+      "notes": "Authoritative param names, types and defaults for the pinned revision."
+    },
+    {
+      "label": "nf-core/smrnaseq assets/schema_input.json @ 2.4.1",
+      "url": "https://raw.githubusercontent.com/nf-core/smrnaseq/2.4.1/assets/schema_input.json",
+      "notes": "Authoritative required/optional samplesheet columns and allowed values."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/smrnaseq input samplesheet.",
+        "fields": {
+          "sample": {
+            "required": "required",
+            "position_rule": "Column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Custom sample name; repeat across lanes of one library.",
+            "validation_hints": "Prefer the NExtSEEK D.SEQ UID so results map back to the sample record.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "fastq_1": {
+            "required": "required",
+            "position_rule": "Column 2",
+            "expected_value": "path string",
+            "allowed_values": ".fastq.gz or .fq.gz",
+            "description": "Full path to read 1 FASTQ.",
+            "validation_hints": "Absolute Luria path, taken from the sample's Link_PrimaryData / File_PrimaryData.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz"
+          },
+          "fastq_2": {
+            "required": "optional",
+            "position_rule": "Column 3",
+            "expected_value": "path string or blank",
+            "allowed_values": ".fastq.gz or .fq.gz, or blank",
+            "description": "Read 2 FASTQ. Small-RNA is typically single-end \u2014 usually blank.",
+            "validation_hints": "Blank for single-end; keep the header.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz"
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/smrnaseq samplesheet from a resolved NExtSEEK D.SEQ cohort of small-RNA libraries.",
+    "workflow_role": "Selected for miRNA / small-RNA sequencing cohorts.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2.",
+    "population_priority": [
+      "One row per D.SEQ leaf; sample = the UID.",
+      "Map R1 from the sample's primary-data metadata; leave fastq_2 blank unless genuinely paired.",
+      "Resolve mirtrace_species from the cohort organism and state it in the reply."
+    ],
+    "final_checks": [
+      "Header is exactly: sample,fastq_1,fastq_2.",
+      "mirtrace_species is set, or its absence is called out to the user.",
+      "The mature/hairpin test-data caveat has been surfaced if defaults were used."
+    ]
+  }
+}
