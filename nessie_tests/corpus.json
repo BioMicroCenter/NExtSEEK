@@ -18954,9 +18954,14 @@
    "tree.yes_it_is_try_using_the_sample": {
     "op": "matches_re",
     "value": "(nextseek_query|container_cc)"
+   },
+   "advanced.that_ndma_number_looked_off_to_m": {
+    "op": "eq",
+    "value": "container_cc"
    }
   },
-  "_2026_08_04_remap": "Carried across the 28-family remap by effective rule, not by family name: lineage_tree inherits search_tree's NS|CC alternation and search_parents_by_child's eq nextseek_query, which cannot both be the family default. 15 variant(s) whose rule differs from their new family's modal rule are pinned by id, so every variant keeps the exact assertion it had before."
+  "_2026_08_04_remap": "Carried across the 28-family remap by effective rule, not by family name: lineage_tree inherits search_tree's NS|CC alternation and search_parents_by_child's eq nextseek_query, which cannot both be the family default. 15 variant(s) whose rule differs from their new family's modal rule are pinned by id, so every variant keeps the exact assertion it had before.",
+  "_2026_08_04_atlas_cc_search": "advanced.that_ndma_number_looked_off_to_m is a sample_search question deliberately phrased to reach the container ('that number looked off, pull the rows yourself'), because it tests the CC op chain nextseek-parse -> nextseek-api-read rather than the NS pipeline. Its family asserts eq nextseek_query, which would have made it a guaranteed red asserting the opposite of what it measures. Engine is an axis, not a family, so the exception is pinned by id here."
  },
  "family_floor": {
   "_note": "Minimum OUTCOME assertion per family, applied by corpus.merged() to the LAST TURN of every variant in a listed family. Measured over the 381-variant corpus of the 2026-07-30 review, BEFORE the 100 retirements: 108 asserted plan shape only and 194 asserted only plumbing (api_ok / neo4j_ok, which say a request COMPLETED, not that it returned anything) — 79% could not detect a wrong answer. merged() returns 283 today and that split has not been re-measured, but retiring bad questions added no outcome assertion to any survivor, so the reason stands: hand-editing hundreds of variants is not viable, and the floor is applied structurally.",
