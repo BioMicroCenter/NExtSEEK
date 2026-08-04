@@ -1457,3 +1457,380 @@ def test_search_missing_sample_type(disposable_attribute_db, django_db_blocker):
     with pytest.raises(ResolutionError) as raised:
         repo.search([{"sample_type": "Ghost"}])
     assert raised.value.code == "sample_type_not_found"
+
+
+# ---------------------------------------------------------------------------
+# Task-04c capability-gap closures (T05 protocol methods)
+#
+# `nextseek_api/attributes/planner.py` (branch `task/05-dry-run-planner`)
+# documents an 8-method `resolved_repository_view` protocol and names four
+# capabilities missing from the real `AttributeRepository`: create-operation
+# passthrough in `resolve_mutation_envelope`, `sample_type_populations`,
+# `title_collation_classes`, and a display-field enrichment accessor for
+# `materialize_attribute_records` inputs. These tests close that gap. They
+# are NOT part of the frozen Section 11.8 primary-node authority (no
+# task-04c node exists in VERIFICATION-MANIFEST.json); `_run_observed` still
+# emits their chain-b-read-observation artifacts, but no manifest selector
+# reads them -- they are diagnostic evidence only; `_run_observed` is reused
+# only for its statement-capture/no-write assertions.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_mutation_create_target_passthrough(disposable_attribute_db, django_db_blocker):
+    """Gap 1: a create-definition operation (`AttributeCreate`-shaped dict,
+    no `attribute` key -- DD-26) is passed through into the resolved
+    envelope's `operations` list untouched instead of being silently
+    dropped (`_is_create_definition`). Independent oracle: the exact
+    submitted dicts, byte-compared against the emitted `definition` field."""
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    _reset_seek_tables(database)
+    database.execute_sql(
+        [
+            ("INSERT INTO sample_attribute_types(id,title,created_at,updated_at) VALUES(1,'String',NOW(6),NOW(6))", ()),
+            ("INSERT INTO sample_types(id,title,created_at,updated_at) VALUES(1,'Blood',NOW(6),NOW(6))", ()),
+        ]
+    )
+    repo = AttributeRepository(SeekAttributeGateway())
+    definition_one = {
+        "title": "New1", "sample_attribute_type": 1, "required": False, "pos": None,
+        "is_title": False, "description": None, "unit": None,
+        "sample_controlled_vocab": None, "linked_sample_type": None,
+    }
+    definition_two = {
+        "title": "New2", "sample_attribute_type": "String", "required": True, "pos": 1,
+        "is_title": False, "description": "second", "unit": None,
+        "sample_controlled_vocab": None, "linked_sample_type": None,
+    }
+    resolved = repo.resolve_mutation(
+        {"targets": [{"sample_type": 1, "attributes": [definition_one, definition_two]}]}
+    )
+    target = resolved["targets"][0]
+    assert target["sample_type_id"] == 1
+    assert target["sample_type_title"] == "Blood"
+    assert not target["resolution_errors"]
+    assert target["operations"] == [
+        {"attribute_id": None, "attribute_index": 0, "resolution_errors": [], "definition": definition_one},
+        {"attribute_id": None, "attribute_index": 1, "resolution_errors": [], "definition": definition_two},
+    ]
+
+
+def test_resolve_mutation_create_target_statement_bound(disposable_attribute_db, sql_telemetry, django_db_blocker):
+    """Gap 1 gate: a create-only envelope issues exactly one statement (the
+    single target's sample-type resolution) regardless of how many create
+    definitions it carries -- zero per-item SQL, since a create definition
+    has no existing identity to resolve. 5,000 definitions on one target
+    would cost ~10,001 statements under the old per-target/per-op N+1 shape
+    (RCA-T04-FINDINGS-2026-08-03.md Section A); this path issues none for
+    the definitions themselves."""
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    _reset_seek_tables(database)
+    database.execute_sql(
+        [
+            ("INSERT INTO sample_attribute_types(id,title,created_at,updated_at) VALUES(1,'String',NOW(6),NOW(6))", ()),
+            ("INSERT INTO sample_types(id,title,created_at,updated_at) VALUES(1,'Blood',NOW(6),NOW(6))", ()),
+        ]
+    )
+    repo = AttributeRepository(SeekAttributeGateway())
+    definitions = [
+        {"title": f"New{i}", "sample_attribute_type": 1, "required": False, "pos": None,
+         "is_title": False, "description": None, "unit": None,
+         "sample_controlled_vocab": None, "linked_sample_type": None}
+        for i in range(5000)
+    ]
+    # Submit independent copies so the emitted-definition comparison below
+    # is a real oracle: in-place mutation of the envelope's dicts during
+    # resolution would make the copies diverge from `definitions`.
+    envelope = {"targets": [{"sample_type": 1, "attributes": [dict(d) for d in definitions]}]}
+
+    def operate():
+        return repo.resolve_mutation(envelope)
+
+    def result_builder(resolved):
+        operations = resolved["targets"][0]["operations"]
+        identities = [(op["attribute_index"], op["definition"]["title"]) for op in operations]
+        return len(identities), {
+            "ordered_identity_sha256": _sha256_json(identities),
+            "logical_record_sha256": _sha256_json(identities),
+            "total": len(identities),
+            "offset": 0,
+            "page_size": max(1, len(identities)),
+            "returned_count": len(identities),
+        }
+
+    resolved, statements = _run_observed(
+        database, sql_telemetry,
+        case_id="test_resolve_mutation_create_target_statement_bound",
+        selector_count=5000,
+        operate=operate,
+        result_builder=result_builder,
+    )
+    operations = resolved["targets"][0]["operations"]
+    assert len(operations) == 5000
+    assert [op["attribute_id"] for op in operations] == [None] * 5000
+    assert [op["attribute_index"] for op in operations] == list(range(5000))
+    assert [op["definition"] for op in operations] == definitions
+    # A create-only envelope costs exactly one statement: the pass-1
+    # sample-type resolution. Create definitions carry no existing
+    # identifiers, so no attribute-resolution statements are issued.
+    assert len(statements) == 1
+
+
+def test_sample_type_populations_counts_and_absent_types(disposable_attribute_db, sql_telemetry, django_db_blocker):
+    """Gap 2: bulk per-type sample-row population counts feed DD-28
+    affected-sample threshold classification. Independent oracle: a
+    per-type `SELECT COUNT(*) FROM samples WHERE sample_type_id = %s` query
+    issued directly by the test, never through the gateway's own bulk
+    `GROUP BY` path. A type with zero rows -- including one (999) that is
+    not a real sample type at all -- reports population 0, never a KeyError
+    or omission."""
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    _reset_seek_tables(database)
+    database.execute_sql(
+        [
+            ("INSERT INTO sample_types(id,title,created_at,updated_at) VALUES"
+             "(1,'Blood',NOW(6),NOW(6)),(2,'Tissue',NOW(6),NOW(6)),(3,'Empty',NOW(6),NOW(6))", ()),
+            ("INSERT INTO samples(id,sample_type_id,json_metadata,created_at,updated_at) VALUES"
+             "(1,1,'{}',NOW(6),NOW(6)),(2,1,'{}',NOW(6),NOW(6)),(3,1,'{}',NOW(6),NOW(6)),"
+             "(4,2,'{}',NOW(6),NOW(6)),(5,2,'{}',NOW(6),NOW(6))", ()),
+        ]
+    )
+    gateway = SeekAttributeGateway()
+
+    def operate():
+        return gateway.sample_type_populations([1, 2, 3, 999])
+
+    def result_builder(populations):
+        payload = sorted(populations.items())
+        return len(populations), {
+            "ordered_identity_sha256": _sha256_json(payload),
+            "logical_record_sha256": _sha256_json(payload),
+            "total": len(populations),
+            "offset": 0,
+            "page_size": max(1, len(populations)),
+            "returned_count": len(populations),
+        }
+
+    populations, statements = _run_observed(
+        database, sql_telemetry,
+        case_id="test_sample_type_populations_counts_and_absent_types",
+        selector_count=4,
+        operate=operate,
+        result_builder=result_builder,
+    )
+    assert populations == {1: 3, 2: 2, 3: 0, 999: 0}
+    for type_id, expected in ((1, 3), (2, 2)):
+        oracle = int(database.query("SELECT COUNT(*) FROM samples WHERE sample_type_id = %s", (type_id,))[0][0])
+        assert oracle == expected
+    # One chunked GROUP BY sample_type_id statement covers all requested
+    # type ids (k <= 500 here); absent types are zero-filled in Python.
+    assert len(statements) == 1
+    repo = AttributeRepository(gateway)
+    assert repo.sample_type_populations([1, 3]) == {1: 3, 3: 0}
+
+
+def test_sample_type_populations_statement_bound(disposable_attribute_db, sql_telemetry, django_db_blocker):
+    """Gap 2 gate: mirrors `invalid_json_counts`'s chunked `GROUP BY`
+    pattern exactly -- statement count is exactly `ceil(k/500)` for k
+    requested types, never one statement per type. 600 types force 2
+    chunks."""
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    type_ids, _attribute_ids_by_type = _bulk_seed_types(database, type_count=600, rows_per_type=0)
+    gateway = SeekAttributeGateway()
+
+    def operate():
+        return gateway.sample_type_populations(type_ids)
+
+    def result_builder(populations):
+        payload = sorted(populations.items())
+        return len(populations), {
+            "ordered_identity_sha256": _sha256_json(payload),
+            "logical_record_sha256": _sha256_json(payload),
+            "total": len(populations),
+            "offset": 0,
+            "page_size": len(populations),
+            "returned_count": len(populations),
+        }
+
+    populations, statements = _run_observed(
+        database, sql_telemetry,
+        case_id="test_sample_type_populations_statement_bound",
+        selector_count=len(type_ids),
+        operate=operate,
+        result_builder=result_builder,
+    )
+    assert set(populations) == set(type_ids)
+    assert all(count == 0 for count in populations.values())
+    assert len(statements) == math.ceil(len(type_ids) / 500) == 2
+
+
+def test_title_collation_classes_facade_matches_free_function(
+    disposable_attribute_db, sql_telemetry, django_db_blocker
+):
+    """Gap 3: `AttributeRepository.title_collation_classes` -- the exact
+    method name T05's protocol documents on `resolved_repository_view` --
+    is a thin facade over the frozen module-level
+    `resolve_title_collation_classes` free function (M-PATCH-COLLATION-01's
+    `collation_titles` line is untouched by this task). Independent oracle:
+    an independent direct call to the free function against a fresh
+    gateway must produce byte-identical collation classes, and the facade
+    adds no statement of its own."""
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    _reset_seek_tables(database)
+    database.execute_sql(
+        [
+            ("INSERT INTO sample_attribute_types(id,title,created_at,updated_at) VALUES(1,'String',NOW(6),NOW(6))", ()),
+            ("INSERT INTO sample_types(id,title,created_at,updated_at) VALUES(1,'Blood',NOW(6),NOW(6))", ()),
+            (
+                "INSERT INTO sample_attributes(id,sample_type_id,sample_attribute_type_id,title,required,pos,is_title,created_at,updated_at) "
+                "VALUES(10,1,1,'RNA',0,1,0,NOW(6),NOW(6))",
+                (),
+            ),
+        ]
+    )
+    gateway = SeekAttributeGateway()
+    repo = AttributeRepository(gateway)
+    requests = [TitleCollationRequest(0, 0, "create", 1, "rna")]
+
+    def operate():
+        return repo.title_collation_classes(requests)
+
+    def result_builder(classes):
+        payload = sorted((key, value.class_key, list(value.match_ids)) for key, value in classes.items())
+        return len(classes), {
+            "ordered_identity_sha256": _sha256_json(payload),
+            "logical_record_sha256": _sha256_json(payload),
+            "total": len(classes),
+            "offset": 0,
+            "page_size": max(1, len(classes)),
+            "returned_count": len(classes),
+        }
+
+    classes, statements = _run_observed(
+        database, sql_telemetry,
+        case_id="test_title_collation_classes_facade_matches_free_function",
+        selector_count=1,
+        operate=operate,
+        result_builder=result_builder,
+    )
+    oracle = resolve_title_collation_classes(SeekAttributeGateway(), requests)
+
+    def _payload(mapping):
+        return {key: (value.class_key, value.match_ids) for key, value in mapping.items()}
+
+    assert _payload(classes) == _payload(oracle)
+    assert 10 in classes[(0, 0, "create")].match_ids
+    # The free function itself costs exactly two statements for one type/one
+    # chunk: the INFORMATION_SCHEMA COLLATION_NAME lookup plus the single
+    # grouped collation query. The facade must add zero statements on top.
+    assert len(statements) == 2
+
+
+def test_display_fields_for_matches_independent_oracle(
+    disposable_attribute_db, sql_telemetry, django_db_blocker
+):
+    """Gap 4: `AttributeRepository.display_fields_for` supplies the display
+    join fields (`sample_type_title`, `sample_attribute_type_title`,
+    `unit_title`, `unit_symbol`, `sample_controlled_vocab_title`,
+    `linked_sample_type_title`, `created_at`) that a lean planning-side row
+    (T05's `DefinitionSnapshot`) lacks. Independent oracle: `repo.retrieve`,
+    a wholly different code path (goes through `catalog`/
+    `logicalize_definitions`), must report identical display fields for the
+    same row. An id with no matching row is simply absent from the result."""
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    _reset_seek_tables(database)
+    database.execute_sql(
+        [
+            ("INSERT INTO sample_attribute_types(id,title,created_at,updated_at) VALUES(3,'Float',NOW(6),NOW(6))", ()),
+            ("INSERT INTO units(id,title,symbol) VALUES(5,'nanogram','ng')", ()),
+            ("INSERT INTO sample_controlled_vocabs(id,title,created_at,updated_at) VALUES(8,'Terms',NOW(6),NOW(6))", ()),
+            ("INSERT INTO sample_types(id,title,created_at,updated_at) VALUES(1,'Blood',NOW(6),NOW(6)),(2,'Tissue',NOW(6),NOW(6))", ()),
+            (
+                "INSERT INTO sample_attributes(id,sample_type_id,sample_attribute_type_id,title,required,pos,is_title,"
+                "unit_id,sample_controlled_vocab_id,linked_sample_type_id,created_at,updated_at) "
+                "VALUES(10,1,3,'RNA',1,1,0,5,8,2,NOW(6),NOW(6))",
+                (),
+            ),
+        ]
+    )
+    gateway = SeekAttributeGateway()
+    repo = AttributeRepository(gateway)
+
+    def operate():
+        return repo.display_fields_for([10, 999])
+
+    def result_builder(fields):
+        row = fields[10]
+        payload = (
+            row.id, row.sample_type_title, row.sample_attribute_type_title, row.unit_title, row.unit_symbol,
+            row.sample_controlled_vocab_title, row.linked_sample_type_title, row.created_at.isoformat(),
+        )
+        return len(fields), {
+            "ordered_identity_sha256": _sha256_json(payload),
+            "logical_record_sha256": _sha256_json(payload),
+            "total": len(fields),
+            "offset": 0,
+            "page_size": 1,
+            "returned_count": len(fields),
+        }
+
+    fields, statements = _run_observed(
+        database, sql_telemetry,
+        case_id="test_display_fields_for_matches_independent_oracle",
+        selector_count=2,
+        operate=operate,
+        result_builder=result_builder,
+    )
+    assert set(fields) == {10}
+    row = fields[10]
+    oracle = repo.retrieve(10)
+    assert row.sample_type_title == oracle.sample_type_title == "Blood"
+    assert row.sample_attribute_type_title == oracle.sample_attribute_type_title == "Float"
+    assert row.unit_title == oracle.unit_title == "nanogram"
+    assert row.unit_symbol == oracle.unit_symbol == "ng"
+    assert row.sample_controlled_vocab_title == oracle.sample_controlled_vocab_title == "Terms"
+    assert row.linked_sample_type_title == oracle.linked_sample_type_title == "Tissue"
+    assert row.created_at == oracle.created_at
+    # One chunked joined SELECT covers all requested definitions
+    # (<= 500 here); display enrichment adds no per-item statements.
+    assert len(statements) == 1
+
+
+def test_display_fields_for_statement_bound(disposable_attribute_db, sql_telemetry, django_db_blocker):
+    """Gap 4 gate: bulk/chunked, never per-item -- `ceil(k/500)` statements
+    for k requested ids, reusing `resolve_global_attribute_ids`'s existing
+    chunked path (`_fetch_rows_by_id`). 1,500 real ids force 3 chunks."""
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    type_ids, attribute_ids_by_type = _bulk_seed_types(database, type_count=1, rows_per_type=1500)
+    attribute_ids = attribute_ids_by_type[type_ids[0]]
+    repo = AttributeRepository(SeekAttributeGateway())
+
+    def operate():
+        return repo.display_fields_for(attribute_ids)
+
+    def result_builder(fields):
+        payload = sorted(fields.keys())
+        return len(fields), {
+            "ordered_identity_sha256": _sha256_json(payload),
+            "logical_record_sha256": _sha256_json(payload),
+            "total": len(fields),
+            "offset": 0,
+            "page_size": len(fields),
+            "returned_count": len(fields),
+        }
+
+    fields, statements = _run_observed(
+        database, sql_telemetry,
+        case_id="test_display_fields_for_statement_bound",
+        selector_count=len(attribute_ids),
+        operate=operate,
+        result_builder=result_builder,
+    )
+    assert set(fields) == set(attribute_ids)
+    assert len(statements) == math.ceil(len(attribute_ids) / 500) == 3

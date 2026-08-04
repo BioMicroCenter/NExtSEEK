@@ -4,10 +4,15 @@ materialization, DD-35 logical ordering, and the sole planner-read adapter.
 This module owns every real-database read used by the native attribute API:
 type/attribute/relationship resolution, the paginated catalog/search/retrieve
 path, and the read-side primitives (`resolve_mutation`, `snapshots_for`,
-`dependent_verdicts`, `invalid_json_counts`, `materialize_attribute_records`,
+`dependent_verdicts`, `invalid_json_counts`, `sample_type_populations`,
+`title_collation_classes`, `display_fields_for`, `materialize_attribute_records`,
 `materialize_hypothetical_records`) that T05 consumes to plan writes without
-reinterpreting identifiers itself. It creates no public routes and issues no
-INSERT/UPDATE/DELETE/DDL/job/outbox/broker/lock-acquiring statement.
+reinterpreting identifiers itself -- the full eight-method protocol
+`nextseek_api/attributes/planner.py` documents (`sample_type_populations`,
+`title_collation_classes`, and `display_fields_for`'s enrichment role close
+the capability gaps that module's docstring names). It creates no public
+routes and issues no INSERT/UPDATE/DELETE/DDL/job/outbox/broker/lock-acquiring
+statement.
 
 Design note on bounded final selection: no SQL statement here ever builds a
 parameter list that scales with the submitted identifier count (the
@@ -335,6 +340,17 @@ def resolve_title_collation_classes(
     patch_title_changes = {(r.target_index, r.attribute_index, "patch-final"): r for r in requests if r.phase == "patch-final"}
     collation_titles = create_titles | patch_title_changes
     return gateway.resolve_title_collation_classes(list(collation_titles.values()))
+
+
+def _is_create_definition(operation: Any) -> bool:
+    """True for a create-definition operation submitted in a mutation
+    envelope target's `attributes` list (an `AttributeCreate`-shaped dict;
+    DD-26) as opposed to a patch operation (`{"attribute": ...,
+    "changes": ...}`) or a bare patch/delete identifier (`int`/`str`). The
+    two dict shapes `resolve_mutation_envelope` ever receives are
+    distinguished exactly by this key's presence -- a create definition has
+    no existing physical identity, so it never carries an `attribute` key."""
+    return isinstance(operation, dict) and "attribute" not in operation
 
 
 # ---------------------------------------------------------------------------
@@ -864,6 +880,29 @@ class SeekAttributeGateway:
                 result[int(type_id)] = int(count)
         return result
 
+    def sample_type_populations(self, type_ids: Iterable[int]) -> dict[int, int]:
+        """Bulk, chunked total sample-row population per requested sample
+        type -- the DD-28 affected-sample threshold input. Mirrors
+        `invalid_json_counts`'s chunked `GROUP BY sample_type_id` pattern
+        exactly, minus the `JSON_VALID` filter: one statement per
+        `IDENTIFIER_CHUNK_SIZE`-sized chunk of *types*
+        (`ceil(k/500)` total), never one per type. A type with zero rows in
+        `samples` (including one absent from the table entirely) reports 0
+        rather than being omitted."""
+        result = {type_id: 0 for type_id in type_ids}
+        type_id_list = sorted(result)
+        for chunk in bounded_identifier_chunks(type_id_list):
+            self.chunk_sizes.append(len(chunk))
+            placeholders = ",".join(["%s"] * len(chunk))
+            sql = (
+                "SELECT sample_type_id, COUNT(*) FROM samples "
+                f"WHERE sample_type_id IN ({placeholders}) "
+                "GROUP BY sample_type_id"
+            )
+            for type_id, count in self._execute(sql, list(chunk)):
+                result[int(type_id)] = int(count)
+        return result
+
     def dependent_verdicts(self, type_ids: Iterable[int], resolved: dict) -> dict[int, str]:
         counts = self.invalid_json_counts(type_ids)
         return {type_id: ("compatible" if count == 0 else "invalid_json_present") for type_id, count in counts.items()}
@@ -930,7 +969,19 @@ class SeekAttributeGateway:
         set, which cannot compare `int` and `str`). A final assembly pass
         rebuilds each target's result in submitted order from the three bulk
         maps; no pass's statement count depends on target/operation count,
-        only on distinct identifier count."""
+        only on distinct identifier count.
+
+        A create-definition operation (`_is_create_definition`; an
+        `AttributeCreate`-shaped dict with no `attribute` key, DD-26) has no
+        existing physical identity to resolve, so it never enters the
+        identifier passes above -- it is passed through into the resolved
+        envelope untouched: `{"attribute_id": None, "attribute_index": i,
+        "resolution_errors": [], "definition": <submitted dict>}`, issuing
+        zero additional statements. This is target-level passthrough, not
+        identifier resolution -- the definition's own relationship
+        identifiers (`sample_attribute_type`/`unit`/`sample_controlled_vocab`/
+        `linked_sample_type`) are unresolved here, same as a patch
+        operation's `changes` sub-object."""
         targets = data["targets"]
 
         # Pass 1: bulk-resolve every target's sample-type identifier in one call.
@@ -983,6 +1034,8 @@ class SeekAttributeGateway:
         # Pass 2/3: bulk-resolve every operation's attribute identifier --
         # typed ops grouped by sample type via `resolve_attributes_bulk`,
         # untyped ops via `resolve_global_attribute_ids`, split by kind.
+        # Create-definition operations carry no identifier at all (no
+        # existing physical row) and never enter either bulk collection.
         bulk_requests: list[tuple[int, int, int, NormalizedIdentifier]] = []
         untyped_requests: list[tuple[int, int, Any, NormalizedIdentifier]] = []
         for state in target_states:
@@ -991,6 +1044,8 @@ class SeekAttributeGateway:
             target_index = state["target_index"]
             sample_type_id = state["sample_type_id"]
             for attribute_index, operation in enumerate(state["operations"]):
+                if _is_create_definition(operation):
+                    continue
                 attribute_value = operation["attribute"] if isinstance(operation, dict) and "attribute" in operation else operation
                 normalized_attribute = normalize_identifier(attribute_value)
                 if sample_type_id is not None:
@@ -1024,6 +1079,12 @@ class SeekAttributeGateway:
             resolved_operations = []
             resolution_errors: list[dict] = []
             for attribute_index, operation in enumerate(state["operations"]):
+                if _is_create_definition(operation):
+                    resolved_operations.append({
+                        "attribute_id": None, "attribute_index": attribute_index,
+                        "resolution_errors": [], "definition": operation,
+                    })
+                    continue
                 attribute_value = operation["attribute"] if isinstance(operation, dict) and "attribute" in operation else operation
                 try:
                     if sample_type_id is not None:
@@ -1229,6 +1290,38 @@ class AttributeRepository:
 
     def invalid_json_counts(self, type_ids: Iterable[int]) -> dict[int, int]:
         return self.gateway.invalid_json_counts(type_ids)
+
+    def sample_type_populations(self, type_ids: Iterable[int]) -> dict[int, int]:
+        """Bulk per-type total sample-row population (DD-28 affected-sample
+        threshold input); thin delegation to the gateway's chunked
+        `GROUP BY` accessor -- see `SeekAttributeGateway.sample_type_populations`
+        for the exact statement-count formula."""
+        return self.gateway.sample_type_populations(type_ids)
+
+    def title_collation_classes(
+        self, requests: Sequence[TitleCollationRequest]
+    ) -> dict[tuple[int, int, str], TitleCollationClass]:
+        """Thin facade over the frozen module-level `resolve_title_collation_classes`
+        free function (M-PATCH-COLLATION-01's `collation_titles` line is
+        unmodified) -- exposes the real-database collation oracle through
+        the repository's planner-read surface rather than the raw gateway,
+        matching the T05 protocol's `title_collation_classes` method name."""
+        return resolve_title_collation_classes(self.gateway, requests)
+
+    def display_fields_for(self, ids: Iterable[int]) -> dict[int, RawAttribute]:
+        """Bulk, chunked display-field lookup for *existing* physical
+        attribute rows, keyed by id: `sample_type_title`,
+        `sample_attribute_type_title`, `unit_title`, `unit_symbol`,
+        `sample_controlled_vocab_title`, `linked_sample_type_title`, and
+        `created_at` -- the join data a lean planning-side row (T05's
+        `DefinitionSnapshot`-derived working row, which deliberately omits
+        display-only fields) needs before it can be enriched into the
+        `materialize_attribute_records` input shape. Reuses the existing
+        bulk/chunked `resolve_global_attribute_ids` path (`ceil(k/500)`
+        statements); an id with no matching row is simply absent from the
+        result, never a partial/null entry."""
+        matches = self.gateway.resolve_global_attribute_ids(list(ids))
+        return {identifier: rows[0] for identifier, rows in matches.items() if rows}
 
     def materialize_attribute_records(self, definitions: Iterable[Definition]) -> tuple[AttributeRecord, ...]:
         return tuple(
