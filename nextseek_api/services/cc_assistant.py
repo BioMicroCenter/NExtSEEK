@@ -201,12 +201,22 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
 
 
 def _emit_ns_run_root(send_event, session) -> None:
-    """Publish the NS engine's per-turn output directory to the event stream.
+    """Publish the NS engine's output directory to the event stream.
 
     `run_root` is set into the chat_nextseek session dict by the orchestrator
     (orchestrator.py:339) and otherwise never leaves it, so a test harness or a
     support request cannot join a task_id to its console.txt, api_requests.json
     or files/.
+
+    The directory belongs to the chat SESSION, not to the turn. `log_dir` is
+    persisted into ChatSession.extra_state by DictSessionAdapter.save(), the next
+    turn's adapter reloads it, and _ensure_query_log_dir (orchestrator.py:329-331)
+    then returns early instead of making a new directory; Tee opens console.txt
+    with mode="a", so turns 2..n append into turn 1's directory. Several task_ids
+    can therefore legitimately map to the SAME run_root, and a consumer must
+    de-duplicate rather than assume uniqueness. That sharing is chat_nextseek's
+    design and that subpackage is vendored, so this is a fact to describe, not a
+    behaviour to fix here.
 
     Deliberately total: this is instrumentation, and instrumentation must never be
     able to fail a real user's turn. A session object that raises, a session with
@@ -452,8 +462,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         else:
                             run_query(adapter, chat_config, req.query, send_event, credentials=creds)
                     finally:
-                        # In a `finally` deliberately. run_query writes run_root_dir
-                        # into the session three statements in (orchestrator.py:620),
+                        # In a `finally` deliberately. run_query resolves
+                        # run_root_dir three statements in (orchestrator.py:620),
                         # long before anything can fail, and it re-raises anything
                         # that is not an LLMFatalError. So a turn that RAISED still
                         # left a populated outputs/<ts>_<user>/ behind -- and that is
@@ -461,6 +471,10 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         # request most needs. The join key has to survive the raise.
                         # _emit_ns_run_root is total, so it cannot mask the in-flight
                         # exception on its way out.
+                        #
+                        # NOT one directory per turn: the path is reused by every
+                        # turn of a multi-turn chat session (see the helper's
+                        # docstring), so consumers must de-duplicate on run_root.
                         _emit_ns_run_root(send_event, adapter)
                 else:
                     ok, detail = cc_engine.cc_runner_available()

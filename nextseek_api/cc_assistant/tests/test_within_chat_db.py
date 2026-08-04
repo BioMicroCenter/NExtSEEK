@@ -450,7 +450,14 @@ def test_within_chat_db_plan_mode_error_leaves_trace(client, monkeypatch):
 # and never correctly called reads as covered while being dead: the original
 # brief named the session `ns_session`, which does not exist in that scope, and
 # would have NameError'd on every NS turn with the hermetic suite fully green.
-# These two drive the real endpoint down the NS branch instead.
+# These drive the real endpoint down the NS branch instead.
+#
+# Two things these tests deliberately do NOT establish. (a) Directory lifetime:
+# the fake run_query below writes a fresh run_root_dir on every call, which the
+# real orchestrator does not -- the directory is per chat SESSION and is reused
+# by every turn of a multi-turn case, so consumers de-duplicate on run_root. See
+# test_ns_run_root_event.py's module docstring. (b) Anything about the CC branch,
+# which has no run_root at all.
 
 def _progress_events(task_id, name):
     return [e for e in (QueryTask.objects.get(task_id=task_id).progress or [])
@@ -480,6 +487,35 @@ def test_within_chat_db_ns_run_root_reaches_the_event_stream(client, monkeypatch
     assert _progress_events(tid, "ns_run_root") == [
         {"event": "ns_run_root",
          "data": {"run_root": "/app/outputs/260804_101500_wc-user"}}
+    ]
+
+
+def test_within_chat_db_ns_run_root_is_emitted_on_the_plan_branch(client, monkeypatch):
+    """The NS branch forks on mode, and plan-mode calls run_query_plan. The emit
+    sits after that fork on purpose, so BOTH arms reach it -- an emit that drifted
+    into the `else:` would drop the join key for every plan-mode turn."""
+    from nextseek_api.services import cc_assistant as svc
+
+    monkeypatch.setattr(
+        cc_router, "_baml_decision", lambda q, h=None: _decision(cc_router.ROUTE_NS)
+    )
+
+    def fake_run_query_plan(session, config, query, send_event, credentials=None):
+        session["run_root_dir"] = "/app/outputs/260804_101500_plan"
+        send_event("query_complete", {"reply": "a plan", "bundle_id": None})
+
+    monkeypatch.setattr(svc, "run_query_plan", fake_run_query_plan)
+    # Fail loudly rather than silently passing via the standard arm.
+    monkeypatch.setattr(
+        svc, "run_query",
+        lambda *a, **k: pytest.fail("plan mode must not reach run_query"),
+    )
+
+    tid, _ = _post_query(client, "plan me", mode="plan")
+    _wait_terminal(tid)
+
+    assert _progress_events(tid, "ns_run_root") == [
+        {"event": "ns_run_root", "data": {"run_root": "/app/outputs/260804_101500_plan"}}
     ]
 
 
