@@ -1,3 +1,4 @@
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -205,8 +206,9 @@ def test_bayesian_refuses_every_other_selection_source(extra, monkeypatch, capsy
     second-selection-source hazard the check exists to prevent.
     """
     _tripwire_on_every_spend(monkeypatch)
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as e:
         cli.main(["--base-url", "http://x", "--bayesian", *extra])
+    assert e.value.code == 2, "argparse.error() owns 2; see the abort-code test"
     # Only the text AFTER argparse's "error:" prefix counts. The usage line above
     # it lists every option name on the parser, so asserting against the whole of
     # stderr would pass for any flag whether or not the check names it.
@@ -222,8 +224,9 @@ def test_the_paired_only_flags_refuse_to_be_silently_ignored(extra, monkeypatch,
     operator believing a spending cap is in force on a paid full-tier run while
     nothing whatsoever is capped."""
     _tripwire_on_every_spend(monkeypatch)
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as e:
         cli.main(["--base-url", "http://x", "--tier", "full", *extra])
+    assert e.value.code == 2, "argparse.error() owns 2; see the abort-code test"
     msg = capsys.readouterr().err.split("error:", 1)[1]
     assert "--bayesian" in msg and extra[0] in msg
 
@@ -249,30 +252,41 @@ def test_bayesian_points_at_the_paired_manifest_not_the_normal_one(monkeypatch, 
 
 
 @pytest.mark.parametrize("exc, code, must_say", [
-    (bayesian.BudgetExceeded("spent $40.00 of $40.00 before x.y:cc."), 2,
+    (bayesian.BudgetExceeded("spent $40.00 of $40.00 before x.y:cc."), 3,
      ["spent $40.00", bayes_manifest.MANIFEST_NAME, "--resume"]),
-    (bayesian.PriorRunWouldBeOverwritten("already holds 130 pair(s)"), 3,
+    (bayesian.PriorRunWouldBeOverwritten("already holds 130 pair(s)"), 4,
      ["130 pair(s)", "nothing was billed"]),
-    (preflight.ForceRouteRejected("force_route was not honoured"), 4,
+    (preflight.ForceRouteRejected("force_route was not honoured"), 5,
      ["force_route was not honoured", "nothing was billed"]),
-    (bayesian.CorpusChanged("prior fingerprint 'a', current 'b'"), 5,
+    (bayesian.CorpusChanged("prior fingerprint 'a', current 'b'"), 6,
      ["prior fingerprint 'a'", "nothing was billed"]),
+    (urllib.error.URLError("[Errno 111] Connection refused"), 7,
+     ["http://x", "Connection refused"]),
 ])
 def test_every_paired_abort_is_legible_from_the_terminal_alone(
         exc, code, must_say, monkeypatch, tmp_path, capsys):
-    """Four aborts, four exit codes, and in every case the cause survives to the
+    """Five aborts, five exit codes, and in every case the cause survives to the
     terminal. A traceback would tell an operator who just spent real money that
     something raised, not whether the run is resumable or whether it ran at all.
 
     The codes are distinct because a wrapper script must tell "money spent, work
     on disk, resumable" from "refused before spending anything" without parsing
-    English out of stdout.
+    English out of stdout. None of them may be 0, 1 or 2: those are already taken
+    by success, a normal run's real failures, and argparse's own usage error.
+    A wrapper that raised --max-usd and retried on "the budget code" would loop
+    forever on a mistyped flag if the budget code were 2.
+
+    URLError is here because it is the likeliest first-run failure of all, a wrong
+    port. It is raised by the preflight's own POST, so no harness guard ever sees
+    it, and it reached the operator as fifteen lines of urllib frames under exit
+    1 -- the code that means "a normal run had real failures".
     """
     _capture_paired(monkeypatch, raises=exc)
 
     rc = cli.main(["--base-url", "http://x", "--bayesian", "--out", str(tmp_path)])
 
     assert rc == code
+    assert rc not in (0, 1, 2), "0/1/2 already mean success, gate failure, bad args"
     out = capsys.readouterr().out
     for phrase in must_say:
         assert phrase in out, f"{phrase!r} missing from:\n{out}"

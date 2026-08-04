@@ -1,5 +1,6 @@
 from __future__ import annotations
 import argparse
+import urllib.error
 from pathlib import Path
 from nessie_tests import runner, http_driver
 
@@ -10,11 +11,14 @@ EXIT_CODES = """exit codes
   0  the run completed
   1  a normal run had real failures (--bayesian never returns this: in a paired
      run a wrong answer is the measurement, not a gate failure)
-  2  --bayesian: the budget ceiling was reached. MONEY WAS SPENT and every
+  2  bad arguments. Owned by argparse, which is why no abort below reuses it:
+     a wrapper that retried "the budget code" would loop forever on a typo.
+  3  --bayesian: the budget ceiling was reached. MONEY WAS SPENT and every
      completed arm is on disk; rerun with a higher --max-usd and --resume.
-  3  --bayesian: refused, --out already holds a paired run. Nothing was billed.
-  4  --bayesian: refused, the server did not honour force_route. Nothing was billed.
-  5  --bayesian: refused, the corpus changed under a --resume. Nothing was billed.
+  4  --bayesian: refused, --out already holds a paired run. Nothing was billed.
+  5  --bayesian: refused, the server did not honour force_route. Nothing was billed.
+  6  --bayesian: refused, the corpus changed under a --resume. Nothing was billed.
+  7  --bayesian: could not talk to --base-url. Any completed arms are on disk.
 """
 
 # The default per-turn deadline, named so `main` can tell "the operator asked for
@@ -55,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-usd", type=float, default=None,
                    help="--bayesian only. Run-level USD ceiling, cumulative across resumes. "
                         "Aborts cleanly before the arm that would breach it, keeping every "
-                        "completed arm; exit 2. Only container_cc reports cost, so NS spend "
+                        "completed arm; exit 3. Only container_cc reports cost, so NS spend "
                         "is invisible to this ceiling and the real total is higher.")
     p.add_argument("--resume", action="store_true", default=False,
                    help="--bayesian only. Continue the paired run in --out: every (variant, arm) "
@@ -92,30 +96,45 @@ def _run_bayesian(a, auth) -> int:
             base_url=a.base_url, auth_header=auth, out_dir=a.out,
             max_usd=a.max_usd, resume=a.resume,
             full_timeout_s=a.full_timeout, pace_s=a.pace)
-    # Four aborts, four exit codes. They share nothing an operator would act on:
-    # the first spent real money and left resumable work on disk, the other three
-    # refused before a single turn was billed, and each has a different remedy. A
-    # single code would force a wrapper script to parse English out of stdout to
-    # tell "raise the ceiling and continue" from "you are on the wrong account".
+    # Five aborts, five exit codes, none of them 0, 1 or 2. They share nothing an
+    # operator would act on: the first spent real money and left resumable work on
+    # disk, the next three refused before a single turn was billed, and each has a
+    # different remedy. A single code would force a wrapper script to parse English
+    # out of stdout to tell "raise the ceiling and continue" from "you are on the
+    # wrong account" -- and 2 in particular is argparse's own usage error, so a
+    # wrapper that retried on "the budget code" would loop forever on a mistyped
+    # flag if the budget code were 2.
     except bayesian.BudgetExceeded as e:
-        print("nessie: budget ceiling reached, run stopped (exit 2).")
+        print("nessie: budget ceiling reached, run stopped (exit 3).")
         print(f"nessie: {e}")
         print(f"nessie: {a.out}/{bayes_manifest.MANIFEST_NAME} holds every completed "
               f"arm. Rerun the SAME command with a higher --max-usd and --resume; "
               f"completed arms are skipped, not repaid.")
-        return 2
-    except bayesian.PriorRunWouldBeOverwritten as e:
-        print("nessie: refused, nothing was billed (exit 3).")
-        print(f"nessie: {e}")
         return 3
-    except preflight.ForceRouteRejected as e:
-        print("nessie: preflight refused the run, nothing was billed (exit 4).")
+    except bayesian.PriorRunWouldBeOverwritten as e:
+        print("nessie: refused, nothing was billed (exit 4).")
         print(f"nessie: {e}")
         return 4
-    except bayesian.CorpusChanged as e:
-        print("nessie: refused the resume, nothing was billed (exit 5).")
+    except preflight.ForceRouteRejected as e:
+        print("nessie: preflight refused the run, nothing was billed (exit 5).")
         print(f"nessie: {e}")
         return 5
+    except bayesian.CorpusChanged as e:
+        print("nessie: refused the resume, nothing was billed (exit 6).")
+        print(f"nessie: {e}")
+        return 6
+    # The likeliest first-run failure of all is a wrong port, and it is raised by
+    # urllib inside the preflight's own POST -- before any harness guard can see
+    # it. Uncaught it reached the operator as fifteen lines of urllib frames under
+    # exit 1, the code that means "a normal run had real failures". HTTPError is a
+    # URLError subclass, so a 500 or a 403 lands here too and prints its own status.
+    except urllib.error.URLError as e:
+        print("nessie: could not talk to the endpoint, run stopped (exit 7).")
+        print(f"nessie: {a.base_url}: {e}")
+        print(f"nessie: check the stack is up and --base-url is right. Any arms "
+              f"that did complete are in {a.out}/{bayes_manifest.MANIFEST_NAME} "
+              f"and --resume will skip them.")
+        return 7
 
     both = sum(1 for p in m.pairs if p.ns and p.cc)
     print(f"nessie: {both}/{len(m.pairs)} complete pairs "
