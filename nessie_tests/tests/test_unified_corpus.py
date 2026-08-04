@@ -44,7 +44,8 @@ def test_unified_holds_every_definition():
     """383 = 366 adopted from catalog.json + 17 that only ever existed in the
     overlay. Retired ones are KEPT, which is why this is 383 and not 283."""
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
-    ids = {v["id"] for fam in payload["families"].values() for v in fam["variants"]}
+    ids = {v["id"] for fam in payload["families"].values() for v in fam["variants"]
+           if v.get("origin") != "atlas"}
     assert len(ids) == 383
 
 
@@ -82,16 +83,16 @@ def test_retired_ids_carry_their_full_retirement_record():
 
 
 def test_load_unified_returns_the_active_variants_only():
-    active = corpus.load_unified(UNIFIED)
+    active = corpus.curated(corpus.load_unified(UNIFIED))
     assert len(active) == 283
 
 
 def test_load_all_definitions_returns_active_plus_retired():
-    assert len(corpus.load_all_definitions(UNIFIED)) == 383
+    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 383
 
 
 def test_unified_resolution_preserves_turn_count():
-    assert sum(len(v.turns) for v in corpus.merged_from_unified(UNIFIED)) == 314
+    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 314
 
 
 def test_the_hand_written_annotations_survived_adoption():
@@ -105,7 +106,11 @@ def test_the_hand_written_annotations_survived_adoption():
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
     variants = [v for fam in payload["families"].values() for v in fam["variants"]]
     counts = collections.Counter(k for v in variants for k in v if k.startswith("_"))
-    assert counts == {"_why": 35, "_why_superseded_2026_08_03": 1, "_2026_07_28": 1}
+    # `_atlas` is machine provenance ({capability, assertion}) on the 79 generated
+    # variants, under ONE key so it cannot drown the signal this test exists for:
+    # that the 37 hand-written notes are still here.
+    assert counts == {"_why": 35, "_why_superseded_2026_08_03": 1,
+                      "_2026_07_28": 1, "_atlas": 79}
 
 
 def test_fingerprint_is_over_the_unified_corpus_only():
@@ -122,7 +127,8 @@ def test_fingerprint_is_over_the_unified_corpus_only():
 
 def test_variant_meta_covers_every_definition():
     meta = corpus.variant_meta(UNIFIED)
-    assert len(meta) == 383
+    curated_ids = {v.id for v in corpus.curated(corpus.load_all_definitions(UNIFIED))}
+    assert len({k for k in meta if k in curated_ids}) == 383
     assert meta["repro.cypher_uid_dot"]["status"] == "retired"
     assert meta["green.mus_ndma"]["status"] == "active"
     # `is_bayesian` used to be pinned False on this variant, which was a pin on
@@ -196,10 +202,12 @@ def test_defaults_cover_the_retired_only_families_too():
     and delete them.
     """
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
-    active = {v["family"] for fam in payload["families"].values()
-              for v in fam["variants"] if v.get("status") == "active"}
-    declared = {v["family"] for fam in payload["families"].values()
-                for v in fam["variants"]}
+    # Curated only: the 79 atlas variants populate 10 families that were empty, so
+    # counting them here would erase the very gap this test records.
+    cur = [v for fam in payload["families"].values() for v in fam["variants"]
+           if v.get("origin") != "atlas"]
+    active = {v["family"] for v in cur if v.get("status") == "active"}
+    declared = {v["family"] for v in cur}
     assert len(active) == 13, sorted(active)
     # pipeline_output_reingest and entity_write hold one RETIRED variant each and
     # no active one. They are not slop: a retired definition stays loadable and
@@ -246,7 +254,7 @@ def test_every_reporting_deposit_variant_overrides_its_family_default():
     kinds = {"GEO": ("Report-GEO", "GEO_XLSX"), "SRA": ("Report-SRA", "SRA_PACKAGE"),
              "PRIDE": ("Report-PRIDE", "PRIDE_PACKAGE")}
     seen = collections.Counter()
-    for v in corpus.load_all_definitions(UNIFIED):
+    for v in corpus.curated(corpus.load_all_definitions(UNIFIED)):
         if v.family != "submission_package":
             continue
         hit = [k for k in kinds if k in v.turns[0].query.upper()]
@@ -331,6 +339,10 @@ def test_bayesian_selection_is_nonempty_active_and_family_balanced():
     assert 100 <= len(ids) <= 150, f"selection is {len(ids)}; spec asks for 100-150"
     active = [v for v in corpus.load_unified(UNIFIED)]
     assert set(ids) <= {v.id for v in active}, "a retired variant cannot be selected"
+    # Curated only. The atlas set is `is_bayesian: false` by design (unreviewed
+    # questions must not enter a PAID paired run), so the families it alone
+    # populates have no bayesian member and never should until someone reads them.
+    active = corpus.curated(active)
     fams = {v.family for v in active if v.id in set(ids)}
     measurable = {v.family for v in active if "route_gate" not in v.tags}
     assert fams == measurable, \
@@ -422,7 +434,7 @@ def test_bayesian_selection_takes_the_whole_refine_and_recall_family():
     # `followup_over_results`, `refine_last_search` became `search_refinement`.
     # Both halves must still be taken whole, so assert the union, not either name.
     halves = ("followup_over_results", "search_refinement")
-    active = corpus.load_unified(UNIFIED)
+    active = corpus.curated(corpus.load_unified(UNIFIED))
     rr = [v.id for v in active if v.family in halves]
     assert rr and set(rr) <= ids
     for half in halves:
@@ -507,6 +519,10 @@ def test_the_clarify_behaviour_is_actually_used():
     meta = corpus.variant_meta(UNIFIED)
     users = {vid for vid, m in meta.items() if m["expected_behavior"] == "ClarifyIfAmbiguous"}
     assert "pipeline.build_an_nfcore_samplesheet_fo" in users
+    # The atlas pass wrote a second on 2026-08-04, and this test is why it carries
+    # the label: an anaphoric "which project should I upload this to" would
+    # otherwise score as a failure for correctly asking.
+    assert "entity.which_project_should_i_upload_th" in users
 
     import re
     clar = re.compile(r"clarify|specify|which|don't have|no .*(pinned|prior|previous)", re.I)
@@ -591,3 +607,56 @@ def test_the_hibayes_key_set_has_exactly_one_definition():
         for v in fam["variants"]:
             missing = [k for k in corpus._HIBAYES_KEYS if k not in v]
             assert not missing, f"{v['id']} is missing {missing}"
+
+
+def test_the_atlas_set_is_additive_and_inert():
+    """The 79 generated variants, asserted on their own terms.
+
+    `corpus.curated` filters them out of every measurement in this suite, which is
+    only defensible if something else pins them. This is that something.
+
+    ADDITIVE: they never displace a curated variant, so `merged()` is exactly the
+    curated corpus plus this set.
+
+    INERT where it matters: `is_bayesian` is false on all 79, because the paid
+    paired run must not spend money on questions nobody has read. The 2026-07-30
+    review retired 100 variants, most of them bad questions or near-duplicates,
+    and generating 79 more straight into a paid run would repeat that at cost.
+
+    They are NOT inert in the free tiers -- they run, and 11 families that held no
+    active variant at all now hold one. That gap was the point of the whole
+    2026-08-04 remap, so closing part of it is the deliverable, not a side effect.
+    """
+    defs = corpus.load_all_definitions(UNIFIED)
+    atlas = [v for v in defs if "atlas" in v.tags]
+    assert len(atlas) == 79
+
+    assert all(v.turns and len(v.turns) == 1 for v in atlas), "one turn each"
+    assert all(len(v.turns[0].pass_criteria) >= 1 for v in atlas), "every one asserts something"
+
+    meta = corpus.variant_meta(UNIFIED)
+    assert not [v.id for v in atlas if meta[v.id]["is_bayesian"]], \
+        "an unreviewed atlas variant is in the PAID paired selection"
+    assert all(meta[v.id]["status"] == "active" for v in atlas)
+    assert all(meta[v.id]["origin"] == "atlas" for v in atlas)
+
+    # Additive: curated + atlas is the whole corpus, with nothing displaced.
+    assert len(corpus.curated(defs)) + len(atlas) == len(defs)
+    assert len({v.id for v in atlas} & {v.id for v in corpus.curated(defs)}) == 0
+
+    # Every one carries its provenance back to the capability it came from.
+    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
+    raw = {v["id"]: v for fam in payload["families"].values() for v in fam["variants"]}
+    for v in atlas:
+        note = raw[v.id].get("_atlas")
+        assert note and note.get("capability") and note.get("assertion"), v.id
+
+    # The families it newly populates. If this shrinks, someone reviewed some and
+    # flipped the tag, which is the intended direction; if it grows, a generator
+    # ran again without anyone deciding to.
+    newly = {v.family for v in atlas} - {v.family for v in corpus.curated(corpus.merged(UNIFIED))}
+    assert newly == {"artifact_delivery", "batch_upload_preparation",
+                     "cc_sandbox_contract", "cross_session_memory", "engine_routing",
+                     "entity_write", "harmonization", "retrieval_path_selection",
+                     "turn_delivery_and_trace", "turn_limits_and_failure",
+                     "vocabulary_resolution"}, sorted(newly)

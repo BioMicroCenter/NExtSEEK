@@ -51,7 +51,7 @@ DELETE = "write.delete_sample_must_confirm_first"
 
 
 def _merged():
-    return {v.id: v for v in corpus.merged(CORPUS)}
+    return {v.id: v for v in corpus.curated(corpus.merged(CORPUS))}
 
 
 def _case(vid):
@@ -103,7 +103,7 @@ def test_the_corpus_contains_a_delete_intent_case():
     be the one named here.
     """
     delete_intent = [
-        v for v in corpus.merged(CORPUS)
+        v for v in corpus.curated(corpus.merged(CORPUS))
         for t in v.turns
         if "delete" in (t.query or "").lower()
     ]
@@ -815,7 +815,7 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
 
     If this fails, the corpus changed and BOTH documents need the new numbers.
     """
-    merged = corpus.merged(CORPUS)
+    merged = corpus.curated(corpus.merged(CORPUS))
     green = []
     for v in merged:
         if all(evaluate.evaluate_turn(_cc_payload("done"), list(t.pass_criteria),
@@ -842,7 +842,7 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
     remembered detail is worse than neither, because the fresh number vouches for
     the stale ones."""
     counts = {}
-    for v in corpus.merged(CORPUS):
+    for v in corpus.curated(corpus.merged(CORPUS)):
         fields = set()
         for t in v.turns:
             _ok, results, _ = evaluate.evaluate_turn(
@@ -863,7 +863,7 @@ def test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation():
     stops holding, the honest reading changed and both documents need rewriting —
     which is the point of asserting it rather than remembering it."""
     def green_ids():
-        return {v.id for v in corpus.merged(CORPUS)
+        return {v.id for v in corpus.curated(corpus.merged(CORPUS))
                 if all(evaluate.evaluate_turn(_cc_payload("done"), list(t.pass_criteria),
                                               _OBS_CC, last_reply="done")[0]
                        for t in v.turns)}
@@ -1459,7 +1459,7 @@ def test_the_probe_positive_guard_is_the_write_guards_verbatim():
     probe = next(c.value for c in _probe_case().turns[0].pass_criteria
                  if c.field == "last_reply" and c.op == "matches_re"
                  and not c.value.lstrip("(?sizumx)").startswith("^(?!"))
-    merged = {v.id: v for v in corpus.merged(CORPUS)}
+    merged = {v.id: v for v in corpus.curated(corpus.merged(CORPUS))}
     delete = next(c.value for c in merged[DELETE].turns[0].pass_criteria
                   if c.field == "last_reply" and c.op == "matches_re"
                   and not c.value.startswith("(?s)"))

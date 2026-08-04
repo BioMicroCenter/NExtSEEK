@@ -104,6 +104,32 @@ def _to_variants(payload: dict, *, include_retired: bool) -> list[Variant]:
     return out
 
 
+ATLAS_TAG = "atlas"
+
+
+def curated(variants: list[Variant]) -> list[Variant]:
+    """Everything a human wrote or reviewed: the corpus minus the atlas set.
+
+    On 2026-08-04 a capability-atlas pass generated 79 variants, one per
+    capability whose assertion was expressible in the corpus vocabulary. They are
+    real coverage and they run, but nobody has read the questions yet, so they
+    carry `origin: "atlas"` (and therefore the `atlas` tag) and `is_bayesian:
+    false`.
+
+    Most of this suite's numbers are MEASUREMENTS, not thresholds -- 268 route
+    injections, 207 floored variants, the exact ids the retired floor would have
+    touched, the ids an all-CC simulation turns red. Each was argued for in a
+    docstring against a corpus somebody curated. Folding an unreviewed set into
+    them would keep every test passing while quietly making it evidence for less,
+    so the measurements filter through here and the atlas set is asserted
+    separately, on its own terms, by `test_the_atlas_set_is_additive_and_inert`.
+
+    Promoting an atlas variant to reviewed is then a tag flip, not another round
+    of re-measurement.
+    """
+    return [v for v in variants if ATLAS_TAG not in v.tags]
+
+
 def load_unified(path=None) -> list[Variant]:
     """Active variants from the unified corpus, in file order."""
     return _to_variants(_read_unified(path), include_retired=False)

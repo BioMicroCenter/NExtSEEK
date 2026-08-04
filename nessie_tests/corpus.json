@@ -79,13 +79,13 @@
    "hibayes_subtype": "Report-GEO",
    "expected_behavior": "GenerateArtifact",
    "artifact_expected": true,
-   "artifact_kind": "NONE_EXPECTED"
+   "artifact_kind": "UNKNOWN_FILE"
   },
   "artifact_delivery": {
    "hibayes_subtype": null,
    "expected_behavior": "GenerateArtifact",
    "artifact_expected": true,
-   "artifact_kind": "NONE_EXPECTED"
+   "artifact_kind": "UNKNOWN_FILE"
   },
   "pipeline_launch": {
    "hibayes_subtype": "Report-NFCORE",
@@ -97,13 +97,13 @@
    "hibayes_subtype": null,
    "expected_behavior": "GenerateArtifact",
    "artifact_expected": true,
-   "artifact_kind": "NONE_EXPECTED"
+   "artifact_kind": "UNKNOWN_FILE"
   },
   "batch_upload_preparation": {
    "hibayes_subtype": "Write-Update",
    "expected_behavior": "GenerateArtifact",
    "artifact_expected": true,
-   "artifact_kind": "NONE_EXPECTED"
+   "artifact_kind": "UNKNOWN_FILE"
   },
   "harmonization": {
    "hibayes_subtype": "Search-Attribute",
@@ -2705,6 +2705,150 @@
      "artifact_expected": null,
      "artifact_kind": null,
      "retirement": null
+    },
+    {
+     "id": "advanced.give_me_the_full_records_for_eve",
+     "family": "sample_search",
+     "name": "Admin-retrieve to advanced_search auto-correction",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Give me the full records for every RNA sample in the database.",
+       "pass_criteria": [
+        {
+         "field": "api_plan.endpoint",
+         "op": "contains",
+         "value": "advanced_search"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Admin-retrieve to advanced_search auto-correction",
+      "assertion": "api_plan.endpoint contains advanced_search"
+     }
+    },
+    {
+     "id": "advanced.how_many_samples_are_from_the_ka",
+     "family": "sample_search",
+     "name": "Lab / PI-scoped search via the 3-letter UID code",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many samples are from the Kamm lab?",
+       "pass_criteria": [
+        {
+         "field": "api_plan.requestBody.filter_searchText",
+         "op": "contains",
+         "value": "KAM"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Lab / PI-scoped search via the 3-letter UID code",
+      "assertion": "api_plan.requestBody.filter_searchText contains KAM"
+     }
+    },
+    {
+     "id": "advanced.that_ndma_number_looked_off_to_m",
+     "family": "sample_search",
+     "name": "CC ops: nextseek-parse then nextseek-api-read",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "That NDMA number looked off to me — can you pull the mouse rows yourself and recount them?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b195\\b"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "CC ops: nextseek-parse then nextseek-api-read",
+      "assertion": "last_reply matches_re \\b195\\b"
+     }
+    },
+    {
+     "id": "advanced.list_the_tissue_and_cell_samples",
+     "family": "sample_search",
+     "name": "Graph LIMIT cap must be disclosed",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "List the tissue and cell samples in the Impact study.",
+       "pass_criteria": [
+        {
+         "field": "graph_truncation_disclosed",
+         "op": "true",
+         "value": null
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Graph LIMIT cap must be disclosed",
+      "assertion": "graph_truncation_disclosed true"
+     }
     }
    ]
   },
@@ -3457,6 +3601,42 @@
      "artifact_expected": null,
      "artifact_kind": null,
      "retirement": null
+    },
+    {
+     "id": "retrieve.give_me_the_full_record_for_samp",
+     "family": "sample_retrieve",
+     "name": "Full metadata + lineage export for explicit UIDs (admin retrieve)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Give me the full record for sample MUS-200901ENG-23-PUB.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(parent|child|derived from|lineage)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Full metadata + lineage export for explicit UIDs (admin retrieve)",
+      "assertion": "last_reply matches_re (?i)(parent|child|derived from|lineage)"
+     }
     }
    ]
   },
@@ -3575,6 +3755,42 @@
      "artifact_expected": null,
      "artifact_kind": null,
      "retirement": null
+    },
+    {
+     "id": "sys.who_are_the_researchers_register",
+     "family": "catalog_browse",
+     "name": "Routable REST endpoint catalog (10 enriched entries)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Who are the researchers registered in NExtSEEK?",
+       "pass_criteria": [
+        {
+         "field": "api_plan.endpoint",
+         "op": "eq",
+         "value": "/nextseek_api/people/"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Routable REST endpoint catalog (10 enriched entries)",
+      "assertion": "api_plan.endpoint eq /nextseek_api/people/"
+     }
     }
    ]
   },
@@ -6633,6 +6849,258 @@
      "artifact_expected": null,
      "artifact_kind": null,
      "retirement": null
+    },
+    {
+     "id": "graph.list_the_tissue_and_cell_samples",
+     "family": "graph_traversal",
+     "name": "True-total probe for LIMIT-capped graph results",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "List the tissue and cell samples in the Impact study.",
+       "pass_criteria": [
+        {
+         "field": "graph_result.total",
+         "op": "gte",
+         "value": 10000
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "True-total probe for LIMIT-capped graph results",
+      "assertion": "graph_result.total gte 10000"
+     }
+    },
+    {
+     "id": "graph.how_many_nhp_samples_are_in_the",
+     "family": "graph_traversal",
+     "name": "Ambiguous 'study X' resolved as Study.title OR Investigation.title",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many NHP samples are in the study called Impact?",
+       "pass_criteria": [
+        {
+         "field": "graph_cypher",
+         "op": "matches_re",
+         "value": "EXISTS\\s*\\{"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Ambiguous 'study X' resolved as Study.title OR Investigation.title",
+      "assertion": "graph_cypher matches_re EXISTS\\s*\\{"
+     }
+    },
+    {
+     "id": "graph.are_mus_200901eng_23_pub_and_d_s",
+     "family": "graph_traversal",
+     "name": "Guard: rewrite <var>.UID reads to the canonical <var>.uuid",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Are MUS-200901ENG-23-PUB and D.SEQ-221031SHA-67 related to each other?",
+       "pass_criteria": [
+        {
+         "field": "graph_result.count",
+         "op": "gte",
+         "value": 1
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Guard: rewrite <var>.UID reads to the canonical <var>.uuid",
+      "assertion": "graph_result.count gte 1"
+     }
+    },
+    {
+     "id": "graph.which_samples_in_the_impact_stud",
+     "family": "graph_traversal",
+     "name": "Guard: reject and re-prompt Cypher filtering on non-existent properties",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Which samples in the Impact study come from the Essigmann lab?",
+       "pass_criteria": [
+        {
+         "field": "graph_cypher",
+         "op": "matches_re",
+         "value": "(?s)^(?!.*\\.Lab\\b)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Guard: reject and re-prompt Cypher filtering on non-existent properties",
+      "assertion": "graph_cypher matches_re (?s)^(?!.*\\.Lab\\b)"
+     }
+    },
+    {
+     "id": "graph.list_the_mouse_samples_in_the_im",
+     "family": "graph_traversal",
+     "name": "Guard: insert the missing WITH before a leaked OPTIONAL MATCH filter",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "List the mouse samples in the Impact study.",
+       "pass_criteria": [
+        {
+         "field": "graph_result.count",
+         "op": "eq",
+         "value": 705
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Guard: insert the missing WITH before a leaked OPTIONAL MATCH filter",
+      "assertion": "graph_result.count eq 705"
+     }
+    },
+    {
+     "id": "graph.which_samples_were_collected_usi",
+     "family": "graph_traversal",
+     "name": "Protocol title vocabulary carried on DERIVED_FROM",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Which samples were collected using the tissue collection protocol?",
+       "pass_criteria": [
+        {
+         "field": "graph_cypher",
+         "op": "contains",
+         "value": "protocol_title"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Protocol title vocabulary carried on DERIVED_FROM",
+      "assertion": "graph_cypher contains protocol_title"
+     }
+    },
+    {
+     "id": "graph.which_monkeys_have_sequencing_da",
+     "family": "graph_traversal",
+     "name": "Assay to parent_type/child_type connection map",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Which monkeys have sequencing data? List them.",
+       "pass_criteria": [
+        {
+         "field": "graph_result.count",
+         "op": "eq",
+         "value": 139
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Assay to parent_type/child_type connection map",
+      "assertion": "graph_result.count eq 139"
+     }
     }
    ]
   },
@@ -8100,12 +8568,301 @@
       "source": "overlay",
       "family": "nessie_repro"
      }
+    },
+    {
+     "id": "tree.what_was_sample_mus_200901eng_23",
+     "family": "lineage_tree",
+     "name": "Lineage / derivation tree for ONE named UID",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "What was sample MUS-200901ENG-23-PUB derived from?",
+       "pass_criteria": [
+        {
+         "field": "api_plan.endpoint",
+         "op": "contains",
+         "value": "sample-tree"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Lineage / derivation tree for ONE named UID",
+      "assertion": "api_plan.endpoint contains sample-tree"
+     }
+    },
+    {
+     "id": "tree.are_mus_200901eng_23_pub_and_d_s",
+     "family": "lineage_tree",
+     "name": "UID-count discriminator: 1 UID stays on REST, 2+ forces the graph",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Are MUS-200901ENG-23-PUB and D.SEQ-221031SHA-67 related?",
+       "pass_criteria": [
+        {
+         "field": "parser_plan.mode",
+         "op": "eq",
+         "value": "graph_query"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "UID-count discriminator: 1 UID stays on REST, 2+ forces the graph",
+      "assertion": "parser_plan.mode eq graph_query"
+     }
     }
    ]
   },
   "vocabulary_resolution": {
    "description": "Turn the user's words into NExtSEEK codes before anything else runs.",
-   "variants": []
+   "variants": [
+    {
+     "id": "entity.how_many_pbmc_samples_do_we_have",
+     "family": "vocabulary_resolution",
+     "name": "Site-specific mapping conventions that override general biology",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many PBMC samples do we have?",
+       "pass_criteria": [
+        {
+         "field": "entity_sampletype_codes",
+         "op": "contains",
+         "value": "TIS"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Site-specific mapping conventions that override general biology",
+      "assertion": "entity_sampletype_codes contains TIS"
+     }
+    },
+    {
+     "id": "entity.find_pbmcs_that_were_sequenced_u",
+     "family": "vocabulary_resolution",
+     "name": "Cached embedding index over a catalog (SemanticIndex)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Find PBMCs that were sequenced using single cell methods.",
+       "pass_criteria": [
+        {
+         "field": "shortlist_diagnostics.enabled",
+         "op": "true",
+         "value": null
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Cached embedding index over a catalog (SemanticIndex)",
+      "assertion": "shortlist_diagnostics.enabled true"
+     }
+    },
+    {
+     "id": "entity.find_pbmcs_that_were_sequenced_u_2",
+     "family": "vocabulary_resolution",
+     "name": "Reciprocal Rank Fusion and score-ratio dynamic top-K",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Find PBMCs that were sequenced using single cell methods.",
+       "pass_criteria": [
+        {
+         "field": "shortlist_diagnostics.sampletype_ranks",
+         "op": "nonempty",
+         "value": null
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Reciprocal Rank Fusion and score-ratio dynamic top-K",
+      "assertion": "shortlist_diagnostics.sampletype_ranks nonempty"
+     }
+    },
+    {
+     "id": "entity.i_m_building_an_upload_sheet_for",
+     "family": "vocabulary_resolution",
+     "name": "CC op: nextseek-sampletype-attrs — fetch a sample type's attribute schema",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "I'm building an upload sheet for mouse samples — what attributes does that sample type need?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "mentions",
+         "value": "Genotype"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "CC op: nextseek-sampletype-attrs — fetch a sample type's attribute schema",
+      "assertion": "last_reply mentions Genotype"
+     }
+    },
+    {
+     "id": "entity.which_project_should_i_upload_th",
+     "family": "vocabulary_resolution",
+     "name": "CC ops: nextseek-assay-resolve and nextseek-project-resolve",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Which project should I upload these into?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(confirm|which project|is that the right project)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": "ClarifyIfAmbiguous",
+     "artifact_expected": false,
+     "artifact_kind": "NONE_EXPECTED",
+     "retirement": null,
+     "_atlas": {
+      "capability": "CC ops: nextseek-assay-resolve and nextseek-project-resolve",
+      "assertion": "last_reply matches_re (?i)(confirm|which project|is that the right project)"
+     }
+    },
+    {
+     "id": "entity.how_many_nhp_samples_are_in_the",
+     "family": "vocabulary_resolution",
+     "name": "CC route: reconcile a 'study' name across stores",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many NHP samples are in the 4 week study? The last answer looked wrong.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b(237|239)\\b"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "CC route: reconcile a 'study' name across stores",
+      "assertion": "last_reply matches_re \\b(237|239)\\b"
+     }
+    }
+   ]
   },
   "system_capability_question": {
    "description": "What the system is, what it can do, what vocabulary exists.",
@@ -8903,6 +9660,114 @@
      "artifact_expected": null,
      "artifact_kind": null,
      "retirement": null
+    },
+    {
+     "id": "sys.what_can_you_help_me_with",
+     "family": "system_capability_question",
+     "name": "Question about the system itself (mode=system_question)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "What can you help me with?",
+       "pass_criteria": [
+        {
+         "field": "parser_plan.mode",
+         "op": "eq",
+         "value": "system_question"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Question about the system itself (mode=system_question)",
+      "assertion": "parser_plan.mode eq system_question"
+     }
+    },
+    {
+     "id": "sys.how_many_sample_types_are_there",
+     "family": "system_capability_question",
+     "name": "Sample type catalog (101 codes)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many sample types are there?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b101\\b"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Sample type catalog (101 codes)",
+      "assertion": "last_reply matches_re \\b101\\b"
+     }
+    },
+    {
+     "id": "sys.how_many_different_assay_types_d",
+     "family": "system_capability_question",
+     "name": "Assay catalog (217 entries)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many different assay types does NExtSEEK have in its catalog?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b217\\b"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Assay catalog (217 entries)",
+      "assertion": "last_reply matches_re \\b217\\b"
+     }
     }
    ]
   },
@@ -10465,6 +11330,366 @@
       "source": "overlay",
       "family": "nessie_repro"
      }
+    },
+    {
+     "id": "refrec.how_many_of_those_are_rg_genotyp",
+     "family": "followup_over_results",
+     "name": "Follow-up over already-returned results (mode=ask_about_last_results)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many of those are RG genotype?",
+       "pass_criteria": [
+        {
+         "field": "api_result_meta.source_mode",
+         "op": "eq",
+         "value": "new_search"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Follow-up over already-returned results (mode=ask_about_last_results)",
+      "assertion": "api_result_meta.source_mode eq new_search"
+     }
+    },
+    {
+     "id": "refrec.going_back_to_my_first_search_ho",
+     "family": "followup_over_results",
+     "name": "Select WHICH prior result bundle a follow-up refers to",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Going back to my first search — how many were there?",
+       "pass_criteria": [
+        {
+         "field": "last_target_result_id",
+         "op": "eq",
+         "value": 1
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Select WHICH prior result bundle a follow-up refers to",
+      "assertion": "last_target_result_id eq 1"
+     }
+    },
+    {
+     "id": "refrec.and_how_many_of_those_were_rgatg",
+     "family": "followup_over_results",
+     "name": "Compute the follow-up answer with sandboxed generated Python",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "And how many of those were RGATG?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b39\\b"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Compute the follow-up answer with sandboxed generated Python",
+      "assertion": "last_reply matches_re \\b39\\b"
+     }
+    },
+    {
+     "id": "refrec.how_many_of_those_mice_have_the",
+     "family": "followup_over_results",
+     "name": "Schema-agnostic JSON profiling for the follow-up prompt",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many of those mice have the RG genotype?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b44\\b"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Schema-agnostic JSON profiling for the follow-up prompt",
+      "assertion": "last_reply matches_re \\b44\\b"
+     }
+    },
+    {
+     "id": "refrec.what_was_my_first_search_about",
+     "family": "followup_over_results",
+     "name": "Inject prior bundles and chat history into the prompt",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "What was my first search about?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "mentions",
+         "value": "NDMA"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Inject prior bundles and chat history into the prompt",
+      "assertion": "last_reply mentions NDMA"
+     }
+    },
+    {
+     "id": "refrec.that_mouse_search_you_just_did_p",
+     "family": "followup_over_results",
+     "name": "CC op: nextseek-recall — re-fetch a prior turn's raw rows instead of re-querying",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "That mouse search you just did — pull the actual rows and count the RG genotypes for me.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b44\\b"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "CC op: nextseek-recall — re-fetch a prior turn's raw rows instead of re-querying",
+      "assertion": "last_reply matches_re \\b44\\b"
+     }
+    },
+    {
+     "id": "refrec.how_many_of_them_are_there_in_to",
+     "family": "followup_over_results",
+     "name": "CHAT_HISTORY prompt block for follow-ups and pronouns",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many of them are there in total?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b195\\b"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "CHAT_HISTORY prompt block for follow-ups and pronouns",
+      "assertion": "last_reply matches_re \\b195\\b"
+     }
+    },
+    {
+     "id": "refrec.how_many_of_the_ndma_ones_were_r",
+     "family": "followup_over_results",
+     "name": "Resolve which earlier result set a follow-up means",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many of the NDMA ones were RG?",
+       "pass_criteria": [
+        {
+         "field": "api_result_meta.bundle_id",
+         "op": "eq",
+         "value": 1
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Resolve which earlier result set a follow-up means",
+      "assertion": "api_result_meta.bundle_id eq 1"
+     }
+    },
+    {
+     "id": "refrec.remind_me_what_that_mouse_search",
+     "family": "followup_over_results",
+     "name": "Within-chat cross-engine digest",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Remind me what that mouse search came back with, then tell me how you'd approach the analysis.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b195\\b"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Within-chat cross-engine digest",
+      "assertion": "last_reply matches_re \\b195\\b"
+     }
+    },
+    {
+     "id": "refrec.now_narrow_that_down_to_just_the",
+     "family": "followup_over_results",
+     "name": "Make a refine-with-no-prior-bundle degrade visible",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Now narrow that down to just the females.",
+       "pass_criteria": [
+        {
+         "field": "parser_plan.notes",
+         "op": "contains",
+         "value": "previous turn ran outside the NExtSEEK search path"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Make a refine-with-no-prior-bundle degrade visible",
+      "assertion": "parser_plan.notes contains previous turn ran outside the NExtSEEK search path"
+     }
     }
    ]
   },
@@ -11259,12 +12484,265 @@
      "artifact_expected": null,
      "artifact_kind": null,
      "retirement": null
+    },
+    {
+     "id": "refrec.now_just_the_rg_genotype_ones",
+     "family": "search_refinement",
+     "name": "Refine / re-run the previous search (mode=refine_last_search)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Now just the RG genotype ones.",
+       "pass_criteria": [
+        {
+         "field": "api_plan.requestBody.filter_searchText",
+         "op": "contains",
+         "value": "NDMA"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Refine / re-run the previous search (mode=refine_last_search)",
+      "assertion": "api_plan.requestBody.filter_searchText contains NDMA"
+     }
+    },
+    {
+     "id": "refrec.now_narrow_that_down_to_just_the_2",
+     "family": "search_refinement",
+     "name": "Guard: make a refine-with-no-prior-bundle degrade visible",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Now narrow that down to just the females.",
+       "pass_criteria": [
+        {
+         "field": "parser_plan.mode",
+         "op": "eq",
+         "value": "new_search"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Guard: make a refine-with-no-prior-bundle degrade visible",
+      "assertion": "parser_plan.mode eq new_search"
+     }
     }
    ]
   },
   "retrieval_path_selection": {
    "description": "Which execution path inside the NExtSEEK engine a question takes.",
-   "variants": []
+   "variants": [
+    {
+     "id": "path.put_together_a_summary_of_the_sa",
+     "family": "retrieval_path_selection",
+     "name": "Top-level parser route enum (7 values) and the single-path parser",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Put together a summary of the samples IMPACT uploaded last year.",
+       "pass_criteria": [
+        {
+         "field": "parser_plan.mode",
+         "op": "eq",
+         "value": "reporter"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Top-level parser route enum (7 values) and the single-path parser",
+      "assertion": "parser_plan.mode eq reporter"
+     }
+    },
+    {
+     "id": "path.what_sops_are_on_file",
+     "family": "retrieval_path_selection",
+     "name": "Select (or rank) the target REST endpoint for a search turn",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "What SOPs are on file?",
+       "pass_criteria": [
+        {
+         "field": "api_plan.endpoint",
+         "op": "eq",
+         "value": "/nextseek_api/sops/"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Select (or rank) the target REST endpoint for a search turn",
+      "assertion": "api_plan.endpoint eq /nextseek_api/sops/"
+     }
+    },
+    {
+     "id": "path.i_don_t_trust_that_impact_number",
+     "family": "retrieval_path_selection",
+     "name": "CC op: nextseek-query — run the whole deterministic NS pipeline for one question",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "I don't trust that Impact number — work out how many mice are in that study from scratch.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "\\b705\\b"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "CC op: nextseek-query — run the whole deterministic NS pipeline for one question",
+      "assertion": "last_reply matches_re \\b705\\b"
+     }
+    },
+    {
+     "id": "path.what_sample_types_were_represent",
+     "family": "retrieval_path_selection",
+     "name": "Parser route mode (7 values)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "What sample types were represented in those results?",
+       "pass_criteria": [
+        {
+         "field": "parser_plan.mode",
+         "op": "eq",
+         "value": "ask_about_last_results"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Parser route mode (7 values)",
+      "assertion": "parser_plan.mode eq ask_about_last_results"
+     }
+    },
+    {
+     "id": "path.actually_hang_on_find_me_the_mic",
+     "family": "retrieval_path_selection",
+     "name": "In-progress pipeline wizard gate",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Actually, hang on — find me the mice treated with NDMA first.",
+       "pass_criteria": [
+        {
+         "field": "parser_plan.mode",
+         "op": "eq",
+         "value": "new_search"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "In-progress pipeline wizard gate",
+      "assertion": "parser_plan.mode eq new_search"
+     }
+    }
+   ]
   },
   "project_summary_report": {
    "description": "How much data a project, lab or investigation holds. All four report modes.",
@@ -12823,6 +14301,114 @@
      "artifact_expected": null,
      "artifact_kind": null,
      "retirement": null
+    },
+    {
+     "id": "report.how_many_samples_has_metnet_uplo",
+     "family": "project_summary_report",
+     "name": "Run a project summary report (the 4-mode dispatcher)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many samples has MetNet uploaded so far?",
+       "pass_criteria": [
+        {
+         "field": "report_saved_files.reporter_result",
+         "op": "nonempty",
+         "value": null
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Run a project summary report (the 4-mode dispatcher)",
+      "assertion": "report_saved_files.reporter_result nonempty — whichever of the four summary modes ran, the dispatcher persisted reporter_result.json and registered it as a downloadable file"
+     }
+    },
+    {
+     "id": "report.which_of_our_samples_have_alread",
+     "family": "project_summary_report",
+     "name": "Published-to-public-repositories report",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Which of our samples have already been published?",
+       "pass_criteria": [
+        {
+         "field": "reporter_result.samples.study_count",
+         "op": "gte",
+         "value": 1
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Published-to-public-repositories report",
+      "assertion": "reporter_result.samples.study_count gte 1 — the published runner reached Neo4j and returned the study set behind the published samples; study_count exists only on this runner's nested samples block"
+     }
+    },
+    {
+     "id": "report.how_many_samples_did_we_upload_l",
+     "family": "project_summary_report",
+     "name": "Resolve a colloquial date phrase into a concrete report window",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many samples did we upload last year?",
+       "pass_criteria": [
+        {
+         "field": "reporter_result.years_table",
+         "op": "matches_re",
+         "value": "^\\{'\\d\\d': \\d+\\}$"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Resolve a colloquial date phrase into a concrete report window",
+      "assertion": "reporter_result.years_table matches_re \"^\\{'\\d\\d': \\d+\\}$\" — exactly one year bucket comes back, so the relative phrase became a bounded window that was actually applied to the query; an ignored window returns every year in the database"
+     }
     }
    ]
   },
@@ -13675,12 +15261,157 @@
      "artifact_expected": true,
      "artifact_kind": "GEO_XLSX",
      "retirement": null
+    },
+    {
+     "id": "report.build_an_sra_deposit_for_d_seq_2",
+     "family": "submission_package",
+     "name": "SRA BioSample workbook (.xlsx) export",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Build an SRA deposit for D.SEQ-230512FOR-288-PUB and D.SEQ-230512FOR-289-PUB — I'll need the BioSample sheet too.",
+       "pass_criteria": [
+        {
+         "field": "report_saved_files.sra_biosample_workbooks",
+         "op": "nonempty",
+         "value": null
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": "Report-SRA",
+     "expected_behavior": "GenerateArtifact",
+     "artifact_expected": true,
+     "artifact_kind": "SRA_PACKAGE",
+     "retirement": null,
+     "_atlas": {
+      "capability": "SRA BioSample workbook (.xlsx) export",
+      "assertion": "report_saved_files.sra_biosample_workbooks nonempty — an SRA request produced the SECOND workbook as well; silently shipping only the metadata sheet is the failure mode"
+     }
+    },
+    {
+     "id": "report.build_an_sra_submission_for_thes",
+     "family": "submission_package",
+     "name": "Deterministic row emission for large submissions (report_coder + sandbox + parity gate)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Build an SRA submission for these 25 samples: D.SEQ-230512FOR-266-PUB, D.SEQ-230512FOR-267-PUB, D.SEQ-230512FOR-268-PUB, … (25 UIDs pasted)",
+       "pass_criteria": [
+        {
+         "field": "api_artifact.merged_report_SRA_SRA_metadata_filled.xlsx.rows_gte",
+         "op": "gte",
+         "value": 25
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": "Report-SRA",
+     "expected_behavior": "GenerateArtifact",
+     "artifact_expected": true,
+     "artifact_kind": "SRA_PACKAGE",
+     "retirement": null,
+     "_atlas": {
+      "capability": "Deterministic row emission for large submissions (report_coder + sandbox + parity gate)",
+      "assertion": "api_artifact.merged_report_SRA_SRA_metadata_filled.xlsx.rows_gte gte 25 — above the 20-sample code-path threshold every requested library still gets its own row; LLM-writer truncation shows up as a short sheet and the parity gate is what is supposed to prevent it"
+     }
+    },
+    {
+     "id": "report.build_a_geo_submission_for_d_seq",
+     "family": "submission_package",
+     "name": "Discover, fetch and extract the linked protocol documents",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Build a GEO submission for D.SEQ-221031SHA-67-PUB — make sure the methods come from our actual protocols, not just the protocol IDs.",
+       "pass_criteria": [
+        {
+         "field": "report_saved_files.protocol_files",
+         "op": "nonempty",
+         "value": null
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": "Report-GEO",
+     "expected_behavior": "GenerateArtifact",
+     "artifact_expected": true,
+     "artifact_kind": "GEO_XLSX",
+     "retirement": null,
+     "_atlas": {
+      "capability": "Discover, fetch and extract the linked protocol documents",
+      "assertion": "report_saved_files.protocol_files nonempty — protocol_files.json is written only when a referenced SOP was located, its blob downloaded and its DOCX/PDF text extracted; a refs-only pass writes `protocols` but never `protocol_files`"
+     }
     }
    ]
   },
   "artifact_delivery": {
    "description": "Get the file the assistant just made out of the turn and to the user.",
-   "variants": []
+   "variants": [
+    {
+     "id": "artifact.write_a_csv_summarising_those_sa",
+     "family": "artifact_delivery",
+     "name": "Host-side artifact path translation in replies",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Write a CSV summarising those samples and tell me exactly where the file is.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "/dmac/users/[^\\s`]+/(output|scratch)/"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Host-side artifact path translation in replies",
+      "assertion": "last_reply matches_re \"/dmac/users/[^\\s`]+/(output|scratch)/\" — the reply quotes the host-side logical path, proving DMAC_PATH_MAPPINGS was read and applied rather than the container path /data/output being leaked"
+     }
+    }
+   ]
   },
   "pipeline_launch": {
    "description": "Run an nf-core pipeline on the cluster for a resolved cohort, including producing its samplesheet.",
@@ -14760,6 +16491,438 @@
       "source": "overlay",
       "family": "nessie_repro"
      }
+    },
+    {
+     "id": "pipeline.actually_use_star_rsem_for_the_a",
+     "family": "pipeline_launch",
+     "name": "The three ways a launch build starts (and the gate that keeps it going)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Actually, use star_rsem for the aligner instead.",
+       "pass_criteria": [
+        {
+         "field": "route_source",
+         "op": "eq",
+         "value": "pipeline"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "The three ways a launch build starts (and the gate that keeps it going)",
+      "assertion": "route_source eq \"pipeline\""
+     }
+    },
+    {
+     "id": "pipeline.run_rnaseq_on_every_d_seq_sample",
+     "family": "pipeline_launch",
+     "name": "resolve_samples — turn 'these' / UIDs / accessions into a leaf metadata table",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Run rnaseq on every D.SEQ sample in the database.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(75|too many|narrow (?:it|this|that|your)|smaller set)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "resolve_samples — turn 'these' / UIDs / accessions into a leaf metadata table",
+      "assertion": "last_reply matches_re \"(?i)(75|too many|narrow (?:it|this|that|your)|smaller set)\""
+     }
+    },
+    {
+     "id": "pipeline.hold_on_how_many_nhp_samples_are",
+     "family": "pipeline_launch",
+     "name": "Ending a build: conclude outcomes, cancel words, handoff",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Hold on — how many NHP samples are in the IMPACT study?",
+       "pass_criteria": [
+        {
+         "field": "outcome_observed",
+         "op": "true",
+         "value": null
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Ending a build: conclude outcomes, cancel words, handoff",
+      "assertion": "outcome_observed true"
+     }
+    },
+    {
+     "id": "pipeline.build_me_an_nf_core_rnaseq_sampl",
+     "family": "pipeline_launch",
+     "name": "NFCORE bare-label routing rule",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Build me an nf-core rnaseq samplesheet for the D.SEQ samples in the IMPACT study.",
+       "pass_criteria": [
+        {
+         "field": "parser_plan.report_type",
+         "op": "eq",
+         "value": "NFCORE"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "NFCORE bare-label routing rule",
+      "assertion": "parser_plan.report_type eq \"NFCORE\""
+     }
+    },
+    {
+     "id": "pipeline.what_nf_core_pipelines_can_you_a",
+     "family": "pipeline_launch",
+     "name": "Curated nf-core pipeline catalog (8 launchable pipelines)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "What nf-core pipelines can you actually run for me?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)(?=.*rnaseq)(?=.*scrnaseq)(?=.*atacseq)(?=.*chipseq)(?=.*sarek)(?=.*methylseq)(?=.*ampliseq)(?=.*fetchngs)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Curated nf-core pipeline catalog (8 launchable pipelines)",
+      "assertion": "last_reply matches_re \"(?is)(?=.*rnaseq)(?=.*scrnaseq)(?=.*atacseq)(?=.*chipseq)(?=.*sarek)(?=.*methylseq)(?=.*ampliseq)(?=.*fetchngs)\""
+     }
+    },
+    {
+     "id": "pipeline.run_rnaseq_on_d_seq_240709kam_4",
+     "family": "pipeline_launch",
+     "name": "configure_run — build params.yml + launch.yml from the curated menu",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Run rnaseq on D.SEQ-240709KAM-4-PUB and tell me what settings you'll use.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)\\bstar_salmon\\b"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "configure_run — build params.yml + launch.yml from the curated menu",
+      "assertion": "last_reply matches_re \"(?i)\\\\bstar_salmon\\\\b\""
+     }
+    },
+    {
+     "id": "pipeline.run_rnaseq_on_those_samples_but",
+     "family": "pipeline_launch",
+     "name": "Curated per-pipeline parameter menus (the only params the model may set)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Run rnaseq on those samples but use bowtie2 as the aligner.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(star_salmon|star_rsem|hisat2)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Curated per-pipeline parameter menus (the only params the model may set)",
+      "assertion": "last_reply matches_re \"(?i)(star_salmon|star_rsem|hisat2)\""
+     }
+    },
+    {
+     "id": "pipeline.run_scrnaseq_on_d_seq_241114sha",
+     "family": "pipeline_launch",
+     "name": "Single-cell chemistry presets (10x vs Seq-Well / Drop-seq)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Run scrnaseq on D.SEQ-241114SHA-5-PUB — those are Seq-Well, not 10x.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)dropseq"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Single-cell chemistry presets (10x vs Seq-Well / Drop-seq)",
+      "assertion": "last_reply matches_re \"(?i)dropseq\""
+     }
+    },
+    {
+     "id": "pipeline.run_rnaseq_on_the_nhp_samples_th",
+     "family": "pipeline_launch",
+     "name": "Auto-detect the cohort's organism from lineage metadata",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Run rnaseq on the NHP samples that have RNA-seq data.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(Mmul_10|macaca mulatta|rhesus)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Auto-detect the cohort's organism from lineage metadata",
+      "assertion": "last_reply matches_re \"(?i)(Mmul_10|macaca mulatta|rhesus)\""
+     }
+    },
+    {
+     "id": "pipeline.yes_submit_it",
+     "family": "pipeline_launch",
+     "name": "submit_to_luria — ssh + sbatch the built run on MIT Luria",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Yes, submit it.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)job\\s*(?:id)?\\s*[:#]?\\s*\\d{6,9}"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "submit_to_luria — ssh + sbatch the built run on MIT Luria",
+      "assertion": "last_reply matches_re \"(?i)job\\\\s*(?:id)?\\\\s*[:#]?\\\\s*\\\\d{6,9}\""
+     }
+    },
+    {
+     "id": "pipeline.run_rnaseq_on_those_mice_and_lau",
+     "family": "pipeline_launch",
+     "name": "submit_to_tower tool — present, never exposed, unreachable",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Run rnaseq on those mice and launch it on Seqera Tower.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)^(?!.*(?:submitted (?:it )?to (?:seqera|tower)|tower (?:workflow|run) (?:id|launched|submitted))).*$"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "submit_to_tower tool — present, never exposed, unreachable",
+      "assertion": "last_reply matches_re \"(?is)^(?!.*(?:submitted (?:it )?to (?:seqera|tower)|tower (?:workflow|run) (?:id|launched|submitted))).*$\""
+     }
+    },
+    {
+     "id": "pipeline.build_me_an_nf_core_rnaseq_sampl_2",
+     "family": "pipeline_launch",
+     "name": "nf-core samplesheet emission through the report path (cohorts + launch.yml + notes.md)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Build me an nf-core rnaseq samplesheet for the D.SEQ samples in the IMPACT study and save it as a file I can download.",
+       "pass_criteria": [
+        {
+         "field": "api_artifact.artifacts.zip",
+         "op": "true",
+         "value": null
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "nf-core samplesheet emission through the report path (cohorts + launch.yml + notes.md)",
+      "assertion": "api_artifact.artifacts.zip true"
+     }
     }
    ]
   },
@@ -14809,11 +16972,193 @@
   },
   "batch_upload_preparation": {
    "description": "Prepare and validate an upload workbook, including reading a supplied document.",
-   "variants": []
+   "variants": [
+    {
+     "id": "batch.rg_radr_gpt_please_produce_the_b",
+     "family": "batch_upload_preparation",
+     "name": "nextseek-batch-upload skill — the curator-facing prepare-and-validate path",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "RG = RaDR+/+; GPT+/+. Please produce the batch upload workbook for the Published Data project.",
+       "pass_criteria": [
+        {
+         "field": "api_artifact.artifacts.zip",
+         "op": "true",
+         "value": null
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "nextseek-batch-upload skill — the curator-facing prepare-and-validate path",
+      "assertion": "api_artifact.artifacts.zip true"
+     }
+    },
+    {
+     "id": "batch.prepare_a_batch_upload_workbook",
+     "family": "batch_upload_preparation",
+     "name": "nextseek-project-resolve — resolve and curator-confirm the target project",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Prepare a batch-upload workbook that sets Scientist to Edward B. Irvine on the mice treated with NDMA.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(confirm|is that the right project|correct project|proceed)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "nextseek-project-resolve — resolve and curator-confirm the target project",
+      "assertion": "last_reply matches_re \"(?i)(confirm|is that the right project|correct project|proceed)\""
+     }
+    },
+    {
+     "id": "batch.validate_that_upload_sheet_again",
+     "family": "batch_upload_preparation",
+     "name": "nextseek-validate-upload — fused build + server validate + hard gate + promote",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Validate that upload sheet against the server before I upload it.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(structure|name_check|dag)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "nextseek-validate-upload — fused build + server validate + hard gate + promote",
+      "assertion": "last_reply matches_re \"(?i)(structure|name_check|dag)\""
+     }
+    },
+    {
+     "id": "batch.write_me_a_csv_summarizing_the_n",
+     "family": "batch_upload_preparation",
+     "name": "File-production and file-reading mount contract (CC route intent)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Write me a CSV summarizing the NDMA mice with UID, sample type and project, and tell me where you put it.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "mentions",
+         "value": "/data/scratch"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "File-production and file-reading mount contract (CC route intent)",
+      "assertion": "last_reply mentions \"/data/scratch\""
+     }
+    }
+   ]
   },
   "harmonization": {
    "description": "Find near-duplicate attribute values, propose a canonical mapping, hand it to batch upload.",
-   "variants": []
+   "variants": [
+    {
+     "id": "harmon.the_scientist_field_looks_like_i",
+     "family": "harmonization",
+     "name": "CC harmonization — cluster near-duplicate attribute VALUES and propose a canonical mapping",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "The Scientist field looks like it has the same people entered under different names. Which entries are duplicates of each other, and what should each one be?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)(?=.*Edward B\\. Irvine)(?=.*Eddie Irvine)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "CC harmonization — cluster near-duplicate attribute VALUES and propose a canonical mapping",
+      "assertion": "last_reply matches_re \"(?is)(?=.*Edward B\\\\. Irvine)(?=.*Eddie Irvine)\""
+     }
+    }
+   ]
   },
   "entity_write": {
    "description": "Create, update or delete a record, or edit a sample type's attributes.",
@@ -14856,6 +17201,150 @@
       "decided_by": "issue #35 review, round 2 (operator)",
       "source": "overlay",
       "family": "nessie_route"
+     }
+    },
+    {
+     "id": "write.set_up_a_new_investigation_calle",
+     "family": "entity_write",
+     "name": "nextseek-api-write — the only live write path in the plugin",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Set up a new investigation called NESSIE-PROBE-DELETEME for me.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(confirm|proceed|shall I|should I|may I|are you sure|would you like|before I|go.?ahead|say the word)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "nextseek-api-write — the only live write path in the plugin",
+      "assertion": "last_reply matches_re \"(?i)(confirm|proceed|shall I|should I|may I|are you sure|would you like|before I|go.?ahead|say the word)\""
+     }
+    },
+    {
+     "id": "write.set_up_a_new_investigation_calle_2",
+     "family": "entity_write",
+     "name": "Write safety — the three-layer contract",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Set up a new investigation called NESSIE-PROBE-DELETEME for me.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)^(?!.*(?:(?<!not )(?:I (?:have )?(?:created|updated|deleted)|successfully (?:created|updated|deleted)|has been (?:created|updated|deleted)))).*$"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Write safety — the three-layer contract",
+      "assertion": "last_reply matches_re (the write.* negative-claim tripwire: reply must not claim the record was created/updated/deleted)"
+     }
+    },
+    {
+     "id": "write.yes_go_ahead",
+     "family": "entity_write",
+     "name": "PATCH /nextseek_api/sample_types/{uid}/ via nextseek-api-write",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Yes, go ahead.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(502|error|failed|unable|could ?n'?t|has samples)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "PATCH /nextseek_api/sample_types/{uid}/ via nextseek-api-write",
+      "assertion": "last_reply matches_re \"(?i)(502|error|failed|unable|could ?n'?t|has samples)\""
+     }
+    },
+    {
+     "id": "write.before_we_change_anything_what_a",
+     "family": "entity_write",
+     "name": "nextseek-sampletype-attrs — read the attribute schema before editing",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Before we change anything — what attributes does the MUS sample type have today?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "mentions",
+         "value": "Strain"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "nextseek-sampletype-attrs — read the attribute schema before editing",
+      "assertion": "last_reply mentions \"Strain\""
      }
     }
    ]
@@ -15614,12 +18103,193 @@
      "artifact_expected": null,
      "artifact_kind": null,
      "retirement": null
+    },
+    {
+     "id": "write.generate_a_geo_submission_for_d",
+     "family": "writes_unsupported",
+     "name": "Deliverable carve-out: building a file from existing records is NOT a write",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Generate a GEO submission for D.SEQ-240709KAM-4-PUB and its derived samples.",
+       "pass_criteria": [
+        {
+         "field": "reporter_plan.report_type",
+         "op": "matches_re",
+         "value": "(?i)^(GEO|SRA|PRIDE|RPPR|NFCORE)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Deliverable carve-out: building a file from existing records is NOT a write",
+      "assertion": "reporter_plan.report_type matches_re \"(?i)^(GEO|SRA|PRIDE|RPPR|NFCORE)\""
+     }
+    },
+    {
+     "id": "write.make_me_a_heatmap_of_gene_expres",
+     "family": "writes_unsupported",
+     "name": "Out-of-scope refusals adjacent to export",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Make me a heatmap of gene expression across the NDMA-treated mice.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)(can'?t|cannot|not able|don'?t (?:have|support)|outside (?:the |my )?scope|beyond what)"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Out-of-scope refusals adjacent to export",
+      "assertion": "last_reply matches_re \"(?i)(can'?t|cannot|not able|don'?t (?:have|support)|outside (?:the |my )?scope|beyond what)\""
+     }
     }
    ]
   },
   "engine_routing": {
    "description": "Which engine a turn reaches: BAML decision, heuristic fallback, the unrelated outcome, router history.",
-   "variants": []
+   "variants": [
+    {
+     "id": "route.how_many_mouse_samples_do_we_hav",
+     "family": "engine_routing",
+     "name": "Top-level route selection (3 routes)",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "How many mouse samples do we have from the NDMA study?",
+       "pass_criteria": [
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Top-level route selection (3 routes)",
+      "assertion": "a plain lab-data lookup is classified nextseek_query"
+     }
+    },
+    {
+     "id": "route.turn_1_find_the_ndma_treated_mic",
+     "family": "engine_routing",
+     "name": "History-aware routing with injection containment",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "turn 1: 'Find the NDMA-treated mice.' turn 2: 'And how many of those were female?'",
+       "pass_criteria": [
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "History-aware routing with injection containment",
+      "assertion": "an elliptical second turn that only makes sense against turn 1 still routes to the engine that answered turn 1"
+     }
+    },
+    {
+     "id": "route.what_is_a_comet_chip_analysis_sa",
+     "family": "engine_routing",
+     "name": "Out-of-scope refusal (unrelated) with anti-over-refusal rule",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "What is a Comet Chip Analysis sample?",
+       "pass_criteria": [
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Out-of-scope refusal (unrelated) with anti-over-refusal rule",
+      "assertion": "ordinary lab vocabulary named in the anti-over-refusal list is NOT refused as unrelated"
+     }
+    }
+   ]
   },
   "route_overrides": {
    "description": "force_route precedence, sticky-CC and its exits, the per-turn request envelope.",
@@ -15627,7 +18297,44 @@
   },
   "cross_session_memory": {
    "description": "What carries across sessions and containers, including the CC to NS asymmetry.",
-   "variants": []
+   "variants": [
+    {
+     "id": "memory.turn_1_write_the_list_of_ndma_tr",
+     "family": "cross_session_memory",
+     "name": "Claude session resume across ephemeral containers",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "turn 1: 'Write the list of NDMA-treated mouse UIDs to a file called cohort_notes.txt in your scratch directory.' turn 2: 'What did you name that file?'",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "mentions",
+         "value": "cohort_notes.txt"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Claude session resume across ephemeral containers",
+      "assertion": "turn 2 of a CC chat recalls a fact that exists only in turn 1's in-container state"
+     }
+    }
+   ]
   },
   "session_lifecycle": {
    "description": "Create, name, resume and rehydrate a session; act as the right user or refuse.",
@@ -15635,15 +18342,126 @@
   },
   "turn_limits_and_failure": {
    "description": "Timeout, budget cap, max turns, the error taxonomy and failover.",
-   "variants": []
+   "variants": [
+    {
+     "id": "limits.write_the_uids_of_the_ndma_treat",
+     "family": "turn_limits_and_failure",
+     "name": "Ephemeral sandboxed agent container per turn",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Write the UIDs of the NDMA-treated mice into a file called cohort_notes.txt.",
+       "pass_criteria": [
+        {
+         "field": "api_artifact.cohort_notes.txt",
+         "op": "true",
+         "value": null
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Ephemeral sandboxed agent container per turn",
+      "assertion": "a CC turn spawns a container with a working RW scratch mount, evidenced by a file it wrote reaching the caller"
+     }
+    }
+   ]
   },
   "turn_delivery_and_trace": {
    "description": "How a turn starts, streams, ends with a legible outcome, and is reconstructed after.",
-   "variants": []
+   "variants": [
+    {
+     "id": "delivery.turn_1_build_me_an_nf_core_rnase",
+     "family": "turn_delivery_and_trace",
+     "name": "Pipeline wizard turn outcomes, cancel words and budgets",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "turn 1: 'Build me an nf-core rnaseq samplesheet for the D.SEQ-240910LAU samples.' turn 2: 'cancel' turn 3: 'How many NHP samples are there?'",
+       "pass_criteria": [
+        {
+         "field": "route_source",
+         "op": "eq",
+         "value": "baml"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Pipeline wizard turn outcomes, cancel words and budgets",
+      "assertion": "a deterministic cancel word abandons the build, so the next turn is no longer routed by the pipeline gate"
+     }
+    }
+   ]
   },
   "cc_sandbox_contract": {
    "description": "CC agent behaviour when a tool fails or a write is proposed. Stop-after-2, prohibitions, the L3 gate.",
-   "variants": []
+   "variants": [
+    {
+     "id": "sandbox.can_you_pull_together_the_sequen",
+     "family": "cc_sandbox_contract",
+     "name": "AskUserQuestion prohibition — clarifications must be plain text",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Can you pull together the sequencing data for that study we talked about?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": "ClarifyIfAmbiguous",
+     "artifact_expected": false,
+     "artifact_kind": "NONE_EXPECTED",
+     "retirement": null,
+     "_atlas": {
+      "capability": "AskUserQuestion prohibition — clarifications must be plain text",
+      "assertion": "an ambiguous request comes back as a plain-text clarification rather than stranding the session"
+     }
+    }
+   ]
   },
   "unsupported": {
    "description": "Refuse out-of-scope asks.",
@@ -15923,6 +18741,42 @@
       "decided_by": "issue #35 review, round 2 (operator)",
       "source": "overlay",
       "family": "nessie_route"
+     }
+    },
+    {
+     "id": "unsup.put_together_a_geo_submission_fo",
+     "family": "unsupported",
+     "name": "Deliverable carve-out: building a file is NOT a write",
+     "tags": [
+      "nessie",
+      "full",
+      "atlas"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "main",
+       "query": "Put together a GEO submission for the IMPACT sequencing samples.",
+       "pass_criteria": [
+        {
+         "field": "parser_plan.mode",
+         "op": "eq",
+         "value": "reporter"
+        }
+       ]
+      }
+     ],
+     "status": "active",
+     "origin": "atlas",
+     "is_bayesian": false,
+     "hibayes_subtype": null,
+     "expected_behavior": null,
+     "artifact_expected": null,
+     "artifact_kind": null,
+     "retirement": null,
+     "_atlas": {
+      "capability": "Deliverable carve-out: building a file is NOT a write",
+      "assertion": "assembling a named submission artifact routes to the reporter rather than being refused as a write"
      }
     }
    ]

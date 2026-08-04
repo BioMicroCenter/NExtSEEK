@@ -447,6 +447,8 @@ def _evaluate(criteria, debug, *, last_reply="ok"):
 # radius is written down, and because a future floor edit that changes it should
 # have to say so out loud.
 
+_CURATED_IDS = {v.id for v in corpus.curated(corpus.merged(CORPUS))}
+
 RETIRED_FLOOR = {
     "sample_search": ["api_ok", "api_outcome_observed"],
     "sample_retrieve": ["api_ok", "api_outcome_observed"],
@@ -542,7 +544,11 @@ def test_the_retired_floor_entries_were_inert_almost_everywhere():
     is not the broad loosening the spec diff suggests — it removed one criterion from
     four cases.
     """
+    # Curated only: the retired floor is a historical measurement over the corpus
+    # somebody wrote, and 79 atlas variants landing in floored families would
+    # rewrite the evidence set without changing what it is evidence for.
     added = _floor_added_under(RETIRED_FLOOR)
+    added = {vid: f for vid, f in added.items() if vid in _CURATED_IDS}
     assert {vid for vid, f in added.items() if "neo4j_ok" in f} == LOST_NEO4J_OK
     assert {vid for vid, f in added.items() if "api_ok" in f} == LOST_API_OK
 
@@ -573,7 +579,7 @@ def test_search_tree_got_stricter_not_looser_on_all_but_one_variant():
     # on api_ok + api_outcome_observed and never carried the trade risk.
     floored = [v for v in merged.values()
                if v.family == "lineage_tree" and v.id.startswith("tree.")
-               and "no_floor" not in v.tags]
+               and "no_floor" not in v.tags and "atlas" not in v.tags]
     assert len(floored) == 13, [v.id for v in floored]
 
     traded = {v.id for v in floored if "api_ok" not in _inline_fields(v.id)}
@@ -883,7 +889,7 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     """An override REPLACES; it must not append a second case asking the same
     question, which would double the cost of every full run and let the base
     variant keep failing next to its replacement."""
-    merged = corpus.merged(CORPUS)
+    merged = corpus.curated(corpus.merged(CORPUS))
     # 280 -> 283 on 2026-08-03: the create/update/delete refusal coverage came
     # back (one reinstated, two authored). This is the ONLY hardcoded corpus size
     # in the suite, so it is the one place that has to move.

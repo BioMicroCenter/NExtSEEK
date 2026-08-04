@@ -124,7 +124,7 @@ def test_retirement_can_be_reversed_by_flipping_the_status(tmp_path):
     reinstated = tmp_path / "corpus.json"
     reinstated.write_text(json.dumps(payload), encoding="utf-8")
 
-    active = {v.id for v in corpus.load_unified(reinstated)}
+    active = {v.id for v in corpus.curated(corpus.load_unified(reinstated))}
     assert victim["id"] in active
     assert len(active) == 284
 

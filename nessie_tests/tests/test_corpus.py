@@ -18,8 +18,11 @@ def test_every_definition_carries_its_origin_as_a_tag():
     definitions came from the overlay rather than from the vendored catalog."""
     defs = corpus.load_all_definitions(CORPUS)
     for v in defs:
-        assert {"base", "overlay"} & set(v.tags) , f"{v.id} carries no origin tag"
+        # "atlas" is the third origin, added 2026-08-04: 79 generated variants,
+        # one per expressible capability assertion. See corpus.curated.
+        assert {"base", "overlay", "atlas"} & set(v.tags), f"{v.id} carries no origin tag"
     assert len([v for v in defs if "overlay" in v.tags]) == 47
+    assert len([v for v in defs if "atlas" in v.tags]) == 79
 
 
 def test_merged_is_exactly_the_active_definitions():
@@ -29,7 +32,8 @@ def test_merged_is_exactly_the_active_definitions():
     all_defs = corpus.load_all_definitions(CORPUS)
     meta = corpus.variant_meta(CORPUS)
     retired = {vid for vid, m in meta.items() if m["status"] == "retired"}
-    merged = corpus.merged(CORPUS)
+    merged = corpus.curated(corpus.merged(CORPUS))
+    all_defs = corpus.curated(all_defs)
     assert len(merged) == len(all_defs) - len(retired) == 283
     assert len({v.id for v in merged}) == len(merged)  # no duplicate ids
     assert not ({v.id for v in merged} & retired)
@@ -235,6 +239,7 @@ def _prepolicy():
 
 def test_every_resolved_variant_carries_a_route_criterion():
     merged = corpus.merged(CORPUS)
+    merged = corpus.curated(merged)
     with_route = [v for v in merged
                   if any(c.field == "route" for t in v.turns for c in t.pass_criteria)]
 
@@ -262,6 +267,8 @@ def test_the_route_policy_injects_the_number_the_docs_quote():
     inline = [v for v in pre
               if v.turns and any(c.field == "route" for c in v.turns[0].pass_criteria)]
 
+    injected = corpus.curated(injected)
+    inline = corpus.curated(inline)
     assert len(injected) == 268, f"{len(injected)} injected — update {_DOCS}"
     assert len(inline) == 15, f"{len(inline)} inline — update {_DOCS}"
 
@@ -275,7 +282,7 @@ def test_the_family_floor_injects_the_numbers_the_docs_quote():
     pre = corpus.apply_route_policy(_prepolicy(), corpus.load_route_policy(CORPUS))
 
     per_field, variants = {}, 0
-    for v in pre:
+    for v in corpus.curated(pre):
         floor = floors.get(v.family)
         if not floor or skip_tag in v.tags or not v.turns:
             continue
