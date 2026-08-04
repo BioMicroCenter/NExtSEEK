@@ -221,9 +221,20 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 POLICY_BLOCKS = ("criterion_rewrites", "route_policy", "family_floor", "consistency_groups")
 
 
-def _variant_dict(v, *, origin: str, retirement: dict | None) -> dict:
-    """One variant, definition first then metadata, so a diff reads naturally."""
+def _variant_dict(v, *, origin: str, retirement: dict | None, raw: dict) -> dict:
+    """One variant, definition first then metadata, so a diff reads naturally.
+
+    ``raw`` is the source body, carried so hand-written annotation keys survive.
+    `Variant` has six fields and pydantic's default `extra="ignore"` drops
+    everything else in silence, so anything reconstructed from the model alone
+    loses them. overlay.json carries 35 `_why` keys plus `_why_superseded_*` and
+    dated notes, and two tests asserted on them -- including one checking that the
+    DELETE case warns it can destroy a real sample, on a case targeting a real UID.
+    Emitting a fixed key set silently deleted all of it.
+    """
+    annotations = {k: val for k, val in raw.items() if k.startswith("_")}
     return {
+        **annotations,
         "id": v.id,
         # The DECLARED family, not the nesting key. `Variant.family` is read from
         # the variant BODY (chat_nextseek/e2e/catalog.py:24), and 7 variants
@@ -485,7 +496,23 @@ _META_KEYS = ("status", "origin", "is_bayesian", "hibayes_subtype",
 
 
 def _read_unified(path=None) -> dict:
-    return json.loads(Path(path or _UNIFIED).read_text(encoding="utf-8"))
+    """Parse the unified corpus, refusing anything that is not one.
+
+    Without the version check a legacy path resolves to ZERO variants in silence:
+    overlay.json and retired.json both have a `families` block, no variant in
+    either carries `status`, and `load_unified` keeps only `status == "active"`.
+    `merged(Path("nessie_tests/overlay.json"))` returned `[]` rather than raising,
+    which is a silent no-op run for any stale script, README line or muscle-memory
+    invocation -- and both files are still on disk by design.
+    """
+    path = Path(path or _UNIFIED)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("version") != 2:
+        raise ValueError(
+            f"{path} is not a v2 unified corpus (version={payload.get('version')!r}). "
+            f"nessie_tests reads nessie_tests/corpus.json; overlay.json and "
+            f"retired.json are superseded and resolve to zero variants.")
+    return payload
 
 
 def _to_variants(payload: dict, *, include_retired: bool) -> list[Variant]:
