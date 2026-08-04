@@ -182,8 +182,8 @@ def main():
     tasks = lj(run / "turns.json")
     triage = lj(a.triage)
 
-    # ONE source since 2026-08-04. It used to read the vendored catalog and
-    # overlay.json and merge them here, which meant this script had to reproduce
+    # ONE source since 2026-08-04. It used to read the vendored catalog and the
+    # superseded overlay file and merge them here, so this script had to reproduce
     # `corpus.merged`'s override rule to describe the right case. corpus.json has
     # one definition per id, retired ones included -- and reading those matters,
     # because an OLD manifest can name a case retired since.

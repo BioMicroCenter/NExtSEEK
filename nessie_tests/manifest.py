@@ -92,9 +92,9 @@ class NessieManifest(BaseModel):
     record of the seed or of which cases were selected. ``corpus_fingerprint`` is the
     load-bearing one — if corpus.json changed between runs then the SAME seed selected
     a DIFFERENT set of cases, and a diff tool must say so rather than silently
-    mis-pairing them. It hashed catalog.json + overlay.json until 2026-08-04, so
-    fingerprints do not compare across that commit; that is correct, because the
-    corpus file really did change.
+    mis-pairing them. Until 2026-08-04 it hashed the vendored catalog plus the
+    superseded overlay file, so fingerprints do not compare across that commit;
+    that is correct, because the corpus file really did change.
     """
     started_at: str
     ended_at: str

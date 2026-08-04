@@ -55,9 +55,20 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 POLICY_BLOCKS = ("criterion_rewrites", "route_policy", "family_floor", "consistency_groups")
 
 
-def _variant_dict(v, *, origin: str, retirement: dict | None) -> dict:
-    """One variant, definition first then metadata, so a diff reads naturally."""
+def _variant_dict(v, *, origin: str, retirement: dict | None, raw: dict) -> dict:
+    """One variant, definition first then metadata, so a diff reads naturally.
+
+    ``raw`` is the source body, carried so hand-written annotation keys survive.
+    `Variant` has six fields and pydantic's default `extra="ignore"` drops
+    everything else in silence, so anything reconstructed from the model alone
+    loses them. overlay.json carries 35 `_why` keys plus `_why_superseded_*` and
+    dated notes, and two tests asserted on them -- including one checking that the
+    DELETE case warns it can destroy a real sample, on a case targeting a real UID.
+    Emitting a fixed key set silently deleted all of it.
+    """
+    annotations = {k: val for k, val in raw.items() if k.startswith("_")}
     return {
+        **annotations,
         "id": v.id,
         # The DECLARED family, not the nesting key. `Variant.family` is read from
         # the variant BODY (chat_nextseek/e2e/catalog.py:24), and 7 variants
@@ -95,12 +106,23 @@ def build(catalog_path, overlay_path, retired_path) -> dict:
     base = {v.id: v for v in corpus.load_base()}
     overlay = {v.id: v for v in corpus.load_overlay(pathlib.Path(overlay_path))}
 
+    # The RAW source bodies, keyed by id. `_variant_dict` needs them because the
+    # parsed `Variant` cannot carry a `_why`: the model has six fields and
+    # pydantic's `extra="ignore"` drops the rest without a word. Indexed by
+    # ORIGIN, so an overlay override's annotations come from the overlay body it
+    # is actually emitting rather than from the base body it replaces.
+    raw_bodies = {
+        "base": {v["id"]: v for f in raw_catalog["families"].values() for v in f["variants"]},
+        "overlay": {v["id"]: v for f in raw_overlay["families"].values() for v in f["variants"]},
+    }
+
     families: dict[str, dict] = {}
 
     def _emit(fam_name: str, description: str, variant, origin: str) -> None:
         fam = families.setdefault(fam_name, {"description": description, "variants": []})
         fam["variants"].append(
-            _variant_dict(variant, origin=origin, retirement=retirements.get(variant.id))
+            _variant_dict(variant, origin=origin, retirement=retirements.get(variant.id),
+                          raw=raw_bodies[origin][variant.id])
         )
 
     # Base families, in catalog order. An overlay variant with a matching id takes

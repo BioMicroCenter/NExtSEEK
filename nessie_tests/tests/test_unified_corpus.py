@@ -9,8 +9,11 @@ would fail on correct work. What survives is everything that reads only the
 unified file: the counts, the duplicate-id guard, the retirement records, and the
 guarantee that a retired definition is still loadable.
 """
+import collections
 import json
 import pathlib
+
+import pytest
 
 from nessie_tests import corpus
 
@@ -76,6 +79,36 @@ def test_load_all_definitions_returns_active_plus_retired():
 
 def test_unified_resolution_preserves_turn_count():
     assert sum(len(v.turns) for v in corpus.merged_from_unified(UNIFIED)) == 314
+
+
+@pytest.mark.parametrize("legacy", ["overlay.json", "retired.json"])
+def test_a_superseded_file_is_refused_rather_than_resolving_to_nothing(legacy):
+    """The failure mode that made this worth a guard is SILENCE.
+
+    Both superseded files still have a `families` block and stay on disk by
+    operator ruling, but no variant in either carries `status`, and
+    `_to_variants` keeps only `status == "active"`. So `merged(overlay.json)`
+    returned `[]` — a zero-case run, no error, for any stale script, README line
+    or muscle-memory invocation. A wrong path must be loud.
+    """
+    path = ROOT / legacy
+    assert path.is_file(), "the superseded files are kept on disk by design"
+    with pytest.raises(ValueError, match="not a v2 unified corpus"):
+        corpus.merged(path)
+
+
+def test_the_hand_written_annotations_survived_adoption():
+    """`_why` and its dated siblings are prose a human wrote next to a case, and
+    `Variant` has six fields with `extra="ignore"` — so nothing loaded through the
+    model can tell you they went missing. Task 1's generator emitted a fixed key
+    set and silently dropped all 37 of them, taking two tests with it, including
+    the one guarding that the DELETE case (which targets a REAL uid) warns it can
+    destroy real data. Counted here so a regenerate that loses them again says so.
+    """
+    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
+    variants = [v for fam in payload["families"].values() for v in fam["variants"]]
+    counts = collections.Counter(k for v in variants for k in v if k.startswith("_"))
+    assert counts == {"_why": 35, "_why_superseded_2026_08_03": 1, "_2026_07_28": 1}
 
 
 def test_fingerprint_is_over_the_unified_corpus_only():

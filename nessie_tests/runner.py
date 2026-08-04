@@ -57,8 +57,9 @@ def corpus_fingerprint(corpus_path=None) -> str:
     unchanged. If corpus.json was edited between runs the same seed selected a
     DIFFERENT set, and a diff tool must say so rather than silently mis-pair cases.
 
-    It hashed catalog.json + overlay.json until 2026-08-04. Fingerprints do not
-    compare across that boundary, and should not: the corpus file really did change.
+    Until 2026-08-04 it hashed the vendored catalog plus the superseded overlay
+    file. Fingerprints do not compare across that boundary, and should not: the
+    corpus file really did change.
     """
     try:
         return corpus.sha256_of(corpus_path or corpus._UNIFIED)

@@ -67,7 +67,23 @@ _META_KEYS = ("status", "origin", "is_bayesian", "hibayes_subtype",
 
 
 def _read_unified(path=None) -> dict:
-    return json.loads(Path(path or _UNIFIED).read_text(encoding="utf-8"))
+    """Parse the unified corpus, refusing anything that is not one.
+
+    Without the version check a legacy path resolves to ZERO variants in silence:
+    overlay.json and retired.json both have a `families` block, no variant in
+    either carries `status`, and `load_unified` keeps only `status == "active"`.
+    `merged(Path("nessie_tests/overlay.json"))` returned `[]` rather than raising,
+    which is a silent no-op run for any stale script, README line or muscle-memory
+    invocation -- and both files are still on disk by design.
+    """
+    path = Path(path or _UNIFIED)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("version") != 2:
+        raise ValueError(
+            f"{path} is not a v2 unified corpus (version={payload.get('version')!r}). "
+            f"nessie_tests reads nessie_tests/corpus.json; overlay.json and "
+            f"retired.json are superseded and resolve to zero variants.")
+    return payload
 
 
 def _to_variants(payload: dict, *, include_retired: bool) -> list[Variant]:

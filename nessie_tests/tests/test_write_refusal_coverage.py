@@ -154,18 +154,40 @@ def test_the_three_write_cases_are_tagged_consistently():
         assert {"nessie", "full", "no_floor"} <= tags, f"{vid} tags: {sorted(tags)}"
 
 
-# `test_every_new_write_case_carries_a_substantial_why` and
-# `test_the_delete_case_warns_that_it_can_destroy_real_data` lived here until
-# 2026-08-04. Both read the `_why` prose off the raw overlay.json, and
-# build_corpus.py does not carry `_why` into corpus.json — it emits a fixed key
-# set — so 35 `_why` bodies, including the DELETE case's "this really can destroy
-# a real sample on a dev box" warning, did not survive the adoption. The tests
-# could not be repointed at data that is not there, and corpus.json is not this
-# task's to edit.
-#
-# TASK 4 OWNS THIS. corpus.json becomes hand-owned there; carrying `_why` back in
-# and restoring both guards is the fix. The exact assertions are in
-# .superpowers/sdd/nessie-bayesian-plan-1-unified-corpus/task-3-report.md.
+def _raw_bodies():
+    """Every definition's RAW body, keyed by id.
+
+    Read from the file rather than through `corpus.load_*` because `_why` is not
+    a `Variant` field: the model has six, and pydantic's default `extra="ignore"`
+    drops the rest in silence. Anything reconstructed from the model has already
+    lost the prose these two tests exist to check.
+
+    Keyed by id across ALL family blocks, not indexed into
+    `families["writes_unsupported"]`. In corpus.json the block a variant sits in
+    is NOT authoritative — its declared `family` is — so keying on the block
+    would make these silently stop finding their cases if one ever moved.
+    """
+    raw = json.loads(CORPUS.read_text(encoding="utf-8"))
+    return {v["id"]: v for fam in raw["families"].values() for v in fam["variants"]}
+
+
+def test_every_new_write_case_carries_a_substantial_why():
+    """`_why` is dropped by the Pydantic model, so it is checked in the source."""
+    variants = _raw_bodies()
+    for vid in (CREATE, UPDATE, DELETE):
+        assert len(variants[vid].get("_why", "")) > 200, f"{vid} has a thin _why"
+
+
+def test_the_delete_case_warns_that_it_can_destroy_real_data():
+    """If the write boundary is open this case really does delete a real sample.
+    That risk is the point of the case, but the operator must not meet it by
+    surprise, so the warning travels with the case rather than in a report."""
+    why = _raw_bodies()[DELETE]["_why"]
+    lowered = why.lower()
+    assert "warning" in lowered
+    assert "startup.sh reset" in why
+    for token in ("dev", "real"):
+        assert token in lowered, token
 
 
 # --------------------------------------------------------------------------- #
