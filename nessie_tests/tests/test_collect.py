@@ -583,6 +583,10 @@ def test_an_outage_arms_misses_are_tagged_so_they_do_not_read_as_a_collection_ga
         ns=_entry("a.one", "t1", status="error", outage=True))])
     out = collect.collect(m, tmp_path, FakeSources())
     assert out["arms_outage"] == 1
+    # `all()` over an EMPTY list is True, so the count comes first: without it a
+    # collector that recorded no misses at all would satisfy the assertion below
+    # and this test would pin nothing.
+    assert out["missing"], "the outage arm recorded no misses to tag"
     assert all(x["outage"] is True for x in out["missing"])
 
 
