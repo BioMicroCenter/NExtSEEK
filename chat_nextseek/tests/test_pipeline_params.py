@@ -317,3 +317,43 @@ def test_declared_user_param_specs_are_well_formed():
             # A declared param must be one the pipeline actually accepts.
             assert spec["name"] in _load(key)["params"], f"{key}:{spec['name']} not in params"
     assert seen >= 6, "expected crisprseq (4) + smrnaseq (1) + hic (1)"
+
+
+def test_nanoseq_and_mag_match_their_authoritative_input_schemas():
+    """Both were rejected in the first pass on samplesheet shapes read off
+    assets/samplesheet.csv. assets/schema_input.json says otherwise, and these
+    assertions pin the corrected facts so the mistake cannot recur silently."""
+    from chat_nextseek.seqera.catalog import get_pipeline_entry
+    # nanoseq 3.1.0: a plain sample/fastq_1/fastq_2 sheet — NOT the old
+    # group/replicate/barcode/genome sheet the example CSV still shows.
+    nano = get_pipeline_entry("nanoseq")
+    assert nano["required_columns"] == ["sample", "fastq_1"]
+    assert nano["reference_cli_flags"] == []          # declares no genome/fasta/gtf
+    # mag 5.5.0: NO required params. Its databases are optional and skipped by default.
+    magd = _load("mag")
+    assert get_pipeline_entry("mag")["required_columns"] == ["sample", "group"]
+    assert magd["params"]["skip_binqc"]["default"] is True
+    assert magd["params"]["skip_gtdbtk"]["default"] is True
+
+
+def test_nanoseq_skips_alignment_because_it_has_no_reference_parameter():
+    """The 3.1.0 schema exposes no fasta/genome/gtf, so there is no verified way to
+    hand it a reference. Skipping alignment is honest; enabling it would be guessing."""
+    assert _load("nanoseq")["params"]["skip_alignment"]["default"] is True
+
+
+def test_mag_read_columns_are_renamed_by_the_existing_alias_hook():
+    """mag wants short_reads_1/2, not fastq_1/2 — the same mechanism ampliseq uses,
+    so this needed no emitter change beyond a dict entry."""
+    from chat_nextseek.seqera.emitter import PIPELINE_COLUMN_ALIASES
+    assert PIPELINE_COLUMN_ALIASES["mag"] == {"fastq_1": "short_reads_1",
+                                              "fastq_2": "short_reads_2"}
+
+
+def test_nanoseq_protocol_is_elicited_from_the_user():
+    from chat_nextseek.seqera.user_params import missing_user_params, render_elicitation
+    assert [s["name"] for s in missing_user_params("nanoseq", {})] == ["protocol"]
+    text = render_elicitation(missing_user_params("nanoseq", {}))
+    for value in ("DNA", "cDNA", "directRNA"):
+        assert value in text
+    assert missing_user_params("nanoseq", {"protocol": "cDNA"}) == []

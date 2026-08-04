@@ -1,0 +1,174 @@
+{
+  "report_type": "NFCORE_MAG_SAMPLESHEET",
+  "description": "nf-core/mag samplesheet context, aligned to the pinned 5.5.0 schema. Metagenome assembly and binning.",
+  "params": {
+    "skip_binqc": {
+      "type": "bool",
+      "default": true,
+      "steerable": true,
+      "help": "TRUE by curated default: bin QC needs a BUSCO/CheckM2 database and none is provisioned on Luria. Set false only once one is."
+    },
+    "skip_gtdbtk": {
+      "type": "bool",
+      "default": true,
+      "steerable": true,
+      "help": "TRUE by curated default. GTDB-Tk otherwise auto-downloads a very large database mid-run, which is a poor surprise on a shared cluster."
+    },
+    "skip_spades": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    },
+    "coassemble_group": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "When true, samples sharing a `group` value are assembled together rather than individually."
+    },
+    "skip_multiqc": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    }
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/mag",
+    "repository": "https://github.com/nf-core/mag",
+    "documentation_url": "https://nf-co.re/mag/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, run, group, short_reads_1, short_reads_2, long_reads. sample and group are REQUIRED. Note the read columns are NOT named fastq_1/fastq_2 \u2014 the emitter's PIPELINE_COLUMN_ALIASES handles the rename.",
+    "required_columns": [
+      "sample",
+      "group"
+    ],
+    "optional_columns": [
+      "run",
+      "short_reads_1",
+      "short_reads_2",
+      "long_reads"
+    ],
+    "reference_requirement": "NONE. mag assembles de novo \u2014 there is no genome to resolve, and it declares no genome/fasta/gtf parameter. Its databases are all optional and are skipped by the curated defaults."
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "group": null,
+      "short_reads_1": null,
+      "short_reads_2": null
+    }
+  ],
+  "examples": {
+    "individual_assembly": {
+      "sample": "D.SEQ-260711ENG-12-PUB",
+      "group": "D.SEQ-260711ENG-12-PUB",
+      "short_reads_1": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz",
+      "short_reads_2": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz"
+    }
+  },
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "sample and group must both be populated.",
+    "Read columns are short_reads_1 / short_reads_2, NOT fastq_1 / fastq_2.",
+    "Default to one group per sample (individual assembly). Only share a group value when the user has explicitly asked for co-assembly, and set coassemble_group true when you do.",
+    "Do NOT pass --genome, --fasta or --gtf: mag declares none of them.",
+    "Bin QC and GTDB-Tk are OFF by default \u2014 do not report taxonomic classification or bin completeness as though they ran."
+  ],
+  "notes": "De novo metagenome assembly and binning. The `group` column decides what gets co-assembled, which is a scientific choice: state plainly which grouping was used.",
+  "sources": [
+    {
+      "label": "nf-core/mag usage docs",
+      "url": "https://nf-co.re/mag/latest/docs/usage/",
+      "notes": "Grouping and co-assembly behaviour."
+    },
+    {
+      "label": "nf-core/mag nextflow_schema.json @ 5.5.0",
+      "url": "https://raw.githubusercontent.com/nf-core/mag/5.5.0/nextflow_schema.json",
+      "notes": "Authoritative: NO required params. busco_db / checkm2_db / cat_db are optional; skip_binqc and skip_gtdbtk exist."
+    },
+    {
+      "label": "nf-core/mag assets/schema_input.json @ 5.5.0",
+      "url": "https://raw.githubusercontent.com/nf-core/mag/5.5.0/assets/schema_input.json",
+      "notes": "Authoritative: sample and group required; read columns are short_reads_1/2 and long_reads."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/mag input samplesheet.",
+        "fields": {
+          "sample": {
+            "required": "required",
+            "position_rule": "Column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Custom sample name.",
+            "validation_hints": "Prefer the NExtSEEK D.SEQ UID.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "group": {
+            "required": "required",
+            "position_rule": "After sample",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Co-assembly grouping. Samples sharing a group value are assembled together when coassemble_group is set.",
+            "validation_hints": "Default to the sample's own id (individual assembly). Only share values when the user asked for co-assembly.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "run": {
+            "required": "optional",
+            "position_rule": "After group",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Sequencing run identifier, for samples split across runs.",
+            "validation_hints": "Leave blank unless the cohort genuinely spans runs.",
+            "example": ""
+          },
+          "short_reads_1": {
+            "required": "conditional",
+            "position_rule": "After run",
+            "expected_value": "path string",
+            "allowed_values": ".fastq.gz or .fq.gz",
+            "description": "Read 1 of the short-read pair.",
+            "validation_hints": "This is the fastq_1 equivalent \u2014 note the different column name.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz"
+          },
+          "short_reads_2": {
+            "required": "conditional",
+            "position_rule": "After short_reads_1",
+            "expected_value": "path or blank",
+            "allowed_values": ".fastq.gz or .fq.gz, or blank",
+            "description": "Read 2 of the short-read pair.",
+            "validation_hints": "Blank for single-end.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz"
+          },
+          "long_reads": {
+            "required": "optional",
+            "position_rule": "Last",
+            "expected_value": "path or blank",
+            "allowed_values": ".fastq.gz or .fq.gz, or blank",
+            "description": "Long reads for hybrid assembly.",
+            "validation_hints": "Only populate when the cohort genuinely has matched long reads.",
+            "example": ""
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/mag samplesheet from a resolved NExtSEEK D.SEQ cohort of metagenomic libraries.",
+    "workflow_role": "Selected for metagenome assembly / binning requests.",
+    "output_expectation": "CSV with header sample,group,short_reads_1,short_reads_2.",
+    "population_priority": [
+      "One row per D.SEQ leaf; sample = the UID.",
+      "Set group = the sample's own id unless the user asked for co-assembly; if they did, group by the metadata field they named and set coassemble_group.",
+      "Map reads into short_reads_1 / short_reads_2, NOT fastq_1 / fastq_2.",
+      "State that bin QC and GTDB-Tk are off, and what enabling them would need."
+    ],
+    "final_checks": [
+      "Header uses short_reads_1 / short_reads_2.",
+      "Every row has a group value.",
+      "The grouping choice was stated to the user."
+    ]
+  }
+}

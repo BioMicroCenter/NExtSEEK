@@ -26,6 +26,9 @@ from .tower_datasets import upload_samplesheet_as_dataset
 # matches the pipeline's expected schema.
 PIPELINE_COLUMN_ALIASES: dict[str, dict[str, str]] = {
     "ampliseq": {"sample": "sampleID", "fastq_1": "forwardReads", "fastq_2": "reverseReads"},
+    # mag names the short-read columns short_reads_1/2 and additionally requires a
+    # `group` column (co-assembly grouping), which the row builder supplies.
+    "mag": {"fastq_1": "short_reads_1", "fastq_2": "short_reads_2"},
 }
 
 

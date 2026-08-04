@@ -138,7 +138,7 @@ So ~106 are integrable in principle, 98 beyond what we have. **But
 **And "Tier 1" turned out to be optimistic.** An earlier version of this
 document put the realistic Tier 1 shortlist at 15–20. When each candidate's
 actual `nextflow_schema.json` was read instead of its one-line description,
-**7 of 22 qualified as config-only** (6 immediately, plus `crisprseq` once the wizard could ask the user for what it needs). The rest are blocked on references,
+**9 of 22 qualified as config-only** — 6 immediately, plus `crisprseq`, `nanoseq` and `mag` once their real input schemas were checked and the wizard could ask the user for what it needs. The rest are blocked on references,
 experimental design, or input shape — see *What we rejected* below. Treat
 the 73 as an upper bound on *shape*, not on effort.
 
@@ -154,7 +154,7 @@ samplesheet headers are a dict entry, not code.
 
 Of the 73, most are bacterial, viral, metagenomic or ancient-DNA
 pipelines with no obvious demand here. Of the 22 plausible candidates,
-**7 have shipped** (catalog now 15, up from 8):
+**9 have shipped** (catalog now 17, up from 8):
 
 | Shipped | Rev | Reference need |
 |-----------------|---------|-----------------------------------------|
@@ -165,8 +165,10 @@ pipelines with no obvious demand here. Of the 22 plausible candidates,
 | `hic` | 2.1.0 | fasta (bowtie2 index built per run) |
 | `rnavar` | 1.3.0 | fasta + gtf (BQSR and annotation off) |
 | `crisprseq` | 2.3.0 | none — works off the supplied amplicon |
+| `nanoseq` | 3.1.0 | none — declares no genome/fasta/gtf |
+| `mag` | 5.5.0 | none — assembles de novo |
 
-The other 15 are in the rejection table below.
+The other 13 are in the rejection table below.
 
 ### Tier 2 — one new input kind (`spectra`) · **9 pipelines**
 
@@ -272,9 +274,16 @@ this list.
 
 ## What we rejected, and what each would actually take
 
-The 15 shortlist candidates that did **not** ship, grouped by what blocks
-them. (A 16th, `crisprseq`, was rejected in the first draft and has since
-shipped — see below, because the reason it was wrong matters.) Estimates are engineering effort for one competent person, and they
+The 13 shortlist candidates that did **not** ship, grouped by what blocks
+them.
+
+> **These entries were audited against each pipeline's
+> `assets/schema_input.json`.** The first draft derived requirements from
+> `assets/samplesheet.csv` headers, treating every column as mandatory. That
+> was wrong three times — `crisprseq`, `nanoseq` and `mag` have all shipped
+> since — and gave the wrong *reason* for three more (`oncoanalyser`,
+> `funcscan`, `taxprofiler`). Corrections are marked inline. The rule now:
+> `schema_input.json` is the authority, the example CSV is not. Estimates are engineering effort for one competent person, and they
 **exclude** review, real-data validation, and any time spent waiting for
 storage or approvals — which for the reference-heavy rows is likely to
 dominate. Read them as "how big is this", not as commitments.
@@ -287,11 +296,10 @@ question before it is a coding one.
 
 | Pipeline | Why it didn't work | What it would take | Estimate |
 |---------------|--------------------------|--------------------------|----------|
-| `taxprofiler` | Requires a `databases` sheet listing profiler databases. We have none. | Decide which profilers we support, download their databases to Luria (a standard Kraken2 set alone is ~100 GB), give them a permanent home, write the database sheet, then the usual entry + template. | 2–4 days, mostly download and storage |
-| `mag` | Needs BUSCO, CAT and CheckM2 databases for genome-bin QC. | Same shape as taxprofiler: source and host three databases, then entry + template. | 2–4 days |
+| `taxprofiler` | Requires a `databases` sheet listing profiler databases. We have none. Its samplesheet also needs `run_accession` and `instrument_platform`, which the first pass missed. | Decide which profilers we support, download their databases to Luria (a standard Kraken2 set alone is ~100 GB), give them a permanent home, write the database sheet, then the usual entry + template. | 2–4 days, mostly download and storage |
 | `rnafusion` | Requires `genomes_base` pointing at a prebuilt reference tree, and a separate reference-building run covering Arriba, STAR-Fusion, FusionCatcher and HGNC. | Run the reference build once per genome (hours, several hundred GB), host the result, then entry + template. One-off, but large. | 3–5 days, dominated by the build and disk |
 | `raredisease` | Requires `intervals_wgs`, `intervals_y` and an explicit FASTA up front, plus dbsnp, SVDB and mobile-element references. | Assemble and host a GATK-style bundle per supported genome, then entry + template. | 4–6 days |
-| `oncoanalyser` | Needs the full Hartwig (HMF) reference bundle plus bwa-mem2, GRIDSS and STAR indices. | Download and host the HMF bundle (~300 GB) and build three indices per genome, then entry + template. Largest reference footprint on the list. | 1–2 weeks |
+| `oncoanalyser` | **Corrected:** it declares *no required params*, so the reference claim in the first draft was wrong. The real blocker is the samplesheet — 7 required columns (`group_id, subject_id, sample_id, sample_type, sequence_type, filetype, filepath`), one row **per file**, carrying tumour/normal designation. | A different row model (per-file, not per-sample) plus tumour/normal pairing Nessie cannot infer. Reference hosting is likely still wanted in practice, but it is not what blocks it. | 1–2 weeks |
 
 ### Blocked on experimental design Nessie can't infer
 
@@ -307,17 +315,21 @@ to compare against which, and that judgement isn't in the file paths.
 
 | Pipeline | Why it didn't work | What it would take | Estimate |
 |-------------------|----------------------|----------------------|----------|
-| `bamtofastq` | Takes BAM/CRAM, so its inputs are `A.ALN` analysis records, not `D.SEQ` raw data — and the file resolver only recognises FASTQ. | Teach the resolver to find a BAM, and allow `A.*` types as cohort leaves. **Cheapest item on this list**, and it doubles as the groundwork for reingested outputs feeding new runs. | 1–2 days |
+| `bamtofastq` | Takes BAM/CRAM, so its inputs are `A.ALN` analysis records, not `D.SEQ` raw data — and the file resolver only recognises FASTQ. (Columns are `sample_id, mapped, file_type`, not what the first draft implied.) | Teach the resolver to find a BAM, and allow `A.*` types as cohort leaves. **Cheapest item on this list**, and it doubles as the groundwork for reingested outputs feeding new runs. | 1–2 days |
 | `scnanoseq` | A single `fastq` column rather than R1/R2, plus `cell_count`, and four required params with no safe defaults. | Relax the paired-read assumption in the resolver — the same change Tier 2 needs — then entry + template. | 2–3 days |
-| `nanoseq` | Samplesheet is `group,replicate,barcode,input_file,genome,transcriptome` — the genome is specified *per row*, and it needs a `protocol`. | Generalise the samplesheet builder to allow per-row references, plus a barcode concept. Check first whether we hold Nanopore data worth running. | 3–5 days, verify demand first |
 | `epitopeprediction` | Input is `sample,alleles,mhc_class,filename` — variants or peptide lists plus HLA alleles, not reads. Misclassified as Tier 1 in the first draft. | A new input kind for variant/peptide files, plus per-sample HLA alleles — which would most naturally come from running `hlatyping` and reingesting its output. | 1 week, and it should follow `hlatyping` being in real use |
 | `demultiplex` | Input is a sequencer run directory (BCL) plus a per-flowcell sample sheet. It *produces* `D.SEQ` data rather than consuming it, so it doesn't fit the cohort model at all. | A different launch path: point at a run directory instead of resolving a sample cohort. | 1 week — but question whether it belongs here at all rather than upstream of NExtSEEK |
-| `funcscan` | Doubly blocked: needs Bakta/ABRicate/AMPcombi databases, *and* its input is assembled contigs and proteins (`sample,fasta,protein,gbk,gff`), not reads. | Provision the databases, add an assembly input kind, and decide which NExtSEEK sample type holds an assembly — there isn't an obvious one today. | 1–2 weeks |
+| `funcscan` | **Narrowed:** it has *no required params* and only `sample,fasta` are required columns — the database claim in the first draft overstated it. The remaining blocker is real though: input is an assembled contig FASTA, not reads. | Add an assembly input kind, and decide which NExtSEEK sample type holds an assembly — there isn't an obvious one today. Databases are optional and can be skipped. | 1 week |
 
-### Resolved since first draft — `crisprseq` **has now shipped**
+### Resolved since first draft — `crisprseq`, `nanoseq` and `mag` **have now shipped**
 
-The original rejection was **wrong**, and the correction is worth recording
-because the same mistake would have cost us other pipelines.
+All three original rejections were **wrong**, in the same way, and the
+correction is worth recording because it is what prompted the audit that
+found the rest. `crisprseq` is written up in full below; `nanoseq` turned
+out to have a plain `sample,fastq_1,fastq_2` sheet rather than the
+`group,replicate,barcode,genome` one the example CSV shows, and `mag` has
+**no required params at all** — its databases are optional and skippable,
+not mandatory.
 
 It said every row needs `reference`, `protospacer` and `template`. That came
 from reading the example samplesheet's header and assuming every column was
@@ -370,7 +382,7 @@ time" estimated when the requirement was misread.
 | Pipeline | Why it didn't work | What it would take | Estimate |
 |---------------|--------------------------|--------------------------|----------|
 | `circrna` | No released version exists — nothing to pin. | Wait for a release, or pin a commit and accept it is unsupported. | Blocked on upstream |
-| `airrflow` | Declares no genome params and ships no example samplesheet; typically needs IMGT germline databases. **I did not characterise it fully** — it is on this list as un-scoped, not as assessed. | Read the usage docs properly and determine input shape and reference needs before estimating anything. | Half a day to scope, then unknown |
+| `airrflow` | **Now scoped.** No required params, but the samplesheet demands **9 required columns**: `sample_id, subject_id, species, pcr_target_locus, tissue, sex, age, biomaterial_provider, single_cell` — AIRR-standard metadata. | Map those fields from NExtSEEK where possible — `sex` sits on `MUS`, `tissue` on `TIS`, so lineage covers several — and elicit or curate the rest. Less hopeless than it looks, but a real mapping project, not config. | 1 week |
 
 ### If you only fund one row
 
@@ -378,6 +390,49 @@ time" estimated when the requirement was misread.
 because the change it requires — letting `A.*` analysis records serve as
 pipeline *inputs* — is the same capability `differentialabundance` needs,
 and it is the cheapest possible way to prove that pattern works.
+
+------------------------------------------------------------------------
+
+## Luria verification status — **maintain this table**
+
+Catalogued is not the same as working. Everything below passes unit tests
+proving the generated `run.sh` is well-formed for that pipeline's declared
+schema; that is **not** the same as Nextflow accepting it, or the run
+completing. Three pipelines sat catalogued-but-unlaunchable for months
+precisely because nobody tracked this distinction.
+
+**Update this table whenever a pipeline is launched on Luria.** Record the
+run directory — it is the evidence.
+
+| Pipeline | Status | Evidence / what to do |
+|-----------------|-------------------|--------------------------------------|
+| `rnaseq` | ✅ verified | Real run `nfcore_rnaseq_260723_205359_0` |
+| `scrnaseq` | ✅ verified | Real run `nfcore_gideon-4wk_260711_024438_0`; only pipeline with a Luria provisioning script |
+| `fetchngs` | 🟡 partial | Exercised as a pre-stage inside other runs, never launched standalone |
+| `atacseq` | ❌ untested | Flags were already correct; never launched |
+| `chipseq` | ❌ untested | Flags were already correct; never launched |
+| `methylseq` | ❌ **retest** | Was sending `--gtf`, which it does not accept — **aborted at validation until 2026-08-04**. First run since the fix is the real test |
+| `sarek` | ❌ **retest** | Same `--gtf` fault, same fix |
+| `ampliseq` | ❌ **never worked** | Declares none of genome/fasta/gtf; was sent all three. **Has never been launchable.** A first successful run is the proof |
+| `seqinspector` | ❌ untested | New. Reference-free — the cheapest end-to-end proof available, do this one first |
+| `hlatyping` | ❌ untested | New. Carries its own reference |
+| `smrnaseq` | ❌ untested | New. Confirm `mirtrace_species` elicitation fires |
+| `riboseq` | ❌ untested | New. Confirm the `type` column is asked for, not defaulted |
+| `hic` | ❌ untested | New. First run per genome pays a bowtie2 index build — allow for it |
+| `rnavar` | ❌ untested | New. Confirm BQSR is genuinely skipped |
+| `crisprseq` | ❌ untested | New. Confirm `configure_run` refuses until guide + amplicon are answered |
+| `nanoseq` | ❌ untested | New. Confirm `protocol` elicitation fires. **Also confirm we hold Nanopore data at all** |
+| `mag` | ❌ untested | New. Confirm the `short_reads_1/2` column rename lands in the emitted CSV |
+
+**Suggested order.** `seqinspector` first — no reference, no elicitation, so
+a failure isolates the launch path itself. Then `ampliseq`, because it
+exercises the empty-reference-flag case and has never once run. Then
+`crisprseq` or `nanoseq`, which prove the elicitation loop end to end. The
+reference-building ones (`hic`, `rnavar`) last, since a slow index build
+makes a failure expensive to diagnose.
+
+**What "verified" should mean here:** Nextflow accepted the parameters and
+the run reached completion — not merely that `sbatch` returned a job id.
 
 ------------------------------------------------------------------------
 

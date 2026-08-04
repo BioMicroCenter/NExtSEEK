@@ -316,6 +316,51 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             "NExtSEEK and must never be guessed."
         ),
     },
+    "nanoseq": {
+        "repo": "https://github.com/nf-core/nanoseq",
+        "default_revision": "3.1.0",
+        "description": "Oxford Nanopore QC, demultiplexing and alignment.",
+        "common_assays": ["Nanopore", "ONT", "long read", "long-read sequencing", "MinION", "PromethION"],
+        # Declares no genome/fasta/gtf at 3.1.0.
+        "default_genome": None,
+        "reference_cli_flags": [],
+        "default_profile": "singularity",
+        "required_columns": ["sample", "fastq_1"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^nanopore$", r"^ONT$", r"^long[-_ ]read.*$", r"^(min|prometh)ion$",
+        ],
+        "pipeline_kind_description": (
+            "Oxford Nanopore long-read QC and demultiplexing. Needs single-file FASTQ "
+            "plus a protocol (DNA / cDNA / directRNA) the user supplies. Verify the "
+            "cohort really is Nanopore first — an Illumina cohort here yields nonsense, "
+            "not an error."
+        ),
+    },
+    "mag": {
+        "repo": "https://github.com/nf-core/mag",
+        "default_revision": "5.5.0",
+        "description": "Metagenome assembly and binning (de novo).",
+        "common_assays": ["metagenomics", "metagenome", "shotgun metagenomics", "microbiome", "WGS"],
+        # Assembles de novo: no genome to resolve, and no genome/fasta/gtf param.
+        "default_genome": None,
+        "reference_cli_flags": [],
+        "default_profile": "singularity",
+        # NOT fastq_1/fastq_2 — mag names them short_reads_1/2. PIPELINE_COLUMN_ALIASES
+        # in the emitter does the rename, the same mechanism ampliseq already uses.
+        "required_columns": ["sample", "group"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^meta[-_ ]?genom(e|ics)$", r"^shotgun[-_ ]metagenom.*$", r"^microbiome$",
+        ],
+        "pipeline_kind_description": (
+            "De novo metagenome assembly and binning. Needs short-read FASTQ and a "
+            "co-assembly grouping. Bin QC and GTDB-Tk are off by default — both want "
+            "databases that are not provisioned on Luria."
+        ),
+    },
     "seqinspector": {
         "repo": "https://github.com/nf-core/seqinspector",
         "default_revision": "1.1.0",
