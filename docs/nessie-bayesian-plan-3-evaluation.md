@@ -14,7 +14,9 @@
 
 - **Outages are excluded, never scored.** An outage means the provider fallback chain died before the product ran. Emitting it as `is_error=true` teaches the posterior that Bedrock downtime is CC incapability. `nessie_tests/outage.py` holds the one definition; do not write a second.
 - **`None` is not zero.** Only `container_cc` emits `total_cost_usd`. An NS arm's cost is unobserved, and the CSV must carry an empty cell rather than `0`.
-- **A row is a VARIANT, but the spend behind it is TURNS.** The selection is 130 variants and **161 turns**, so the CSVs have ~130 rows per arm while the run that produced them paid for 161 turns per arm. Any cost figure derived by multiplying rows by a per-turn price runs about 24% low. The skew concentrates in `refine_and_recall`: 25 variants, **50 turns**, and its `cost_usd` cells will look disproportionately large for the same reason. That is correct, not a collector bug — do not "normalise" it.
+- **A row is a VARIANT, but the spend behind it is TURNS.** The selection is 127 variants and **158 turns**, so the CSVs have ~127 rows per arm while the run that produced them paid for 158 turns per arm. Any cost figure derived by multiplying rows by a per-turn price runs about 24% low. The skew concentrates in `refine_and_recall`: 25 variants, **50 turns**, and its `cost_usd` cells will look disproportionately large for the same reason. That is correct, not a collector bug — do not "normalise" it.
+- **The paired manifest is `bayes_manifest.MANIFEST_NAME`, never a literal.** Plan 2 originally specified `manifest.json` — the same filename `runner.py` writes for a normal run — and it was changed during execution after two failures were reproduced: `read_bayes_manifest` returns an EMPTY `BayesManifest` rather than raising when handed a normal manifest (so `--resume` silently repays the whole run), and `write_bayes_manifest` destroys the prior run's record on the first pair. Read the name from `nessie_tests.bayes_manifest`; do not hardcode either name anywhere in this plan's code or tests.
+- **Corrected during plan 2's execution:** the selection figures above were 130 variants / 161 turns until the 3 `route_gate` variants were dropped from `is_bayesian`. Under a forced route their only criteria strip away, so they evaluated nothing on both arms while their CC arms billed as full Opus turns whose cost `--max-usd` could never observe. The `refine_and_recall` skew below is unaffected and still exactly 25 variants / 50 turns.
 - **The two HiBayes column tuples are locked upstream.** Copy them verbatim from `dmac-assistant/tools/hibayes/exporter.py` (`HIBAYES_CSV_COLUMNS`, 14) and `tools/hibayes/functional_inputs.py` (`CSV_HEADER_12`). A test pins our header against our pinned copy. It **cannot** detect upstream drift, because the repos are separate. Do not claim otherwise in a docstring.
 - **Test command, exactly this, from the repo root:**
   ```bash
@@ -821,7 +823,7 @@ SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "output-skill-bayesian" 
 
 
 def _build(tmp_path, manifest, llm=None):
-    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (tmp_path / bayes_manifest.MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
     if llm is not None:
         (tmp_path / "stage_c.json").write_text(json.dumps(llm), encoding="utf-8")
     out = tmp_path / "report_bayes.html"
@@ -883,7 +885,7 @@ Expected: `FileNotFoundError` on `build_bayes_report.py`.
 
 - [ ] **Step 3: Implement the builder**
 
-Create `nessie_tests/output-skill-bayesian/scripts/build_bayes_report.py`. It reads `manifest.json`, the optional `stage_c.json`, and the collected `task.json` files; embeds `const PAIRS`, `const META` and `const LLM`; and writes the template with those literals substituted. Model it on `output-skill/scripts/build_report.py`, which already does exactly this shape of substitution.
+Create `nessie_tests/output-skill-bayesian/scripts/build_bayes_report.py`. It reads the paired manifest — `bayes_manifest.MANIFEST_NAME`, never a literal — plus the optional `stage_c.json` and the collected `task.json` files; embeds `const PAIRS`, `const META` and `const LLM`; and writes the template with those literals substituted. Model it on `output-skill/scripts/build_report.py`, which already does exactly this shape of substitution.
 
 Two rules the tests pin:
 
