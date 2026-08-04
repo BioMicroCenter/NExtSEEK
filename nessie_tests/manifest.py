@@ -72,6 +72,21 @@ class NessieManifestEntry(BaseModel):
     elapsed_s: float = 0.0
     failed_criteria: list[str] = Field(default_factory=list)
     observations: list[CriterionObservation] = Field(default_factory=list)
+    # Every turn's endpoint task id, in turn order, so a collector can join this
+    # entry to its assistant_query_task rows without parsing prose out of
+    # `reason` -- which is written for a human and carries no id at all in most
+    # of its branches.
+    #
+    # A LIST, not a single id, because an entry is a CASE and a case is up to
+    # three turns: 30 of the 127 variants in the paired selection are multi-turn
+    # (158 turns in all), 25 of them `refine_and_recall`, whose whole subject is
+    # the FOLLOW-UP. Recording only turn 0 would join every one of those to the
+    # answer to a different question and silently discard 31 turns' artifacts.
+    #
+    # Defaults to [] so manifests written before this field existed still load;
+    # `collect` records an entry with no ids as a join failure rather than as an
+    # absence of artifacts, because those are different facts.
+    task_ids: list[str] = Field(default_factory=list)
     poll_errors: int = 0
     reason: str = ""
     expected_fail: bool = False

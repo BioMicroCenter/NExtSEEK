@@ -171,6 +171,11 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
     # as `unmeasured` rather than as $0.
     case_tier = "route" if is_gate else tier
     session_id = None
+    # EVERY turn's task id, not just the first: this is the collector's join key
+    # to assistant_query_task, and a follow-up turn's row is where a
+    # refine_and_recall case's actual answer lives. Accumulated inside the turn
+    # loop so a case that raises partway still reports the turns it did drive.
+    task_ids: list[str] = []
     v_status, v_route, v_engine, v_cost, failed, reason = "passed", None, None, None, [], ""
     v_route_source = None
     v_route_sources: list[str] = []
@@ -201,6 +206,8 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
                                     force_route=force_route, full_timeout_s=full_timeout_s,
                                     sleep=sleep, clock=clock)
             session_id = res.session_id
+            if res.task_id:
+                task_ids.append(res.task_id)
             poll_errors += res.poll_errors
             v_route, v_engine = res.route_obs.route, res.route_obs.engine
             # `route` and `engine` stay LAST-write-wins: the report displays
@@ -302,7 +309,7 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
         id=v.id, family=v.family, tier=tier, status=v_status, route=v_route, engine=v_engine,
         route_source=v_route_source, route_sources=v_route_sources,
         cost=v_cost, elapsed_s=round(clock() - t0, 3), failed_criteria=failed,
-        observations=observations, poll_errors=poll_errors,
+        observations=observations, task_ids=task_ids, poll_errors=poll_errors,
         reason=reason, expected_fail=expected_fail, outage=v_outage)
 
 
