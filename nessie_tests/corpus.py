@@ -151,8 +151,13 @@ def hibayes_meta(variant_id: str, path=None) -> dict:
     A per-variant value of `None` means "inherit"; it never means "null". That
     distinction is why `reporting` can default to Reporter-Summary/AnswerDirectly
     while its GEO, SRA and PRIDE members override to GenerateArtifact. Store the
-    null through instead and 260 of the 283 active variants resolve to no
-    behaviour at all, every one of them unscoreable.
+    null through instead and the LARGE MAJORITY of active variants resolve to no
+    behaviour at all, every one of them unscoreable -- an override is the
+    exception by design, so most variants carry nulls in all four keys.
+
+    The figure is deliberately not written here. It was "260 of the 283", the
+    review measured 259, and this fix round moved it again by adding overrides.
+    `test_a_none_override_means_inherit_rather_than_null` owns the number.
     """
     payload = _read_unified(path)
     for fam in payload["families"].values():
@@ -177,6 +182,14 @@ def bayesian_ids(path=None) -> list[str]:
     than a deletion, so a retired definition keeps whatever `is_bayesian` it had
     when it was retired, and without this filter retiring a selected case would
     leave it silently in the paid run.
+
+    That flag is dormant, not lost: `scripts/build_corpus.py` carries `status`,
+    `retirement` and `is_bayesian` forward from this file, so flipping a case back
+    to active restores it to the selection. The round trip is real -- and it was
+    not, in the first version of this task. `_carry_forward` then re-derived
+    `status` from `retired.json`, so a rebuild RESURRECTED a corpus.json-only
+    retirement and, because the flag was already carried, brought it back
+    selected. `test_a_rebuild_preserves_a_corpus_json_only_retirement` is the pin.
     """
     payload = _read_unified(path)
     return [raw["id"] for fam in payload["families"].values() for raw in fam["variants"]

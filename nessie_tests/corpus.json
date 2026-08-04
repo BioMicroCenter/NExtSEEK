@@ -76,7 +76,7 @@
       "artifact_kind": "NONE_EXPECTED"
     },
     "nessie_route": {
-      "hibayes_subtype": "System-Capabilities",
+      "hibayes_subtype": "Search-Basic",
       "expected_behavior": "AnswerDirectly",
       "artifact_expected": false,
       "artifact_kind": "NONE_EXPECTED"
@@ -104,7 +104,8 @@
       "expected_behavior": "AnswerDirectly",
       "artifact_expected": false,
       "artifact_kind": "NONE_EXPECTED"
-    }
+    },
+    "_nessie_route": "nessie_route is a ROUTE-GATE family: its members are drawn from every other family and share a route assertion, nothing else. The default is the canonical NS search (route.ns_advanced); the other six override. The plan's table said System-Capabilities/AnswerDirectly, which fit none of them -- two are plain searches and route.unrelated is a weather question whose near-twin unsup.weather is StateUnsupportedBoundary."
   },
   "families": {
     "search_advanced": {
@@ -10817,9 +10818,9 @@
           "origin": "base",
           "is_bayesian": false,
           "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
+          "expected_behavior": "ClarifyIfAmbiguous",
+          "artifact_expected": false,
+          "artifact_kind": "NONE_EXPECTED",
           "retirement": {
             "reason": "retired in the issue-#35 manual review (round 2). Questions marked: Build me an nf-core samplesheet",
             "retired_on": "2026-07-30",
@@ -10885,9 +10886,9 @@
           "origin": "base",
           "is_bayesian": false,
           "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
+          "expected_behavior": "ClarifyIfAmbiguous",
+          "artifact_expected": false,
+          "artifact_kind": "NONE_EXPECTED",
           "retirement": {
             "reason": "broken conversation: turn 0 is itself anaphoric, so the state the follow-up refers to never existed. Reads as a sliding window over a real chat log.",
             "retired_on": "2026-07-30",
@@ -10923,9 +10924,9 @@
           "origin": "overlay",
           "is_bayesian": true,
           "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
+          "expected_behavior": "ClarifyIfAmbiguous",
+          "artifact_expected": false,
+          "artifact_kind": "NONE_EXPECTED",
           "retirement": null
         },
         {
@@ -11019,9 +11020,9 @@
           "origin": "base",
           "is_bayesian": false,
           "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
+          "expected_behavior": "ClarifyIfAmbiguous",
+          "artifact_expected": false,
+          "artifact_kind": "NONE_EXPECTED",
           "retirement": {
             "reason": "retired in the issue-#35 manual review (round 2). Questions marked: build me a samplesheet for nf-core",
             "retired_on": "2026-07-30",
@@ -11053,9 +11054,9 @@
           "origin": "base",
           "is_bayesian": false,
           "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
+          "expected_behavior": "ClarifyIfAmbiguous",
+          "artifact_expected": false,
+          "artifact_kind": "NONE_EXPECTED",
           "retirement": {
             "reason": "retired in the issue-#35 manual review (round 2). Questions marked: build me an nf core sheet",
             "retired_on": "2026-07-30",
@@ -11087,9 +11088,9 @@
           "origin": "base",
           "is_bayesian": false,
           "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
+          "expected_behavior": "ClarifyIfAmbiguous",
+          "artifact_expected": false,
+          "artifact_kind": "NONE_EXPECTED",
           "retirement": {
             "reason": "broken conversation: turn 0 is itself anaphoric, so the state the follow-up refers to never existed. Reads as a sliding window over a real chat log.",
             "retired_on": "2026-07-30",
@@ -11121,9 +11122,9 @@
           "origin": "base",
           "is_bayesian": false,
           "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
+          "expected_behavior": "ClarifyIfAmbiguous",
+          "artifact_expected": false,
+          "artifact_kind": "NONE_EXPECTED",
           "retirement": {
             "reason": "broken conversation: turn 0 is itself anaphoric, so the state the follow-up refers to never existed. Reads as a sliding window over a real chat log.",
             "retired_on": "2026-07-30",
@@ -12282,7 +12283,7 @@
           "origin": "base",
           "is_bayesian": true,
           "hibayes_subtype": "Write-Export",
-          "expected_behavior": null,
+          "expected_behavior": "StateUnsupportedBoundary",
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null
@@ -12876,7 +12877,7 @@
           "origin": "base",
           "is_bayesian": true,
           "hibayes_subtype": "Write-Export",
-          "expected_behavior": null,
+          "expected_behavior": "StateUnsupportedBoundary",
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null
@@ -12904,7 +12905,7 @@
           "origin": "base",
           "is_bayesian": false,
           "hibayes_subtype": "Write-Export",
-          "expected_behavior": null,
+          "expected_behavior": "StateUnsupportedBoundary",
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": {
@@ -15225,10 +15226,10 @@
           "status": "retired",
           "origin": "overlay",
           "is_bayesian": false,
-          "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
+          "hibayes_subtype": "Report-NFCORE",
+          "expected_behavior": "GenerateArtifact",
+          "artifact_expected": true,
+          "artifact_kind": "NFCORE_RNASEQ_CSV",
           "retirement": {
             "reason": "retired in the issue-#35 manual review (round 2). Questions marked: Launch an nf-core rnaseq run for D.SEQ-240910LAU-135.",
             "retired_on": "2026-07-30",
@@ -15263,10 +15264,10 @@
           "status": "retired",
           "origin": "overlay",
           "is_bayesian": false,
-          "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
+          "hibayes_subtype": "Report-NFCORE",
+          "expected_behavior": "GenerateArtifact",
+          "artifact_expected": true,
+          "artifact_kind": "UNKNOWN_FILE",
           "retirement": {
             "reason": "retired in the issue-#35 manual review (round 2). Questions marked: Build a NExtSEEK upload sheet from the nf-core rnaseq outputs.",
             "retired_on": "2026-07-30",
@@ -15333,8 +15334,8 @@
           "status": "active",
           "origin": "overlay",
           "is_bayesian": true,
-          "hibayes_subtype": null,
-          "expected_behavior": null,
+          "hibayes_subtype": "Unsupported",
+          "expected_behavior": "StateUnsupportedBoundary",
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null
@@ -15366,8 +15367,8 @@
           "status": "retired",
           "origin": "overlay",
           "is_bayesian": false,
-          "hibayes_subtype": null,
-          "expected_behavior": null,
+          "hibayes_subtype": "Write-Create",
+          "expected_behavior": "RefuseUnsafeOnly",
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": {
@@ -15404,8 +15405,8 @@
           "status": "retired",
           "origin": "overlay",
           "is_bayesian": false,
-          "hibayes_subtype": null,
-          "expected_behavior": null,
+          "hibayes_subtype": "Unsupported",
+          "expected_behavior": "StateUnsupportedBoundary",
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": {
@@ -15443,7 +15444,7 @@
           "status": "active",
           "origin": "overlay",
           "is_bayesian": true,
-          "hibayes_subtype": null,
+          "hibayes_subtype": "Graph-Count",
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,

@@ -55,24 +55,45 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 POLICY_BLOCKS = ("criterion_rewrites", "route_policy", "family_floor", "consistency_groups")
 
 
-HIBAYES_KEYS = ("hibayes_subtype", "expected_behavior", "artifact_expected", "artifact_kind")
+# The ONE definition lives in `corpus._HIBAYES_KEYS`, imported rather than
+# re-listed. This module used to spell the tuple a second time here and a third
+# time as literal keys in `_variant_dict`, with nothing tying the three together,
+# which quietly undercut the "THIS TUPLE IS THE ONE PLACE" comment on
+# `corpus._META_KEYS`: a fifth key added there alone would be un-emitted here,
+# un-carried by `_carry_forward` and so invisible to `hibayes_meta`.
+# `test_the_hibayes_key_set_has_exactly_one_definition` holds the line.
+HIBAYES_KEYS = corpus._HIBAYES_KEYS
 
 
 def _carry_forward(prior_path) -> tuple[dict, dict]:
     """Read the HAND-OWNED metadata out of an existing corpus.json.
 
-    From Task 4 on, `family_defaults` and the per-variant HiBayes overrides and
-    `is_bayesian` flags are hand curation, not generated output. Rebuilding from
-    the sources without this returns every one of them to the generator's
-    placeholder -- `is_bayesian: false` on all 383, all four HiBayes keys null,
-    no defaults block at all -- and the loss is silent, because the rebuild is a
-    diff-then-adopt workflow and 130 flipped booleans in a 1.4 MB diff do not
-    announce themselves.
+    From Task 4 on, `family_defaults`, the per-variant HiBayes overrides,
+    `is_bayesian`, and RETIREMENT are hand curation, not generated output.
+    Rebuilding from the sources without this returns every one of them to the
+    generator's placeholder -- `is_bayesian: false` on all 383, all four HiBayes
+    keys null, no defaults block at all -- and the loss is silent, because the
+    rebuild is a diff-then-adopt workflow and 130 flipped booleans in a 1.4 MB
+    diff do not announce themselves.
 
-    Only NON-NULL per-variant values are carried. A null in the prior file means
-    "inherit from family_defaults", which is what a fresh emit already produces,
-    so carrying it would be a no-op that hides which variants were really
-    overridden. Returns ({}, {}) when there is no prior file, which is the
+    `status`/`retirement` are carried as a PAIR, and that was a correction. They
+    were first left to be re-derived from `retired.json`, on the reasoning that
+    it is the adoption tool's input. The result was a rebuild that RESURRECTED a
+    retirement recorded only in corpus.json -- and, because the flags below are
+    carried, brought it back still SELECTED for the paid run. Before Task 4 a
+    rebuild reset every flag to false, so the resurrection was survivable; the
+    carry-forward is what made it dangerous. corpus.json is the single source of
+    truth for the corpus, so it is the single source of truth for retirement too.
+    `retired.json` remains the input for a variant this file has never seen.
+
+    Carried as a pair, never separately: `status: "retired"` with no `retirement`
+    record, or the reverse, is the exact state
+    `test_no_active_variant_carries_a_stale_retirement_record` exists to forbid.
+
+    Only NON-NULL per-variant HiBayes values are carried. A null in the prior file
+    means "inherit from family_defaults", which is what a fresh emit already
+    produces, so carrying it would be a no-op that hides which variants were
+    really overridden. Returns ({}, {}) when there is no prior file, which is the
     genuine first run.
     """
     prior_path = pathlib.Path(prior_path)
@@ -85,6 +106,9 @@ def _carry_forward(prior_path) -> tuple[dict, dict]:
             kept = {k: v[k] for k in HIBAYES_KEYS if v.get(k) is not None}
             if v.get("is_bayesian"):
                 kept["is_bayesian"] = True
+            if v.get("status") == "retired" and v.get("retirement"):
+                kept["status"] = "retired"
+                kept["retirement"] = v["retirement"]
             if kept:
                 overrides[v["id"]] = kept
     return prior.get("family_defaults", {}), overrides
@@ -124,10 +148,8 @@ def _variant_dict(v, *, origin: str, retirement: dict | None, raw: dict) -> dict
         "status": "retired" if retirement else "active",
         "origin": origin,
         "is_bayesian": False,
-        "hibayes_subtype": None,
-        "expected_behavior": None,
-        "artifact_expected": None,
-        "artifact_kind": None,
+        # Emitted FROM the shared tuple, not re-listed. See HIBAYES_KEYS above.
+        **{k: None for k in HIBAYES_KEYS},
         "retirement": retirement,
     }
 

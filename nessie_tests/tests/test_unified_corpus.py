@@ -3,11 +3,20 @@
 Until 2026-08-04 this file's job was to prove the unified corpus resolved to
 EXACTLY what the three-file corpus resolved to. It did, variant-for-variant, and
 Task 3 then switched `merged()` over. The comparison tests went with the switch:
-they compared against sources nothing reads any more, and the generator pin went
-too because from Task 4 `corpus.json` is HAND-OWNED, so `build(...) == corpus.json`
-would fail on correct work. What survives is everything that reads only the
-unified file: the counts, the duplicate-id guard, the retirement records, and the
-guarantee that a retired definition is still loadable.
+they compared against sources nothing reads any more.
+
+The GENERATOR PIN went with them too, on the premise that `corpus.json` is
+hand-owned from Task 4 so `build(...) == corpus.json` would fail on correct work.
+That premise turned out to be false. Task 4's carry-forward makes the generator
+read the hand-owned metadata back out of the committed file, so the equality
+holds byte-identically over hand edits -- and while the pin was absent, a rebuild
+silently resurrected a retirement recorded only in `corpus.json` AND brought it
+back flagged for the paid run. The pin is restored below; it would have caught
+that on its own.
+
+What this file covers: the counts, the duplicate-id guard, the retirement
+records, the guarantee that a retired definition is still loadable, the HiBayes
+defaults-and-override resolution, and the `is_bayesian` selection.
 """
 import collections
 import json
@@ -16,10 +25,13 @@ import pathlib
 import pytest
 
 from nessie_tests import corpus
+from nessie_tests.scripts import build_corpus
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 UNIFIED = ROOT / "corpus.json"
 CORPUS = UNIFIED
+OVERLAY = ROOT / "overlay.json"
+RETIRED = ROOT / "retired.json"
 
 
 def test_corpus_json_exists_and_parses():
@@ -331,3 +343,210 @@ def test_bayesian_selection_includes_the_two_job_launching_pipeline_cases():
     drops them to make a run cheaper without reopening the decision."""
     ids = set(corpus.bayesian_ids(UNIFIED))
     assert {"pipeline.end_to_end_emit", "pipeline.happy_path_scrnaseq"} <= ids
+
+
+# --- Fix round 2026-08-04: the generator pin, the hand overrides, and typing ---
+
+def test_the_committed_file_matches_what_the_generator_produces():
+    """Pins the ARTIFACT to its generator. Restored after Task 4.
+
+    It was deleted on the premise that a hand-owned corpus.json could not equal
+    `build(...)`. `_carry_forward` disproved that: the generator reads the
+    hand-owned metadata back out of the committed file, so the equality holds
+    over hand edits and the pin costs nothing.
+
+    Without it, nothing tests that the generator round-trips, and the failure
+    that escaped was not hypothetical -- a rebuild re-derived `status` from
+    `retired.json` and resurrected a corpus.json-only retirement, still flagged
+    `is_bayesian`. This test fails on exactly that.
+    """
+    built = build_corpus.build(corpus._BASE_CATALOG, OVERLAY, RETIRED, UNIFIED)
+    assert built == json.loads(UNIFIED.read_text(encoding="utf-8")), (
+        "corpus.json is out of step with build_corpus.py: regenerate with "
+        "`python -m nessie_tests.scripts.build_corpus`, or explain the drift.")
+
+
+def test_a_rebuild_preserves_a_corpus_json_only_retirement(tmp_path):
+    """corpus.json is authoritative for retirement, not just for definitions.
+
+    `retired.json` is the adoption tool's input for a variant this file has never
+    seen. Once a definition is IN corpus.json, its `status`/`retirement` are hand
+    curation like everything else. Re-deriving them from `retired.json` on every
+    rebuild resurrected any retirement recorded only here -- and, because
+    `is_bayesian` is carried, resurrected it SELECTED, straight back into a paid
+    run.
+
+    The two keys are carried as a PAIR. `status: retired` without a `retirement`
+    record is the state `test_no_active_variant_carries_a_stale_retirement_record`
+    forbids from the other direction.
+    """
+    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
+    target = "green.mus_ndma"  # active, selected, and NOT in retired.json
+    for fam in payload["families"].values():
+        for v in fam["variants"]:
+            if v["id"] == target:
+                assert v["status"] == "active" and v["is_bayesian"], "fixture drifted"
+                v["status"] = "retired"
+                v["retirement"] = {"retired_on": "2026-08-04", "reason": "test"}
+    prior = tmp_path / "corpus.json"
+    prior.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    rebuilt = build_corpus.build(corpus._BASE_CATALOG, OVERLAY, RETIRED, prior)
+    got = {v["id"]: v for f in rebuilt["families"].values() for v in f["variants"]}[target]
+    assert got["status"] == "retired", "the rebuild resurrected a corpus.json-only retirement"
+    assert got["retirement"]["reason"] == "test"
+    # The flag survives so un-retiring restores the curation; `bayesian_ids`
+    # filters on status, so it is dormant rather than live.
+    assert got["is_bayesian"] is True
+    out = tmp_path / "rebuilt.json"
+    out.write_text(json.dumps(rebuilt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    assert target not in corpus.bayesian_ids(out)
+
+
+# id -> the keys it overrides and the values they must resolve to. Every entry is
+# a decision someone argued for; without this table each one is a single null
+# away from silently reverting to its family default and nothing would fail.
+HAND_OVERRIDES = {
+    # Single-cell, not bulk. NFCORE_SCRNASEQ_CSV appears nowhere else in the
+    # corpus, so one reverted null erases the value entirely.
+    "pipeline.happy_path_scrnaseq": {"artifact_kind": "NFCORE_SCRNASEQ_CSV"},
+    "pipeline.build_a_single_cell_rna_seq_pi": {"artifact_kind": "NFCORE_SCRNASEQ_CSV"},
+    # Capability questions inside an artifact-generating family.
+    "pipeline.question_submode": {"expected_behavior": "AnswerDirectly",
+                                  "artifact_expected": False,
+                                  "artifact_kind": "NONE_EXPECTED"},
+    "pipeline.reject_non_directive": {"expected_behavior": "AnswerDirectly",
+                                      "artifact_expected": False,
+                                      "artifact_kind": "NONE_EXPECTED"},
+    # Anaphoric request with no context: correct behaviour is to ASK. On the
+    # family default this scored as a failure for doing the right thing.
+    "pipeline.build_an_nfcore_samplesheet_fo": {"expected_behavior": "ClarifyIfAmbiguous",
+                                                "artifact_expected": False,
+                                                "artifact_kind": "NONE_EXPECTED"},
+    # Read-only exports: nothing unsafe is being refused.
+    "write.download_all_samples_from_the": {"hibayes_subtype": "Write-Export",
+                                            "expected_behavior": "StateUnsupportedBoundary"},
+    "write.export_all_metadata_for_nhp_22": {"hibayes_subtype": "Write-Export",
+                                             "expected_behavior": "StateUnsupportedBoundary"},
+    # Destructive writes: propose and confirm, never perform.
+    "write.update_scientist_must_confirm_first": {"hibayes_subtype": "Write-Update",
+                                                  "expected_behavior": "RefuseUnsafeOnly"},
+    "write.delete_sample_must_confirm_first": {"hibayes_subtype": "Write-Delete",
+                                               "expected_behavior": "RefuseUnsafeOnly"},
+    # Route-gate members that are not plain NS searches.
+    "route.unrelated": {"hibayes_subtype": "Unsupported",
+                        "expected_behavior": "StateUnsupportedBoundary"},
+    "route.ns_plain_study_membership": {"hibayes_subtype": "Graph-Count"},
+}
+
+
+def test_every_hand_override_still_overrides():
+    """The 24 mechanical `reporting` deposits have a sweep test. These do not.
+
+    Measured before this existed: reverting `pipeline.happy_path_scrnaseq` to the
+    family's RNASEQ default, reverting `pipeline.question_submode` to
+    GenerateArtifact, and reverting all seven `writes_unsupported` subtypes to
+    Write-Create each survived the entire suite.
+    """
+    for vid, expected in HAND_OVERRIDES.items():
+        resolved = corpus.hibayes_meta(vid, UNIFIED)
+        for key, want in expected.items():
+            assert resolved[key] == want, f"{vid}.{key}: {resolved[key]!r} != {want!r}"
+
+
+def test_the_clarify_behaviour_is_actually_used():
+    """`ClarifyIfAmbiguous` was in the enum and used ZERO times across all 383
+    definitions, which is what let the one variant that demands a clarification
+    sit on GenerateArtifact/artifact_expected=true -- scoring correct behaviour
+    as failure on both arms.
+
+    The corpus holds exactly one criterion that demands a clarification-shaped
+    reply. If a second is ever written, it needs this behaviour too.
+    """
+    meta = corpus.variant_meta(UNIFIED)
+    users = {vid for vid, m in meta.items() if m["expected_behavior"] == "ClarifyIfAmbiguous"}
+    assert "pipeline.build_an_nfcore_samplesheet_fo" in users
+
+    import re
+    clar = re.compile(r"clarify|specify|which|don't have|no .*(pinned|prior|previous)", re.I)
+    demanding = {
+        v.id for v in corpus.load_all_definitions(UNIFIED)
+        for t in v.turns for c in t.pass_criteria
+        if c.field in ("last_reply", "ui_text.assistant_reply")
+        and c.op == "matches_re" and isinstance(c.value, str) and clar.search(c.value)
+    }
+    assert demanding <= users, (
+        f"criteria demand a clarification but are not labelled ClarifyIfAmbiguous: "
+        f"{sorted(demanding - users)}")
+
+
+def test_the_reporting_sweep_reads_every_turn_not_just_the_first():
+    """The deposit sweep keys on the query text. Today every `reporting` variant
+    is single-turn, so reading `turns[0]` is equivalent -- but it is equivalent by
+    accident, and a two-turn deposit case would escape the sweep silently. This
+    pins the assumption so the day it breaks, it breaks here.
+    """
+    multi = [v.id for v in corpus.load_all_definitions(UNIFIED)
+             if v.family == "reporting" and len(v.turns) != 1]
+    assert not multi, (
+        f"reporting is no longer single-turn ({multi}); the deposit sweep and its "
+        f"test must scan every turn, not just turns[0]")
+
+
+VALID_SUBTYPES = {
+    "Search-Basic", "Search-Refine", "Retrieve", "SampleTree", "Graph-Lineage",
+    "Graph-Count", "Reporter-Summary", "System-Capabilities", "Unsupported",
+    "Report-GEO", "Report-SRA", "Report-PRIDE", "Report-NFCORE",
+    "Write-Create", "Write-Update", "Write-Delete", "Write-Export",
+}
+
+
+def test_variant_level_metadata_is_typed_not_just_the_defaults():
+    """Only `family_defaults` was type-checked, so a variant could carry
+    `artifact_expected: "yes"` and ship green -- and `export_stage_b` does
+    `bool(...)` on it, which turns any non-empty string into True. A typo would
+    have flipped a case's expectation with nothing to catch it.
+    """
+    for vid, m in corpus.variant_meta(UNIFIED).items():
+        assert isinstance(m["is_bayesian"], bool), f"{vid}: is_bayesian"
+        for key in ("hibayes_subtype", "expected_behavior", "artifact_kind"):
+            assert m[key] is None or isinstance(m[key], str), f"{vid}: {key}"
+        assert m["artifact_expected"] is None or isinstance(m["artifact_expected"], bool), \
+            f"{vid}: artifact_expected is {m['artifact_expected']!r}, must be a bool or null"
+        if m["hibayes_subtype"] is not None:
+            assert m["hibayes_subtype"] in VALID_SUBTYPES, f"{vid}: {m['hibayes_subtype']}"
+
+
+def test_resolved_artifact_expectation_and_kind_agree():
+    """`artifact_expected: true` with `artifact_kind: NONE_EXPECTED` is
+    incoherent in both directions, and neither half was guarded. Checked on the
+    RESOLVED value, because an override can supply one half and the family
+    default the other -- which is exactly how the incoherent pair would arise.
+    """
+    for v in corpus.load_all_definitions(UNIFIED):
+        m = corpus.hibayes_meta(v.id, UNIFIED)
+        if m["artifact_expected"]:
+            assert m["artifact_kind"] != "NONE_EXPECTED", \
+                f"{v.id} expects an artifact but declares no kind"
+        else:
+            assert m["artifact_kind"] == "NONE_EXPECTED", \
+                f"{v.id} expects no artifact but declares kind {m['artifact_kind']}"
+        assert m["expected_behavior"] != "GenerateArtifact" or m["artifact_expected"], \
+            f"{v.id} is GenerateArtifact but artifact_expected is false"
+
+
+def test_the_hibayes_key_set_has_exactly_one_definition():
+    """`_META_KEYS` says it is "THE ONE PLACE" a metadata key is registered, and
+    three separate spellings of the HiBayes subset quietly undercut that: this
+    module's tuple, `build_corpus.HIBAYES_KEYS`, and a literal re-listing inside
+    `_variant_dict`. A fifth key added to `_META_KEYS` alone would be un-emitted,
+    un-carried and un-resolved, all in silence.
+    """
+    assert build_corpus.HIBAYES_KEYS is corpus._HIBAYES_KEYS
+    assert set(corpus._HIBAYES_KEYS) <= set(corpus._META_KEYS)
+    # And the generator really emits every one of them on every definition.
+    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
+    for fam in payload["families"].values():
+        for v in fam["variants"]:
+            missing = [k for k in corpus._HIBAYES_KEYS if k not in v]
+            assert not missing, f"{v['id']} is missing {missing}"
