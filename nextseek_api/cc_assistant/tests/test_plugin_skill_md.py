@@ -154,3 +154,40 @@ def test_errors_section_lists_the_runner_codes():
     assert "## Errors" in text
     for code in RUNNER_EXIT_CODES:
         assert code in text, f"Errors section must document exit code {code}"
+
+
+def test_reingest_recipe_names_every_required_a_star_attribute():
+    """The reingest row recipe must teach the WHOLE required set.
+
+    Every ``A.*`` sample type requires File_PrimaryData, Link_PrimaryData, Scientist,
+    Parent and Checksum_PrimaryData (``sampletypes_db.json``). The recipe previously
+    named only a subset, so the agent composed structurally invalid rows that the
+    server rejected on upload. QA now HARD_REJECTs a blank required field, which makes
+    this prose load-bearing: if it drifts back, the reingest path silently stops
+    producing workbooks.
+    """
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    recipe = text.split("Reingest pipeline outputs", 1)[1].split("**Multi-step", 1)[0]
+    for attr in ("File_PrimaryData", "Link_PrimaryData", "Scientist",
+                 "Parent", "Checksum_PrimaryData"):
+        assert attr in recipe, f"reingest recipe never mentions {attr}"
+    # The basename/path split is the part most easily got wrong.
+    assert "basename" in recipe and "absolute Luria path" in recipe
+    # Placeholder convention must stay, and stay distinct from "blank".
+    assert "*** PLACEHOLDER" in recipe
+    assert "never leave a required field blank" in recipe.lower()
+
+
+def test_reingest_recipe_keeps_the_do_not_upload_clause():
+    """The human-commits-via-UI gate is policy, not friction — it must not be edited out."""
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    recipe = text.split("Reingest pipeline outputs", 1)[1].split("**Multi-step", 1)[0]
+    assert "you do not" in recipe.lower() and "upload" in recipe.lower()
+
+
+def test_reingest_recipe_requires_reporting_incomplete_runs():
+    """A HARD_REJECT drops a whole sample type; presenting the rest as the finished
+    job is the failure mode `complete`/`rejected_types` exists to prevent."""
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    recipe = text.split("Reingest pipeline outputs", 1)[1].split("**Multi-step", 1)[0]
+    assert "complete" in recipe and "rejected_types" in recipe

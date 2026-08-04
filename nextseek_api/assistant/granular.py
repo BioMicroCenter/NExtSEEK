@@ -219,7 +219,7 @@ def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_di
     workbooks under ``saved_files`` plus the per-type QA reports. No NExtSEEK write —
     the user reviews the workbook(s) and uploads them via the batch-upload UI.
     """
-    from nextseek_api.assistant.reingest_qa import HARD_REJECT, qa_rows
+    from nextseek_api.assistant.reingest_qa import HARD_REJECT, catalog_fields, qa_rows
     from nextseek_api.assistant.upload_workbook import render_upload_workbook
 
     try:
@@ -239,12 +239,23 @@ def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_di
         by_type.setdefault(st, []).append(row)
 
     out_root = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
-    known = set(by_type)  # permissive here; the real catalog validates on upload
+    # The real sample-type catalog, keyed by code, each entry carrying its
+    # Required / Standard / Possible metadata and Parent_SampleTypes. Deriving
+    # ``known`` from the rows themselves (as this once did) made qa_rows'
+    # unknown_sampletype check unfireable: a hallucinated A.FOO validated itself.
+    # An absent/empty catalog is passed through as None so qa_rows says so out
+    # loud rather than silently reporting CLEAN on unchecked rows.
+    catalog = getattr(config, "FULL_SAMPLETYPES_MAP", None) or {}
+    known = set(catalog) or None
     saved_files: dict[str, str] = {}
     qa: dict[str, dict] = {}
     for st, st_rows in by_type.items():
+        fields = catalog_fields(catalog.get(st))
         report = qa_rows(st_rows, sample_type=st, known_sampletypes=known,
-                         existing_parent_uids=existing)
+                         required_fields=fields["required"],
+                         existing_parent_uids=existing,
+                         known_attributes=fields["known"],
+                         parent_types=fields["parent_types"])
         qa[st] = {"disposition": report.disposition, "hard": report.hard, "soft": report.soft}
         if report.disposition == HARD_REJECT:
             continue
@@ -256,7 +267,12 @@ def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_di
         path = os.path.join(out_root, f"reingest_{safe_name}.xlsx")
         render_upload_workbook(st, st_rows, path)
         saved_files[f"reingest_{safe_key}"] = path
-    return {"saved_files": saved_files, "qa": qa}
+    # A skipped type still returns HTTP 200 (the workbooks that DID render are
+    # real), so say structurally that the set is short rather than making the
+    # caller diff saved_files against qa to notice.
+    rejected = sorted(st for st, r in qa.items() if r["disposition"] == HARD_REJECT)
+    return {"saved_files": saved_files, "qa": qa,
+            "complete": not rejected, "rejected_types": rejected}
 
 _HANDLERS: dict[str, Callable] = {
     "entity": _entity,

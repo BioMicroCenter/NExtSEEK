@@ -139,15 +139,41 @@ upload sheet for the user to REVIEW and upload — it does **not** write to NExt
    on a `D.SEQ` sample** — these are sample *attributes*, so use `api-read` (a REST fetch), NOT
    `nextseek-graph`. Graph is for lineage traversal only; asked for metadata it returns empty Cypher.
    Only if a value genuinely can't be fetched, mark it `*** PLACEHOLDER ***` — do not block on it.
-3. Compose one row per output sample: `{"SampleType": "A.SCXP", "json_metadata": {"Parent": "<input
-   D.SEQ UID>", "Scientist": "<carried from the input D.SEQ>", "Pipeline": "...", "ReferenceGenome":
-   "...", "Aligner": "...", "File_PrimaryData": "...", ...}, "assay_ids": [<int>...]}`. `Parent` is the
-   input `D.SEQ` UID(s) the output derives from (`;`-delimited for a merged/aggregate output). Use
-   `*** PLACEHOLDER: <what> ***` for any required value you cannot derive — never leave it blank.
+3. Compose one row per output sample. **Every `A.*` type requires all five of `File_PrimaryData`,
+   `Link_PrimaryData`, `Scientist`, `Parent`, `Checksum_PrimaryData`** — a blank one is a HARD_REJECT
+   at step 4, because the server rejects it on upload. (`UID` is server-minted: omit it.)
+
+   ```json
+   {"SampleType": "A.SCXP",
+    "json_metadata": {
+      "Parent": "D.SEQ-260711ENG-12-PUB",
+      "Scientist": "Marie Floryan",
+      "File_PrimaryData": "sample_A.count_matrix.h5",
+      "Link_PrimaryData": "/net/bmc-pub10/.../runs/<run>/star_salmon/sample_A.count_matrix.h5",
+      "Checksum_PrimaryData": "*** PLACEHOLDER: md5 not computed at run time ***",
+      "Pipeline": "nf-core/scrnaseq 2.7.1",
+      "ReferenceGenome": "GRCm39"},
+    "assay_ids": [12]}
+   ```
+
+   - `File_PrimaryData` is the **basename**; `Link_PrimaryData` is the **absolute Luria path** to the
+     same file. Both come straight off one line of the step-1 listing. (For data held elsewhere,
+     `Link_PrimaryData` is that store's URL — e.g. an OMERO or PRIDE link — but for pipeline outputs
+     it is the path.)
+   - `Parent` is the input `D.SEQ` UID(s) the output derives from (`;`-delimited for a
+     merged/aggregate output).
+   - Use `*** PLACEHOLDER: <what> ***` for a required value you genuinely cannot derive — that
+     SOFT_FLAGs rather than blocking. **Never leave a required field blank**, and never invent a
+     checksum.
+   - Only emit attributes the sample type actually declares. `Aligner`, for instance, is not an
+     `A.SCXP` field — put that detail in `Pipeline` or `Notes` instead. Unknown attributes SOFT_FLAG.
 4. `nextseek-build-upload-xlsx --rows '<json array>' --existing-parent-uids "<input D.SEQ UIDs, csv>"`
    → renders one 4-sheet workbook per sample type as a downloadable artifact, with a per-type QA
-   verdict `{disposition, hard, soft}`. Relay the workbook(s) + QA to the user. If QA HARD_REJECTs a
-   type, fix the flagged rows and re-run.
+   verdict `{disposition, hard, soft}` plus `complete` and `rejected_types`. QA now checks the rows
+   against the real sample-type catalog: an unknown `A.*` code, a blank required field, or a `Parent`
+   that does not resolve is a HARD_REJECT and **no workbook is produced for that type**. Relay the
+   workbook(s) + QA to the user. **If `complete` is `false`, say so** and name the rejected types —
+   do not present a partial set as if it were the whole job. Fix the flagged rows and re-run.
 
 The user reviews the workbook(s) and uploads them via the normal batch-upload UI — **you do not
 upload**; producing the reviewable sheet is the final step.

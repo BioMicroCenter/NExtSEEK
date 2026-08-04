@@ -25,9 +25,15 @@ import json
 import os
 from typing import Callable
 
-# The 7 granular sidecar ops (mirrors dmac _ws_contract.SIDECAR_OPS).
+# The granular sidecar ops (mirrors dmac _ws_contract.SIDECAR_OPS).
+# ``run-ls`` and ``build-upload-xlsx`` are read/render-only and their handlers do
+# not currently call the gate — but ``build_gate`` DEFAULT-DENIES an unrecognised
+# op label, so omitting them here turns the first call that does consult the gate
+# into an unexplained WRITE_BLOCKED. Listing them makes the read classification
+# explicit rather than incidental.
 SIDECAR_OPS = frozenset(
-    {"entity", "parse", "api-read", "api-write", "graph", "report", "generate-submission"}
+    {"entity", "parse", "api-read", "api-write", "graph", "report", "generate-submission",
+     "run-ls", "build-upload-xlsx"}
 )
 
 # Read-class ops: every sidecar op that is neither api-read nor api-write.

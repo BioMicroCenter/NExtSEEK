@@ -109,3 +109,34 @@ class ShippedAllowlistTests(SimpleTestCase):
             with self.subTest(endpoint=endpoint, method=method):
                 # api-read gate raises WriteBlockedError when not allowlisted.
                 self.assertIsNone(self.gate("api-read", endpoint, method, False))
+
+
+class ReingestOpLabelTests(SimpleTestCase):
+    """The reingest ops must be known to the gate.
+
+    ``build_gate`` DEFAULT-DENIES an unrecognised op label. ``run-ls`` and
+    ``build-upload-xlsx`` are read/render-only and their handlers do not consult the
+    gate today, so the omission was latent — but the moment either one does, it would
+    surface as an unexplained WRITE_BLOCKED. The module docstring says this set
+    mirrors the sidecar's ``_ws_contract.SIDECAR_OPS``, which has carried both ops
+    for some time; these assertions keep the two from drifting again.
+    """
+
+    def setUp(self):
+        self.gate = build_gate(load_allowlist())
+
+    def test_reingest_ops_pass_as_read_class(self):
+        for op in ("run-ls", "build-upload-xlsx"):
+            with self.subTest(op=op):
+                self.assertIsNone(self.gate(op, None, None, False))
+
+    def test_reingest_ops_are_registered_in_sidecar_ops(self):
+        from nextseek_api.assistant.write_gate import READ_CLASS_OPS, SIDECAR_OPS
+        for op in ("run-ls", "build-upload-xlsx"):
+            self.assertIn(op, SIDECAR_OPS)
+            self.assertIn(op, READ_CLASS_OPS)
+
+    def test_unknown_op_is_still_default_denied(self):
+        # The permissiveness above must not have widened into "anything passes".
+        with self.assertRaises(WriteBlockedError):
+            self.gate("not-a-real-op", None, None, False)

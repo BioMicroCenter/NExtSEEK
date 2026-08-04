@@ -18,9 +18,20 @@ while [ $# -gt 0 ]; do
     --help)
       echo "Usage: nextseek-build-upload-xlsx --rows '<json array>' [--existing-parent-uids <csv>]"
       echo ""
-      echo "Each row: {\"SampleType\": \"A.*\", \"json_metadata\": {\"Parent\": \"<UID>\", ...}, \"assay_ids\": [..]}."
+      echo "Each row: {\"SampleType\": \"A.*\", \"json_metadata\": {...}, \"assay_ids\": [..]}."
+      echo ""
+      echo "json_metadata MUST carry all five attributes every A.* type requires:"
+      echo "  Parent               input D.SEQ UID(s), ;-delimited for merged outputs"
+      echo "  Scientist            carried from the input cohort"
+      echo "  File_PrimaryData     basename of the output file"
+      echo "  Link_PrimaryData     absolute Luria path to that same file"
+      echo "  Checksum_PrimaryData md5, or '*** PLACEHOLDER: <what> ***' if unavailable"
+      echo "Omit UID — the server mints it. A blank required field is a HARD_REJECT;"
+      echo "a '*** PLACEHOLDER: ... ***' value is a SOFT_FLAG and still renders."
+      echo ""
       echo "Renders one 4-sheet upload workbook per sample type and returns it for review."
       echo "Pass the input cohort's UIDs via --existing-parent-uids so Parent links QA cleanly."
+      echo "Result carries 'complete' + 'rejected_types': a HARD_REJECT type yields no workbook."
       exit 0
       ;;
     *) nextseek_die 3 "unknown arg: $1" ;;
