@@ -10,6 +10,12 @@ fixes it was meant to verify because the seed did not select them.
 The file is CATALOG-SHAPED on purpose, so `families` blocks can be copy-pasted
 straight out of corpus.json and get the same PassCriterion validation. Two keys:
 
+CAREFUL when you copy a block: it is parsed by `load_catalog`, which does not
+look at `status`, so RETIRED bodies come along and RUN. The `search_advanced`
+block copies as 69 cases, 5 of them retired (mostly GBM questions retired
+because the study does not exist). Strip them, or use `include_ids`, which
+resolves against `merged()` and cannot select a retired case.
+
   include_ids   pull existing corpus variants in, by id, in file order
   families      define new ad-hoc variants inline (plain catalog structure --
                 no `status`/`origin`, so it is NOT a unified corpus)

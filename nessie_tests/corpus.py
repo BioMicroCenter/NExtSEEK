@@ -321,9 +321,10 @@ def merged(path=None) -> list[Variant]:
     One source since 2026-08-04. The parameter is kept, and kept positional, so
     the call SHAPE is unchanged -- but it now names corpus.json, and only
     corpus.json: `_read_unified` requires `version == 2`, so passing a superseded
-    overlay path raises rather than resolving to zero variants. Callers were
-    repointed wholesale in the same commit; nothing is left pointing at the old
-    files.
+    overlay path raises rather than resolving to zero variants. Every RUN path
+    was repointed in the cutover commit; ``scripts/build_corpus.py`` still reads
+    the superseded files, deliberately and permanently, because adopting from
+    them is the whole reason it exists.
     """
     return merged_from_unified(path)
 
@@ -343,6 +344,14 @@ def load_case_file(path) -> tuple[list[str], list[Variant]]:
     purpose: a probe file carries no ``status`` / ``origin`` metadata, and
     running it through the unified reader would drop every variant in it for
     not being marked active.
+
+    Which is exactly why copying a block out of ``corpus.json`` needs care:
+    ``load_catalog`` does not look at ``status``, so RETIRED bodies come along
+    and RUN. Copying the ``search_advanced`` block yields 69 cases, 5 of them
+    retired -- four of those are GBM questions retired because the study does
+    not exist, so the probe pays for questions whose only correct answer is
+    zero. Strip them, or name ids in ``include_ids`` instead: that resolves
+    against ``merged()`` and cannot select a retired case.
     """
     path = Path(path)
     payload = json.loads(path.read_text(encoding="utf-8"))

@@ -115,8 +115,9 @@ def build(catalog_path, overlay_path, retired_path) -> dict:
     # with below -- but that is the same rule written twice, in two places that
     # can drift. Keying on the origin the caller already decided makes the body
     # come from the definition being emitted BY CONSTRUCTION. (The two disagree
-    # on 28 ids, so getting the precedence backwards is not a hypothetical: it
-    # would attach the base body's absent annotations to an overlay override.)
+    # on 30 ids, 28 of which carry annotations the base body lacks, so getting
+    # the precedence backwards is not a hypothetical: it would attach the base
+    # body's absent annotations to an overlay override.)
     raw_bodies = {
         "base": {v["id"]: v for f in raw_catalog["families"].values() for v in f["variants"]},
         "overlay": {v["id"]: v for f in raw_overlay["families"].values() for v in f["variants"]},
