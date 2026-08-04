@@ -279,6 +279,34 @@ PEOPLE_CREATE_DESC = (
     "- 'Create a person record for John Smith'\n"
 )
 
+USER_LIST_DESC = (
+    "**SUMMARY:** List SEEK login accounts (User + linked Person) for superuser administration.\n\n"
+    "**USE WHEN:** An admin needs to audit or browse registered SEEK logins with project membership.\n\n"
+    "**DO NOT USE WHEN:** The caller is not a Django superuser, or the goal is profile-only CRUD without credentials — use `people/` instead.\n\n"
+    "**RETURNS:** Admin records with SEEK user id, person id, login, email, activation state, and optional project/institution ids.\n\n"
+)
+
+USER_FETCH_DESC = (
+    "**SUMMARY:** Fetch one SEEK login account by numeric SEEK user id.\n\n"
+    "**USE WHEN:** An admin needs details for a specific login before update or deactivation.\n\n"
+    "**ACCEPTS:** SEEK user id (numeric) as path parameter.\n\n"
+    "**RETURNS:** A single admin user record (passwords are never returned).\n\n"
+)
+
+USER_CREATE_DESC = (
+    "**SUMMARY:** Mint a new SEEK login (User + Person + project membership) and mirror a Django auth user.\n\n"
+    "**USE WHEN:** A superuser needs a credential-bearing account that can authenticate to SEEK/Nessie — not a login-less Person profile.\n\n"
+    "**ACCEPTS:** `login`, `password` (≥10 chars), `password_confirmation`, `email`, `first_name`, `last_name`, required `project_id` and `institution_id`, optional `is_superuser` (default false), optional `activate` (default true).\n\n"
+    "**RETURNS:** Created ids and metadata; never echoes the password.\n\n"
+)
+
+USER_UPDATE_DESC = (
+    "**SUMMARY:** Update or deactivate an existing SEEK login (prefer `active: false` over deletion).\n\n"
+    "**USE WHEN:** An admin changes profile fields, password, project membership, Django superuser flag, or deactivates a former staff account.\n\n"
+    "**ACCEPTS:** Partial update fields; deactivation sets SEEK inactive and Django `is_active=false`.\n\n"
+    "**DO NOT USE WHEN:** Hard deletion is required — this API does not expose DELETE.\n\n"
+)
+
 PEOPLE_UPDATE_DESC = (
     "**SUMMARY:** Update an existing researcher's profile by their numeric SEEK ID.\n\n"
     "**USE WHEN:** The user wants to modify a person's name, email, institution, or associations.\n\n"
