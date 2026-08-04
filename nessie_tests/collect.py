@@ -4,7 +4,8 @@ Four sources, four different keys:
 
     task row + events   task_id       direct
     CC artifacts list   in the events direct
-    CC scratch tree     scratch_dir   docker cp off the dmac-cc-users volume
+    CC scratch tree     task_id       <user_mount>/scratch/<task_id>, docker cp
+                                      off the dmac-cc-users volume; see fact 4
     CC transcript       session_id    zstd blob in CCSessionTranscript
     NS run_root         ns_run_root   event added in plan 3 task 1
 
@@ -14,8 +15,8 @@ reaped between the turn and the collection. That is why every miss is RECORDED
 rather than skipped. If misses turn out to be common, move CC scratch collection
 inline; do not start guessing at what was there.
 
-THREE FACTS ABOUT THE PRODUCT THAT SHAPE THIS MODULE, all verified rather than
-assumed. Each is stated where it is acted on as well as here.
+FOUR FACTS ABOUT THE PRODUCT THAT SHAPE THIS MODULE, all verified against the
+source rather than assumed. Each is stated where it is acted on as well as here.
 
 1.  An entry is a CASE, not a turn, and 30 of the 127 variants in the paired
     selection run 2-3 turns (158 turns in all). So an arm joins to a LIST of
@@ -37,6 +38,30 @@ assumed. Each is stated where it is acted on as well as here.
     retry in `collect`. The timestamp window is deliberately NOT the fallback: it
     is only unambiguous while runs are strictly sequential, and a paired run
     interleaves two engines per question, which is exactly when it is ambiguous.
+
+4.  CC scratch IS addressable from the task_id, and the per-TURN unit is
+    `<user_mount>/scratch/<task_id>`. `cc_run_id = str(query_task.task_id)`
+    (cc_assistant.py:415) becomes `run_id` in `run_cc_turn`, which mkdirs the
+    per-run working dir at cc_engine.py:619-622 and publishes that turn's
+    deliverables to `<output_mnt>/artifacts/<run_id>` (cc_engine.py:931). The
+    brief pointed at `dirs.scratch_mnt`, which is the whole PER-USER root
+    (cc_provision.py:120) shared by every arm in the run -- copying that per arm
+    copies one growing tree 127 times. Only the absolute `<user_mount>` prefix
+    has to be recovered, and `cc_raw_files` carries it (cc_engine.py:971).
+
+    Two things a reader will otherwise assume and be wrong about:
+
+    * `cc_turn_meta` DOES exist (cc_assistant.py:605) and does reach the row via
+      `make_db_event_callback`. It carries model_id / cc_session_id / budget_usd
+      / turn_timeout_s and NO path, which is why the brief's
+      `cc_turn_meta.scratch_dir` read always came back None.
+    * `<scratch_mnt>/<run_id>` is created for every turn but is not where the
+      agent works: the container's working_dir is `/home/user`
+      (cc_engine.py:137) and the whole per-user scratch is mounted at
+      `/data/scratch` (cc_engine.py:128), which is what the plugin writes into
+      (_nextseek_runner.py:105). So the per-turn dir is the correct unit to copy
+      and is frequently EMPTY, while this turn's actual deliverables are the
+      per-turn `output/artifacts/<task_id>/` collected alongside it.
 """
 from __future__ import annotations
 
@@ -176,6 +201,69 @@ def _write_json(path: pathlib.Path, payload) -> None:
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
 
+# `cc_raw_files` entries are absolute LOGICAL paths built as
+# `str(Path(output_logical_root) / "raw" / rel)` (cc_engine.py:971) where
+# `output_logical_root` is `dirs.output_mnt` (cc_engine.py:779), and
+# `output_mnt` is `f"{user_mount}/scratch"`'s sibling `f"{user_mount}/output"`
+# (cc_provision.py:121). So everything before this marker IS `{user_mount}`, and
+# `{user_mount}/scratch` is the CC scratch root. `user_mount` itself is
+# `{mount_root}/{project_dirname}/{user_id}` (cc_provision.py:110) whose two
+# tail segments are `_SEGMENT_RE`-validated (cc_provision.py:14, no slashes), so
+# only a `mount_root` containing this literal could produce a false first split
+# -- and `mount_root` is the users-volume mount point, not user-supplied.
+_RAW_MARKER = "/output/raw/"
+
+
+# The two ways the prefix can be unavailable. Stated NARROWLY: the join key
+# itself (the task_id) is always in hand and the directory layout is known, so
+# neither of these is "CC scratch has no join key".
+_NO_PREFIX_REASON = (
+    "the per-turn scratch dir is <user_mount>/scratch/<task_id> and the task_id "
+    "IS known, but no query_complete event anywhere in this run carried a "
+    "cc_raw_files entry, which is the only place the absolute <user_mount> "
+    "prefix appears (cc_engine.py:971). A turn that wrote nothing under "
+    "scratch/raw/ emits none, so a run in which no CC turn produced raw output "
+    "has no prefix to recover. Emitting the scratch path on cc_turn_meta "
+    "(cc_assistant.py:605, which exists and carries model_id/cc_session_id/"
+    "budget_usd/turn_timeout_s but no path) would remove this dependency"
+)
+
+_AMBIGUOUS_PREFIX_REASON = (
+    "more than one <user_mount> prefix was observed in this run ({found}), so "
+    "the arm's own prefix cannot be inferred from the others. A paired run is "
+    "one user against one project, so this means the run spanned two -- do not "
+    "guess which"
+)
+
+
+def _raw_path_strings(qc: dict) -> list[str]:
+    """`cc_raw_files` entries as strings.
+
+    `cc_engine` emits plain path strings, but `evaluate.py` already tolerates the
+    `{"path": ...}` dict shape from older payloads, so this does too rather than
+    silently contributing nothing on a run that carries them.
+    """
+    out = []
+    for item in (qc.get("cc_raw_files") or []):
+        if isinstance(item, str):
+            out.append(item)
+        elif isinstance(item, dict) and isinstance(item.get("path"), str):
+            out.append(item["path"])
+    return out
+
+
+def _user_mounts(rows: list[dict]) -> list[str]:
+    """The distinct `{user_mount}` prefixes derivable from these rows."""
+    found = []
+    for row in rows:
+        for path in _raw_path_strings(_event(row, "query_complete") or {}):
+            if _RAW_MARKER in path:
+                prefix = path.split(_RAW_MARKER, 1)[0]
+                if prefix and prefix not in found:
+                    found.append(prefix)
+    return found
+
+
 def _recorder(missing: list[dict], pair_id: str, arm: str, outaged: bool):
     """A miss-recorder bound to one arm.
 
@@ -186,6 +274,26 @@ def _recorder(missing: list[dict], pair_id: str, arm: str, outaged: bool):
         missing.append({"id": pair_id, "arm": arm, "what": what, "kind": kind,
                         "path": path, "reason": reason, "outage": outaged})
     return miss
+
+
+def _copy_into(sources, src: str, target: pathlib.Path, *, miss, what: str,
+               absent_reason: str) -> bool:
+    """One copy attempt. Records its own miss and NEVER raises.
+
+    The `CopyFailed`/`False` split is the whole point: "the source is not there"
+    and "the copy mechanism broke" are different facts and only the second is a
+    collection problem.
+    """
+    try:
+        copied = sources.copy_tree(src, target)
+    except CopyFailed as exc:
+        miss(what, kind="copy_failed", path=src,
+             reason=f"the copy itself failed: {exc}")
+        return False
+    if not copied:
+        miss(what, kind="absent", path=src, reason=absent_reason)
+        return False
+    return True
 
 
 def collect(manifest, out_dir, sources, outputs_root=None, *,
@@ -214,7 +322,7 @@ def collect(manifest, out_dir, sources, outputs_root=None, *,
     art_root = out_dir / "artifacts"
     missing: list[dict] = []
     shared_run_roots: list[dict] = []
-    arms_seen = arms_outage = turns_seen = run_roots_copied = 0
+    arms_seen = arms_outage = turns_seen = run_roots_copied = cc_scratch_copied = 0
 
     wanted = _dedup([t for p in manifest.pairs for arm in ARMS
                      for t in _task_ids(getattr(p, arm))])
@@ -241,6 +349,16 @@ def collect(manifest, out_dir, sources, outputs_root=None, *,
 
     # run_root -> the "<variant>/<arm>" whose directory holds the one copy.
     owner_of: dict[str, str] = {}
+
+    # The `{user_mount}` prefix, derived ONCE for the whole run. A paired run is
+    # one user against one project, so every CC arm shares it -- which matters
+    # because only a turn that wrote under scratch/raw/ carries it, and most
+    # turns do not. An arm with none borrows the run's, but only when the run
+    # has exactly one; two would mean the run spanned two users or projects and
+    # there is nothing to borrow.
+    cc_rows = [rows[t] for p in manifest.pairs for t in _task_ids(p.cc) if t in rows]
+    run_mounts = _user_mounts(cc_rows)
+    run_mount = run_mounts[0] if len(run_mounts) == 1 else None
 
     for pair in manifest.pairs:
         for arm in ARMS:
@@ -295,7 +413,8 @@ def collect(manifest, out_dir, sources, outputs_root=None, *,
                                 "run predates the event, the turn never reached the "
                                 "orchestrator, or the emit itself failed")
                 for i, root in enumerate(roots):
-                    target = dest / ("run_root" if i == 0 else f"run_root_{i + 1}")
+                    name = "run_root" if i == 0 else f"run_root_{i + 1}"
+                    target = dest / name
                     owner = owner_of.get(root)
                     if owner is not None:
                         # De-duplication ACROSS arms. Each case opens its own
@@ -305,27 +424,23 @@ def collect(manifest, out_dir, sources, outputs_root=None, *,
                         shared_run_roots.append({"run_root": root,
                                                  "copied_under": owner,
                                                  "also_claimed_by": f"{pair.id}/{arm}"})
-                        _write_json(dest / "run_root.shared.json",
+                        # Named after the slot it stands in for, so an arm with
+                        # two already-owned roots does not overwrite its own
+                        # first pointer -- the same scheme as run_root_2/.
+                        _write_json(dest / f"{name}.shared.json",
                                     {"run_root": root, "copied_under": owner})
                         continue
-                    try:
-                        copied = sources.copy_tree(root, target)
-                    except CopyFailed as exc:
-                        miss("run_root", kind="copy_failed", path=root,
-                             reason=f"the copy itself failed: {exc}")
-                    else:
-                        if copied:
-                            # Ownership is claimed only by a copy that SUCCEEDED.
-                            # Claiming it up front would point a later arm's
-                            # run_root.shared.json at a directory that was never
-                            # written, and would record one failure where two
-                            # arms each hit one.
-                            owner_of[root] = f"{pair.id}/{arm}"
-                            run_roots_copied += 1
-                        else:
-                            miss("run_root", kind="absent", path=root,
-                                 reason="the source path is not there; the directory "
-                                        "was removed or is not visible from here")
+                    if _copy_into(
+                            sources, root, target, miss=miss, what="run_root",
+                            absent_reason="the source path is not there; the directory "
+                                          "was removed or is not visible from here"):
+                        # Ownership is claimed only by a copy that SUCCEEDED.
+                        # Claiming it up front would point a later arm's
+                        # pointer file at a directory that was never written,
+                        # and would record one failure where two arms each hit
+                        # one.
+                        owner_of[root] = f"{pair.id}/{arm}"
+                        run_roots_copied += 1
             else:
                 if arm_rows:
                     qcs = [_event(r, "query_complete") or {} for r in just_rows]
@@ -338,36 +453,49 @@ def collect(manifest, out_dir, sources, outputs_root=None, *,
                                                 for f in (qc.get("cc_raw_files") or [])]),
                     })
 
-                scratch = None
-                for row in just_rows:
-                    scratch = (_event(row, "cc_turn_meta") or {}).get("scratch_dir")
-                    if scratch:
-                        break
-                if not scratch:
-                    # NOT a silent skip. VERIFIED: no `cc_turn_meta` event exists
-                    # anywhere in the product, and `run_id` (the scratch dir's
-                    # key) never reaches an event either, so the CC scratch tree
-                    # currently has NO join key at all. The brief read the path
-                    # from that event and recorded nothing when it came back
-                    # None, which made a whole source quietly vanish. Either add
-                    # an event carrying the path (the shape of plan 3 task 1) or
-                    # drop cc_scratch from the export -- but do not let it look
-                    # like the turn produced no scratch.
-                    miss("cc_scratch", kind="no_join_key",
-                         reason="no event carries the scratch path: nothing in the "
-                                "product emits cc_turn_meta, and run_id never reaches "
-                                "an event either, so there is no key to copy by")
+                # --- CC scratch + this turn's published deliverable files ----
+                # BOTH are per-TURN and BOTH are keyed by the task_id already in
+                # hand. `cc_run_id = str(query_task.task_id)`
+                # (cc_assistant.py:415) is passed to `run_cc_turn` as `run_id`,
+                # which creates the per-run working dir
+                # `<scratch_mnt>/<run_id>` (cc_engine.py:619-622) and publishes
+                # that turn's deliverables to
+                # `<output_mnt>/artifacts/<run_id>` (cc_engine.py:931, keys
+                # `"<turn_id>/<rel>"` at :959/:966). Only the `{user_mount}`
+                # prefix has to be recovered, and `cc_raw_files` carries it.
+                #
+                # `<scratch_mnt>/<run_id>`, NOT `<scratch_mnt>`. The latter is
+                # the whole PER-USER scratch root (cc_provision.py:120), shared
+                # by every CC arm in the run and by the sidecar; copying it per
+                # arm copies one growing tree 127 times. The brief named that
+                # root, which is the wrong unit.
+                own_mounts = _user_mounts(just_rows)
+                mount = own_mounts[0] if len(own_mounts) == 1 else run_mount
+                if not mount:
+                    # Narrow and specific: everything but the prefix is known.
+                    ambiguous = len(own_mounts) > 1 or len(run_mounts) > 1
+                    miss("cc_scratch",
+                         kind="ambiguous_path_prefix" if ambiguous else "no_path_prefix",
+                         reason=_AMBIGUOUS_PREFIX_REASON.format(
+                             found=sorted(own_mounts or run_mounts))
+                         if ambiguous else _NO_PREFIX_REASON)
                 else:
-                    try:
-                        copied = sources.copy_tree(scratch, dest / "cc_scratch")
-                    except CopyFailed as exc:
-                        miss("cc_scratch", kind="copy_failed", path=scratch,
-                             reason=f"the copy itself failed: {exc}")
-                    else:
-                        if not copied:
-                            miss("cc_scratch", kind="absent", path=scratch,
-                                 reason="the scratch path is not there; cc_sweep may "
-                                        "have reaped it between the turn and now")
+                    for tid in ids:
+                        if _copy_into(
+                                sources, f"{mount}/scratch/{tid}",
+                                dest / "cc_scratch" / tid,
+                                miss=miss, what="cc_scratch",
+                                absent_reason="the per-turn scratch dir is not there; "
+                                              "cc_sweep may have reaped it between the "
+                                              "turn and now"):
+                            cc_scratch_copied += 1
+                        _copy_into(
+                            sources, f"{mount}/output/artifacts/{tid}",
+                            dest / "cc_artifacts" / tid,
+                            miss=miss, what="cc_artifact_files",
+                            absent_reason="no published-artifact directory for this "
+                                          "turn; the turn published no deliverables, "
+                                          "or the directory was removed")
 
                 sid = ""
                 for _t, row in reversed(arm_rows):
@@ -394,6 +522,7 @@ def collect(manifest, out_dir, sources, outputs_root=None, *,
         "arms_outage": arms_outage,
         "turns_seen": turns_seen,
         "run_roots_copied": run_roots_copied,
+        "cc_scratch_copied": cc_scratch_copied,
         "retried_task_ids": len(retry_ids),
         "shared_run_roots": shared_run_roots,
         "missing": missing,

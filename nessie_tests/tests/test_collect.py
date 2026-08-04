@@ -234,6 +234,28 @@ def test_a_run_root_shared_across_arms_is_copied_once_and_the_sharing_is_recorde
     assert pointer["copied_under"] == "a.one/ns"
 
 
+def test_a_second_shared_root_gets_its_own_pointer_file(tmp_path):
+    """The pointer is named after the slot it stands in for, like run_root_2/. A
+    fixed name would let an arm's second shared root overwrite its first."""
+    m = BayesManifest(pairs=[
+        BayesPair(id="a.one", family="f", ns=_entry("a.one", "t1")),
+        BayesPair(id="a.two", family="f", ns=_entry("a.two", "t2")),
+        BayesPair(id="a.three", family="f",
+                  ns=_entry("a.three", None, task_ids=["t3", "t4"])),
+    ])
+    def _ev(root):
+        return [{"event": "ns_run_root", "data": {"run_root": root}}]
+    rows = {"t1": {"status": "completed", "result": None, "progress": _ev("/out/x")},
+            "t2": {"status": "completed", "result": None, "progress": _ev("/out/y")},
+            "t3": {"status": "completed", "result": None, "progress": _ev("/out/x")},
+            "t4": {"status": "completed", "result": None, "progress": _ev("/out/y")}}
+    src = FakeSources(rows=rows, copyable={"/out/x", "/out/y"})
+    collect.collect(m, tmp_path, src)
+    third = tmp_path / "artifacts" / "a.three" / "ns"
+    assert json.loads((third / "run_root.shared.json").read_text())["run_root"] == "/out/x"
+    assert json.loads((third / "run_root_2.shared.json").read_text())["run_root"] == "/out/y"
+
+
 def test_two_distinct_run_roots_on_one_arm_are_both_kept(tmp_path):
     """De-duplication is on the PATH, not on the arm. Two different directories
     are two different pieces of evidence."""
@@ -387,27 +409,119 @@ def test_cc_artifacts_are_unioned_across_turns(tmp_path):
     assert got["cc_raw_files"] == ["/raw/1", "/raw/2"]
 
 
-def test_cc_scratch_has_no_join_key_and_that_is_recorded_every_time(tmp_path):
-    """NOTHING emits the scratch path. The brief read `cc_turn_meta.scratch_dir`
-    and no such event exists anywhere in the product, so the lookup silently
-    returned None and no miss was recorded -- a whole source quietly absent. A
-    systematic collection problem must be visible, not look like a product result."""
-    rows = {"t-cc": {"status": "completed", "progress": [
-        {"event": "query_complete", "data": {}}], "result": None}}
+MOUNT = "/mnt/cc-users/proj/demo"
+
+
+def _cc_row(task_id, raw=("out.json",)):
+    """A CC turn row whose cc_raw_files carry the absolute {user_mount} prefix.
+
+    Shaped exactly as cc_engine.py:971 builds them:
+    `str(Path(output_logical_root) / "raw" / rel)` with
+    `output_logical_root = dirs.output_mnt = f"{user_mount}/output"`.
+    """
+    return {"status": "completed", "result": None, "progress": [
+        {"event": "query_complete", "data": {
+            "session_id": "chat-1",
+            "cc_raw_files": [f"{MOUNT}/output/raw/{r}" for r in raw]}}]}
+
+
+def test_cc_scratch_is_derived_from_the_task_id_and_the_raw_path_prefix(tmp_path):
+    """The scratch tree IS collectable: cc_run_id = str(query_task.task_id)
+    (cc_assistant.py:415) is the run_id whose per-run dir cc_engine.py:619-622
+    creates, and cc_raw_files carries the only absolute prefix (cc_engine.py:971)."""
+    src = FakeSources(rows={"t-cc": _cc_row("t-cc")},
+                      copyable={f"{MOUNT}/scratch/t-cc"})
+    out = collect.collect(_manifest(), tmp_path, src)
+    assert (f"{MOUNT}/scratch/t-cc",
+            str(tmp_path / "artifacts" / "a.one" / "cc" / "cc_scratch" / "t-cc")) in src.copied
+    assert out["cc_scratch_copied"] == 1
+    assert not [m for m in out["missing"] if m["what"] == "cc_scratch"]
+
+
+def test_the_copy_unit_is_the_per_turn_dir_not_the_shared_per_user_scratch_root(tmp_path):
+    """`dirs.scratch_mnt` (cc_provision.py:120) is the whole per-USER root, shared
+    by all 127 CC arms. Copying it per arm copies one growing tree 127 times."""
+    src = FakeSources(rows={"t-cc": _cc_row("t-cc")},
+                      copyable={f"{MOUNT}/scratch/t-cc"})
+    collect.collect(_manifest(), tmp_path, src)
+    scratch_srcs = [s for s, _d in src.copied if "/scratch" in s]
+    assert scratch_srcs == [f"{MOUNT}/scratch/t-cc"]
+    assert f"{MOUNT}/scratch" not in scratch_srcs
+
+
+def test_each_turn_of_a_multi_turn_cc_arm_gets_its_own_scratch_dir(tmp_path):
+    """run_id is the TASK id, so a 2-turn arm has two per-run dirs, not one."""
+    src = FakeSources(rows={"c1": _cc_row("c1"), "c2": _cc_row("c2")},
+                      copyable={f"{MOUNT}/scratch/c1", f"{MOUNT}/scratch/c2"})
+    out = collect.collect(_multiturn_manifest(), tmp_path, src)
+    assert out["cc_scratch_copied"] == 2
+    for tid in ("c1", "c2"):
+        assert (tmp_path / "artifacts" / "a.one" / "cc" / "cc_scratch" / tid
+                / "console.txt").is_file()
+
+
+def test_this_turns_published_deliverables_are_collected_per_turn(tmp_path):
+    """`output/artifacts/<turn_id>/` (cc_engine.py:931) is where the turn's
+    deliverable FILES land; `artifacts.json` only lists their keys."""
+    src = FakeSources(rows={"t-cc": _cc_row("t-cc")},
+                      copyable={f"{MOUNT}/output/artifacts/t-cc"})
+    collect.collect(_manifest(), tmp_path, src)
+    assert (tmp_path / "artifacts" / "a.one" / "cc" / "cc_artifacts" / "t-cc"
+            / "console.txt").is_file()
+
+
+def test_an_arm_with_no_raw_files_borrows_the_runs_one_prefix(tmp_path):
+    """Only a turn that wrote under scratch/raw/ emits cc_raw_files, and most do
+    not. A paired run is one user against one project, so the prefix is shared."""
+    m = BayesManifest(pairs=[
+        BayesPair(id="a.one", family="f", cc=_entry("a.one", "c1")),
+        BayesPair(id="a.two", family="f", cc=_entry("a.two", "c2")),
+    ])
+    rows = {"c1": _cc_row("c1"),
+            "c2": {"status": "completed", "result": None, "progress": [
+                {"event": "query_complete", "data": {"session_id": "chat-1"}}]}}
+    src = FakeSources(rows=rows, copyable={f"{MOUNT}/scratch/c1", f"{MOUNT}/scratch/c2"})
+    out = collect.collect(m, tmp_path, src)
+    assert out["cc_scratch_copied"] == 2
+    assert not [x for x in out["missing"] if x["what"] == "cc_scratch"]
+
+
+def test_two_prefixes_in_one_run_are_never_guessed_between(tmp_path):
+    m = BayesManifest(pairs=[
+        BayesPair(id="a.one", family="f", cc=_entry("a.one", "c1")),
+        BayesPair(id="a.two", family="f", cc=_entry("a.two", "c2")),
+        BayesPair(id="a.three", family="f", cc=_entry("a.three", "c3")),
+    ])
+    other = "/mnt/cc-users/proj/other"
+    rows = {"c1": _cc_row("c1"),
+            "c2": {"status": "completed", "result": None, "progress": [
+                {"event": "query_complete", "data": {
+                    "cc_raw_files": [f"{other}/output/raw/x.json"]}}]},
+            "c3": {"status": "completed", "result": None, "progress": [
+                {"event": "query_complete", "data": {}}]}}
+    out = collect.collect(m, tmp_path, FakeSources(rows=rows))
+    amb = [x for x in out["missing"] if x["id"] == "a.three" and x["what"] == "cc_scratch"]
+    assert len(amb) == 1 and amb[0]["kind"] == "ambiguous_path_prefix"
+    # The two arms that carry their OWN prefix are unaffected by the ambiguity.
+    assert not [x for x in out["missing"]
+                if x["id"] in ("a.one", "a.two") and x["kind"] == "ambiguous_path_prefix"]
+
+
+def test_no_prefix_anywhere_records_the_gap_narrowly_and_accurately(tmp_path):
+    """The gap is the PREFIX, not the join key. `cc_turn_meta` exists
+    (cc_assistant.py:605) and the task_id is in hand; only the absolute
+    <user_mount> is unrecoverable, and only when no CC turn wrote raw output."""
+    rows = {"t-cc": {"status": "completed", "result": None, "progress": [
+        {"event": "cc_turn_meta", "data": {"model_id": "m", "budget_usd": 1.0}},
+        {"event": "query_complete", "data": {"session_id": "chat-1"}}]}}
     out = collect.collect(_manifest(), tmp_path, FakeSources(rows=rows))
     miss = [m for m in out["missing"] if m["what"] == "cc_scratch"]
-    assert len(miss) == 1 and miss[0]["kind"] == "no_join_key"
-    assert "cc_turn_meta" in miss[0]["reason"]
-
-
-def test_a_scratch_path_is_copied_once_it_is_actually_emitted(tmp_path):
-    rows = {"t-cc": {"status": "completed", "result": None, "progress": [
-        {"event": "cc_turn_meta", "data": {"scratch_dir": "/data/scratch/u1"}}]}}
-    src = FakeSources(rows=rows, copyable={"/data/scratch/u1"})
-    out = collect.collect(_manifest(), tmp_path, src)
-    assert ("/data/scratch/u1", str(tmp_path / "artifacts" / "a.one" / "cc" / "cc_scratch")
-            ) in src.copied
-    assert not [m for m in out["missing"] if m["what"] == "cc_scratch"]
+    assert len(miss) == 1 and miss[0]["kind"] == "no_path_prefix"
+    reason = miss[0]["reason"]
+    assert "cc_raw_files" in reason and "task_id IS known" in reason
+    # The false claims this reason used to make. Neither may come back.
+    assert "no join key" not in reason
+    assert "nothing in the product emits cc_turn_meta" not in reason
 
 
 def test_the_transcript_blob_reaches_session_jsonl_without_zstandard(tmp_path, monkeypatch):
@@ -420,6 +534,13 @@ def test_the_transcript_blob_reaches_session_jsonl_without_zstandard(tmp_path, m
 
 
 def test_an_undecodable_transcript_is_recorded_not_raised(tmp_path):
+    """Not a hypothetical: `Sources` is INJECTED, so the blob is whatever an
+    implementation hands over -- a truncated read, a `BinaryField` returned as a
+    memoryview, or a transcript over `MAX_TRANSCRIPT_BYTES` (a cap on the READ
+    side only, so the product stores oversized transcripts happily and its own
+    `cc_transcript_store.decompress` refuses them too). What is being pinned is
+    not the codec but the module's central invariant: one bad blob out of 127
+    records a miss instead of aborting the whole collection."""
     def boom(_blob):
         raise ValueError("not a zstd frame")
 
