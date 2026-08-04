@@ -202,6 +202,18 @@ class TestUsersViewSetCreate:
         response = UsersViewSet().create(request)
         assert response.status_code == 403
 
+    @patch("nextseek_api.services.users.Users")
+    @patch("nextseek_api.services.users.run_seek_rails_runner")
+    def test_create_runner_error_502(self, mock_runner, mock_users):
+        mock_users.objects.using.return_value.filter.return_value.exists.return_value = False
+        mock_runner.side_effect = SeekRailsRunnerError("validation failed", detail="bad email")
+        factory = APIRequestFactory()
+        request = _wrap(factory.post("/nextseek_api/users/", CREATE_BODY, format="json"))
+        request.user = _superuser()
+        response = UsersViewSet().create(request)
+        assert response.status_code == 502
+        assert b"Invalid upstream response" in response.content
+
     @patch("nextseek_api.services.users.People")
     @patch("nextseek_api.services.users.Users")
     @patch("nextseek_api.services.users.run_seek_rails_runner")
@@ -214,17 +226,7 @@ class TestUsersViewSetCreate:
         request.user = _superuser()
         response = UsersViewSet().create(request)
         assert response.status_code == 502
-
-    @patch("nextseek_api.services.users.Users")
-    @patch("nextseek_api.services.users.run_seek_rails_runner")
-    def test_create_runner_error_502(self, mock_runner, mock_users):
-        mock_users.objects.using.return_value.filter.return_value.exists.return_value = False
-        mock_runner.side_effect = SeekRailsRunnerError("validation failed", detail="bad email")
-        factory = APIRequestFactory()
-        request = _wrap(factory.post("/nextseek_api/users/", CREATE_BODY, format="json"))
-        request.user = _superuser()
-        response = UsersViewSet().create(request)
-        assert response.status_code == 502
+        assert b"Invalid upstream response" in response.content
 
     @patch("nextseek_api.services.users.Users")
     @patch("nextseek_api.services.users.run_seek_rails_runner")
@@ -563,3 +565,28 @@ class TestRoutingAndSchema:
             methods = set(paths[path].keys())
             assert "delete" not in methods
             assert "get" in methods or "post" in methods or "patch" in methods
+
+        create_op = paths["/nextseek_api/users/"]["post"]
+        create_req_examples = create_op["requestBody"]["content"]["application/json"]["examples"]
+        assert len(create_req_examples) >= 1
+        create_resp_examples = create_op["responses"]["201"]["content"]["application/json"]["examples"]
+        assert len(create_resp_examples) >= 1
+
+        list_op = paths["/nextseek_api/users/"]["get"]
+        list_examples = list_op["responses"]["200"]["content"]["application/json"]["examples"]
+        assert len(list_examples) >= 1
+
+        detail_op = paths["/nextseek_api/users/{uid}/"]["get"]
+        detail_examples = detail_op["responses"]["200"]["content"]["application/json"]["examples"]
+        assert len(detail_examples) >= 1
+
+        patch_op = paths["/nextseek_api/users/{uid}/"]["patch"]
+        patch_req_examples = patch_op["requestBody"]["content"]["application/json"]["examples"]
+        assert len(patch_req_examples) >= 1
+        patch_resp_examples = patch_op["responses"]["200"]["content"]["application/json"]["examples"]
+        assert len(patch_resp_examples) >= 1
+
+        assert "AdminUserErrorResponse" in schema["components"]["schemas"]
+        assert create_op["responses"]["502"]["content"]["application/json"]["schema"]["$ref"].endswith(
+            "AdminUserErrorResponse"
+        )

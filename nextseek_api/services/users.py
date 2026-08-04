@@ -11,9 +11,11 @@ from django.db import connections
 from django.http import HttpResponse
 from pydantic import ValidationError
 from rest_framework import viewsets
+from rest_framework.authentication import TokenAuthentication, BasicAuthentication
 from rest_framework.permissions import BasePermission, IsAuthenticated
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema
 
+from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 from nextseek_api.endpoint_descriptions import (
     USER_CREATE_DESC,
     USER_FETCH_DESC,
@@ -21,6 +23,7 @@ from nextseek_api.endpoint_descriptions import (
     USER_UPDATE_DESC,
 )
 from nextseek_api.models import (
+    AdminUserErrorResponse,
     UserAdminRecord,
     UserCreateRequest,
     UserListResponse,
@@ -35,6 +38,61 @@ from nextseek_api.services.seek_rails_runner import (
 from seek.models import People, Users
 
 logger = logging.getLogger(__name__)
+
+USERS_ADMIN_TAG = "Users (admin)"
+
+_EXAMPLE_USER_RECORD = {
+    "user_id": 10,
+    "person_id": 20,
+    "login": "testuser",
+    "email": "testuser@example.com",
+    "first_name": "Test",
+    "last_name": "User",
+    "active": True,
+    "django_is_active": True,
+    "django_is_superuser": False,
+    "project_id": 1,
+    "institution_id": 1,
+}
+
+_EXAMPLE_CREATE_REQUEST = {
+    "login": "testuser",
+    "password": "testpassword",
+    "password_confirmation": "testpassword",
+    "email": "testuser@example.com",
+    "first_name": "Test",
+    "last_name": "User",
+    "project_id": 1,
+    "institution_id": 1,
+    "is_superuser": False,
+    "activate": True,
+}
+
+_EXAMPLE_PATCH_REQUEST = {
+    "active": False,
+    "email": "testuser@example.com",
+}
+
+_EXAMPLE_LIST_RESPONSE = {"data": [_EXAMPLE_USER_RECORD]}
+
+_EXAMPLE_SINGLE_RESPONSE = {"data": _EXAMPLE_USER_RECORD}
+
+_ADMIN_DETAIL_RESPONSES = {
+    200: UserSingleResponse,
+    401: OpenApiResponse(description="Authentication required"),
+    403: OpenApiResponse(description="Django superuser privileges are required"),
+    404: AdminUserErrorResponse,
+}
+
+_ADMIN_MUTATION_RESPONSES = {
+    401: OpenApiResponse(description="Authentication required"),
+    403: AdminUserErrorResponse,
+    404: AdminUserErrorResponse,
+    409: AdminUserErrorResponse,
+    422: AdminUserErrorResponse,
+    502: AdminUserErrorResponse,
+    503: AdminUserErrorResponse,
+}
 
 SEEK_CREATE_RUBY = """
 begin
@@ -242,6 +300,7 @@ def _error_response(title: str, status: int, detail: Optional[str] = None) -> Ht
 
 
 class UsersViewSet(viewsets.ViewSet):
+    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated, IsDjangoSuperuser]
     lookup_field = "uid"
     lookup_url_kwarg = "uid"
@@ -250,8 +309,19 @@ class UsersViewSet(viewsets.ViewSet):
     @extend_schema(
         operation_id="List Users (admin)",
         description=USER_LIST_DESC,
-        responses={200: UserListResponse},
-        tags=["Users (admin)"],
+        responses={
+            200: UserListResponse,
+            401: OpenApiResponse(description="Authentication required"),
+            403: OpenApiResponse(description="Django superuser privileges are required"),
+        },
+        tags=[USERS_ADMIN_TAG],
+        examples=[
+            OpenApiExample(
+                name="List Users (admin)",
+                value=_EXAMPLE_LIST_RESPONSE,
+                response_only=True,
+            ),
+        ],
     )
     def list(self, request):
         records: List[UserAdminRecord] = []
@@ -282,8 +352,15 @@ class UsersViewSet(viewsets.ViewSet):
                 description="SEEK user id (numeric)",
             )
         ],
-        responses={200: UserSingleResponse},
-        tags=["Users (admin)"],
+        responses=_ADMIN_DETAIL_RESPONSES,
+        tags=[USERS_ADMIN_TAG],
+        examples=[
+            OpenApiExample(
+                name="Fetch User (admin)",
+                value=_EXAMPLE_SINGLE_RESPONSE,
+                response_only=True,
+            ),
+        ],
     )
     def retrieve(self, request, uid=None):
         seek_id = _validate_seek_user_id(uid or "")
@@ -311,24 +388,22 @@ class UsersViewSet(viewsets.ViewSet):
         operation_id="Create User (admin)",
         description=USER_CREATE_DESC,
         request=UserCreateRequest,
-        responses={201: UserSingleResponse},
-        tags=["Users (admin)"],
+        responses={
+            201: UserSingleResponse,
+            **_ADMIN_MUTATION_RESPONSES,
+        },
+        tags=[USERS_ADMIN_TAG],
         examples=[
             OpenApiExample(
-                name="Create project member login",
-                value={
-                    "login": "testuser",
-                    "password": "testpassword",
-                    "password_confirmation": "testpassword",
-                    "email": "testuser@example.com",
-                    "first_name": "Test",
-                    "last_name": "User",
-                    "project_id": 1,
-                    "institution_id": 1,
-                    "is_superuser": False,
-                    "activate": True,
-                },
-            )
+                name="Create User (admin) request",
+                value=_EXAMPLE_CREATE_REQUEST,
+            ),
+            OpenApiExample(
+                name="Create User (admin) response",
+                value=_EXAMPLE_SINGLE_RESPONSE,
+                response_only=True,
+                status_codes=["201"],
+            ),
         ],
     )
     def create(self, request):
@@ -369,15 +444,11 @@ class UsersViewSet(viewsets.ViewSet):
             detail = exc.detail or str(exc)
             if "taken" in detail.lower() or "already" in detail.lower():
                 return _error_response("Conflict", 409, detail=detail)
-            return _error_response("SEEK user creation failed", 502, detail=detail)
+            return _error_response("Invalid upstream response", 502, detail=detail)
 
         person_id = int(result["person_id"])
         if not People.objects.using(settings.SEEK_DATABASE).filter(id=person_id).exists():
-            return _error_response(
-                "Person mirror missing after SEEK create",
-                502,
-                detail=f"person_id={person_id}",
-            )
+            return _error_response("Invalid upstream response", 502, detail=f"person_id={person_id}")
 
         _sync_django_user(
             login=body.login,
@@ -406,9 +477,37 @@ class UsersViewSet(viewsets.ViewSet):
     @extend_schema(
         operation_id="Update User (admin)",
         description=USER_UPDATE_DESC,
+        parameters=[
+            OpenApiParameter(
+                name="uid",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="SEEK user id (numeric)",
+            )
+        ],
         request=UserUpdateRequest,
-        responses={200: UserSingleResponse},
-        tags=["Users (admin)"],
+        responses={
+            200: UserSingleResponse,
+            **_ADMIN_MUTATION_RESPONSES,
+        },
+        tags=[USERS_ADMIN_TAG],
+        examples=[
+            OpenApiExample(
+                name="Update User (admin) request",
+                value=_EXAMPLE_PATCH_REQUEST,
+            ),
+            OpenApiExample(
+                name="Update User (admin) response",
+                value={
+                    "data": {
+                        **_EXAMPLE_USER_RECORD,
+                        "active": False,
+                        "django_is_active": False,
+                    }
+                },
+                response_only=True,
+            ),
+        ],
     )
     def partial_update(self, request, uid=None):
         seek_id = _validate_seek_user_id(uid or "")
@@ -464,7 +563,7 @@ class UsersViewSet(viewsets.ViewSet):
             except SeekRailsUnavailableError as exc:
                 return _error_response("SEEK rails runner unavailable", 503, detail=str(exc))
             except SeekRailsRunnerError as exc:
-                return _error_response("SEEK user update failed", 502, detail=exc.detail or str(exc))
+                return _error_response("Invalid upstream response", 502, detail=exc.detail or str(exc))
         else:
             result = {
                 "user_id": int(seek_id),

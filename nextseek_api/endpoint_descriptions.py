@@ -283,28 +283,52 @@ USER_LIST_DESC = (
     "**SUMMARY:** List SEEK login accounts (User + linked Person) for superuser administration.\n\n"
     "**USE WHEN:** An admin needs to audit or browse registered SEEK logins with project membership.\n\n"
     "**DO NOT USE WHEN:** The caller is not a Django superuser, or the goal is profile-only CRUD without credentials — use `people/` instead.\n\n"
+    "**ACCEPTS:** No required parameters.\n\n"
     "**RETURNS:** Admin records with SEEK user id, person id, login, email, activation state, and optional project/institution ids.\n\n"
+    "**TRIGGER PHRASES:** list users, list logins, admin user audit, browse seek accounts, show all logins\n\n"
+    "**EXAMPLES:**\n"
+    "- 'List every SEEK login account for admin review'\n"
+    "- 'Show me all registered Nessie logins with their project ids'\n"
+    "- 'Audit active and inactive user accounts'\n"
 )
 
 USER_FETCH_DESC = (
     "**SUMMARY:** Fetch one SEEK login account by numeric SEEK user id.\n\n"
     "**USE WHEN:** An admin needs details for a specific login before update or deactivation.\n\n"
+    "**DO NOT USE WHEN:** The caller is not a Django superuser, or the target is a login-less Person profile — use `people/{id}/` instead.\n\n"
     "**ACCEPTS:** SEEK user id (numeric) as path parameter.\n\n"
     "**RETURNS:** A single admin user record (passwords are never returned).\n\n"
+    "**TRIGGER PHRASES:** get user, fetch login, user details, lookup seek account, admin user retrieve\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Fetch SEEK user 10 before deactivating the account'\n"
+    "- 'Get login details for testuser'\n"
+    "- 'Look up user id 5 and its project membership'\n"
 )
 
 USER_CREATE_DESC = (
     "**SUMMARY:** Mint a new SEEK login (User + Person + project membership) and mirror a Django auth user.\n\n"
     "**USE WHEN:** A superuser needs a credential-bearing account that can authenticate to SEEK/Nessie — not a login-less Person profile.\n\n"
+    "**DO NOT USE WHEN:** The caller is not a Django superuser, project membership is unknown, or a profile without credentials suffices — use `POST people/` instead.\n\n"
     "**ACCEPTS:** `login`, `password` (≥10 chars), `password_confirmation`, `email`, `first_name`, `last_name`, required `project_id` and `institution_id`, optional `is_superuser` (default false), optional `activate` (default true).\n\n"
     "**RETURNS:** Created ids and metadata; never echoes the password.\n\n"
+    "**TRIGGER PHRASES:** create user login, mint seek account, register login, add project member login, create testuser\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Create a project member login named testuser for project 1'\n"
+    "- 'Mint a new SEEK account with email and password for a collaborator'\n"
+    "- 'Register an active login tied to institution 1 and project 1'\n"
 )
 
 USER_UPDATE_DESC = (
     "**SUMMARY:** Update or deactivate an existing SEEK login (prefer `active: false` over deletion).\n\n"
     "**USE WHEN:** An admin changes profile fields, password, project membership, Django superuser flag, or deactivates a former staff account.\n\n"
+    "**DO NOT USE WHEN:** Hard deletion is required, the caller is not a Django superuser, or only a Person profile change is needed — use `PATCH people/{id}/` instead.\n\n"
     "**ACCEPTS:** Partial update fields; deactivation sets SEEK inactive and Django `is_active=false`.\n\n"
-    "**DO NOT USE WHEN:** Hard deletion is required — this API does not expose DELETE.\n\n"
+    "**RETURNS:** The updated admin user record (passwords are never returned).\n\n"
+    "**TRIGGER PHRASES:** update user login, deactivate user, change password, deactivate staff account, patch seek login\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Deactivate user 10 with active false instead of deleting'\n"
+    "- 'Change testuser password and email'\n"
+    "- 'Move a login to a different project and institution'\n"
 )
 
 PEOPLE_UPDATE_DESC = (

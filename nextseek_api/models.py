@@ -833,6 +833,19 @@ class UserSingleResponse(BaseModel):
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
 
+class AdminUserErrorItem(BaseModel):
+    title: str
+    detail: Optional[str] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AdminUserErrorResponse(BaseModel):
+    errors: List[AdminUserErrorItem]
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
 # -----------------------------
 # Investigations: constants
 # -----------------------------
