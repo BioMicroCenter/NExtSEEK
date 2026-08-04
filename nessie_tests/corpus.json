@@ -12,6 +12,7 @@
       "variants": [
         {
           "id": "advanced.basic_ndma",
+          "family": "search_advanced",
           "name": "Mice treated with NDMA — keyword + sampletype",
           "tags": [
             "smoke",
@@ -63,6 +64,7 @@
         },
         {
           "id": "advanced.cd8_antibodies",
+          "family": "search_advanced",
           "name": "CD8 antibodies — sampletype AB + keyword CD8",
           "tags": [
             "smoke"
@@ -112,6 +114,7 @@
         },
         {
           "id": "advanced.what_monkeys_exist",
+          "family": "search_advanced",
           "name": "Bare sampletype enumeration — NHP",
           "tags": [],
           "requires_env": [],
@@ -154,6 +157,7 @@
         },
         {
           "id": "advanced.rna_rin_score",
+          "family": "search_advanced",
           "name": "RNA samples with RIN score attribute",
           "tags": [
             "attribute"
@@ -203,6 +207,7 @@
         },
         {
           "id": "advanced.female_mice",
+          "family": "search_advanced",
           "name": "Sex attribute filter on MUS",
           "tags": [
             "attribute"
@@ -247,6 +252,7 @@
         },
         {
           "id": "advanced.nextseq_instrument",
+          "family": "search_advanced",
           "name": "Sequencing data on NextSeq instrument",
           "tags": [
             "attribute"
@@ -291,6 +297,7 @@
         },
         {
           "id": "advanced.zero_result_zebrafish",
+          "family": "search_advanced",
           "name": "Negative control — zebrafish not in catalog",
           "tags": [
             "edge-case"
@@ -330,6 +337,7 @@
         },
         {
           "id": "advanced.bacteria_mtb",
+          "family": "search_advanced",
           "name": "Bacteria sampletype + mTB strain",
           "tags": [
             "attribute"
@@ -374,6 +382,7 @@
         },
         {
           "id": "advanced.find_samples_of_pbmc_type_from",
+          "family": "search_advanced",
           "name": "Find samples of PBMC type from the GBM study that also have sequencing data",
           "tags": [],
           "requires_env": [],
@@ -422,6 +431,7 @@
         },
         {
           "id": "advanced.show_me_analyzed_sequencing_da",
+          "family": "search_advanced",
           "name": "\"Analyzed sequencing data\" must find analysis samples",
           "tags": [
             "nessie",
@@ -462,6 +472,7 @@
         },
         {
           "id": "advanced.do_we_have_any_western_blot_da",
+          "family": "search_advanced",
           "name": "Do we have any western blot data",
           "tags": [],
           "requires_env": [],
@@ -499,6 +510,7 @@
         },
         {
           "id": "advanced.find_me_scrna_seq_clustering_r",
+          "family": "search_advanced",
           "name": "Find me scRNA-seq clustering results",
           "tags": [],
           "requires_env": [],
@@ -536,6 +548,7 @@
         },
         {
           "id": "advanced.what_proteomics_data_exists_in",
+          "family": "search_advanced",
           "name": "What proteomics data exists in the database",
           "tags": [],
           "requires_env": [],
@@ -578,6 +591,7 @@
         },
         {
           "id": "advanced.show_me_all_facs_data_for_the",
+          "family": "search_advanced",
           "name": "Show me all FACS data for the monkeys",
           "tags": [],
           "requires_env": [],
@@ -620,6 +634,7 @@
         },
         {
           "id": "advanced.find_mice_treated_with_ndma",
+          "family": "search_advanced",
           "name": "Find mice treated with NDMA",
           "tags": [],
           "requires_env": [],
@@ -662,6 +677,7 @@
         },
         {
           "id": "advanced.find_all_nhp_samples_in_the_da",
+          "family": "search_advanced",
           "name": "Find all NHP samples in the database",
           "tags": [],
           "requires_env": [],
@@ -704,6 +720,7 @@
         },
         {
           "id": "advanced.show_me_tis_samples_that_have",
+          "family": "search_advanced",
           "name": "Show me TIS samples that have been processed via Tissue Collection",
           "tags": [],
           "requires_env": [],
@@ -746,6 +763,7 @@
         },
         {
           "id": "advanced.show_me_tumor_data_for_patient",
+          "family": "search_advanced",
           "name": "Show me tumor data for patient 4",
           "tags": [],
           "requires_env": [],
@@ -788,6 +806,7 @@
         },
         {
           "id": "advanced.what_fibrin_images_exist",
+          "family": "search_advanced",
           "name": "What fibrin images exist",
           "tags": [],
           "requires_env": [],
@@ -825,6 +844,7 @@
         },
         {
           "id": "advanced.find_tissue_samples_with_organ",
+          "family": "search_advanced",
           "name": "Find tissue samples with organ type Liver",
           "tags": [],
           "requires_env": [],
@@ -867,6 +887,7 @@
         },
         {
           "id": "advanced.what_gpt_data_exists_in_the_da",
+          "family": "search_advanced",
           "name": "What GPT data exists in the database",
           "tags": [],
           "requires_env": [],
@@ -904,6 +925,7 @@
         },
         {
           "id": "advanced.find_mass_spectrometry_data_of",
+          "family": "search_advanced",
           "name": "Find mass spectrometry data of type proteomics",
           "tags": [],
           "requires_env": [],
@@ -946,6 +968,7 @@
         },
         {
           "id": "advanced.show_me_flow_cytometry_data_wi",
+          "family": "search_advanced",
           "name": "Show me flow cytometry data with PFA fixation",
           "tags": [],
           "requires_env": [],
@@ -988,6 +1011,7 @@
         },
         {
           "id": "advanced.find_cell_samples_with_celltyp",
+          "family": "search_advanced",
           "name": "Find cell samples with CellType set to T Cell",
           "tags": [],
           "requires_env": [],
@@ -1030,6 +1054,7 @@
         },
         {
           "id": "advanced.find_all_tissue_samples_in_the",
+          "family": "search_advanced",
           "name": "Find all tissue samples in the database",
           "tags": [],
           "requires_env": [],
@@ -1072,6 +1097,7 @@
         },
         {
           "id": "advanced.find_all_mouse_samples_in_the",
+          "family": "search_advanced",
           "name": "Find all mouse samples in the database",
           "tags": [],
           "requires_env": [],
@@ -1114,6 +1140,7 @@
         },
         {
           "id": "advanced.find_me_mice_associated_with_n",
+          "family": "search_advanced",
           "name": "Find me mice associated with ndma",
           "tags": [],
           "requires_env": [],
@@ -1156,6 +1183,7 @@
         },
         {
           "id": "advanced.find_me_d_seq_samples_in_proje",
+          "family": "search_advanced",
           "name": "D.SEQ samples in project IMPACT must return real rows",
           "tags": [
             "nessie",
@@ -1201,6 +1229,7 @@
         },
         {
           "id": "advanced.find_me_mice_treated_with_mtb",
+          "family": "search_advanced",
           "name": "Find me mice treated with mTB",
           "tags": [],
           "requires_env": [],
@@ -1243,6 +1272,7 @@
         },
         {
           "id": "advanced.find_tissues_that_underwent_sh",
+          "family": "search_advanced",
           "name": "Find tissues that underwent short read sequencing",
           "tags": [],
           "requires_env": [],
@@ -1285,6 +1315,7 @@
         },
         {
           "id": "advanced.find_me_all_samples_associated",
+          "family": "search_advanced",
           "name": "Find me all samples associated with CD8 Antibodies",
           "tags": [],
           "requires_env": [],
@@ -1327,6 +1358,7 @@
         },
         {
           "id": "advanced.find_me_cd8_antibodies",
+          "family": "search_advanced",
           "name": "Find me cd8 antibodies",
           "tags": [],
           "requires_env": [],
@@ -1369,6 +1401,7 @@
         },
         {
           "id": "advanced.find_me_ndma_treated_mice",
+          "family": "search_advanced",
           "name": "Find me ndma treated mice",
           "tags": [],
           "requires_env": [],
@@ -1411,6 +1444,7 @@
         },
         {
           "id": "advanced.find_mice_treated_with_50mg_nd",
+          "family": "search_advanced",
           "name": "Find mice treated with 50mg NDMA for 6 weeks from the water study",
           "tags": [],
           "requires_env": [],
@@ -1453,6 +1487,7 @@
         },
         {
           "id": "advanced.what_fibrin_images_exist_in_th",
+          "family": "search_advanced",
           "name": "What fibrin images exist in the database",
           "tags": [],
           "requires_env": [],
@@ -1490,6 +1525,7 @@
         },
         {
           "id": "advanced.find_me_patients_from_the_gbm",
+          "family": "search_advanced",
           "name": "Find me patients from the GBM study",
           "tags": [],
           "requires_env": [],
@@ -1538,6 +1574,7 @@
         },
         {
           "id": "advanced.find_me_cell_line_samples",
+          "family": "search_advanced",
           "name": "Find me cell line samples",
           "tags": [],
           "requires_env": [],
@@ -1580,6 +1617,7 @@
         },
         {
           "id": "advanced.find_me_dna_samples",
+          "family": "search_advanced",
           "name": "Find me DNA samples",
           "tags": [],
           "requires_env": [],
@@ -1622,6 +1660,7 @@
         },
         {
           "id": "advanced.find_me_fibrin_images",
+          "family": "search_advanced",
           "name": "Find me fibrin images",
           "tags": [],
           "requires_env": [],
@@ -1659,6 +1698,7 @@
         },
         {
           "id": "advanced.find_me_nhp_samples_from_study",
+          "family": "search_advanced",
           "name": "NHP samples from study GBM — ground truth is ZERO",
           "tags": [
             "nessie",
@@ -1701,6 +1741,7 @@
         },
         {
           "id": "advanced.find_me_rna_samples",
+          "family": "search_advanced",
           "name": "Find me RNA samples",
           "tags": [],
           "requires_env": [],
@@ -1743,6 +1784,7 @@
         },
         {
           "id": "advanced.find_samples_containing_the_ke",
+          "family": "search_advanced",
           "name": "Find samples containing the keyword NDMA",
           "tags": [],
           "requires_env": [],
@@ -1780,6 +1822,7 @@
         },
         {
           "id": "advanced.find_me_mice",
+          "family": "search_advanced",
           "name": "Find me mice",
           "tags": [],
           "requires_env": [],
@@ -1822,6 +1865,7 @@
         },
         {
           "id": "advanced.find_me_monkeys",
+          "family": "search_advanced",
           "name": "Find me monkeys",
           "tags": [],
           "requires_env": [],
@@ -1864,6 +1908,7 @@
         },
         {
           "id": "advanced.find_me_nhp_samples_in_a_nonex",
+          "family": "search_advanced",
           "name": "Find me NHP samples in a nonexistent investigation called XYZQQQ",
           "tags": [],
           "requires_env": [],
@@ -1906,6 +1951,7 @@
         },
         {
           "id": "advanced.find_me_sequencing_files_assoc",
+          "family": "search_advanced",
           "name": "Sequencing files for Short Read Sequencing must return real rows",
           "tags": [
             "nessie",
@@ -1946,6 +1992,7 @@
         },
         {
           "id": "advanced.find_me_all_fibrin_images_on_o",
+          "family": "search_advanced",
           "name": "Find me all fibrin images on omero",
           "tags": [],
           "requires_env": [],
@@ -1983,6 +2030,7 @@
         },
         {
           "id": "advanced.find_me_all_monkeys_in_the_dat",
+          "family": "search_advanced",
           "name": "Find me all monkeys in the database",
           "tags": [],
           "requires_env": [],
@@ -2025,6 +2073,7 @@
         },
         {
           "id": "advanced.find_me_all_of_the_fibrin_imag",
+          "family": "search_advanced",
           "name": "Find me all of the fibrin images that are on omero",
           "tags": [],
           "requires_env": [],
@@ -2062,6 +2111,7 @@
         },
         {
           "id": "advanced.find_me_cd8_antibodies_associa",
+          "family": "search_advanced",
           "name": "Find me CD8 Antibodies associated with the Patient Visit Assay",
           "tags": [],
           "requires_env": [],
@@ -2104,6 +2154,7 @@
         },
         {
           "id": "advanced.find_me_cd8_depleted_monkeys",
+          "family": "search_advanced",
           "name": "Find me cd8 depleted monkeys",
           "tags": [],
           "requires_env": [],
@@ -2146,6 +2197,7 @@
         },
         {
           "id": "advanced.find_me_extravasation_images",
+          "family": "search_advanced",
           "name": "Find me extravasation images",
           "tags": [],
           "requires_env": [],
@@ -2183,6 +2235,7 @@
         },
         {
           "id": "advanced.find_me_fibrin_imaging_data",
+          "family": "search_advanced",
           "name": "Find me fibrin imaging data",
           "tags": [],
           "requires_env": [],
@@ -2220,6 +2273,7 @@
         },
         {
           "id": "advanced.find_me_gpt_assay_data",
+          "family": "search_advanced",
           "name": "Find me GPT assay data",
           "tags": [],
           "requires_env": [],
@@ -2257,6 +2311,7 @@
         },
         {
           "id": "advanced.find_me_images_associated_with",
+          "family": "search_advanced",
           "name": "Find me images associated with fibrin",
           "tags": [],
           "requires_env": [],
@@ -2294,6 +2349,7 @@
         },
         {
           "id": "advanced.find_me_mice_treated_with_tube",
+          "family": "search_advanced",
           "name": "Find me mice treated with tuberculosis",
           "tags": [],
           "requires_env": [],
@@ -2336,6 +2392,7 @@
         },
         {
           "id": "advanced.find_me_monkeys_depleted_of_cd",
+          "family": "search_advanced",
           "name": "Find me monkeys depleted of CD8",
           "tags": [],
           "requires_env": [],
@@ -2378,6 +2435,7 @@
         },
         {
           "id": "advanced.find_me_nhp_samples_from_study_2",
+          "family": "search_advanced",
           "name": "NHP samples from study IMPACT must return real rows",
           "tags": [
             "nessie",
@@ -2418,6 +2476,7 @@
         },
         {
           "id": "advanced.find_me_samples_associated_wit",
+          "family": "search_advanced",
           "name": "Find me samples associated with cd8 depletion",
           "tags": [],
           "requires_env": [],
@@ -2455,6 +2514,7 @@
         },
         {
           "id": "advanced.find_me_tissues_that_have_tumo",
+          "family": "search_advanced",
           "name": "Find me tissues that have tumor value data",
           "tags": [],
           "requires_env": [],
@@ -2497,6 +2557,7 @@
         },
         {
           "id": "advanced.find_me_tumor_values_with_pati",
+          "family": "search_advanced",
           "name": "Find me tumor values with patient 4",
           "tags": [],
           "requires_env": [],
@@ -2539,6 +2600,7 @@
         },
         {
           "id": "advanced.find_mice_treated_with_50mg_nd_2",
+          "family": "search_advanced",
           "name": "Find mice treated with 50mg NDMA from the water study",
           "tags": [],
           "requires_env": [],
@@ -2581,6 +2643,7 @@
         },
         {
           "id": "advanced.show_me_all_gbm_tumor_data_for",
+          "family": "search_advanced",
           "name": "Show me all gbm tumor data for patient 4",
           "tags": [],
           "requires_env": [],
@@ -2629,6 +2692,7 @@
         },
         {
           "id": "advanced.what_about_srp_samples_in_both",
+          "family": "search_advanced",
           "name": "What about SRP samples in both 2022 and 2023",
           "tags": [],
           "requires_env": [],
@@ -2666,6 +2730,7 @@
         },
         {
           "id": "advanced.what_gpt_data_is_in_the_databa",
+          "family": "search_advanced",
           "name": "What GPT Data is in the database",
           "tags": [],
           "requires_env": [],
@@ -2703,6 +2768,7 @@
         },
         {
           "id": "advanced.what_organ_on_chip_images_exis",
+          "family": "search_advanced",
           "name": "What organ on chip images exist",
           "tags": [],
           "requires_env": [],
@@ -2740,6 +2806,7 @@
         },
         {
           "id": "routing.lab_ooc_kamm_count",
+          "family": "routing_lab",
           "name": "Count OOC in Kamm lab -> new_search via UID code KAM (not graph)",
           "tags": [
             "regression"
@@ -2774,6 +2841,7 @@
         },
         {
           "id": "routing.lab_ooc_kamm_casual",
+          "family": "routing_lab",
           "name": "OOC in kamm lab (casual phrasing) -> new_search via KAM (consistency)",
           "tags": [
             "regression"
@@ -2808,6 +2876,7 @@
         },
         {
           "id": "advanced.find_me_nhp_samples_from_study_ns_graph",
+          "family": "search_advanced",
           "name": "RED: the same GBM question pinned to the NS graph path",
           "tags": [
             "nessie",
@@ -2856,6 +2925,7 @@
       "variants": [
         {
           "id": "tree.cel_descendants",
+          "family": "search_tree",
           "name": "Sample tree — CEL descendants",
           "tags": [
             "smoke"
@@ -2900,6 +2970,7 @@
         },
         {
           "id": "tree.nhp_lineage",
+          "family": "search_tree",
           "name": "Sample tree — NHP descendants",
           "tags": [],
           "requires_env": [],
@@ -2942,6 +3013,7 @@
         },
         {
           "id": "tree.dseq_leaf",
+          "family": "search_tree",
           "name": "Sample tree — leaf sample (no descendants)",
           "tags": [
             "edge-case"
@@ -2986,6 +3058,7 @@
         },
         {
           "id": "tree.msp_lineage",
+          "family": "search_tree",
           "name": "Sample tree — mass spec lineage",
           "tags": [],
           "requires_env": [],
@@ -3028,6 +3101,7 @@
         },
         {
           "id": "tree.walk_up",
+          "family": "search_tree",
           "name": "Sample tree — walk-up phrasing",
           "tags": [],
           "requires_env": [],
@@ -3070,6 +3144,7 @@
         },
         {
           "id": "tree.missing_uid",
+          "family": "search_tree",
           "name": "Missing UID must 404, not return rows",
           "tags": [
             "edge-case",
@@ -3112,6 +3187,7 @@
         },
         {
           "id": "tree.derivation_of_dmsp",
+          "family": "search_tree",
           "name": "Sample tree — alt phrasing (parent direction)",
           "tags": [],
           "requires_env": [],
@@ -3149,6 +3225,7 @@
         },
         {
           "id": "tree.then_ask_about",
+          "family": "search_tree",
           "name": "Sample tree → memory follow-up",
           "tags": [
             "multi-turn"
@@ -3204,6 +3281,7 @@
         },
         {
           "id": "tree.what_is_the_parent_chain_for_n",
+          "family": "search_tree",
           "name": "What is the parent chain for NHP-220830FLY-42-PUB",
           "tags": [],
           "requires_env": [],
@@ -3246,6 +3324,7 @@
         },
         {
           "id": "tree.show_me_the_full_lineage_of_d",
+          "family": "search_tree",
           "name": "Show me the full lineage of D.SEQ-221031SHA-67-PUB",
           "tags": [],
           "requires_env": [],
@@ -3288,6 +3367,7 @@
         },
         {
           "id": "tree.show_me_tissue_samples_derived",
+          "family": "search_tree",
           "name": "Show me tissue samples derived from NHP-220630FLY-1-PUB",
           "tags": [],
           "requires_env": [],
@@ -3330,6 +3410,7 @@
         },
         {
           "id": "tree.can_you_retrieve_the_full_samp",
+          "family": "search_tree",
           "name": "Can you retrieve the full sample tree for MUS-220122SAS-334-PUB",
           "tags": [],
           "requires_env": [],
@@ -3372,6 +3453,7 @@
         },
         {
           "id": "tree.find_me_all_samples_derived_fr",
+          "family": "search_tree",
           "name": "Find me all samples derived from \tNHP-220630FLY-5-PUB",
           "tags": [],
           "requires_env": [],
@@ -3414,6 +3496,7 @@
         },
         {
           "id": "tree.get_the_tissue_sample_tree_and",
+          "family": "search_tree",
           "name": "Get the tissue sample tree and any derived tissue samples for the sample with ID",
           "tags": [],
           "requires_env": [],
@@ -3456,6 +3539,7 @@
         },
         {
           "id": "tree.yes_it_is_try_using_the_sample",
+          "family": "search_tree",
           "name": "Yes it is. Try using the sample-tree endpoint",
           "tags": [],
           "requires_env": [],
@@ -3504,6 +3588,7 @@
       "variants": [
         {
           "id": "pbct.monkeys_flow_and_seq",
+          "family": "search_parents_by_child",
           "name": "NHPs with flow + sequencing data",
           "tags": [
             "smoke"
@@ -3548,6 +3633,7 @@
         },
         {
           "id": "pbct.flow_and_msp",
+          "family": "search_parents_by_child",
           "name": "Samples with flow + mass spec data",
           "tags": [],
           "requires_env": [],
@@ -3585,6 +3671,7 @@
         },
         {
           "id": "pbct.mice_msp_rnaseq",
+          "family": "search_parents_by_child",
           "name": "Mice with mass spec + RNA-seq",
           "tags": [],
           "requires_env": [],
@@ -3627,6 +3714,7 @@
         },
         {
           "id": "pbct.patients_seq_imaging",
+          "family": "search_parents_by_child",
           "name": "Patients with sequencing + imaging",
           "tags": [],
           "requires_env": [],
@@ -3664,6 +3752,7 @@
         },
         {
           "id": "pbct.monkeys_proteomics_flow",
+          "family": "search_parents_by_child",
           "name": "NHPs with proteomics + flow",
           "tags": [],
           "requires_env": [],
@@ -3706,6 +3795,7 @@
         },
         {
           "id": "pbct.mice_crispr",
+          "family": "search_parents_by_child",
           "name": "Mice with CRISPR knockout data",
           "tags": [],
           "requires_env": [],
@@ -3754,6 +3844,7 @@
         },
         {
           "id": "pbct.no_match",
+          "family": "search_parents_by_child",
           "name": "No-match negative case",
           "tags": [
             "edge-case"
@@ -3788,6 +3879,7 @@
         },
         {
           "id": "pbct.three_assays",
+          "family": "search_parents_by_child",
           "name": "Three-assay combination",
           "tags": [],
           "requires_env": [],
@@ -3830,6 +3922,7 @@
         },
         {
           "id": "pbct.find_monkeys_that_have_both_fl",
+          "family": "search_parents_by_child",
           "name": "Find monkeys that have both flow cytometry and sequencing data",
           "tags": [],
           "requires_env": [],
@@ -3872,6 +3965,7 @@
         },
         {
           "id": "pbct.find_all_mice_that_have_both_s",
+          "family": "search_parents_by_child",
           "name": "Find all mice that have both sequencing and imaging data",
           "tags": [],
           "requires_env": [],
@@ -3914,6 +4008,7 @@
         },
         {
           "id": "pbct.find_me_monkeys_that_have_both",
+          "family": "search_parents_by_child",
           "name": "Find me monkeys that have both flow and sequencing data",
           "tags": [],
           "requires_env": [],
@@ -3956,6 +4051,7 @@
         },
         {
           "id": "pbct.find_me_monkeys_that_have_both_2",
+          "family": "search_parents_by_child",
           "name": "Find me monkeys that have both flow and sequencing data associated with it",
           "tags": [],
           "requires_env": [],
@@ -3998,6 +4094,7 @@
         },
         {
           "id": "pbct.find_me_monkeys_that_have_flow",
+          "family": "search_parents_by_child",
           "name": "Find me monkeys that have flow cytometry and sequencing data",
           "tags": [],
           "requires_env": [],
@@ -4040,6 +4137,7 @@
         },
         {
           "id": "pbct.find_me_monkeys_that_have_imag",
+          "family": "search_parents_by_child",
           "name": "Find me monkeys that have imaging and sequencing data associated with it",
           "tags": [],
           "requires_env": [],
@@ -4082,6 +4180,7 @@
         },
         {
           "id": "pbct.find_me_monkeys_who_have_seque",
+          "family": "search_parents_by_child",
           "name": "Find me monkeys who have sequencing and flow cytometry data",
           "tags": [],
           "requires_env": [],
@@ -4124,6 +4223,7 @@
         },
         {
           "id": "pbct.find_me_non_human_primate_samp",
+          "family": "search_parents_by_child",
           "name": "Find me non human primate samples that have flow and sequencing data associated ",
           "tags": [],
           "requires_env": [],
@@ -4166,6 +4266,7 @@
         },
         {
           "id": "pbct.find_me_samples_that_have_flow",
+          "family": "search_parents_by_child",
           "name": "Find me samples that have flow and sequencing data associated with it",
           "tags": [],
           "requires_env": [],
@@ -4208,6 +4309,7 @@
         },
         {
           "id": "pbct.tell_me_all_tissues_that_have",
+          "family": "search_parents_by_child",
           "name": "Tell me all tissues that have DNA and imaging samples associated with them",
           "tags": [],
           "requires_env": [],
@@ -4255,6 +4357,7 @@
       "variants": [
         {
           "id": "retrieve.single_nhp",
+          "family": "search_retrieve",
           "name": "Single NHP retrieval",
           "tags": [
             "smoke"
@@ -4294,6 +4397,7 @@
         },
         {
           "id": "retrieve.batch_two_dseq",
+          "family": "search_retrieve",
           "name": "Batch retrieval — two D.SEQ UIDs",
           "tags": [],
           "requires_env": [],
@@ -4331,6 +4435,7 @@
         },
         {
           "id": "retrieve.large_batch",
+          "family": "search_retrieve",
           "name": "Large batch — 5 UIDs",
           "tags": [
             "boundary"
@@ -4370,6 +4475,7 @@
         },
         {
           "id": "retrieve.mixed_valid_invalid",
+          "family": "search_retrieve",
           "name": "Mixed valid + invalid UID",
           "tags": [
             "edge-case"
@@ -4404,6 +4510,7 @@
         },
         {
           "id": "retrieve.single_msp",
+          "family": "search_retrieve",
           "name": "Single mass-spec retrieval (alt phrasing)",
           "tags": [],
           "requires_env": [],
@@ -4441,6 +4548,7 @@
         },
         {
           "id": "retrieve.cel_single",
+          "family": "search_retrieve",
           "name": "Single CEL retrieval (fetch phrasing)",
           "tags": [],
           "requires_env": [],
@@ -4478,6 +4586,7 @@
         },
         {
           "id": "retrieve.metadata_filter",
+          "family": "search_retrieve",
           "name": "Published-version retrieval",
           "tags": [],
           "requires_env": [],
@@ -4515,6 +4624,7 @@
         },
         {
           "id": "retrieve.then_inspect",
+          "family": "search_retrieve",
           "name": "Retrieve → memory follow-up on a metadata field",
           "tags": [
             "multi-turn"
@@ -4576,6 +4686,7 @@
         },
         {
           "id": "retrieve.show_me_everything_we_know_abo",
+          "family": "search_retrieve",
           "name": "Show me everything we know about CEL-230131KAM-1-PUB2",
           "tags": [],
           "requires_env": [],
@@ -4613,6 +4724,7 @@
         },
         {
           "id": "retrieve.pull_up_the_record_for_tis_220",
+          "family": "search_retrieve",
           "name": "Pull up the record for TIS-220831FLY-26-PUB",
           "tags": [],
           "requires_env": [],
@@ -4650,6 +4762,7 @@
         },
         {
           "id": "retrieve.retrieve_all_samples_associate",
+          "family": "search_retrieve",
           "name": "Retrieve all samples associated with NHP-220630FLY-5-PUB",
           "tags": [],
           "requires_env": [],
@@ -4687,6 +4800,7 @@
         },
         {
           "id": "retrieve.get_the_full_details_for_d_seq",
+          "family": "search_retrieve",
           "name": "Get the full details for D.SEQ-221031SHA-67-PUB",
           "tags": [],
           "requires_env": [],
@@ -4724,6 +4838,7 @@
         },
         {
           "id": "retrieve.retrieve_me_all_associated_sam",
+          "family": "search_retrieve",
           "name": "Retrieve me all associated samples of NHP-220630FLY-6-PUB",
           "tags": [],
           "requires_env": [],
@@ -4761,6 +4876,7 @@
         },
         {
           "id": "retrieve.can_you_return_to_me_all_sampl",
+          "family": "search_retrieve",
           "name": "Can you return to me all samples associated with CEL-250319WHI-1-PUB",
           "tags": [],
           "requires_env": [],
@@ -4798,6 +4914,7 @@
         },
         {
           "id": "retrieve.retrieve_all_samples_associate_2",
+          "family": "search_retrieve",
           "name": "Retrieve all samples associated with: \tNHP-220630FLY-5-PUB",
           "tags": [],
           "requires_env": [],
@@ -4835,6 +4952,7 @@
         },
         {
           "id": "retrieve.retrieve_me_all_associated_sam_2",
+          "family": "search_retrieve",
           "name": "Retrieve me all associated samples of \tNHP-220630FLY-5-PUB",
           "tags": [],
           "requires_env": [],
@@ -4872,6 +4990,7 @@
         },
         {
           "id": "retrieve.retrieve_me_all_associated_sam_3",
+          "family": "search_retrieve",
           "name": "Retrieve me all associated samples with NHP-220630FLY-5-PUB",
           "tags": [],
           "requires_env": [],
@@ -4909,6 +5028,7 @@
         },
         {
           "id": "retrieve.retrieve_me_all_samples_associ",
+          "family": "search_retrieve",
           "name": "Retrieve me all samples associated with NHP-220630FLY-6-PUB",
           "tags": [],
           "requires_env": [],
@@ -4946,6 +5066,7 @@
         },
         {
           "id": "retrieve.run_a_sample_retrieval_on_nhp",
+          "family": "search_retrieve",
           "name": "Run a sample retrieval on NHP-220630FLY-6-PUB and NHP-220630FLY-5-PUB",
           "tags": [],
           "requires_env": [],
@@ -4988,6 +5109,7 @@
       "variants": [
         {
           "id": "graph.pbmc_gbm_seq",
+          "family": "graph_query",
           "name": "PBMC samples from GBM study with sequencing",
           "tags": [
             "smoke"
@@ -5033,6 +5155,7 @@
         },
         {
           "id": "graph.nhp_srp",
+          "family": "graph_query",
           "name": "NHPs in the SRP project (assert the bound parameter)",
           "tags": [
             "nessie",
@@ -5073,6 +5196,7 @@
         },
         {
           "id": "graph.tissue_cell_impact",
+          "family": "graph_query",
           "name": "Tissue + cell samples from IMPACT (parameterised, uncapped)",
           "tags": [
             "nessie",
@@ -5113,6 +5237,7 @@
         },
         {
           "id": "graph.studies_in_griffith",
+          "family": "graph_query",
           "name": "Studies in Griffith project",
           "tags": [],
           "requires_env": [],
@@ -5150,6 +5275,7 @@
         },
         {
           "id": "graph.mice_with_seq",
+          "family": "graph_query",
           "name": "Multi-hop DERIVED_FROM — mice with sequencing",
           "tags": [],
           "requires_env": [],
@@ -5187,6 +5313,7 @@
         },
         {
           "id": "graph.investigations_nhp_seq",
+          "family": "graph_query",
           "name": "Investigations with NHP + sequencing",
           "tags": [],
           "requires_env": [],
@@ -5224,6 +5351,7 @@
         },
         {
           "id": "graph.assay_short_read",
+          "family": "graph_query",
           "name": "DNA samples with Short Read Sequencing (assert the bound parameter)",
           "tags": [
             "nessie",
@@ -5269,6 +5397,7 @@
         },
         {
           "id": "graph.assay_flow_protocols",
+          "family": "graph_query",
           "name": "Samples via flow cytometry protocols",
           "tags": [],
           "requires_env": [],
@@ -5306,6 +5435,7 @@
         },
         {
           "id": "graph.how_many_studies_are_there_in",
+          "family": "graph_query",
           "name": "How many studies are there in the IMPACT project",
           "tags": [],
           "requires_env": [],
@@ -5343,6 +5473,7 @@
         },
         {
           "id": "graph.how_many_tis_samples_exist_acr",
+          "family": "graph_query",
           "name": "How many TIS samples exist across all studies",
           "tags": [],
           "requires_env": [],
@@ -5380,6 +5511,7 @@
         },
         {
           "id": "graph.how_many_mice_are_in_the_datab",
+          "family": "graph_query",
           "name": "How many mice are in the database",
           "tags": [],
           "requires_env": [],
@@ -5423,6 +5555,7 @@
         },
         {
           "id": "graph.how_many_tissue_samples_are_in",
+          "family": "graph_query",
           "name": "How many tissue samples are in the CSBC investigation",
           "tags": [],
           "requires_env": [],
@@ -5460,6 +5593,7 @@
         },
         {
           "id": "graph.which_tissue_samples_underwent",
+          "family": "graph_query",
           "name": "Which tissue samples underwent immunohistochemistry",
           "tags": [],
           "requires_env": [],
@@ -5497,6 +5631,7 @@
         },
         {
           "id": "graph.find_samples_processed_via_rna",
+          "family": "graph_query",
           "name": "Find samples processed via RNA extraction",
           "tags": [],
           "requires_env": [],
@@ -5534,6 +5669,7 @@
         },
         {
           "id": "graph.find_samples_that_underwent_si",
+          "family": "graph_query",
           "name": "Find samples that underwent single cell sequencing",
           "tags": [],
           "requires_env": [],
@@ -5571,6 +5707,7 @@
         },
         {
           "id": "graph.which_investigations_have_nhp",
+          "family": "graph_query",
           "name": "Which investigations have NHP samples with both flow and sequencing data",
           "tags": [],
           "requires_env": [],
@@ -5608,6 +5745,7 @@
         },
         {
           "id": "graph.what_projects_have_samples_tha",
+          "family": "graph_query",
           "name": "What projects have samples that undergo Short Read Sequencing",
           "tags": [],
           "requires_env": [],
@@ -5645,6 +5783,7 @@
         },
         {
           "id": "graph.what_projects_have_mouse_sampl",
+          "family": "graph_query",
           "name": "What projects have mouse samples",
           "tags": [],
           "requires_env": [],
@@ -5682,6 +5821,7 @@
         },
         {
           "id": "graph.show_me_samples_in_the_gbm_stu",
+          "family": "graph_query",
           "name": "Show me samples in the GBM study",
           "tags": [],
           "requires_env": [],
@@ -5725,6 +5865,7 @@
         },
         {
           "id": "graph.what_pbmc_tissues_in_the_gbm_s",
+          "family": "graph_query",
           "name": "what PBMC tissues in the GBM study have sequencing data",
           "tags": [],
           "requires_env": [],
@@ -5768,6 +5909,7 @@
         },
         {
           "id": "graph.find_me_pbmcs_tissues_in_the_g",
+          "family": "graph_query",
           "name": "Find me PBMCs (tissues) in the GBM study",
           "tags": [],
           "requires_env": [],
@@ -5811,6 +5953,7 @@
         },
         {
           "id": "graph.what_sequencing_data_exists_in",
+          "family": "graph_query",
           "name": "What sequencing data exists in the GBM Study",
           "tags": [],
           "requires_env": [],
@@ -5854,6 +5997,7 @@
         },
         {
           "id": "graph.what_pbmcs_exist_in_the_gbm_st",
+          "family": "graph_query",
           "name": "What PBMCs exist in the GBM study",
           "tags": [],
           "requires_env": [],
@@ -5897,6 +6041,7 @@
         },
         {
           "id": "graph.what_investigations_exist_in_t",
+          "family": "graph_query",
           "name": "What investigations exist in the database",
           "tags": [],
           "requires_env": [],
@@ -5934,6 +6079,7 @@
         },
         {
           "id": "graph.what_pbmcs_tissues_in_the_gbm",
+          "family": "graph_query",
           "name": "PBMC tissues in GBM — the zero is honest",
           "tags": [
             "nessie",
@@ -6001,6 +6147,7 @@
         },
         {
           "id": "graph.find_me_pbmcs_in_the_gbm_study",
+          "family": "graph_query",
           "name": "Find me PBMCs in the GBM Study",
           "tags": [],
           "requires_env": [],
@@ -6044,6 +6191,7 @@
         },
         {
           "id": "graph.find_me_studies_in_metnet",
+          "family": "graph_query",
           "name": "Studies in MetNet = 10, not the whole catalog",
           "tags": [
             "nessie",
@@ -6099,6 +6247,7 @@
         },
         {
           "id": "graph.find_me_tissue_samples_in_impa",
+          "family": "graph_query",
           "name": "Find me tissue samples in IMPACT",
           "tags": [],
           "requires_env": [],
@@ -6136,6 +6285,7 @@
         },
         {
           "id": "graph.show_me_samples_processed_via",
+          "family": "graph_query",
           "name": "Show me samples processed via single cell",
           "tags": [],
           "requires_env": [],
@@ -6173,6 +6323,7 @@
         },
         {
           "id": "graph.what_protocols_exist_for_the_i",
+          "family": "graph_query",
           "name": "What protocols exist for the IMPACT project",
           "tags": [],
           "requires_env": [],
@@ -6210,6 +6361,7 @@
         },
         {
           "id": "graph.what_studies_have_nhp_samples",
+          "family": "graph_query",
           "name": "what studies have NHP samples with flow and sequencing data",
           "tags": [],
           "requires_env": [],
@@ -6247,6 +6399,7 @@
         },
         {
           "id": "graph.find_me_nhp_samples_in_impact",
+          "family": "graph_query",
           "name": "Find me NHP samples in IMPACT",
           "tags": [],
           "requires_env": [],
@@ -6284,6 +6437,7 @@
         },
         {
           "id": "graph.find_me_nhp_samples_in_the_met",
+          "family": "graph_query",
           "name": "Find me NHP samples in the MetNet project",
           "tags": [],
           "requires_env": [],
@@ -6321,6 +6475,7 @@
         },
         {
           "id": "graph.find_me_pbmcs_in_the_gbm_study_2",
+          "family": "graph_query",
           "name": "Find me PBMCs in the GBM study that have Sequencing data",
           "tags": [],
           "requires_env": [],
@@ -6364,6 +6519,7 @@
         },
         {
           "id": "graph.how_many_patients_are_in_the_g",
+          "family": "graph_query",
           "name": "How many patients are in the GBM study",
           "tags": [],
           "requires_env": [],
@@ -6407,6 +6563,7 @@
         },
         {
           "id": "graph.how_many_pbmcs_are_in_the_gbm",
+          "family": "graph_query",
           "name": "How many PBMCs are in the GBM study",
           "tags": [],
           "requires_env": [],
@@ -6450,6 +6607,7 @@
         },
         {
           "id": "graph.show_me_all_tissues_in_the_gbm",
+          "family": "graph_query",
           "name": "Show me all tissues in the GBM study",
           "tags": [],
           "requires_env": [],
@@ -6493,6 +6651,7 @@
         },
         {
           "id": "graph.what_mice_are_associated_with",
+          "family": "graph_query",
           "name": "What mice are associated with the Water Study",
           "tags": [],
           "requires_env": [],
@@ -6536,6 +6695,7 @@
         },
         {
           "id": "graph.find_me_d_seq_samples_in_metne",
+          "family": "graph_query",
           "name": "Find me D.SEQ samples in MetNet",
           "tags": [],
           "requires_env": [],
@@ -6573,6 +6733,7 @@
         },
         {
           "id": "graph.find_me_d_seq_samples_in_the_s",
+          "family": "graph_query",
           "name": "Find me D.SEQ samples in the SHA lab from project IMPACT",
           "tags": [],
           "requires_env": [],
@@ -6610,6 +6771,7 @@
         },
         {
           "id": "graph.find_me_pbmc_tissues_in_the_gb",
+          "family": "graph_query",
           "name": "Find me PBMC (tissues) in the GBM study",
           "tags": [],
           "requires_env": [],
@@ -6653,6 +6815,7 @@
         },
         {
           "id": "graph.find_me_tissues_in_the_gbm_stu",
+          "family": "graph_query",
           "name": "Find me tissues in the GBM study that are PBMCs",
           "tags": [],
           "requires_env": [],
@@ -6696,6 +6859,7 @@
         },
         {
           "id": "graph.find_samples_in_the_srp_projec",
+          "family": "graph_query",
           "name": "Find samples in the SRP project with keyword NDMA or that were processed by assa",
           "tags": [],
           "requires_env": [],
@@ -6733,6 +6897,7 @@
         },
         {
           "id": "graph.find_samples_in_the_srp_projec_2",
+          "family": "graph_query",
           "name": "Find samples in the SRP project with keyword NDMA or that were processed by assa",
           "tags": [],
           "requires_env": [],
@@ -6770,6 +6935,7 @@
         },
         {
           "id": "graph.how_many_mice_have_ndma",
+          "family": "graph_query",
           "name": "How many mice have NDMA",
           "tags": [],
           "requires_env": [],
@@ -6813,6 +6979,7 @@
         },
         {
           "id": "graph.how_many_monkeys_exist_in_the",
+          "family": "graph_query",
           "name": "how many monkeys exist in the database",
           "tags": [],
           "requires_env": [],
@@ -6850,6 +7017,7 @@
         },
         {
           "id": "graph.show_me_all_nhps_in_the_impact",
+          "family": "graph_query",
           "name": "Show me all NHPs in the Impact project",
           "tags": [],
           "requires_env": [],
@@ -6887,6 +7055,7 @@
         },
         {
           "id": "graph.show_me_samples_processed_via_2",
+          "family": "graph_query",
           "name": "Show me samples processed via mass spectrometry",
           "tags": [],
           "requires_env": [],
@@ -6924,6 +7093,7 @@
         },
         {
           "id": "graph.what_mice_are_in_the_impact_st",
+          "family": "graph_query",
           "name": "Mice in the Impact study (must not stop at the old 250 cap)",
           "tags": [
             "nessie",
@@ -6969,6 +7139,7 @@
         },
         {
           "id": "graph.what_patients_have_pbmc_sample",
+          "family": "graph_query",
           "name": "What patients have PBMC samples",
           "tags": [],
           "requires_env": [],
@@ -7012,6 +7183,7 @@
         },
         {
           "id": "graph.what_pbmcs_in_the_gbm_study_ha",
+          "family": "graph_query",
           "name": "What PBMCs in the GBM study have RNAseq data",
           "tags": [],
           "requires_env": [],
@@ -7055,6 +7227,7 @@
         },
         {
           "id": "graph.what_pbmcs_in_the_gbm_study_ha_2",
+          "family": "graph_query",
           "name": "what PBMCs in the GBM study have sequencing data",
           "tags": [],
           "requires_env": [],
@@ -7098,6 +7271,7 @@
         },
         {
           "id": "graph.what_samples_exist_in_the_gbm",
+          "family": "graph_query",
           "name": "What samples exist in the GBM study",
           "tags": [],
           "requires_env": [],
@@ -7141,6 +7315,7 @@
         },
         {
           "id": "graph.what_studies_are_in_the_impact",
+          "family": "graph_query",
           "name": "What studies are in the Impact Project",
           "tags": [],
           "requires_env": [],
@@ -7178,6 +7353,7 @@
         },
         {
           "id": "graph.what_studies_have_monkeys",
+          "family": "graph_query",
           "name": "What studies have monkeys",
           "tags": [],
           "requires_env": [],
@@ -7215,6 +7391,7 @@
         },
         {
           "id": "graph.what_studies_have_nhp_samples_2",
+          "family": "graph_query",
           "name": "What studies have NHP samples",
           "tags": [],
           "requires_env": [],
@@ -7252,6 +7429,7 @@
         },
         {
           "id": "graph.what_tissues_are_in_the_gbm_st",
+          "family": "graph_query",
           "name": "what tissues are in the gbm study",
           "tags": [],
           "requires_env": [],
@@ -7295,6 +7473,7 @@
         },
         {
           "id": "graph.what_tissues_in_the_gbm_study",
+          "family": "graph_query",
           "name": "what tissues in the GBM study have sequencing data",
           "tags": [],
           "requires_env": [],
@@ -7338,6 +7517,7 @@
         },
         {
           "id": "graph.which_monkeys_have_imaging_and",
+          "family": "graph_query",
           "name": "Which monkeys have imaging and sequencing data",
           "tags": [],
           "requires_env": [],
@@ -7375,6 +7555,7 @@
         },
         {
           "id": "routing.gbm_study_count",
+          "family": "routing_graph",
           "name": "GBM sample count — must not report the unfiltered 50,161",
           "tags": [
             "nessie",
@@ -7432,6 +7613,7 @@
       "variants": [
         {
           "id": "report.samples_uploaded_impact",
+          "family": "reporting",
           "name": "SQL summary — samples uploaded for IMPACT 2023-2025",
           "tags": [
             "smoke"
@@ -7476,6 +7658,7 @@
         },
         {
           "id": "report.samples_last_month",
+          "family": "reporting",
           "name": "SQL summary — date parsing (last month)",
           "tags": [],
           "requires_env": [],
@@ -7513,6 +7696,7 @@
         },
         {
           "id": "report.protocols_cgr",
+          "family": "reporting",
           "name": "SQL summary — protocols for CGR project",
           "tags": [],
           "requires_env": [],
@@ -7555,6 +7739,7 @@
         },
         {
           "id": "report.progress_kamm",
+          "family": "reporting",
           "name": "Annual progress report — Kamm",
           "tags": [],
           "requires_env": [],
@@ -7592,6 +7777,7 @@
         },
         {
           "id": "report.published_srp",
+          "family": "reporting",
           "name": "SQL summary — published samples for SRP",
           "tags": [],
           "requires_env": [],
@@ -7629,6 +7815,7 @@
         },
         {
           "id": "report.geo_submission",
+          "family": "reporting",
           "name": "GEO submission (filename-independent)",
           "tags": [
             "artifact",
@@ -7675,6 +7862,7 @@
         },
         {
           "id": "report.sra_submission",
+          "family": "reporting",
           "name": "SRA submission (correct artifact names)",
           "tags": [
             "nessie",
@@ -7725,6 +7913,7 @@
         },
         {
           "id": "report.pride_submission",
+          "family": "reporting",
           "name": "PRIDE submission (filename-independent)",
           "tags": [
             "artifact",
@@ -7771,6 +7960,7 @@
         },
         {
           "id": "report.put_together_an_annual_progres",
+          "family": "reporting",
           "name": "RPPR for Kamm must be SCOPED",
           "tags": [
             "nessie",
@@ -7826,6 +8016,7 @@
         },
         {
           "id": "report.build_me_an_sra_submission_for",
+          "family": "reporting",
           "name": "Build me an SRA submission for D.SEQ-230512FOR-288-PUB, D.SEQ-230512FOR-289-PUB,",
           "tags": [],
           "requires_env": [],
@@ -7858,6 +8049,7 @@
         },
         {
           "id": "report.build_a_pride_deposit_for_d_ms",
+          "family": "reporting",
           "name": "Build a PRIDE deposit for D.MSP-241114WHI-110-PUB and D.MSP-241114WHI-108-PUB",
           "tags": [],
           "requires_env": [],
@@ -7890,6 +8082,7 @@
         },
         {
           "id": "report.i_need_to_submit_this_proteomi",
+          "family": "reporting",
           "name": "I need to submit this proteomics dataset to PRIDE: D.MSP-250606SHO-1-PUB",
           "tags": [],
           "requires_env": [],
@@ -7922,6 +8115,7 @@
         },
         {
           "id": "report.create_a_pride_submission_for",
+          "family": "reporting",
           "name": "Create a PRIDE submission for D.MSP-230828GRI-4-PUB",
           "tags": [],
           "requires_env": [],
@@ -7954,6 +8148,7 @@
         },
         {
           "id": "report.i_need_to_submit_d_seq_231213f",
+          "family": "reporting",
           "name": "I need to submit D.SEQ-231213FOR-120-PUB, D.SEQ-231213FOR-121-PUB to the SRA. Ca",
           "tags": [],
           "requires_env": [],
@@ -7986,6 +8181,7 @@
         },
         {
           "id": "report.build_an_sra_metadata_file_for",
+          "family": "reporting",
           "name": "Build an SRA metadata file for D.SEQ-230512FOR-29-PUB",
           "tags": [],
           "requires_env": [],
@@ -8018,6 +8214,7 @@
         },
         {
           "id": "report.create_an_sra_submission_for_d",
+          "family": "reporting",
           "name": "Create an SRA submission for D.SEQ-230512FOR-288-PUB and D.SEQ-230512FOR-289-PUB",
           "tags": [],
           "requires_env": [],
@@ -8050,6 +8247,7 @@
         },
         {
           "id": "report.i_need_to_submit_these_samples",
+          "family": "reporting",
           "name": "I need to submit these samples to GEO: D.SEQ-240422SHA-23-PUB, D.SEQ-240422SHA-2",
           "tags": [],
           "requires_env": [],
@@ -8082,6 +8280,7 @@
         },
         {
           "id": "report.create_a_geo_deposit_file_for",
+          "family": "reporting",
           "name": "Create a GEO deposit file for D.SEQ-241219BRY-5-PUB",
           "tags": [],
           "requires_env": [],
@@ -8114,6 +8313,7 @@
         },
         {
           "id": "report.generate_an_annual_progress_re",
+          "family": "reporting",
           "name": "Generate an annual progress report for CSBC",
           "tags": [],
           "requires_env": [],
@@ -8151,6 +8351,7 @@
         },
         {
           "id": "report.what_has_been_derived_from_nhp",
+          "family": "reporting",
           "name": "What has been derived from NHP-220630FLY-5-PUB",
           "tags": [],
           "requires_env": [],
@@ -8189,6 +8390,7 @@
         },
         {
           "id": "report.whats_the_nih_reporter_link_fo",
+          "family": "reporting",
           "name": "Whats the NIH Reporter link for the Kamm Project? What kind of research do they ",
           "tags": [],
           "requires_env": [],
@@ -8226,6 +8428,7 @@
         },
         {
           "id": "report.generate_the_annual_progress_r",
+          "family": "reporting",
           "name": "Generate the annual progress report for the CGR project",
           "tags": [],
           "requires_env": [],
@@ -8263,6 +8466,7 @@
         },
         {
           "id": "report.how_many_samples_were_added_to",
+          "family": "reporting",
           "name": "How many samples were added to the CGR project this year",
           "tags": [],
           "requires_env": [],
@@ -8306,6 +8510,7 @@
         },
         {
           "id": "report.export_d_msp_230828gri_4_pub_f",
+          "family": "reporting",
           "name": "Export D.MSP-230828GRI-4-PUB for submission to the PRIDE repository",
           "tags": [],
           "requires_env": [],
@@ -8338,6 +8543,7 @@
         },
         {
           "id": "report.make_a_pride_submission_for_d",
+          "family": "reporting",
           "name": "Make a PRIDE submission for D.MSP-230828GRI-4-PUB",
           "tags": [],
           "requires_env": [],
@@ -8370,6 +8576,7 @@
         },
         {
           "id": "report.how_many_samples_protocols_and",
+          "family": "reporting",
           "name": "How many samples, protocols, and published datasets does the MetNet project have",
           "tags": [],
           "requires_env": [],
@@ -8407,6 +8614,7 @@
         },
         {
           "id": "report.i_need_the_nih_progress_report",
+          "family": "reporting",
           "name": "I need the NIH progress report for the Kamm lab",
           "tags": [],
           "requires_env": [],
@@ -8444,6 +8652,7 @@
         },
         {
           "id": "report.generate_the_rppr_for_the_metn",
+          "family": "reporting",
           "name": "Generate the RPPR for the MetNet project",
           "tags": [],
           "requires_env": [],
@@ -8481,6 +8690,7 @@
         },
         {
           "id": "report.how_many_samples_were_uploaded",
+          "family": "reporting",
           "name": "How many samples were uploaded in 2025",
           "tags": [],
           "requires_env": [],
@@ -8513,6 +8723,7 @@
         },
         {
           "id": "report.build_me_a_geo_submission_for",
+          "family": "reporting",
           "name": "Build me a geo submission for D.SEQ-240709KAM-1-PUB",
           "tags": [],
           "requires_env": [],
@@ -8545,6 +8756,7 @@
         },
         {
           "id": "report.how_many_samples_were_uploaded_2",
+          "family": "reporting",
           "name": "How many samples were uploaded across all projects last quarter",
           "tags": [],
           "requires_env": [],
@@ -8577,6 +8789,7 @@
         },
         {
           "id": "report.build_me_a_geo_submission_for_2",
+          "family": "reporting",
           "name": "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB",
           "tags": [],
           "requires_env": [],
@@ -8609,6 +8822,7 @@
         },
         {
           "id": "report.how_many_samples_are_in_the_gb",
+          "family": "reporting",
           "name": "How many samples are in the GBM study",
           "tags": [],
           "requires_env": [],
@@ -8652,6 +8866,7 @@
         },
         {
           "id": "report.build_me_a_geo_submission_for_3",
+          "family": "reporting",
           "name": "Build me a GEO submission for D.SEQ-240422SHA-23-PUB",
           "tags": [],
           "requires_env": [],
@@ -8684,6 +8899,7 @@
         },
         {
           "id": "report.build_me_a_geo_submission_for_4",
+          "family": "reporting",
           "name": "Build me a GEO Submission for D.SEQ-241219BRY-5-PUB",
           "tags": [],
           "requires_env": [],
@@ -8716,6 +8932,7 @@
         },
         {
           "id": "report.how_many_samples_were_uploaded_3",
+          "family": "reporting",
           "name": "How many samples were uploaded for Impact in 2025",
           "tags": [],
           "requires_env": [],
@@ -8759,6 +8976,7 @@
         },
         {
           "id": "report.write_me_a_geo_submission_for",
+          "family": "reporting",
           "name": "write me a geo submission for D.SEQ-240422SHA-23-PUB, D.SEQ-240422SHA-24-PUB",
           "tags": [],
           "requires_env": [],
@@ -8791,6 +9009,7 @@
         },
         {
           "id": "report.build_be_a_geo_submission_for",
+          "family": "reporting",
           "name": "Build be a GEO submission for D.SEQ-230512FOR-287-PUB",
           "tags": [],
           "requires_env": [],
@@ -8823,6 +9042,7 @@
         },
         {
           "id": "report.build_be_an_sra_submission_for",
+          "family": "reporting",
           "name": "Build be an SRA submission for DNA-260402BMC-1",
           "tags": [],
           "requires_env": [],
@@ -8861,6 +9081,7 @@
         },
         {
           "id": "report.build_me_a_full_nih_report_for",
+          "family": "reporting",
           "name": "Full NIH (RPPR) report for SRP must actually run",
           "tags": [
             "nessie",
@@ -8911,6 +9132,7 @@
         },
         {
           "id": "report.build_me_a_full_rppr_for_srp_i",
+          "family": "reporting",
           "name": "Build me a full RPPR for SRP in 2025",
           "tags": [],
           "requires_env": [],
@@ -8948,6 +9170,7 @@
         },
         {
           "id": "report.build_me_a_sample_summary_for",
+          "family": "reporting",
           "name": "Build me a sample summary for MetNet in 2023 to 2025",
           "tags": [],
           "requires_env": [],
@@ -8985,6 +9208,7 @@
         },
         {
           "id": "report.build_me_an_nih_report_for_the",
+          "family": "reporting",
           "name": "Build me an NIH report for the Kamm Project",
           "tags": [],
           "requires_env": [],
@@ -9022,6 +9246,7 @@
         },
         {
           "id": "report.build_me_an_sra_submission_for_2",
+          "family": "reporting",
           "name": "Build me an SRA submission for D.SEQ-230512FOR-288-PUB D.SEQ-230512FOR-289-PUB D",
           "tags": [],
           "requires_env": [],
@@ -9054,6 +9279,7 @@
         },
         {
           "id": "report.build_me_an_srp_rppr_for_2025",
+          "family": "reporting",
           "name": "Build me an SRP RPPR for 2025",
           "tags": [],
           "requires_env": [],
@@ -9091,6 +9317,7 @@
         },
         {
           "id": "report.find_me_all_samples_uploaded_i",
+          "family": "reporting",
           "name": "Find me all samples uploaded in 2025",
           "tags": [],
           "requires_env": [],
@@ -9129,6 +9356,7 @@
         },
         {
           "id": "report.full_nih_report_for_kamm_proje",
+          "family": "reporting",
           "name": "Full nih report for kamm project please",
           "tags": [],
           "requires_env": [],
@@ -9166,6 +9394,7 @@
         },
         {
           "id": "report.how_many_samples_were_uploaded_4",
+          "family": "reporting",
           "name": "How many  samples were uploaded in 2025",
           "tags": [],
           "requires_env": [],
@@ -9198,6 +9427,7 @@
         },
         {
           "id": "report.how_many_samples_did_metnet_up",
+          "family": "reporting",
           "name": "MetNet 2024 upload count (casing-insensitive, year must survive)",
           "tags": [
             "nessie",
@@ -9238,6 +9468,7 @@
         },
         {
           "id": "report.how_many_samples_have_been_upl",
+          "family": "reporting",
           "name": "How many samples have been uploaded in the last 2 weeks",
           "tags": [],
           "requires_env": [],
@@ -9270,6 +9501,7 @@
         },
         {
           "id": "report.how_many_samples_were_uploaded_5",
+          "family": "reporting",
           "name": "How many samples were uploaded for CSBC over the last year",
           "tags": [],
           "requires_env": [],
@@ -9307,6 +9539,7 @@
         },
         {
           "id": "report.how_many_samples_were_uploaded_6",
+          "family": "reporting",
           "name": "How many samples were uploaded for SRP from December 3rd 2023 to October 5th 202",
           "tags": [],
           "requires_env": [],
@@ -9344,6 +9577,7 @@
         },
         {
           "id": "report.how_many_samples_were_uploaded_7",
+          "family": "reporting",
           "name": "How many samples were uploaded from 2023 to 2025",
           "tags": [],
           "requires_env": [],
@@ -9376,6 +9610,7 @@
         },
         {
           "id": "report.how_many_samples_were_uploaded_8",
+          "family": "reporting",
           "name": "How many samples were uploaded in the last 12 weeks",
           "tags": [],
           "requires_env": [],
@@ -9408,6 +9643,7 @@
         },
         {
           "id": "report.how_many_samples_were_uploaded_9",
+          "family": "reporting",
           "name": "How many samples were uploaded on 1/13/26",
           "tags": [],
           "requires_env": [],
@@ -9440,6 +9676,7 @@
         },
         {
           "id": "report.how_many_samples_were_uploaded_10",
+          "family": "reporting",
           "name": "How many samples were uploaded yesterday",
           "tags": [],
           "requires_env": [],
@@ -9472,6 +9709,7 @@
         },
         {
           "id": "report.make_me_a_geo_submission_for_d",
+          "family": "reporting",
           "name": "Make me a GEO submission for  D.SEQ-250409KAM-20-PUB, D.SEQ-250409KAM-22-PUB, an",
           "tags": [],
           "requires_env": [],
@@ -9504,6 +9742,7 @@
         },
         {
           "id": "report.make_me_a_geo_submission_for_a",
+          "family": "reporting",
           "name": "Make me a GEO submission for A.SCXP-220824SHA-1-PUB",
           "tags": [],
           "requires_env": [],
@@ -9536,6 +9775,7 @@
         },
         {
           "id": "report.show_me_samples_uploaded_for_i",
+          "family": "reporting",
           "name": "Show me samples uploaded for Impact from 2024 to 2025",
           "tags": [],
           "requires_env": [],
@@ -9573,6 +9813,7 @@
         },
         {
           "id": "report.what_has_impact_published_in_2",
+          "family": "reporting",
           "name": "What has Impact published in 2025",
           "tags": [],
           "requires_env": [],
@@ -9616,6 +9857,7 @@
         },
         {
           "id": "report.what_kamm_samples_were_uploade",
+          "family": "reporting",
           "name": "What kamm samples were uploaded in 2024",
           "tags": [],
           "requires_env": [],
@@ -9653,6 +9895,7 @@
         },
         {
           "id": "report.what_samples_have_been_uploade",
+          "family": "reporting",
           "name": "What samples have been uploaded for Impact in 2025",
           "tags": [],
           "requires_env": [],
@@ -9690,6 +9933,7 @@
         },
         {
           "id": "report.what_samples_were_uploaded_for",
+          "family": "reporting",
           "name": "What samples were uploaded for Impact from June 3rd 2023 to October 25th 2025",
           "tags": [],
           "requires_env": [],
@@ -9727,6 +9971,7 @@
         },
         {
           "id": "report.what_samples_were_uploaded_for_2",
+          "family": "reporting",
           "name": "What samples were uploaded for impact in 2025",
           "tags": [],
           "requires_env": [],
@@ -9769,6 +10014,7 @@
       "variants": [
         {
           "id": "pipeline.activation_rnaseq",
+          "family": "pipeline_nfcore",
           "name": "pipeline_agent activation — enters awaiting_validation",
           "tags": [
             "smoke",
@@ -9826,6 +10072,7 @@
         },
         {
           "id": "pipeline.end_to_end_emit",
+          "family": "pipeline_nfcore",
           "name": "End-to-end — directive → submit → samplesheet artifact",
           "tags": [
             "smoke",
@@ -9914,6 +10161,7 @@
         },
         {
           "id": "pipeline.happy_path_nhp_rnaseq",
+          "family": "pipeline_nfcore",
           "name": "NHP RNA-seq happy path",
           "tags": [
             "multi-turn",
@@ -9987,6 +10235,7 @@
         },
         {
           "id": "pipeline.happy_path_scrnaseq",
+          "family": "pipeline_nfcore",
           "name": "Single-cell RNA-seq build — configure_run pins protocol + aligner",
           "tags": [
             "multi-turn",
@@ -10048,6 +10297,7 @@
         },
         {
           "id": "pipeline.question_submode",
+          "family": "pipeline_nfcore",
           "name": "Catalog question — pipeline_agent stays inactive",
           "tags": [],
           "requires_env": [],
@@ -10075,6 +10325,7 @@
         },
         {
           "id": "pipeline.reject_non_directive",
+          "family": "pipeline_nfcore",
           "name": "Domain question — must NOT trap user in pipeline mode",
           "tags": [
             "edge-case"
@@ -10110,6 +10361,7 @@
         },
         {
           "id": "pipeline.sarek_multi_cohort",
+          "family": "pipeline_nfcore",
           "name": "Sarek pipeline with multi-cohort split",
           "tags": [
             "multi-turn",
@@ -10178,6 +10430,7 @@
         },
         {
           "id": "pipeline.edit_after_sanity",
+          "family": "pipeline_nfcore",
           "name": "Edit groupby field mid-flight then submit",
           "tags": [
             "multi-turn",
@@ -10257,6 +10510,7 @@
         },
         {
           "id": "pipeline.tower_submit",
+          "family": "pipeline_nfcore",
           "name": "Tower submission — env-gated end-to-end",
           "tags": [
             "tower",
@@ -10323,6 +10577,7 @@
         },
         {
           "id": "pipeline.create_an_nf_core_samplesheet",
+          "family": "pipeline_nfcore",
           "name": "Samplesheet build must resolve the requested UIDs",
           "tags": [
             "nessie",
@@ -10358,6 +10613,7 @@
         },
         {
           "id": "pipeline.build_a_single_cell_rna_seq_pi",
+          "family": "pipeline_nfcore",
           "name": "Build a single-cell RNA-seq pipeline CSV for D.SEQ-241114SHA-5-PUB",
           "tags": [],
           "requires_env": [],
@@ -10391,6 +10647,7 @@
         },
         {
           "id": "pipeline.generate_an_nf_core_rna_seq_sa",
+          "family": "pipeline_nfcore",
           "name": "Generate an nf-core RNA-seq samplesheet for D.SEQ-221031SHA-67-PUB",
           "tags": [],
           "requires_env": [],
@@ -10418,6 +10675,7 @@
         },
         {
           "id": "pipeline.build_me_an_nf_core_sampleshee",
+          "family": "pipeline_nfcore",
           "name": "Build me an nf-core samplesheet",
           "tags": [],
           "requires_env": [],
@@ -10451,6 +10709,7 @@
         },
         {
           "id": "pipeline.make_me_an_nfcore_samplesheet",
+          "family": "pipeline_nfcore",
           "name": "Make me an nfcore samplesheet for the sequencing samples associated with NHP-220",
           "tags": [],
           "requires_env": [],
@@ -10484,6 +10743,7 @@
         },
         {
           "id": "pipeline.build_me_an_nf_core_sampleshee_2",
+          "family": "pipeline_nfcore",
           "name": "Build me an nf-core samplesheet for those mice",
           "tags": [],
           "requires_env": [],
@@ -10517,6 +10777,7 @@
         },
         {
           "id": "pipeline.build_an_nfcore_samplesheet_fo",
+          "family": "pipeline_nfcore",
           "name": "\"for these\" with no pinned context must ASK, not guess",
           "tags": [
             "nessie",
@@ -10547,6 +10808,7 @@
         },
         {
           "id": "pipeline.build_me_a_nfcore_pipeline_for",
+          "family": "pipeline_nfcore",
           "name": "Build me a Nfcore pipeline for A.GEX-240710KAM-2-PUB",
           "tags": [],
           "requires_env": [],
@@ -10580,6 +10842,7 @@
         },
         {
           "id": "pipeline.build_me_a_nfcore_rnaseq_sampl",
+          "family": "pipeline_nfcore",
           "name": "build me a nfcore rnaseq samplesheet for \tD.SEQ-240709KAM-2-PUB",
           "tags": [],
           "requires_env": [],
@@ -10613,6 +10876,7 @@
         },
         {
           "id": "pipeline.build_me_a_samplesheet_for_nf",
+          "family": "pipeline_nfcore",
           "name": "build me a samplesheet for nf-core",
           "tags": [],
           "requires_env": [],
@@ -10646,6 +10910,7 @@
         },
         {
           "id": "pipeline.build_me_an_nf_core_sheet",
+          "family": "pipeline_nfcore",
           "name": "build me an nf core sheet",
           "tags": [],
           "requires_env": [],
@@ -10679,6 +10944,7 @@
         },
         {
           "id": "pipeline.build_me_an_nf_core_sampleshee_3",
+          "family": "pipeline_nfcore",
           "name": "Build me an nf-core samplesheet for those",
           "tags": [],
           "requires_env": [],
@@ -10712,6 +10978,7 @@
         },
         {
           "id": "pipeline.build_me_an_nfcore_samplesheet",
+          "family": "pipeline_nfcore",
           "name": "build me an nfcore samplesheet for those samples",
           "tags": [],
           "requires_env": [],
@@ -10750,6 +11017,7 @@
       "variants": [
         {
           "id": "sys.dseq_definition",
+          "family": "system_question",
           "name": "Definition — what is D.SEQ",
           "tags": [
             "smoke"
@@ -10784,6 +11052,7 @@
         },
         {
           "id": "sys.tissue_metadata_fields",
+          "family": "system_question",
           "name": "Metadata fields for tissue",
           "tags": [],
           "requires_env": [],
@@ -10816,6 +11085,7 @@
         },
         {
           "id": "sys.sampletypes_available",
+          "family": "system_question",
           "name": "Catalog — sample types available",
           "tags": [],
           "requires_env": [],
@@ -10848,6 +11118,7 @@
         },
         {
           "id": "sys.dflow_vs_aflow",
+          "family": "system_question",
           "name": "Concept — D.FLOW vs A.FLOW",
           "tags": [],
           "requires_env": [],
@@ -10880,6 +11151,7 @@
         },
         {
           "id": "sys.capabilities",
+          "family": "system_question",
           "name": "Self-introspection — what can you do",
           "tags": [],
           "requires_env": [],
@@ -10912,6 +11184,7 @@
         },
         {
           "id": "sys.study_search_howto",
+          "family": "system_question",
           "name": "How-to — search by study",
           "tags": [],
           "requires_env": [],
@@ -10944,6 +11217,7 @@
         },
         {
           "id": "sys.show_me_all_assays_i_have_acce",
+          "family": "system_question",
           "name": "Assay listing (either classification is acceptable)",
           "tags": [
             "nessie",
@@ -10989,6 +11263,7 @@
         },
         {
           "id": "sys.how_do_i_find_samples_associat",
+          "family": "system_question",
           "name": "How do I find samples associated with a specific protocol or assay",
           "tags": [],
           "requires_env": [],
@@ -11021,6 +11296,7 @@
         },
         {
           "id": "sys.what_kinds_of_reports_can_i_ge",
+          "family": "system_question",
           "name": "What kinds of reports can I generate",
           "tags": [],
           "requires_env": [],
@@ -11053,6 +11329,7 @@
         },
         {
           "id": "sys.what_assay_types_are_registere",
+          "family": "system_question",
           "name": "What assay types are registered in NExtSEEK",
           "tags": [],
           "requires_env": [],
@@ -11085,6 +11362,7 @@
         },
         {
           "id": "sys.what_attributes_can_i_filter_o",
+          "family": "system_question",
           "name": "What attributes can I filter on for NHP samples",
           "tags": [],
           "requires_env": [],
@@ -11117,6 +11395,7 @@
         },
         {
           "id": "sys.what_sample_types_are_most_com",
+          "family": "system_question",
           "name": "What sample types are most common across all investigations",
           "tags": [],
           "requires_env": [],
@@ -11149,6 +11428,7 @@
         },
         {
           "id": "sys.what_sample_types_can_i_search",
+          "family": "system_question",
           "name": "What sample types can I search for in NExtSEEK",
           "tags": [],
           "requires_env": [],
@@ -11181,6 +11461,7 @@
         },
         {
           "id": "sys.what_is_a_d_seq_assay",
+          "family": "system_question",
           "name": "What is a D.SEQ assay",
           "tags": [],
           "requires_env": [],
@@ -11213,6 +11494,7 @@
         },
         {
           "id": "sys.list_all_available_assay_types",
+          "family": "system_question",
           "name": "List all available assay types in the system",
           "tags": [],
           "requires_env": [],
@@ -11245,6 +11527,7 @@
         },
         {
           "id": "sys.what_can_nextseek_do",
+          "family": "system_question",
           "name": "What can NExtSEEK do",
           "tags": [],
           "requires_env": [],
@@ -11277,6 +11560,7 @@
         },
         {
           "id": "sys.what_api_endpoints_can_i_query",
+          "family": "system_question",
           "name": "What API endpoints can I query",
           "tags": [],
           "requires_env": [],
@@ -11309,6 +11593,7 @@
         },
         {
           "id": "sys.what_assays_are_available_to_m",
+          "family": "system_question",
           "name": "What assays are available to me",
           "tags": [],
           "requires_env": [],
@@ -11341,6 +11626,7 @@
         },
         {
           "id": "sys.tell_me_about_the_radr_assay",
+          "family": "system_question",
           "name": "Tell me about the RaDr Assay",
           "tags": [],
           "requires_env": [],
@@ -11373,6 +11659,7 @@
         },
         {
           "id": "sys.show_me_all_investigations_tha",
+          "family": "system_question",
           "name": "Show me all investigations that I have access to",
           "tags": [],
           "requires_env": [],
@@ -11405,6 +11692,7 @@
         },
         {
           "id": "sys.tell_me_about_tissue_collectio",
+          "family": "system_question",
           "name": "Tell me about Tissue collection",
           "tags": [],
           "requires_env": [],
@@ -11437,6 +11725,7 @@
         },
         {
           "id": "sys.what_assays_do_i_have_access_t",
+          "family": "system_question",
           "name": "What assays do I have access to",
           "tags": [],
           "requires_env": [],
@@ -11469,6 +11758,7 @@
         },
         {
           "id": "sys.what_can_the_system_do",
+          "family": "system_question",
           "name": "What can the system do",
           "tags": [],
           "requires_env": [],
@@ -11501,6 +11791,7 @@
         },
         {
           "id": "sys.what_can_you_do",
+          "family": "system_question",
           "name": "What can you do",
           "tags": [],
           "requires_env": [],
@@ -11533,6 +11824,7 @@
         },
         {
           "id": "sys.what_mice_are_treated_with_ndm",
+          "family": "system_question",
           "name": "What mice are treated with NDMA",
           "tags": [],
           "requires_env": [],
@@ -11565,6 +11857,7 @@
         },
         {
           "id": "sys.what_types_of_searches_can_you",
+          "family": "system_question",
           "name": "What types of searches can you do",
           "tags": [],
           "requires_env": [],
@@ -11597,6 +11890,7 @@
         },
         {
           "id": "sys.who_is_the_current_user",
+          "family": "system_question",
           "name": "Who is the current user",
           "tags": [],
           "requires_env": [],
@@ -11634,6 +11928,7 @@
       "variants": [
         {
           "id": "unsup.weather",
+          "family": "unsupported",
           "name": "Out-of-scope — weather",
           "tags": [],
           "requires_env": [],
@@ -11661,6 +11956,7 @@
         },
         {
           "id": "unsup.domain_chemistry",
+          "family": "unsupported",
           "name": "Out-of-scope — general chemistry question",
           "tags": [],
           "requires_env": [],
@@ -11688,6 +11984,7 @@
         },
         {
           "id": "unsup.make_me_a_bar_chart_of_sample",
+          "family": "unsupported",
           "name": "Make me a bar chart of sample counts broken down by type across all projects in ",
           "tags": [],
           "requires_env": [],
@@ -11715,6 +12012,7 @@
         },
         {
           "id": "unsup.is_treatment_a_significantly_b",
+          "family": "unsupported",
           "name": "Open-ended analysis routes to CC and answers",
           "tags": [
             "nessie",
@@ -11750,6 +12048,7 @@
         },
         {
           "id": "unsup.make_me_a_bar_chart_of_sample_2",
+          "family": "unsupported",
           "name": "Make me a bar chart of sample counts by type",
           "tags": [],
           "requires_env": [],
@@ -11777,6 +12076,7 @@
         },
         {
           "id": "unsup.compare_gene_expression_betwee",
+          "family": "unsupported",
           "name": "Compare gene expression between NDMA-treated and control mice",
           "tags": [],
           "requires_env": [],
@@ -11804,6 +12104,7 @@
         },
         {
           "id": "unsup.give_me_a_bar_chart_of_all_sam",
+          "family": "unsupported",
           "name": "Give me a bar chart of all sample type counts",
           "tags": [],
           "requires_env": [],
@@ -11836,6 +12137,7 @@
       "variants": [
         {
           "id": "write.download_all_samples_from_the",
+          "family": "writes_unsupported",
           "name": "Download all samples from the database as a spreadsheet",
           "tags": [],
           "requires_env": [],
@@ -11863,6 +12165,7 @@
         },
         {
           "id": "write.register_a_new_mouse_sample_wi",
+          "family": "writes_unsupported",
           "name": "Register a new mouse sample with strain C57BL/6 and sex Male",
           "tags": [],
           "requires_env": [],
@@ -11896,6 +12199,7 @@
         },
         {
           "id": "write.update_the_scientist_field_on",
+          "family": "writes_unsupported",
           "name": "Update the scientist field on NHP-220630FLY-1-PUB to Damn Daniel",
           "tags": [],
           "requires_env": [],
@@ -11929,6 +12233,7 @@
         },
         {
           "id": "write.create_investigation_testing_4",
+          "family": "writes_unsupported",
           "name": "Create Investigation 'Testing 404'",
           "tags": [],
           "requires_env": [],
@@ -11962,6 +12267,7 @@
         },
         {
           "id": "write.update_the_scientist_field_on_2",
+          "family": "writes_unsupported",
           "name": "Update the scientist field on NHP-220630FLY-1-PUB to Jane Doe",
           "tags": [],
           "requires_env": [],
@@ -11995,6 +12301,7 @@
         },
         {
           "id": "write.can_you_create_a_new_investiga",
+          "family": "writes_unsupported",
           "name": "Can you create a new investigation for me and call is \"Investigation API Test\"",
           "tags": [],
           "requires_env": [],
@@ -12028,6 +12335,7 @@
         },
         {
           "id": "write.can_you_create_an_investigatio",
+          "family": "writes_unsupported",
           "name": "Can you create an Investigation named \"TEST CD AGENT\"",
           "tags": [],
           "requires_env": [],
@@ -12061,6 +12369,7 @@
         },
         {
           "id": "write.can_you_create_an_investigatio_2",
+          "family": "writes_unsupported",
           "name": "Can you create an Investigation named \"TEST CD API\"",
           "tags": [],
           "requires_env": [],
@@ -12094,6 +12403,7 @@
         },
         {
           "id": "write.can_you_create_me_an_investiga",
+          "family": "writes_unsupported",
           "name": "Can you create me an Investigation called \"Test API Charlie\"",
           "tags": [],
           "requires_env": [],
@@ -12127,6 +12437,7 @@
         },
         {
           "id": "write.create_a_new_investigation_tes",
+          "family": "writes_unsupported",
           "name": "Create a new investigation \"TEST API CD\" for me",
           "tags": [],
           "requires_env": [],
@@ -12160,6 +12471,7 @@
         },
         {
           "id": "write.create_me_an_investigation_cal",
+          "family": "writes_unsupported",
           "name": "Create me an investigation called \"API TEST 2\" with project id = 2",
           "tags": [],
           "requires_env": [],
@@ -12193,6 +12505,7 @@
         },
         {
           "id": "write.create_me_an_investigation_cal_2",
+          "family": "writes_unsupported",
           "name": "Create me an investigation called API TEST 2",
           "tags": [],
           "requires_env": [],
@@ -12226,6 +12539,7 @@
         },
         {
           "id": "write.create_me_investigation_oh_yea",
+          "family": "writes_unsupported",
           "name": "Create me investigation \"Oh yeah! Lets go\"",
           "tags": [],
           "requires_env": [],
@@ -12259,6 +12573,7 @@
         },
         {
           "id": "write.create_me_investigation_test_w",
+          "family": "writes_unsupported",
           "name": "Create me investigation \"TEST WOW TEST\"",
           "tags": [],
           "requires_env": [],
@@ -12292,6 +12607,7 @@
         },
         {
           "id": "write.create_me_investigation_testin",
+          "family": "writes_unsupported",
           "name": "Entity write via CC must confirm or create, not abort",
           "tags": [
             "nessie",
@@ -12338,6 +12654,7 @@
         },
         {
           "id": "write.create_me_investigation_testin_2",
+          "family": "writes_unsupported",
           "name": "Create me investigation \"TESTING\"",
           "tags": [],
           "requires_env": [],
@@ -12371,6 +12688,7 @@
         },
         {
           "id": "write.create_me_investigation_test_c",
+          "family": "writes_unsupported",
           "name": "Investigation write routes to CC and asks first",
           "tags": [
             "nessie",
@@ -12412,6 +12730,7 @@
         },
         {
           "id": "write.export_all_metadata_for_nhp_22",
+          "family": "writes_unsupported",
           "name": "Export all metadata for NHP-220630FLY-1-PUB and its derived samples to Excel",
           "tags": [],
           "requires_env": [],
@@ -12439,6 +12758,7 @@
         },
         {
           "id": "write.export_all_metadata_for_nhp_22_2",
+          "family": "writes_unsupported",
           "name": "Export all metadata for NHP-220630FLY-1-PUB and its derived samples to JSON",
           "tags": [],
           "requires_env": [],
@@ -12472,6 +12792,7 @@
         },
         {
           "id": "write.update_scientist_must_confirm_first",
+          "family": "writes_unsupported",
           "name": "An UPDATE must be proposed and confirmed, not performed",
           "tags": [
             "nessie",
@@ -12518,6 +12839,7 @@
         },
         {
           "id": "write.delete_sample_must_confirm_first",
+          "family": "writes_unsupported",
           "name": "A DELETE must be proposed and confirmed, not performed",
           "tags": [
             "nessie",
@@ -12569,6 +12891,7 @@
       "variants": [
         {
           "id": "refrec.refine_to_cd8",
+          "family": "refine_and_recall",
           "name": "Refine — NHPs depleted of CD8",
           "tags": [
             "smoke",
@@ -12635,6 +12958,7 @@
         },
         {
           "id": "refrec.refine_to_female",
+          "family": "refine_and_recall",
           "name": "Refine — restrict to female samples",
           "tags": [],
           "requires_env": [],
@@ -12688,6 +13012,7 @@
         },
         {
           "id": "refrec.refine_after_2023",
+          "family": "refine_and_recall",
           "name": "Refine — date filter narrowing",
           "tags": [],
           "requires_env": [],
@@ -12742,6 +13067,7 @@
         },
         {
           "id": "refrec.refine_liver",
+          "family": "refine_and_recall",
           "name": "Refine — narrow to liver tissue",
           "tags": [],
           "requires_env": [],
@@ -12790,6 +13116,7 @@
         },
         {
           "id": "refrec.memory_how_many",
+          "family": "refine_and_recall",
           "name": "Memory — count of last results",
           "tags": [
             "smoke"
@@ -12845,6 +13172,7 @@
         },
         {
           "id": "refrec.memory_unique_types",
+          "family": "refine_and_recall",
           "name": "Memory — unique sample types in results",
           "tags": [],
           "requires_env": [],
@@ -12893,6 +13221,7 @@
         },
         {
           "id": "refrec.memory_scientists",
+          "family": "refine_and_recall",
           "name": "Memory — Scientist field enumeration",
           "tags": [],
           "requires_env": [],
@@ -12947,6 +13276,7 @@
         },
         {
           "id": "refrec.chained_filter",
+          "family": "refine_and_recall",
           "name": "Chained memory — count then UID extraction",
           "tags": [
             "multi-turn"
@@ -13019,6 +13349,7 @@
         },
         {
           "id": "refrec.what_sample_types_were_represe",
+          "family": "refine_and_recall",
           "name": "Recall the seed's sample types",
           "tags": [
             "nessie",
@@ -13076,6 +13407,7 @@
         },
         {
           "id": "refrec.now_filter_those_to_only_cd8_d",
+          "family": "refine_and_recall",
           "name": "Now filter those to only CD8-depleted animals",
           "tags": [
             "multi-turn"
@@ -13116,6 +13448,7 @@
         },
         {
           "id": "refrec.which_of_those_samples_are_fro",
+          "family": "refine_and_recall",
           "name": "Which of those samples are from 2022",
           "tags": [
             "multi-turn"
@@ -13156,6 +13489,7 @@
         },
         {
           "id": "refrec.filter_the_last_search_to_cd8",
+          "family": "refine_and_recall",
           "name": "Filter the last search to CD8-depleted animals",
           "tags": [
             "multi-turn"
@@ -13196,6 +13530,7 @@
         },
         {
           "id": "refrec.from_those_results_keep_only_t",
+          "family": "refine_and_recall",
           "name": "From those results, keep only the CD8-depleted ones",
           "tags": [
             "multi-turn"
@@ -13236,6 +13571,7 @@
         },
         {
           "id": "refrec.refine_those_results_to_cd8_de",
+          "family": "refine_and_recall",
           "name": "Refine a REST search (must not bounce off the graph agent)",
           "tags": [
             "nessie",
@@ -13288,6 +13624,7 @@
         },
         {
           "id": "refrec.can_you_summarize_what_those_r",
+          "family": "refine_and_recall",
           "name": "Can you summarize what those results contained",
           "tags": [
             "multi-turn"
@@ -13328,6 +13665,7 @@
         },
         {
           "id": "refrec.from_the_last_search_which_sam",
+          "family": "refine_and_recall",
           "name": "From the last search, which samples came from the most recent year",
           "tags": [
             "multi-turn"
@@ -13368,6 +13706,7 @@
         },
         {
           "id": "refrec.how_many_results_did_that_retu",
+          "family": "refine_and_recall",
           "name": "How many results did that return",
           "tags": [
             "multi-turn"
@@ -13408,6 +13747,7 @@
         },
         {
           "id": "refrec.and_how_many_dna_samples_did_w",
+          "family": "refine_and_recall",
           "name": "And how many DNA samples did we find",
           "tags": [
             "multi-turn"
@@ -13448,6 +13788,7 @@
         },
         {
           "id": "refrec.how_many_d_seq_samples_did_the",
+          "family": "refine_and_recall",
           "name": "How many D.SEQ samples did the very first search in this session return",
           "tags": [
             "multi-turn"
@@ -13488,6 +13829,7 @@
         },
         {
           "id": "refrec.how_many_distinct_labs_are_rep",
+          "family": "refine_and_recall",
           "name": "How many distinct labs are represented across those 264 samples",
           "tags": [
             "multi-turn"
@@ -13528,6 +13870,7 @@
         },
         {
           "id": "refrec.of_those_mice_categorize_them",
+          "family": "refine_and_recall",
           "name": "Of those mice, categorize them by genotype",
           "tags": [
             "multi-turn"
@@ -13574,6 +13917,7 @@
         },
         {
           "id": "refrec.of_those_which_are_actually_fr",
+          "family": "refine_and_recall",
           "name": "Of those, which are actually from the SHA lab? Give me UIDs",
           "tags": [
             "multi-turn"
@@ -13614,6 +13958,7 @@
         },
         {
           "id": "refrec.of_those_which_are_actually_fr_2",
+          "family": "refine_and_recall",
           "name": "Seed must actually run a search (pipeline-hijack regression)",
           "tags": [
             "nessie",
@@ -13677,6 +14022,7 @@
         },
         {
           "id": "refrec.ah_got_it_retry_that_search_wi",
+          "family": "refine_and_recall",
           "name": "Ah got it. Retry that search with project id = 2",
           "tags": [
             "multi-turn"
@@ -13711,6 +14057,7 @@
         },
         {
           "id": "refrec.can_you_run_that_again_but_wit",
+          "family": "refine_and_recall",
           "name": "Can you run that again, but with project id 2",
           "tags": [
             "multi-turn"
@@ -13745,6 +14092,7 @@
         },
         {
           "id": "refrec.can_you_use_the_advanced_searc",
+          "family": "refine_and_recall",
           "name": "can you use the advanced search endpoint instead",
           "tags": [
             "multi-turn"
@@ -13785,6 +14133,7 @@
         },
         {
           "id": "refrec.from_the_above_search_which_sa",
+          "family": "refine_and_recall",
           "name": "from the above search, which samples have tumor values",
           "tags": [
             "multi-turn"
@@ -13831,6 +14180,7 @@
         },
         {
           "id": "refrec.going_way_back_how_many_ndma_m",
+          "family": "refine_and_recall",
           "name": "Going way back — how many NDMA mice did the very first search return",
           "tags": [
             "multi-turn"
@@ -13871,6 +14221,7 @@
         },
         {
           "id": "refrec.how_many_d_seq_impact_samples",
+          "family": "refine_and_recall",
           "name": "How many D.SEQ IMPACT samples did the first search return",
           "tags": [
             "multi-turn"
@@ -13911,6 +14262,7 @@
         },
         {
           "id": "refrec.how_many_ndma_mice_did_the_fir",
+          "family": "refine_and_recall",
           "name": "How many NDMA mice did the first search return",
           "tags": [
             "multi-turn"
@@ -13951,6 +14303,7 @@
         },
         {
           "id": "refrec.just_show_me_the_first_3_uids",
+          "family": "refine_and_recall",
           "name": "Just show me the first 3 UIDs from that search",
           "tags": [
             "multi-turn"
@@ -13991,6 +14344,7 @@
         },
         {
           "id": "refrec.of_the_ndma_mice_which_are_mal",
+          "family": "refine_and_recall",
           "name": "Of the NDMA mice, which are male",
           "tags": [
             "multi-turn"
@@ -14031,6 +14385,7 @@
         },
         {
           "id": "refrec.of_those_mice_can_you_summariz",
+          "family": "refine_and_recall",
           "name": "Recall must use THIS case's bundle",
           "tags": [
             "nessie",
@@ -14088,6 +14443,7 @@
         },
         {
           "id": "refrec.of_those_monkeys_which_are_cd8",
+          "family": "refine_and_recall",
           "name": "Of those monkeys, which are cd8 depleted",
           "tags": [
             "multi-turn"
@@ -14122,6 +14478,7 @@
         },
         {
           "id": "refrec.of_those_samples_which_have_a",
+          "family": "refine_and_recall",
           "name": "of those samples, which have a high tumor fraction",
           "tags": [
             "multi-turn"
@@ -14168,6 +14525,7 @@
         },
         {
           "id": "refrec.of_those_samples_which_have_tu",
+          "family": "refine_and_recall",
           "name": "of those samples, which have tumor values",
           "tags": [
             "multi-turn"
@@ -14214,6 +14572,7 @@
         },
         {
           "id": "refrec.of_those_which_ones_are_from_t",
+          "family": "refine_and_recall",
           "name": "Of those, which ones are from the SHA lab specifically? Give me UIDs",
           "tags": [
             "multi-turn"
@@ -14254,6 +14613,7 @@
         },
         {
           "id": "refrec.rerun_that_last_search_with_pr",
+          "family": "refine_and_recall",
           "name": "Rerun last search with project id (must stay on the seed's mice)",
           "tags": [
             "nessie",
@@ -14317,6 +14677,7 @@
         },
         {
           "id": "refrec.try_it_again_but_with_project",
+          "family": "refine_and_recall",
           "name": "Try it again but with project id = 2",
           "tags": [
             "multi-turn"
@@ -14357,6 +14718,7 @@
         },
         {
           "id": "refrec.try_that_again_but_with_projec",
+          "family": "refine_and_recall",
           "name": "Try that again but with project id = 2",
           "tags": [
             "multi-turn"
@@ -14397,6 +14759,7 @@
         },
         {
           "id": "refrec.try_that_previous_request_but",
+          "family": "refine_and_recall",
           "name": "Try that previous request but with project id 2",
           "tags": [
             "multi-turn"
@@ -14437,6 +14800,7 @@
         },
         {
           "id": "refrec.try_that_search_again_with_wat",
+          "family": "refine_and_recall",
           "name": "Try that search again with \"Water\" instead of \"Water Study\"",
           "tags": [
             "multi-turn"
@@ -14477,6 +14841,7 @@
         },
         {
           "id": "refrec.try_this_search_again_with_tis",
+          "family": "refine_and_recall",
           "name": "Try this search again with TIS instead of PAT",
           "tags": [
             "multi-turn"
@@ -14523,6 +14888,7 @@
         },
         {
           "id": "refrec.what_about_all_fibrin_images_t",
+          "family": "refine_and_recall",
           "name": "What about all fibrin images that exist",
           "tags": [
             "multi-turn"
@@ -14569,6 +14935,7 @@
         },
         {
           "id": "refrec.what_about_those_nhp_samples_h",
+          "family": "refine_and_recall",
           "name": "What about those NHP samples — how many were there",
           "tags": [
             "multi-turn"
@@ -14609,6 +14976,7 @@
         },
         {
           "id": "refrec.which_of_those_are_males",
+          "family": "refine_and_recall",
           "name": "Which of those are Males",
           "tags": [
             "multi-turn"
@@ -14649,6 +15017,7 @@
         },
         {
           "id": "refrec.which_samples_have_a_tumor_fra",
+          "family": "refine_and_recall",
           "name": "Which samples have a tumor fraction of 100%",
           "tags": [
             "multi-turn"
@@ -14700,6 +15069,7 @@
       "variants": [
         {
           "id": "route.ns_pipeline_launch",
+          "family": "nessie_route",
           "name": "Pipeline launch → NS (pipeline_agent)",
           "tags": [
             "nessie",
@@ -14737,6 +15107,7 @@
         },
         {
           "id": "route.cc_reingest",
+          "family": "nessie_route",
           "name": "Reingest nf-core outputs → Container-CC",
           "tags": [
             "nessie",
@@ -14774,6 +15145,7 @@
         },
         {
           "id": "route.ns_advanced",
+          "family": "nessie_route",
           "name": "Keyword search → NS",
           "tags": [
             "nessie",
@@ -14805,6 +15177,7 @@
         },
         {
           "id": "route.unrelated",
+          "family": "nessie_route",
           "name": "Off-topic → unrelated",
           "tags": [
             "nessie",
@@ -14836,6 +15209,7 @@
         },
         {
           "id": "route.cc_write_investigation",
+          "family": "nessie_route",
           "name": "Resource creation → Container-CC (curated policy)",
           "tags": [
             "nessie",
@@ -14873,6 +15247,7 @@
         },
         {
           "id": "route.cc_open_ended_analysis",
+          "family": "nessie_route",
           "name": "Open-ended statistical analysis → Container-CC (curated policy)",
           "tags": [
             "nessie",
@@ -14910,6 +15285,7 @@
         },
         {
           "id": "route.ns_plain_study_membership",
+          "family": "nessie_route",
           "name": "Plain study membership stays on NS",
           "tags": [
             "nessie",
@@ -14946,6 +15322,7 @@
       "variants": [
         {
           "id": "green.global_count",
+          "family": "nessie_green",
           "name": "Global sample count = 50,889",
           "tags": [
             "nessie",
@@ -14982,6 +15359,7 @@
         },
         {
           "id": "green.mus_ndma",
+          "family": "nessie_green",
           "name": "Mice + NDMA keyword search → 195",
           "tags": [
             "nessie",
@@ -15033,6 +15411,7 @@
         },
         {
           "id": "green.refine_recall",
+          "family": "nessie_green",
           "name": "Refine 4-week study",
           "tags": [
             "nessie",
@@ -15105,6 +15484,7 @@
       "variants": [
         {
           "id": "repro.parent_attr_aggregate",
+          "family": "nessie_repro",
           "name": "#32a child→parent sex/species aggregate",
           "tags": [
             "nessie",
@@ -15153,6 +15533,7 @@
         },
         {
           "id": "repro.thin_bundle_recall",
+          "family": "nessie_repro",
           "name": "#32b recalled bundle carries attributes",
           "tags": [
             "nessie",
@@ -15201,6 +15582,7 @@
         },
         {
           "id": "repro.eof_truncation_reporter",
+          "family": "nessie_repro",
           "name": "bonus: reporter plan EOF truncation",
           "tags": [
             "nessie",
@@ -15238,6 +15620,7 @@
         },
         {
           "id": "repro.cypher_uid_dot",
+          "family": "nessie_repro",
           "name": "cypher UID / D.SEQ dot defect (VERIFIED FIXED 2026-07-27)",
           "tags": [
             "nessie",

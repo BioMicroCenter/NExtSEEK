@@ -9,6 +9,37 @@ Ordering rules, which exist so the output is stable enough to diff:
   * variants in catalog order within a family, then overlay-only variants
   * an overlay variant with a base id REPLACES the base one IN PLACE, keeping the
     base position (this mirrors `corpus.merged`, which keeps base ordering)
+  * overlay-only variants are appended at the end of the WHOLE list, not the end
+    of their block, because that is what `corpus.merged` does and the equivalence
+    gate compares ordered
+
+The output MIRRORS THE SOURCE NESTING rather than regrouping by declared family.
+Operator ruling 2026-08-04: structure follows the source so global order is
+reproducible. Each variant carries its own declared `family`, which is the
+authoritative one -- the block it sits in is NOT.
+
+KNOWN DIVERGENCE from the fourth rule, measured 2026-08-04. Full detail in
+.superpowers/sdd/nessie-bayesian-plan-1-unified-corpus/task-1-report.md.
+14 of the 17 overlay-only variants do land at the end of the whole list, because
+their blocks (`nessie_route`, `nessie_green`, `nessie_repro`) exist only in the
+overlay and so are emitted after every base block. The other 3 sit in a block that
+ALSO exists in the base catalog -- `write.update_scientist_must_confirm_first` and
+`write.delete_sample_must_confirm_first` under `writes_unsupported`, plus the
+retired `advanced.find_me_nhp_samples_from_study_ns_graph` under `search_advanced`
+-- so they land at the end of their block, mid-list.
+
+This is not a fixable defect of this script. A JSON object cannot hold two blocks
+of one name, and a block flattens to ONE contiguous run, so `writes_unsupported`
+cannot supply both merged() indices 247-249 (its base members) and 281-282 (its
+overlay-only members) with `refine_and_recall` occupying 250-274 in between.
+While the nesting mirrors the source, ordered equivalence with `corpus.merged` is
+unreachable for exactly 2 active variants. CONTENT equivalence is exact: compared
+sorted by id, all 283 active variants match `corpus.merged` with zero diffs.
+
+Blocks `graph_stale`, `reporting_artifacts` and `routing_graph` do not appear in
+the output. Every variant in them overrides a base id, and the in-place rule above
+pins those to their BASE position. Giving them their own blocks would move 30
+overrides out of base order -- ten times the divergence it would remove.
 """
 from __future__ import annotations
 
@@ -26,6 +57,14 @@ def _variant_dict(v, *, origin: str, retirement: dict | None) -> dict:
     """One variant, definition first then metadata, so a diff reads naturally."""
     return {
         "id": v.id,
+        # The DECLARED family, not the nesting key. `Variant.family` is read from
+        # the variant BODY (chat_nextseek/e2e/catalog.py:24), and 7 variants
+        # declare a family that differs from the block they sit in -- e.g.
+        # routing.lab_ooc_kamm_count sits under `search_advanced` and declares
+        # `routing_lab`. `corpus.sample()` buckets on v.family, so re-deriving it
+        # from the nesting key silently moves those 7 into different sampling
+        # buckets and changes every seeded case set.
+        "family": v.family,
         "name": v.name,
         "tags": [t for t in v.tags if t not in ("base", "overlay")],
         "requires_env": list(v.requires_env),
