@@ -473,8 +473,13 @@ In `nessie_tests/corpus.py`, add after `load_overlay`:
 _UNIFIED = Path(__file__).resolve().parent / "corpus.json"
 
 # The keys that are nessie metadata rather than part of the e2e Variant schema.
-# Stripped before handing a variant to the vendored `Variant` model, which is
-# strict about its own fields.
+# Stripped so the Variant body stays clean -- NOT because `Variant` would reject
+# them. `Variant.model_config` is `{}`, so pydantic's default `extra="ignore"`
+# applies and an unknown key is dropped in silence. That cuts the wrong way for
+# anyone adding a metadata key: forget to list it here and `Variant` swallows it,
+# while `variant_meta` (which returns only these keys) never surfaces it either.
+# Both halves of the round trip stay quiet. THIS TUPLE IS THE ONE PLACE a new
+# metadata key must be registered.
 _META_KEYS = ("status", "origin", "is_bayesian", "hibayes_subtype",
               "expected_behavior", "artifact_expected", "artifact_kind", "retirement")
 
@@ -490,9 +495,11 @@ def _to_variants(payload: dict, *, include_retired: bool) -> list[Variant]:
             if not include_retired and raw.get("status") != "active":
                 continue
             body = {k: val for k, val in raw.items() if k not in _META_KEYS}
-            # Declared family wins; the nesting key is only a fallback. See the
-            # comment in build_corpus._variant_dict for the 7 variants where they
-            # differ and why sampling depends on getting this right.
+            # Declared family wins; the nesting key is only a fallback. 3
+            # variants diverge in corpus.json (7 across the two source files; the
+            # overlay's 4 are base-id overrides emitted under their base block,
+            # which happens to match). `corpus.sample` buckets on v.family, so
+            # taking the block name here changes every seeded case set.
             body["family"] = raw.get("family") or fam_name
             # `origin` becomes the source tag the rest of the harness already
             # reads off `tags`, so nothing downstream has to learn a new field.
@@ -630,6 +637,8 @@ def load_route_policy(path=None) -> dict:
     return _read_unified(path).get("route_policy", {})
 ```
 
+While you are in `merged_from_unified`, collapse its double read. As transcribed it parses the ~1.4 MB file twice, once for the policy blocks and once inside `load_unified`. Harmless while it is a test-only path; Task 3 makes it the path every run takes. Parse once and pass the payload down.
+
 - [ ] **Step 4: Repoint the fingerprint**
 
 Replace `nessie_tests/runner.py:52-66` with:
@@ -684,7 +693,7 @@ The last three are Task 2's. The fourth is the artifact-to-generator pin, and re
 
 Keeping it would also falsify `build_corpus.py`'s own module docstring, which states that after this task nothing imports it.
 
-Replace the first with one that no longer needs the old sources, so the count stays pinned:
+Replace the first with two that no longer need the old sources, so the count stays pinned AND the retired definitions keep a guard. The second matters because deleting the generator pin leaves the 100 retired bodies compared against nothing, and reinstatement is meant to be a data edit rather than a code change -- a retired definition that has quietly rotted is only discovered when someone reinstates it:
 
 ```python
 def test_unified_holds_every_definition():
@@ -693,6 +702,19 @@ def test_unified_holds_every_definition():
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
     ids = {v["id"] for fam in payload["families"].values() for v in fam["variants"]}
     assert len(ids) == 383
+
+
+def test_every_retired_definition_is_still_loadable():
+    """Retirement is not deletion: the definition is kept so reinstating is a data
+    edit, not a code change. After Task 3 nothing else compares those 100 bodies
+    against anything, so this is what stops one rotting unnoticed until the day
+    someone reinstates it."""
+    retired = [v for v in corpus.load_all_definitions(CORPUS)
+               if corpus.variant_meta(CORPUS)[v.id]["status"] == "retired"]
+    assert len(retired) == 100
+    for v in retired:
+        assert v.turns, f"{v.id} has no turns"
+        assert all(t.query for t in v.turns), f"{v.id} has an empty query"
 ```
 
 Then delete the `OVERLAY` and `RETIRED` module constants and the `from nessie_tests.scripts import build_corpus` import from that file.
