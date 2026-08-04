@@ -10,12 +10,6 @@ from nessie_tests import corpus, runner
 from nessie_tests.manifest import NessieManifestEntry
 
 CORPUS = pathlib.Path(__file__).resolve().parents[1] / "corpus.json"
-OVERLAY = pathlib.Path(__file__).resolve().parents[1] / "overlay.json"
-
-# merged() is mid-migration from overlay.json to the unified corpus.json on a
-# parallel branch. Both resolve to the same 283 variants, so either is a valid
-# fixture source; this collapses to corpus.merged() once that lands.
-_UNIFIED = hasattr(corpus, "load_unified")
 
 
 def _fakes(route="nextseek_query", reply="ok", cost=None):
@@ -38,7 +32,7 @@ def _fakes(route="nextseek_query", reply="ok", cost=None):
 
 
 def _variant(vid="green.mus_ndma"):
-    return next(v for v in corpus.merged(CORPUS if _UNIFIED else OVERLAY) if v.id == vid)
+    return next(v for v in corpus.merged(CORPUS) if v.id == vid)
 
 
 def test_run_case_returns_exactly_one_entry():

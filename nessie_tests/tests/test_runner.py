@@ -170,7 +170,7 @@ def test_run_suite_never_forces_the_route(tmp_path, monkeypatch):
 
     m = runner.run_suite(
         base_url="http://x", auth_header="Basic x", tier="full", scope="all",
-        overlay_path=OVERLAY, out_dir=tmp_path,
+        corpus_path=CORPUS, out_dir=tmp_path,
         post_query=post_query, get_progress=lambda tid: NS_DONE,
         sleep=lambda s: None, clock=lambda: 0.0)
 
