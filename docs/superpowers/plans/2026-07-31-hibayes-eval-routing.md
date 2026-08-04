@@ -46,9 +46,13 @@ pytest / pytest-django, Docker.
 
 This amendment applies the independently reviewed and claim-checked findings in:
 
-- `/home/taishajo/work/state/plan018/PLAN018-ADVERSARIAL-RISK-REVIEW-2026-08-04.md`
-- `/home/taishajo/work/state/plan018/PLAN018-GAMEABILITY-REVIEW-2026-08-04.md`
-- `/home/taishajo/work/state/plan018/PLAN018-CLAIM-VERIFICATION-2026-08-04.md`
+- `PLAN018-ADVERSARIAL-RISK-REVIEW-2026-08-04.md`
+- `PLAN018-GAMEABILITY-REVIEW-2026-08-04.md`
+- `PLAN018-CLAIM-VERIFICATION-2026-08-04.md`
+
+These three live in the maintainer's private state directory on the development host and are
+deliberately not reproduced here: this repository is public, so specifics stay in the private notes
+and the public artifact references them by name only.
 
 The preserved pre-vetting plan is:
 `2026-07-31-hibayes-eval-routing.md.bak-pre-plan-vetting-20260804T113805-0400.md`
