@@ -85,7 +85,7 @@ nessie_tests/corpus.json   (is_bayesian: true)
    interleaved       run_case(v, force_route="cc")  --+
    per variant                                        |
         |                                             v
-        |                                    nessie_out_bayes/manifest.json
+        |                                nessie_out_bayes/bayes_manifest.json
         v                                      (BayesManifest: pairs[])
   collect.py (post-hoc)
     ./outputs/<ts>_<user>/      host bind mount

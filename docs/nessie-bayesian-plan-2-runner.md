@@ -1060,7 +1060,7 @@ and at the top of `main`, after parsing:
             build_parser().error(
                 f"--bayesian selects on the corpus's is_bayesian flag and cannot be "
                 f"combined with {', '.join(conflicting)}.")
-        from nessie_tests import bayesian
+        from nessie_tests import bayes_manifest, bayesian
         try:
             m = bayesian.run_paired(
                 base_url=a.base_url, auth_header=auth, out_dir=a.out,
@@ -1071,11 +1071,19 @@ and at the top of `main`, after parsing:
             return 2
         both = sum(1 for p in m.pairs if p.ns and p.cc)
         print(f"nessie: {both}/{len(m.pairs)} complete pairs "
-              f"({2 * len(m.pairs)} arms); manifest -> {a.out}/manifest.json")
+              f"({2 * len(m.pairs)} arms); manifest -> {a.out}/{bayes_manifest.MANIFEST_NAME}")
         return 0
 ```
 
 Note the parser must define `--cases` if it does not already; if `--cases` is absent from this branch, drop that one entry from `conflicting` rather than inventing the flag.
+
+> **Corrected 2026-08-04 (whole-branch fix wave).** The success line above originally
+> printed `{a.out}/manifest.json`. That is the file `runner.run_suite` writes for a NORMAL
+> run and is the exact name Task 3's `MANIFEST_NAME` override exists to keep OUT of the
+> paired output directory (see the block at Task 3, Step 3). Shipping it would have told
+> the operator to open a path that does not exist, named after the collision. Print
+> `bayes_manifest.MANIFEST_NAME` rather than any literal, so the CLI and the writer cannot
+> drift apart again.
 
 - [ ] **Step 4: Run and commit**
 
