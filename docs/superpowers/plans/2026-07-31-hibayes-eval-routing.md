@@ -2,12 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **VETTED-HARDENED V4 (2026-08-04):** V4 below was produced only after
+> **VETTED-HARDENED V5 — REMOTE PUBLICATION PENDING (2026-08-04):** V4 below was produced only after
 > re-inventorying every fetched NExtSEEK ref and worktree, the deployed service-account clone, and
 > the running image. V4 supersedes every conflicting V2/V3/original code sketch, command, success
 > condition, failure condition, and rollback statement. Earlier prose remains design history; it
 > is not permission to bypass a V4 gate. The original 15 tasks and all V4 prerequisite work remain
-> **unexecuted**. Vetting is neither implementation nor execution authorization.
+> **unexecuted**. V5 below corrects and hardens the remotely retrieved V4 artifact after a fresh
+> all-instance re-vet. This candidate is not executable until its independent exact-diff review is
+> CLEAN and its final hash is published as the single authority. Vetting is neither implementation
+> nor execution authorization.
 
 **Goal:** Build a Bayesian router for the NExtSEEK assistant. A forced-route experiment runs one
 question corpus down the NExtSEEK path and down the Container-CC path and estimates a paired,
@@ -43,8 +46,8 @@ pytest / pytest-django, Docker.
 - **Copy, do not rewrite.** Vendored evaluation logic must preserve the original's behaviour. Reformatting is acceptable; changing control flow or thresholds is not.
 - **No dependency on a `dmac-assistant` checkout.** After Phase 2, every task must pass on a machine that does not have that repository.
 - **The two BAML trees stay byte-identical** (`dmac_assistant/baml_src/` and `docker/cc-runtime/baml_src/`). Any edit lands in both in the same commit.
-- **The capabilities file is hash-pinned by exactly one test** (`nextseek_api/cc_assistant/tests/test_f_constraint_pins.py:12,17`). Editing that file updates that pin in the same commit. A second test's docstring claims it also pins the file — it does not; ignore that docstring.
-- **Taxonomy source of truth** is the **NExtSEEK-vendored** `dmac_assistant/build_context/route_capabilities.json`, not the standalone `dmac-assistant` copy. They are forked.
+- **The capabilities file is hash-pinned by exactly one test** (`nextseek_api/cc_assistant/tests/test_f_constraint_pins.py:12,17`). A second test's docstring claims it also pins the file — it does not; ignore that docstring. **No task in this plan edits `dmac_assistant/build_context/route_capabilities.json` (V6-A), so that pin must stay green untouched.** A task that finds it needs to change that file has left this plan's scope and stops for the maintainer.
+- **Classifier label-space source of truth** is the `nessie_tests` corpus (V6-B) — **not** `dmac_assistant/build_context/route_capabilities.json`, which is hand-written live routing configuration for the fallback router and is not a question taxonomy (V6-A). The label set's contents, its names, and its crosswalk to the harness and to both routes are V4-1's STOP decision.
 - **Never commit or push without the maintainer's explicit go-ahead.** Tasks end at `git commit` on the feature branch only.
 - **Hermetic test command:** `pytest nextseek_api/cc_assistant/tests/`
 - **DB-backed tests run in the V2 worktree-mounted harness**, using `uv run --no-sync` and the
@@ -177,16 +180,17 @@ routine code rollback and must never silently drop evaluation data.
 
 #### V2-T3 — Compiled BAML/Python family contract
 
-- Do not redeclare the existing BAML `class TaskFamily`; use a distinct exact enum/type name whose
-  members are **generated** from the families declared in `dmac_assistant/build_context/route_capabilities.json` (8 at time of
-  writing — the count is an observation, not a contract), and add it to the existing
-  decision object returned by the **classification** function (see V3-B), not by the routing
-  function. No task may hardcode a family count.
+- Do not redeclare the existing BAML `class TaskFamily` — that type already exists in
+  `dmac_assistant/baml_src/router.baml` and describes a route's advertised family, which is a
+  different thing. Use a distinct, explicitly named enum/type whose members come from the approved
+  classifier label set (source: V6-B; selection: V4-1), and add it to the decision object returned by
+  the **classification** function (see V3-B), not by the routing function. No task may hardcode a
+  family count or a literal member list.
 - Regenerate every runtime BAML client through the repository's pinned generation path and include
   generated artifacts in the task diff. Update fallback construction, Python `RouteDecision`, and
   `route_decided` telemetry. `unrelated` has explicit family state `None/unrelated`.
-- Compile/parse the BAML, assert the generated enum set **equals** the families declared in
-  `dmac_assistant/build_context/route_capabilities.json` — drift in either direction fails, so a family added to the JSON but
+- Compile/parse the BAML, assert the generated enum set **equals** the approved classifier label set
+  read from its source — drift in either direction fails, so a family added at the source but
   missing from the generated enum is caught — assert per V3-B that classification and routing are
   distinct seams and that exactly one LLM classification call occurs per turn, and exercise the
   generated typed result through the public `decide` seam. A comment/string-only edit cannot pass.
@@ -195,10 +199,12 @@ routine code rollback and must never silently drop evaluation data.
 
 - Preserve the existing `_heuristic` source hash and routing result. Enrich family metadata after
   route selection; never alter the frozen routing patterns or their precedence.
-- Generate positive cases from every capability-family example and property-test that every
-  non-null family belongs to the chosen route. Include empty, ambiguous, mixed-case, punctuation,
-  substring, forced, unknown-route, and unmatched cases. Mutating any family mapping must turn at
-  least one test red.
+- Generate positive cases from the approved label set's own example queries — V6-B: the corpus's
+  per-family `variants` — and property-test that every non-null family is feasible on the chosen
+  route, taking feasibility from the corpus's `route_policy.families` rather than from a family's
+  position nested under a route. Include empty, ambiguous, mixed-case, punctuation, substring,
+  forced, unknown-route, and unmatched cases. Mutating any family mapping must turn at least one
+  test red.
 
 #### V2-T5 — Real writers, all terminal paths, one atomic row
 
@@ -215,7 +221,9 @@ routine code rollback and must never silently drop evaluation data.
 
 #### V2-T6 — Complete, hash-manifested, behavior-preserving port
 
-- Build a transitive manifest at source commit `dcca50c`: tools, `_plan018-refs/port-source/functional_evaluator_models.py`,
+- Build a transitive manifest at source commit `dcca50c`: tools,
+  `tools/e2e/functional_evaluator_models.py` (dev-box convenience copy:
+  `_plan018-refs/port-source/functional_evaluator_models.py`),
   evaluator BAML/generated-client inputs, all four fit packages, configs, templates, resources,
   wrappers/entrypoints, and the upstream free tests/golden artifacts needed for parity. Each entry
   records source path/hash, destination path/hash, and the only allowed import/package rewrite.
@@ -292,19 +300,6 @@ routine code rollback and must never silently drop evaluation data.
   `assess`, and prove routing remains byte-for-byte equivalent. Test stale/inactive posterior
   generations and missing rows as `unknown`; never interpret `TooUncertain` confidently.
 
-#### V2-T12b — Reviewed semantic family↔op mapping, not union equality
-
-- Generate the live public-op inventory from the existing catalog mechanism, then author a
-  per-family mapping artifact with rationale for every op and every multi-family assignment.
-- **PAUSE for maintainer approval of that semantic mapping diff/hash** only when the diff moves an
-  op across routes, drops an op from every family, or empties a previously non-empty family.
-  Adding a new family together with the ops it serves is a routine capability addition and
-  proceeds without the pause. Update the file and hash pin together in one commit either way.
-- Validate schema, route compatibility, non-empty intended families, approved duplicates, and
-  exact inventory. Mutations that assign every op to every family, move an op across routes, empty
-  a required family, invent an op, or include a helper must fail. Prove the BAML/playbook consumer
-  reads the mapping; union-only tests are insufficient.
-
 #### V2-T13 — Enforced free end-to-end, coverage, and separately approved paid acceptance
 
 - First run a **free, network-denied production-path integration** through real routed writer
@@ -363,20 +358,17 @@ Rules of precedence:
 
 ### V3-A — The task-family set is not frozen (applied inline)
 
-Applied directly in V2-T3, V2-T12b, Task 3 and Task 12b rather than carried as a separate contract.
+Applied directly in V2-T3, V2-T4, Task 3 and Task 4 rather than carried as a separate contract.
 
-The family set is **generated from** `dmac_assistant/build_context/route_capabilities.json`, which is
-its single source of truth. No task may hardcode a family count or a literal member list. The BAML
-enum and its `docker/cc-runtime` mirror are emitted by a generator, and a test proves regeneration is
-idempotent and the mirror byte-identical, so a family added to the JSON cannot silently miss either
-file. Adding a capability is a one-file JSON edit plus a regeneration.
-
-Maintainer approval of the family-to-op mapping is now required only when a diff moves an op across
-routes, drops an op from every family, or empties a previously non-empty family. Adding a new family
-together with the ops it serves is a routine capability addition and proceeds without that pause.
+No task may hardcode a family count or a literal member list. The classifier's enum and its
+`docker/cc-runtime` mirror are emitted from the approved label set rather than hand-edited, and a
+test proves the declared enum equals that set in both directions — so a label added at the source
+cannot silently miss either file. Where that set comes from is fixed by V6-B, what is in it is
+V4-1's decision, and how the enum is generated is V6-D's.
 
 **Rationale:** a routing system whose purpose is to absorb new capabilities cannot carry a fixed
-label set. The count `8` is an observation about today's capabilities file, never a contract.
+label set. Any count appearing anywhere in this plan is an observation about one file at one moment,
+never a contract (V6-C).
 
 ### V3-B — Split the router into classification and routing
 
@@ -404,8 +396,8 @@ steady-state path.
 - `unrelated` is rejected at classification, proven by a test asserting that no routing decision is
   produced and no downstream call occurs for an out-of-scope query.
 - Routing behaviour is unchanged for in-scope queries: a differential test compares destination and
-  selected model before and after the split across every capability-family example query and shows
-  equivalent routing decisions.
+  selected model before and after the split across the corpus's per-family `variants` (V6-B) and
+  shows equivalent routing decisions.
 - The existing `_heuristic` source hash, routing patterns and their precedence are untouched; V2-T4
   continues to apply in full.
 - Per-turn LLM call count on the steady-state path is asserted not to have increased.
@@ -929,17 +921,377 @@ recorded prior state without data loss. Production enablement remains a separate
 | any deployment or schedule change | V4-0 through V4-9 plus separate deployment approval |
 | production posterior-routing enablement | all gates, recoverable image, rollback rehearsal, and separate enablement approval |
 
+## V5 registry re-vet hardening amendment (2026-08-04)
+
+### Change control, evidence identity, and precedence
+
+This amendment applies the fresh all-instance inventory, independent adversarial/gameability
+reviews, and independent claim verification below. An authorized verifier must resolve these exact
+bytes; a matching basename is not evidence.
+
+| Artifact | SHA-256 |
+|---|---|
+| `_plan018-refs/reviews/PLAN018-V4-REGISTRY-CURRENT-ALL-INSTANCES-INVENTORY-2026-08-04.md` | `79e69222343eaf19c19a5a2590d33e8fce96b350d43444e51a7f810d8544fd8b` |
+| `_plan018-refs/reviews/PLAN018-V4-REGISTRY-ADVERSARIAL-REVET-2026-08-04.md` | `aff5217d370c66b9d8d13f2dd185532ca72d187feb6433be054e5037026f40f9` |
+| `_plan018-refs/reviews/PLAN018-V4-REGISTRY-GAMEABILITY-REVET-2026-08-04.md` | `7b5dcfd0400b304edb18d664656c6034e8e03a75c343df283ac20e03f7ceaae5` |
+| `_plan018-refs/reviews/PLAN018-V4-REGISTRY-CLAIM-VERIFICATION-2026-08-04.md` | `62ea9953a390822a126994a346afbf6c15093d32d87be829a4e25a103009b08a` |
+
+The exact remotely retrieved pre-V5 registry plan was preserved beside the vault target before
+editing and is retained outside the vault (so it is not misclassified as a registry asset) at
+`/home/taishajo/work/state/plan018/registry-nextseek--plan-018-pre-v5-backup-20260804T224551-0400.md`
+(SHA-256 `a4e9fc0a53442eaf098ec01c967d65dfe2e305edd6d6015a40d554015151711f`).
+The later corrective source plan is separately preserved as
+`docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md.bak-pre-plan-vetting-v5-20260804T224551-0400.md`
+(SHA-256 `14bff9975eb350888cf0b337545bf09af10c4d49e7d1743eb1474e9558728357`).
+
+V5 supersedes conflicting V4/V3/V2/original prose. The corrected Task 0 topology and resolvable
+references already incorporated from source commit `5e9c189` are part of V5 change control; that
+commit is evidence, not a second authority. Final release requires source plan, registry vault
+plan, approval subject, evidence manifest, and diff-review target to name one identical final
+SHA-256. Local convenience copies under `_plan018-refs/` do not by themselves establish remote
+availability; the evidence manifest must carry stable registry IDs/URIs, disclosure class, source
+identity, and hashes.
+
+### Corrected current facts and closed inventory universe
+
+The fresh scan found 7-, 8-, 10-, and 15-family committed capability taxonomies. Every earlier
+closed-list reference to only 8/10/15 is void. The ref count changed during the shared-workspace
+review as parallel branches appeared without adding a new source generation, demonstrating that a
+handwritten count is not a closure oracle.
+
+Before the V4-1 decision artifact is signed, generate `evidence/plan018-source-universe.json` from:
+
+- every named local branch, fetched remote-tracking ref, and tag after an immediately preceding
+  fetch, including stored refs whose remote is no longer configured;
+- every registered worktree HEAD plus a content hash of dirty/untracked taxonomy- or Plan-018-
+  relevant bytes;
+- the deployed clone HEAD/branch/dirty-diff hash and immutable running-image digest plus sampled
+  source hashes, as evidence only;
+- every capability, BAML taxonomy, corpus label, ordinary-Nessie label, annotation vocabulary,
+  online schema, and generated mirror that can produce or consume a family ID.
+
+The manifest records ref name, commit, path, Git blob/file SHA-256, family IDs/count, reachability,
+and equivalence group. A validator recomputes the complete named-ref/worktree/deployment set and
+fails on any unvisited identity, changed hash, unclassified no-taxonomy state, unmapped label,
+duplicate canonical ID, or ambiguity without an explicit disposition. V4-1 approval binds this
+manifest hash and the crosswalk hash. Adding/removing a ref or changing any source byte makes the
+approval stale; aliases to an already inventoried commit remain explicit rows, not silent drops.
+
+### V5-1 — Sensitive evaluation-data governance (STOP before schema implementation)
+
+The durable ledger, raw judge payloads, artifacts, caches, playbook examples, generations, audit
+rows, and backups may contain real queries, answers, research identifiers, errors, and traces.
+Before Task 1 or V4-3 schema work, the maintainer must approve a versioned governance artifact that
+defines:
+
+- lawful/authorized collection purpose and notice/consent or other approved basis for each data
+  class, including whether provider disclosure is permitted;
+- minimization/redaction before persistence and provider submission, plus fields forbidden from
+  every store and log;
+- reader/writer/service-role matrix, project/user scoping, encryption/key scope, audit events, and
+  incident owner;
+- retention/expiry for ledger, raw requests/responses, failures, cache, artifacts, generations,
+  logs, backups, and provider-side copies;
+- user/project deletion, subject erasure, access revocation, offboarding, legal-hold exception,
+  content-addressed orphan cleanup, and backup-expiry propagation; and
+- fail-closed behavior when governance metadata, authority, or deletion propagation is incomplete.
+
+The schema must bind owner/project, data class, governance-policy version, retention deadline, and
+deletion state without weakening the complete replay contract for retained authorized data.
+Negative tests use marked cross-user/project/expired/deleted/revoked/backup-restored fixtures and
+prove byte-exact absence from exports, provider payloads, caches, playbooks, fit inputs, active
+generations, logs, and retrievable artifacts. A restore rehearsal must reapply tombstones before
+readers or workers start. **V5-1 DONE** requires approved policy bytes/hash, an implemented access/
+retention/deletion inventory covering every store, and rerunnable negative evidence; completeness
+or replay tests cannot waive governance failures.
+
+### V5-2 — Authenticated, action-scoped approval records
+
+“Recorded maintainer approval” is not satisfiable by self-authored prose. Every V4-1/V4-4 decision,
+paid run, candidate activation, deployment, production enablement, destructive rollback, and data-
+governance ruling uses a strict approval record containing schema version, action class, exact
+subject/evidence/plan hashes, environment/target, approver identity and verified authority source,
+system-of-record ID or signature, issued/expiry times, one-use nonce where the action is consumable,
+and action-specific caps.
+
+This gate is deliberately split so it does not make V4-1 circular:
+
+- **V5-2A — decision-record gate (pre-implementation).** Before a V4-1, V4-4, or V5-1 decision
+  counts, an external/durable authority resolver must validate the strict record and immutable
+  subject hashes. This is decision-artifact work, not product implementation. V5-2A DONE requires
+  the canonical schema, independently resolvable authority/system-of-record identity, immutable
+  record, and negative validation of copied, expired, revoked, wrong-action, wrong-environment,
+  wrong-target, changed-hash, and unsigned/unresolvable records. It creates no product entry point
+  and consumes no action.
+- **V5-2B — consumable-action enforcement (implemented only with its owning later task).** The
+  production entry point for each paid run, activation, deployment, enablement, or destructive
+  rollback verifies the record and atomically consumes its nonce with the action/reservation.
+  Each owning task adds its own append-only audit/replay row and negative tests for expiry,
+  revocation, wrong action/environment/target/hash, concurrency, and replay. An implementation go
+  can never authorize any of these action classes.
+
+Decision-only approvals are immutable and superseded only by a new linked record. V5-2A is a
+prerequisite only for the decision it authenticates. Each V5-2B verifier is a prerequisite only for
+its corresponding consumable action; later nonexistent entry points do not block V4-1. **V5-2 is
+fully DONE** only when V5-2A and every implemented V5-2B entry point are complete, but the acyclic
+action table below governs when each partial gate is required.
+
+| Before this event | Required approval enforcement |
+|---|---|
+| accept V4-1/V4-4/V5-1 decision | V5-2A record for that exact decision subject |
+| first provider call | paid-run V5-2B + V4-8 DONE |
+| candidate activation | activation V5-2B + V4-5 DONE |
+| deployment | deployment V5-2B + V5-4/V4-9 prerequisites |
+| production enablement | enablement V5-2B + all production gates |
+| destructive rollback | rollback V5-2B + verified restore target |
+
+### V5-3 — Binding producer, judgment, model, store, and selector oracles
+
+The following clauses strengthen the corresponding V4 gates:
+
+1. **V4-2 route proof.** “Independent route trace” means server-emitted route-selection and
+   dispatch events observed through a read path not populated by the paired producer. Events bind
+   request/question hash, arm, unique session/execution, every turn, requested/selected/actual
+   route, route source, downstream override, and completion. A no-provider acceptance test crosses
+   the real authenticated override/controller, orchestrator, sticky-session guard, and dispatch
+   seam. Mutations for ignored override, same session/execution, copied/swapped arms, changed
+   question, missing middle-turn event, sticky/downstream override, and requested/actual mismatch
+   must make the gate red.
+2. **V4-3 DD-44 oracle.** Exercise all three-vote enum combinations and boundary values for outcome
+   plurality/failure tie-break, primary-issue majority/severity tie-break, usefulness median,
+   priority maximum, review OR, and first-matching rationale. Assert intended permutation behavior,
+   incomplete/duplicate/failed-attempt handling, future-enum fail-closed behavior, and replay from
+   retrieved hash-verified raw bytes through the public aggregate and fitter-admission seams. A
+   mutation report must kill each aggregation operator/tie-break mutation.
+3. **V4-4 model oracle.** The approved contract pins an externally owned fixture generator,
+   freeze/blinding procedure, hidden-until-freeze seeds, parameter grid, repetitions, calibration/
+   precision/power/type-I/wrong-sign tolerances, near-boundary negatives, sparse/imbalanced/MNAR/
+   adversarial cases, and an independently implemented recomputation. Fixtures selected after
+   seeing fitter output cannot satisfy DONE.
+4. **V4-5 real store.** The store is the production MySQL ORM/schema and reader entry point in the
+   isolated harness, with named isolation level and transaction/CAS constraints. Barrier-driven
+   writer/writer and reader/writer tests observe one complete generation hash per reader and cover
+   stale CAS, two activators, parent mismatch, immutable overwrite, corruption, and crash at every
+   publish/activation boundary. SQLite, an in-memory repository, or sequential concurrency is not
+   the real-store oracle.
+5. **Comparative selector ownership.** Add a concrete selector task after approved V4-4 and V4-5.
+   The V4-0 ownership map must name its production files, DB reader, classifier input, decision
+   contract, generation snapshot, provenance event, fallback, sticky/safety override behavior,
+   operator owner, and tests. Original Task 12 remains telemetry-only and can never satisfy this
+   task. DONE requires production-seam differential tests proving a decisive compatible generation
+   changes route exactly by the approved rule while every missing/stale/malformed/incompatible/
+   indecisive case uses the byte-equivalent legacy fallback.
+6. **Terminal writer closure.** Generate the terminal-path inventory from AST/control-flow and
+   production telemetry/event sites, bind it to source/diff hashes, and fail when a new return,
+   exception, callback completion, or append site appears without atomic ledger coverage. A hand-
+   authored list cannot prove V2-T5.
+
+### V4-6 binding DONE oracle — classifier/router split
+
+Trace at the generated-client provider transport and execution-dispatch observers, not wrapper
+counters. On a versioned corpus covering every approved-label example (V6-B) plus unrelated, ambiguous,
+malformed, multi-turn/sticky, storage-error, and safety-fallback cases, assert every row of V4-6's
+call table, prompt/function identity, attempted/selected/actual route, destination/model, errors,
+and downstream overrides. With the flag off, compare against the frozen base image/source and
+require byte-equivalent destination/model/fallback behavior. Schema inspection proves the
+classifier cannot represent destination/model. Mutations adding a transport call, route-bearing
+classifier field, changed legacy prompt, swallowed failure, or unrecorded override must fail.
+
+**V4-6 DONE:** the source-derived classifier/router/call-site inventory has no unvisited seam; all
+four rows pass through real generated clients and dispatch observation with zero unexpected skip/
+xfail/deselection; evidence binds source/diff/image/corpus/schema hashes and killed mutations.
+
+### V4-7 binding DONE oracle — experimental/observational separation
+
+Use disjoint schema versions and discriminators, immutable paired-run lineage FKs, and DB/runtime
+constraints. The production paired fitter may query only approved paired run IDs. Inject online
+objects, forged discriminators, copied IDs, mixed batches, raw dictionaries, and policy-selected
+provenance through every public fit/query/adapter entry point; each fails closed. Conservation
+proves zero online row IDs in every paired input hash. Route-conditional monitoring remains
+separately labeled and cannot call the comparative publisher/activator.
+
+**V4-7 DONE:** a source-derived inventory covers every paired and online producer, adapter, query,
+fit, publish, and activation seam; runtime/DB negative tests and boundary-removal mutations fail;
+evidence binds schema/migration/source hashes with zero unexpected non-execution.
+
+### V4-8 binding DONE oracle — authorization and spend
+
+Use the production MySQL reservation schema and the real provider-transport boundary in the
+isolated harness. Barrier-driven multi-process/multi-worker tests prove concurrent callers cannot
+reserve or call beyond the approved cap. Inject crashes before reservation, after reservation,
+after provider return, and before reconciliation; test broker redelivery, idempotency-key replay,
+retry charging, orphan-reservation recovery, expiry, and changed manifest/rate/resolver output.
+Conservation must reconcile approved maximum = available + reserved + reconciled actual + explicit
+released/expired amounts, and calls = succeeded + failed + pending with stable attempt IDs. Bind the
+rate table bytes/source timestamp and all resolved client/model/output identities to the approved
+V5-2 record.
+
+**V4-8 DONE:** every source-derived provider-call seam uses the same pre-transport atomic
+reservation/approval verifier; locking/reservation-order/retry/idempotency mutations fail; N-way
+contention, crash recovery, replay rejection, and reconciliation artifacts are independently
+rerunnable. Only then may a separately approved pilot record be consumed.
+
+### V5-4 — Evidence completeness, coverage, deployment, and rollback
+
+- Generate the owned-module/config/migration/generated-file coverage manifest from the V4-0
+  ownership map plus the exact base-to-candidate diff. Fail if any owned production or safety
+  surface is absent. Enforce 95% statement and branch coverage per named critical module and
+  overall, plus a maintainer-approved minimum mutation score for route enforcement, data
+  governance, exclusions, aggregation, model decision, store/activation, boundary separation,
+  approval/reservation, and rollback.
+- Seed the disposable deployment with active/prior candidates, non-empty judgments and exclusions,
+  pending/failed attempts, reservations, tombstones, post-migration rows, schedule/flag state, and
+  concurrent readers/writers. Forward deploy and rollback must compare exact image, schema,
+  generation, schedule, flag, DB/artifact/tombstone, network, and owner identities and preserve
+  post-contract-compatible writes without data loss. An empty DB or image-only rollback cannot
+  satisfy V4-9.
+- Exercise an explicit **expand → migrate/backfill → contract** matrix against the production
+  MySQL schema with simultaneously running old/new web and Celery images at their real entry
+  points. Cover old-reader/new-writer and new-reader/old-writer directions, queued old tasks and
+  broker redelivery, generation activation/snapshot reads, governance tombstones, and rollback
+  after forward writes. Record the only safe rollout order. The contract/destructive step must
+  refuse while any old web/worker/queued-task identity can still run; mutations that remove version
+  guards or compatibility fields must turn the matrix red.
+- Resolve the prior image digest independently and prove it exists before deploy. The current live
+  image is baseline evidence, not a rollback artifact; the unchecked rollback script and `git
+  revert` remain forbidden as complete rollback evidence.
+
+**V5-4 DONE:** source-derived coverage/mutation manifests are complete, the free/fake E2E crosses
+the real production seams, and an authorized non-empty concurrent disposable deploy/rollback
+rehearsal reproduces all pre/post identities with governance tombstones effective before readers.
+
+### Machine-readable gate completion
+
+Each V4/V5 gate emits one schema-validated completion manifest listing every required artifact,
+command argv/exit/counts, source/diff/image/DB/schema/corpus/evidence/approval hashes, mutation
+results, and dependency gate IDs. A validator fails on a missing checklist item, stale hash,
+unexpected skip/xfail/deselection, zero selection, unvisited source-derived seam, or unapproved
+action. Prose, helper-only tests, filenames, or a partial checklist cannot mark a gate DONE.
+
 Until the STOP decisions are recorded, the only permissible next work is decision-artifact
 preparation and read-only verification. No “mostly complete” status may count an unapproved or
 unexecuted gate as done.
 
+## V6 amendment — the classifier's label space comes from the corpus (2026-08-05)
+
+### Change control and precedence
+
+V6 controls over V5, V4, V3, V2 and any original task body wherever they conflict on **where task
+families come from**. It changes nothing else: every V2 safety, privacy, paid-call, provenance and
+per-action approval gate survives, V4's STOP gates remain STOP gates, and V5's evidence-identity,
+closed-inventory and source-universe requirements are untouched and still binding.
+
+V6 is consistent with V5 rather than a competing account: V5 voids every earlier closed-list
+reference to a 7/8/10/15-family taxonomy and shows that a handwritten count is not a closure oracle;
+V6 says the same thing about counts and additionally names *which artifact* the classifier's labels
+are drawn from. V5's `evidence/plan018-source-universe.json` inventory remains a prerequisite of the
+V4-1 decision, and V6 does not shortcut it.
+
+### V6-A — `route_capabilities.json` is not the classifier's source
+
+Prior amendments named `dmac_assistant/build_context/route_capabilities.json` as the single source
+of truth for the task-family set. That is wrong, for three independently verified reasons.
+
+1. **It is a routing artifact, not a question taxonomy.** Its families exist to tell the router
+   which of two destinations serves what; they are nested *under* a route, so a family determines
+   its destination by position. A classifier that labels *what kind of question was asked* needs a
+   label space that is not a restatement of the routing decision.
+2. **It is hand-written, with no generator and no provenance.** Verified in both this repository and
+   the standalone `dmac-assistant` repository: every reference is a reader or a test, no build step
+   writes it, and its history is hand edits that add a family to change routing behaviour. It
+   carries no version, no source hash and no adoption record. Issue #65 tracks giving it a
+   generator; until that lands it is a hand-maintained file.
+3. **It is live configuration.** `nextseek_api/cc_assistant/router.py:159` loads it and passes it to
+   `RouterAgent`, and `nextseek_api/cc_assistant/tests/test_f_constraint_pins.py` pins its sha256.
+   Evaluation work must not edit it, and must not require editing it.
+
+**Therefore:** this plan neither reads nor modifies `route_capabilities.json` for classifier
+purposes. The **fallback router continues to consume it exactly as today** — unchanged, unread by
+the classifier, and with its hash pin intact. Earlier drafts instructed generating a classifier enum
+from that file and writing an `ops` mapping into it; both instructions are withdrawn, and the
+sections that carried them have been corrected or removed rather than left in place (V6-E).
+
+### V6-B — The label space is sourced from the nessie_tests corpus
+
+The classifier's labels come from the corpus adopted as the single source of truth for
+`nessie_tests`: `_plan018-refs/corpus/corpus.json` (reference copy; the working artifact lives with
+the harness). It is a versioned, provenance-carrying artifact — it records `adopted_from`,
+`catalog_sha256` and `adopted_on`, and states that retirement is a `status` flip rather than a
+deletion.
+
+It supplies, per family, exactly what a classifier needs and `route_capabilities.json` does not:
+
+- a `description` — usable directly as the enum value's description;
+- `variants` — real, labelled example queries, already grouped by family;
+- `family_floor` — the minimum outcome assertion per family, which is the per-family success
+  definition the evaluation side needs; and
+- `route_policy.families` and `route_policy.overrides` — expected route per family and per case,
+  so route feasibility is expressed *about* a family rather than *by nesting it under one*.
+
+That last point matters for V4-1: it means route feasibility and common support can be stated
+without a family being owned by a route.
+
+### V6-C — What is NOT decided here
+
+**The corpus's family set is not adopted wholesale as the classifier's label space.** Its families
+are harness-shaped: some describe kinds of question, and at least three (`nessie_route`,
+`nessie_green`, `nessie_repro`) are *test tiers* — groupings by seeding and expected-failure status,
+not question types. Emitting those as classifier labels would be nonsense.
+
+Selecting which corpus families are classifier labels, how they are named, and how they crosswalk to
+the harness and to both routes remains **V4-1's STOP decision** and is not pre-empted here. V6 fixes
+only *which artifact that decision draws from*.
+
+**No count is a contract — anywhere.** Not eight, not fourteen. Any number appearing in this plan is
+an observation about a file at a moment. Tests assert **set equality against the source**, never a
+length. A test containing a literal family count is a defect regardless of which source it reads.
+
+### V6-D — The generation mechanism is an open decision
+
+Earlier drafts of this plan assumed enum members would be emitted by rewriting `.baml` source at
+build time, and said so as though it were settled. It is not. BAML also supports runtime-dynamic
+enums: an enum marked `@@dynamic` plus `TypeBuilder`, which adds values at
+run time and supports `.description()` per value
+(<https://docs.boundaryml.com/ref/baml_client/type-builder>, <https://docs.boundaryml.com/ref/baml/enum>).
+
+These are different contracts with different operational consequences: build-time generation
+requires a regenerate-and-redeploy to add a family, whereas `@@dynamic` admits new values without
+one. Given the stated reason for unfreezing the set — that it must absorb new capabilities — the
+choice is decision-relevant and must be made explicitly, with the selected contract named. Until
+then, no task may assume either mechanism.
+
+### V6-E — What this amendment changed, and one warning
+
+Every section that named the wrong source has been corrected **in place**: the two Global
+Constraints bullets, V2-T3, V2-T4, V3-A, V3-B's completion contract, the V4-6 DONE oracle, Task 3
+and Task 4. Two sections were **removed outright**, because V6-A leaves them nothing to govern —
+**V2-T12b** and **Task 12b**, which existed to write an `ops` mapping into `route_capabilities.json`
+and update that file's hash pin in the same commit. Whether an op-level mapping is wanted at all,
+what it maps from, and where it lives are part of V4-1's decision.
+
+**Warning — illustrative family names elsewhere in this plan are placeholders, not labels.** Test
+fixtures and code sketches in Tasks 1, 2, 5, 7, 8, 10, 11, 12 and 13 use strings such as
+`sample_search`, `lineage_or_graph`, `report_generation`, `memory_lookup`, `reporter_summary`,
+`file_io_and_summarization`, `code_and_scripts` and `batch_upload_preparation`. Every one of those
+is a family name read from `route_capabilities.json` — the wrong source — and none is an approved
+classifier label. They survive only because the label set does not exist yet and those fixtures need
+*some* string to be legible. Once V4-1 approves the label set, each occurrence must become an
+approved label or an explicitly fixture-local constant. No test may assert any of them as the label
+space, and no implementation may embed the list.
+
+**The fallback router is untouched.** `nextseek_api/cc_assistant/router.py:159` continues to load
+`route_capabilities.json` and pass it to `RouterAgent` exactly as it does today. V6 changes where
+the *classifier's labels* come from; it changes nothing about how the existing router routes.
+
+
 ## Referenced artifacts (dev box)
 
-Every external artifact this plan cites has a reference copy inside this checkout under
-`_plan018-refs/`, so a reviewer can open it without hunting the filesystem. That directory is
-**untracked and locally excluded** (via the common gitdir's `info/exclude`); it is a convenience
-copy for review and is never committed. This repository is public, which is why references are
-repo-relative rather than absolute paths into anyone's home directory.
+On the specifically inventoried development box, external artifacts cited by this plan have
+convenience copies under `_plan018-refs/`, so an on-box reviewer can open them without hunting the
+filesystem. That directory is **untracked and locally excluded** (via the common gitdir's
+`info/exclude`); it is never committed and **does not exist in a fresh clone or establish remote
+availability**. This repository is public, which is why references are repo-relative rather than
+absolute paths into anyone's home directory.
 
 | Under `_plan018-refs/` | What it is | Copied from |
 |---|---|---|
@@ -952,7 +1304,10 @@ repo-relative rather than absolute paths into anyone's home directory.
 | `plan-backups/*.bak-pre-plan-vetting-*.md` | pre-vetting snapshots of this plan | `docs/superpowers/plans/` |
 
 Copies were verified byte-identical to their sources at staging time. If a source changes, the
-copy here does not follow it — re-stage before relying on one for a DONE claim.
+copy here does not follow it — re-stage before relying on one for a DONE claim. Before this plan can
+be released for execution, the V5 evidence manifest must be materialized at stable registry IDs/
+URIs accessible to the authorized verifier, fresh-retrieved, and hash-validated; box-local copies
+alone cannot close that release gate.
 
 ## File Structure
 
@@ -982,8 +1337,33 @@ The approved V4-0 ownership map must supersede and extend it before any implemen
 
 ### Task 0: Shared test fixtures
 
-**Runs first.** Every later task's tests consume these; without them each task would invent its own
-and they would drift.
+**V5 REPLACEMENT — the retained historical Task 0 body below is non-executable.** The original
+“runs first” order, full fixture code block, Steps 1–4, collection-only success condition, and note
+that dependent bodies may fail are **VOID**. They must not be pasted or used as a DONE oracle.
+
+Task 0 now creates only `nextseek_api/cc_assistant/tests/conftest.py`, which pytest discovers
+directly. At the initial/base stage it may import only types already present on the approved base.
+It records the nine inherited `nextseek_api/conftest.py` fixture names and fails on a shadowing
+collision. Every fixture that depends on `FamilyPosterior`, `turn_ledger`, `nextseek_api.eval`, or
+another later product is added with its owning task after that product exists; no placeholder,
+lazy body that raises, or module-level import of a future type is permitted.
+
+Maintain `evidence/task00-fixture-owners.json`, mapping every planned fixture to owner task, source
+file/hash, first available source SHA, and at least one semantic consumer test. At each owner task,
+run collection plus those consumers under the default network-deny harness and update the manifest.
+Deleting/emptying a fixture, making it raise, removing its consumer, shadowing a parent fixture, or
+allowing network access must turn the gate red. Evidence binds exact argv, nonzero selected/passed
+counts, zero unexpected skip/xfail/deselection, source/diff/image hashes, conftest hash, and manifest
+hash.
+
+**V5 Task 0 DONE:** the base-only conftest imports and collects on the approved base, every currently
+available fixture executes through a semantic consumer, and the source-derived fixture/consumer
+inventory has no unused, missing, shadowed, placeholder, or future-type fixture. The complete
+planned fixture set closes incrementally with its owner tasks; collection alone never marks it
+complete.
+
+**Historical body retained below for provenance only; every command and success condition in it is
+void under V5.**
 
 **Files:**
 - Create: `nextseek_api/cc_assistant/tests/conftest.py`
@@ -1428,34 +1808,44 @@ git commit -m "feat(eval): single write path for turn ledger rows"
 
 ---
 
-### Task 3: Router returns `task_family` in the same call
+### Task 3: Classification call returns the task family
+
+**BLOCKED until V4-1 and V6-D.** V4-1 approves the classifier label set and names the artifact that
+carries it; V6-D selects the generation mechanism. Until both are recorded this task has no source
+path and no mechanism to write against, and may not start.
 
 **Files:**
+- Create: `nextseek_api/cc_assistant/family_labels.py` (the single read seam for the approved set)
 - Modify: `dmac_assistant/baml_src/router.baml`
 - Modify: `docker/cc-runtime/baml_src/router.baml` (byte-identical)
 - Modify: `nextseek_api/cc_assistant/router.py`
 - Test: `nextseek_api/cc_assistant/tests/test_router_family.py`
 
 **Interfaces:**
-- Consumes: the families declared in `dmac_assistant/build_context/route_capabilities.json`
-  (8 at time of writing; the task must read the file, never a hardcoded list).
-- Produces: `RouteDecision.task_family: str | None` and `RouteDecision.family_source: str` (`"baml"` | `"heuristic"` | `"forced"`).
+- Consumes: the approved classifier label set — source V6-B (the `nessie_tests` corpus), contents
+  V4-1. It is read through `family_labels`, never inlined, and never from
+  `dmac_assistant/build_context/route_capabilities.json`.
+- Produces: `family_labels.approved_labels() -> set[str]`, `family_labels.route_families(route) ->
+  set[str]` (feasibility from the corpus's `route_policy.families`), `family_labels.variants_for(
+  label) -> list[str]`; and on the decision object, `task_family: str | None` plus
+  `family_source: str` (`"baml"` | `"heuristic"` | `"forced"`).
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # nextseek_api/cc_assistant/tests/test_router_family.py
 import hashlib
-import json
 from pathlib import Path
+
+from nextseek_api.cc_assistant.family_labels import approved_labels
+from nextseek_api.cc_assistant.baml_introspect import declared_family_members
 
 _REPO = Path(__file__).resolve().parents[3]
 _A = _REPO / "dmac_assistant" / "baml_src" / "router.baml"
 _B = _REPO / "docker" / "cc-runtime" / "baml_src" / "router.baml"
-_CAPS = _REPO / "dmac_assistant" / "build_context" / "route_capabilities.json"
 
 
-def test_router_baml_declares_task_family():
+def test_classification_decision_declares_a_family_field():
     assert "task_family" in _A.read_text()
 
 
@@ -1464,84 +1854,71 @@ def test_both_router_baml_copies_stay_byte_identical():
            hashlib.sha256(_B.read_bytes()).hexdigest()
 
 
-def test_declared_families_match_the_capabilities_file_exactly():
-    caps = json.loads(_CAPS.read_text())
-    expected = {f["name"] for r in caps["routes"] for f in r["task_families"]}
-    text = _A.read_text()
-    for name in expected:
-        assert name in text, f"router.baml does not declare family {name}"
-    assert len(expected) == 8
+def test_declared_enum_equals_the_approved_label_set_in_both_directions():
+    """Set equality, never a length. A label present in one and absent from the
+    other fails, in either direction. No count is asserted anywhere: a count is
+    an observation about the source at a moment, not a contract (V6-C)."""
+    assert declared_family_members() == approved_labels()
+
+
+def test_no_module_in_this_seam_reads_the_routing_capabilities_file():
+    """route_capabilities.json is live routing config, not a question taxonomy."""
+    for name in ("family_labels.py", "baml_introspect.py"):
+        src = (_REPO / "nextseek_api" / "cc_assistant" / name).read_text()
+        assert "route_capabilities" not in src
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest nextseek_api/cc_assistant/tests/test_router_family.py -v`
-Expected: FAIL on `test_router_baml_declares_task_family`
+Expected: FAIL — `ModuleNotFoundError: nextseek_api.cc_assistant.family_labels`
 
-- [ ] **Step 3: Add the field to the BAML contract**
+- [ ] **Step 3: Add the family field to the classification contract**
 
-Add a `task_family` field to the decision class returned by the existing route function, typed by
-an enum that is **generated from** `dmac_assistant/build_context/route_capabilities.json` rather
-than hand-listed.
+Add a family-valued field to the decision object returned by the **classification** function
+(V3-B), not by the routing function.
 
-**Superseded by V3-B.** The original instruction here read "Do **not** add a second function —
-the family comes back from the same call." The router is now split into a classification
-function and a routing function, and the family comes back from the **classification** call.
+**Do not reuse the identifier `TaskFamily`.** `class TaskFamily` already exists at
+`dmac_assistant/baml_src/router.baml:1` and describes a *route's advertised* family, which is a
+different thing; V2-T3 forbids redeclaring it. Use a distinct name — `ClassifiedFamily` is the
+working name — so the two types cannot be confused in the generated client.
 
-The capabilities file is the single source of truth for the family set. A generator reads it and
-emits the enum block into `dmac_assistant/baml_src/router.baml`, then writes the byte-identical
-mirror. Adding a capability is therefore a one-file JSON edit plus a regeneration — never a hand
-edit of the enum in two places.
+Members come from `approved_labels()`. Which of the two mechanisms below is used is **V6-D's
+decision; implement neither until it is recorded**:
 
-```bash
-# Regenerate the enum from the capabilities file, then mirror it verbatim.
-python -m nextseek_api.cc_assistant.gen_family_enum \
-  --capabilities dmac_assistant/build_context/route_capabilities.json \
-  --out dmac_assistant/baml_src/router.baml
-cp dmac_assistant/baml_src/router.baml docker/cc-runtime/baml_src/router.baml
-```
+- *Build-time emission.* A generator reads the approved-label artifact and emits the enum block into
+  `dmac_assistant/baml_src/router.baml`, then writes the byte-identical `docker/cc-runtime` mirror.
+  A test proves regeneration is idempotent and the mirror byte-identical, so a label added at the
+  source cannot silently miss either file. Adding a label then requires a regenerate-and-redeploy.
+- *Runtime-dynamic.* The enum is declared `@@dynamic` and its members are added through
+  `TypeBuilder` at call time, each carrying `.description()` from the label's corpus `description`.
+  The byte-identity requirement then applies to the static `.baml` pair only, and
+  `declared_family_members()` introspects the built `TypeBuilder` output instead of parsing source.
 
-Each member's `@alias` is the family `name` verbatim from the JSON; the PascalCase identifier is
-derived from it. With the current file this generates the eight members below — shown as current
-output, **not** as the contract:
-
-```
-enum TaskFamily {
-  SampleSearch        @alias("sample_search")
-  LineageOrGraph      @alias("lineage_or_graph")
-  ReportGeneration    @alias("report_generation")
-  MemoryLookup        @alias("memory_lookup")
-  ReporterSummary     @alias("reporter_summary")
-  FileIoAndSummarization @alias("file_io_and_summarization")
-  CodeAndScripts      @alias("code_and_scripts")
-  BatchUploadPreparation @alias("batch_upload_preparation")
-}
-```
-
-A test must prove regeneration is idempotent and that the mirror is byte-identical, so a family
-added to the JSON cannot silently miss either file.
+Either way the equality test above is the contract: the declared set equals the approved set in both
+directions, and neither the test nor the implementation contains a literal member list or count.
 
 - [ ] **Step 4: Surface it in the Python wrapper**
 
 In `nextseek_api/cc_assistant/router.py`, add `task_family` and `family_source` to the decision
-dataclass, populate them from the BAML result on the BAML path, and set
+dataclass, populate them from the classification result on the BAML path, and set
 `family_source="baml"` there. Leave the heuristic path's family `None` for now — Task 4 fills it.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pytest nextseek_api/cc_assistant/tests/test_router_family.py -v 2>&1 | tee evidence/task03.log`
-Expected: 3 passed
+Expected: 4 passed
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add dmac_assistant/baml_src/router.baml docker/cc-runtime/baml_src/router.baml nextseek_api/cc_assistant/router.py nextseek_api/cc_assistant/tests/test_router_family.py
-git commit -m "feat(router): return task_family from the classification call"
+git add nextseek_api/cc_assistant/family_labels.py nextseek_api/cc_assistant/baml_introspect.py dmac_assistant/baml_src/router.baml docker/cc-runtime/baml_src/router.baml nextseek_api/cc_assistant/router.py nextseek_api/cc_assistant/tests/test_router_family.py
+git commit -m "feat(router): return the classified task family from the classification call"
 ```
 
-**Success condition:** Met only if `pytest nextseek_api/cc_assistant/tests/test_router_family.py -v` exits 0, output saved to `evidence/task03.log`, **and** `pytest nextseek_api/cc_assistant/tests/test_baml_router_schema.py -v` still exits 0 (the pre-existing byte-identity and prompt-region pins must not regress).
+**Success condition:** Met only if `pytest nextseek_api/cc_assistant/tests/test_router_family.py -v` exits 0 with output at `evidence/task03.log`; `pytest nextseek_api/cc_assistant/tests/test_baml_router_schema.py -v` still exits 0 (the pre-existing byte-identity and prompt-region pins must not regress); `pytest nextseek_api/cc_assistant/tests/test_f_constraint_pins.py -v` still exits 0 **without the pinned file having been touched**; and `grep -rn "route_capabilities" nextseek_api/cc_assistant/family_labels.py nextseek_api/cc_assistant/baml_introspect.py nextseek_api/cc_assistant/tests/test_router_family.py` returns no matches.
 
-**Failure conditions:** the two copies diverging; a second BAML function added; any family name not matching the capabilities file verbatim.
+**Failure conditions:** the two BAML copies diverging; a second LLM call on the steady-state path (V3-B); any literal family count or member list in the test or the implementation; the new enum reusing the identifier `TaskFamily`; the label set read from `route_capabilities.json`; a mechanism chosen before V6-D records it.
 
 **Rollback:** `git revert`; no runtime consumer reads the field until Task 5.
 
@@ -1549,42 +1926,75 @@ git commit -m "feat(router): return task_family from the classification call"
 
 ### Task 4: Deterministic family for non-BAML turns
 
+**BLOCKED until V4-1**, which approves the label set this task labels with. The fallback labeller
+assigns a task family, so it is a classifier and V6-A applies to it in full: it draws its labels from
+the approved set, never from `dmac_assistant/build_context/route_capabilities.json`.
+
 **Files:**
 - Create: `nextseek_api/cc_assistant/family_fallback.py`
 - Modify: `nextseek_api/cc_assistant/router.py`
 - Test: `nextseek_api/cc_assistant/tests/test_family_fallback.py`
 
 **Interfaces:**
-- Consumes: `dmac_assistant/build_context/route_capabilities.json`.
-- Produces: `family_for(route: str, query: str) -> tuple[str | None, str]` returning `(family, source)`.
+- Consumes: `family_labels.route_families()` and `family_labels.variants_for()` from Task 3 — the
+  single read seam for the approved set. Nothing here opens `route_capabilities.json`.
+- Produces: `family_for(route: str, query: str) -> tuple[str | None, str]` returning
+  `(family, source)`, and `hints_for(label: str) -> tuple[str, ...]`.
 
 The maintainer's ruling is that a family is always classified, including on forced and heuristic
 turns. On those paths there is no model call, so the family is derived deterministically from the
-route's declared families and the query text; when nothing matches, the family is `None` with an
-explicit source rather than a guess.
+approved labels and the query text; when nothing matches, the family is `None` with an explicit
+source rather than a guess.
 
 - [ ] **Step 1: Write the failing test**
 
+The test names no family. It draws probes from each label's own corpus `variants`, so it stays
+correct across any V4-1 label set and cannot embed a member list.
+
 ```python
 # nextseek_api/cc_assistant/tests/test_family_fallback.py
-from nextseek_api.cc_assistant.family_fallback import family_for
+from pathlib import Path
+
+from nextseek_api.cc_assistant.family_fallback import family_for, hints_for
+from nextseek_api.cc_assistant.family_labels import approved_labels, route_families
+
+_ROUTES = ("nextseek_query", "container_cc")
 
 
-def test_forced_container_turn_gets_a_source_even_without_a_match():
+def test_unmatched_query_gets_a_source_but_no_family():
     fam, src = family_for("container_cc", "zzzz nothing matches zzzz")
     assert fam is None
     assert src == "unmatched"
 
 
-def test_query_route_keyword_maps_to_a_declared_family():
-    fam, src = family_for("nextseek_query", "find me all PBMCs in the BTC study")
-    assert fam == "sample_search"
-    assert src == "heuristic"
+def test_a_probe_from_a_labels_own_variants_matches_a_feasible_label():
+    """A probe drawn from a label's own variants must match *something* that is
+    feasible on that route, and must never fall through to `unmatched`.
+
+    It is deliberately NOT asserted to match that exact label: two labels'
+    hint phrases can legitimately overlap, and which one wins is settled by the
+    deterministic tie-break below, not by this test. Asserting equality here
+    would fail on a real, permitted collision."""
+    for route in _ROUTES:
+        for label in route_families(route):
+            for probe in hints_for(label):
+                fam, src = family_for(route, probe)
+                assert fam in route_families(route)
+                assert src == "heuristic"
 
 
-def test_fallback_never_returns_a_family_from_the_other_route():
-    fam, _ = family_for("nextseek_query", "write a python script to plot ages")
-    assert fam != "code_and_scripts"
+def test_fallback_never_returns_a_family_infeasible_on_the_chosen_route():
+    """A cross-route label would fabricate an observation."""
+    for label in approved_labels():
+        for probe in hints_for(label):
+            for route in _ROUTES:
+                fam, _ = family_for(route, probe)
+                assert fam is None or fam in route_families(route)
+
+
+def test_the_module_does_not_read_the_routing_capabilities_file():
+    src = (Path(__file__).resolve().parents[1] / "family_fallback.py").read_text()
+    assert "route_capabilities" not in src
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1596,45 +2006,43 @@ Expected: FAIL — `ModuleNotFoundError`
 
 ```python
 # nextseek_api/cc_assistant/family_fallback.py
-"""Deterministic task_family for turns that never reach the BAML router.
+"""Deterministic task_family for turns that never reach the classification call.
 
-Families are route-scoped: a query-route turn can only be labelled with a
-query-route family. No cross-route label is ever produced, because the routes
-are disjoint and a cross-route label would fabricate an observation.
+Labels come from the approved classifier label set (source V6-B, contents V4-1)
+through `family_labels`; the hint phrases are derived from each label's own
+corpus `variants`, never hand-listed, so adding a label needs no edit here.
+
+Families are route-scoped through the corpus's `route_policy.families`, which
+states feasibility *about* a family rather than by nesting it under a route. No
+cross-route label is ever produced, because one would fabricate an observation.
 """
-import json
-from pathlib import Path
-
-_CAPS = Path(__file__).resolve().parents[2] / "dmac_assistant" / "build_context" / "route_capabilities.json"
-
-# Keyword hints per family, drawn from each family's own example_queries.
-_HINTS = {
-    "sample_search": ("find", "search", "which samples", "what samples"),
-    "lineage_or_graph": ("lineage", "how many samples", "what assays", "study"),
-    "report_generation": ("geo", "sra", "nfcore", "pride", "submission"),
-    "memory_lookup": ("those results", "that result", "previous"),
-    "reporter_summary": ("rppr", "summary for", "project summary"),
-    "file_io_and_summarization": ("read /data", "summarize", "walk me through"),
-    "code_and_scripts": ("write a python", "script", "refactor"),
-    "batch_upload_preparation": ("upload sheet", "update sheet", "batch-upload", "workbook"),
-}
+from nextseek_api.cc_assistant.family_labels import route_families, variants_for
 
 
-def _families_for_route(route):
-    caps = json.loads(_CAPS.read_text())
-    for entry in caps["routes"]:
-        if entry["route_name"] == route:
-            return [f["name"] for f in entry["task_families"]]
-    return []
+def hints_for(label):
+    """Deterministic hint phrases mined from the label's own corpus variants.
+
+    Pure function of `variants_for(label)`: same input set, same phrases, no
+    ordering dependence and no hand-maintained keyword table.
+    """
+    return _mine_phrases(variants_for(label))
 
 
 def family_for(route, query):
     text = (query or "").lower()
-    for name in _families_for_route(route):
-        if any(h in text for h in _HINTS.get(name, ())):
+    for name in sorted(route_families(route)):
+        if any(h in text for h in hints_for(name)):
             return name, "heuristic"
     return None, "unmatched"
 ```
+
+**Hint collisions are permitted but must be deterministic and visible.** Two labels' `variants` can
+share a phrase, so `hints_for` sets can overlap. The tie-break is the `sorted()` in `family_for`:
+the lexicographically first feasible label whose hints match wins, so the answer never depends on set
+or dict iteration order. `hints_for` must additionally report its cross-label collision count as
+build-time output; a silently swallowed collision is how a keyword classifier drifts into labelling
+one family as another. A collision rate the maintainer considers too high is a signal to mine hints
+differently, not to special-case a label.
 
 - [ ] **Step 4: Wire it into the router's non-BAML paths**
 
@@ -1655,9 +2063,14 @@ git add nextseek_api/cc_assistant/family_fallback.py nextseek_api/cc_assistant/r
 git commit -m "feat(router): deterministic family label for forced and heuristic turns"
 ```
 
-**Success condition:** Met only if the pytest command above exits 0, output saved to `evidence/task04.log`, and a test proves no cross-route family label is ever produced.
+**Success condition:** Met only if the pytest command above exits 0 with output at
+`evidence/task04.log`; the route-feasibility property test passes over **every** approved label
+rather than a sampled few; and `grep -rn "route_capabilities" nextseek_api/cc_assistant/family_fallback.py nextseek_api/cc_assistant/tests/test_family_fallback.py` returns no matches.
 
-**Failure conditions:** a query-route turn labelled with a container-route family or vice versa; a forced turn indistinguishable from a heuristic one.
+**Failure conditions:** a turn labelled with a family infeasible on its route; a forced turn
+indistinguishable from a heuristic one; any literal family name, family list, or keyword table
+embedded in `family_fallback.py`; the module reading `route_capabilities.json`; a hint collision
+resolved by iteration order rather than the stated tie-break, or left unreported.
 
 **Rollback:** `git revert`.
 
@@ -2431,113 +2844,6 @@ git commit -m "feat(eval): routing risk overlay, default off, no reroute authori
 **Failure conditions:** any code path setting `may_reroute=True`; a confident verdict from a `TooUncertain` band; the overlay active by default.
 
 **Rollback:** `git revert`; nothing consumes it while the flag is off.
-
----
-
-### Task 12b: Map the live op inventory under the declared task families
-
-**Dependency:** after Task 3 (families declared). Land before Task 11 if the playbook is to give
-op-level guidance rather than family-level only.
-
-This is the one task that **intentionally breaks an anchor**: it edits the hash-pinned capabilities
-file, and updates that pin in the same commit. Per the maintainer's ruling the mapping goes **inside**
-the pinned file rather than beside it, so there is a single source of truth for the taxonomy.
-
-**Files:**
-- Modify: `dmac_assistant/build_context/route_capabilities.json`
-- Modify: `nextseek_api/cc_assistant/tests/test_f_constraint_pins.py:12` (the pin constant)
-- Test: `nextseek_api/cc_assistant/tests/test_family_op_mapping.py`
-
-**Interfaces:**
-- Produces: each `task_families[]` entry gains `ops: list[str]`, naming the live `nextseek-*` bins
-  that serve that family.
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-# nextseek_api/cc_assistant/tests/test_family_op_mapping.py
-import json
-from pathlib import Path
-
-_REPO = Path(__file__).resolve().parents[3]
-_CAPS = _REPO / "dmac_assistant" / "build_context" / "route_capabilities.json"
-_BIN = _REPO / "docker" / "cc-runtime" / "build_context" / "plugins" / "nextseek" / "bin"
-
-
-def _declared_ops():
-    caps = json.loads(_CAPS.read_text())
-    return {op for r in caps["routes"] for f in r["task_families"] for op in f.get("ops", [])}
-
-
-def _live_bins():
-    return {p.name for p in _BIN.iterdir() if p.is_file() and not p.name.startswith("_")}
-
-
-def test_every_family_declares_an_ops_list():
-    caps = json.loads(_CAPS.read_text())
-    for r in caps["routes"]:
-        for f in r["task_families"]:
-            assert "ops" in f, f"family {f['name']} has no ops list"
-
-
-def test_no_declared_op_is_missing_from_the_live_bin_inventory():
-    missing = _declared_ops() - _live_bins()
-    assert missing == set(), f"declared ops that do not exist as bins: {sorted(missing)}"
-
-
-def test_every_live_bin_is_claimed_by_at_least_one_family():
-    """Prevents silent drift as bins are added — the count moved 15 -> 17 unnoticed once."""
-    unclaimed = _live_bins() - _declared_ops()
-    assert unclaimed == set(), f"live bins claimed by no family: {sorted(unclaimed)}"
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest nextseek_api/cc_assistant/tests/test_family_op_mapping.py -v`
-Expected: FAIL — `family sample_search has no ops list`
-
-- [ ] **Step 3: Add the ops lists**
-
-Add an `ops` array to each `task_families` entry — however many are declared — assigning each of the live public
-`nextseek-*` bins to exactly the families it serves. Every live bin must be claimed at least once and
-no invented op names may appear — the tests above enforce both directions.
-
-- [ ] **Step 4: Update the hash pin in the same commit**
-
-```bash
-NEW=$(shasum -a 256 dmac_assistant/build_context/route_capabilities.json | cut -d' ' -f1)
-python3 - "$NEW" <<'PY'
-import re, sys, pathlib
-p = pathlib.Path("nextseek_api/cc_assistant/tests/test_f_constraint_pins.py")
-s = p.read_text()
-p.write_text(re.sub(r'CAPABILITIES_SHA256 = "[0-9a-f]{64}"',
-                    f'CAPABILITIES_SHA256 = "{sys.argv[1]}"', s))
-print("pin updated ->", sys.argv[1])
-PY
-```
-
-- [ ] **Step 5: Run both test modules to verify they pass**
-
-Run: `pytest nextseek_api/cc_assistant/tests/test_family_op_mapping.py nextseek_api/cc_assistant/tests/test_f_constraint_pins.py -v 2>&1 | tee evidence/task12b.log`
-Expected: all passed
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add dmac_assistant/build_context/route_capabilities.json nextseek_api/cc_assistant/tests/test_f_constraint_pins.py nextseek_api/cc_assistant/tests/test_family_op_mapping.py
-git commit -m "feat(taxonomy): map live nextseek ops under the declared task families"
-```
-
-**Success condition:** Met only if the pytest command above exits 0 with output at
-`evidence/task12b.log`; the recomputed sha256 of the capabilities file equals the constant now in
-`nextseek_api/cc_assistant/tests/test_f_constraint_pins.py`; and both directions of the drift check pass (no declared op missing from
-the bin inventory, no live bin unclaimed).
-
-**Failure conditions:** the pin left stale (that test goes red); an invented op name; a live bin left
-unclaimed; the mapping placed in a second file instead of the pinned one.
-
-**Rollback:** `git revert` — restores both the file and its pin together, which is why they must be
-one commit.
 
 ---
 
