@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """Fixed, non-interpolated helper STAGED to Luria and invoked from run.sh:
 
-  python3 fetchngs_helpers.py ids           -> write ids.csv from samplesheet.csv
-  python3 fetchngs_helpers.py fill <cache>  -> fill fastq_1/2 in samplesheet.csv from <cache>/fastq
+  python3 fetchngs_helpers.py ids [r1_col]                -> write ids.csv from samplesheet.csv
+  python3 fetchngs_helpers.py fill <cache> [r1_col r2_col] -> fill the read columns from <cache>/fastq
+
+The read COLUMN NAMES are arguments because they are not always fastq_1/fastq_2.
+Several pipelines rename them — ampliseq uses forwardReads/reverseReads, bacass R1/R2,
+detaxizer short_reads_fastq_1/2 — and the emitter renames the columns before the sheet
+is staged. Hardcoding fastq_1 here meant the fetch downloaded the reads, wrote them to
+a column the sheet did not have, and the write-back (extrasaction="ignore") silently
+dropped them. The run then started with empty inputs. Defaults preserve the old
+behaviour for the pipelines that do use the standard names.
 
 Because it is staged verbatim (never string-formatted with run-specific values), it
 carries no shell-injection surface. Accessions are validated as bare ids before any
@@ -18,12 +26,12 @@ from pathlib import Path
 _ACC_RE = re.compile(r"^[A-Za-z0-9]+$")
 
 
-def needs_fetch_accessions(rows: list[dict]) -> list[str]:
-    """Bare-id accessions of rows with an empty fastq_1, deduped, order-preserving."""
+def needs_fetch_accessions(rows: list[dict], r1_col: str = "fastq_1") -> list[str]:
+    """Bare-id accessions of rows whose read column is empty, deduped, order-preserving."""
     seen: set[str] = set()
     out: list[str] = []
     for row in rows:
-        if (row.get("fastq_1") or "").strip():
+        if (row.get(r1_col) or "").strip():
             continue
         acc = (row.get("accession") or "").strip()
         if acc and _ACC_RE.match(acc) and acc not in seen:
@@ -59,11 +67,12 @@ def _paths_for(cache: str, acc: str) -> tuple[str | None, str]:
     return None, ""
 
 
-def fill_rows(rows: list[dict], cache: str) -> tuple[list[dict], list[str]]:
-    """Fill fastq_1/fastq_2 for blank SRR rows from the cache; return (rows, missing_accessions)."""
+def fill_rows(rows: list[dict], cache: str, r1_col: str = "fastq_1",
+              r2_col: str = "fastq_2") -> tuple[list[dict], list[str]]:
+    """Fill the read columns for blank SRR rows from the cache; return (rows, missing)."""
     missing: list[str] = []
     for row in rows:
-        if (row.get("fastq_1") or "").strip():
+        if (row.get(r1_col) or "").strip():
             continue
         acc = (row.get("accession") or "").strip()
         if not (acc and _ACC_RE.match(acc)):
@@ -72,25 +81,36 @@ def fill_rows(rows: list[dict], cache: str) -> tuple[list[dict], list[str]]:
         if f1 is None:
             missing.append(acc)
             continue
-        row["fastq_1"] = f1
-        row["fastq_2"] = f2
+        row[r1_col] = f1
+        if r2_col:
+            row[r2_col] = f2
     return rows, missing
 
 
-def _main_ids(sheet: str = "samplesheet.csv", ids: str = "ids.csv") -> int:
+def _main_ids(r1_col: str = "fastq_1", sheet: str = "samplesheet.csv",
+              ids: str = "ids.csv") -> int:
     with open(sheet, newline="") as fh:
         rows = list(csv.DictReader(fh))
-    accs = needs_fetch_accessions(rows)
+    accs = needs_fetch_accessions(rows, r1_col)
     Path(ids).write_text("".join(a + "\n" for a in accs), encoding="utf-8")
     return 0
 
 
-def _main_fill(cache: str, sheet: str = "samplesheet.csv") -> int:
+def _main_fill(cache: str, r1_col: str = "fastq_1", r2_col: str = "fastq_2",
+               sheet: str = "samplesheet.csv") -> int:
     with open(sheet, newline="") as fh:
         reader = csv.DictReader(fh)
         rows = list(reader)
         fields = reader.fieldnames or []
-    rows, missing = fill_rows(rows, cache)
+    # Fail loudly rather than writing into a column the sheet does not have: the
+    # write-back below uses extrasaction="ignore", so an unknown key vanishes and the
+    # pipeline starts with empty reads after a successful, expensive download.
+    if r1_col not in fields:
+        sys.stderr.write(
+            f"fetchngs fill: read column {r1_col!r} is not in the samplesheet header "
+            f"{fields}; refusing to fill\n")
+        return 1
+    rows, missing = fill_rows(rows, cache, r1_col, r2_col if r2_col in fields else "")
     if missing:
         sys.stderr.write(f"fetchngs fill: no fastqs found in {cache}/fastq for {missing}\n")
         return 1
@@ -104,8 +124,9 @@ def _main_fill(cache: str, sheet: str = "samplesheet.csv") -> int:
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "ids":
-        sys.exit(_main_ids())
+        sys.exit(_main_ids(*(sys.argv[2:3] or ["fastq_1"])))
     if cmd == "fill":
-        sys.exit(_main_fill(sys.argv[2]))
-    sys.stderr.write("usage: fetchngs_helpers.py ids | fill <cache>\n")
+        sys.exit(_main_fill(sys.argv[2], *(sys.argv[3:5] or ["fastq_1", "fastq_2"])))
+    sys.stderr.write(
+        "usage: fetchngs_helpers.py ids [r1_col] | fill <cache> [r1_col r2_col]\n")
     sys.exit(2)

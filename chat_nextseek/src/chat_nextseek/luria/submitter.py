@@ -25,6 +25,7 @@ from .run_script import render_run_script, render_luria_config, render_process_c
 from .fetchngs_helpers import needs_fetch_accessions
 from .ssh import prepare_key, ssh_run, scp_file
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
+from ..seqera.emitter import PIPELINE_COLUMN_ALIASES
 
 _JOB_ID_RE = re.compile(r"Submitted batch job (\d+)")
 _REQUIRED_ENV = ("user", "key", "working_path", "host")
@@ -94,15 +95,26 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
     return runs
 
 
-def _sheet_needs_fetch(sheet_path: str) -> bool:
-    """True when the staged samplesheet has at least one blank-fastq SRR row to fetch."""
+def _fetch_read_columns(pipeline_key: str) -> tuple[str, str]:
+    """The samplesheet's actual read column names for this pipeline.
+
+    Not always fastq_1/fastq_2: the emitter renames them per pipeline (ampliseq ->
+    forwardReads/reverseReads, bacass -> R1/R2). The fetch pre-stage has to fill the
+    column the sheet really has, or it downloads the reads and writes them nowhere.
+    """
+    aliases = PIPELINE_COLUMN_ALIASES.get(pipeline_key, {})
+    return aliases.get("fastq_1", "fastq_1"), aliases.get("fastq_2", "fastq_2")
+
+
+def _sheet_needs_fetch(sheet_path: str, r1_col: str = "fastq_1") -> bool:
+    """True when the staged samplesheet has at least one blank-read SRR row to fetch."""
     import csv
     try:
         with open(sheet_path, newline="") as fh:
             rows = list(csv.DictReader(fh))
     except OSError:
         return False
-    return bool(needs_fetch_accessions(rows))
+    return bool(needs_fetch_accessions(rows, r1_col))
 
 
 def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key_path,
@@ -148,8 +160,9 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     # The fetchngs pre-stage only makes sense for a pipeline that eats FASTQ. A
     # bam-input sheet has no fastq_1 column at all, so the blank-fastq heuristic would
     # fire on every row and download reads the run has no column to put them in.
+    fetch_cols = _fetch_read_columns(pipeline_key)
     needs_fetch = (catalog_entry.get("samplesheet_input_kind", "fastq") == "fastq"
-                   and _sheet_needs_fetch(local_sheet))
+                   and _sheet_needs_fetch(local_sheet, fetch_cols[0]))
     fastq_cache = f"{working}/fastq_cache"
     fetchngs_rev = NFCORE_PIPELINE_CATALOG.get("fetchngs", {}).get("default_revision", "1.12.0")
     tmp_files: list[str] = []
@@ -163,7 +176,7 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
             work_dir=work_dir, singularity_cache=cache_dir, genome=run_genome, resources=resources,
             refs_root=refs_root, aligner=(launch_params or {}).get("aligner"), working=working,
             needs_fetch=needs_fetch, fastq_cache=fastq_cache, fetchngs_revision=fetchngs_rev,
-            reference_cli_flags=ref_flags,
+            reference_cli_flags=ref_flags, fetch_read_columns=fetch_cols,
         )
         run_tmp = _write_temp(run_sh, prefix="run_", suffix=".sh"); tmp_files.append(run_tmp)
         # luria.config = genomes map + any curated per-protocol process ext.args (e.g. seqwell/dropseq

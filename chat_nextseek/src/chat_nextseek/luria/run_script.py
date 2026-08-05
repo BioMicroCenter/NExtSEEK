@@ -88,10 +88,12 @@ _TEMPLATE = Path(__file__).parent / "templates" / "run.sh.tmpl"
 _FETCHNGS_BLOCK_TMPL = """
 # --- fetchngs pre-stage: fetch SRR-only rows to the shared cache, then fill the sheet ---
 # Rows with a local /net/bmc-* fastq are already filled and untouched; only rows with an
-# empty fastq_1 + an SRA accession are fetched. fetchngs_helpers.py is staged beside run.sh.
+# empty read column + an SRA accession are fetched. fetchngs_helpers.py is staged beside
+# run.sh. The read COLUMN NAMES are passed in because they are not always fastq_1/fastq_2 —
+# ampliseq uses forwardReads/reverseReads, bacass R1/R2, detaxizer short_reads_fastq_1/2.
 CACHE="{FASTQ_CACHE}"
 mkdir -p "$CACHE/fastq" "$CACHE/work"
-python3 fetchngs_helpers.py ids
+python3 fetchngs_helpers.py ids {R1_COL}
 if [ -s ids.csv ]; then
   # fetchngs writes <experiment>_<run>_*.fastq.gz, so the accession is a substring, not a prefix.
   need=0
@@ -106,12 +108,14 @@ if [ -s ids.csv ]; then
       --input ids.csv --outdir "$CACHE" -w "$CACHE/work" -resume \\
       || {{ echo "[FETCHNGS] download failed -- see the fetchngs .nextflow.log" >&2; exit 1; }}
   fi
-  python3 fetchngs_helpers.py fill "$CACHE" \\
+  python3 fetchngs_helpers.py fill "$CACHE" {R1_COL} {R2_COL} \\
     || {{ echo "[FETCHNGS] fill failed -- fastqs not present in $CACHE/fastq; aborting before the pipeline run" >&2; exit 1; }}
 fi
 """
 
 _REFS_ROOT_RE = re.compile(r"[A-Za-z0-9_./-]{1,256}")
+# Samplesheet column names are interpolated into run.sh, so constrain them.
+_COLUMN_RE = re.compile(r"[A-Za-z0-9_]{1,64}")
 
 # Single source of truth for local reference genomes on Luria: genome key -> reference
 # filenames under {LURIA_WORKING_PATH}/refs. Drives BOTH the luria.config genomes map and the
@@ -288,7 +292,8 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
                       aligner: str | None = None, working: str | None = None,
                       needs_fetch: bool = False, fastq_cache: str | None = None,
                       fetchngs_revision: str = "1.12.0",
-                      reference_cli_flags: Sequence[str] | None = None) -> str:
+                      reference_cli_flags: Sequence[str] | None = None,
+                      fetch_read_columns: tuple[str, str] | None = None) -> str:
     """Substitute the validated slots into the fixed run.sh template. When `refs_root` is given
     and `genome` has local refs registered (LURIA_GENOMES), explicit --fasta/--gtf flags are
     injected (path > iGenomes globally; the genomes-map resolution is unreliable). When
@@ -329,8 +334,12 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
         if not fastq_cache or not _REFS_ROOT_RE.fullmatch(str(fastq_cache)):
             raise ValueError(f"invalid fastq_cache {fastq_cache!r}")
         fq_rev = validate_revision(fetchngs_revision)
+        r1_col, r2_col = fetch_read_columns or ("fastq_1", "fastq_2")
+        if not all(_COLUMN_RE.fullmatch(c) for c in (r1_col, r2_col)):
+            raise ValueError(f"invalid fetch read columns {(r1_col, r2_col)!r}")
         fetchngs_block = _FETCHNGS_BLOCK_TMPL.format(
-            FASTQ_CACHE=str(fastq_cache).rstrip("/"), FETCHNGS_REVISION=fq_rev)
+            FASTQ_CACHE=str(fastq_cache).rstrip("/"), FETCHNGS_REVISION=fq_rev,
+            R1_COL=r1_col, R2_COL=r2_col)
     mapping = {
         "JOB_NAME": sanitize_job_name(job_name),
         "CPUS": res["cpus"],
