@@ -29,6 +29,10 @@ Three things happened:
 2.  We grew the list from 8 analyses to 31.
 3.  We checked whether NExtSEEK actually holds the kind of data each
     analysis needs. It mostly doesn't.
+4.  We ran two of them for real. One finished; one now starts and fails
+    on a scientific input we don't have. Between them they exposed five
+    defects that no test had caught — section 6 lists the error messages
+    and what to do about each.
 
 |                                             | Before |    Now |
 |---------------------------------------------|-------:|-------:|
@@ -44,7 +48,7 @@ Three things happened:
 Five terms do most of the work in this document.
 
 | Term | What it means here |
-|------------------|------------------------------------------------------|
+|----|----|
 | **nf-core** | A public, community-maintained library of standard analysis recipes. Free, widely used, and the source of everything discussed here. |
 | **Pipeline** | One such recipe — "turn RNA sequencing files into gene counts", say. There are 137 of them. |
 | **Samplesheet** | The list you hand a pipeline: one row per sample, saying where its files live. Getting this right is most of Nessie's job. |
@@ -170,8 +174,9 @@ nobody tracked the difference.
 
 **The three states:**
 
--   ✅ — someone ran it, it finished. Three of 31.
--   ❌ — we could run it; nobody has yet. Ten of 31.
+-   ✅ — someone ran it, it finished. **Three of 31.**
+-   🔧 — it starts and then fails part-way. One of 31 (`ampliseq`).
+-   ❌ — we could run it; nobody has yet. Eight of 31.
 -   ⛔ — **we hold no data of that kind**, so there is nothing to run
     and no test to schedule. Eighteen of 31.
 
@@ -183,7 +188,7 @@ assumed to be working, plus `nanoseq`.
 directory** — that's the evidence.
 
 | Pipeline | Status | Evidence / what to do |
-|------------------------|------------------------|------------------------|
+|----|----|----|
 | `rnaseq` | ✅ verified | Real run `nfcore_rnaseq_260723_205359_0` |
 | `scrnaseq` | ✅ verified | Real run `nfcore_gideon-4wk_260711_024438_0`; only one with a Luria setup script |
 | `fetchngs` | 🟡 partial | Used as a preparatory step inside other runs; never launched on its own |
@@ -191,7 +196,7 @@ directory** — that's the evidence.
 | `chipseq` | ⛔ no data | 0 mention ChIP |
 | `methylseq` | ⛔ no data | 0 mention methylation or bisulfite. Its bug was real and is fixed; the retest it asked for was never possible |
 | `sarek` | ❌ untested | Was sending a setting it rejects; fixed 2026-08-04. First run since is the real test |
-| `ampliseq` | ❌ **never worked** | Was sent three settings it doesn't accept. **Covers our largest library type** (1,179 amplicon samples). A first successful run is the proof |
+| `ampliseq` | 🔧 **launches now, analysis failed** | Run `ampliseq-smoke_260805_185243_0`. Three separate bugs fixed to get here — bad settings, the fetch filling the wrong column, and a sample-name format it rejects. It now downloads, validates and starts. It then fails at DADA2 error-model learning; see *If a run fails*. **Covers our largest library type** (1,179 amplicon samples) |
 | `seqinspector` | ❌ untested | Needs no reference genome; cheapest way to prove the launch path works |
 | `hlatyping` | ❌ untested | Brings its own reference data |
 | `smrnaseq` | ⛔ no data | 0 mention small-RNA or miRNA |
@@ -216,14 +221,61 @@ directory** — that's the evidence.
 | `genomeassembler` | ⛔ no data | No long-read data. Check it picks the right column per machine type, and that Illumina data lands in neither |
 | `pathogensurveillance` | ⛔ no data | No isolate sequencing. Check the grouping column reflects a real distinction |
 
-**Where to start.** `detaxizer` is done (2026-08-05). Next `ampliseq`,
-which covers our biggest library type and has literally never run
-successfully. Then `crisprseq`, to prove the question-asking works from
-end to end. Leave `hic` and `rnavar` for last, since they build a large
-index first and a failure takes hours to surface.
+**Where to start.** `detaxizer` is done and `ampliseq` is part-way
+(both 2026-08-05). Finish `ampliseq` first — it covers our biggest
+library type and needs only real primer sequences to complete. Then
+`crisprseq`, to prove the question-asking works end to end. Leave `hic`
+and `rnavar` for last, since they build a large index first and a
+failure takes hours to surface.
 
 **"Verified" should mean** the pipeline accepted the settings and the
 analysis finished — not merely that the cluster accepted the job.
+
+### If a run fails — what the message means
+
+Every one of these was hit for real between 2026-08-04 and 2026-08-05.
+They are listed in the order you'd meet them, from "never started" to
+"ran and then died". Find your error message in the middle column.
+
+**Before anything else: don't trust the job status.** The cluster
+reported two of these failures as `COMPLETED` with a success code,
+because our launch script doesn't stop on error and its last command
+always succeeds. **The real answer is in `<run-dir>/<job-name>.out`.**
+Look for `Pipeline completed successfully` — if it isn't there, it
+didn't.
+
+| What you see | What it means | What to do |
+|----|----|----|
+| `Could not find conda environment` then `nextflow: command not found` | Your cluster account has no Nextflow environment. The shared one is far too old for any current pipeline | Create your own conda environment with Nextflow ≥ 25.04.8, and set `LURIA_CONDA_ENV` to its name |
+| `Unknown parameter: --gtf` (or `--genome`, `--fasta`), immediately | We sent a setting this pipeline doesn't understand. These tools abort on sight of one | The catalog records which settings each pipeline accepts. Fixed for all 31; if it reappears, the pinned version probably moved |
+| `Validation of 'input' file failed`, with a `does not match pattern` line | A value in the samplesheet is the wrong shape. Usually the sample name: `ampliseq` allows only letters, digits and underscores, and our sample IDs contain dots and hyphens | Handled automatically for ampliseq — names are rewritten and the original kept in a `nextseek_uid` column. For a new pipeline, check its `sampleID` pattern |
+| The run downloads reads, then the pipeline says it has no input | The download filled a column the samplesheet doesn't have. Five pipelines rename the read columns | Fixed. If you see it again, check the read column names in `<run-dir>/samplesheet.csv` against what the pipeline expects |
+| A **huge** unexpected download (`Staging foreign file`, tens of GB) | A step you thought was switched off is actually the default. Turning a "skip" flag off does not always disable anything | Cancel the job. Read the pipeline's own workflow file to see what actually gates the step — the parameter name can't be trusted |
+| `Both --skip_binqc and --run_<tool> are specified` | Two settings contradict each other. The pipeline's own default switched a tool on that we asked to skip | Fixed for `mag`. Generally: a pipeline default can conflict with a curated one |
+| `Assembly type not provided` / `--FW_primer and --RV_primer are required` | A setting with no default that the pipeline insists on | Nessie now asks you for these. Answer in the chat; don't guess |
+| `Error rates could not be estimated` / `Error matrix is NULL` (DADA2) | The analysis ran but couldn't learn from the data. Too few reads, too few samples, or reads that are too uniform | Use more samples (two is not enough), and **don't skip primer trimming** — untrimmed primers make every read start identically, which is exactly what defeats this step |
+
+**The pattern across all of them:** eight of the nine are configuration,
+not science, and none was visible from unit tests. Only actually running
+a pipeline found them. If you are the first person to run something on
+this list, expect to find one more.
+
+### What we learned from the two runs so far
+
+`detaxizer` (succeeded) and `ampliseq` (starts, then fails) between them
+turned up **five** separate defects. Both were supposedly ready.
+
+-   **A pipeline's defaults are not neutral.** `detaxizer` defaults to a
+    64 GB database; `mag` defaults a tool on that we had asked to skip;
+    `ampliseq` defaults to needing primers. "It has sensible defaults"
+    is not a safe assumption.
+-   **Failures arrive late and expensively.** The sample-name rejection
+    happened *after* the reads were downloaded. Cheap checks don't
+    always come first.
+-   **The last mile is scientific, not technical.** `ampliseq` is now
+    fully plumbed and still doesn't produce a usable answer, because it
+    needs the primer sequences used at the bench. No amount of
+    engineering supplies that.
 
 ------------------------------------------------------------------------
 
@@ -293,7 +345,7 @@ toolkit, mislabelled. So the real population is **137**.)
 Of the 96 that do have a release:
 
 | Verdict | Count | What it means |
-|-----------------|----------------:|--------------------------------------|
+|----|---:|----|
 | **Straightforward** | **27** | Needs nothing we can't supply. Nine were already supported |
 | Needs a decision | 53 | Wants a column we can't derive, a reference file we don't host, or a database nobody has downloaded |
 | Can't tell | 15 | Publishes no machine-readable input spec — read by hand instead, see below |
@@ -314,7 +366,7 @@ pattern. They aren't difficult; they're from an earlier era, and they
 don't fit how Nessie works.
 
 | Pipeline | What it wants | Verdict |
-|------------------|--------------------------|----------------------------|
+|----|----|----|
 | `bactmap` | An ordinary samplesheet | **Added.** Fails only on there being no data |
 | `cageseq` | A filename pattern | Old style |
 | `dualrnaseq` | Two genomes at once | Doesn't fit our reference handling |
@@ -350,7 +402,7 @@ Something must be downloaded, given a permanent home, and maintained.
 That's a storage and ownership question before it's a coding one.
 
 | Pipeline | The blocker | Estimate |
-|-----------------|--------------------------------------|-----------------|
+|----|----|----|
 | `taxprofiler` | Needs reference databases; one standard set alone is \~100 GB | 2–4 days, mostly downloading |
 | `rnafusion` | Needs a prebuilt reference tree, itself a separate multi-hour build | 3–5 days |
 | `raredisease` | Needs a whole bundle of variant reference files per genome | 4–6 days |
@@ -362,7 +414,7 @@ The pipeline is fine. The problem is it needs to be told which samples
 to compare against which, and that judgement isn't in the filenames.
 
 | Pipeline | The blocker | Estimate |
-|-----------------|--------------------------------------|-----------------|
+|----|----|----|
 | `rnasplice` | Needs a list of comparisons to make | 1–2 weeks, then trivial |
 | `cutandrun` | Each sample must be paired with its control | 3–5 days |
 | `rnadnavar` | Needs tumour/normal designations | as `oncoanalyser` |
@@ -370,7 +422,7 @@ to compare against which, and that judgement isn't in the filenames.
 ### Needs a different shape of input
 
 | Pipeline | The blocker | Estimate |
-|------------------|------------------------------------|------------------|
+|----|----|----|
 | `scnanoseq` | A different read layout and four settings with no safe defaults | 2–3 days |
 | `epitopeprediction` | Wants variants plus per-sample HLA types, not reads. Should follow `hlatyping` being in real use | 1 week |
 | `funcscan` | Wants assembled sequence; no NExtSEEK sample type holds one | 1 week |
@@ -379,7 +431,7 @@ to compare against which, and that judgement isn't in the filenames.
 ### Blocked by someone else
 
 | Pipeline | The blocker |
-|------------------|------------------------------------------------------|
+|----|----|
 | `circrna` | No released version exists |
 | `airrflow` | Nine required metadata columns (species, tissue, sex, age…). Our sample relationships cover several; the rest is a real mapping project |
 
