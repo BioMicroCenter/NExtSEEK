@@ -327,7 +327,12 @@ def test_cancel_blocked_real_transaction_finishes_active_and_skips_later(disposa
     _seed_extra_type(database, 401, "NeverReached", 4010, "Weight")
 
     request = _multi_target_request("patch", [
-        (1, [patch_operation(12, {"description": "content"})]),
+        # A *title* rename (not a description-only change) is what actually
+        # requires json_metadata's key to be rewritten across every existing
+        # sample row (`classify_metadata_rewrite`); a description-only patch
+        # never touches sample metadata at all, so the 2000-row population
+        # would give no measurable in-flight window.
+        (1, [patch_operation(12, {"title": "AgeRenamed"})]),
         (401, [patch_operation(4010, {"description": "content"})]),
     ])
     plan = _plan(request)
