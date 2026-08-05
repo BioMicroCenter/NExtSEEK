@@ -29,7 +29,7 @@ DATABASES = {
     "seek": _mariadb("ATTRIBUTE_TEST_DB", "ATTRIBUTE_TEST_DATABASE_NAME"),
 }
 SEEK_DATABASE = "seek"
-DATABASE_ROUTERS = ["seek.dbrouters.SeekRouter"]
+DATABASE_ROUTERS = ["seek.dbrouters.CustomRouter"]
 
 # Registers Celery worker-process/task hooks before the app imports task modules.
 if os.environ.get("ATTRIBUTE_WORKER_TELEMETRY_RESULTS"):
