@@ -943,3 +943,178 @@ def test_forced_defaults_false_on_every_public_entry_point():
         _cc_no_debug_payload(), [{"field": "api_ok", "op": "true", "value": None}],
         OBS_CC, last_reply="done")
     assert not any(r.get("skipped") for r in results)
+
+
+# ── api_artifact.*: scorable as a family, two sub-assertions that are not ─────
+
+def _art_crits(*fields):
+    return [{"field": f, "op": ("gte" if f.endswith(".rows_gte") else "true"),
+             "value": (1 if f.endswith(".rows_gte") else None)} for f in fields]
+
+
+def _cc_with_artifacts(*labels, reply="done"):
+    """A CC turn that really produced these files, indexed the way CC indexes:
+    `artifacts` entries carry a `label` and no `path`."""
+    return _cc_no_debug_payload(
+        reply=reply,
+        artifacts=[{"artifact_type": "file", "label": lab} for lab in labels])
+
+
+def test_a_rows_gte_assertion_can_never_pass_on_a_cc_arm_so_it_is_skipped():
+    """`pipeline.end_to_end_emit` reproduced. The turn emits a correct
+    samplesheet.csv; the basename assertion goes green and `rows_gte` resolves 0
+    because a CC artifact is indexed under its bare label with no path behind it.
+    Red for a file that exists — the exact defect class this fix removes."""
+    fields = ("api_artifact.samplesheet.csv", "api_artifact.samplesheet.csv.rows_gte")
+
+    unforced, results, _ = evaluate.evaluate_turn(
+        _cc_with_artifacts("samplesheet.csv"), _art_crits(*fields), OBS_CC,
+        last_reply="done")
+    by_field = _by_field(results)
+    assert by_field["api_artifact.samplesheet.csv"]["passed"] is True
+    assert by_field["api_artifact.samplesheet.csv.rows_gte"]["passed"] is False, (
+        "premise: the row count really is unsatisfiable on a CC arm")
+    assert unforced is False
+
+    passed, forced, _ = evaluate.evaluate_turn(
+        _cc_with_artifacts("samplesheet.csv"), _art_crits(*fields), OBS_CC,
+        last_reply="done", forced=True)
+    by_field = _by_field(forced)
+    assert passed is True
+    assert by_field["api_artifact.samplesheet.csv"].get("skipped", False) is False, (
+        "the basename assertion is satisfiable and must stay scored")
+    rows = by_field["api_artifact.samplesheet.csv.rows_gte"]
+    assert rows["skipped"] is True
+    assert evaluate.CC_ARTIFACT_ROWS_REASON in rows["reason"]
+
+
+def test_two_basenames_on_one_turn_means_a_zip_so_neither_can_resolve():
+    """`report.sra_submission` reproduced: it asserts TWO basenames on one turn,
+    so it is a multi-deliverable turn by its own admission, and
+    `_publish_artifacts` gives such a turn a single `artifacts.zip` whose members
+    never reach query_complete. All three of its artifact criteria were red."""
+    fields = ("api_artifact.merged_report_SRA_SRA_metadata_filled.xlsx",
+              "api_artifact.merged_report_SRA_SRA_biosample_filled.xlsx",
+              "api_artifact.merged_report_SRA_SRA_metadata_filled.xlsx.rows_gte")
+
+    passed, results, _ = evaluate.evaluate_turn(
+        _cc_with_artifacts("artifacts.zip"), _art_crits(*fields), OBS_CC,
+        last_reply="done", forced=True)
+
+    assert passed is True
+    by_field = _by_field(results)
+    assert all(by_field[f]["skipped"] for f in fields)
+    assert evaluate.CC_ARTIFACT_MULTI_REASON in by_field[fields[0]]["reason"]
+    assert evaluate.CC_ARTIFACT_MULTI_REASON in by_field[fields[1]]["reason"]
+    assert evaluate.CC_ARTIFACT_ROWS_REASON in by_field[fields[2]]["reason"], (
+        "the rows_gte reason is the more specific one and must win")
+
+
+def test_a_lone_basename_is_left_alone_because_nothing_proves_it_is_a_zip():
+    """Conservative in the direction that KEEPS assertions. A single-basename turn
+    may still be multi-deliverable in reality, but the criteria do not say so, and
+    skipping on a guess would discard the only real evidence a CC arm offers."""
+    passed, results, _ = evaluate.evaluate_turn(
+        _cc_with_artifacts("samplesheet.csv"),
+        _art_crits("api_artifact.samplesheet.csv"), OBS_CC, last_reply="done",
+        forced=True)
+    assert passed is True
+    assert not any(r.get("skipped") for r in results)
+
+    absent, results2, _ = evaluate.evaluate_turn(
+        _cc_with_artifacts("something_else.csv"),
+        _art_crits("api_artifact.samplesheet.csv"), OBS_CC, last_reply="done",
+        forced=True)
+    assert absent is False, "and it must still be able to go RED"
+    assert not any(r.get("skipped") for r in results2)
+
+
+def test_artifacts_zip_survives_the_multi_deliverable_skip():
+    """It is precisely the name a zipped CC turn DOES expose — `build_artifact_index`
+    says outright that CC criteria must assert it for multi-file turns."""
+    fields = ("api_artifact.artifacts.zip", "api_artifact.samplesheet.csv")
+    passed, results, _ = evaluate.evaluate_turn(
+        _cc_with_artifacts("artifacts.zip"), _art_crits(*fields), OBS_CC,
+        last_reply="done", forced=True)
+
+    by_field = _by_field(results)
+    assert by_field["api_artifact.artifacts.zip"].get("skipped", False) is False
+    assert by_field["api_artifact.artifacts.zip"]["passed"] is True
+    assert by_field["api_artifact.samplesheet.csv"]["skipped"] is True
+    assert passed is True
+
+
+def test_the_ns_arm_keeps_every_artifact_criterion():
+    """The NS arm is where `rows_gte` and multiple basenames are MEANINGFUL: the
+    reporter writes real files to a real path and `_count_rows` can open them."""
+    fields = ("api_artifact.a.csv", "api_artifact.b.csv", "api_artifact.a.csv.rows_gte")
+    ns_payload = {"status": "completed", "progress": [
+        {"event": "route_decided",
+         "data": {"route": "nextseek_query", "model_class": None, "source": "forced",
+                  "reasoning": ""}},
+        {"event": "query_complete", "data": {"reply": "wrote them", "debug": {}}},
+    ]}
+    _p, results, _o = evaluate.evaluate_turn(
+        ns_payload, _art_crits(*fields), OBS_NS, last_reply="wrote them", forced=True)
+
+    assert not any(r.get("skipped") for r in results), (
+        "a forced NS arm must keep every artifact criterion")
+
+
+def test_the_artifact_skips_are_gated_on_forcing_like_everything_else():
+    """`run_suite` byte-identical. Unlike the NS-pipeline skip these are harness
+    observability gaps, which would arguably justify a router-decided skip too —
+    deliberately not done, because that is a separate blast radius."""
+    fields = ("api_artifact.samplesheet.csv.rows_gte", "api_artifact.a.csv",
+              "api_artifact.b.csv")
+    for f in fields:
+        assert evaluate.unobservable_reason(
+            f, "true", route=evaluate.CC_ROUTE,
+            artifact_basenames=frozenset({"a.csv", "b.csv", "samplesheet.csv"})) is None
+
+
+def test_turn_context_is_optional_and_defaults_to_keeping_the_criterion():
+    """No basenames in hand reads as "no turn context", and the multi-deliverable
+    branch must not fire on it — that branch is the one that skips something a
+    single-deliverable turn could have satisfied."""
+    assert evaluate.unobservable_reason("api_artifact.a.csv", "true",
+                                        route=evaluate.CC_ROUTE, forced=True) is None
+    assert evaluate.unobservable_reason(
+        "api_artifact.a.csv.rows_gte", "gte",
+        route=evaluate.CC_ROUTE, forced=True) == evaluate.CC_ARTIFACT_ROWS_REASON
+
+
+def test_asserted_basenames_are_turn_scoped_and_strip_the_rows_gte_suffix():
+    assert evaluate.asserted_artifact_basenames(_art_crits(
+        "api_artifact.a.csv", "api_artifact.a.csv.rows_gte")) == frozenset({"a.csv"})
+    assert evaluate.asserted_artifact_basenames(_art_crits(
+        "api_artifact.a.csv", "api_artifact.b.csv")) == frozenset({"a.csv", "b.csv"})
+    assert evaluate.asserted_artifact_basenames(
+        [{"field": "api_ok", "op": "true", "value": None}]) == frozenset()
+
+
+def test_every_forcing_only_skip_is_flagged_structurally_for_the_runner():
+    """`run_case` counts these; it must not do so by matching reason text across a
+    module boundary. Each forcing-only reason sets the flag; the two skips that
+    happen with or without forcing do not."""
+    assert evaluate.FORCED_ONLY_REASONS == frozenset({
+        evaluate.FORCED_CC_SKIP_REASON, evaluate.CC_ARTIFACT_ROWS_REASON,
+        evaluate.CC_ARTIFACT_MULTI_REASON})
+
+    _p, results, _o = evaluate.evaluate_turn(
+        _cc_with_artifacts("artifacts.zip"),
+        _art_crits("api_artifact.a.csv", "api_artifact.b.csv",
+                   "api_artifact.a.csv.rows_gte")
+        + [{"field": "api_ok", "op": "true", "value": None},
+           {"field": "outcome_observed", "op": "true", "value": None},
+           {"field": "pipeline_agent.active", "op": "true", "value": None}],
+        OBS_CC, last_reply="done", forced=True)
+
+    by_field = _by_field(results)
+    for field in ("api_artifact.a.csv", "api_artifact.b.csv",
+                  "api_artifact.a.csv.rows_gte", "api_ok"):
+        assert by_field[field]["forced_skip"] is True, field
+    for field in ("outcome_observed", "pipeline_agent.active"):
+        assert by_field[field]["skipped"] is True
+        assert by_field[field]["forced_skip"] is False, (
+            f"{field} is skipped with or without forcing and must not be counted")

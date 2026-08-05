@@ -209,14 +209,14 @@ def test_the_forced_skip_count_is_recorded_rather_than_silent():
                             strip_route_criteria=True,
                             post_query=post_query, get_progress=get_progress)
 
-    assert "skipped 4 NS-pipeline criteria (forced container_cc arm)" in entry.reason
+    assert "skipped 4 criteria unsatisfiable on a forced container_cc arm" in entry.reason
     assert "stripped 1 route criterion (forced route)" in entry.reason
 
     ns_post, ns_get = _fakes(route="nextseek_query")
     ns_entry = runner.run_case(_variant(), tier="full", force_route="ns",
                                strip_route_criteria=True,
                                post_query=ns_post, get_progress=ns_get)
-    assert "NS-pipeline criteri" not in ns_entry.reason
+    assert "unsatisfiable" not in ns_entry.reason
 
 
 def test_a_router_decided_cc_turn_still_fails_them_through_run_case():
@@ -250,7 +250,7 @@ def test_run_suite_cannot_reach_the_widening(tmp_path, monkeypatch):
     entry = next(e for e in m.entries if e.id == "green.mus_ndma")
     assert entry.status == "failed"
     assert _NS_INTERNAL <= {c.split(":", 1)[1] for c in entry.failed_criteria}
-    assert "NS-pipeline criteri" not in (entry.reason or "")
+    assert "unsatisfiable" not in (entry.reason or "")
     assert "route" in {o.field for o in entry.observations}, (
         "run_suite must not strip route criteria either")
 
@@ -286,3 +286,79 @@ def test_no_bayesian_variant_evaluates_nothing_on_a_forced_cc_arm():
         f"these variants evaluate zero criteria on a forced cc arm and would be "
         f"counted as real failures every paid run: {vacuous}. Give each one a "
         f"`last_reply` assertion, or clear its `is_bayesian` flag in corpus.json.")
+
+
+def test_route_source_is_stripped_under_forcing_like_route_and_engine():
+    """Under forcing it is `"forced"` on BOTH arms by construction — which is why
+    `ROUTE_DECISION_SOURCES` already refuses to read it as evidence — so asserting
+    it tests the harness's own request body exactly as `route` does."""
+    assert "route_source" in runner.STRIPPED_UNDER_FORCING
+
+    v = _variant("route.unrelated").model_copy(update={"turns": [
+        _variant("route.unrelated").turns[0].model_copy(update={"pass_criteria": [
+            {"field": "route_source", "op": "eq", "value": "baml"},
+            {"field": "last_reply", "op": "nonempty", "value": None}]})]})
+
+    post_query, get_progress = _fakes(route="container_cc")
+    forced = runner.run_case(v, tier="full", force_route="cc", strip_route_criteria=True,
+                             post_query=post_query, get_progress=get_progress)
+    assert "route_source" not in {o.field for o in forced.observations}
+
+    post_query, get_progress = _fakes(route="container_cc")
+    decided = runner.run_case(v, tier="full",
+                              post_query=post_query, get_progress=get_progress)
+    assert "route_source" in {o.field for o in decided.observations}, (
+        "run_suite must be unaffected — the flag is the only thing that changes this"
+    )
+
+
+def test_no_artifact_criterion_left_scored_on_a_cc_arm_is_guaranteed_red():
+    """The invariant behind the `api_artifact.*` skip, corpus-wide.
+
+    `api_artifact.<name>` was DELIBERATELY made CC-observable, so the family must
+    stay scored. Two sub-assertions still cannot be satisfied by any CC turn —
+    `.rows_gte`, because CC indexes artifacts by bare label with no readable path,
+    and a real basename on a multi-deliverable turn, because `_publish_artifacts`
+    publishes one `artifacts.zip` whose members never reach `query_complete`.
+
+    So: for every bayesian variant, drive the turn with a CC payload that really
+    published the single basename it asserts, and require every artifact criterion
+    still being SCORED to pass. Anything that cannot is a guaranteed false red,
+    which is the whole defect class this fix exists to remove.
+    """
+    from nessie_tests import evaluate
+    from nessie_tests.route_observer import RouteObservation
+
+    obs = RouteObservation("container_cc", None, "forced", "", None, "container_cc")
+    by_id = {v.id: v for v in corpus.merged(CORPUS)}
+    guaranteed_red = []
+
+    for vid in corpus.bayesian_ids(CORPUS):
+        for turn in by_id[vid].turns:
+            criteria = [c for c in turn.pass_criteria
+                        if runner._criterion_field(c) not in runner.STRIPPED_UNDER_FORCING]
+            names = evaluate.asserted_artifact_basenames(criteria)
+            if not names:
+                continue
+            # The most generous turn the product could have produced: it published
+            # every basename this turn names. On a real multi-deliverable turn CC
+            # would have zipped them, which is exactly what makes those criteria
+            # unsatisfiable — and what this asserts has already been skipped.
+            payload = {"status": "completed", "progress": [
+                {"event": "route_decided",
+                 "data": {"route": "container_cc", "source": "forced"}},
+                {"event": "query_complete", "data": {
+                    "reply": "done", "mode": "cc",
+                    "artifacts": [{"artifact_type": "file", "label": n} for n in names]}},
+            ]}
+            _p, results, _o = evaluate.evaluate_turn(
+                payload, criteria, obs, last_reply="done", forced=True)
+            guaranteed_red += [
+                f"{vid}/{turn.label}:{r['field']}" for r in results
+                if r["field"].startswith(evaluate.ARTIFACT_PREFIX)
+                and not r.get("skipped") and not r["passed"]]
+
+    assert guaranteed_red == [], (
+        f"these artifact criteria are still scored on a forced cc arm but can "
+        f"never pass one: {guaranteed_red}. Each is a false red on a correct "
+        f"answer — the defect class this fix removes.")

@@ -99,7 +99,15 @@ def _trim(value):
 # assertion under `force_route` tests the harness's own request body, not the
 # product's routing, so keeping it would manufacture a pass on every arm that
 # happens to agree and a failure on every arm that does not. Neither is evidence.
-STRIPPED_UNDER_FORCING = frozenset({"route", "engine"})
+#
+# `route_source` joined them on review. Under forcing it is `"forced"` on BOTH
+# arms by construction — that is what `ROUTE_DECISION_SOURCES` excludes it for,
+# three lines of reasoning above — so an assertion on it is a harness artifact in
+# exactly the way the other two are. It is asserted by 2 corpus criteria, both on
+# route_gate variants, which `test_no_route_gate_variant_is_selected_for_the_paid_
+# paired_run` already keeps out of the paired run; this closes the gap anyway
+# rather than relying on that to hold.
+STRIPPED_UNDER_FORCING = frozenset({"route", "engine", "route_source"})
 
 
 def _criterion_field(c):
@@ -265,9 +273,12 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
             # ran off the same observation it scores against, so on a paired run
             # this is non-zero on the cc arm and zero on the ns arm without the
             # runner needing to know which arm it is driving.
-            forced_skips += sum(
-                1 for r in results
-                if r.get("skipped") and evaluate.FORCED_CC_SKIP_REASON in r.get("reason", ""))
+            #
+            # Read off the `forced_skip` flag, NOT off the reason text. The reason
+            # is composed in `evaluate.py` and there are now three of them; a
+            # substring contract across the module boundary would break silently
+            # the next time one is added or reworded.
+            forced_skips += sum(1 for r in results if r.get("forced_skip"))
             observations += [
                 CriterionObservation(
                     turn=turn.label, field=r["field"], op=r["op"], expected=r.get("value"),
@@ -333,8 +344,11 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
     # case made entirely of these skips produces, so the count matters most where
     # an earlier append would have been overwritten.
     if forced_skips:
-        note = (f"skipped {forced_skips} NS-pipeline criteri"
-                f"{'on' if forced_skips == 1 else 'a'} (forced container_cc arm)")
+        # "unsatisfiable", not "NS-pipeline": the count now covers the two
+        # api_artifact sub-assertions a CC turn cannot satisfy either, and those
+        # are a publishing limit rather than an NS-pipeline field.
+        note = (f"skipped {forced_skips} criteri{'on' if forced_skips == 1 else 'a'} "
+                f"unsatisfiable on a forced container_cc arm")
         reason = f"{reason}; {note}" if reason else note
     return NessieManifestEntry(
         id=v.id, family=v.family, tier=tier, status=v_status, route=v_route, engine=v_engine,

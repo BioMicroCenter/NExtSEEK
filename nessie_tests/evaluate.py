@@ -458,11 +458,11 @@ CC_UNOBSERVABLE_REASON = f"NS outcome field not observable on a {CC_ROUTE} turn"
 # set -- so criterion depth is simply irrelevant. A denylist would have had to get
 # `api_plan.` vs `api_plan.endpoint` right by hand, per family, forever.
 #
-# `route` and `engine` are listed here even though they can never arrive:
-# `run_case` removes them under this same flag before `evaluate_turn` is called.
-# They are in the set because it is a statement about what a CC ENGINE can
-# produce, and demoting it to a statement about call order would make it wrong the
-# moment the call order changed.
+# `route`, `engine` and `route_source` are listed here even though they can never
+# arrive: `run_case` removes all three under this same flag before `evaluate_turn`
+# is called. They are in the set because it is a statement about what a CC ENGINE
+# can produce, and demoting it to a statement about call order would make it wrong
+# the moment the call order changed.
 ENGINE_NEUTRAL_FIELDS = frozenset({"last_reply", "route", "engine", "route_source"})
 ENGINE_NEUTRAL_PREFIXES = (ARTIFACT_PREFIX, "bundle.")
 FORCED_CC_SKIP_REASON = (
@@ -482,6 +482,87 @@ def is_ns_pipeline_internal(field: str | None) -> bool:
     return not (field in ENGINE_NEUTRAL_FIELDS
                 or field.startswith(ENGINE_NEUTRAL_PREFIXES))
 
+
+# ── api_artifact.*: engine-neutral as a FAMILY, not criterion by criterion ────
+#
+# `build_artifact_index` was deliberately taught to index a CC turn's `artifacts`
+# and `cc_raw_files`, so `api_artifact.<name>` really is scorable on a CC arm and
+# must stay scored. Two of its sub-assertions still cannot be, for reasons that
+# are properties of how CC publishes rather than of what it produced:
+#
+# 1. `.rows_gte`. `resolve_artifact` (:160-175) returns 0 for any indexed value
+#    with no path separator, and a CC artifact is indexed under its bare `label`
+#    because NEITHER producer sets `path` — so it is 0 for every CC artifact that
+#    ever existed. Even when a path IS present (`cc_raw_files`) it names a file in
+#    the ephemeral agent container, which the harness cannot open, so `_count_rows`
+#    returns 0 again. `pipeline.end_to_end_emit` emits a correct `samplesheet.csv`,
+#    passes `api_artifact.samplesheet.csv`, and reds `…rows_gte gte 1` at `0`.
+#
+# 2. A basename on a MULTI-DELIVERABLE turn. `_publish_artifacts`
+#    (`cc_engine.py:954-961`) zips whenever it finds more than one deliverable and
+#    emits a SINGLE artifact labelled `artifacts.zip`; the member filenames never
+#    reach `query_complete`. That is the KNOWN LIMIT already documented on
+#    `build_artifact_index` (:113-121), which says outright that a CC turn must
+#    assert `artifacts.zip` and that only a single-deliverable turn can assert a
+#    real basename. `report.sra_submission` asserts TWO basenames on one turn, so
+#    it is a multi-deliverable turn by its own admission and all of it reds.
+#
+# The turn's own criteria are what make case 2 decidable: a turn asserting two or
+# more DISTINCT basenames is claiming two or more deliverables. One basename is
+# left alone — the turn may still be multi-deliverable in reality, but nothing
+# here proves it, and skipping on a guess would discard real signal. Conservative
+# in the direction that keeps assertions.
+#
+# `artifacts.zip` is exempt from case 2: it is precisely the name a zipped CC turn
+# DOES expose, so asserting it alongside anything else stays satisfiable.
+#
+# NOT the same kind of claim as the NS-pipeline skip above, and worth being clear
+# about: these two are harness observability gaps, not assertions about which
+# engine answered. That would arguably justify skipping them on a router-decided
+# CC turn as well. It is deliberately NOT done — `run_suite` must stay
+# byte-identical, and widening it is a separate decision with its own blast
+# radius. Under forcing the question does not arise, because the harness chose the
+# engine.
+ARTIFACT_ZIP_NAME = "artifacts.zip"
+ROWS_GTE_SUFFIX = ".rows_gte"
+CC_ARTIFACT_ROWS_REASON = (
+    f"artifact row counts are not observable on a {CC_ROUTE} turn: CC artifacts "
+    f"are indexed by bare label with no readable path, so this resolves 0 whatever "
+    f"the file holds"
+)
+CC_ARTIFACT_MULTI_REASON = (
+    f"a multi-deliverable {CC_ROUTE} turn publishes ONE {ARTIFACT_ZIP_NAME} and its "
+    f"member filenames never reach query_complete, so this basename cannot resolve"
+)
+
+
+def artifact_basename(field: str) -> str:
+    """`api_artifact.foo.csv` and `api_artifact.foo.csv.rows_gte` -> `foo.csv`."""
+    sub = field[len(ARTIFACT_PREFIX):]
+    return sub[: -len(ROWS_GTE_SUFFIX)] if sub.endswith(ROWS_GTE_SUFFIX) else sub
+
+
+def asserted_artifact_basenames(criteria) -> frozenset[str]:
+    """The distinct produced-file basenames this TURN's criteria assert.
+
+    Turn-scoped, because "did this turn produce more than one deliverable" is a
+    question about the turn. A case-level count would skip a single-deliverable
+    turn because a different turn of the same case asserted another file.
+    """
+    return frozenset(
+        artifact_basename(f) for f in
+        (_criterion_parts(c)[0] or "" for c in criteria)
+        if f.startswith(ARTIFACT_PREFIX))
+
+
+def _forced_cc_artifact_reason(field: str, basenames) -> str | None:
+    """Why this `api_artifact.*` assertion cannot be satisfied by a CC turn."""
+    if field.endswith(ROWS_GTE_SUFFIX):
+        return CC_ARTIFACT_ROWS_REASON
+    if artifact_basename(field) != ARTIFACT_ZIP_NAME and len(basenames) > 1:
+        return CC_ARTIFACT_MULTI_REASON
+    return None
+
 # What the runner records when a case evaluated ZERO criteria. Lives here, next
 # to the two reasons that cause it, so the three read as one story.
 NO_ASSERTIONS_REASON = (
@@ -491,7 +572,8 @@ NO_ASSERTIONS_REASON = (
 
 
 def unobservable_reason(field: str | None, op: str | None,
-                        route: str | None = None, *, forced: bool = False) -> str | None:
+                        route: str | None = None, *, forced: bool = False,
+                        artifact_basenames=frozenset()) -> str | None:
     """Why this criterion cannot be evaluated on this turn, or None if it can.
 
     ``route`` is optional and defaults to None so the HTTP-family check keeps
@@ -501,7 +583,13 @@ def unobservable_reason(field: str | None, op: str | None,
     ``forced`` says the harness picked this turn's engine rather than the router,
     and defaults False so every router-decided caller — `run_suite` above all,
     which has no way to set it — behaves exactly as it did. Only with BOTH it and
-    an observed container_cc route does the wider NS-pipeline-internal skip apply.
+    an observed container_cc route does any of the widened skipping apply.
+
+    ``artifact_basenames`` is this TURN's asserted basenames, needed only to tell
+    a multi-deliverable CC turn from a single-deliverable one. It defaults empty,
+    which reads as "no turn context", and the multi-deliverable branch then never
+    fires — the conservative direction, since that branch is the one that skips a
+    criterion a single-deliverable turn could have satisfied.
     """
     if (field or "").startswith(_UNOBSERVABLE_FIELD_PREFIXES) or op in _UNOBSERVABLE_OPS:
         return UNOBSERVABLE_REASON
@@ -511,14 +599,33 @@ def unobservable_reason(field: str | None, op: str | None,
         # are skipped whether or not anything was forced, and collapsing them
         # into the wider reason would lose that distinction in the manifest.
         return CC_UNOBSERVABLE_REASON
-    if forced and route == CC_ROUTE and is_ns_pipeline_internal(field):
-        return FORCED_CC_SKIP_REASON
+    if forced and route == CC_ROUTE:
+        # Artifacts first: `ARTIFACT_PREFIX` is in `ENGINE_NEUTRAL_PREFIXES`, so
+        # `is_ns_pipeline_internal` says False for the whole family and the branch
+        # below would never look at them. Which is right — the family IS scorable
+        # on CC; only these two sub-assertions are not.
+        if (field or "").startswith(ARTIFACT_PREFIX):
+            return _forced_cc_artifact_reason(field, artifact_basenames)
+        if is_ns_pipeline_internal(field):
+            return FORCED_CC_SKIP_REASON
     return None
 
 
+# The skips that exist ONLY because the harness forced the engine. `run_case`
+# reports a count of them, and it reads the structural `forced_skip` flag
+# `evaluate_turn` stamps on each row rather than matching this text: a reason
+# string is composed here and consumed there, and a string contract across a
+# module boundary drifts. The membership test stays inside this module, where
+# both the constants and their one use site live.
+FORCED_ONLY_REASONS = frozenset({
+    FORCED_CC_SKIP_REASON, CC_ARTIFACT_ROWS_REASON, CC_ARTIFACT_MULTI_REASON,
+})
+
+
 def is_unobservable(field: str | None, op: str | None, route: str | None = None,
-                    *, forced: bool = False) -> bool:
-    return unobservable_reason(field, op, route, forced=forced) is not None
+                    *, forced: bool = False, artifact_basenames=frozenset()) -> bool:
+    return unobservable_reason(field, op, route, forced=forced,
+                               artifact_basenames=artifact_basenames) is not None
 
 
 def any_criterion_evaluated(results: list[dict]) -> bool:
@@ -544,7 +651,9 @@ def evaluate_turn(payload, criteria, obs, *, last_reply=None, bundle_summary=Non
     # is true on BOTH paired arms, and the route here is the one this arm really
     # ran, so the NS arm keeps its NS-pipeline criteria.
     route = debug.get("route")
-    paired = [(c, unobservable_reason(*_criterion_parts(c)[:2], route=route, forced=forced))
+    basenames = asserted_artifact_basenames(criteria)
+    paired = [(c, unobservable_reason(*_criterion_parts(c)[:2], route=route, forced=forced,
+                                      artifact_basenames=basenames))
               for c in criteria]
     skipped = [(c, why) for c, why in paired if why]
     criteria = [c for c, why in paired if not why]
@@ -556,6 +665,9 @@ def evaluate_turn(payload, criteria, obs, *, last_reply=None, bundle_summary=Non
         field, op, expected = _criterion_parts(crit)
         results.append({"field": field, "op": op, "value": expected,
                         "passed": True, "skipped": True,
+                        # Structural, for `run_case`'s count. True only for skips
+                        # that would not have happened had the router chosen.
+                        "forced_skip": why in FORCED_ONLY_REASONS,
                         "reason": f"{field}: SKIPPED — {why}"})
 
     index = debug.get(ARTIFACT_INDEX_KEY) or {}
