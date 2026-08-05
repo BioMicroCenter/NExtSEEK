@@ -158,34 +158,115 @@ and is ranked #2 below, above every free Tier 1 addition.
 
 ### How many pipelines are in scope
 
-Classifying all 138 topic-tagged, non-archived nf-core pipelines:
+> ⚠️ **Superseded 2026-08-05 by a full schema census.** The table below
+> was the original description-based classification. Every pipeline has
+> since been checked against its own pinned schemas, and the answer is
+> much smaller. The original is kept only so the correction is legible.
 
 | Bucket | Count | Cost |
 |-------------------|--------------:|--------------------------------------|
-| Already supported | 8 → **17** | — |
-| **Tier 1** | **73** | Config only |
+| Already supported | 8 → **18** | — |
+| ~~**Tier 1**~~ | ~~73~~ | ~~Config only~~ — **see census below** |
 | **Tier 2** | **9** | New file resolver + new reference concept |
 | **Tier 3** | **24** | Each its own design |
 | Not applicable | 24 | Astronomy, permafrost, reference-builders, sequence-only tools |
 | **Total** | **138** |  |
 
-So \~106 are integrable in principle — 89 still beyond what we now have.
-**But "integrable" is not "worth integrating"** — see the caveats below.
-
-**And "Tier 1" turned out to be optimistic.** An earlier version of this
-document put the realistic Tier 1 shortlist at 15–20. When each
-candidate's actual `nextflow_schema.json` was read instead of its
-one-line description, **9 of 22 qualified as config-only** — 6
-immediately, plus `crisprseq`, `nanoseq` and `mag` once their real input
-schemas were checked and the wizard could ask the user for what it
-needs. The rest are blocked on references, experimental design, or input
-shape — see *What we rejected* below. Treat the 73 as an upper bound on
-*shape*, not on effort.
-
 nf-core's site advertises 155 pipelines; the gap to 138 is archived and
 untagged repos.
 
-### Tier 1 — catalog entry only, no new code · **73 pipelines**
+### The schema census — what the 138 actually are
+
+The tiering above was assigned from repo descriptions. That method was
+already known to be unreliable (it was wrong 6 times out of the 22
+candidates later checked properly), so on 2026-08-05 every pipeline was
+enumerated from the GitHub API and both authoritative schemas fetched at
+its **latest release tag**: `nextflow_schema.json` for required params
+and reference options, `assets/schema_input.json` for required
+samplesheet columns. Population reproduced exactly: 138.
+
+Three independent corrections fell out, each shrinking the number.
+
+**1. 42 of the 138 have no GitHub release at all** — 30% of the
+population. There is no tag to pin, and pinning a commit means running
+something with no release guarantees. The original document flagged
+exactly one of these (`circrna`). This alone removes nearly a third of
+the "integrable" count.
+
+| Pinnable? | Count |
+|-----------------------------|------:|
+| Has a release               | **96** |
+| No release — nothing to pin | **42** |
+
+**2. Of the 96 pinnable, only 27 are config-only by schema** — and 9 of
+those are pipelines we already ship.
+
+| Verdict (of 96) | Count | Meaning |
+|---------------------|------:|------------------------------------------|
+| **config-only** | **27** | No required param lacking a default; every required column is a sample id or a file we can resolve. 9 already shipped → **18 new candidates** |
+| needs a decision | 53 | Non-derivable columns (27), an explicit reference or index (14), other required params (8), a database we don't host (4) |
+| no input schema | 15 | No `assets/schema_input.json` — input shape is not machine-readable, so it cannot be assessed this way |
+| blocked on pairing | 1 | `cutandrun` — its required `control` column names another sample |
+
+Worth noting the classifier put `bamtofastq`, `atacseq`, `hlatyping`,
+`crisprseq` and `nanoseq` in *needs a decision*, not *config-only* —
+which is correct, and is a good sign it is calibrated. Those are exactly
+the pipelines that needed a resolver or an elicited value. **"Needs a
+decision" is not "impossible"** — it is the bucket the two new
+mechanisms exist to serve.
+
+**3. Most of the 18 remaining candidates have no data here to run on.**
+This is the check the original never made, and it is the one that
+matters most. From `seek_production`:
+
+| Finding | Evidence | Kills |
+|-------------------|--------------------------|--------------------------|
+| **No long-read data whatsoever** | 0 of 2,057 `D.SEQ` mention PacBio / Nanopore / ONT / MinION / PromethION / Revio / Sequel. Every `Sequencer` value is Illumina (plus 26 Singular G4, also short-read) | `genomeassembler`, `pacvar` — and see the `nanoseq` note below |
+| **`BAC` samples have no sequencing children** | 1,402 `BAC` samples, but **0** `D.SEQ` records have a `BAC` parent | `bacass` |
+| **Essentially no viral data** | 19 samples in the whole 51,359 mention SARS / COVID / influenza / virus / viral | `viralrecon`, `viralmetagenome`, `viralintegration` |
+| Not our data shape | — | `demo` (a workshop pipeline), `drugresponseeval` (benchmarks ML models against named public datasets; its `schema_input.json` is an unmodified nf-core template and does not describe its real input), `multiplesequencealign`, `reportho` (both take sequence FASTA, not reads), `sopa` (spatial imaging), `pathogensurveillance` |
+| Design-blocked | tumour/normal via `status` / `normal_id` | `rnadnavar` |
+
+That leaves `denovotranscript`, `detaxizer`, `fastqrepair`, `magmap`
+and `metatdenovo` — and none is compelling. De novo transcriptome
+assembly has little value when every organism we hold (human, mouse,
+NHP, *M. tuberculosis*) has a reference; `mag` already covers
+metagenome assembly; `detaxizer` and `fastqrepair` are utilities, not
+analyses.
+
+**Conclusion: the config-only well is dry.** Not "73 cheap additions
+remain" — closer to zero worth making. What the database actually
+contains is overwhelmingly amplicon and bulk RNA-seq, both already
+covered:
+
+| `LibraryStrategy` (2,057 `D.SEQ`) | Samples | Covered by |
+|--------------------------|--------:|--------------------------|
+| Amplicon (2 spellings)   | **1,179** | `ampliseq`, `crisprseq` |
+| RNA-seq (3 spellings)    | **507** | `rnaseq`, `rnavar` |
+| WGS                      | 188 | `sarek` |
+| scRNA-seq                | 102 | `scrnaseq` |
+| Targeted Capture         | 69 | `sarek`, `hlatyping` |
+| Hi-C                     | 12 | `hic` |
+
+> ⚠️ **`nanoseq` is catalogued but has nothing to run on.** Its
+> verification row already said "confirm we hold Nanopore data at all".
+> Confirmed: we do not — zero long-read samples of any platform. It is
+> not broken and the entry can stay for when such data arrives, but it
+> should not be counted as capability, and it should not be anyone's
+> Luria test.
+
+The remaining growth is therefore **not** in adding catalog entries. It
+is in `differentialabundance`'s contrasts derivation, in `mhcquant` for
+the mass-spec labs, and in getting results registered back — the 1.7%
+problem. Those were already ranked #1–#3 below; this census removes the
+argument that cheap Tier 1 additions are a competing use of time.
+
+*(Reproducible: the enumeration and classifier are mechanical — list
+`nf-core` org repos tagged `nf-core`+`pipeline`, take each latest
+release, fetch both schemas, apply the two tests above. Re-run it when
+revisions move rather than trusting this table.)*
+
+### Tier 1 — catalog entry only, no new code · ~~73 pipelines~~ **see the census above**
 
 Same FASTQ / `D.SEQ` shape; one `NFCORE_PIPELINE_CATALOG` entry plus one
 `templates/nfcore/<key>.json` each. Per-pipeline column renaming is
@@ -513,17 +594,18 @@ the run directory — it is the evidence.
 | `hic` | ❌ untested | New. First run per genome pays a bowtie2 index build — allow for it |
 | `rnavar` | ❌ untested | New. Confirm BQSR is genuinely skipped |
 | `crisprseq` | ❌ untested | New. Confirm `configure_run` refuses until guide + amplicon are answered |
-| `nanoseq` | ❌ untested | New. Confirm `protocol` elicitation fires. **Also confirm we hold Nanopore data at all** |
+| `nanoseq` | ⛔ **no data exists** | Answered 2026-08-05: **we hold zero long-read samples** (0 of 2,057 `D.SEQ` mention any long-read platform). Untestable here. Keep the entry for future data; do not count it as capability |
 | `mag` | ❌ untested | New. Confirm the `short_reads_1/2` column rename lands in the emitted CSV |
 | `bamtofastq` | ❌ **blocked on data** | New. The path is verified end-to-end against the real 32 `A.ALN` rows (leaves resolve, sheet emits `sample_id,mapped,file_type`), but every one of those records is archive-only — **no BAM has a cluster path**. Needs a cohort with real `/net/…` alignments before a Luria run means anything |
 
 **Suggested order.** `seqinspector` first — no reference, no
 elicitation, so a failure isolates the launch path itself. Then
-`ampliseq`, because it exercises the empty-reference-flag case and has
-never once run. Then `crisprseq` or `nanoseq`, which prove the
-elicitation loop end to end. The reference-building ones (`hic`,
-`rnavar`) last, since a slow index build makes a failure expensive to
-diagnose.
+`ampliseq`, because it exercises the empty-reference-flag case, has
+never once run, **and is the single best-represented library type we
+hold** (1,179 of 2,057 `D.SEQ` are amplicon). Then `crisprseq`, which
+proves the elicitation loop end to end — not `nanoseq`, which has no
+data. The reference-building ones (`hic`, `rnavar`) last, since a slow
+index build makes a failure expensive to diagnose.
 
 **What "verified" should mean here:** Nextflow accepted the parameters
 and the run reached completion — not merely that `sbatch` returned a job
