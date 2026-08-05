@@ -1239,6 +1239,118 @@ def test_relationship_resolution_is_bounded_and_complete(
     assert identities["units"][5][1] == "nanogram"
 
 
+def test_hypothetical_linked_type_titles_are_real_titles(
+    disposable_attribute_db, sql_telemetry, django_db_blocker
+):
+    """T04E display-defect killer: `materialization_identities` must fold
+    every definition's `linked_sample_type_id` into its bulk chunked
+    sample-type identity load, so `materialize_hypothetical_records` spells
+    the REAL linked-type title for every record whose linked id is set --
+    including when the linked type is not among the selection's own
+    `sample_type_id`s (pre-fix: silently None, because the identity
+    collection pass never gathered linked ids). Four cases: linked id
+    among the selection's own types (self-link), TWO linked ids NOT among
+    them (cross-link and bone-link -- the pre-fix failing shape), and
+    linked id NULL. The statement bound kills the realistic
+    per-MISSING-linked-id loop regression: with two linked ids absent
+    from the own-types map, a one-SELECT-per-missing-id implementation
+    needs 4 statements, while every legitimate bulk shape stays <= 3
+    (fold into the own-types load = 2; a separate chunked linked load =
+    2 + ceil(2/500) = 3)."""
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    _reset_seek_tables(database)
+    database.execute_sql(
+        [
+            ("INSERT INTO sample_attribute_types(id,title,created_at,updated_at) VALUES(3,'Float',NOW(6),NOW(6))", ()),
+            (
+                "INSERT INTO sample_types(id,title,created_at,updated_at) VALUES"
+                "(1,'Blood',NOW(6),NOW(6)),(2,'Tissue',NOW(6),NOW(6)),(4,'Bone',NOW(6),NOW(6))",
+                (),
+            ),
+        ]
+    )
+    gateway = SeekAttributeGateway()
+    repo = AttributeRepository(gateway)
+    definitions = [
+        {
+            "token": "self-link", "title": "SelfLinked", "sample_type_id": 1,
+            "sample_attribute_type_id": 3, "required": False, "pos": 1,
+            "is_title": False, "description": None, "unit_id": None,
+            "sample_controlled_vocab_id": None, "linked_sample_type_id": 1,
+        },
+        {
+            "token": "cross-link", "title": "CrossLinked", "sample_type_id": 1,
+            "sample_attribute_type_id": 3, "required": False, "pos": 2,
+            "is_title": False, "description": None, "unit_id": None,
+            "sample_controlled_vocab_id": None, "linked_sample_type_id": 2,
+        },
+        {
+            "token": "bone-link", "title": "BoneLinked", "sample_type_id": 1,
+            "sample_attribute_type_id": 3, "required": False, "pos": 3,
+            "is_title": False, "description": None, "unit_id": None,
+            "sample_controlled_vocab_id": None, "linked_sample_type_id": 4,
+        },
+        {
+            "token": "null-link", "title": "Unlinked", "sample_type_id": 1,
+            "sample_attribute_type_id": 3, "required": False, "pos": 4,
+            "is_title": False, "description": None, "unit_id": None,
+            "sample_controlled_vocab_id": None, "linked_sample_type_id": None,
+        },
+    ]
+
+    def operate():
+        gateway.chunk_sizes = []
+        return repo.materialize_hypothetical_records(definitions)
+
+    def result_builder(records):
+        payload = [
+            (record["token"], record["linked_sample_type_id"], record["linked_sample_type_title"])
+            for record in records
+        ]
+        return len(records), {
+            "ordered_identity_sha256": _sha256_json(payload),
+            "logical_record_sha256": _sha256_json(list(records)),
+            "total": len(records),
+            "offset": 0,
+            "page_size": max(1, len(records)),
+            "returned_count": len(records),
+        }
+
+    records, statements = _run_observed(
+        database, sql_telemetry,
+        case_id="test_hypothetical_linked_type_titles_are_real_titles",
+        selector_count=len(definitions),
+        operate=operate,
+        result_builder=result_builder,
+    )
+    by_token = {record["token"]: record for record in records}
+    assert set(by_token) == {"self-link", "cross-link", "bone-link", "null-link"}
+    assert all(record["sample_type_title"] == "Blood" for record in records)
+    assert all(record["sample_attribute_type_title"] == "Float" for record in records)
+    # Linked id present among the selection's own sample types.
+    assert by_token["self-link"]["linked_sample_type_id"] == 1
+    assert by_token["self-link"]["linked_sample_type_title"] == "Blood"
+    # Two linked ids NOT among the selection's own sample types -- the
+    # pre-fix failing shape: the identity maps never loaded rows 2/4, so
+    # both titles silently materialized as None.
+    assert by_token["cross-link"]["linked_sample_type_id"] == 2
+    assert by_token["cross-link"]["linked_sample_type_title"] == "Tissue"
+    assert by_token["bone-link"]["linked_sample_type_id"] == 4
+    assert by_token["bone-link"]["linked_sample_type_title"] == "Bone"
+    # Linked id NULL stays NULL/None on both fields.
+    assert by_token["null-link"]["linked_sample_type_id"] is None
+    assert by_token["null-link"]["linked_sample_type_title"] is None
+    # Bulk-and-bounded, sized to kill the per-MISSING-linked-id loop: the
+    # fixture leaves exactly 2 linked ids ({2, 4}) outside the own-types
+    # map, so a one-SELECT-per-missing-id implementation needs 4
+    # statements (own-types + 2 per-id + value-types) and breaches this
+    # bound, while the fold (2 statements) and a separate chunked linked
+    # load (2 + ceil(2/500) = 3) both stay within it.
+    assert len(statements) <= 2 + math.ceil(2 / IDENTIFIER_CHUNK_SIZE)
+    assert all(size <= IDENTIFIER_CHUNK_SIZE for size in gateway.chunk_sizes)
+
+
 # ---------------------------------------------------------------------------
 # Coverage / contract helpers (not primary-credit nodes)
 # ---------------------------------------------------------------------------

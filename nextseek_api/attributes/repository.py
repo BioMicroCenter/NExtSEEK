@@ -992,14 +992,20 @@ class SeekAttributeGateway:
 
     def materialization_identities(self, definitions: Iterable[dict]) -> dict[str, dict[int, tuple]]:
         """Bulk, bounded-chunked identity lookups for not-yet-created
-        (hypothetical) definitions: sample type, value type, unit, and
-        controlled vocabulary. One statement per chunk per relationship."""
+        (hypothetical) definitions: sample type (each definition's own AND
+        its `linked_sample_type_id`, folded into the same chunked
+        `sample_types` load -- omitting the linked ids silently dropped
+        `linked_sample_type_title` from every record whose linked type was
+        not otherwise selected), value type, unit, and controlled
+        vocabulary. One statement per chunk per relationship."""
         sample_type_ids: set[int] = set()
         value_type_ids: set[int] = set()
         unit_ids: set[int] = set()
         vocab_ids: set[int] = set()
         for definition in definitions:
             sample_type_ids.add(definition["sample_type_id"])
+            if definition.get("linked_sample_type_id") is not None:
+                sample_type_ids.add(definition["linked_sample_type_id"])
             value_type_ids.add(definition["sample_attribute_type_id"])
             if definition.get("unit_id") is not None:
                 unit_ids.add(definition["unit_id"])
