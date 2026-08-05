@@ -195,14 +195,71 @@ def _upload_to_tower_dataset(
         return fallback
 
 
+# --- sample-id sanitising ------------------------------------------------------
+#
+# We use the NExtSEEK UID as the sample name, which is the right default: it makes
+# every result traceable to a record. Most nf-core pipelines allow it — their id
+# pattern is `^\S+$`. ampliseq does not: it demands `^[a-zA-Z][a-zA-Z0-9_]+$`, and a
+# UID like `D.SEQ-230512FOR-287-PUB` fails on both the dot and the hyphens. That
+# aborts the run at samplesheet validation, AFTER the reads have been downloaded.
+#
+# Checked across every catalogued pipeline at its pinned revision on 2026-08-05:
+# ampliseq is the only one. Keep this map minimal rather than sanitising globally —
+# a mangled id that did not need mangling is a traceability loss for no gain.
+PIPELINE_SAMPLE_ID_RULES: dict[str, dict[str, str]] = {
+    "ampliseq": {"column": "sampleID", "pattern": r"^[a-zA-Z][a-zA-Z0-9_]+$"},
+}
+# Column carrying the untouched UID whenever the id had to be rewritten, so a result
+# can still be traced back. Every affected schema tolerates extra columns.
+SAMPLE_ID_PROVENANCE_COLUMN = "nextseek_uid"
+
+
+def sanitize_sample_id(value: str, pattern: str) -> str:
+    """Rewrite a sample id so it satisfies `pattern`, changing as little as possible.
+
+    Non-conforming characters become '_', and a leading character that the pattern
+    disallows gets an 's' prefix rather than being dropped — losing it could collide
+    two ids that differ only in their first character.
+    """
+    text = str(value or "")
+    if not text or re.fullmatch(pattern, text):
+        return text
+    # The rules we support are character-class patterns; derive the allowed set from
+    # the pattern itself so this cannot drift from what the pipeline declares.
+    body = re.search(r"\[([^\]]+)\]\+?\$?$", pattern)
+    allowed = body.group(1) if body else r"A-Za-z0-9_"
+    cleaned = re.sub(rf"[^{allowed}]", "_", text)
+    head = re.match(r"\^\[([^\]]+)\]", pattern)
+    if head and cleaned and not re.match(rf"[{head.group(1)}]", cleaned):
+        cleaned = "s" + cleaned
+    return cleaned
+
+
+def _apply_sample_id_rule(row: dict[str, Any], pipeline: str) -> dict[str, Any]:
+    """Sanitise the id column for pipelines that constrain it; keep the original."""
+    rule = PIPELINE_SAMPLE_ID_RULES.get(pipeline)
+    if not rule:
+        return row
+    col = rule["column"]
+    original = str(row.get(col) or "")
+    if not original:
+        return row
+    safe = sanitize_sample_id(original, rule["pattern"])
+    if safe != original:
+        row[col] = safe
+        row.setdefault(SAMPLE_ID_PROVENANCE_COLUMN, original)
+    return row
+
+
 def _remap_row_for_pipeline(row: Mapping[str, Any], pipeline: str) -> dict[str, Any]:
     aliases = PIPELINE_COLUMN_ALIASES.get(pipeline)
-    if not aliases:
-        return dict(row)
-    out: dict[str, Any] = {}
-    for k, v in row.items():
-        out[aliases.get(k, k)] = v
-    return out
+    out: dict[str, Any] = dict(row)
+    if aliases:
+        out = {}
+        for k, v in row.items():
+            out[aliases.get(k, k)] = v
+    # After the rename, so the rule can name the column the pipeline actually reads.
+    return _apply_sample_id_rule(out, pipeline)
 
 
 @dataclass

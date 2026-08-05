@@ -146,3 +146,46 @@ def test_detaxizer_still_avoids_the_kraken2_default():
         "with both classifiers off detaxizer runs Kraken2 and stages a 64 GB database")
     assert p.get("fasta_bbduk"), (
         "bbduk with no fasta_bbduk falls back to getGenomeAttribute('fasta') — iGenomes on S3")
+
+
+# --- sample ids the pipeline will actually accept -----------------------------
+
+def test_ampliseq_sample_ids_are_sanitised_and_traceable(tmp_path):
+    """ampliseq demands ^[a-zA-Z][a-zA-Z0-9_]+$ for sampleID. A NExtSEEK UID
+    (D.SEQ-230512FOR-287-PUB) fails on the dot and the hyphens, and the run aborts at
+    samplesheet validation — AFTER the reads have been downloaded. Found on a real
+    Luria run, 2026-08-05."""
+    import csv
+    import re as _re
+    from chat_nextseek.seqera.emitter import (
+        PIPELINE_SAMPLE_ID_RULES, SAMPLE_ID_PROVENANCE_COLUMN, emit_nfcore_artifacts)
+
+    uid = "D.SEQ-230512FOR-287-PUB"
+    emit_nfcore_artifacts(
+        tmp_path, pipeline="ampliseq", samplesheet_rows=[{"sample": uid}],
+        resolutions=[], launch_plan=None, tower_env=None,
+        accession_metadata={uid: {"Link_PrimaryData": "/net/x/a_R1.fastq.gz"}})
+    row = next(iter(csv.DictReader((tmp_path / "samplesheet.csv").open(newline=""))))
+    pattern = PIPELINE_SAMPLE_ID_RULES["ampliseq"]["pattern"]
+    assert _re.fullmatch(pattern, row["sampleID"]), row["sampleID"]
+    # The original must survive, or a result cannot be traced back to its record.
+    assert row[SAMPLE_ID_PROVENANCE_COLUMN] == uid
+
+
+def test_only_pipelines_that_need_it_get_their_ids_rewritten(tmp_path):
+    """Mangling an id that did not need mangling loses traceability for no gain.
+    Every other catalogued pipeline declares ^\\S+$, which a UID already satisfies."""
+    import csv
+    from chat_nextseek.seqera.emitter import PIPELINE_SAMPLE_ID_RULES, emit_nfcore_artifacts
+
+    assert set(PIPELINE_SAMPLE_ID_RULES) == {"ampliseq"}, (
+        "a new id rule was added — confirm the pipeline really constrains the format")
+    uid = "D.SEQ-230512FOR-287-PUB"
+    for key in ("rnaseq", "detaxizer", "seqinspector"):
+        out = tmp_path / key
+        emit_nfcore_artifacts(
+            out, pipeline=key, samplesheet_rows=[{"sample": uid}], resolutions=[],
+            launch_plan=None, tower_env=None,
+            accession_metadata={uid: {"Link_PrimaryData": "/net/x/a_R1.fastq.gz"}})
+        row = next(iter(csv.DictReader((out / "samplesheet.csv").open(newline=""))))
+        assert row["sample"] == uid, f"{key} rewrote an id it did not need to"
