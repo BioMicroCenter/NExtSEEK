@@ -403,6 +403,85 @@ CC_UNOBSERVABLE_FIELDS = frozenset({
 # above. Two skips with the same reason string would be untriageable.
 CC_UNOBSERVABLE_REASON = f"NS outcome field not observable on a {CC_ROUTE} turn"
 
+# ── the same argument, one step further, and ONLY under forcing ──────────────
+#
+# The paragraph above refuses to skip an inline `api_ok` / `api_plan.*` /
+# `parser_plan.*` on a CC-routed turn, and that refusal is CORRECT for a
+# router-decided run: nobody forced anything, so a case carrying such a criterion
+# is claiming the NExtSEEK pipeline should have answered it, and a CC turn that
+# cannot satisfy it has genuinely failed that claim.
+#
+# Its premise is that a corpus author chose the engine. Under `--bayesian` nobody
+# did: `bayesian.run_paired` calls `run_case(force_route=arm)` for BOTH arms, so
+# the engine is the harness's own choice and an assertion about engine-internal
+# shape tests the harness rather than the product. That is verbatim the argument
+# `runner.STRIPPED_UNDER_FORCING` already makes for `route` and `engine`, and it
+# reaches exactly as far. The first live paired run measured the cost: all four CC
+# arms of the first four pairs failed while returning the SAME answer as their NS
+# arm -- `advanced.basic_ndma` gave "Found **195 Mouse (MUS) samples**" and went
+# red on five criteria, every one of them a NExtSEEK pipeline internal.
+#
+# So the widening is gated on forcing and NOT applied to `CC_UNOBSERVABLE_FIELDS`
+# itself, which `run_suite` shares. Router-decided behaviour is byte-identical.
+#
+# ARM-AWARE, and that is the crux. `run_paired` passes `strip_route_criteria=True`
+# on BOTH arms, so a strip keyed on the flag alone would delete these criteria
+# from the NS arm too -- where they are meaningful, currently passing, and the
+# only signal the paired run has about the engine those fields actually describe.
+# The gate is therefore the OBSERVED route, not the requested arm: an arm whose
+# force silently failed to take and really ran NExtSEEK keeps every one of them,
+# which is the case `preflight.assert_force_route_works` exists to worry about.
+#
+# ── why an allowlist of survivors, not a denylist of NS internals ────────────
+#
+# Because the survivors are a CLOSED, STRUCTURAL set and the NS internals are not.
+# A container_cc `query_complete` carries no `debug` key at all, so
+# `build_observed_debug` returns `{}` and the only fields that resolve to anything
+# are the ones `augment_debug` sets WITHOUT reading the pipeline (`route`,
+# `engine`, `route_source`, `bundle`, `nessie_artifact_index`) plus `last_reply`,
+# which `resolve_field` takes from the reply rather than from debug. That is the
+# whole list; it is fixed by the payload shape, not by the corpus.
+#
+# A denylist would have to enumerate the complement of that -- every key the NS
+# pipeline puts on `debug` -- which cannot be complete, and goes stale silently
+# the next time the pipeline gains one. Its failure mode is the defect being fixed
+# here, recurring. The allowlist's failure mode is a genuinely engine-neutral
+# field added later being skipped, which shows up as a `SKIPPED` row a reader can
+# see, and as `no_assertions` if it were ever the only one.
+#
+# ── exact names vs prefixes ──────────────────────────────────────────────────
+#
+# Prefixes only where the family NESTS: `api_artifact.<name>[.rows_gte]` and
+# `bundle.*`. The other four are flat names. Nothing on the SKIP side needs prefix
+# matching at all, and that is the point: `api_plan.requestBody.filter_searchText`
+# is skipped for the same reason as `api_plan.endpoint` -- neither is in the keep
+# set -- so criterion depth is simply irrelevant. A denylist would have had to get
+# `api_plan.` vs `api_plan.endpoint` right by hand, per family, forever.
+#
+# `route` and `engine` are listed here even though they can never arrive:
+# `run_case` removes them under this same flag before `evaluate_turn` is called.
+# They are in the set because it is a statement about what a CC ENGINE can
+# produce, and demoting it to a statement about call order would make it wrong the
+# moment the call order changed.
+ENGINE_NEUTRAL_FIELDS = frozenset({"last_reply", "route", "engine", "route_source"})
+ENGINE_NEUTRAL_PREFIXES = (ARTIFACT_PREFIX, "bundle.")
+FORCED_CC_SKIP_REASON = (
+    f"NS-pipeline-internal field, and the {CC_ROUTE} route was FORCED by the "
+    f"harness rather than chosen for this case"
+)
+
+
+def is_ns_pipeline_internal(field: str | None) -> bool:
+    """Is this criterion about the NExtSEEK pipeline's own internal shape?
+
+    True for everything a `container_cc` turn cannot produce — see
+    `ENGINE_NEUTRAL_FIELDS` above for the closed set of survivors and why the
+    membership test runs that way round.
+    """
+    field = field or ""
+    return not (field in ENGINE_NEUTRAL_FIELDS
+                or field.startswith(ENGINE_NEUTRAL_PREFIXES))
+
 # What the runner records when a case evaluated ZERO criteria. Lives here, next
 # to the two reasons that cause it, so the three read as one story.
 NO_ASSERTIONS_REASON = (
@@ -412,22 +491,34 @@ NO_ASSERTIONS_REASON = (
 
 
 def unobservable_reason(field: str | None, op: str | None,
-                        route: str | None = None) -> str | None:
+                        route: str | None = None, *, forced: bool = False) -> str | None:
     """Why this criterion cannot be evaluated on this turn, or None if it can.
 
     ``route`` is optional and defaults to None so the HTTP-family check keeps
     working for callers that have no route in hand; it is only consulted for the
     container_cc case.
+
+    ``forced`` says the harness picked this turn's engine rather than the router,
+    and defaults False so every router-decided caller — `run_suite` above all,
+    which has no way to set it — behaves exactly as it did. Only with BOTH it and
+    an observed container_cc route does the wider NS-pipeline-internal skip apply.
     """
     if (field or "").startswith(_UNOBSERVABLE_FIELD_PREFIXES) or op in _UNOBSERVABLE_OPS:
         return UNOBSERVABLE_REASON
     if route == CC_ROUTE and field in CC_UNOBSERVABLE_FIELDS:
+        # Checked BEFORE the forced widening so these four keep their own reason
+        # string on a forced arm too. They are the derived outcome fields, they
+        # are skipped whether or not anything was forced, and collapsing them
+        # into the wider reason would lose that distinction in the manifest.
         return CC_UNOBSERVABLE_REASON
+    if forced and route == CC_ROUTE and is_ns_pipeline_internal(field):
+        return FORCED_CC_SKIP_REASON
     return None
 
 
-def is_unobservable(field: str | None, op: str | None, route: str | None = None) -> bool:
-    return unobservable_reason(field, op, route) is not None
+def is_unobservable(field: str | None, op: str | None, route: str | None = None,
+                    *, forced: bool = False) -> bool:
+    return unobservable_reason(field, op, route, forced=forced) is not None
 
 
 def any_criterion_evaluated(results: list[dict]) -> bool:
@@ -440,7 +531,8 @@ def any_criterion_evaluated(results: list[dict]) -> bool:
     return any(not r.get("skipped") for r in results)
 
 
-def evaluate_turn(payload, criteria, obs, *, last_reply=None, bundle_summary=None):
+def evaluate_turn(payload, criteria, obs, *, last_reply=None, bundle_summary=None,
+                  forced=False):
     raw_debug = build_observed_debug(payload)
     debug = augment_debug(raw_debug, obs, bundle_summary,
                           artifact_index=build_artifact_index(raw_debug, payload))
@@ -448,8 +540,12 @@ def evaluate_turn(payload, criteria, obs, *, last_reply=None, bundle_summary=Non
     # The route is read off `debug` rather than plumbed through from the runner:
     # `augment_debug` has just set it from the SAME observation the criteria are
     # about to be evaluated against, so there is no second source to drift from.
+    # That is also what makes the `forced` widening arm-aware for free: `forced`
+    # is true on BOTH paired arms, and the route here is the one this arm really
+    # ran, so the NS arm keeps its NS-pipeline criteria.
     route = debug.get("route")
-    paired = [(c, unobservable_reason(*_criterion_parts(c)[:2], route=route)) for c in criteria]
+    paired = [(c, unobservable_reason(*_criterion_parts(c)[:2], route=route, forced=forced))
+              for c in criteria]
     skipped = [(c, why) for c, why in paired if why]
     criteria = [c for c, why in paired if not why]
 

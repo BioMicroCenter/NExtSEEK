@@ -586,6 +586,13 @@ def test_the_cc_skip_does_not_extend_to_inline_engine_criteria():
     case-level assertions someone wrote by hand — a case carrying them is
     claiming a particular engine answered it. Sweeping those into the skip is a
     much bigger blast radius and a corpus decision, not a harness one.
+
+    SCOPE NOTE (added with the `forced` widening): every word above holds for the
+    ROUTER-DECIDED path this test drives, and that is why this test still passes
+    unchanged. It is not absolute. Under `forced=True` no corpus author chose the
+    engine — the harness did — so the premise "a case carrying them is claiming a
+    particular engine answered it" is false and these same criteria ARE skipped.
+    See `test_the_inline_engine_criteria_are_skipped_once_the_route_is_forced`.
     """
     inline = [
         {"field": "api_ok", "op": "true", "value": None},
@@ -747,3 +754,192 @@ def test_it_is_still_the_only_multi_turn_variant_in_a_floored_family():
 
     assert multi == ["tree.then_ask_about"]
     assert corpus.variant_meta(corpus_json)["retrieve.then_inspect"]["status"] == "retired"
+
+
+# ── the forced-arm widening: engine-internal criteria on a FORCED cc arm ──────
+#
+# The five criteria below are verbatim the ones `advanced.basic_ndma` went red on
+# in the first live paired run, while its reply ("Found **195 Mouse (MUS) samples
+# ... **") said the same thing as the NS arm's ("A total of 195 Mouse (MUS)
+# samples wer..."). All four CC arms of the first four pairs failed this way.
+
+_LIVE_CC_FAILURES = [
+    {"field": "parser_plan.mode", "op": "eq", "value": "new_search"},
+    {"field": "entity_sampletype_codes", "op": "contains", "value": "MUS"},
+    {"field": "api_plan.endpoint", "op": "contains", "value": "advanced_search"},
+    {"field": "api_plan.requestBody.filter_searchText", "op": "contains", "value": "NDMA"},
+    {"field": "api_ok", "op": "true", "value": None},
+]
+
+
+def test_the_inline_engine_criteria_are_skipped_once_the_route_is_forced():
+    """The defect, reproduced and fixed at the same five fields that failed live."""
+    passed, results, _ = evaluate.evaluate_turn(
+        _cc_no_debug_payload(reply="Found **195 Mouse (MUS) samples** trea"),
+        list(_LIVE_CC_FAILURES), OBS_CC,
+        last_reply="Found **195 Mouse (MUS) samples** trea", forced=True)
+
+    assert passed is True, "a correct answer must not fail on fields its engine cannot emit"
+    by_field = _by_field(results)
+    for crit in _LIVE_CC_FAILURES:
+        row = by_field[crit["field"]]
+        assert row.get("skipped") is True, f"{crit['field']} was still scored"
+        assert evaluate.FORCED_CC_SKIP_REASON in row["reason"]
+
+
+def test_the_same_criteria_still_fail_a_cc_turn_the_router_chose():
+    """`run_suite`'s behaviour, pinned from the evaluate side.
+
+    `forced` defaults False, so a router-decided CC turn is scored exactly as it
+    was before this fix — which is the deliberate decision the module comment
+    records, and the blast radius that decision refuses to take on.
+    """
+    passed, results, _ = evaluate.evaluate_turn(
+        _cc_no_debug_payload(), list(_LIVE_CC_FAILURES), OBS_CC, last_reply="done")
+
+    assert passed is False
+    assert not any(r.get("skipped") for r in results)
+
+
+def test_the_forced_skip_does_not_touch_the_ns_arm():
+    """THE CRUX. `run_paired` forces BOTH arms, so a strip keyed on the flag alone
+    would delete these criteria from the NS arm too — where they are meaningful,
+    currently passing, and the only signal the paired run has about the engine
+    those fields actually describe.
+
+    Two directions, so "not skipped" cannot be satisfied by a field that had
+    quietly become unfailable: the answering NS turn must PASS and the empty one
+    must FAIL, both with `forced=True`.
+    """
+    answered = {"status": "completed", "progress": [
+        {"event": "route_decided",
+         "data": {"route": "nextseek_query", "model_class": None, "source": "forced",
+                  "reasoning": ""}},
+        {"event": "query_complete", "data": {"reply": "found", "debug": {
+            "parser_plan": {"mode": "new_search"},
+            "entity_result": {"sampletypes": [{"code": "MUS"}]},
+            "api_plan": {"endpoint": "advanced_search",
+                         "requestBody": {"filter_searchText": "NDMA"}},
+            "api_result_meta": {"ok": True}}}},
+    ]}
+    passed, results, _ = evaluate.evaluate_turn(
+        answered, list(_LIVE_CC_FAILURES), OBS_NS, last_reply="found", forced=True)
+    assert passed is True
+    assert not any(r.get("skipped") for r in results), (
+        "the NS arm must keep every NS-pipeline criterion under forcing")
+
+    empty = {"status": "completed", "progress": [
+        {"event": "route_decided",
+         "data": {"route": "nextseek_query", "model_class": None, "source": "forced",
+                  "reasoning": ""}},
+        {"event": "query_complete", "data": {"reply": "nothing", "debug": {}}},
+    ]}
+    failed, results2, _ = evaluate.evaluate_turn(
+        empty, list(_LIVE_CC_FAILURES), OBS_NS, last_reply="nothing", forced=True)
+    assert failed is False, "a forced NS arm that produced nothing must still go red"
+    assert not any(r.get("skipped") for r in results2)
+
+
+def test_nesting_is_irrelevant_because_the_membership_test_is_an_allowlist():
+    """`api_plan.requestBody.filter_searchText` is skipped for the SAME reason as
+    `api_plan.endpoint`: neither is in the keep set. No prefix table to maintain,
+    and no depth a new criterion can be written at that escapes the check."""
+    for field in ("api_plan", "api_plan.endpoint",
+                  "api_plan.requestBody.filter_searchText",
+                  "api_plan.requestBody.a.b.c.d.e",
+                  "reporter_result.samples.uuids_saved", "last_target_result_id"):
+        assert evaluate.is_ns_pipeline_internal(field) is True, field
+        assert evaluate.unobservable_reason(field, "eq", route=evaluate.CC_ROUTE,
+                                            forced=True) == evaluate.FORCED_CC_SKIP_REASON
+
+
+def test_the_engine_neutral_survivors_are_still_scored_on_a_forced_cc_arm():
+    """The allowlist is not a way of skipping everything. `last_reply` is the
+    answer itself and `api_artifact.*` was DELIBERATELY made CC-observable by
+    `build_artifact_index` — skipping either would discard the only real evidence
+    a CC arm can offer."""
+    for field in ("last_reply", "api_artifact.samplesheet.csv",
+                  "api_artifact.samplesheet.csv.rows_gte", "bundle.has_json_metadata",
+                  "route", "engine", "route_source"):
+        assert evaluate.is_ns_pipeline_internal(field) is False, field
+
+    passed, results, _ = evaluate.evaluate_turn(
+        _cc_no_debug_payload(reply="found 195",
+                             artifacts=[{"artifact_type": "file", "label": "samplesheet.csv"}]),
+        [{"field": "last_reply", "op": "matches_re", "value": r"\b195\b"},
+         {"field": "api_artifact.samplesheet.csv", "op": "true", "value": None}],
+        OBS_CC, last_reply="found 195", forced=True)
+
+    assert passed is True
+    assert not any(r.get("skipped") for r in results)
+
+
+def test_a_content_assertion_on_the_reply_can_still_fail_a_forced_cc_arm():
+    """Non-vacuity for the survivor that carries the whole load: 143 of the
+    bayesian corpus's surviving criteria are `last_reply`. If it could not go red
+    the forced CC arm would be unfailable, which is the opposite defect."""
+    failed, results, _ = evaluate.evaluate_turn(
+        _cc_no_debug_payload(reply="I could not find anything"),
+        [{"field": "last_reply", "op": "matches_re", "value": r"\b195\b"}],
+        OBS_CC, last_reply="I could not find anything", forced=True)
+
+    assert failed is False
+    assert not any(r.get("skipped") for r in results)
+
+
+def test_the_vacuously_true_graph_booleans_stop_reporting_a_false_green():
+    """`graph_truncation_disclosed` and `graph_not_truncated` both return True for
+    a turn with no `graph_result` — "true for non-graph turns, so the criterion
+    stays inert on REST families". On a CC turn that is not inertness, it is a
+    PASS for a graph property no graph query ever established. 55 and 5 corpus
+    criteria respectively rode on it.
+
+    They are not in `CC_UNOBSERVABLE_FIELDS` and must not be added there: that
+    set is shared with `run_suite`. Under forcing they are skipped instead.
+    """
+    fields = ["graph_truncation_disclosed", "graph_not_truncated"]
+
+    unforced_pass, unforced, _ = evaluate.evaluate_turn(
+        _cc_no_debug_payload(), _crits(fields), OBS_CC, last_reply="done")
+    assert unforced_pass is True
+    assert not any(r.get("skipped") for r in unforced), (
+        "router-decided behaviour must be untouched, false green and all")
+
+    _p, forced, _o = evaluate.evaluate_turn(
+        _cc_no_debug_payload(), _crits(fields), OBS_CC, last_reply="done", forced=True)
+    assert all(r.get("skipped") for r in forced)
+    assert evaluate.any_criterion_evaluated(forced) is False, (
+        "a case left with only these has evaluated nothing and must say so")
+
+
+def test_the_four_derived_fields_keep_their_own_reason_under_forcing():
+    """Two skips, two reasons, and the narrower one wins. `outcome_observed` is
+    skipped whether or not anything was forced; collapsing it into the wider
+    reason would lose that distinction in the manifest."""
+    _p, results, _o = evaluate.evaluate_turn(
+        _cc_no_debug_payload(), _crits(_FLOOR_FIELDS), OBS_CC, last_reply="done",
+        forced=True)
+
+    for row in results:
+        assert row.get("skipped") is True
+        assert evaluate.CC_UNOBSERVABLE_REASON in row["reason"], row["field"]
+        assert evaluate.FORCED_CC_SKIP_REASON not in row["reason"], row["field"]
+    assert evaluate.FORCED_CC_SKIP_REASON != evaluate.CC_UNOBSERVABLE_REASON
+
+
+def test_forcing_alone_does_not_skip_anything_without_a_container_cc_route():
+    """Both halves of the gate are required. `unrelated` is a real third route."""
+    for route in ("nextseek_query", "unrelated", None):
+        assert evaluate.unobservable_reason("api_ok", "true", route=route,
+                                            forced=True) is None, route
+
+
+def test_forced_defaults_false_on_every_public_entry_point():
+    """`run_suite` cannot reach the widening because it cannot name it."""
+    assert evaluate.unobservable_reason("api_ok", "true",
+                                        route=evaluate.CC_ROUTE) is None
+    assert evaluate.is_unobservable("api_ok", "true", route=evaluate.CC_ROUTE) is False
+    _p, results, _o = evaluate.evaluate_turn(
+        _cc_no_debug_payload(), [{"field": "api_ok", "op": "true", "value": None}],
+        OBS_CC, last_reply="done")
+    assert not any(r.get("skipped") for r in results)

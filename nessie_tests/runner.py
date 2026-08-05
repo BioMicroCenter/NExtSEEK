@@ -121,6 +121,15 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
 
     `force_route` and `strip_route_criteria` are inert unless set, so `run_suite`
     behaves exactly as it did before the extraction.
+
+    `strip_route_criteria` now means "this turn's engine was chosen by the harness"
+    and does TWO things, both resting on that one fact. It removes `route`/`engine`
+    (`STRIPPED_UNDER_FORCING`), and it hands `evaluate_turn` `forced=True`, which
+    additionally skips NS-pipeline-internal criteria on an arm that really ran
+    container_cc — see the ENGINE_NEUTRAL_FIELDS comment in `evaluate.py` for why
+    that is sound only under forcing, and why the router-decided path is untouched.
+    The name is kept: `run_suite` never passes it, so no router-decided run can
+    reach either behaviour.
     """
     expected_fail = "known_fail" in v.tags
     is_gate = "route_gate" in v.tags
@@ -185,6 +194,12 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
     # Case-level, not per-turn: it is reported once on the entry, so a multi-turn
     # case must report every criterion it dropped, not just its last turn's.
     stripped = 0
+    # The other half of the same accounting, and deliberately a SEPARATE number.
+    # `stripped` counts criteria REMOVED before evaluation and never seen again;
+    # these were kept, scored as skipped, and are visible row by row in
+    # `observations` with the reason that skipped them. Summing the two would tell
+    # a reader that N criteria vanished when only `stripped` of them did.
+    forced_skips = 0
     # Did ANY turn of this case really test something? Accumulated across the
     # whole case on purpose — `status` is a case-level field, so claiming
     # "no assertions" about a case that asserted four real criteria on its
@@ -243,7 +258,16 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
                 criteria = kept
             passed, results, observed = evaluate.evaluate_turn(
                 res.payload, criteria, res.route_obs,
-                last_reply=last_reply, bundle_summary=bundle_summary)
+                last_reply=last_reply, bundle_summary=bundle_summary,
+                forced=strip_route_criteria)
+            # Counted from the results rather than decided here, because the
+            # decision is `evaluate_turn`'s: it reads the route this turn REALLY
+            # ran off the same observation it scores against, so on a paired run
+            # this is non-zero on the cc arm and zero on the ns arm without the
+            # runner needing to know which arm it is driving.
+            forced_skips += sum(
+                1 for r in results
+                if r.get("skipped") and evaluate.FORCED_CC_SKIP_REASON in r.get("reason", ""))
             observations += [
                 CriterionObservation(
                     turn=turn.label, field=r["field"], op=r["op"], expected=r.get("value"),
@@ -304,6 +328,13 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
     # load-bearing precisely where an earlier placement would have lost it.
     if stripped:
         note = f"stripped {stripped} route criteri{'on' if stripped == 1 else 'a'} (forced route)"
+        reason = f"{reason}; {note}" if reason else note
+    # Same placement and same reason for it: `no_assertions` is exactly what a
+    # case made entirely of these skips produces, so the count matters most where
+    # an earlier append would have been overwritten.
+    if forced_skips:
+        note = (f"skipped {forced_skips} NS-pipeline criteri"
+                f"{'on' if forced_skips == 1 else 'a'} (forced container_cc arm)")
         reason = f"{reason}; {note}" if reason else note
     return NessieManifestEntry(
         id=v.id, family=v.family, tier=tier, status=v_status, route=v_route, engine=v_engine,

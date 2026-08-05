@@ -139,3 +139,150 @@ def test_a_forced_pass_is_not_promoted_where_an_unforced_one_is():
     assert runner.run_case(v, tier="full", force_route="ns", strip_route_criteria=True,
                            post_query=post_query,
                            get_progress=get_progress).status == "passed"
+
+
+# ── the forced-arm skip, from the runner side ────────────────────────────────
+#
+# `_fakes` emits a `query_complete` with no `debug` key, which IS the real
+# container_cc shape, so `route="container_cc"` gives a faithful CC arm and
+# `route="nextseek_query"` a faithful arm whose NS pipeline produced nothing.
+#
+# `green.mus_ndma` carries route + parser_plan.mode + entity_sampletype_codes +
+# api_ok + api_result_meta.row_count + last_reply + outcome_observed: one of every
+# category this fix has to keep straight.
+
+_NS_INTERNAL = {"parser_plan.mode", "entity_sampletype_codes", "api_ok",
+                "api_result_meta.row_count"}
+
+
+def test_the_forced_cc_arm_skips_ns_pipeline_criteria_instead_of_failing_them():
+    """The measurement defect: four NS internals reddened a CC arm that answered."""
+    post_query, get_progress = _fakes(route="container_cc", reply="Found 195 MUS samples")
+    entry = runner.run_case(_variant(), tier="full", force_route="cc",
+                            strip_route_criteria=True,
+                            post_query=post_query, get_progress=get_progress)
+
+    by_field = {o.field: o for o in entry.observations}
+    for field in _NS_INTERNAL:
+        assert by_field[field].skipped is True, f"{field} was still scored"
+    assert entry.status == "passed"
+    assert entry.failed_criteria == []
+
+
+def test_the_forced_ns_arm_keeps_every_one_of_them():
+    """THE CRUX, at the runner. `run_paired` passes `strip_route_criteria=True` on
+    BOTH arms, so this is the arm a flag-keyed strip would have destroyed. Same
+    variant, same flag, same doubles — only the route differs."""
+    post_query, get_progress = _fakes(route="nextseek_query", reply="Found 195 MUS samples")
+    entry = runner.run_case(_variant(), tier="full", force_route="ns",
+                            strip_route_criteria=True,
+                            post_query=post_query, get_progress=get_progress)
+
+    by_field = {o.field: o for o in entry.observations}
+    for field in _NS_INTERNAL:
+        assert by_field[field].skipped is False, f"{field} lost its assertion on the NS arm"
+    assert entry.status == "failed", "an NS arm whose pipeline emitted nothing must go red"
+    assert _NS_INTERNAL <= {c.split(":", 1)[1] for c in entry.failed_criteria}
+
+
+def test_the_survivors_on_a_forced_cc_arm_are_still_real_assertions():
+    """`last_reply` carries the load once the internals are skipped, so it has to
+    stay failable — otherwise the CC arm is unfailable, which is the opposite
+    defect and would bias the paired comparison toward CC."""
+    v = _variant().model_copy(update={"turns": [
+        _variant().turns[0].model_copy(update={"pass_criteria": [
+            {"field": "api_ok", "op": "true", "value": None},
+            {"field": "last_reply", "op": "matches_re", "value": r"\b195\b"}]})]})
+    post_query, get_progress = _fakes(route="container_cc", reply="nothing found")
+    entry = runner.run_case(v, tier="full", force_route="cc", strip_route_criteria=True,
+                            post_query=post_query, get_progress=get_progress)
+
+    assert entry.status == "failed"
+    assert entry.failed_criteria == ["main:last_reply"]
+
+
+def test_the_forced_skip_count_is_recorded_rather_than_silent():
+    """Same convention as the stripped-route note, and a SEPARATE number: these
+    criteria were kept and scored as skipped, not removed."""
+    post_query, get_progress = _fakes(route="container_cc")
+    entry = runner.run_case(_variant(), tier="full", force_route="cc",
+                            strip_route_criteria=True,
+                            post_query=post_query, get_progress=get_progress)
+
+    assert "skipped 4 NS-pipeline criteria (forced container_cc arm)" in entry.reason
+    assert "stripped 1 route criterion (forced route)" in entry.reason
+
+    ns_post, ns_get = _fakes(route="nextseek_query")
+    ns_entry = runner.run_case(_variant(), tier="full", force_route="ns",
+                               strip_route_criteria=True,
+                               post_query=ns_post, get_progress=ns_get)
+    assert "NS-pipeline criteri" not in ns_entry.reason
+
+
+def test_a_router_decided_cc_turn_still_fails_them_through_run_case():
+    """No forcing, no widening. This is `run_suite`'s path through `run_case`."""
+    post_query, get_progress = _fakes(route="container_cc", reply="Found 195 MUS samples")
+    entry = runner.run_case(_variant(), tier="full",
+                            post_query=post_query, get_progress=get_progress)
+
+    by_field = {o.field: o for o in entry.observations}
+    for field in _NS_INTERNAL:
+        assert by_field[field].skipped is False, f"{field} was skipped without forcing"
+    assert entry.status == "failed"
+
+
+def test_run_suite_cannot_reach_the_widening(tmp_path, monkeypatch):
+    """End-to-end through `run_suite` itself, not through its callee.
+
+    `run_suite` has no `strip_route_criteria` parameter and passes none, so a
+    CC-routed case in a router-decided run is scored exactly as it was before this
+    fix. Driving the whole function is what makes that a property of `run_suite`
+    rather than of the arguments this test chose.
+    """
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_variant()])
+    post_query, get_progress = _fakes(route="container_cc", reply="Found 195 MUS samples")
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="specific",
+        corpus_path=CORPUS, out_dir=tmp_path,
+        post_query=post_query, get_progress=get_progress,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    entry = next(e for e in m.entries if e.id == "green.mus_ndma")
+    assert entry.status == "failed"
+    assert _NS_INTERNAL <= {c.split(":", 1)[1] for c in entry.failed_criteria}
+    assert "NS-pipeline criteri" not in (entry.reason or "")
+    assert "route" in {o.field for o in entry.observations}, (
+        "run_suite must not strip route criteria either")
+
+
+def test_no_bayesian_variant_evaluates_nothing_on_a_forced_cc_arm():
+    """The load-bearing corpus property, and the one a future edit can break.
+
+    Every one of the 127 selected variants carries at least one `last_reply`, so
+    none becomes `no_assertions` — which `runner._is_real_failure` counts as a
+    REAL FAILURE, i.e. the exact false-red this fix exists to remove would come
+    straight back through the vacuity guard. 107 of them are left with ONLY
+    `last_reply nonempty`, which is a thin pass rather than a real one; 20 keep at
+    least one content or artifact assertion.
+
+    Drop the last `last_reply` from a bayesian variant and this goes red before
+    the money does, exactly as `test_no_route_gate_variant_is_selected_for_the_
+    paid_paired_run` does for the other route to `no_assertions`.
+    """
+    ids = corpus.bayesian_ids(CORPUS)
+    by_id = {v.id: v for v in corpus.merged(CORPUS)}
+    assert ids, "fixture drifted: nothing is selected for --bayesian"
+
+    vacuous = []
+    for vid in ids:
+        post_query, get_progress = _fakes(route="container_cc", reply="Found 195 MUS samples")
+        entry = runner.run_case(by_id[vid], tier="full", force_route="cc",
+                                strip_route_criteria=True,
+                                post_query=post_query, get_progress=get_progress)
+        if entry.status == "no_assertions":
+            vacuous.append(vid)
+
+    assert vacuous == [], (
+        f"these variants evaluate zero criteria on a forced cc arm and would be "
+        f"counted as real failures every paid run: {vacuous}. Give each one a "
+        f"`last_reply` assertion, or clear its `is_bayesian` flag in corpus.json.")
