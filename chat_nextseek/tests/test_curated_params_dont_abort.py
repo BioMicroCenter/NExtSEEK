@@ -100,9 +100,35 @@ def test_seqinspector_skips_fastqscreen_until_references_are_curated():
         "S3 references")
 
 
+# --- ampliseq: primers, or an explicit skip --------------------------------------
+
+def test_ampliseq_elicits_primers_rather_than_defaulting_them():
+    """utils_nfcore_ampliseq_pipeline/main.nf:
+
+        if ( ... && (!params.FW_primer || !params.RV_primer) && !params.skip_cutadapt )
+            error("`--FW_primer` and `--RV_primer` are required for primer trimming.")
+
+    Primers are a bench fact, so they are asked for. Leaving them null with no
+    elicitation -- which is how the template shipped -- aborts the run."""
+    from chat_nextseek.seqera.user_params import missing_user_params
+    asked = {s["name"] for s in missing_user_params("ampliseq", {})}
+    assert asked == {"FW_primer", "RV_primer"}
+    # skip_cutadapt is the pipeline's own escape hatch and must satisfy the gate.
+    assert missing_user_params("ampliseq", {"skip_cutadapt": True}) == []
+
+
+def test_ampliseq_primer_validation_rejects_junk():
+    from chat_nextseek.seqera.user_params import validate_user_params
+    assert validate_user_params("ampliseq", {"FW_primer": "GTGY CAGC"})      # spaces
+    assert validate_user_params("ampliseq", {"FW_primer": "GTGYCAGC-MGCC"})  # punctuation
+    assert validate_user_params(
+        "ampliseq", {"FW_primer": "GTGYCAGCMGCCGCGGTAA",
+                     "RV_primer": "GGACTACNVGGGTWTCTAAT"}) == []             # IUPAC is fine
+
+
 # --- the standing rule --------------------------------------------------------
 
-@pytest.mark.parametrize("key", ["detaxizer", "mag", "bacass", "seqinspector"])
+@pytest.mark.parametrize("key", ["detaxizer", "mag", "bacass", "seqinspector", "ampliseq"])
 def test_templates_record_why_their_skip_flags_are_load_bearing(key):
     """Each of these has at least one param whose value prevents a download or an abort.
     The template must say so, or the next person will 'tidy' it away."""

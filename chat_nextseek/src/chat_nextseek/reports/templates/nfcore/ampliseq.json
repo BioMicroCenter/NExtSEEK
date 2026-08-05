@@ -2,8 +2,65 @@
   "report_type": "NFCORE_AMPLISEQ_SAMPLESHEET",
   "description": "nf-core/ampliseq samplesheet context for 16S/ITS/amplicon microbial profiling.",
   "params": {
-    "FW_primer": {"type": "string", "default": null, "steerable": true},
-    "RV_primer": {"type": "string", "default": null, "steerable": true}
+    "FW_primer": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Forward primer sequence. REQUIRED unless skip_cutadapt is set \u2014 ampliseq error()s without it."
+    },
+    "RV_primer": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Reverse primer sequence. Same requirement as FW_primer."
+    },
+    "skip_cutadapt": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "Skips primer trimming, and with it the primer requirement. Only correct if the reads are ALREADY trimmed \u2014 otherwise primer sequence stays in the data and inflates the diversity estimates."
+    },
+    "dada_ref_taxonomy": {
+      "type": "string",
+      "default": "silva=138",
+      "steerable": true,
+      "help": "Taxonomic reference for DADA2. SILVA 138.1 is ~200 MB across two files, downloaded on first use \u2014 modest, and it is the point of the analysis. At revision 2.10.0 this is the pipeline default too."
+    },
+    "skip_taxonomy": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "Skips taxonomic assignment and the reference download with it. Useful for a launch-path smoke test; useless scientifically."
+    },
+    "cut_dada_ref_taxonomy": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "Trims the reference to the amplicon region. Needs primers \u2014 ampliseq error()s if set without them."
+    },
+    "skip_qiime": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "QIIME2 downstream analysis. Note qiime_ref_taxonomy also needs primers when enabled."
+    },
+    "illumina_pe_its": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "Only for paired-end ITS amplicons; changes read handling. Leave false for 16S."
+    },
+    "metadata": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Optional QIIME2 metadata sheet for group comparisons."
+    },
+    "multiqc_title": {
+      "type": "string",
+      "default": null,
+      "steerable": true
+    }
   },
   "reference_resources": [],
   "pipeline": {
@@ -19,7 +76,8 @@
     ],
     "optional_columns": [
       "run"
-    ]
+    ],
+    "reference_requirement": "No genome. A TAXONOMIC reference is downloaded instead \u2014 dada_ref_taxonomy, default SILVA 138.1 (~200 MB across two files) at this revision. Skippable via skip_taxonomy, which makes the run a plumbing test rather than an analysis. The 2.10.0 schema declares none of genome/fasta/gtf."
   },
   "samplesheet_template": [
     {
@@ -29,14 +87,42 @@
     }
   ],
   "validation_rules": [
-    "sampleID must be alphanumeric/underscore-only.",
-    "forwardReads/reverseReads may be HTTPS URLs (ENA mirror) or local paths.",
-    "Primer trimming and taxonomy DB are configured via pipeline params, not the samplesheet."
+    "The sample column is sampleID and the read columns are forwardReads / reverseReads \u2014 not sample/fastq_1/fastq_2.",
+    "FW_primer and RV_primer are REQUIRED unless skip_cutadapt is set. utils_nfcore_ampliseq_pipeline/main.nf error()s on `(!FW_primer || !RV_primer) && !skip_cutadapt`, so an unanswered primer aborts the run at validation before anything else happens.",
+    "Only set skip_cutadapt when the reads are genuinely pre-trimmed. It silences the primer requirement but leaves primer sequence in the data if they are not.",
+    "cut_dada_ref_taxonomy and qiime_ref_taxonomy ALSO require primers \u2014 ampliseq error()s on either without them, even when skip_cutadapt is set.",
+    "Do NOT pass --genome, --fasta or --gtf: the 2.10.0 schema declares none of them. This was the bug that made ampliseq unlaunchable for months.",
+    "Verify the cohort is genuinely amplicon. 1,179 of our 2,057 D.SEQ are, which makes this the best-represented pipeline in the catalog."
   ],
   "report_writer_guidance": {
     "population_priority": [
       "One row per sample per run.",
       "Pull site/subject/timepoint metadata from NExtSEEK when present."
     ]
-  }
+  },
+  "required_user_params": [
+    {
+      "name": "FW_primer",
+      "scope": "run",
+      "definition": "The forward PCR primer sequence used to amplify this library, written 5'->3' and WITHOUT any adapter. It is trimmed off the reads before anything else; leaving primer sequence in inflates the number of apparent variants. It is a bench fact and is not recorded in NExtSEEK. If the reads were already trimmed, say so and I will set skip_cutadapt instead.",
+      "example": "GTGYCAGCMGCCGCGGTAA   (515F, the common 16S V4 forward primer)",
+      "pattern": "^[ACGTRYSWKMBDHVNacgtryswkmbdhvn]+$",
+      "pattern_hint": "IUPAC nucleotide letters only \u2014 no spaces, and do not include the sequencing adapter",
+      "required_unless": {
+        "skip_cutadapt": true
+      }
+    },
+    {
+      "name": "RV_primer",
+      "scope": "run",
+      "definition": "The reverse PCR primer sequence, 5'->3' and without adapter.",
+      "example": "GGACTACNVGGGTWTCTAAT   (806R, the matching 16S V4 reverse primer)",
+      "pattern": "^[ACGTRYSWKMBDHVNacgtryswkmbdhvn]+$",
+      "pattern_hint": "IUPAC nucleotide letters only \u2014 no spaces, and do not include the sequencing adapter",
+      "required_unless": {
+        "skip_cutadapt": true
+      }
+    }
+  ],
+  "notes": "The single best-represented library type we hold: 1,179 of 2,057 D.SEQ records are amplicon. It is also the pipeline that had never once run successfully \u2014 it was sent three reference flags it does not declare, which aborted every attempt until 2026-08-04. Primers are the second gate: they are a bench fact, so they are elicited rather than guessed."
 }
