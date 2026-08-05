@@ -116,6 +116,23 @@ def test_genomeassembler_leaves_an_illumina_cohort_visibly_empty(tmp_path):
     header, rows = _read(tmp_path)
     assert "ontreads" not in header and "hifireads" not in header
     assert rows[0]["sample"] == "D.SEQ-1-PUB"
+    # And the path must not be parked in fastq_1 either. None of these schemas sets
+    # additionalProperties:false, so a stray fastq_1 would survive validation and read
+    # as a populated row — while the pipeline, which has no fastq_1, sees no reads.
+    assert "fastq_1" not in header and "fastq_2" not in header
+
+
+def test_genomeassembler_drops_the_spurious_second_read_column(tmp_path):
+    # ONT output is a single file; the mapping only covers fastq_1. An empty fastq_2
+    # tagging along is noise the pipeline does not define.
+    emit_nfcore_artifacts(
+        tmp_path, pipeline="genomeassembler", samplesheet_rows=[{"sample": "D.SEQ-1-PUB"}],
+        resolutions=[], launch_plan=None, tower_env=None,
+        accession_metadata={"D.SEQ-1-PUB": {
+            "Sequencer": "PromethION", "Link_PrimaryData": "/net/x/ont.fastq.gz"}})
+    header, rows = _read(tmp_path)
+    assert header == ["sample", "ontreads"]
+    assert rows[0]["ontreads"] == "/net/x/ont.fastq.gz"
 
 
 def test_genomeassembler_with_unknown_platform_assigns_no_read_column(tmp_path):

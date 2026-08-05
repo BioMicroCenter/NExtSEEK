@@ -111,10 +111,19 @@ def _apply_platform_columns(row: dict[str, Any], pipeline: str, meta: Mapping[st
         row.setdefault(value_col, platform)
         if not row.get(value_col):
             row[value_col] = platform
-    if table and platform:
+    if table:
         for standard, actual in (table.get(platform) or {}).items():
             if standard in row:
                 row[actual] = row.pop(standard)
+        # Whatever standard read column is left over does not belong to this pipeline:
+        # either the platform is unmapped (genomeassembler + an Illumina cohort) or the
+        # mapping covers only some of them (ONT is single-file, so fastq_2 is spurious).
+        # Drop them. Leaving a path sitting in a column the pipeline ignores looks like
+        # a populated row to a human reading the sheet, when the truth is that the
+        # pipeline will see no reads at all — and every one of these schemas tolerates
+        # extra columns, so nothing would flag it.
+        for leftover in ("fastq_1", "fastq_2"):
+            row.pop(leftover, None)
     return row
 
 
