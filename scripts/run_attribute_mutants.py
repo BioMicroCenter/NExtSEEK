@@ -28,6 +28,7 @@ TASK_MUTANTS = {
                 "M-PLAN-ORDER-01"),
     "task-06": ("M-REWRITE-BOUNDARY-01",),
     "task-07": ("M-LOCK-01", "M-VERSION-01", "M-TXN-01", "M-RECOVER-01"),
+    "task-08": ("M-DELIVERY-01", "M-CANCEL-01", "M-WORKER-01"),
     "task-11": ("M-AUTH-01", "M-AUTH-02", "M-UID-01", "M-TITLE-01", "M-DRY-01",
                 "M-LOCK-01", "M-VERSION-01", "M-TXN-01", "M-RECOVER-01",
                 "M-DELIVERY-01", "M-CANCEL-01", "M-CANCEL-02", "M-HTTP-01",
