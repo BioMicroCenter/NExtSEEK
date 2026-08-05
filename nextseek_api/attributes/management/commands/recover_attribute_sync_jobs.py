@@ -146,8 +146,11 @@ def run_one_scan(job_model, partition_model, *, scan_owner_prefix=None) -> int:
     owner = scan_owner_prefix or f"recovery:{os.uname().nodename}:{os.getpid()}:{uuid.uuid4()}"
     recovered = 0
     for job_id in _eligible_job_ids(job_model):
-        if recover_one_job(job_model, partition_model, job_id, owner):
-            recovered += 1
+        try:
+            if recover_one_job(job_model, partition_model, job_id, owner):
+                recovered += 1
+        except Exception:  # noqa: BLE001 - one job's recovery failure must never abort the scan for the rest
+            continue
     return recovered
 
 

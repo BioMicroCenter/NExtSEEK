@@ -22,6 +22,7 @@ import time
 
 import orjson
 import pytest
+from django.db import models as django_models
 from django.utils import timezone
 
 from nextseek_api.attributes.executor import (
@@ -36,7 +37,7 @@ from nextseek_api.attributes.jobs import (
     mutation_job_store,
     run_stored_job,
 )
-from nextseek_api.attributes.models_db import AttributeMutationJob
+from nextseek_api.attributes.models_db import AttributeMutationJob, AttributeMutationPartition
 from nextseek_api.attributes.tasks import run_attribute_mutation
 from nextseek_api.attributes.tests.chain_c_t08 import record_chain_c_case
 from nextseek_api.attributes.tests.test_executor_db import (
@@ -92,7 +93,27 @@ def _wait_until(predicate, *, timeout=30, interval=0.1):
     return predicate()
 
 
+def _mark_outbox_pending(job):
+    """T09's not-yet-built job-creation path (`MutationJobService.create`) is
+    what will flip a freshly created asynchronous job's `outbox_state` to
+    `pending`; T03's real, already-merged `AttributeMutationAuditStore.
+    create_job` -- the sole authorized write surface these test helpers
+    otherwise reuse via `_seed_job_and_partitions` -- deliberately leaves
+    every field at its model default (`outbox_state="not_required"`)
+    regardless of `execution_mode`. Simulate T09's follow-up write directly,
+    matching the withdrawn Section 6 sketch's own `outbox_state`/`outbox_
+    payload` shape for exactly this one field (the sketch's job/partition
+    CAS *logic* is what is withdrawn, not this literal wire shape)."""
+    AttributeMutationJob.objects.filter(pk=job.pk).update(
+        outbox_state="pending", outbox_payload={"task": "attribute_mutations.run"},
+        state_version=django_models.F("state_version") + 1,
+    )
+    job.refresh_from_db()
+    return job
+
+
 def _dispatch_and_wait(job, attribute_broker_lane, worker, *, timeout=30):
+    _mark_outbox_pending(job)
     _point_broker_at(attribute_broker_lane)
     sender = attribute_broker_lane.route_sender(run_attribute_mutation.apply_async)
     published = dispatch_outbox(mutation_job_store(), sender, limit=10, owner="test-dispatcher")
@@ -315,8 +336,16 @@ def test_cancel_blocked_real_transaction_finishes_active_and_skips_later(disposa
 
     request_time = timezone.now()
 
+    cancel_result = {"observed_claim": False}
+
     def _cancel_once_first_type_is_claimed():
-        assert _wait_until(lambda: _fresh_partition(partitions[1].pk).state == "running", timeout=15)
+        # T03's own `AttributeMutationPartition.claim()` never touches
+        # `state` (it stays "pending" until a terminal CAS); a live
+        # `claim_owner` is the real, database-observable signal that type
+        # 1's SEEK transaction is genuinely in flight.
+        cancel_result["observed_claim"] = _wait_until(
+            lambda: _fresh_partition(partitions[1].pk).claim_owner is not None, timeout=15,
+        )
         AttributeMutationJob.objects.filter(pk=job.pk).update(
             cancellation_requested_at=timezone.now(), cancellation_actor_seek_person_id=ACTOR["person_id"],
         )
@@ -327,6 +356,7 @@ def test_cancel_blocked_real_transaction_finishes_active_and_skips_later(disposa
     canceller.join(timeout=15)
     boundary_observed_at = timezone.now()
 
+    assert cancel_result["observed_claim"], "canceller thread never observed type 1's partition claim"
     assertion_count += 1
     assert result["state"] == "partial"
     assertion_count += 1
@@ -380,6 +410,7 @@ def test_batch_worker_cannot_consume_attribute_task_but_attribute_worker_can(dis
     request = _multi_target_request("patch", [(501, [patch_operation(5010, {"description": "content"})])])
     plan = _plan(request)
     job, _ = _seed_job_and_partitions(database, plan, execution_mode="asynchronous")
+    _mark_outbox_pending(job)
 
     batch_worker = attribute_broker_lane.start_worker(queue="batch_upload", concurrency=1)
     _point_broker_at(attribute_broker_lane)
@@ -585,7 +616,25 @@ def test_async_exact_fault_matrix_terminal_state_and_fingerprints(disposable_att
             attribute_faults.clear()
         job.refresh_from_db()
         partition = _fresh_partition(partitions[type_id].pk)
-        assert partition.claim_owner is None or partition.state != "running"
+        if point == "async.after_claim_before_type":
+            # A crash exactly here is expected to leave a LIVE claim: a real
+            # process crash never runs any release/terminal CAS, so the
+            # lease is left to expire naturally and be reclaimed by a later
+            # delivery. Verify that expected shape, then force-release
+            # (report-only, per the established T07 `_terminalize_partition_
+            # for_report` precedent) so this iteration's own real assertion
+            # has already run before any fabricated terminal state.
+            # T03's own `AttributeMutationPartition.claim()` never touches
+            # `state` (it stays "pending" until a terminal CAS); `claim_owner`
+            # is the real signal a live claim was taken here.
+            assert partition.claim_owner is not None and partition.state == "pending"
+            AttributeMutationPartition.objects.filter(pk=partition.pk).update(
+                state="failed", claim_owner=None, lease_expires_at=None,
+                state_version=django_models.F("state_version") + 1,
+            )
+            partition = _fresh_partition(partitions[type_id].pk)
+        else:
+            assert partition.claim_owner is None, f"fault point {point} left a stranded partition claim"
         records.append((point, job.job_id, partition.state, partition.claim_owner))
 
     for point, job_id, partition_state, claim_owner in records:
