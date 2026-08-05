@@ -33,6 +33,12 @@ PIPELINE_COLUMN_ALIASES: dict[str, dict[str, str]] = {
     # mapped, index, file_type. Only the sample rename is an alias — mapped/index/
     # file_type are synthesised by the bam branch below, already correctly named.
     "bamtofastq": {"sample": "sample_id"},
+    # bacass predates the sample/fastq_1/fastq_2 convention entirely.
+    "bacass": {"sample": "ID", "fastq_1": "R1", "fastq_2": "R2"},
+    # pacvar is bam-input like bamtofastq, but names the columns bam/pbi. The bam
+    # branch's `file_type` rides along as an extra column, which pacvar's
+    # schema_input.json permits (it sets no additionalProperties: false).
+    "pacvar": {"mapped": "bam", "index": "pbi"},
 }
 
 

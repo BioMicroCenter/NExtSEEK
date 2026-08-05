@@ -1,0 +1,70 @@
+{
+  "report_type": "NFCORE_METATDENOVO_SAMPLESHEET",
+  "description": "nf-core/metatdenovo samplesheet context, aligned to the pinned 1.4.0 nextflow_schema.json and assets/schema_input.json. De novo assembly and annotation of metatranscriptomes and metagenomes.",
+  "params": {
+    "assembler":     {"type": "enum", "allowed": ["megahit", "spades"], "default": "megahit", "steerable": true, "help": "megahit is the lower-memory choice and the safer default on a shared cluster; spades generally assembles better but wants far more RAM."},
+    "orf_caller":    {"type": "enum", "allowed": ["prodigal", "prokka", "transdecoder"], "default": null, "steerable": true, "help": "Must match the domain of life. prodigal/prokka call prokaryotic genes; transdecoder is for eukaryotic transcripts. No default — it comes from the user."},
+    "eggnog":        {"type": "bool", "default": false, "steerable": true, "help": "Needs the eggNOG database (--eggnog_dbpath); not provisioned on Luria."},
+    "eukulele_db":   {"type": "string", "default": null, "steerable": true, "help": "Taxonomic annotation database. Not provisioned on Luria; leave unset."},
+    "multiqc_title": {"type": "string", "default": null, "steerable": true}
+  },
+  "required_user_params": [
+    {
+      "name": "orf_caller",
+      "scope": "run",
+      "definition": "Which open-reading-frame caller to use, which depends on what kind of organisms this library came from. Use 'prodigal' or 'prokka' for prokaryotic communities (bacteria, archaea) and 'transdecoder' for eukaryotic transcripts. Picking the wrong one does not error — it silently calls the wrong genes, because prokaryotic callers assume no introns.",
+      "example": "prodigal",
+      "allowed": ["prodigal", "prokka", "transdecoder"]
+    }
+  ],
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/metatdenovo",
+    "repository": "https://github.com/nf-core/metatdenovo",
+    "documentation_url": "https://nf-co.re/metatdenovo/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2. sample and fastq_1 are required.",
+    "required_columns": ["sample", "fastq_1"],
+    "optional_columns": ["fastq_2"],
+    "reference_requirement": "NONE — it assembles de novo. The 1.4.0 schema declares no genome/fasta/gtf parameter. The optional annotation databases (eggNOG, EUKulele, DIAMOND) are not provisioned on Luria and their steps stay off."
+  },
+  "samplesheet_template": [{"sample": null, "fastq_1": null, "fastq_2": null}],
+  "examples": {
+    "paired_metatranscriptome": {"sample": "D.SEQ-260711ENG-12-PUB", "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/mt_R1.fastq.gz", "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/mt_R2.fastq.gz"}
+  },
+  "validation_rules": [
+    "orf_caller must be answered by the user — it depends on the domain of life, not on anything in the file.",
+    "Do NOT pass --genome, --fasta or --gtf: the 1.4.0 schema declares none of them.",
+    "Leave eggnog false and eukulele_db unset unless a database path is supplied; neither is provisioned.",
+    "Note fastq_1's pattern accepts UNCOMPRESSED .fastq here, unlike most nf-core pipelines. Prefer .gz anyway."
+  ],
+  "notes": "NO MATCHING DATA IN NExtSEEK as of 2026-08-05: no metatranscriptomic or metagenomic cohorts are registered. Catalogued for future data. Use mag for metagenome assembly with binning; metatdenovo is the transcript-oriented sibling.",
+  "sources": [
+    {"label": "nf-core/metatdenovo usage docs", "url": "https://nf-co.re/metatdenovo/latest/docs/usage/", "notes": "Assembler and ORF-caller choices."},
+    {"label": "nf-core/metatdenovo nextflow_schema.json @ 1.4.0", "url": "https://raw.githubusercontent.com/nf-core/metatdenovo/1.4.0/nextflow_schema.json", "notes": "Authoritative: no required params beyond input/outdir; assembler and orf_caller are enums with no default; no genome/fasta/gtf."},
+    {"label": "nf-core/metatdenovo assets/schema_input.json @ 1.4.0", "url": "https://raw.githubusercontent.com/nf-core/metatdenovo/1.4.0/assets/schema_input.json", "notes": "Authoritative columns: sample and fastq_1 required."}
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/metatdenovo input sheet.",
+        "fields": {
+          "sample": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Sample identifier.", "validation_hints": "Use the NExtSEEK D.SEQ UID.", "example": "D.SEQ-260711ENG-12-PUB"},
+          "fastq_1": {"required": "required", "position_rule": "Column 2", "expected_value": "path", "allowed_values": ".fastq/.fq, optionally .gz", "description": "Read 1.", "validation_hints": "Absolute Luria path; prefer gzipped.", "example": "/net/bmc-pub10/data1/bmc/fastq/mt_R1.fastq.gz"},
+          "fastq_2": {"required": "optional", "position_rule": "Column 3", "expected_value": "path or blank", "allowed_values": ".fastq/.fq, optionally .gz, or blank", "description": "Read 2.", "validation_hints": "Blank for single-end.", "example": "/net/bmc-pub10/data1/bmc/fastq/mt_R2.fastq.gz"}
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/metatdenovo sheet from a resolved D.SEQ metatranscriptomic or metagenomic cohort.",
+    "workflow_role": "Selected for de novo assembly and annotation of community RNA or DNA.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2.",
+    "population_priority": [
+      "Ask the user for orf_caller; configure_run will refuse without it.",
+      "Check whether mag is the better fit when the goal is binned genomes rather than transcripts.",
+      "One row per D.SEQ leaf."
+    ],
+    "final_checks": ["orf_caller was answered.", "No reference flags were emitted.", "Database-dependent steps are off."]
+  }
+}

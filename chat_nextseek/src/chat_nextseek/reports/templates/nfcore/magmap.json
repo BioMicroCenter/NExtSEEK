@@ -1,0 +1,68 @@
+{
+  "report_type": "NFCORE_MAGMAP_SAMPLESHEET",
+  "description": "nf-core/magmap samplesheet context, aligned to the pinned 1.1.0 nextflow_schema.json and assets/schema_input.json. Maps metagenomic reads against a user-supplied collection of genomes.",
+  "params": {
+    "genomeinfo":      {"type": "string", "default": null, "steerable": true, "help": "The genome collection to map against — the entire point of the pipeline. A file listing the genomes; see the magmap usage docs for its format. No collection is provisioned on Luria."},
+    "genomeset_mode":  {"type": "enum", "allowed": ["joint", "sample"], "default": "joint", "steerable": true, "help": "'joint' maps every sample against every genome; 'sample' uses per-sample genome selections."},
+    "genome_store_dir": {"type": "string", "default": "magmap_genomes", "steerable": true},
+    "save_concatenated_genomes": {"type": "bool", "default": false, "steerable": true},
+    "multiqc_title":   {"type": "string", "default": null, "steerable": true}
+  },
+  "required_user_params": [
+    {
+      "name": "genomeinfo",
+      "scope": "run",
+      "definition": "Path to the file describing the collection of genomes these reads should be mapped against. This is what magmap is for — without it there is nothing to map to, and no genome collection is provisioned on Luria. If you want to assemble new genomes rather than map to known ones, the pipeline you want is mag, not magmap.",
+      "example": "/net/bmc-pub10/data1/bmc/refs/magmap/gut_genomes.tsv"
+    }
+  ],
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/magmap",
+    "repository": "https://github.com/nf-core/magmap",
+    "documentation_url": "https://nf-co.re/magmap/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2. sample and fastq_1 are required.",
+    "required_columns": ["sample", "fastq_1"],
+    "optional_columns": ["fastq_2"],
+    "reference_requirement": "No genome/fasta/gtf parameter exists. The reference here is a COLLECTION of genomes supplied via --genomeinfo. A remote_genome_sources default pointing at NCBI assembly summaries exists, but it is a source list, not a collection."
+  },
+  "samplesheet_template": [{"sample": null, "fastq_1": null, "fastq_2": null}],
+  "examples": {
+    "paired_metagenome": {"sample": "D.SEQ-260711ENG-12-PUB", "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/mg_R1.fastq.gz", "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/mg_R2.fastq.gz"}
+  },
+  "validation_rules": [
+    "genomeinfo must be answered by the user. Mapping against nothing produces empty results, not an error.",
+    "Do NOT pass --genome, --fasta or --gtf: the 1.1.0 schema declares none of them.",
+    "Use mag, not magmap, when the goal is to assemble new genomes. magmap only quantifies against genomes you already have."
+  ],
+  "notes": "NO MATCHING DATA IN NExtSEEK as of 2026-08-05: no metagenomic cohorts are registered (LibraryStrategy values are Amplicon, RNA-Seq, WGS, scRNA-Seq, Targeted Capture and Hi-C only). Catalogued for future data.",
+  "sources": [
+    {"label": "nf-core/magmap usage docs", "url": "https://nf-co.re/magmap/latest/docs/usage/", "notes": "genomeinfo file format and genomeset modes."},
+    {"label": "nf-core/magmap nextflow_schema.json @ 1.1.0", "url": "https://raw.githubusercontent.com/nf-core/magmap/1.1.0/nextflow_schema.json", "notes": "Authoritative: no required params beyond input/outdir; no genome/fasta/gtf; genomeinfo defaults to null."},
+    {"label": "nf-core/magmap assets/schema_input.json @ 1.1.0", "url": "https://raw.githubusercontent.com/nf-core/magmap/1.1.0/assets/schema_input.json", "notes": "Authoritative columns: sample and fastq_1 required."}
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/magmap input sheet.",
+        "fields": {
+          "sample": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Sample identifier.", "validation_hints": "Use the NExtSEEK D.SEQ UID.", "example": "D.SEQ-260711ENG-12-PUB"},
+          "fastq_1": {"required": "required", "position_rule": "Column 2", "expected_value": "path", "allowed_values": ".fastq.gz", "description": "Read 1.", "validation_hints": "Absolute Luria path.", "example": "/net/bmc-pub10/data1/bmc/fastq/mg_R1.fastq.gz"},
+          "fastq_2": {"required": "optional", "position_rule": "Column 3", "expected_value": "path or blank", "allowed_values": ".fastq.gz or blank", "description": "Read 2.", "validation_hints": "Blank for single-end.", "example": "/net/bmc-pub10/data1/bmc/fastq/mg_R2.fastq.gz"}
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/magmap sheet from a resolved D.SEQ metagenomic cohort.",
+    "workflow_role": "Selected when the user wants abundance of KNOWN genomes across metagenomic samples.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2.",
+    "population_priority": [
+      "Ask the user for the genome collection; configure_run will refuse without it.",
+      "Check whether they actually want mag (assembly) instead.",
+      "One row per D.SEQ leaf."
+    ],
+    "final_checks": ["genomeinfo was answered.", "No reference flags were emitted."]
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "report_type": "NFCORE_PACVAR_SAMPLESHEET",
+  "description": "nf-core/pacvar samplesheet context, aligned to the pinned 1.1.0 nextflow_schema.json and assets/schema_input.json. PacBio long-read WGS and PureTarget repeat-expansion analysis.",
+  "params": {
+    "genome":        {"type": "string", "default": null, "steerable": true, "help": "iGenomes key for the host reference."},
+    "fasta":         {"type": "string", "default": null, "steerable": true, "help": "Explicit reference FASTA or MMI. Preferred on Luria, where local paths beat iGenomes resolution."},
+    "multiqc_title": {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/pacvar",
+    "repository": "https://github.com/nf-core/pacvar",
+    "documentation_url": "https://nf-co.re/pacvar/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, bam, pbi, fail, repeat_id, karyotype. Only sample and bam are required. The BAM here is the UNALIGNED HiFi BAM the PacBio instrument writes — it is raw data, not an alignment.",
+    "required_columns": ["sample", "bam"],
+    "optional_columns": ["pbi", "fail", "repeat_id", "karyotype"],
+    "reference_requirement": "genome or fasta, for the alignment step. The 1.1.0 schema declares genome and fasta but NO gtf."
+  },
+  "samplesheet_template": [{"sample": null, "bam": null, "pbi": null, "file_type": null}],
+  "examples": {
+    "hifi_wgs": {"sample": "D.SEQ-260711ENG-12-PUB", "bam": "/net/bmc-pub10/data1/bmc/pacbio/m84001_hifi_reads.bam", "pbi": "/net/bmc-pub10/data1/bmc/pacbio/m84001_hifi_reads.bam.pbi"}
+  },
+  "validation_rules": [
+    "The read column is named `bam`, and its index column is `pbi` — not `mapped`/`index`.",
+    "The BAM must be PacBio HiFi output. An Illumina alignment BAM has the right extension and the wrong contents: the run would proceed and the results would be meaningless.",
+    "karyotype, when populated, must be exactly XX or XY — it is an enum.",
+    "Do NOT pass --gtf: the 1.1.0 schema has no gtf parameter.",
+    "repeat_id is only for PureTarget repeat-expansion runs; leave it blank for plain WGS."
+  ],
+  "notes": "NO MATCHING DATA IN NExtSEEK as of 2026-08-05: zero of 2,057 D.SEQ samples are long-read on any platform — every Sequencer value is Illumina (plus 26 Singular G4, also short-read). Catalogued for the day PacBio data is registered. Note this is the second consumer of the bam input path built for bamtofastq, and it demonstrates that input kind and sample type are independent: pacvar reads a BAM but its samples are D.SEQ raw data, because PacBio delivers unaligned reads in BAM format.",
+  "sources": [
+    {"label": "nf-core/pacvar usage docs", "url": "https://nf-co.re/pacvar/latest/docs/usage/", "notes": "Samplesheet layout and PureTarget mode."},
+    {"label": "nf-core/pacvar nextflow_schema.json @ 1.1.0", "url": "https://raw.githubusercontent.com/nf-core/pacvar/1.1.0/nextflow_schema.json", "notes": "Authoritative: no required params beyond input/outdir; declares genome and fasta, no gtf."},
+    {"label": "nf-core/pacvar assets/schema_input.json @ 1.1.0", "url": "https://raw.githubusercontent.com/nf-core/pacvar/1.1.0/assets/schema_input.json", "notes": "Authoritative columns: sample and bam required; pbi/fail/repeat_id/karyotype optional; karyotype enum XX|XY; no additionalProperties:false, so extra columns are tolerated."}
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/pacvar input sheet.",
+        "fields": {
+          "sample": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Sample identifier.", "validation_hints": "Use the NExtSEEK D.SEQ UID.", "example": "D.SEQ-260711ENG-12-PUB"},
+          "bam": {"required": "required", "position_rule": "Column 2", "expected_value": "path", "allowed_values": ".bam or .cram", "description": "Unaligned PacBio HiFi reads.", "validation_hints": "Absolute Luria path. Confirm it is instrument output, not an aligner's.", "example": "/net/bmc-pub10/data1/bmc/pacbio/m84001_hifi_reads.bam"},
+          "pbi": {"required": "optional", "position_rule": "Column 3", "expected_value": "path or blank", "allowed_values": ".pbi, .bai or .crai", "description": "PacBio BAM index.", "validation_hints": "Leave blank rather than guessing.", "example": "/net/bmc-pub10/data1/bmc/pacbio/m84001_hifi_reads.bam.pbi"},
+          "karyotype": {"required": "optional", "position_rule": "later", "expected_value": "enum", "allowed_values": "XX, XY", "description": "Sample karyotype for sex-chromosome handling.", "validation_hints": "Only from real metadata; never inferred.", "example": "XX"}
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/pacvar sheet from a resolved D.SEQ cohort of PacBio HiFi libraries.",
+    "workflow_role": "Selected for PacBio long-read WGS or PureTarget repeat-expansion analysis.",
+    "output_expectation": "CSV with header sample,bam,pbi (a file_type column may also appear and is harmless).",
+    "population_priority": [
+      "Confirm from platform metadata that the cohort really is PacBio. NExtSEEK holds no long-read data at all today, so expect to have to ask.",
+      "One row per D.SEQ leaf; the bam path comes from the sample's primary-data metadata.",
+      "Populate karyotype only from real metadata."
+    ],
+    "final_checks": [
+      "Every bam is PacBio instrument output, not an alignment.",
+      "No --gtf was emitted.",
+      "karyotype values are XX or XY where present."
+    ]
+  }
+}
