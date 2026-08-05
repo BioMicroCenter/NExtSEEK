@@ -1,0 +1,118 @@
+{
+  "report_type": "NFCORE_FASTQREPAIR_SAMPLESHEET",
+  "description": "nf-core/fastqrepair samplesheet context, aligned to the pinned 1.0.0 schemas. Recovers corrupted gzipped FASTQ files.",
+  "params": {
+    "casava": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "Input read names follow the CASAVA 1.8+ convention."
+    },
+    "dropunpaired": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "Discard reads whose mate is missing instead of writing them to a separate file."
+    },
+    "multiqc_title": {
+      "type": "string",
+      "default": null,
+      "steerable": true
+    }
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/fastqrepair",
+    "repository": "https://github.com/nf-core/fastqrepair",
+    "documentation_url": "https://nf-co.re/fastqrepair/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2. sample and fastq_1 are required. Note the patterns accept UNCOMPRESSED .fastq as well as .gz, which is unusual and deliberate: a corrupted archive is the input.",
+    "required_columns": [
+      "sample",
+      "fastq_1",
+      "fastq_2"
+    ],
+    "optional_columns": [],
+    "reference_requirement": "NONE. The 1.0.0 schema declares no genome/fasta/gtf \u2014 it never aligns anything."
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null
+    }
+  ],
+  "validation_rules": [
+    "Do NOT pass --genome, --fasta or --gtf: the 1.0.0 schema declares none of them.",
+    "This is a repair step, not an analysis. Its output is fixed FASTQ files to feed another pipeline.",
+    "Do not run it routinely. Reach for it when a pipeline has failed on unreadable or desynchronised input.",
+    "The repaired reads are NOT the original data. If the files are already deposited, keep the deposit and the repair distinct."
+  ],
+  "notes": "Always technically runnable on any FASTQ we hold, but it is a remedy rather than an analysis. Its output would be a derived dataset; think carefully before registering repaired reads as a new sample rather than as a fix to an existing one.",
+  "sources": [
+    {
+      "label": "nf-core/fastqrepair usage docs",
+      "url": "https://nf-co.re/fastqrepair/latest/docs/usage/",
+      "notes": "Workflow overview and samplesheet layout."
+    },
+    {
+      "label": "nf-core/fastqrepair nextflow_schema.json @ 1.0.0",
+      "url": "https://raw.githubusercontent.com/nf-core/fastqrepair/1.0.0/nextflow_schema.json",
+      "notes": "Authoritative: no required params beyond input/outdir; no reference options at all."
+    },
+    {
+      "label": "nf-core/fastqrepair assets/schema_input.json @ 1.0.0",
+      "url": "https://raw.githubusercontent.com/nf-core/fastqrepair/1.0.0/assets/schema_input.json",
+      "notes": "Authoritative columns: sample and fastq_1 required; the pattern permits uncompressed .fastq."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/fastqrepair input samplesheet.",
+        "fields": {
+          "sample": {
+            "required": "required",
+            "position_rule": "Column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Sample identifier.",
+            "validation_hints": "Use the NExtSEEK D.SEQ UID.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "fastq_1": {
+            "required": "required",
+            "position_rule": "Column 2",
+            "expected_value": "path",
+            "allowed_values": ".fastq or .fastq.gz",
+            "description": "Read 1, possibly corrupted.",
+            "validation_hints": "Absolute Luria path.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz"
+          },
+          "fastq_2": {
+            "required": "header required",
+            "position_rule": "Column 3",
+            "expected_value": "path or blank",
+            "allowed_values": ".fastq or .fastq.gz, or blank",
+            "description": "Read 2.",
+            "validation_hints": "Blank for single-end.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz"
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/fastqrepair sheet for D.SEQ records whose FASTQ files will not read.",
+    "workflow_role": "Selected after another pipeline has failed on corrupted or desynchronised input.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2.",
+    "population_priority": [
+      "Confirm the files are actually damaged before running this.",
+      "One row per affected D.SEQ leaf."
+    ],
+    "final_checks": [
+      "No reference flags.",
+      "The user understands the output is a repaired copy, not the original."
+    ]
+  }
+}

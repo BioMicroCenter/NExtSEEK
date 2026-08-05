@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -39,7 +40,82 @@ PIPELINE_COLUMN_ALIASES: dict[str, dict[str, str]] = {
     # branch's `file_type` rides along as an extra column, which pacvar's
     # schema_input.json permits (it sets no additionalProperties: false).
     "pacvar": {"mapped": "bam", "index": "pbi"},
+    "detaxizer": {"fastq_1": "short_reads_fastq_1", "fastq_2": "short_reads_fastq_2"},
+    "pathogensurveillance": {"sample": "sample_id", "fastq_1": "path", "fastq_2": "path_2"},
 }
+
+
+# --- platform-dependent columns ------------------------------------------------
+#
+# A few pipelines name the read column after the SEQUENCING PLATFORM rather than
+# after the read number: genomeassembler wants `ontreads` for Nanopore and
+# `hifireads` for PacBio, because a long-read assembler has to know which error
+# profile it is dealing with.
+#
+# That cannot be an entry in PIPELINE_COLUMN_ALIASES, which is static per pipeline,
+# and it cannot be an elicited value either: write_samplesheet runs BEFORE
+# configure_run, so nothing the user answers is available yet. It can, however, be
+# read off the sample's own metadata — the same value-driven approach the FASTQ and
+# alignment resolvers use — which is both earlier and more reliable than asking.
+_PLATFORM_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # Order matters: check the specific instrument families before the vendor words.
+    ("pacbio", ("pacbio", "hifi", "revio", "sequel")),
+    ("nanopore", ("nanopore", "minion", "promethion", "gridion", "\bont\b")),
+    ("illumina", ("illumina", "novaseq", "miseq", "nextseq", "hiseq", "iseq", "singular")),
+)
+
+# pipeline -> platform -> {standard column: the column that platform actually uses}
+PIPELINE_PLATFORM_COLUMNS: dict[str, dict[str, dict[str, str]]] = {
+    "genomeassembler": {
+        "nanopore": {"fastq_1": "ontreads"},
+        "hifi": {"fastq_1": "hifireads"},
+        "pacbio": {"fastq_1": "hifireads"},
+        # Deliberately absent: illumina. genomeassembler assembles LONG reads; short
+        # reads only polish. Leaving Illumina unmapped means the read lands in no
+        # recognised column and the gap is visible in the sheet, rather than a
+        # short-read cohort being quietly fed to a long-read assembler.
+    },
+}
+
+# pipeline -> the column whose VALUE is the detected platform name.
+PIPELINE_PLATFORM_VALUE_COLUMN: dict[str, str] = {
+    # pathogensurveillance enumerates illumina|nanopore|pacbio|bgiseq and uses it to
+    # pick per-sample tooling. It is in the metadata, so it should never be asked for.
+    "pathogensurveillance": "sequence_type",
+}
+
+
+def _platform_from_meta(meta: Mapping[str, Any]) -> str:
+    """Best-effort sequencing platform from a sample's metadata, or ''.
+
+    Scans values rather than trusting a field name, because the platform shows up
+    under Sequencer, Platform, Instrument and SequencingType depending on who
+    curated the row.
+    """
+    blob = " ".join(str(v) for v in (meta or {}).values() if v).lower()
+    for platform, hints in _PLATFORM_HINTS:
+        if any(re.search(h, blob) if h.startswith("\\b") else h in blob for h in hints):
+            return platform
+    return ""
+
+
+def _apply_platform_columns(row: dict[str, Any], pipeline: str, meta: Mapping[str, Any]) -> dict[str, Any]:
+    """Rename read columns and/or stamp a platform column, per this row's metadata."""
+    value_col = PIPELINE_PLATFORM_VALUE_COLUMN.get(pipeline)
+    table = PIPELINE_PLATFORM_COLUMNS.get(pipeline)
+    if not value_col and not table:
+        return row
+    platform = _platform_from_meta(meta)
+    if value_col:
+        # Never overwrite a value the agent set deliberately.
+        row.setdefault(value_col, platform)
+        if not row.get(value_col):
+            row[value_col] = platform
+    if table and platform:
+        for standard, actual in (table.get(platform) or {}).items():
+            if standard in row:
+                row[actual] = row.pop(standard)
+    return row
 
 
 def _upload_to_tower_dataset(
@@ -714,6 +790,9 @@ def emit_nfcore_artifacts(
         for field in enrichment:
             value = sample_meta.get(field)
             rewritten[field] = "" if value is None else value
+        # Platform-dependent columns come BEFORE the static alias map: the alias map
+        # is keyed on the standard names, and this may have renamed them away.
+        rewritten = _apply_platform_columns(rewritten, pipeline, sample_meta)
         keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
 
     columns = _ensure_columns(keep_rows, required, enrichment)

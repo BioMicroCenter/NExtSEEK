@@ -533,6 +533,113 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             "prokaryotes, transdecoder for eukaryotes — so the user is asked."
         ),
     },
+    "denovotranscript": {
+        "repo": "https://github.com/nf-core/denovotranscript",
+        "default_revision": "1.2.1",
+        "description": "De novo transcriptome assembly and quantification from paired-end bulk RNA-seq.",
+        "common_assays": ["RNA-seq", "bulk RNA", "de novo transcriptome", "transcriptome assembly",
+                          "non-model organism"],
+        "default_genome": None,
+        # 1.2.1 does declare all three, so passing them will not abort the run. They are
+        # only consulted for optional evaluation — the assembly itself is reference-free.
+        "reference_cli_flags": ["genome", "fasta", "gtf"],
+        "required_columns": ["sample", "fastq_1", "fastq_2"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        # Narrow on purpose: a plain RNA-seq cohort belongs in rnaseq. This is for an
+        # explicit de novo ask, which is what you need when there is no good reference.
+        "accepted_assay_patterns": [
+            r"^de[-_ ]?novo[-_ ]transcriptome.*$",
+            r"^transcriptome[-_ ]assembly$",
+        ],
+        "pipeline_kind_description": (
+            "Assembles a transcriptome from RNA-seq reads WITHOUT a reference, which is "
+            "what you want for an organism with no good genome. If the organism has one, "
+            "rnaseq gives a better-constrained answer."
+        ),
+    },
+    "detaxizer": {
+        "repo": "https://github.com/nf-core/detaxizer",
+        "default_revision": "1.3.0",
+        "description": "Identify and optionally remove contaminating sequences (host reads by default) from raw data.",
+        "common_assays": ["contamination screening", "host removal", "decontamination", "QC"],
+        "default_genome": None,
+        "reference_cli_flags": ["genome"],
+        # Post-alias: detaxizer names the read columns short_reads_fastq_1/2.
+        "required_columns": ["sample", "short_reads_fastq_1", "short_reads_fastq_2"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        # Like seqinspector, this applies to any library, so gating on assay title would
+        # only ever produce false negatives.
+        "accepted_assay_patterns": [],
+        "pipeline_kind_description": (
+            "Screens reads for contaminating taxa — by default Homo sapiens — and can "
+            "remove them. Applies to any library type. Useful before depositing data "
+            "publicly, or when a library is suspected of host or index contamination."
+        ),
+    },
+    "fastqrepair": {
+        "repo": "https://github.com/nf-core/fastqrepair",
+        "default_revision": "1.0.0",
+        "description": "Recover corrupted gzipped FASTQ files: drop or fix non-compliant reads, resolve unpaired and desynchronised reads.",
+        "common_assays": ["QC", "data repair", "corrupted FASTQ"],
+        "default_genome": None,
+        "reference_cli_flags": [],
+        "required_columns": ["sample", "fastq_1", "fastq_2"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [],
+        "pipeline_kind_description": (
+            "A repair utility, not an analysis: it fixes truncated or desynchronised "
+            "FASTQ files so another pipeline can read them. Reach for it when a run has "
+            "failed on unreadable input, not as a first step by default."
+        ),
+    },
+    "genomeassembler": {
+        "repo": "https://github.com/nf-core/genomeassembler",
+        "default_revision": "1.1.0",
+        "description": "Assembly and scaffolding of haploid / unphased genomes from long ONT or PacBio HiFi reads.",
+        "common_assays": ["genome assembly", "long read", "Nanopore", "ONT", "PacBio", "HiFi"],
+        "default_genome": None,
+        "reference_cli_flags": [],
+        # `sample` is the only schema-required column: the read column depends on the
+        # platform and is filled per row by PIPELINE_PLATFORM_COLUMNS in the emitter.
+        "required_columns": ["sample"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^genome[-_ ]assembly$", r"^de[-_ ]?novo[-_ ]genome.*$",
+        ],
+        "pipeline_kind_description": (
+            "Assembles a genome from LONG reads. The read column is chosen per sample "
+            "from the platform in its metadata — ontreads for Nanopore, hifireads for "
+            "PacBio. A short-read-only cohort is not a valid input and will land in no "
+            "read column at all, which is deliberate."
+        ),
+    },
+    "pathogensurveillance": {
+        "repo": "https://github.com/nf-core/pathogensurveillance",
+        "default_revision": "1.1.0",
+        "description": "Population genomics surveillance of pathogens: identification, variants and reports per group.",
+        "common_assays": ["pathogen surveillance", "outbreak", "population genomics",
+                          "bacterial WGS", "isolate sequencing"],
+        "default_genome": None,
+        "reference_cli_flags": [],
+        # Post-alias: sample -> sample_id, fastq_1 -> path, fastq_2 -> path_2.
+        # sequence_type is stamped per row from the sample's platform metadata.
+        "required_columns": ["sample_id", "path", "path_2"],
+        "samplesheet_input_kind": "fastq",
+        "accepted_leaf_sample_types": ["D.SEQ"],
+        "accepted_assay_patterns": [
+            r"^pathogen[-_ ]surveillance$", r"^outbreak.*$",
+        ],
+        "pipeline_kind_description": (
+            "Surveillance across a SET of pathogen isolates — it compares them and "
+            "reports per group, so it wants a cohort rather than one sample. References "
+            "are selected automatically from NCBI. The grouping is a curation decision: "
+            "report_group_ids should come from the cohort field the user asked about."
+        ),
+    },
     "bamtofastq": {
         "repo": "https://github.com/nf-core/bamtofastq",
         "default_revision": "2.2.1",

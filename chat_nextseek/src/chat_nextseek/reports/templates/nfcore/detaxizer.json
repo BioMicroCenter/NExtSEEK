@@ -1,0 +1,144 @@
+{
+  "report_type": "NFCORE_DETAXIZER_SAMPLESHEET",
+  "description": "nf-core/detaxizer samplesheet context, aligned to the pinned 1.3.0 schemas. Identifies and optionally removes contaminating sequences from raw data.",
+  "params": {
+    "tax2filter": {
+      "type": "string",
+      "default": "Homo sapiens",
+      "steerable": true,
+      "help": "The taxon to identify (and optionally remove). Defaults to human, i.e. host removal."
+    },
+    "enable_filter": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "FALSE by curated default: identify first and let a human look before anything is deleted from the reads."
+    },
+    "classification_kraken2": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "Needs a Kraken2 database, which Luria does not host."
+    },
+    "validation_blastn": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "Second-pass confirmation with BLAST; needs a database."
+    },
+    "multiqc_title": {
+      "type": "string",
+      "default": null,
+      "steerable": true
+    }
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/detaxizer",
+    "repository": "https://github.com/nf-core/detaxizer",
+    "documentation_url": "https://nf-co.re/detaxizer/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, short_reads_fastq_1, short_reads_fastq_2, long_reads_fastq_1. NOTE the non-standard read column names: this pipeline does NOT use fastq_1/fastq_2. The 1.3.0 schema marks none of them strictly required, but a row with no reads does nothing.",
+    "required_columns": [
+      "sample",
+      "short_reads_fastq_1",
+      "short_reads_fastq_2"
+    ],
+    "optional_columns": [
+      "long_reads_fastq_1"
+    ],
+    "reference_requirement": "Only `genome` is declared at 1.3.0; there is no fasta or gtf parameter. Contamination references come from the classifier databases, not from the usual reference tree."
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "short_reads_fastq_1": null,
+      "short_reads_fastq_2": null,
+      "long_reads_fastq_1": null
+    }
+  ],
+  "validation_rules": [
+    "The read columns are short_reads_fastq_1 / short_reads_fastq_2, not fastq_1 / fastq_2.",
+    "Do NOT pass --fasta or --gtf: the 1.3.0 schema declares neither.",
+    "Keep enable_filter false on a first pass. Identification is reversible; filtering the reads is not.",
+    "Leave classification_kraken2 and validation_blastn off unless a database path is supplied \u2014 neither is provisioned on Luria.",
+    "long_reads_fastq_1 is for long-read libraries; NExtSEEK holds none, so leave it blank."
+  ],
+  "notes": "Applies to any library type, so it is always technically runnable on the 2,057 D.SEQ records we hold. Its natural uses are pre-deposit screening and chasing suspected host or index contamination. Note the default action is to REPORT, not to remove.",
+  "sources": [
+    {
+      "label": "nf-core/detaxizer usage docs",
+      "url": "https://nf-co.re/detaxizer/latest/docs/usage/",
+      "notes": "Workflow overview and samplesheet layout."
+    },
+    {
+      "label": "nf-core/detaxizer nextflow_schema.json @ 1.3.0",
+      "url": "https://raw.githubusercontent.com/nf-core/detaxizer/1.3.0/nextflow_schema.json",
+      "notes": "Authoritative: no required params beyond input/outdir; only `genome` declared among the reference options."
+    },
+    {
+      "label": "nf-core/detaxizer assets/schema_input.json @ 1.3.0",
+      "url": "https://raw.githubusercontent.com/nf-core/detaxizer/1.3.0/assets/schema_input.json",
+      "notes": "Authoritative columns: sample, short_reads_fastq_1, short_reads_fastq_2, long_reads_fastq_1; the schema marks none as strictly required."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/detaxizer input samplesheet.",
+        "fields": {
+          "sample": {
+            "required": "required in practice",
+            "position_rule": "Column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Sample identifier.",
+            "validation_hints": "Use the NExtSEEK D.SEQ UID.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "short_reads_fastq_1": {
+            "required": "required in practice",
+            "position_rule": "Column 2",
+            "expected_value": "path",
+            "allowed_values": ".fastq.gz",
+            "description": "Short read 1.",
+            "validation_hints": "Absolute Luria path.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz"
+          },
+          "short_reads_fastq_2": {
+            "required": "header required",
+            "position_rule": "Column 3",
+            "expected_value": "path or blank",
+            "allowed_values": ".fastq.gz or blank",
+            "description": "Short read 2.",
+            "validation_hints": "Blank for single-end.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz"
+          },
+          "long_reads_fastq_1": {
+            "required": "optional",
+            "position_rule": "Column 4",
+            "expected_value": "path or blank",
+            "allowed_values": ".fastq.gz or blank",
+            "description": "Long reads.",
+            "validation_hints": "Leave blank \u2014 no long-read data exists here.",
+            "example": ""
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/detaxizer sheet from any resolved D.SEQ cohort.",
+    "workflow_role": "Selected for contamination screening, host removal, or a pre-deposit check.",
+    "output_expectation": "CSV with header sample,short_reads_fastq_1,short_reads_fastq_2,long_reads_fastq_1.",
+    "population_priority": [
+      "Establish which taxon the user considers contamination; the default is human.",
+      "One row per D.SEQ leaf.",
+      "Leave enable_filter false unless the user explicitly asked to rewrite the reads."
+    ],
+    "final_checks": [
+      "Read columns use the short_reads_ prefix.",
+      "enable_filter reflects an explicit decision."
+    ]
+  }
+}

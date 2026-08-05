@@ -1,0 +1,130 @@
+{
+  "report_type": "NFCORE_DENOVOTRANSCRIPT_SAMPLESHEET",
+  "description": "nf-core/denovotranscript samplesheet context, aligned to the pinned 1.2.1 schemas. Reference-free transcriptome assembly from paired-end bulk RNA-seq.",
+  "params": {
+    "transcript_length": {
+      "type": "number",
+      "default": 200,
+      "steerable": true,
+      "help": "Minimum assembled transcript length to keep."
+    },
+    "assemblers": {
+      "type": "string",
+      "default": "trinity",
+      "steerable": true,
+      "help": "Assemblers to run. Trinity alone is the standard choice; adding more multiplies runtime and memory."
+    },
+    "busco_lineage": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "BUSCO lineage for assembly completeness. Downloads on demand; leave unset to skip."
+    },
+    "skip_assembly_qc": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    },
+    "multiqc_title": {
+      "type": "string",
+      "default": null,
+      "steerable": true
+    }
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/denovotranscript",
+    "repository": "https://github.com/nf-core/denovotranscript",
+    "documentation_url": "https://nf-co.re/denovotranscript/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2. sample and fastq_1 are required; the pipeline targets PAIRED-end libraries, so fastq_2 should normally be populated.",
+    "required_columns": [
+      "sample",
+      "fastq_1",
+      "fastq_2"
+    ],
+    "optional_columns": [],
+    "reference_requirement": "The 1.2.1 schema DOES declare genome, fasta and gtf, so passing them will not abort the run \u2014 but the assembly itself is reference-free and they are only consulted for optional evaluation. Do not treat a resolved genome as meaningful here."
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null
+    }
+  ],
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "This pipeline is for PAIRED-end bulk RNA-seq. A single-end cohort assembles poorly and will not error.",
+    "Use rnaseq instead when the organism has a good reference genome \u2014 a de novo assembly is strictly worse when a reference exists.",
+    "Trinity is memory-hungry. Do not add assemblers casually on a shared cluster.",
+    "busco_lineage triggers a download; leave it unset unless completeness scoring is wanted."
+  ],
+  "notes": "Suited to non-model organisms with no reference genome. NExtSEEK holds 507 RNA-seq D.SEQ records, all from organisms that DO have references (human, mouse, NHP), so this would rarely be the right choice for today's data \u2014 it is catalogued for users whose organisms lack one.",
+  "sources": [
+    {
+      "label": "nf-core/denovotranscript usage docs",
+      "url": "https://nf-co.re/denovotranscript/latest/docs/usage/",
+      "notes": "Workflow overview and samplesheet layout."
+    },
+    {
+      "label": "nf-core/denovotranscript nextflow_schema.json @ 1.2.1",
+      "url": "https://raw.githubusercontent.com/nf-core/denovotranscript/1.2.1/nextflow_schema.json",
+      "notes": "Authoritative: no required params beyond input/outdir; genome, fasta and gtf are all declared."
+    },
+    {
+      "label": "nf-core/denovotranscript assets/schema_input.json @ 1.2.1",
+      "url": "https://raw.githubusercontent.com/nf-core/denovotranscript/1.2.1/assets/schema_input.json",
+      "notes": "Authoritative columns: sample and fastq_1 required; fastq_2 optional in schema but expected in practice."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/denovotranscript input samplesheet.",
+        "fields": {
+          "sample": {
+            "required": "required",
+            "position_rule": "Column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Sample identifier.",
+            "validation_hints": "Use the NExtSEEK D.SEQ UID.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "fastq_1": {
+            "required": "required",
+            "position_rule": "Column 2",
+            "expected_value": "path",
+            "allowed_values": ".fastq.gz",
+            "description": "Read 1.",
+            "validation_hints": "Absolute Luria path.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz"
+          },
+          "fastq_2": {
+            "required": "expected",
+            "position_rule": "Column 3",
+            "expected_value": "path",
+            "allowed_values": ".fastq.gz",
+            "description": "Read 2.",
+            "validation_hints": "Populate it \u2014 this pipeline wants paired reads.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz"
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/denovotranscript sheet from a resolved D.SEQ RNA-seq cohort with no usable reference genome.",
+    "workflow_role": "Selected when the user explicitly asks for de novo transcriptome assembly.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2.",
+    "population_priority": [
+      "Confirm the organism genuinely lacks a good reference; otherwise recommend rnaseq.",
+      "One row per D.SEQ leaf, paired reads populated."
+    ],
+    "final_checks": [
+      "Every row is paired.",
+      "assemblers is a single value unless the user asked otherwise."
+    ]
+  }
+}
