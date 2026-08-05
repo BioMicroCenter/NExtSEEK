@@ -11,13 +11,21 @@ editor_options:
 Began as "what else could Nessie run?". Answering it surfaced a launch
 bug that made three of the eight existing pipelines unrunnable, so the
 survey and the fixes are recorded together. **Pipelines available went
-from 8 to 18; pipelines able to launch went 5 → 18; pipelines verified
+from 8 to 26; pipelines able to launch went 5 → 26; pipelines verified
 on the cluster remains 2.**
 
-**Update 2026-08-05:** `bamtofastq` shipped — the doc's own "if you only
-fund one row" recommendation. It is the first pipeline whose cohort
-leaves are `A.*` analysis records rather than `D.SEQ` raw data, which is
-the capability `differentialabundance` needs.
+**Update 2026-08-05, in two parts.** First, `bamtofastq` shipped — the
+doc's own "if you only fund one row" recommendation, and the first
+pipeline whose cohort leaves are `A.*` analysis records rather than
+`D.SEQ` raw data. Then a full schema census replaced the
+description-based tiering below, and eight further pipelines were
+catalogued off the back of it.
+
+> ⚠️ **Read the third row of that table carefully.** Eight of the
+> twenty-six were added *specifically because we hold no data for them*
+> — they are config-only against their pinned schemas, and catalogued so
+> the capability exists the day such a cohort is registered. "Available"
+> counts catalog entries. It has never counted runs.
 
 **Data source:** direct query against `seek_production` (51,359 samples,
 104 sample types)
@@ -101,11 +109,23 @@ no `gtf` param; `ampliseq` declares none of the three and had therefore
 
 ## Where we are now
 
-|                                   | Started |    Now |
-|-----------------------------------|--------:|-------:|
-| Pipelines catalogued              |       8 | **18** |
-| Generating a valid launch command |       5 | **18** |
-| Verified end-to-end on Luria      |       2 |  **2** |
+|                                          | Started |    Now |
+|------------------------------------------|--------:|-------:|
+| Pipelines catalogued                     |       8 | **26** |
+| Generating a valid launch command        |       5 | **26** |
+| …that we hold identifiable data for      |       5 | **10** |
+| Verified end-to-end on Luria             |       2 |  **2** |
+
+> ⚠️ **The third row is the one that was never measured before, and it
+> is worse than it looks for the ORIGINAL catalog, not just the new
+> entries.** `LibraryStrategy` on `D.SEQ` sums to exactly 2,057 — the
+> field is complete, so it is authoritative. Its only values are
+> Amplicon, RNA-Seq, WGS, scRNA-Seq, Targeted Capture and Hi-C. A
+> keyword sweep of the full metadata confirms it: **ATAC 0, ChIP 0,
+> methylation/bisulfite/WGBS/RRBS 0, small-RNA/miRNA 0, Ribo-seq 0,
+> metagenomic 0, CRISPR 0.** `atacseq`, `chipseq` and `methylseq` have
+> been catalogued since before this document existed and have never had
+> a cohort to run on either.
 
 Ten pipelines added (`seqinspector`, `hlatyping`, `smrnaseq`, `riboseq`,
 `hic`, `rnavar`, `crisprseq`, `nanoseq`, `mag`, `bamtofastq`), three
@@ -131,9 +151,11 @@ Separately, the reingest path now validates workbooks against the real
 sample-type catalog rather than against themselves — see the reingest
 plan; it is the 1.7% problem below, not this document's subject.
 
-**The number that has not moved is the third row.** Everything new
-passes unit tests proving the generated `run.sh` is well-formed; none of
-it has been run on the cluster. See *Luria verification status*.
+**The number that has not moved is the last row.** Everything new passes
+unit tests proving the generated `run.sh` is well-formed; none of it has
+been run on the cluster. See *Luria verification status*, which now
+marks **sixteen of the twenty-six** as having no data to run on — seven
+of those being pipelines catalogued long before this document existed.
 
 ------------------------------------------------------------------------
 
@@ -227,17 +249,10 @@ matters most. From `seek_production`:
 | Not our data shape | — | `demo` (a workshop pipeline), `drugresponseeval` (benchmarks ML models against named public datasets; its `schema_input.json` is an unmodified nf-core template and does not describe its real input), `multiplesequencealign`, `reportho` (both take sequence FASTA, not reads), `sopa` (spatial imaging), `pathogensurveillance` |
 | Design-blocked | tumour/normal via `status` / `normal_id` | `rnadnavar` |
 
-That leaves `denovotranscript`, `detaxizer`, `fastqrepair`, `magmap`
-and `metatdenovo` — and none is compelling. De novo transcriptome
-assembly has little value when every organism we hold (human, mouse,
-NHP, *M. tuberculosis*) has a reference; `mag` already covers
-metagenome assembly; `detaxizer` and `fastqrepair` are utilities, not
-analyses.
-
-**Conclusion: the config-only well is dry.** Not "73 cheap additions
-remain" — closer to zero worth making. What the database actually
-contains is overwhelmingly amplicon and bulk RNA-seq, both already
-covered:
+**Conclusion: no config-only pipeline remains that we hold data for.**
+Not "73 cheap additions" — zero, on today's data. What the database
+actually contains is overwhelmingly amplicon and bulk RNA-seq, both
+already covered:
 
 | `LibraryStrategy` (2,057 `D.SEQ`) | Samples | Covered by |
 |--------------------------|--------:|--------------------------|
@@ -255,11 +270,58 @@ covered:
 > should not be counted as capability, and it should not be anyone's
 > Luria test.
 
-The remaining growth is therefore **not** in adding catalog entries. It
-is in `differentialabundance`'s contrasts derivation, in `mhcquant` for
-the mass-spec labs, and in getting results registered back — the 1.7%
-problem. Those were already ranked #1–#3 below; this census removes the
-argument that cheap Tier 1 additions are a competing use of time.
+The remaining growth is therefore **not** in adding catalog entries for
+data we have. It is in `differentialabundance`'s contrasts derivation,
+in `mhcquant` for the mass-spec labs, and in getting results registered
+back — the 1.7% problem. Those were already ranked #1–#3 below; this
+census removes the argument that cheap Tier 1 additions are a competing
+use of time.
+
+#### …but the eight config-only entries were added anyway, deliberately
+
+A catalog entry is roughly half a day and carries no runtime cost. The
+census established that these eight are config-only against their pinned
+schemas and fail **only** the data test — so the argument for adding
+them is that the work is cheap *now*, the schemas are *fresh in hand*,
+and the alternative is re-deriving all of it under time pressure the
+week someone registers a PacBio run.
+
+| Added | Rev | Why we can't run it today | Elicits |
+|-------------------|--------|------------------------------|-----------------|
+| `bacass` | 2.6.1 | No bacterial isolate sequencing | — |
+| `bactmap` | 1.0.0 | Same | `reference` |
+| `pacvar` | 1.1.0 | No long-read data, any platform | — |
+| `viralrecon` | 3.0.0 | Essentially no viral data | `platform`, `protocol`, `primer_set` |
+| `viralmetagenome` | 1.1.3 | Same | — |
+| `viralintegration` | 0.1.1 | Same | — |
+| `magmap` | 1.1.0 | No metagenomic cohorts | `genomeinfo` |
+| `metatdenovo` | 1.4.0 | Same | `orf_caller` |
+
+Two things fell out of building them that were not obvious from the
+census:
+
+-   **`pacvar` proves input kind and sample type are independent
+    knobs.** It reads a BAM, like `bamtofastq` — but its samples are
+    `D.SEQ` raw data, because PacBio instruments *deliver* unaligned
+    reads in BAM format. `bamtofastq`'s BAMs are `A.ALN` analysis
+    outputs. Same resolver, opposite ends of the lineage.
+-   **Four of the eight needed elicitation that the schema did not
+    demand.** `viralrecon`'s `platform` and `protocol`, `magmap`'s
+    `genomeinfo` and `metatdenovo`'s `orf_caller` are all schema-
+    optional and all silently wrong if unset — an ORF caller that
+    assumes no introns will happily call genes in a eukaryotic
+    transcriptome. "Config-only by schema" is a *floor* on what a
+    pipeline needs, never a ceiling.
+
+**One was rejected during implementation.** `genomeassembler` is
+config-only by schema, but its read column depends on the sequencing
+platform (`ontreads` vs `hifireads`), and our column-alias map is static
+and applied in `write_samplesheet` — which runs *before* `configure_run`,
+where elicitation happens. A platform-dependent column name cannot be
+resolved in that order. Fixing it means either threading launch params
+into the emitter or moving elicitation earlier; neither is worth doing
+for a pipeline with no data. Recorded here so the next person does not
+rediscover it.
 
 *(Reproducible: the enumeration and classifier are mechanical — list
 `nf-core` org repos tagged `nf-core`+`pipeline`, take each latest
@@ -616,6 +678,24 @@ declared schema; that is **not** the same as Nextflow accepting it, or
 the run completing. Three pipelines sat catalogued-but-unlaunchable for
 months precisely because nobody tracked this distinction.
 
+**Three states, not two.** ✅ means a real run completed. ❌ means it
+could be run and has not been. ⛔ means **we hold no identifiable data
+of that kind at all**, so there is nothing to run and no test to
+schedule. Sixteen of the twenty-six are in that state and should never
+appear on a testing plan until the corresponding data is registered.
+
+That sixteen includes `atacseq`, `chipseq`, `methylseq`, `smrnaseq`,
+`riboseq`, `crisprseq` and `mag` — pipelines that have been catalogued
+for a long time and were, until this was checked on 2026-08-05, assumed
+testable. `methylseq` in particular was carrying a "**retest** after the
+`--gtf` fix" note that could never have been acted on.
+
+*(Caveat on `crisprseq`: 1,179 amplicon libraries exist and nothing
+identifies any of them as CRISPR amplicons — `SequencingType` says "DNA
+barcoding" for the bulk of them. So the honest statement is that no
+cohort is **identifiable** as CRISPR, not that none exists. Ask a
+curator before concluding either way.)*
+
 **Update this table whenever a pipeline is launched on Luria.** Record
 the run directory — it is the evidence.
 
@@ -624,21 +704,29 @@ the run directory — it is the evidence.
 | `rnaseq` | ✅ verified | Real run `nfcore_rnaseq_260723_205359_0` |
 | `scrnaseq` | ✅ verified | Real run `nfcore_gideon-4wk_260711_024438_0`; only pipeline with a Luria provisioning script |
 | `fetchngs` | 🟡 partial | Exercised as a pre-stage inside other runs, never launched standalone |
-| `atacseq` | ❌ untested | Flags were already correct; never launched |
-| `chipseq` | ❌ untested | Flags were already correct; never launched |
-| `methylseq` | ❌ **retest** | Was sending `--gtf`, which it does not accept — **aborted at validation until 2026-08-04**. First run since the fix is the real test |
+| `atacseq` | ⛔ **no data exists** | Flags were already correct, but **0 D.SEQ samples mention ATAC** (2026-08-05). Never launched, and not launchable |
+| `chipseq` | ⛔ **no data exists** | Flags were already correct, but **0 D.SEQ samples mention ChIP**. Never launched, and not launchable |
+| `methylseq` | ⛔ **no data exists** | The `--gtf` fault was real and is fixed, but the "retest" it called for was never possible: **0 D.SEQ samples mention methylation / bisulfite / WGBS / RRBS** |
 | `sarek` | ❌ **retest** | Same `--gtf` fault, same fix |
 | `ampliseq` | ❌ **never worked** | Declares none of genome/fasta/gtf; was sent all three. **Has never been launchable.** A first successful run is the proof |
 | `seqinspector` | ❌ untested | New. Reference-free — the cheapest end-to-end proof available, do this one first |
 | `hlatyping` | ❌ untested | New. Carries its own reference |
-| `smrnaseq` | ❌ untested | New. Confirm `mirtrace_species` elicitation fires |
-| `riboseq` | ❌ untested | New. Confirm the `type` column is asked for, not defaulted |
+| `smrnaseq` | ⛔ **no data exists** | **0 D.SEQ samples mention small-RNA / miRNA.** Confirm `mirtrace_species` elicitation if data ever arrives |
+| `riboseq` | ⛔ **no data exists** | **0 D.SEQ samples mention Ribo-seq / ribosome.** Confirm the `type` column is asked for if data ever arrives |
 | `hic` | ❌ untested | New. First run per genome pays a bowtie2 index build — allow for it |
 | `rnavar` | ❌ untested | New. Confirm BQSR is genuinely skipped |
-| `crisprseq` | ❌ untested | New. Confirm `configure_run` refuses until guide + amplicon are answered |
+| `crisprseq` | ⛔ **no identifiable data** | Elicitation is **verified working** in the deployed container (staged questions, enum + DNA-base validation, clean build once answered). But 0 D.SEQ mention CRISPR — the 1,179 amplicon libraries are labelled "DNA barcoding". Ask a curator |
 | `nanoseq` | ⛔ **no data exists** | Answered 2026-08-05: **we hold zero long-read samples** (0 of 2,057 `D.SEQ` mention any long-read platform). Untestable here. Keep the entry for future data; do not count it as capability |
-| `mag` | ❌ untested | New. Confirm the `short_reads_1/2` column rename lands in the emitted CSV |
+| `mag` | ⛔ **no data exists** | **0 D.SEQ samples mention metagenomics.** The `short_reads_1/2` rename is unit-tested; nothing else is testable |
 | `bamtofastq` | ❌ **blocked on data** | New. The path is verified end-to-end against the real 32 `A.ALN` rows (leaves resolve, sheet emits `sample_id,mapped,file_type`), but every one of those records is archive-only — **no BAM has a cluster path**. Needs a cohort with real `/net/…` alignments before a Luria run means anything |
+| `bacass` | ⛔ **no data exists** | Added 2026-08-05 from the census. No bacterial isolate sequencing: `BAC` has no `D.SEQ` children. Unit tests confirm the `ID`/`R1`/`R2` rename lands in the CSV; nothing else is testable here |
+| `bactmap` | ⛔ **no data exists** | Same. Confirm the `reference` elicitation fires when a cohort finally exists |
+| `pacvar` | ⛔ **no data exists** | Zero long-read samples of any platform. Unit tests confirm the `bam`/`pbi` rename; confirm the BAM is instrument output, never an aligner's |
+| `viralrecon` | ⛔ **no data exists** | 19 viral mentions in 51,359 samples, none a sequencing cohort. Confirm `platform` + `protocol` elicit before `primer_set` is asked |
+| `viralmetagenome` | ⛔ **no data exists** | Same |
+| `viralintegration` | ⛔ **no data exists** | Same. Also pinned at 0.1.1, the only release — re-derive its flags if a later version appears |
+| `magmap` | ⛔ **no data exists** | No metagenomic cohorts registered. Confirm `genomeinfo` elicitation fires |
+| `metatdenovo` | ⛔ **no data exists** | Same. Confirm `orf_caller` elicitation fires — the prokaryote/eukaryote choice is silent if wrong |
 
 **Suggested order.** `seqinspector` first — no reference, no
 elicitation, so a failure isolates the launch path itself. Then
