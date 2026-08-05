@@ -332,6 +332,47 @@ def _copy_into(sources, src: str, target: pathlib.Path, *, miss, what: str,
     return True
 
 
+def _fetch_transcript(sources, sid: str, *, miss):
+    """One transcript fetch. Records its own miss and NEVER raises.
+
+    The sibling of `_copy_into`, and for the same reason. This call sits INSIDE
+    the per-arm loop, so an exception here does not fail one arm -- it abandons
+    the whole collection partway, leaving no `collection.json` and an
+    `artifacts/` tree that is half-written rather than absent. `export` warns
+    only on an ABSENT tree, so that half-run then exports in silence. One guarded
+    call site beside one unguarded one is worse than neither, because the
+    invariant reads as held.
+
+    `fetch_failed` is its OWN kind, not `unreadable`. `unreadable` means the
+    bytes arrived and would not decode -- a fact about the blob. This means the
+    bytes never arrived, which is a fact about the COLLECTOR, and it belongs on
+    the same side of that line as `copy_failed`: 127 transcripts missing because
+    the container went away must be distinguishable at a glance from a product
+    that produced none.
+
+    Deliberately catches `Exception`, not a named class. `Sources` is a protocol
+    with no declared exception for this method, so what a given implementation
+    raises is not knowable here -- and the point is to survive it, whatever it is.
+    """
+    try:
+        blob = sources.cc_transcript(sid)
+    except Exception as exc:
+        miss("cc_transcript", kind="fetch_failed", path=sid,
+             reason=f"the transcript could not be FETCHED for session_id {sid!r}: "
+                    f"{type(exc).__name__}: {exc}. The row may well exist -- this "
+                    f"is the collector failing to reach it, not the product "
+                    f"failing to write it")
+        return None
+    if not blob:
+        # Recorded HERE rather than by the caller, so the two outcomes of one
+        # fetch cannot drift apart, and so a fetch that raised never also
+        # reports the absence it never established.
+        miss("cc_transcript", kind="absent", path=sid,
+             reason=f"no CCSessionTranscript row for session_id {sid!r}")
+        return None
+    return blob
+
+
 def collect(manifest, out_dir, sources, outputs_root=None, *,
             retry_delay_s: float = RETRY_DELAY_S, sleep=time.sleep,
             decompress=None) -> dict:
@@ -540,11 +581,8 @@ def collect(manifest, out_dir, sources, outputs_root=None, *,
                            or "")
                     if sid:
                         break
-                blob = sources.cc_transcript(sid)
-                if not blob:
-                    miss("cc_transcript", kind="absent",
-                         reason=f"no CCSessionTranscript row for session_id {sid!r}")
-                else:
+                blob = _fetch_transcript(sources, sid, miss=miss)
+                if blob:
                     try:
                         (dest / "session.jsonl").write_bytes(decompress(blob))
                     except Exception as exc:
@@ -618,17 +656,23 @@ def _summarise(payload: dict) -> list[str]:
         + (": " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items()))
            if kinds else ""),
     ]
-    # Both `copy_failed` and `unreadable` are facts about the COLLECTOR sitting
-    # in a list of facts about the run, so both get called out and neither is
-    # left to be inferred from a total. `unreadable` had no line at all, and its
-    # one diagnosis was the zstandard warning printed on stderr BEFORE a
-    # multi-minute collection -- long scrolled off by the time the operator reads
-    # "unreadable 127" and an exit 0. A diagnosis has to arrive where the person
-    # is looking, which is the end.
+    # `copy_failed`, `fetch_failed` and `unreadable` are all facts about the
+    # COLLECTOR sitting in a list of facts about the run, so each gets called out
+    # and none is left to be inferred from a total. `unreadable` had no line at
+    # all, and its one diagnosis was the zstandard warning printed on stderr
+    # BEFORE a multi-minute collection -- long scrolled off by the time the
+    # operator reads "unreadable 127" and an exit 0. A diagnosis has to arrive
+    # where the person is looking, which is the end.
     if kinds.get("copy_failed"):
         lines.append(
             f"  !! {kinds['copy_failed']} copy_failed -- that is the COLLECTOR "
             f"failing, not the run: see collection.json")
+    if kinds.get("fetch_failed"):
+        lines.append(
+            f"  !! {kinds['fetch_failed']} transcript fetch_failed -- the rows "
+            f"may well EXIST; this is the collector failing to reach them, not "
+            f"the product failing to write them. A container that went away "
+            f"mid-run looks exactly like this.")
     if kinds.get("unreadable"):
         lines.append(
             f"  !! {kinds['unreadable']} unreadable -- the blobs were FETCHED "

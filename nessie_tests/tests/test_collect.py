@@ -754,6 +754,110 @@ def test_a_host_without_zstandard_is_warned_before_it_pays_for_the_collection(
     assert "zstandard" in err and "session.jsonl" in err
 
 
+# --------------------------------------------------------------------------- #
+# A source that breaks mid-run must not abandon the collection.
+#
+# `cc_transcript` is called INSIDE the per-arm loop, so an exception there does
+# not fail one arm -- it abandons the run partway, leaving no `collection.json`
+# and an `artifacts/` tree that is half-written rather than absent. `export`
+# warns only on an ABSENT tree, so that half-run then exports in silence.
+# --------------------------------------------------------------------------- #
+def _multi_pair(n=3):
+    return BayesManifest(pairs=[
+        BayesPair(id=f"p{i}", family="f",
+                  cc=NessieManifestEntry(id=f"p{i}", family="f", tier="full",
+                                         status="passed", task_ids=[f"t{i}"]))
+        for i in range(n)])
+
+
+class _TranscriptDies(FakeSources):
+    """Its `cc_transcript` raises for one arm, the way a container that went
+    away mid-run does for every arm after it."""
+
+    def __init__(self, *, dies_on, exc, **kw):
+        super().__init__(**kw)
+        self._dies_on, self._exc, self.asked = dies_on, exc, []
+
+    def cc_transcript(self, session_id):
+        self.asked.append(session_id)
+        if session_id == self._dies_on:
+            raise self._exc
+        return b"blob"
+
+
+def _row(sid):
+    return {"status": "completed", "result": {"session_id": sid},
+            "progress": [{"event": "query_complete", "data": {"session_id": sid}}]}
+
+
+def test_a_transcript_fetch_that_raises_does_not_abandon_the_collection(tmp_path):
+    """The whole point. Driven over three pairs, with the MIDDLE one's fetch
+    raising: the run must still finish, write `collection.json`, and collect the
+    pairs after the failure."""
+    src = _TranscriptDies(rows={f"t{i}": _row(f"s{i}") for i in range(3)},
+                          dies_on="s1", exc=RuntimeError("container went away"))
+
+    payload = collect.collect(_multi_pair(), tmp_path, src, retry_delay_s=0,
+                              decompress=lambda b: b)
+
+    assert (tmp_path / "collection.json").is_file()
+    assert payload["arms_seen"] == 3
+    # Every arm was still asked, and the ones after the failure landed.
+    assert src.asked == ["s0", "s1", "s2"]
+    art = collect.artifacts_dir(tmp_path)
+    assert (art / "p0" / "cc" / "session.jsonl").read_bytes() == b"blob"
+    assert (art / "p2" / "cc" / "session.jsonl").read_bytes() == b"blob"
+    assert (art / "p2" / "cc" / "task.json").is_file()
+    assert not (art / "p1" / "cc" / "session.jsonl").exists()
+
+
+def test_a_fetch_failure_is_its_own_kind_not_folded_into_unreadable(tmp_path):
+    """`unreadable` means the bytes ARRIVED and would not decode -- a fact about
+    the blob. This means they never arrived, which is a fact about the collector,
+    and it belongs on the same side of that line as `copy_failed`."""
+    src = _TranscriptDies(rows={"t0": _row("s0")}, dies_on="s0",
+                          exc=RuntimeError("No such container: nextseek"))
+
+    payload = collect.collect(_multi_pair(1), tmp_path, src, retry_delay_s=0)
+
+    misses = [m for m in payload["missing"] if m["what"] == "cc_transcript"]
+    assert [m["kind"] for m in misses] == ["fetch_failed"]
+    # Specific: what failed, and that the row may well be there.
+    assert "No such container" in misses[0]["reason"]
+    assert "may well exist" in misses[0]["reason"]
+    assert misses[0]["path"] == "s0"
+
+
+def test_a_fetch_that_raised_does_not_also_report_an_absence_it_never_established(
+        tmp_path):
+    src = _TranscriptDies(rows={"t0": _row("s0")}, dies_on="s0",
+                          exc=RuntimeError("boom"))
+
+    payload = collect.collect(_multi_pair(1), tmp_path, src, retry_delay_s=0)
+
+    kinds = [m["kind"] for m in payload["missing"] if m["what"] == "cc_transcript"]
+    assert kinds == ["fetch_failed"] and "absent" not in kinds
+
+
+def test_a_genuinely_missing_transcript_is_still_absent_not_fetch_failed(tmp_path):
+    """The product really did produce none. That is a fact about the RUN and must
+    keep reading as one."""
+    src = FakeSources(rows={"t0": _row("s0")}, transcript=b"")
+
+    payload = collect.collect(_multi_pair(1), tmp_path, src, retry_delay_s=0)
+
+    assert [m["kind"] for m in payload["missing"]
+            if m["what"] == "cc_transcript"] == ["absent"]
+
+
+def test_fetch_failed_is_called_out_at_the_end_like_the_other_collector_faults():
+    lines = _summary(*["fetch_failed"] * 127)
+
+    assert "fetch_failed 127" in lines
+    assert "!!" in lines
+    assert "may well EXIST" in lines
+
+
 def test_the_contract_does_not_tell_the_next_implementer_to_concatenate():
     """The `Sources` docstring is what a second implementation is written from,
     and it carried "an implementation should concatenate them in turn order" as a
