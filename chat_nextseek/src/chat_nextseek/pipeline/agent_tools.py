@@ -361,6 +361,17 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
 
     seen_sources = {leaf.get("source_uid") for leaf in leaves}
     orphans = [u for u in source_uids if u not in seen_sources]
+    accepted_types = _accepted_types_for(pipeline_key)
+    # A zero-leaf resolution is almost always a type mismatch, and the agent cannot
+    # see which types this pipeline filters on. Say so, or it retries the same UIDs.
+    no_leaf_hint = ""
+    if not table:
+        no_leaf_hint = (
+            f"No {'/'.join(accepted_types) or 'matching'} samples were found under those UIDs. "
+            f"{pipeline_key} builds its rows from {'/'.join(accepted_types) or 'archive accessions'}. "
+            "If the user named samples of a different type, the ones you need may be their "
+            "children (or parents) in the lineage — resolve those instead of retrying these."
+        )
 
     prev = state.get("resolved") or {"uids": [], "accessions": []}
     state["resolved"] = {
@@ -382,8 +393,10 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
         "kind": kind,
         "leaf_count": len(table),
         "leaves": table,
+        "accepted_leaf_sample_types": accepted_types,
         "grouping_fields": grouping_fields,
         "source_uids_with_no_leaves": orphans,
+        **({"no_leaf_hint": no_leaf_hint} if no_leaf_hint else {}),
         "detected_species": detected_species,
         "bundle_key": bundle_key,
         "param_menu": ctx.get("params", {}),

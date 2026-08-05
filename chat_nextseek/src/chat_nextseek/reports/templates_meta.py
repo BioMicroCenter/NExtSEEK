@@ -89,6 +89,9 @@ def normalize_report_type(report_type: str | None) -> str | None:
         "NFCORE_SEQINSPECTOR": "NFCORE_SEQINSPECTOR",
         "NFCORE_SEQINSPECTOR_SAMPLESHEET": "NFCORE_SEQINSPECTOR",
         "NF_CORE_SEQINSPECTOR": "NFCORE_SEQINSPECTOR",
+        "NFCORE_BAMTOFASTQ": "NFCORE_BAMTOFASTQ",
+        "NFCORE_BAMTOFASTQ_SAMPLESHEET": "NFCORE_BAMTOFASTQ",
+        "NF_CORE_BAMTOFASTQ": "NFCORE_BAMTOFASTQ",
     }
     return alias_map.get(cleaned, cleaned)
 

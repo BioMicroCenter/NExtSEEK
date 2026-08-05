@@ -29,6 +29,10 @@ PIPELINE_COLUMN_ALIASES: dict[str, dict[str, str]] = {
     # mag names the short-read columns short_reads_1/2 and additionally requires a
     # `group` column (co-assembly grouping), which the row builder supplies.
     "mag": {"fastq_1": "short_reads_1", "fastq_2": "short_reads_2"},
+    # bamtofastq consumes alignments, so it has no fastq columns at all: sample_id,
+    # mapped, index, file_type. Only the sample rename is an alias — mapped/index/
+    # file_type are synthesised by the bam branch below, already correctly named.
+    "bamtofastq": {"sample": "sample_id"},
 }
 
 
@@ -255,6 +259,50 @@ def _fastq_from_meta(meta: Mapping[str, Any], read_hint: str) -> str:
     pool = by_name or by_file            # trust the field name first, else the filename marker
     local = [c for c in pool if c.startswith("/")]
     return (local or pool or [""])[0]
+
+
+_ALIGNMENT_EXTS = (".bam", ".cram")
+# Checksum fields pack the same basename as the data field, so a field-name check is
+# not enough on its own; these are the names that are never a usable file path.
+_NON_PATH_NAME_HINTS = ("checksum", "md5", "sha")
+
+
+def _paths_with_ext(meta: Mapping[str, Any], exts: tuple[str, ...]) -> list[str]:
+    """Every value in the metadata that looks like a path to a file with one of `exts`.
+
+    Same value-driven approach as ``_fastq_from_meta``: scan every field for a VALUE
+    that is a path (has a '/') ending in a wanted extension, rather than trusting a
+    field name. Skips checksum-ish fields, which carry the same basename. Local
+    absolute paths sort ahead of remote URLs — the run happens on Luria.
+    """
+    found: list[str] = []
+    for key, val in (meta or {}).items():
+        if any(h in str(key).lower() for h in _NON_PATH_NAME_HINTS):
+            continue
+        for part in str(val or "").split(";"):
+            p = part.strip()
+            if "/" in p and p.lower().endswith(exts):
+                found.append(p)
+    return sorted(found, key=lambda p: 0 if p.startswith("/") else 1)
+
+
+def _alignment_from_meta(meta: Mapping[str, Any]) -> tuple[str, str, str]:
+    """Return (mapped_path, file_type, index_path) for an alignment sample.
+
+    `file_type` is derived from the extension of the path we found, never guessed —
+    bamtofastq's schema enums it to bam|cram and mis-declaring it fails the run. All
+    three are '' when the metadata carries no usable alignment path, which is the
+    common case for archive-hosted records whose File_PrimaryData is a bare basename
+    (e.g. '8205.1.consensus.bam'); the row is still emitted so the gap is visible in
+    the samplesheet rather than silently dropped.
+    """
+    mapped = next(iter(_paths_with_ext(meta, _ALIGNMENT_EXTS)), "")
+    if not mapped:
+        return "", "", ""
+    file_type = "cram" if mapped.lower().endswith(".cram") else "bam"
+    wanted_index = (".crai",) if file_type == "cram" else (".bai",)
+    index = next(iter(_paths_with_ext(meta, wanted_index)), "")
+    return mapped, file_type, index
 
 
 def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequence[str]) -> None:
@@ -580,6 +628,10 @@ def emit_nfcore_artifacts(
     entry = get_pipeline_entry(pipeline)
     required = entry.get("required_columns") or []
     enrichment = list(enrichment_fields or [])
+    # "bam" pipelines (bamtofastq) take alignments, not reads: different columns,
+    # a different resolver, and no ENA/fetchngs fallback — you cannot download a
+    # FASTQ to stand in for the BAM you were asked to convert.
+    is_alignment_input = entry.get("samplesheet_input_kind") == "bam"
 
     # Build a deterministic accession → ENA URL map. Run accessions are 1:1.
     # For experiment/study/biosample/biosample-prefixed accessions that resolve
@@ -608,6 +660,24 @@ def emit_nfcore_artifacts(
         # Curated local fastq metadata: keyed by leaf UID (path-only samples) or accession.
         sample_meta = (accession_metadata.get(uid)
                        or (accession_metadata.get(acc_str) if acc_str else None) or {})
+        if is_alignment_input:
+            # No ENA fan-out and no fetch fallback: the input IS the alignment. An
+            # accession here identifies the archived run, not a substitute for the BAM.
+            rewritten = dict(row)
+            rewritten.pop("fastq_1", None)
+            rewritten.pop("fastq_2", None)
+            mapped, file_type, index = _alignment_from_meta(sample_meta)
+            # Never overwrite a path the agent supplied explicitly (e.g. a Luria path
+            # the user gave for a BAM that predates registration) with a resolver miss.
+            rewritten["mapped"] = str(rewritten.get("mapped") or "") or mapped
+            rewritten["file_type"] = str(rewritten.get("file_type") or "") or file_type
+            if index or rewritten.get("index"):
+                rewritten["index"] = str(rewritten.get("index") or "") or index
+            for field in enrichment:
+                value = sample_meta.get(field)
+                rewritten[field] = "" if value is None else value
+            keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
+            continue
         runs = acc_to_runs.get(acc_str) if acc_str else None
         if runs:
             # Legacy ENA fan-out — dormant on the Luria path (resolutions=[] -> acc_to_runs empty),

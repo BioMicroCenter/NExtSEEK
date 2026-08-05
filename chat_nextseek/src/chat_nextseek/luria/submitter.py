@@ -143,7 +143,13 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     # and -c luria.config (genomes map for --genome identity + a per-protocol SIMPLEAF_QUANT
     # --knee block for scrnaseq bead protocols). Stage run.sh + luria.config + params.yml + sheet.
     refs_root = f"{working}/refs"
-    needs_fetch = _sheet_needs_fetch(local_sheet)
+    pipeline_key = str(pipeline or "").rsplit("/", 1)[-1].lower()
+    catalog_entry = NFCORE_PIPELINE_CATALOG.get(pipeline_key, {})
+    # The fetchngs pre-stage only makes sense for a pipeline that eats FASTQ. A
+    # bam-input sheet has no fastq_1 column at all, so the blank-fastq heuristic would
+    # fire on every row and download reads the run has no column to put them in.
+    needs_fetch = (catalog_entry.get("samplesheet_input_kind", "fastq") == "fastq"
+                   and _sheet_needs_fetch(local_sheet))
     fastq_cache = f"{working}/fastq_cache"
     fetchngs_rev = NFCORE_PIPELINE_CATALOG.get("fetchngs", {}).get("default_revision", "1.12.0")
     tmp_files: list[str] = []
@@ -151,8 +157,7 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
         # Which of --genome/--fasta/--gtf this pipeline's schema declares. nf-schema
         # aborts on an unrecognised param, so an unconditional --gtf kills methylseq /
         # sarek / seqinspector, and ampliseq declares none of the three.
-        pipeline_key = str(pipeline or "").rsplit("/", 1)[-1].lower()
-        ref_flags = NFCORE_PIPELINE_CATALOG.get(pipeline_key, {}).get("reference_cli_flags")
+        ref_flags = catalog_entry.get("reference_cli_flags")
         run_sh = render_run_script(
             job_name=safe, pipeline=pipeline, revision=revision, run_dir=remote_run_dir,
             work_dir=work_dir, singularity_cache=cache_dir, genome=run_genome, resources=resources,

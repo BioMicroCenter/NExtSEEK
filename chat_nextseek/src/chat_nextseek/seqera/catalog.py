@@ -361,6 +361,33 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
             "databases that are not provisioned on Luria."
         ),
     },
+    "bamtofastq": {
+        "repo": "https://github.com/nf-core/bamtofastq",
+        "default_revision": "2.2.1",
+        "description": "Convert aligned BAM/CRAM back to FASTQ, with QC on the extracted reads.",
+        "common_assays": ["alignment", "BAM", "CRAM", "aligned reads", "realignment"],
+        # The FIRST catalog entry whose cohort leaves are ANALYSIS records, not raw data:
+        # a BAM is something a previous run produced, so its NExtSEEK home is A.ALN. This
+        # is the pattern differentialabundance needs — a registered output feeding a run.
+        "accepted_leaf_sample_types": ["A.ALN"],
+        "samplesheet_input_kind": "bam",
+        # Only needed to decode a CRAM (which carries no sequence of its own). A BAM
+        # cohort runs with no reference at all; every A.ALN we hold is DataType BAM.
+        "default_genome": None,
+        # 2.2.1 declares genome/fasta/fasta_fai — and NO gtf.
+        "reference_cli_flags": ["genome", "fasta"],
+        # Post-alias names: the emitter renames sample -> sample_id for this pipeline.
+        # `index` is optional per assets/schema_input.json and is emitted only when the
+        # sample's metadata actually carries a .bai/.crai.
+        "required_columns": ["sample_id", "mapped", "file_type"],
+        "accepted_assay_patterns": [],
+        "pipeline_kind_description": (
+            "Convert aligned BAM/CRAM back to FASTQ. Its inputs are A.ALN alignment "
+            "records, NOT D.SEQ raw data — resolve the cohort to the alignments, not to "
+            "the reads they came from. A CRAM cohort additionally needs the reference "
+            "the CRAM was compressed against; a BAM cohort needs no reference."
+        ),
+    },
     "seqinspector": {
         "repo": "https://github.com/nf-core/seqinspector",
         "default_revision": "1.1.0",
@@ -405,11 +432,20 @@ def get_pipeline_entry(pipeline: str) -> dict[str, Any]:
 
 
 def catalog_for_prompt() -> str:
-    """Compact JSON-ish text snippet for inclusion in LLM prompts."""
+    """Compact JSON-ish text snippet for inclusion in LLM prompts.
+
+    Each line carries the sample types the pipeline's cohort resolves to. Almost
+    every entry is D.SEQ, which is why it was safe to leave implicit — until
+    bamtofastq, whose leaves are A.ALN alignment records. Without this the agent
+    would resolve a D.SEQ cohort, get zero leaves back, and have no way to tell
+    why.
+    """
     lines = []
     for key, entry in NFCORE_PIPELINE_CATALOG.items():
+        leaves = entry.get("accepted_leaf_sample_types") or []
+        inputs = f"input samples: {', '.join(leaves)}" if leaves else "input: raw archive accessions"
         lines.append(
             f"- {key}: {entry['description']} "
-            f"(common assays: {', '.join(entry.get('common_assays') or []) or 'n/a'})"
+            f"({inputs}; common assays: {', '.join(entry.get('common_assays') or []) or 'n/a'})"
         )
     return "\n".join(lines)

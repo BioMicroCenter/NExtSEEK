@@ -229,13 +229,17 @@ def build_metadata_summary(metadata_map: dict | None) -> dict[str, Any]:
     }
 
 
-_SEQUENCING_SAMPLE_TYPE_HINTS = ("D.SEQ", "D.SEQUENCING", "SEQ")
+# A.ALN is here because bamtofastq resolves cohorts to alignment records rather than
+# raw reads. Without it, an A.ALN cohort gets filtered out of the summary entirely and
+# the pipeline agent is offered no grouping fields for the very samples it is building
+# rows from. It is a sequencing artifact, so it belongs on the same lineage branch.
+_SEQUENCING_SAMPLE_TYPE_HINTS = ("D.SEQ", "D.SEQUENCING", "SEQ", "A.ALN")
 
 
 def _is_sequencing_type(sample_type: str) -> bool:
     """Heuristic: which NExtSEEK sample types represent SEQUENCING data
-    (where LibraryStrategy / accessions live)? Currently D.SEQ. Extend the
-    hint list if other sequencing data types appear."""
+    (where LibraryStrategy / accessions live)? D.SEQ raw reads plus A.ALN
+    alignments. Extend the hint list if other sequencing data types appear."""
     if not isinstance(sample_type, str):
         return False
     st = sample_type.upper()
