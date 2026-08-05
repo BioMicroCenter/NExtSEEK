@@ -4,395 +4,540 @@ editor_options:
     wrap: 72
 ---
 
-# What else could Nessie run? — nf-core capability review
+# What analyses can Nessie run? — in plain English
+
+*What Nessie can and can't launch for you, what we added, and the
+uncomfortable thing we found while checking. No bioinformatics
+background assumed. About a 15-minute read.*
 
 **Branch:** `dev-v3-merge` · **Started** 2026-08-04 · **Last revised**
 2026-08-05
 
-Began as "what else could Nessie run?". Answering it surfaced a launch
-bug that had made three of the eight existing pipelines unrunnable, so
-the survey and the fixes are recorded together.
+------------------------------------------------------------------------
 
-|                                     | Started |    Now |
-|-------------------------------------|--------:|-------:|
-| Pipelines catalogued                |       8 | **31** |
-| Generating a valid launch command   |       5 | **31** |
-| …that we hold identifiable data for |       5 | **13** |
-| Verified end-to-end on Luria        |       2 |  **2** |
+## 1. The short version
 
-**Data source:** direct query against `seek_production` (51,359 samples,
-104 sample types).
+Nessie can start standard analyses for you on the lab's computing
+cluster. It knows a fixed list of them. This document is about how long
+that list is, how we decided what goes on it, and which entries actually
+work.
 
-## The rule for adding a pipeline
+Three things happened:
+
+1.  We found a bug that had quietly stopped three analyses from running
+    at all — for months. Fixed.
+2.  We grew the list from 8 analyses to 31.
+3.  We checked, for the first time, whether NExtSEEK actually **holds
+    the kind of data each analysis needs**. It mostly doesn't. That is
+    the finding worth your attention, and it applies to analyses that
+    were on the list long before this work started.
+
+|                                             | Before |    Now |
+|---------------------------------------------|-------:|-------:|
+| Analyses Nessie knows about                 |      8 | **31** |
+| …that produce a valid launch command        |      5 | **31** |
+| …that we hold matching data for             |      5 | **13** |
+| …proven to run to completion on the cluster |      2 |  **2** |
+
+Read the last two rows together. Having an analysis on the list is not
+the same as being able to run it, and being able to run it is not the
+same as having run it.
+
+------------------------------------------------------------------------
+
+## 2. Vocabulary
+
+Five terms do most of the work in this document.
+
+| Term | What it means here |
+|-------------|-----------------------------------------------------------|
+| **nf-core** | A public, community-maintained library of standard analysis recipes. Free, widely used, and the source of everything discussed here. |
+| **Pipeline** | One such recipe — "turn RNA sequencing files into gene counts", say. There are 137 of them. |
+| **Samplesheet** | The list you hand a pipeline: one row per sample, saying where its files live. Getting this right is most of Nessie's job. |
+| **Schema** | A machine-readable spec each pipeline publishes, saying exactly which columns and settings it demands. This turns out to matter enormously — see section 8. |
+| **Luria** | The shared computing cluster at MIT where the analyses actually run. |
+
+Two more you'll meet in the tables: **`D.SEQ`** is NExtSEEK's code for
+raw sequencing data, and **`A.ALN`** is its code for an alignment — a
+processed file produced *from* raw data.
+
+------------------------------------------------------------------------
+
+## 3. The rule we now follow
+
+When we find a pipeline we could support, but nobody at MIT currently
+has the kind of data it needs — do we add it?
+
+**Yes.** In the project owner's words:
 
 > "Keep flagging in the table if no data exists to test, but it's okay
 > if there isn't. The goal is to add functions in hopes that users with
-> that data will use NExtSEEK." — project owner, 2026-08-05
+> that data will use NExtSEEK."
 
-**No matching data is a label on the row, not a reason to skip.** That
-is an adoption argument: a lab arriving with PacBio reads or bacterial
-isolates should find the capability present, not be told it could be
-added. A catalog entry costs ~half a day and no runtime.
+This is an argument about **attracting users**, not about serving
+current ones. A lab that arrives with long-read sequencing data should
+find that Nessie already handles it, rather than being told it could be
+added in a fortnight. Each entry costs about half a day to write and
+nothing at all to keep — it just sits in a list until someone needs it.
 
-The bar is therefore: **config-only against its pinned schemas, and an
-input shape our machinery can produce.** Rejections are for shapes we
-cannot build — a second samplesheet, a glob instead of a cohort, an
-experimental design nobody can infer.
+So the test for adding a pipeline is now:
 
-## Two rules learned the hard way
+-   **Can we build its samplesheet from what we know?** and
+-   **Does it need any setting we can't supply or ask for?**
 
-1.  **The pinned schemas are the authority.** Fetch both
-    `assets/schema_input.json` (required columns, enums) and
-    `nextflow_schema.json` (required params; which of
-    `genome`/`fasta`/`gtf` are declared) at the tag. Deriving
-    requirements from `assets/samplesheet.csv` was wrong 6 times out of
-    22; deriving them from the repo description overstated the
-    config-only count roughly fourfold.
-2.  **"Config-only by schema" is a floor, not a ceiling.** A
-    schema-*optional* param can still be functionally required and
-    silently wrong if unset — `viralrecon`'s `platform`/`protocol`,
-    `metatdenovo`'s `orf_caller`. An ORF caller that assumes no introns
-    will happily call genes in a eukaryotic transcriptome.
+Whether anyone currently has the data is recorded honestly in the status
+table (section 6) and nowhere else. Ten of the 31 entries were added
+under this rule.
+
+What still gets turned down is a pipeline whose **input we can't
+assemble at all** — one that wants two separate spreadsheets, or a whole
+folder rather than a list of samples, or an experimental design that
+nobody can work out from the files. Section 9 lists those.
 
 ------------------------------------------------------------------------
 
-## What's actually in NExtSEEK
+## 4. Two lessons that cost us real time
 
-| Modality | Samples | Types |
-|---------------------------|-----------:|-------------------------------|
-| **Imaging** | **13,680** | `D.IMG` 13,386 · `A.IMG` 278 · `D.MSI` 16 |
-| **Flow / mass cytometry** | **6,028** | `D.FLOW` 5,210 · `D.FCS` 752 · `A.FLOW` 35 · `D.CYTOF` 30 |
-| **Sequencing** | **2,273** | `D.SEQ` 2,057 · analyses 216 |
-| **Mass spec proteomics** | **416** | `D.MSP` 208 · `A.MSP` 145 · `A.MUSP` 46 · `D.MSI` 16 |
-| **NMR** | **75** | `D.NMR` 54 · `A.NMR` 21 |
+**Lesson one: read the spec, not the example.**
 
-Whole-database split: biological material 27,690 (53.9%) · `D.*` raw
-data 22,779 (44.4%) · **`A.*` analysis results 890 (1.7%)**.
+Every pipeline ships a machine-readable schema saying what it needs. It
+usually also ships an example samplesheet. The first pass through this
+work read the examples and assumed every column in them was required.
 
-### What the sequencing actually is
+That was wrong six times out of twenty-two. Three pipelines were
+rejected as too hard when they were actually straightforward. A separate
+pass that judged pipelines by their one-line GitHub description
+overestimated how many were easy by roughly **four times**.
 
-`LibraryStrategy` on `D.SEQ` sums to exactly 2,057, so the field is
-complete and authoritative:
+The rule now: fetch both schema files at the exact version we intend to
+run, and believe those. Nothing else.
 
-| `LibraryStrategy` | Samples | Covered by |
+**Lesson two: "the spec says it's optional" doesn't mean you can skip
+it.**
+
+Some settings are technically optional but produce silently wrong
+results if left unset. `metatdenovo` has a setting for which gene-finder
+to use; the bacterial one assumes genes have no introns. Point it at a
+plant or animal sample and it will not complain — it will just find the
+wrong genes. Same story with `viralrecon`, which needs to be told the
+sequencing platform and the lab protocol.
+
+So for eight pipelines Nessie now **refuses to build the run** until
+someone answers those questions. More on that in section 7.
+
+------------------------------------------------------------------------
+
+## 5. What NExtSEEK actually holds
+
+This is the section that changed the conclusions.
+
+| Kind of data | Samples |
+|-------------------------------|-----------:|
+| **Imaging** | **13,680** |
+| **Flow / mass cytometry** | **6,028** |
+| **Sequencing** | **2,273** |
+| **Mass spec proteomics** | **416** |
+| **NMR** | **75** |
+
+Of the 51,359 samples in total, just over half are biological material
+(tissue, mice, cell lines), 44% are raw data files, and **only 1.7% —
+890 samples — are analysis results.** Hold on to that number; section 10
+comes back to it.
+
+### The sequencing data, broken down
+
+Almost everything Nessie can launch operates on sequencing data, so what
+that 2,273 consists of decides what's useful. The field recording the
+library type covers every one of the 2,057 raw sequencing samples, so
+this list is complete rather than a sample:
+
+| Library type | Samples | Handled by |
 |-------------------------|----------:|--------------------------|
-| Amplicon (2 spellings) | **1,179** | `ampliseq`, `crisprseq` |
-| RNA-seq (3 spellings) | **507** | `rnaseq`, `rnavar` |
-| WGS | 188 | `sarek` |
-| scRNA-seq | 102 | `scrnaseq` |
+| Amplicon | **1,179** | `ampliseq`, `crisprseq` |
+| RNA-seq | **507** | `rnaseq`, `rnavar` |
+| Whole genome (WGS) | 188 | `sarek` |
+| Single-cell RNA-seq | 102 | `scrnaseq` |
 | Targeted Capture | 69 | `sarek`, `hlatyping` |
 | Hi-C | 12 | `hic` |
 
-A keyword sweep of the full metadata confirms what is **absent**: ATAC
-0, ChIP 0, methylation/bisulfite/WGBS/RRBS 0, small-RNA/miRNA 0,
-Ribo-seq 0, metagenomic 0, CRISPR 0, and **zero long-read samples of any
-platform** (every `Sequencer` is Illumina, plus 26 Singular G4). Also: 19
-viral mentions in the whole 51,359, and the 1,402 `BAC` samples have **no
-`D.SEQ` children** — the 3,975 mycobacterium/TB mentions sit on host
-samples (`MUS` 626, `PAV` 254, `PAT` 89, `NHP` 57), i.e. infected
-animals, not sequenced isolates.
+### And now the awkward part
 
-### Two hard negatives on the largest data classes
+We searched all the sample records for every other kind of sequencing.
+Here is what came back:
 
--   **Imaging (13,680) — wrong shape.** Sampled `D.IMG` metadata is
-    conventional fluorescence microscopy: single `.tif` from Keyence
-    BZ-X700 / Zeiss LSM 880, DAPI/EdU, hosted in OMERO, often tagged
-    `"Type": "Representative"`. `mcmicro` wants multi-cycle
-    whole-slide OME-TIFF plus a markersheet; `molkart`, `spatialvi` and
-    `imcyto` want other instruments entirely. Revisit only if a
-    multiplexed whole-slide subset exists that I did not find.
--   **Flow cytometry (6,028) — no nf-core path exists at all.**
-    `imcyto` is *imaging* mass cytometry, not FCS. Serving these is an
-    R-ecosystem conversation.
+> ATAC **0** · ChIP **0** · methylation/bisulfite **0** · small-RNA or
+> miRNA **0** · Ribo-seq **0** · metagenomics **0** · CRISPR **0**
+>
+> **Long-read sequencing of any kind: 0.** Every sequencing machine on
+> record is an Illumina (plus 26 Singular G4 — also short-read).
+
+That matters because **seven analyses had been on Nessie's list for a
+long time with nothing to run them on**: `atacseq`, `chipseq`,
+`methylseq`, `smrnaseq`, `riboseq`, `crisprseq` and `mag`. Nobody had
+checked. `methylseq` was even carrying a note saying "retest this after
+the bug fix" — a retest that was never possible, because there has never
+been a methylation experiment in the database.
+
+Two more things we looked for and didn't find:
+
+-   **Viruses.** 19 mentions of virus, viral, SARS, COVID or influenza
+    across all 51,359 samples. None is a sequencing experiment.
+-   **Bacterial isolates.** There are 1,402 bacteria samples, but not
+    one of them has sequencing data attached. There *are* 3,975 mentions
+    of tuberculosis — but they're on the **host** samples (mice, animals
+    and patients that were infected), not on sequenced bacteria. The TB
+    work here studies how the host responds, not the pathogen's genome.
+
+### Two dead ends on our biggest data types
+
+**Imaging is our largest data class and the worst fit.** The images are
+ordinary fluorescence microscopy — single `.tif` files from a Keyence or
+Zeiss microscope, DAPI stains, stored in OMERO, often labelled
+"Representative". The nf-core imaging pipelines want something else
+entirely: multi-round, multi-channel whole-slide scans. Worth revisiting
+only if a set of those exists that we didn't find.
+
+**Flow cytometry is our second largest, and nf-core has nothing for it.**
+Not "nothing suitable" — nothing at all. The one that sounds close,
+`imcyto`, is for imaging mass cytometry, a different instrument. Serving
+those 6,028 samples would mean stepping outside nf-core into the R
+ecosystem, which is a separate decision.
 
 ------------------------------------------------------------------------
 
-## Luria verification status — **maintain this table**
+## 6. Status of every analysis — **keep this table current**
 
-Catalogued is not the same as working. Everything below passes unit
-tests proving the generated `run.sh` is well-formed for that pipeline's
-declared schema; that is **not** the same as Nextflow accepting it, or
-the run completing. Three pipelines sat catalogued-but-unlaunchable for
-months because nobody tracked the distinction.
+This is the most useful table in the document, and the one most likely
+to go stale.
 
-**Three states.** ✅ a real run completed · ❌ could be run, hasn't been
-· ⛔ **no identifiable data of that kind exists**, so there is nothing to
-run and no test to schedule. Update this table whenever a pipeline is
-launched, and record the run directory — it is the evidence.
+Every entry below passes automated tests proving Nessie builds a
+correctly-formed command for it. **That is not the same as the pipeline
+accepting that command, and neither is the same as the analysis
+finishing.** Three pipelines sat broken for months precisely because
+nobody tracked the difference.
 
-18 of the 31 are ⛔. Ten were added deliberately under the adoption rule;
-**seven predate this document** (`atacseq`, `chipseq`, `methylseq`,
-`smrnaseq`, `riboseq`, `crisprseq`, `mag`) and were assumed testable
-until this was measured.
+**The three states:**
+
+-   ✅ — someone ran it, it finished. Two of 31.
+-   ❌ — we could run it; nobody has yet. Ten of 31.
+-   ⛔ — **we hold no data of that kind**, so there is nothing to run and
+    no test to schedule. Eighteen of 31.
+
+The eighteen ⛔ entries break down as ten added deliberately under the
+rule in section 3, and seven that predate this work and were quietly
+assumed to be working, plus `nanoseq`.
+
+**When you launch something, update its row and record the run
+directory** — that's the evidence.
 
 | Pipeline | Status | Evidence / what to do |
 |---|---|---|
 | `rnaseq` | ✅ verified | Real run `nfcore_rnaseq_260723_205359_0` |
-| `scrnaseq` | ✅ verified | Real run `nfcore_gideon-4wk_260711_024438_0`; only pipeline with a Luria provisioning script |
-| `fetchngs` | 🟡 partial | Exercised as a pre-stage inside other runs; never launched standalone |
-| `atacseq` | ⛔ no data | 0 `D.SEQ` mention ATAC |
+| `scrnaseq` | ✅ verified | Real run `nfcore_gideon-4wk_260711_024438_0`; only one with a Luria setup script |
+| `fetchngs` | 🟡 partial | Used as a preparatory step inside other runs; never launched on its own |
+| `atacseq` | ⛔ no data | 0 samples mention ATAC |
 | `chipseq` | ⛔ no data | 0 mention ChIP |
-| `methylseq` | ⛔ no data | 0 mention methylation/bisulfite/WGBS/RRBS. Its `--gtf` fault was real and fixed; the retest it called for was never possible |
-| `sarek` | ❌ untested | Was sending `--gtf`, which it rejects; fixed 2026-08-04. First run since is the real test |
-| `ampliseq` | ❌ **never worked** | Was sent all three reference flags and declares none. **Best-represented library type we hold** (1,179 amplicon). A first successful run is the proof |
-| `seqinspector` | ❌ untested | Reference-free; cheapest end-to-end proof of the launch path |
-| `hlatyping` | ❌ untested | Carries its own reference |
-| `smrnaseq` | ⛔ no data | 0 mention small-RNA/miRNA. Confirm `mirtrace_species` elicitation if data arrives |
-| `riboseq` | ⛔ no data | 0 mention Ribo-seq. Confirm the `type` column is asked for, not defaulted |
-| `hic` | ❌ untested | First run per genome pays a bowtie2 index build |
-| `rnavar` | ❌ untested | Confirm BQSR is genuinely skipped |
-| `crisprseq` | ⛔ no identifiable data | 0 mention CRISPR; the 1,179 amplicon libraries are labelled "DNA barcoding". **Ask a curator.** Elicitation itself is verified working in the container |
-| `nanoseq` | ⛔ no data | 0 long-read samples, any platform |
-| `mag` | ⛔ no data | 0 mention metagenomics. `short_reads_1/2` rename is unit-tested |
-| `bamtofastq` | ❌ blocked on data | Verified end-to-end against the real 32 `A.ALN` rows, but all are archive-only — **no BAM has a cluster path** |
-| `bacass` | ⛔ no data | No isolate sequencing: `BAC` has no `D.SEQ` children |
-| `bactmap` | ⛔ no data | Same. Confirm `reference` elicitation when data arrives |
-| `pacvar` | ⛔ no data | No long-read data. Confirm the BAM is instrument output, never an aligner's |
-| `viralrecon` | ⛔ no data | 19 viral mentions in 51,359 samples. Confirm `platform`+`protocol` elicit before `primer_set` |
+| `methylseq` | ⛔ no data | 0 mention methylation or bisulfite. Its bug was real and is fixed; the retest it asked for was never possible |
+| `sarek` | ❌ untested | Was sending a setting it rejects; fixed 2026-08-04. First run since is the real test |
+| `ampliseq` | ❌ **never worked** | Was sent three settings it doesn't accept. **Covers our largest library type** (1,179 amplicon samples). A first successful run is the proof |
+| `seqinspector` | ❌ untested | Needs no reference genome; cheapest way to prove the launch path works |
+| `hlatyping` | ❌ untested | Brings its own reference data |
+| `smrnaseq` | ⛔ no data | 0 mention small-RNA or miRNA |
+| `riboseq` | ⛔ no data | 0 mention Ribo-seq. Check it asks for the library type rather than assuming |
+| `hic` | ❌ untested | First run per genome pays for a slow index build |
+| `rnavar` | ❌ untested | Confirm the recalibration step is genuinely skipped |
+| `crisprseq` | ⛔ no identifiable data | 0 mention CRISPR, though the 1,179 amplicon samples are only labelled "DNA barcoding". **Worth asking a curator.** The question-asking itself is confirmed working |
+| `nanoseq` | ⛔ no data | 0 long-read samples of any kind |
+| `mag` | ⛔ no data | 0 mention metagenomics |
+| `bamtofastq` | ❌ blocked on data | Tested end-to-end against the real 32 alignment records — but all of them point at an archive URL, **not a file on the cluster** |
+| `bacass` | ⛔ no data | No bacterial isolate sequencing exists |
+| `bactmap` | ⛔ no data | Same. Check it asks for the reference genome when data arrives |
+| `pacvar` | ⛔ no data | No long-read data. Confirm the file is instrument output, not an alignment |
+| `viralrecon` | ⛔ no data | 19 viral mentions in 51,359 samples. Check it asks for platform and protocol first |
 | `viralmetagenome` | ⛔ no data | Same |
-| `viralintegration` | ⛔ no data | Same. Pinned at 0.1.1, the only release |
-| `magmap` | ⛔ no data | No metagenomic cohorts. Confirm `genomeinfo` elicitation |
-| `metatdenovo` | ⛔ no data | Same. Confirm `orf_caller` elicitation — the prokaryote/eukaryote choice is silent if wrong |
-| `denovotranscript` | ❌ untested | Data exists (507 RNA-seq) but all our organisms have references, so `rnaseq` usually wins |
-| `detaxizer` | ❌ untested | Runnable on anything. No reference, no elicitation, 2,057 candidates — **best first real test** |
-| `fastqrepair` | ❌ untested | Runnable on anything, but a remedy: use it when a run fails on unreadable input |
-| `genomeassembler` | ⛔ no data | No long-read data. Confirm the platform-derived read column picks `ontreads`/`hifireads`, and that Illumina lands in neither |
-| `pathogensurveillance` | ⛔ no data | No isolate sequencing. Confirm `sequence_type` is stamped and `report_group_ids` carries a real grouping |
+| `viralintegration` | ⛔ no data | Same. Pinned to version 0.1.1 — the only release that exists |
+| `magmap` | ⛔ no data | No metagenomic samples. Check it asks which genome collection to use |
+| `metatdenovo` | ⛔ no data | Same. Check it asks which gene-finder — the wrong one fails silently |
+| `denovotranscript` | ❌ untested | Data exists (507 RNA-seq) but all our organisms have reference genomes, so `rnaseq` is usually the better answer |
+| `detaxizer` | ❌ untested | Works on anything. No reference, no questions, 2,057 candidates — **best first real test** |
+| `fastqrepair` | ❌ untested | Works on anything, but it's a repair tool: use it when a run fails on unreadable files |
+| `genomeassembler` | ⛔ no data | No long-read data. Check it picks the right column per machine type, and that Illumina data lands in neither |
+| `pathogensurveillance` | ⛔ no data | No isolate sequencing. Check the grouping column reflects a real distinction |
 
-**Suggested order.** `detaxizer` first — reference-free, no elicitation,
-and it applies to any of the 2,057 samples. Then `ampliseq`, which
-exercises the empty-reference-flag case, covers our largest library type
-and has never once run. Then `crisprseq` to prove the elicitation loop
-end to end. The index-building ones (`hic`, `rnavar`) last, since a slow
-build makes failure expensive to diagnose.
+**Where to start.** `detaxizer` — it needs no reference genome, asks no
+questions, and applies to any of the 2,057 samples. Then `ampliseq`,
+which covers our biggest library type and has literally never run
+successfully. Then `crisprseq`, to prove the question-asking works from
+end to end. Leave `hic` and `rnavar` for last, since they build a large
+index first and a failure takes hours to surface.
 
-**"Verified" means** Nextflow accepted the parameters and the run
-reached completion — not that `sbatch` returned a job id.
-
-------------------------------------------------------------------------
-
-## The four mechanisms built
-
-1.  **Reference flags gated on each pipeline's own schema.** A catalog
-    field declares which of `genome`/`fasta`/`gtf` that revision
-    accepts; nothing else is emitted. nf-schema aborts a run on an
-    unrecognised param, which is what had silently broken `methylseq`,
-    `sarek` and `ampliseq`.
-2.  **`required_user_params` — the wizard can ask.** A template declares
-    values nobody can derive, with a definition, a worked example and a
-    validation pattern; `configure_run` refuses to build a run until
-    they are answered. Enforced in code, not the prompt, because the
-    failure is silent: a wrong CRISPR guide reports a wrong editing
-    efficiency rather than erroring. Used by `crisprseq`, `smrnaseq`,
-    `hic`, `nanoseq`, `bactmap`, `viralrecon`, `magmap`, `metatdenovo`.
-3.  **Cohorts can resolve to `A.*` analysis records.** `bamtofastq`
-    resolves to `A.ALN` and the emitter finds a BAM/CRAM, so registered
-    NExtSEEK outputs are now a legal pipeline *input* — the capability
-    `differentialabundance` needs.
-4.  **A column can be chosen, or filled, from the sequencing platform**
-    in the sample's own metadata, per row. `genomeassembler` names its
-    read column `ontreads` or `hifireads`; `pathogensurveillance` wants
-    the platform as a value in `sequence_type`. Neither could come from
-    the static alias map, and neither could be elicited —
-    `write_samplesheet` runs *before* `configure_run`. Reading metadata
-    is earlier, needs no question, and handles a mixed-platform cohort
-    that a single per-run answer could not express.
+**"Verified" should mean** the pipeline accepted the settings and the
+analysis finished — not merely that the cluster accepted the job.
 
 ------------------------------------------------------------------------
 
-## The schema census (2026-08-05)
+## 7. The four things we built
 
-Every pipeline in the `nf-core` org tagged `nf-core`+`pipeline`,
-non-archived and non-forked, with both schemas fetched at its latest
-release tag. Population: 138 — but `nf-core/tools` is the community's
-Python package, mis-tagged, so the real figure is **137**. Raw
-per-pipeline output is committed at
-`docs/nfcore-schema-census-2026-08-05.json`.
+**1. Only send settings the pipeline actually accepts.**
 
-| | Count |
-|--------------------------------------|------:|
-| Has a release (pinnable) | **96** |
-| **No release — nothing to pin** | **42** |
+This was the bug. Nessie was sending three reference-genome settings to
+every pipeline regardless of whether that pipeline understood them — and
+these tools abort immediately on an unrecognised setting. `methylseq`
+and `sarek` were being killed at the starting line, and `ampliseq` had
+**never once been able to run**. Now each entry records exactly which
+settings its version accepts, and nothing else goes out.
 
-Of the 96 pinnable:
+**2. Nessie can ask you for things it can't work out.**
 
-| Verdict | Count | Meaning |
-|-------------------|------:|-------------------------------------------|
-| **config-only** | **27** | No required param lacking a default; every required column is a sample id or a file we can resolve |
-| needs a decision | 53 | Non-derivable columns (27), explicit reference or index (14), other required params (8), a database we don't host (4) |
-| no input schema | 15 | Not machine-assessable — all read by hand, see below |
-| blocked on pairing | 1 | `cutandrun`: its required `control` column names another sample |
+Some values genuinely aren't in the database and can't be guessed — the
+guide sequence used in a CRISPR experiment, the enzyme used to prepare a
+Hi-C library, which sequencing platform a viral sample came from.
 
-The classifier put `bamtofastq`, `atacseq`, `hlatyping`, `crisprseq` and
-`nanoseq` in *needs a decision* rather than *config-only* — correct, and
-a good calibration check: those are exactly the ones that needed a
-resolver or an elicited value. **"Needs a decision" is not
-"impossible"**; it is the bucket mechanisms 2–4 exist to serve.
+Nessie now **refuses to build the run** until you answer, and gives you
+a plain-English definition and a worked example rather than a bare
+setting name. The refusal is enforced in code rather than by instructing
+the AI, deliberately: an instruction can be forgotten mid-conversation,
+and these failures are silent. A wrong CRISPR guide doesn't produce an
+error — it produces a confident, wrong efficiency number.
 
-### The 15 with no input schema, read by hand
+It also checks your answer: stray spaces, an RNA letter where DNA was
+wanted, a misspelled option. Eight pipelines use this.
 
-None is a candidate, but *why* is the useful part: **a missing
-`assets/schema_input.json` mostly means DSL1-era, not complicated.**
+**3. Results can now feed new analyses.**
 
-| Pipeline | Rev | What it takes | Verdict |
-|---------------|-------|--------------------------|---------------------|
-| `bactmap` | 1.0.0 | `sample,fastq_1,fastq_2` | **Shipped** — right shape, one elicitable param. Fails on data only |
-| `cageseq` | 1.0.2 | `--input '*_R1.fastq.gz'` glob | DSL1-era; no CAGE data |
-| `dualrnaseq` | 1.0.0 | glob + `--genome_host` **and** `--genome_pathogen` | Two genomes at once |
-| `eager` | 2.5.3 | glob | DSL1-era; ancient DNA |
-| `imcyto` | 1.0.0 | `--input "*.mcd"` + `--metadata` | DSL1-era, no `nextflow_schema.json` |
-| `mnaseseq` | 1.0.0 | design `group,replicate,fastq_1,fastq_2` | DSL1-era, no `nextflow_schema.json` |
-| `clipseq` | 1.0.0 | `sample,fastq`, single-end | Needs `--fasta` + `--smrna_fasta` |
-| `diaproteomics` | 1.2.4 | **three** sheets | Confirms Tier 2 |
-| `mcmicro` | 2.0.0 | `input_sample`/`input_cycle` + required `marker_sheet` | Confirms Tier 3 |
-| `pangenome` | 1.1.3 | bgzipped FASTA + `--n_haplotypes` | Assemblies, not reads |
-| `phyloplace` | 2.1.0 | per row: `refseqfile, refphylogeny, model` | Needs curated reference phylogenies |
-| `proteogenomicsdb` | 1.0.0 | no samplesheet | Builds a search database; a reference builder |
-| `seqsubmit` | 1.0.0 | `id, fasta, run_accession, assembler…` | ENA deposit utility |
-| `hadge` | 0.2.0 | — | Not nf-core-templated at all |
-| `tools` | 4.1.0 | — | **Not a pipeline** |
+Until now Nessie could only start an analysis from **raw** data. But an
+analysis output registered back into NExtSEEK is exactly what the next
+analysis needs. `bamtofastq` was the first to work this way — it takes
+alignment records rather than raw files.
 
-> Two of these *do* publish machine-readable schemas under non-standard
-> filenames (`assets/schema_phyloplace_input.json`,
-> `schema_input_assembly.json`). A re-run should glob
-> `assets/schema*.json` rather than assume the one name.
+This matters beyond that one pipeline: it's the same capability the
+highest-value item on our roadmap needs (section 10).
+
+**4. Nessie reads the sequencing machine from the sample record.**
+
+Two pipelines need the column name, or a value in it, to depend on which
+machine produced the data. We can't ask the user, because the
+samplesheet gets written before the point in the conversation where
+questions happen. But the machine is recorded on the sample already — so
+Nessie reads it there. That's earlier, needs no question, and handles a
+mixed batch where different samples came off different machines, which a
+single answer couldn't have covered.
 
 ------------------------------------------------------------------------
 
-## Still blocked, and what each would take
+## 8. How we checked all 137 pipelines
 
-Estimates are engineering effort for one competent person and **exclude**
-review, real-data validation, and waiting for storage or approvals —
-which for the reference-heavy rows will dominate. Read them as "how big
-is this", not as commitments.
+Rather than judging pipelines by their descriptions, we downloaded both
+schema files for every one of them, at the exact version we'd run, and
+sorted them mechanically. The raw output is saved alongside this document
+at `docs/nfcore-schema-census-2026-08-05.json` so the numbers can be
+audited without redoing the download.
 
-### Reference data we don't host
+**First surprise: 42 of the 138 have never had a release.** That's
+nearly a third. There is no stable version to pin to, so running one
+means running whatever happens to be in the repository today. (Also,
+`nf-core/tools` isn't a pipeline at all — it's the community's software
+toolkit, mislabelled. So the real population is **137**.)
 
-Something must be downloaded, hosted permanently and maintained. A
-storage and ownership question before a coding one.
+Of the 96 that do have a release:
 
-| Pipeline | Blocker | Estimate |
+| Verdict | Count | What it means |
+|-------------------|------:|------------------------------------------|
+| **Straightforward** | **27** | Needs nothing we can't supply. Nine were already supported |
+| Needs a decision | 53 | Wants a column we can't derive, a reference file we don't host, or a database nobody has downloaded |
+| Can't tell | 15 | Publishes no machine-readable input spec — read by hand instead, see below |
+| Blocked | 1 | `cutandrun`, which needs each sample paired with its control |
+
+A useful sanity check: the sorter put `bamtofastq`, `hlatyping`,
+`crisprseq` and `nanoseq` in "needs a decision" rather than
+"straightforward" — which is right. Those are exactly the ones that
+needed new work. **"Needs a decision" is not "impossible"** — it's the
+category the four mechanisms in section 7 exist to serve.
+
+### The 15 we had to read by hand
+
+None turned out to be worth adding, but the reason is interesting:
+**most of them are simply old.** Six predate the convention of listing
+samples in a spreadsheet at all, and instead want a folder or a
+filename pattern. They aren't difficult; they're from an earlier era,
+and they don't fit how Nessie works.
+
+| Pipeline | What it wants | Verdict |
+|---------------|--------------------------|-----------------------------|
+| `bactmap` | An ordinary samplesheet | **Added.** Fails only on there being no data |
+| `cageseq` | A filename pattern | Old style |
+| `dualrnaseq` | Two genomes at once | Doesn't fit our reference handling |
+| `eager` | A filename pattern | Old style; ancient DNA |
+| `imcyto` | A folder of instrument files | Old style |
+| `mnaseseq` | An older sheet format | Old style |
+| `clipseq` | Single-end reads plus two references | No matching data |
+| `diaproteomics` | **Three** separate sheets | Proteomics; bigger job |
+| `mcmicro` | A sheet **plus** a marker sheet | Imaging; bigger job |
+| `pangenome` | Assembled genomes, not reads | Wrong input |
+| `phyloplace` | A curated evolutionary tree per row | Wrong input |
+| `proteogenomicsdb` | No samples at all | It builds a database |
+| `seqsubmit` | Assemblies for deposit | A submission tool |
+| `hadge` | — | Doesn't follow nf-core conventions |
+| `tools` | — | **Not a pipeline** |
+
+> One caveat on our own method: two of these *do* publish a
+> machine-readable spec, just under an unusual filename. Our automated
+> check only looked for the standard name and missed them. It didn't
+> change any verdict, but a future re-run should look more broadly.
+
+------------------------------------------------------------------------
+
+## 9. What's still out of reach, and roughly what it would cost
+
+Estimates are hands-on work for one person. They **exclude** review,
+testing against real data, and any waiting for storage or approvals —
+which for the first group will probably dominate.
+
+### Needs reference data nobody hosts
+
+Something must be downloaded, given a permanent home, and maintained.
+That's a storage and ownership question before it's a coding one.
+
+| Pipeline | The blocker | Estimate |
 |---------------|-------------------------------------------|--------------|
-| `taxprofiler` | Needs a `databases` sheet; a standard Kraken2 set alone is ~100 GB. Its sheet also needs `run_accession` and `instrument_platform` | 2–4 days, mostly download and storage |
-| `rnafusion` | Needs `genomes_base` and a separate reference build across Arriba, STAR-Fusion, FusionCatcher, HGNC | 3–5 days, dominated by build and disk |
-| `raredisease` | Needs `intervals_wgs`/`intervals_y`, explicit FASTA, dbsnp, SVDB, mobile-element refs | 4–6 days |
-| `oncoanalyser` | Not references — a **per-file** row model (7 required columns) plus tumour/normal pairing | 1–2 weeks |
+| `taxprofiler` | Needs reference databases; one standard set alone is ~100 GB | 2–4 days, mostly downloading |
+| `rnafusion` | Needs a prebuilt reference tree, itself a separate multi-hour build | 3–5 days |
+| `raredisease` | Needs a whole bundle of variant reference files per genome | 4–6 days |
+| `oncoanalyser` | Not references — it needs one row per *file* and a tumour/normal pairing we can't infer | 1–2 weeks |
 
-### Experimental design Nessie can't infer
+### Needs an experimental design nobody can infer
 
-| Pipeline | Blocker | Estimate |
+The pipeline is fine. The problem is it needs to be told which samples
+to compare against which, and that judgement isn't in the filenames.
+
+| Pipeline | The blocker | Estimate |
 |---------------|--------------------------------------------|--------------|
-| `rnasplice` | Needs a `contrasts` file — same blocker as `differentialabundance` | 1–2 weeks for the derivation, then half a day |
-| `cutandrun` | Each sample must be paired with its IgG control | 3–5 days |
-| `rnadnavar` | Tumour/normal via `status` / `normal_id` | as `oncoanalyser` |
+| `rnasplice` | Needs a list of comparisons to make | 1–2 weeks, then trivial |
+| `cutandrun` | Each sample must be paired with its control | 3–5 days |
+| `rnadnavar` | Needs tumour/normal designations | as `oncoanalyser` |
 
-### Input shape
+### Needs a different shape of input
 
-| Pipeline | Blocker | Estimate |
+| Pipeline | The blocker | Estimate |
 |-------------------|----------------------------------------|--------------|
-| `scnanoseq` | Single `fastq` column, `cell_count`, four required params with no safe defaults | 2–3 days |
-| `epitopeprediction` | Variants/peptide lists + per-sample HLA alleles, not reads. Should follow `hlatyping` being in real use | 1 week |
-| `funcscan` | Input is an assembled contig FASTA; no NExtSEEK type holds an assembly | 1 week |
-| `demultiplex` | Input is a BCL run directory. It *produces* `D.SEQ` rather than consuming it | 1 week — but question whether it belongs upstream of NExtSEEK |
+| `scnanoseq` | A different read layout and four settings with no safe defaults | 2–3 days |
+| `epitopeprediction` | Wants variants plus per-sample HLA types, not reads. Should follow `hlatyping` being in real use | 1 week |
+| `funcscan` | Wants assembled sequence; no NExtSEEK sample type holds one | 1 week |
+| `demultiplex` | Wants a raw instrument run folder. It *produces* sequencing data rather than consuming it | 1 week — but it may belong upstream of NExtSEEK entirely |
 
-### External
+### Blocked by someone else
 
-| Pipeline | Blocker |
-|---------------|-----------------------------------------------------|
-| `circrna` | No released version exists — nothing to pin |
-| `airrflow` | 9 required AIRR-standard columns (`species`, `pcr_target_locus`, `tissue`, `sex`, `age`…). Lineage covers several; the rest is a real mapping project |
+| Pipeline | The blocker |
+|--------------|------------------------------------------------------|
+| `circrna` | No released version exists |
+| `airrflow` | Nine required metadata columns (species, tissue, sex, age…). Our sample relationships cover several; the rest is a real mapping project |
 
-### Tier 2 — proteomics, one new input kind
+### Proteomics — a different kind of input entirely
 
-Needs a `_spectra_from_meta` resolver and the per-sample file model
-relaxed from paired R1/R2 to a single file: `mhcquant`,
-`diaproteomics`, `mspepid`, `metaboigniter` (targets `D.MSP` / `D.MSI`);
-`methylarray`, `nanostring` have no matching sample type today.
+`mhcquant`, `diaproteomics`, `mspepid` and `metaboigniter` all work on
+mass-spec data. Supporting them means teaching Nessie to find a
+different kind of file, and — the bigger issue — **a "reference" in
+proteomics is a protein database, not a genome.** All our reference
+handling assumes genomes. That's a second concept, not another entry in
+a list.
 
-> ⚠️ Proteomics needs a **protein FASTA database**, not a genome.
-> `reference_bundles.json` and the species→iGenomes logic are entirely
-> genome-oriented. That is a second reference *concept*, not another key.
-
-> ⚠️ **`quantms` has left nf-core** (archived 2024-05-06; continued at
-> `bigbio/quantms`). It was our only route to **TMT / isobaric**
-> quantification, and `mhcquant` does not cover it. Adopting the bigbio
-> version is a deliberate decision about running something outside
-> nf-core's CI and release guarantees.
-
-------------------------------------------------------------------------
-
-## Priorities
-
-**1. Fix result registration.** 1.7% analysis coverage is the finding
-that should drive the roadmap. The reingest loop (`nextseek-pipeline` →
-`nextseek-run-ls` → `nextseek-build-upload-xlsx`) produces structurally
-invalid workbooks: every `A.*` type requires `File_PrimaryData`,
-`Link_PrimaryData`, `Scientist`, `Parent` and `Checksum_PrimaryData`,
-and the agent composes only a subset. Adding pipelines multiplies an
-unvalidated path — more output shapes to map to `A.*` types, and that
-mapping is prose in `SKILL.md` with no test fixture.
-
-**2. `differentialabundance`.** `rnaseq` → reingest as `A.GEX` →
-`differentialabundance` on that count matrix → reingest the result. It
-reads `salmon.merged.gene_counts.tsv`, exactly what the reingest loop
-registers as `File_PrimaryData`. *Half of this is now built* —
-`bamtofastq` established `A.*`-as-input with tests. The unbuilt half,
-and the real content of this row, is the **contrasts derivation**:
-reading `Treatment1` / `Genotype` / `Cohort` off the lineage, proposing
-comparisons, and having a human confirm. **Nessie can write experimental
-contrasts because it knows the lineage; nothing without a sample
-database can.**
-
-**3. `mhcquant`.** 416 mass-spec samples is small, but it is where
-nf-core coverage is strongest and where labs are actively working — the
-White lab's current manuscript is TMTpro MHC-I immunopeptidomics (PRIDE
-**PXD057588**). Its PRIDE-accession input path mirrors `fetchngs`, so
-some plumbing exists. Caveat: TMT quantification was `quantms`' remit,
-not `mhcquant`'s.
-
-**4. More catalog entries** — cheap, and now demand-led rather than
-opportunity-led. The config-only well holds nothing further we hold data
-for; what remains is worth adding under the adoption rule as labs ask.
+> ⚠️ **One route just closed.** `quantms` was archived by nf-core in
+> May 2024 and moved to a different organisation. It was our only path
+> to **TMT / isobaric quantification**, and `mhcquant` does not replace
+> it. Using the relocated version means running something outside
+> nf-core's testing and release guarantees — a deliberate decision, not
+> something to drift into.
 
 ------------------------------------------------------------------------
 
-## Open questions
+## 10. What to do next
 
--   Is there a multiplexed / whole-slide subset inside the 13,386
-    `D.IMG` samples? If so `mcmicro` moves up sharply; if not, imaging
-    stays out of scope.
--   Flow cytometry is our #2 data class with zero nf-core path. Do we
-    care enough to look outside nf-core?
--   Are `Treatment1` / `Genotype` / `Cohort` populated consistently
-    enough to derive contrasts automatically, or does a human confirm
-    every one?
--   **Are any of the 1,179 amplicon libraries CRISPR amplicons?**
-    Nothing labels them so; `SequencingType` says "DNA barcoding" for
-    most. This decides whether `crisprseq` is runnable today.
+**1. Fix result registration first.**
 
-## Method and caveats
+Only 1.7% of the database is analysis results. There is already a loop
+for registering them, and an audit found the spreadsheets it produces
+are **structurally invalid** — every analysis record requires five
+fields, and only some are being filled in. Adding more pipelines before
+this multiplies an unvalidated path: more analyses means more output
+shapes to map, and that mapping is currently written as prose with no
+test to catch mistakes.
 
--   Counts are direct SQL against `seek_production` on the local
-    snapshot (51,359 samples; the graph agent's docs cite ~50,161,
-    consistent). This is the sample database, not a project export.
--   Modality groupings are mine, by code prefix and meaning. `D.MSI` is
-    counted under both imaging and mass spec (16 samples).
--   `D.IMG` and `D.FLOW` shape claims come from sampling actual
-    `json_metadata` rows, not type names.
--   Revisions move. Re-derive `reference_cli_flags` and
-    `required_columns` from the new schema whenever a
-    `default_revision` is bumped — a stale `gtf` aborts the run at
-    validation, and a stale column name fails after the job has queued.
--   The census tooling has two traps worth knowing: `gh api
-    releases/latest` writes its 404 body to **stdout** (so a
-    release-less repo yields a JSON blob as its "tag"), and `curl -f -o`
-    can leave a file containing GitHub's 404 body — check the JSON
-    parses, don't just check the file exists.
+**2. `differentialabundance` — the highest-value thing on the list.**
+
+The idea: run `rnaseq`, register the gene counts back into NExtSEEK, and
+then run a comparison analysis **on our own registered results**. It
+reads exactly the file our registration loop already produces.
+
+Half of this now exists — `bamtofastq` proved that registered results
+can feed a new analysis. The missing half, and the real content of this
+item, is working out **which groups to compare**: reading treatment,
+genotype and cohort off the sample relationships, proposing the
+comparisons, and having a person confirm them.
+
+That's the part worth building, because **Nessie can propose the
+comparisons precisely because it knows how the samples relate to each
+other.** A tool without a sample database can't.
+
+**3. `mhcquant` for the mass-spec labs.**
+
+416 samples is small, but it's where nf-core is strongest and where labs
+are actively working — the White lab's current manuscript is exactly
+this kind of experiment (PRIDE PXD057588). Some of the plumbing already
+exists. Caveat: it does not do TMT quantification; that was `quantms`'
+job, and `quantms` has left nf-core.
+
+**4. More entries — as labs ask.**
+
+Cheap, and now demand-led. There is nothing left on the straightforward
+list that we hold data for.
+
+**Not recommended:** the imaging pipelines, and anything for flow
+cytometry — see section 5.
+
+------------------------------------------------------------------------
+
+## 11. Open questions for the team
+
+-   Is there a set of multi-round whole-slide images hidden inside the
+    13,386 imaging samples? If so, `mcmicro` becomes interesting. If
+    not, imaging stays out of scope.
+-   Flow cytometry is our second-largest data type with no nf-core path
+    at all. Do we care enough to look outside nf-core?
+-   Are treatment, genotype and cohort recorded consistently enough to
+    propose comparisons automatically, or does a person confirm each
+    one?
+-   **Are any of the 1,179 amplicon samples CRISPR experiments?** Nothing
+    labels them that way — most say "DNA barcoding" — but that's a
+    labelling question, not proof. This decides whether `crisprseq` is
+    usable today.
+
+------------------------------------------------------------------------
+
+## 12. How the numbers were produced
+
+-   Counts come from a direct query against the sample database on the
+    local copy (51,359 samples). This is the real database, not a
+    project spreadsheet export.
+-   Grouping samples into "imaging", "sequencing" and so on is my
+    judgement, by sample-type code and meaning.
+-   Claims about what the imaging and flow data actually *is* come from
+    reading real sample records, not from the type names.
+-   **Versions move.** When a pipeline's pinned version is bumped,
+    re-read its schemas and update the settings and columns we send. A
+    stale setting aborts the run immediately; a stale column name fails
+    after the job has already queued.
+-   Two traps in the checking script, recorded so nobody hits them
+    again: GitHub's "latest release" query prints its *error message* to
+    normal output, so a pipeline with no releases looks like it has a
+    strangely-named one; and `curl` can leave behind a file containing a
+    404 error page, which looks like a successful download until you try
+    to read it.
 
 ## Sources
 
--   [nf-core pipelines index](https://nf-co.re/pipelines) — the site's
-    155 includes archived and untagged repos; our 137 does not
+-   [nf-core pipelines index](https://nf-co.re/pipelines) — the site
+    advertises 155; that count includes archived and untagged
+    repositories, ours does not
 -   [nf-core/quantms](https://github.com/nf-core/quantms) —
     **archived**; continued at
     [bigbio/quantms](https://github.com/bigbio/quantms)
@@ -400,5 +545,5 @@ for; what remains is worth adding under the adoption rule as labs ask.
 -   [differentialabundance
     usage](https://nf-co.re/differentialabundance/latest/docs/usage/)
 -   [mcmicro usage](https://nf-co.re/mcmicro/latest/docs/usage/)
--   [nf-core/imcyto](https://github.com/nf-core/imcyto) (imaging mass
-    cytometry, not FCS)
+-   [nf-core/imcyto](https://github.com/nf-core/imcyto) — imaging mass
+    cytometry, not flow cytometry
