@@ -21,9 +21,9 @@
     },
     "skip_tools": {
       "type": "string",
-      "default": "fastqscreen",
+      "default": "fastqscreen,picard_collectmultiplemetrics",
       "steerable": true,
-      "help": "fastqscreen is in the 'default' bundle, and its fastq_screen_references default is an EXAMPLE csv shipped with the pipeline pointing at three S3 iGenomes Bowtie2 indices (E. coli, PhiX, yeast). Screening against an example set is not a curated choice, and it pulls from S3. Skip it until a reference CSV that means something here is staged on Luria, then clear this."
+      "help": "Two tools from the 'default' bundle are skipped here, both because they need reference data Luria does not carry. fastqscreen's reference list defaults to an EXAMPLE csv pointing at three S3 iGenomes indices. picard_collectmultiplemetrics sets needs_bam in workflows/seqinspector.nf, which routes reads through BWAMEM2_MEM \u2014 and our refs tree has fasta+gtf but no bwamem2 index. What remains (fastqc, fq_lint, seqfu_stats, sequali) is pure read-level QC that needs nothing at all."
     },
     "subsample_tools": {
       "type": "string",
@@ -130,7 +130,8 @@
     "tags is a colon-separated list of group labels; every distinct tag produces its own MultiQC report in addition to the global one.",
     "Do NOT add kraken2 to the tool set without also setting kraken2_db \u2014 the run will fail with no database.",
     "Do NOT pass --gtf: seqinspector's schema has no gtf parameter and nf-schema aborts the run on an unrecognised param.",
-    "The 'default' tool bundle is fastqc, fastqscreen, fq_lint, picard_collectmultiplemetrics, rundirparser, seqfu_stats, sequali \u2014 it does NOT include kraken2, and the pipeline error()s if kraken2 is requested without kraken2_db, so there is no silent database download. fastqscreen is the one to watch: skipped by curated default because its reference list is an example pointing at S3."
+    "The 'default' tool bundle is fastqc, fastqscreen, fq_lint, picard_collectmultiplemetrics, rundirparser, seqfu_stats, sequali \u2014 it does NOT include kraken2, and the pipeline error()s if kraken2 is requested without kraken2_db, so there is no silent database download. fastqscreen is the one to watch: skipped by curated default because its reference list is an example pointing at S3.",
+    "picard_collectmultiplemetrics is in the 'default' bundle and requires an ALIGNMENT: workflows/seqinspector.nf sets `needs_bam` from it and feeds BWAMEM2_MEM. Whether that silently skips without a genome or builds an index was never established, so it is skipped rather than relied upon. Re-enable only once a bwamem2 index is staged."
   ],
   "notes": "QC-only. Nothing here writes analysis results worth reingesting as A.* samples \u2014 the output is MultiQC reports for human review. Use it to triage a cohort before committing to a full pipeline, or to audit sequencing data already registered in NExtSEEK.",
   "sources": [
