@@ -11,21 +11,44 @@ editor_options:
 Began as "what else could Nessie run?". Answering it surfaced a launch
 bug that made three of the eight existing pipelines unrunnable, so the
 survey and the fixes are recorded together. **Pipelines available went
-from 8 to 26; pipelines able to launch went 5 → 26; pipelines verified
+from 8 to 31; pipelines able to launch went 5 → 31; pipelines verified
 on the cluster remains 2.**
 
 **Update 2026-08-05, in two parts.** First, `bamtofastq` shipped — the
 doc's own "if you only fund one row" recommendation, and the first
 pipeline whose cohort leaves are `A.*` analysis records rather than
 `D.SEQ` raw data. Then a full schema census replaced the
-description-based tiering below, and eight further pipelines were
-catalogued off the back of it.
+description-based tiering below, and thirteen further pipelines were
+catalogued off the back of it — eight in a first batch, then five more
+once the rule below was settled.
 
-> ⚠️ **Read the third row of that table carefully.** Eight of the
-> twenty-six were added *specifically because we hold no data for them*
-> — they are config-only against their pinned schemas, and catalogued so
-> the capability exists the day such a cohort is registered. "Available"
-> counts catalog entries. It has never counted runs.
+### The rule this document now follows
+
+**"We hold no data for it" is a label on the row, not a reason to skip
+it.** Stated by the project owner on 2026-08-05, and it reverses the
+conclusion an earlier draft of this section reached:
+
+> Keep flagging in the table if no data exists to test, but it's okay if
+> there isn't. The goal is to add functions in hopes that users with
+> that data will use NExtSEEK.
+
+That is an adoption argument, not a utilisation one, and it changes what
+a catalog entry is *for*. A lab arriving with PacBio reads or bacterial
+isolates should find the capability already present rather than be told
+it could be added. The cost is roughly half a day per pipeline and no
+runtime; the benefit is that NExtSEEK is worth adopting before the data
+is loaded, not after.
+
+So the bar for adding is now: **config-only against its pinned schemas,
+and a shape our machinery can actually produce.** Absence of data is
+recorded in the verification table and nowhere else. What still gets
+rejected is a pipeline whose *input shape* we cannot build — a second
+samplesheet, a glob instead of a cohort, an experimental design nobody
+can infer.
+
+Ten of the thirty-one entries were added under this rule and have no
+data behind them. "Available" counts catalog entries; it has never
+counted runs, and the table below is where that distinction lives.
 
 **Data source:** direct query against `seek_production` (51,359 samples,
 104 sample types)
@@ -111,9 +134,9 @@ no `gtf` param; `ampliseq` declares none of the three and had therefore
 
 |                                          | Started |    Now |
 |------------------------------------------|--------:|-------:|
-| Pipelines catalogued                     |       8 | **26** |
-| Generating a valid launch command        |       5 | **26** |
-| …that we hold identifiable data for      |       5 | **10** |
+| Pipelines catalogued                     |       8 | **31** |
+| Generating a valid launch command        |       5 | **31** |
+| …that we hold identifiable data for      |       5 | **13** |
 | Verified end-to-end on Luria             |       2 |  **2** |
 
 > ⚠️ **The third row is the one that was never measured before, and it
@@ -125,12 +148,22 @@ no `gtf` param; `ampliseq` declares none of the three and had therefore
 > methylation/bisulfite/WGBS/RRBS 0, small-RNA/miRNA 0, Ribo-seq 0,
 > metagenomic 0, CRISPR 0.** `atacseq`, `chipseq` and `methylseq` have
 > been catalogued since before this document existed and have never had
-> a cohort to run on either.
+> a cohort to run on either. That is not an argument against having
+> them; it is an argument for labelling them honestly.
 
-Ten pipelines added (`seqinspector`, `hlatyping`, `smrnaseq`, `riboseq`,
-`hic`, `rnavar`, `crisprseq`, `nanoseq`, `mag`, `bamtofastq`), three
-repaired, and three mechanisms built that were not in the original
-survey:
+**Twenty-three pipelines added, three repaired, and four mechanisms
+built** that were not in the original survey.
+
+The additions came in three waves: ten before the census
+(`seqinspector`, `hlatyping`, `smrnaseq`, `riboseq`, `hic`, `rnavar`,
+`crisprseq`, `nanoseq`, `mag`, `bamtofastq`), then eight config-only
+entries with no data behind them (`bacass`, `bactmap`, `pacvar`,
+`viralrecon`, `viralmetagenome`, `viralintegration`, `magmap`,
+`metatdenovo`), then five more once the adoption rule above was settled
+(`denovotranscript`, `detaxizer`, `fastqrepair`, `genomeassembler`,
+`pathogensurveillance`).
+
+The mechanisms:
 
 -   **Reference flags are now gated on each pipeline's own schema.** A
     catalog field declares which of `genome`/`fasta`/`gtf` that revision
@@ -146,6 +179,15 @@ survey:
     `bamtofastq` resolves to `A.ALN` alignments and the emitter finds a
     BAM/CRAM. Registered NExtSEEK outputs are now a legal pipeline
     *input*.
+-   **A samplesheet column can be chosen by the sequencing platform**,
+    read per row from the sample's own metadata. `genomeassembler` names
+    its read column `ontreads` or `hifireads` depending on the
+    instrument; `pathogensurveillance` wants the platform as a *value*
+    in `sequence_type`. Neither could come from the static alias map,
+    and neither could be elicited — `write_samplesheet` runs before
+    `configure_run`, so no answer exists yet. Reading it from metadata is
+    earlier, needs no question, and handles a mixed-platform cohort that
+    a single per-run answer could not express.
 
 Separately, the reingest path now validates workbooks against the real
 sample-type catalog rather than against themselves — see the reingest
@@ -154,8 +196,9 @@ plan; it is the 1.7% problem below, not this document's subject.
 **The number that has not moved is the last row.** Everything new passes
 unit tests proving the generated `run.sh` is well-formed; none of it has
 been run on the cluster. See *Luria verification status*, which now
-marks **sixteen of the twenty-six** as having no data to run on — seven
-of those being pipelines catalogued long before this document existed.
+marks **eighteen of the thirty-one** as having no data to run on — seven
+of those being pipelines catalogued long before this document existed,
+and ten added deliberately under the adoption rule.
 
 ------------------------------------------------------------------------
 
@@ -681,8 +724,9 @@ months precisely because nobody tracked this distinction.
 **Three states, not two.** ✅ means a real run completed. ❌ means it
 could be run and has not been. ⛔ means **we hold no identifiable data
 of that kind at all**, so there is nothing to run and no test to
-schedule. Sixteen of the twenty-six are in that state and should never
-appear on a testing plan until the corresponding data is registered.
+schedule. Eighteen of the thirty-one are in that state and should never appear on
+a testing plan until the corresponding data is registered. That is by
+design — see *The rule this document now follows*.
 
 That sixteen includes `atacseq`, `chipseq`, `methylseq`, `smrnaseq`,
 `riboseq`, `crisprseq` and `mag` — pipelines that have been catalogued
@@ -727,6 +771,11 @@ the run directory — it is the evidence.
 | `viralintegration` | ⛔ **no data exists** | Same. Also pinned at 0.1.1, the only release — re-derive its flags if a later version appears |
 | `magmap` | ⛔ **no data exists** | No metagenomic cohorts registered. Confirm `genomeinfo` elicitation fires |
 | `metatdenovo` | ⛔ **no data exists** | Same. Confirm `orf_caller` elicitation fires — the prokaryote/eukaryote choice is silent if wrong |
+| `denovotranscript` | ❌ untested | Added 2026-08-05. **Data does exist** — 507 RNA-seq `D.SEQ` — but every organism we hold has a reference, so `rnaseq` is the better answer for today's cohorts. Runnable whenever someone wants a reference-free assembly |
+| `detaxizer` | ❌ untested | Added 2026-08-05. **Runnable on anything** — applies to any library. Natural first real test of the batch: no reference, no elicitation, and 2,057 candidate samples |
+| `fastqrepair` | ❌ untested | Added 2026-08-05. Runnable on anything, but it is a remedy — reach for it when a run has failed on unreadable input, not on a schedule |
+| `genomeassembler` | ⛔ **no data exists** | Added 2026-08-05. No long-read data. Confirm the platform-derived read column (`ontreads` / `hifireads`) picks the right one, and that an Illumina cohort lands in neither |
+| `pathogensurveillance` | ⛔ **no data exists** | Added 2026-08-05. No isolate sequencing. Confirm `sequence_type` is stamped from metadata and that `report_group_ids` carries a real grouping rather than one blanket group |
 
 **Suggested order.** `seqinspector` first — no reference, no
 elicitation, so a failure isolates the launch path itself. Then
