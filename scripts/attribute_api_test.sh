@@ -11,7 +11,7 @@ case "$lane" in
   unit) test_args=() ;; # populated from the exact task-specific unit node list below
   db) test_args=() ;; # populated from the manifest's exact task-specific DB node list below
   schema) test_args=() ;; # populated from the exact task-specific schema-node contract below
-  worker) test_args=(nextseek_api/attributes/tests/test_tasks.py) ;;
+  worker) test_args=(nextseek_api/attributes/tests/test_tasks_worker.py nextseek_api/attributes/tests/test_sync_recovery.py) ;;
   openapi) test_args=() ;; # populated from the exact task-specific OpenAPI node list below
   collect) test_args=(nextseek_api/tests nextseek_api/attributes/tests startup/tests --collect-only) ;;
   lint) command=(python -m ruff check nextseek_api/attributes nextseek_api/tests/test_attribute_api_harness.py nextseek_api/tests/test_attribute_api_db_lane.py startup/steps/schema_fixups.py startup/tests) ;;
