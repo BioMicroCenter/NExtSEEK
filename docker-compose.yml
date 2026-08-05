@@ -226,6 +226,7 @@ services:
       SOLR_HOST: solr
       NO_ENTRYPOINT_WORKERS: 1
       RAILS_LOG_LEVEL: info # debug, info, warn, error or fatal
+      RAILS_RELATIVE_URL_ROOT: /fairdata
     env_file:
       - ./docker/db.env
     volumes:
@@ -253,6 +254,7 @@ services:
         SOLR_HOST: solr
         RAILS_LOG_LEVEL: info # debug, info, warn, error or fatal
         QUIET_SUPERCRONIC: 1 # remove to show supercronic activity logs
+        RAILS_RELATIVE_URL_ROOT: /fairdata
       env_file:
         - ./docker/db.env
       volumes:

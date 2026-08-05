@@ -459,7 +459,7 @@ if os.getenv("SEEK_HOST"):
 
     SEEK_HOSTNAME = os.getenv("SEEK_HOSTNAME")
     SEEK_SERVER = os.getenv("SEEK_HOST")
-    SEEK_URL = "http://" + SEEK_SERVER + ":3000"
+    SEEK_URL = "http://" + SEEK_SERVER + ":3000/fairdata"
     # dev's SEEK_PUBLIC_URL intent, guard-safe (SEEK_URL exists here). Distinct from
     # SEEK_URL, the *internal* docker hostname for server-to-server SEEK API calls
     # (stays http://seek:3000); set SEEK_PUBLIC_URL in docker/nextseek.env to the
