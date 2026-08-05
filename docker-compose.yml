@@ -263,6 +263,89 @@ services:
       - seek
       - /opt/solr/server/solr/configsets/seek_config
 
+  # Task-08 durable async orchestration (DD-29): a dedicated Celery worker
+  # for the `attribute_mutations` queue only. Never a subprocess of the
+  # `nextseek`/batch_upload worker containers, so an attribute-mutation
+  # backlog or crash can never starve or be starved by batch uploads.
+  attribute_mutation_worker:
+    build: .
+    env_file: [./docker/db.env, ./docker/nextseek.env]
+    depends_on:
+      seek: {condition: service_started}
+      db: {condition: service_healthy}
+    volumes:
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./logs:/app/logs:z
+      - attribute_mutation_broker:/var/lib/attribute-broker
+    environment:
+      CELERY_BROKER_URL: sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3
+    command: ["uv", "run", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker", "--loglevel=info", "-Q", "attribute_mutations", "--hostname=attribute_mutations@%h", "--concurrency=${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "uv run celery -A nextseek_api.batch_upload.celery_app inspect ping --timeout=5 -d attribute_mutations@$${HOSTNAME} | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "${ATTRIBUTE_MUTATION_WORKER_CPUS:-1.0}"
+          memory: "${ATTRIBUTE_MUTATION_WORKER_MEMORY:-768M}"
+
+  # The transactional-outbox dispatcher: the sole publisher for
+  # `attribute_mutations` messages. A request process never publishes
+  # directly (Section 6).
+  attribute_mutation_dispatcher:
+    build: .
+    env_file: [./docker/db.env, ./docker/nextseek.env]
+    depends_on:
+      seek: {condition: service_started}
+      db: {condition: service_healthy}
+    volumes:
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./logs:/app/logs:z
+      - attribute_mutation_broker:/var/lib/attribute-broker
+    environment:
+      CELERY_BROKER_URL: sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3
+    command: ["uv", "run", "python", "manage.py", "dispatch_attribute_outbox"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "manage.py", "check_attribute_outbox_heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "${ATTRIBUTE_MUTATION_DISPATCHER_CPUS:-0.25}"
+          memory: "${ATTRIBUTE_MUTATION_DISPATCHER_MEMORY:-256M}"
+
+  # Idempotent synchronous-job recovery scheduler (Section 3). Deliberately
+  # has no broker volume/env and runs no Celery command: it can never
+  # consume either Celery queue, only scan/claim/reconcile via the default
+  # database.
+  attribute_mutation_recovery_scheduler:
+    build: .
+    env_file: [./docker/db.env, ./docker/nextseek.env]
+    depends_on:
+      seek: {condition: service_started}
+      db: {condition: service_healthy}
+    volumes:
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./logs:/app/logs:z
+    command: ["uv", "run", "python", "manage.py", "recover_attribute_sync_jobs", "--loop", "--interval-seconds", "30"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "manage.py", "recover_attribute_sync_jobs", "--check-heartbeat", "--max-age-seconds", "90"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "${ATTRIBUTE_MUTATION_RECOVERY_CPUS:-0.25}"
+          memory: "${ATTRIBUTE_MUTATION_RECOVERY_MEMORY:-256M}"
+
 
 networks:
   # Container-CC segmented network (OI-3). Compose-managed but pinned to the
@@ -299,3 +382,9 @@ volumes:
   # the six SEEK/NExtSEEK volumes above.
   dmac-cc-users:
     external: true
+  # Task-08 durable async orchestration: the SQLAlchemy/SQLite Celery
+  # broker transport shared by attribute_mutation_worker and
+  # attribute_mutation_dispatcher. A plain compose-managed volume (not
+  # `external`, not part of startup.sh's REQUIRED_VOLUMES) -- disposable
+  # broker state, not durable app data.
+  attribute_mutation_broker:
