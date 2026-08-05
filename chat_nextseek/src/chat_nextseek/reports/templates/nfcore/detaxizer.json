@@ -2,29 +2,47 @@
   "report_type": "NFCORE_DETAXIZER_SAMPLESHEET",
   "description": "nf-core/detaxizer samplesheet context, aligned to the pinned 1.3.0 schemas. Identifies and optionally removes contaminating sequences from raw data.",
   "params": {
-    "tax2filter": {
-      "type": "string",
-      "default": "Homo sapiens",
-      "steerable": true,
-      "help": "The taxon to identify (and optionally remove). Defaults to human, i.e. host removal."
-    },
-    "enable_filter": {
+    "classification_bbduk": {
       "type": "bool",
-      "default": false,
+      "default": true,
       "steerable": true,
-      "help": "FALSE by curated default: identify first and let a human look before anything is deleted from the reads."
+      "help": "TRUE by curated default, and load-bearing. detaxizer's workflow runs Kraken2 whenever BOTH classifiers are off \u2014 Kraken2 is the fallback, not an opt-in. Turning bbduk ON is what keeps Kraken2 out of the DAG and avoids a 64 GB database download."
+    },
+    "fasta_bbduk": {
+      "type": "string",
+      "default": "/net/bmc-pub10/data1/bmc/pipeline_cd/refs/GRCh38.primary_assembly.genome.fa.gz",
+      "steerable": true,
+      "help": "The contaminant sequences bbduk screens against. Points at the LOCAL Luria GRCh38. Leaving this unset while bbduk is on makes the pipeline fall back to iGenomes on S3 \u2014 another large download."
     },
     "classification_kraken2": {
       "type": "bool",
       "default": false,
       "steerable": true,
-      "help": "Needs a Kraken2 database, which Luria does not host."
+      "help": "Only set this true if a Kraken2 database is genuinely available. It needs --kraken2db, whose default is a 64 GB remote tarball. Setting it FALSE does not by itself prevent Kraken2 \u2014 see classification_bbduk."
+    },
+    "kraken2db": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Required if classification_kraken2 is on. The schema default is a 64 GB S3 tarball, re-downloaded per run. Stage a local copy first; the 8 GB capped Standard database is the smaller option, at the cost of more false negatives."
+    },
+    "tax2filter": {
+      "type": "string",
+      "default": "Homo sapiens",
+      "steerable": true,
+      "help": "The taxon treated as contamination. Only consulted on the Kraken2 path \u2014 bbduk decides by what is in fasta_bbduk."
+    },
+    "enable_filter": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "FALSE by curated default: identify first and let a human look before anything is removed from the reads."
     },
     "validation_blastn": {
       "type": "bool",
       "default": false,
       "steerable": true,
-      "help": "Second-pass confirmation with BLAST; needs a database."
+      "help": "Second-pass confirmation with BLAST; builds a database from a FASTA."
     },
     "multiqc_title": {
       "type": "string",
@@ -47,7 +65,7 @@
     "optional_columns": [
       "long_reads_fastq_1"
     ],
-    "reference_requirement": "Only `genome` is declared at 1.3.0; there is no fasta or gtf parameter. Contamination references come from the classifier databases, not from the usual reference tree."
+    "reference_requirement": "A HUMAN (or other contaminant) reference is required in practice, and which one depends on the classifier. With the curated bbduk path it is the local Luria GRCh38 FASTA via fasta_bbduk \u2014 no download. The Kraken2 path instead needs a Kraken2 database (schema default: a 64 GB remote tarball) and is NOT provisioned on Luria. Only `genome` is declared among the usual reference flags at 1.3.0; there is no fasta or gtf param."
   },
   "samplesheet_template": [
     {
@@ -59,12 +77,14 @@
   ],
   "validation_rules": [
     "The read columns are short_reads_fastq_1 / short_reads_fastq_2, not fastq_1 / fastq_2.",
+    "KRAKEN2 IS THE DEFAULT CLASSIFIER. workflows/detaxizer.nf gates it on `(!classification_kraken2 && !classification_bbduk) || classification_kraken2` \u2014 so with both flags off it still runs, and stages params.kraken2db, a 64 GB S3 tarball. Setting classification_kraken2=false alone does NOT disable it. Verified the hard way: a run was cancelled 4.2 GB into that download on 2026-08-05.",
+    "Keep classification_bbduk true and fasta_bbduk pointed at a local FASTA. That is what keeps Kraken2 out of the DAG.",
+    "Do NOT leave fasta_bbduk empty while bbduk is on \u2014 the workflow then falls back to getGenomeAttribute('fasta'), i.e. iGenomes on S3.",
     "Do NOT pass --fasta or --gtf: the 1.3.0 schema declares neither.",
     "Keep enable_filter false on a first pass. Identification is reversible; filtering the reads is not.",
-    "Leave classification_kraken2 and validation_blastn off unless a database path is supplied \u2014 neither is provisioned on Luria.",
     "long_reads_fastq_1 is for long-read libraries; NExtSEEK holds none, so leave it blank."
   ],
-  "notes": "Applies to any library type, so it is always technically runnable on the 2,057 D.SEQ records we hold. Its natural uses are pre-deposit screening and chasing suspected host or index contamination. Note the default action is to REPORT, not to remove.",
+  "notes": "Applies to any library type, so it is always technically runnable on the 2,057 D.SEQ records we hold. Its natural uses are pre-deposit screening and chasing suspected host or index contamination, and the default action is to REPORT, not remove. IMPORTANT: this pipeline is only cheap on the bbduk path. Its own default is Kraken2 against a 64 GB database, so the curated params here are not cosmetic \u2014 they are what makes it runnable without provisioning storage. Confirmed on Luria 2026-08-05.",
   "sources": [
     {
       "label": "nf-core/detaxizer usage docs",
@@ -80,6 +100,11 @@
       "label": "nf-core/detaxizer assets/schema_input.json @ 1.3.0",
       "url": "https://raw.githubusercontent.com/nf-core/detaxizer/1.3.0/assets/schema_input.json",
       "notes": "Authoritative columns: sample, short_reads_fastq_1, short_reads_fastq_2, long_reads_fastq_1; the schema marks none as strictly required."
+    },
+    {
+      "label": "nf-core/detaxizer workflows/detaxizer.nf @ 1.3.0",
+      "url": "https://raw.githubusercontent.com/nf-core/detaxizer/1.3.0/workflows/detaxizer.nf",
+      "notes": "Authoritative on classifier selection: line ~136 stages the Kraken2 database whenever both classifier flags are unset."
     }
   ],
   "schema": {
