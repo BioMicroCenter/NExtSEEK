@@ -152,15 +152,15 @@ def main() -> int:
     pytest_args = ["-q", "-p", "no:cacheprovider"]
     if raw_full:
         pytest_args += ["-p", "scripts.attribute_pytest_reporter", "--ignore=nextseek_api/attributes/tests/test_final_gate.py"]
-    if os.environ.get("ATTRIBUTE_EVIDENCE_TASK_ID") == "task-06":
-        # Cartesian 162×9 protocol belongs to the 7200s benchmark lane; coverage
-        # (1200s) proves metadata.py via unit+db semantic nodes only.
-        pytest_args += [
-            "--ignore=nextseek_api/attributes/tests/test_performance_metadata.py",
-            "--ignore=nextseek_api/attributes/tests/test_metadata_benchmark.py",
-            # Pre-existing disposable-shard clone flake is outside the T06 kernel gate.
-            "--ignore=nextseek_api/attributes/tests/test_real_boundary_contract.py",
-        ]
+    # T06's Cartesian 162×9 protocol belongs to the 7200s benchmark lane;
+    # every task's coverage lane (1200s) proves sources via unit+db semantic
+    # nodes only, so the two benchmark files are excluded unconditionally
+    # (plan-008 Ruling 2, 2026-08-04 -- T06's own lane already excluded them;
+    # this is parity, not weakening).
+    pytest_args += [
+        "--ignore=nextseek_api/attributes/tests/test_performance_metadata.py",
+        "--ignore=nextseek_api/attributes/tests/test_metadata_benchmark.py",
+    ]
     pytest_exit = pytest.main([*pytest_args, *PYTEST_SELECTION])
     coverage.stop()
     coverage.save()

@@ -23,10 +23,31 @@ from nextseek_api.attributes.metadata import (
     rewrite_type_metadata,
 )
 from nextseek_api.attributes.tests.chain_c_t06 import record_chain_c_case
+from nextseek_api.attributes.tests.test_repository import _reset_seek_tables
 
 SQL_SOURCE = "performance_schema.events_statements_current+history_long"
 PACKET_SOURCE = "SHOW SESSION STATUS Bytes_received/Bytes_sent"
 LOCK_SOURCE = "performance_schema LOCK_TIME picoseconds"
+
+
+@pytest.fixture(autouse=True)
+def _leave_shared_seek_tables_clean(request):
+    """Wipe the shared disposable SEEK tables again after each db node.
+
+    The lane's precreated base database is shared by every collected test
+    file and never wiped between files, so rows this module's ``_seed``
+    leaves behind deterministically poison a later file's frozen
+    semantic-state hash (T00's clone-reset guard in
+    test_real_boundary_contract.py failed exactly this way; user ruling
+    2026-08-04, option C). Teardown reuses T04's established
+    ``_reset_seek_tables`` helper — the in-tree reset mechanism — so the
+    module leaves the projected tables as clean as it found them."""
+    if "disposable_attribute_db" not in request.fixturenames:
+        yield
+        return
+    database = request.getfixturevalue("disposable_attribute_db")
+    yield
+    _reset_seek_tables(database)
 
 
 def _sampled_current_rss_bytes() -> int:

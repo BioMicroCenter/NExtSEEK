@@ -8,6 +8,7 @@ from nextseek_api.attributes.tests.real_boundary import (
     DisposableAttributeDatabase,
     InjectedAttributeFault,
 )
+from nextseek_api.attributes.tests.test_repository import _reset_seek_tables
 
 
 def test_disposable_database_interface_is_frozen():
@@ -72,6 +73,16 @@ def test_attach_from_identity_is_nonowning_and_cannot_drop_base(disposable_attri
 def test_logical_seed_clone_reset_alias_and_django_telemetry(disposable_attribute_db, sql_telemetry, django_db_blocker):
     django_db_blocker.unblock()
     database = disposable_attribute_db
+    # Self-contained contract (user ruling 2026-08-04, option C): the lane's
+    # precreated base database is shared across every collected file, and
+    # create_seed_template() freezes semantic_state_sha256 over the FULL
+    # content of the projected tables while clone_shard replays only this
+    # test's own seed statements — so wipe those tables first with T04's
+    # established reset helper. Residue from any past or future DB-writing
+    # file can then never desynchronize the frozen-hash guard (RCA:
+    # evidence/task-05/rca-clone-reset). The wipe precedes the telemetry
+    # snapshot discard and weakens no clone/reset/alias/telemetry assertion.
+    _reset_seek_tables(database)
     database.seed_seek_fixture({
         "sample_type_id": 991, "sample_titles": ["UID", "Value"],
         "samples": [{"id": 991001, "json_metadata": {"UID": "seed", "Value": "original"}}],
