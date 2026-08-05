@@ -205,7 +205,7 @@ those are pipelines we already ship.
 |---------------------|------:|------------------------------------------|
 | **config-only** | **27** | No required param lacking a default; every required column is a sample id or a file we can resolve. 9 already shipped → **18 new candidates** |
 | needs a decision | 53 | Non-derivable columns (27), an explicit reference or index (14), other required params (8), a database we don't host (4) |
-| no input schema | 15 | No `assets/schema_input.json` — input shape is not machine-readable, so it cannot be assessed this way |
+| no input schema | 15 | No `assets/schema_input.json` — not machine-assessable. **All 15 have since been read by hand; none is a candidate** — see below |
 | blocked on pairing | 1 | `cutandrun` — its required `control` column names another sample |
 
 Worth noting the classifier put `bamtofastq`, `atacseq`, `hlatyping`,
@@ -265,6 +265,48 @@ argument that cheap Tier 1 additions are a competing use of time.
 `nf-core` org repos tagged `nf-core`+`pipeline`, take each latest
 release, fetch both schemas, apply the two tests above. Re-run it when
 revisions move rather than trusting this table.)*
+
+### The 15 with no input schema — read by hand
+
+The census could not assess these mechanically, so each was read
+directly: `nextflow_schema.json`, `docs/usage.md`, and the `assets/`
+listing at its pinned tag. **None is a candidate.** The interesting part
+is *why* they were unassessable, because it turned out to be a signal in
+itself.
+
+| Pipeline | Rev | What it actually takes | Verdict |
+|-----------------|--------|--------------------------------|-----------------|
+| `bactmap` | 1.0.0 | `sample,fastq_1,fastq_2` — the right shape, and its one required param (`--reference`) is exactly what the elicitation mechanism is for | **Closest call. No data**: bacterial isolate sequencing does not exist here — `BAC` has no `D.SEQ` children, and all 188 WGS records descend from `DNA` samples with no TB mention |
+| `cageseq` | 1.0.2 | `--input '*_R1.fastq.gz'` — a glob | DSL1-era, pre-samplesheet; no CAGE data |
+| `dualrnaseq` | 1.0.0 | glob + `--genome_host` **and** `--genome_pathogen` | Two genomes at once; not our reference model |
+| `eager` | 2.5.3 | `--input '*_R{1,2}.fastq.gz'` — a glob | DSL1-era; ancient DNA |
+| `imcyto` | 1.0.0 | `--input "*.mcd"` + `--metadata` | DSL1-era, no `nextflow_schema.json`; imaging mass cytometry |
+| `mnaseseq` | 1.0.0 | design `group,replicate,fastq_1,fastq_2` | DSL1-era, no `nextflow_schema.json`; no MNase data |
+| `clipseq` | 1.0.0 | design `sample,fastq`, single-end only | Needs `--fasta` + `--smrna_fasta`; no CLIP data |
+| `diaproteomics` | 1.2.4 | **three** sheets: samples, spectral library, iRTs | Confirms its Tier 2 placement |
+| `mcmicro` | 2.0.0 | `input_sample`/`input_cycle` (not `input`) **plus a required `marker_sheet`** | Confirms its Tier 3 placement, for exactly the stated reason |
+| `pangenome` | 1.1.3 | a bgzipped FASTA of assembled haplotypes + `--n_haplotypes` | Input is assemblies, not reads |
+| `phyloplace` | 2.1.0 | per row: `queryseqfile, refseqfile, refphylogeny, model` | Needs a curated reference phylogeny and evolutionary model |
+| `proteogenomicsdb` | 1.0.0 | no samplesheet at all | It **builds a search database** — a reference builder, not an analysis |
+| `seqsubmit` | 1.0.0 | `id, fasta, run_accession, assembler, assembler_version` + `centre_name`, `mode` | Submits assemblies to ENA; an archive-deposit utility |
+| `hadge` | 0.2.0 | — | Not nf-core-templated: no `assets/`, no `docs/usage.md`, no `nextflow_schema.json` |
+| `tools` | 4.1.0 | — | **Not a pipeline.** `nf-core/tools` is the community's Python tooling package; it merely carries the `pipeline` topic |
+
+Three things this pass changed:
+
+-   **The population is 137, not 138.** `nf-core/tools` is mis-tagged and
+    should never have been counted.
+-   **A missing `assets/schema_input.json` mostly means "DSL1-era", not
+    "complicated".** Six of the fifteen predate the samplesheet
+    convention and take a glob or a directory. They are old, not hard —
+    but a glob input does not fit the cohort model at all.
+-   **Two of them do publish machine-readable schemas, under
+    non-standard filenames** — `phyloplace` uses
+    `assets/schema_phyloplace_input.json`, `seqsubmit` uses
+    `assets/schema_input_assembly.json` and `…_genomes.json`. The census
+    looked only for the canonical name and so under-reported. Neither
+    verdict changes, but a future re-run should glob `assets/schema*.json`
+    rather than assume the one filename.
 
 ### Tier 1 — catalog entry only, no new code · ~~73 pipelines~~ **see the census above**
 
