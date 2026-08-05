@@ -777,10 +777,10 @@ def export_stage_b(manifest, out_dir, artifacts_dir=None, corpus_path=None,
 # wrote nothing -- and the failure surfaced four steps later, after the grading
 # pass, as a FileNotFoundError out of `merge_grades`.
 
-# ONE voice for the missing tree, shared with the report builder. `collect` exits
-# 2 and this module warned in detail, while the BUILDER -- step 3, immediately
-# before a 254-arm human grading pass -- printed "8 arms 8 gradable" and said
-# nothing at all. The deadline consequence reads the same wherever it is printed
+# ONE voice for the missing tree, shared with the report builder. This module
+# warned in detail while the BUILDER -- step 3, immediately before a 254-arm
+# human grading pass -- printed "8 arms 8 gradable" and said nothing at all.
+# The deadline consequence reads the same wherever it is printed
 # from, so it is written once and each caller adds only its own tail.
 _DEADLINE_CONSEQUENCE = (
     "no arm can be excluded as a {cause}: the only evidence is a collected, "
@@ -788,8 +788,8 @@ _DEADLINE_CONSEQUENCE = (
     "indistinguishable here from one that answered.")
 
 _COLLECTION_GAP = (
-    "Collection is not runnable yet (see nessie_tests/output-skill-bayesian/"
-    "SKILL.md step 1 and `python -m nessie_tests.collect`). Proceeding anyway is "
+    "Run step 1 first: `python -m nessie_tests.collect --run <run>` (see "
+    "nessie_tests/output-skill-bayesian/SKILL.md). Proceeding anyway is "
     "supported; reading the result as a measured run is not.")
 
 

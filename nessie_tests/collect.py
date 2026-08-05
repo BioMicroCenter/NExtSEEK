@@ -145,6 +145,12 @@ class Sources:
     `copy_tree(src, dest) -> bool`
         True when the tree was copied, False when `src` is not there. Raise
         `CopyFailed` when the copy itself broke; see that exception.
+
+    The one concrete implementation is `nessie_tests.sources.DockerSources`,
+    which reads all three through the running `nextseek` container. One caveat
+    it settled and this docstring got wrong: the transcript rows are CUMULATIVE
+    snapshots of one growing file, not per-turn deltas, so concatenating them
+    blindly duplicates every earlier turn. See `sources.merge_transcripts`.
     """
 
     def task_rows(self, task_ids: list[str]) -> dict[str, dict]: ...
@@ -555,43 +561,148 @@ def collect(manifest, out_dir, sources, outputs_root=None, *,
     return payload
 
 
-# --- why this module is not a command ----------------------------------------
-# `collect` needs a CONCRETE `Sources`, and no task in this plan builds one. That
-# gap is known and accepted; it is not something a CLI can paper over, because
-# there is nothing for it to inject.
+# --- the command SKILL.md names ----------------------------------------------
+# This used to be a refusal, because `collect` needs a CONCRETE `Sources` and
+# nothing built one. `nessie_tests.sources.DockerSources` now does, so the
+# documented step really collects.
 #
-# The entry point exists ONLY so that running it SAYS so. An argparse that
-# accepted `--run` and exited 0 would leave a run directory with no `artifacts/`
-# in it and an operator who believes collection happened -- and the next thing
-# they see is every arm on the report reading "No reply was recorded", which they
-# discover after grading them, if at all. Exiting loudly here costs one line and
-# removes that whole failure.
-_NO_CLI_REASON = """\
-nessie_tests.collect is not runnable as a command yet, and running it has done
-NOTHING. It is importable machinery: `collect.collect(manifest, out_dir, sources)`
-needs a concrete `Sources`, and this plan does not build one.
+# What the refusal was protecting is NOT dropped, only narrowed. An argparse that
+# accepted `--run` and exited 0 over a dead container would leave a run directory
+# whose `collection.json` records every single artifact missing -- which is
+# indistinguishable, on the page, from a product that produced nothing, and the
+# operator discovers it after grading 254 arms that read "No reply was recorded",
+# if at all. So the CLI still REFUSES, on the three things that make a collection
+# meaningless before it starts: no paired manifest, no pairs in it, and a source
+# that cannot answer a ping. What it must never do is any of those quietly.
 
-What is missing is one class implementing the three methods on `collect.Sources`:
+# `decompress_transcript` imports zstandard LATE so the unit suite can import
+# this module without it -- which is right, and which also means a host missing
+# it does not find out until it has already recorded 127 CC arms' transcripts
+# "unreadable", one per arm, buried among the honest misses. Checked once, up
+# front, and named as the run-shaped fact it is.
+_NO_ZSTANDARD = """\
+WARNING: `zstandard` is not importable here, so EVERY CC arm's session.jsonl will
+be recorded `unreadable` in collection.json -- not because the product lost the
+transcript (the blob is fetched fine) but because this process cannot unpack it.
+The rest of the collection is unaffected and is still worth having.
 
-  task_rows(task_ids) -> {task_id: row}   assistant_query_task rows out of MySQL
-                                          (status, progress, result)
-  cc_transcript(session_id) -> bytes|None the zstd CCSessionTranscript blob(s)
-  copy_tree(src, dest) -> bool            a `docker cp` off the dmac-cc-users
-                                          volume; raise collect.CopyFailed when
-                                          the copy MECHANISM broke, return False
-                                          when the source is simply absent
-
-Until that exists there is no artifacts/ tree, and every downstream step is
-degraded rather than broken: `export` cannot see a deadline abort, and the report
-renders arms with no reply. Both say so when they run. See
-nessie_tests/output-skill-bayesian/SKILL.md, step 1.
+Install it, or re-run this step as:
+  uv run --no-project --with zstandard python -m nessie_tests.collect --run <run>
 """
 
 
+def _summarise(payload: dict) -> list[str]:
+    """The run's collection, in the terms an operator has to act on.
+
+    Never a bare total. A `copy_failed` is a fact about the COLLECTOR and an
+    `absent` is a fact about the run, and the whole `CopyFailed` split is wasted
+    if the summary adds them together at the end.
+    """
+    kinds: dict[str, int] = {}
+    for miss in payload["missing"]:
+        kinds[miss["kind"]] = kinds.get(miss["kind"], 0) + 1
+    lines = [
+        f"  arms          {payload['arms_seen']}"
+        f" ({payload['arms_outage']} outage)",
+        f"  turns         {payload['turns_seen']} task row(s)",
+        f"  run_roots     {payload['run_roots_copied']} copied",
+        f"  cc_scratch    {payload['cc_scratch_copied']} copied",
+        f"  missing       {len(payload['missing'])}"
+        + (": " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items()))
+           if kinds else ""),
+    ]
+    if kinds.get("copy_failed"):
+        lines.append(
+            f"  !! {kinds['copy_failed']} copy_failed -- that is the COLLECTOR "
+            f"failing, not the run: see collection.json")
+    if payload["arms_seen"] and not payload["turns_seen"]:
+        lines.append(
+            "  !! not one task row was joined. The manifest's task_ids and the "
+            "container's assistant_query_task rows do not meet; this is not a "
+            "run in which nothing happened.")
+    return lines
+
+
 def main(argv=None) -> int:
-    """Refuse, with the reason. See `_NO_CLI_REASON`."""
-    print(_NO_CLI_REASON, file=sys.stderr)
-    return 2
+    """Collect one paired run into `<run>/artifacts/`. Returns an exit code."""
+    import argparse
+
+    # Imported HERE, not at module scope, for the reason `decompress_transcript`
+    # imports zstandard late: the unit suite imports this module constantly and
+    # must not drag in the source implementation, and `sources` imports this
+    # module back for `CopyFailed`.
+    from nessie_tests import bayes_manifest, sources as sources_mod
+
+    ap = argparse.ArgumentParser(
+        description="Collect a paired (--bayesian) run's artifacts out of the "
+                    "running container into <run>/artifacts/.")
+    ap.add_argument("--run", required=True,
+                    help=f"the paired run directory: the one holding "
+                         f"{bayes_manifest.MANIFEST_NAME}")
+    ap.add_argument("--container", default=sources_mod.DEFAULT_CONTAINER,
+                    help="the app container the dmac-cc-users volume is mounted "
+                         "into (default: %(default)s)")
+    ap.add_argument("--host", default="",
+                    help='ssh target for the docker daemon; the default "" is '
+                         "the LOCAL daemon, which is what a --bayesian run needs "
+                         "today. `ssh localhost` is not a fallback")
+    ap.add_argument("--user", default="",
+                    help="sudo -u target on --host; ignored without --host")
+    ap.add_argument("--timeout", type=float,
+                    default=sources_mod.DEFAULT_TIMEOUT_S,
+                    help="seconds per container round trip (default: %(default)s)")
+    args = ap.parse_args(argv)
+
+    run = pathlib.Path(args.run)
+    m = bayes_manifest.read_bayes_manifest(run)
+    if m is None:
+        # The same collision `export` and the report builder refuse: a normal
+        # run's `manifest.json` is a different schema that validates as an EMPTY
+        # paired manifest rather than raising, so reading it here would write an
+        # empty artifacts tree and call the run collected.
+        extra = (f"  ({run / 'manifest.json'} exists -- that is a NORMAL run's "
+                 f"manifest and a DIFFERENT schema: it validates as an EMPTY "
+                 f"paired manifest rather than raising.)\n"
+                 if (run / "manifest.json").is_file() else "")
+        print(f"no {bayes_manifest.MANIFEST_NAME} in {run}\n{extra}"
+              f"Run the suite with --bayesian first.", file=sys.stderr)
+        return 2
+    if not m.pairs:
+        print(f"{run / bayes_manifest.MANIFEST_NAME} records no pairs",
+              file=sys.stderr)
+        return 2
+
+    sources = sources_mod.DockerSources(
+        container=args.container, host=args.host, user=args.user,
+        timeout=args.timeout)
+    try:
+        # BEFORE anything is written. A collection that starts against a dead
+        # container still finishes, and finishes looking complete.
+        ping = sources.ping()
+    except sources_mod.SourcesUnavailable as exc:
+        print(f"the collection sources are not reachable, so nothing was "
+              f"collected:\n{exc}\n\n"
+              f"Container {args.container!r} on "
+              f"{args.host or 'the local docker daemon'} must be RUNNING and "
+              f"able to reach MySQL. Nothing here starts or rebuilds it.",
+              file=sys.stderr)
+        return 2
+
+    try:
+        import zstandard  # noqa: F401
+    except ImportError:
+        print(_NO_ZSTANDARD, file=sys.stderr)
+
+    payload = collect(m, run, sources)
+
+    print(f"{len(m.pairs)} pair(s) -> {artifacts_dir(run)}")
+    print(f"  source        {args.container} on "
+          f"{args.host or 'the local docker daemon'}, "
+          f"{ping.get('query_tasks', '?')} task row(s) / "
+          f"{ping.get('cc_transcripts', '?')} transcript(s) in reach")
+    for line in _summarise(payload):
+        print(line)
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover

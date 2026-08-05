@@ -24,9 +24,15 @@ without regrading.
 # 0. the paid run (see nessie_tests/README.md; this is the expensive step)
 python -m nessie_tests --bayesian --out ./nessie_bayes_out
 
-# 1. pull the artifacts the run left behind -- NOT RUNNABLE YET. See below.
-#    There is no command. `nessie_tests.collect` is importable machinery and
-#    running it as a module prints why and exits non-zero.
+# 1. pull the artifacts the run left behind, into ./nessie_bayes_out/artifacts/
+python -m nessie_tests.collect --run ./nessie_bayes_out
+#    Reads through the RUNNING `nextseek` container: task rows and transcripts
+#    out of its Django ORM, trees out of `docker cp`. Add `--host <box> --user
+#    <acct>` for a run executed on the dev box; the default is the local daemon.
+#    `zstandard` is the one non-stdlib thing this step needs on THIS side (the
+#    transcripts arrive compressed); without it every CC arm's session.jsonl is
+#    recorded unreadable, and the step says so before it starts. No install:
+#      uv run --no-project --with zstandard python -m nessie_tests.collect --run ./nessie_bayes_out
 
 # 2. the HiBayes CSVs (also decides which arms are EXCLUDED, see below)
 python -m nessie_tests.export --run ./nessie_bayes_out        # writes hibayes_eval_rows_{ns,cc}.csv,
@@ -73,29 +79,49 @@ python nessie_tests/output-skill/scripts/fetch_run.py --host "" --out ./nessie_b
 The local form is the one a `--bayesian` run needs today, because the container
 this pipeline was built against runs on the workstation.
 
-## Step 1 has no command yet, and that is a known gap
+## Step 1: what the collection actually reads
 
-`nessie_tests/collect.py` implements the collection, but it takes its four
-sources by INJECTION -- `collect.collect(manifest, out_dir, sources)` -- and
-**nothing in this plan builds a concrete `Sources`**. There is nothing for a CLI
-to inject, so there is no CLI. `python -m nessie_tests.collect` prints this and
-exits non-zero rather than pretending.
+`nessie_tests/collect.py` takes its sources by INJECTION --
+`collect.collect(manifest, out_dir, sources)` -- and
+`nessie_tests/sources.py::DockerSources` is the one concrete implementation.
+Everything goes through the running `nextseek` container, so **no database
+credential ever reaches the host and nothing is added to the host test lane**:
 
-What is missing is one class implementing the three methods documented on
-`collect.Sources`:
-
-| method | what it has to do |
+| method | how it is served |
 |---|---|
-| `task_rows(task_ids) -> {task_id: row}` | read `assistant_query_task` out of MySQL: `status`, `progress`, `result` |
-| `cc_transcript(session_id) -> bytes \| None` | the zstd `CCSessionTranscript` blob(s) for a chat session, concatenated in turn order |
-| `copy_tree(src, dest) -> bool` | `docker cp` off the `dmac-cc-users` volume; **raise `collect.CopyFailed`** when the copy mechanism broke, return `False` when the source is simply absent |
+| `task_rows(task_ids) -> {task_id: row}` | one batched `QueryTask` query through the container's own Django ORM: `status`, `progress`, `result`, keyed by the caller's own id strings |
+| `cc_transcript(session_id) -> bytes \| None` | the `CCSessionTranscript` rows for that **NExtSEEK `ChatSession`** (not `cc_session_id`), ordered by `created_at`, folded into one session `.jsonl` and recompressed to a single zstd frame |
+| `copy_tree(src, dest) -> bool` | `docker cp <container>:<src> -` streamed out as base64 and unpacked here; **raises `collect.CopyFailed`** when the copy mechanism broke, returns `False` when the source is simply absent |
 
 That split in `copy_tree` is not decoration: "cc_sweep reaped the scratch" is a
 fact about the run and "docker is not running" is a fact about the collector, and
-a hundred of the second must not read as a hundred of the first.
+a hundred of the second must not read as a hundred of the first. The outcome is
+**not** read off an exit code, because `docker exec <missing container> true` and
+`docker exec <live> test -e <missing path>` both exit 1; a probe inside the
+container echoes which of the three it is.
 
-**Until it exists, everything downstream is degraded rather than broken, and each
-step says so when it runs.** Steps 2 and 3 print the SAME warning
+Two things about the transcript that are easy to get wrong and silent when you
+do, both settled against the live database rather than assumed:
+
+* `turn_id` is `str(query_task.task_id)` -- a random UUID in a `CharField` -- so
+  ordering by it is a lexicographic **shuffle**. `created_at` is the real order.
+* Each row holds the **cumulative** session `.jsonl`, not that turn's delta:
+  `--resume` keeps Claude appending to one file under the per-session cc-state
+  dir and every turn re-reads all of it. Turn 2's blob `startswith` turn 1's,
+  byte for byte, on every multi-turn session in the database. So concatenating
+  the rows duplicates every earlier turn. `sources.merge_transcripts` folds by
+  containment, which is right for cumulative rows AND for the disjoint rows a
+  wiped cc-state store produces.
+
+**The command refuses rather than half-collecting.** No paired manifest, no pairs
+in it, or a container that cannot answer a ping, and it exits 2 having written
+nothing. That last one matters most: a collection run against a dead container
+finishes and finishes LOOKING complete, with every artifact recorded missing --
+indistinguishable on the page from a product that produced nothing, and
+discovered, if at all, after grading 254 blank arms.
+
+**If you skip step 1, everything downstream is degraded rather than broken, and
+each step says so when it runs.** Steps 2 and 3 print the SAME warning
 (`export.no_artifacts_warning`, one voice, one place) with their own tail: with
 no `artifacts/` tree neither can see a deadline abort at all -- the only evidence
 is a collected, still-non-terminal task row -- so a turn that blew the deadline
@@ -199,9 +225,9 @@ sibling `output-skill/` rotted for exactly that reason. The script here exists
 only to give this file a path to name. Change behaviour in the package, not in
 the script.
 
-The other three modules the sequence uses are plain `nessie_tests` modules, not
-skill files: `nessie_tests/collect.py`, `nessie_tests/export.py` and
-`nessie_tests/bayes_manifest.py`.
+The other four modules the sequence uses are plain `nessie_tests` modules, not
+skill files: `nessie_tests/collect.py`, `nessie_tests/sources.py`,
+`nessie_tests/export.py` and `nessie_tests/bayes_manifest.py`.
 
 `build_bayes_report.py` takes `--run` (the run directory), `--out`, and
 optionally `--corpus` (defaults to `nessie_tests/corpus.json`, which is where the

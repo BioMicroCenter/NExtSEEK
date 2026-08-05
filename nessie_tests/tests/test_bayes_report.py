@@ -549,16 +549,27 @@ def test_every_script_command_in_the_runbook_exists_and_is_executable():
         assert '__name__ == "__main__"' in path.read_text(encoding="utf-8"), rel
 
 
-def test_the_runbook_does_not_present_collection_as_a_runnable_command():
-    """It is not runnable: `collect.collect` needs a concrete `Sources` and no
-    task in this plan builds one. The runbook must say so and name what is
-    missing, rather than printing a command that exits 0."""
+def test_the_runbook_presents_collection_as_the_real_command_it_now_is():
+    """Step 1 used to say collection was not runnable, because no concrete
+    `Sources` existed. `sources.DockerSources` is one, so the runbook prints the
+    command -- and the test above proves that command has an entry point, which
+    is the property the old refusal was standing in for."""
     text = _skill_text()
 
-    assert "python -m nessie_tests.collect --run" not in text
-    assert "not runnable" in text.lower()
+    assert "python -m nessie_tests.collect --run" in text
+    assert "not runnable" not in text.lower()
+    # It still names the contract, so a reader knows what the step reads.
     for name in ("Sources", "task_rows", "cc_transcript", "copy_tree"):
         assert name in text
+
+
+def test_the_runbook_keeps_the_two_transcript_traps_that_are_silent_when_wrong():
+    """Both scramble or duplicate a multi-turn transcript without failing, so a
+    runbook that omits them lets the next reader "simplify" them back in."""
+    text = _skill_text()
+
+    assert "turn_id" in text and "created_at" in text
+    assert "cumulative" in text.lower()
 
 
 def test_the_runbook_points_at_the_importable_merge_grades():

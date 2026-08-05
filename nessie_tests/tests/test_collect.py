@@ -627,7 +627,7 @@ def test_run_case_records_every_turns_task_id():
 
 
 # --------------------------------------------------------------------------- #
-# Where the tree goes, and why this module is not a command.
+# Where the tree goes, and what the command refuses.
 # --------------------------------------------------------------------------- #
 
 def test_the_collector_writes_where_artifacts_dir_points(tmp_path):
@@ -646,18 +646,142 @@ def test_the_collector_writes_where_artifacts_dir_points(tmp_path):
     assert collect.artifacts_dir(tmp_path) == tmp_path / collect.ARTIFACTS_DIRNAME
 
 
-def test_running_the_collector_as_a_command_fails_loudly(capsys):
-    """It cannot run: `collect.collect` needs a concrete `Sources` and no task in
-    this plan builds one. SKILL.md used to print a command for it that exited 0,
-    printed nothing and wrote nothing -- so the operator built the report over an
-    empty tree, graded 254 arms reading "No reply was recorded", and discovered it
-    four steps later when `merge_grades` raised FileNotFoundError.
-    """
-    assert collect.main([]) != 0
+def test_the_collector_is_a_real_command_now(tmp_path, monkeypatch, capsys):
+    """It used to refuse unconditionally, because no concrete `Sources` existed.
+    `sources.DockerSources` is one, so the documented step must actually collect
+    -- SKILL.md printing a command that does nothing is the whole defect this
+    family of tests exists about."""
+    from nessie_tests import sources as sources_mod
+    run = _run_dir(tmp_path)
+    monkeypatch.setattr(sources_mod, "DockerSources",
+                        lambda **kw: _PingableSources())
+
+    assert collect.main(["--run", str(run)]) == 0
+
+    assert (collect.artifacts_dir(run) / "a.one" / "ns").is_dir()
+    assert (run / "collection.json").is_file()
+    assert "1 pair(s)" in capsys.readouterr().out
+
+
+def test_the_command_refuses_a_run_directory_with_no_paired_manifest(tmp_path, capsys):
+    """A normal run's `manifest.json` validates as an EMPTY paired manifest
+    rather than raising, so reading it here would write an empty artifacts tree
+    and call the run collected -- the same collision `export` refuses."""
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "manifest.json").write_text(json.dumps(
+        {"started_at": "t0", "ended_at": "t1", "tier": "full", "scope": "all",
+         "entries": []}), encoding="utf-8")
+
+    assert collect.main(["--run", str(run)]) == 2
 
     err = capsys.readouterr().err
-    assert "not runnable" in err
-    # It names exactly what is missing, so the gap is actionable rather than a
-    # bare refusal.
-    for name in ("Sources", "task_rows", "cc_transcript", "copy_tree"):
-        assert name in err
+    assert "bayes_manifest.json" in err
+    assert not collect.artifacts_dir(run).exists()
+
+
+def test_the_command_refuses_a_manifest_with_no_pairs(tmp_path, capsys):
+    run = tmp_path / "run"
+    from nessie_tests.bayes_manifest import BayesManifest, write_bayes_manifest
+    write_bayes_manifest(BayesManifest(), run)
+
+    assert collect.main(["--run", str(run)]) == 2
+    assert "no pairs" in capsys.readouterr().err
+
+
+def test_the_command_refuses_when_the_container_cannot_answer(tmp_path, monkeypatch,
+                                                              capsys):
+    """The refusal that survives. A collection run against a dead container
+    finishes, and finishes LOOKING complete: `collection.json` records every
+    artifact missing, which is indistinguishable on the page from a product that
+    produced nothing -- discovered, if at all, after grading 254 blank arms."""
+    from nessie_tests import sources as sources_mod
+    run = _run_dir(tmp_path)
+
+    class Dead:
+        def ping(self):
+            raise sources_mod.SourcesUnavailable("No such container: nextseek")
+
+    monkeypatch.setattr(sources_mod, "DockerSources", lambda **kw: Dead())
+
+    assert collect.main(["--run", str(run)]) == 2
+
+    err = capsys.readouterr().err
+    assert "No such container" in err
+    assert "nothing was collected" in err
+    # And it wrote nothing that a later step could mistake for a collection.
+    assert not collect.artifacts_dir(run).exists()
+    assert not (run / "collection.json").exists()
+
+
+def test_a_run_that_joined_nothing_at_all_says_so(tmp_path, monkeypatch, capsys):
+    """Every arm missing is recorded rather than raised -- that is the module's
+    design -- but a summary that printed only totals would let a total join
+    failure read as a run in which nothing happened."""
+    from nessie_tests import sources as sources_mod
+    run = _run_dir(tmp_path)
+    monkeypatch.setattr(sources_mod, "DockerSources",
+                        lambda **kw: _PingableSources(rows={}))
+
+    assert collect.main(["--run", str(run)]) == 0
+    assert "not one task row was joined" in capsys.readouterr().out
+
+
+def test_a_host_without_zstandard_is_warned_before_it_pays_for_the_collection(
+        tmp_path, monkeypatch, capsys):
+    """`decompress_transcript` imports zstandard late so this module stays
+    importable without it. The cost is that a host missing it finds out only as
+    127 CC arms recorded `unreadable`, buried among the honest misses -- and that
+    is a fact about the COLLECTOR, not about the run."""
+    import builtins
+    from nessie_tests import sources as sources_mod
+    run = _run_dir(tmp_path)
+    monkeypatch.setattr(sources_mod, "DockerSources",
+                        lambda **kw: _PingableSources())
+    real = builtins.__import__
+
+    def no_zstd(name, *a, **kw):
+        if name == "zstandard":
+            raise ImportError("no zstandard")
+        return real(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", no_zstd)
+
+    assert collect.main(["--run", str(run)]) == 0
+
+    err = capsys.readouterr().err
+    assert "zstandard" in err and "session.jsonl" in err
+
+
+def test_the_command_names_a_broken_copier_separately_from_an_absent_source(tmp_path):
+    """The whole `CopyFailed` split is wasted if the summary adds them up."""
+    lines = "\n".join(collect._summarise({
+        "arms_seen": 2, "arms_outage": 0, "turns_seen": 2,
+        "run_roots_copied": 0, "cc_scratch_copied": 0,
+        "missing": [{"kind": "absent"}, {"kind": "copy_failed"}]}))
+
+    assert "absent 1" in lines and "copy_failed 1" in lines
+    assert "COLLECTOR" in lines
+
+
+# An `ns_run_root` already on the row, so `main`'s default `retry_delay_s` never
+# sleeps: the retry is for a row that is terminal and STILL has no run_root, and
+# a unit suite that sleeps two real seconds per CLI test pays for nothing.
+_ROW = {"status": "completed", "result": None,
+        "progress": [{"event": "ns_run_root", "data": {"run_root": "/r"}}]}
+
+
+class _PingableSources(FakeSources):
+    def __init__(self, rows=None, **kw):
+        super().__init__(rows={"t-ns": _ROW} if rows is None else rows,
+                         copyable=kw.pop("copyable", ["/r"]), **kw)
+
+    def ping(self):
+        return {"query_tasks": 1, "cc_transcripts": 0}
+
+
+def _run_dir(tmp_path):
+    from nessie_tests.bayes_manifest import write_bayes_manifest
+    run = tmp_path / "run"
+    write_bayes_manifest(_manifest(), run)
+    return run
