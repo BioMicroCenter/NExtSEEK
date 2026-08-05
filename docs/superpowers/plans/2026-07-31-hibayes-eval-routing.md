@@ -2,16 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **V7 HARDENED — INDEPENDENT EXACT-DIFF REVIEW CLEAN; REMOTE PUBLICATION PENDING (2026-08-05):** V4 below was produced only after
+> **V7 HARDENED — INDEPENDENT EXACT-DIFF REVIEW CLEAN; PUBLISHED ON ORIGIN/DEV (2026-08-05):** V4 below was produced only after
 > re-inventorying every fetched NExtSEEK ref and worktree, the deployed service-account clone, and
 > the running image. V4 supersedes every conflicting V2/V3/original code sketch, command, success
 > condition, failure condition, and rollback statement. Earlier prose remains design history; it
 > is not permission to bypass a V4 gate. The original 15 tasks and all V4 prerequisite work remain
 > **unexecuted**. V5 hardened the retrieved V4 artifact; V6 changed the classifier source but also
 > introduced unapproved assumptions. V7 records the maintainer's 2026-08-05 rulings, corrects those
-> assumptions, and reconciles the latest fetched corpus/source facts. This plan is not executable
-> until its final hash is published as
-> the single authority. Vetting is neither implementation nor execution authorization. The preserved
+> assumptions, and reconciles the latest fetched corpus/source facts. This V7 is the published plan
+> authority on `origin/dev`. Vetting is neither implementation nor execution authorization. The preserved
 > pre-V7 plan is `docs/superpowers/plans/2026-07-31-hibayes-eval-routing.pre-v7-20260805T131500-0400.md`
 > (SHA-256 `77b0d0b0acb9adbde8af88981ec6bf7b2f2ea1a6a828d68895db087c80e94fcf`).
 
