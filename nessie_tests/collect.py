@@ -134,23 +134,30 @@ class Sources:
         Ids with no row are simply absent from the mapping; do not invent rows.
 
     `cc_transcript(session_id) -> bytes | None`
-        The zstd blob for a chat session. `CCSessionTranscript` is keyed
+        The zstd blob for a chat session, decompressing to that session's whole
+        `.jsonl`. `CCSessionTranscript` is keyed
         `(chat_session, cc_session_id, turn_id)`, so a multi-turn CC arm has
-        SEVERAL rows; an implementation should concatenate them in turn order,
-        which is exactly what a session `.jsonl` is. `session_id` here is the
-        NExtSEEK ChatSession id that `make_db_event_callback` setdefaults onto
+        SEVERAL rows -- and they must be folded, NOT concatenated. Each row holds
+        the CUMULATIVE session file as of that turn (`--resume` appends to one
+        file under the per-session cc-state dir and every turn re-reads all of
+        it), so concatenating duplicates every earlier turn, and the result is
+        still valid jsonl, so nothing downstream notices. Order by `created_at`:
+        `turn_id` is `str(query_task.task_id)`, a random UUID in a `CharField`,
+        so ordering by it is a shuffle. `sources.merge_transcripts` folds by
+        containment, which is right for those rows AND for the disjoint ones a
+        wiped cc-state store produces. `session_id` here is the NExtSEEK
+        ChatSession id that `make_db_event_callback` setdefaults onto
         `query_complete` -- NOT `cc_session_id`, which is Claude's own and is a
         different value on the same event.
 
     `copy_tree(src, dest) -> bool`
         True when the tree was copied, False when `src` is not there. Raise
-        `CopyFailed` when the copy itself broke; see that exception.
+        `CopyFailed` when the copy itself broke -- and raise NOTHING ELSE. Only
+        `CopyFailed` is caught below, so any other exception aborts the whole
+        collection over one arm; see `_copy_into`.
 
     The one concrete implementation is `nessie_tests.sources.DockerSources`,
-    which reads all three through the running `nextseek` container. One caveat
-    it settled and this docstring got wrong: the transcript rows are CUMULATIVE
-    snapshots of one growing file, not per-turn deltas, so concatenating them
-    blindly duplicates every earlier turn. See `sources.merge_transcripts`.
+    which reads all three through the running `nextseek` container.
     """
 
     def task_rows(self, task_ids: list[str]) -> dict[str, dict]: ...
@@ -611,10 +618,32 @@ def _summarise(payload: dict) -> list[str]:
         + (": " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items()))
            if kinds else ""),
     ]
+    # Both `copy_failed` and `unreadable` are facts about the COLLECTOR sitting
+    # in a list of facts about the run, so both get called out and neither is
+    # left to be inferred from a total. `unreadable` had no line at all, and its
+    # one diagnosis was the zstandard warning printed on stderr BEFORE a
+    # multi-minute collection -- long scrolled off by the time the operator reads
+    # "unreadable 127" and an exit 0. A diagnosis has to arrive where the person
+    # is looking, which is the end.
     if kinds.get("copy_failed"):
         lines.append(
             f"  !! {kinds['copy_failed']} copy_failed -- that is the COLLECTOR "
             f"failing, not the run: see collection.json")
+    if kinds.get("unreadable"):
+        lines.append(
+            f"  !! {kinds['unreadable']} unreadable -- the blobs were FETCHED "
+            f"and this process could not unpack them, so that is the COLLECTOR "
+            f"too, not a lost transcript.")
+        try:
+            import zstandard  # noqa: F401
+        except ImportError:
+            lines.append("     `zstandard` is not importable here; that is why. "
+                         "Re-run this step as:")
+            lines.append("       uv run --no-project --with zstandard python -m "
+                         "nessie_tests.collect --run <run>")
+        else:
+            lines.append("     `zstandard` IS importable here, so this is not the "
+                         "usual cause: read the reasons in collection.json.")
     if payload["arms_seen"] and not payload["turns_seen"]:
         lines.append(
             "  !! not one task row was joined. The manifest's task_ids and the "

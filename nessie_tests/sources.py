@@ -111,6 +111,14 @@ MARKER = "@@@NESSIE-SOURCES@@@"
 _COPY_PREFIX = "@@@COPY:"
 COPIED, ABSENT, FAILED, UNREACHABLE = "COPIED", "ABSENT", "FAILED", "UNREACHABLE"
 
+# The archive is DELIMITED at both ends, not taken as "whatever stdout held".
+# An ssh banner, a sudo lecture or a docker deprecation notice printed before the
+# payload would otherwise be concatenated into it, and `b64decode` is happy to
+# fold stray characters in and hand back a corrupt tar -- which surfaces as a
+# `tarfile.ReadError` from somewhere else entirely. This bites hardest on the
+# `--host` path, which is precisely the path with the most hops that can talk.
+_COPY_BEGIN = "@@@COPY-ARCHIVE@@@"
+
 
 class SourcesUnavailable(RuntimeError):
     """The TRANSPORT did not work: no container, no daemon, no Django, no MySQL.
@@ -350,11 +358,21 @@ def _extract(archive: bytes, dest: pathlib.Path) -> None:
     Staged in a sibling of `dest` so the move is a same-filesystem rename;
     `/tmp` would silently degrade to a whole-tree copy across a mount boundary.
     An existing `dest` is REPLACED, because collection is designed to be re-run.
+
+    RAISES ONLY `CopyFailed`. `filter="data"` refuses an absolute symlink, and a
+    CC scratch dir holding a venv (`bin/python -> /usr/bin/python3`) has one, so
+    `AbsoluteLinkError` is a REALISTIC input here rather than a theoretical one.
+    Left to propagate it would abort a 254-arm collection over one arm. The
+    filter is kept -- extracting an absolute symlink out of a container onto this
+    filesystem is not something to do quietly -- and the refusal is reported as
+    what it is: a copy this collector could not perform.
     """
     dest = pathlib.Path(dest)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    staging = pathlib.Path(tempfile.mkdtemp(prefix=".nessie-cp-", dir=dest.parent))
+    staging = None
     try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        staging = pathlib.Path(tempfile.mkdtemp(prefix=".nessie-cp-",
+                                                dir=dest.parent))
         with tarfile.open(fileobj=io.BytesIO(archive), mode="r|*") as tf:
             try:
                 tf.extractall(staging, filter="data")
@@ -370,8 +388,15 @@ def _extract(archive: bytes, dest: pathlib.Path) -> None:
         elif dest.is_dir():
             shutil.rmtree(dest)
         shutil.move(str(entries[0]), str(dest))
+    except collect.CopyFailed:
+        raise
+    except Exception as exc:
+        raise collect.CopyFailed(
+            f"unpacking the archive onto {dest} failed: "
+            f"{type(exc).__name__}: {exc}") from exc
     finally:
-        shutil.rmtree(staging, ignore_errors=True)
+        if staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
 
 
 class DockerSources:
@@ -485,8 +510,27 @@ class DockerSources:
         The archive is streamed to stdout rather than to a path on the docker
         host, so `--host` works exactly like the local case instead of leaving
         the collected tree on the far side of the ssh hop.
+
+        THOSE THREE OUTCOMES ARE THE ONLY THINGS THAT ESCAPE. Every other failure
+        -- a `subprocess.TimeoutExpired` out of the runner, a `tarfile.ReadError`
+        from a corrupted stream, an `AbsoluteLinkError` from a venv symlink in a
+        CC scratch dir, an `OSError` from a full disk -- is re-raised as
+        `CopyFailed`, because `collect._copy_into` catches only that and anything
+        else propagates out of `collect.collect`. One such arm out of 254 then
+        aborts the whole collection: no `collection.json` is written and
+        `artifacts/` is left half-written, which `export` cannot detect at all
+        (it warns only when the tree is ABSENT) and so exports silently. That is
+        the exact failure `collect`'s docstring means by "NOTHING here raises on
+        a missing artifact", and it is this method's job to keep true.
         """
-        out = self._execute(self._copy_script(src))
+        try:
+            out = self._execute(self._copy_script(src))
+        except collect.CopyFailed:
+            raise
+        except Exception as exc:
+            raise collect.CopyFailed(
+                f"the transport failed while copying {src}: "
+                f"{type(exc).__name__}: {exc}") from exc
         lines = out.stdout.decode("utf-8", errors="replace").splitlines()
         status, cut = "", len(lines)
         for i in range(len(lines) - 1, -1, -1):
@@ -499,11 +543,26 @@ class DockerSources:
         if status == ABSENT:
             return False
         if status == COPIED:
-            archive = base64.b64decode(
-                "".join(ln.strip() for ln in lines[:cut]), validate=False)
-            if not archive:
+            try:
+                begin = lines.index(_COPY_BEGIN)
+            except ValueError:
+                raise collect.CopyFailed(
+                    f"`docker cp` reported success for {src} but the archive was "
+                    f"not delimited; the stream is not what this expects") from None
+            body = "".join(ln.strip() for ln in lines[begin + 1:cut])
+            if not body:
                 raise collect.CopyFailed(
                     f"`docker cp` reported success for {src} but sent no archive")
+            try:
+                # `validate=True`: with the payload delimited there is nothing
+                # legitimate left to discard, so a stray character is evidence
+                # that the stream is corrupt and must not be quietly dropped into
+                # a tar that then fails to open somewhere else.
+                archive = base64.b64decode(body, validate=True)
+            except Exception as exc:
+                raise collect.CopyFailed(
+                    f"the archive for {src} did not decode: "
+                    f"{type(exc).__name__}: {exc}") from exc
             _extract(archive, pathlib.Path(dest))
             return True
         if status == FAILED:
@@ -519,10 +578,11 @@ class DockerSources:
             f"{_tail(out.stderr)}")
 
     def _copy_script(self, src: str) -> str:
-        """`docker cp` to stdout as base64, then ONE line naming the outcome.
+        """`docker cp` to stdout as base64, delimited, then the outcome.
 
-        The marker trails the payload so nothing has to be buffered to a file on
-        the docker host; the parser reads it from the end.
+        The status marker TRAILS the payload so nothing has to be buffered to a
+        file on the docker host; a `_COPY_BEGIN` line LEADS it so anything the
+        transport printed first cannot be read as part of the archive.
         """
         cref = shlex.quote(f"{self.container}:{src}")
         cont = shlex.quote(self.container)
@@ -530,6 +590,7 @@ class DockerSources:
             f"if [ -e {shlex.quote(src)} ]; then echo PRESENT; else echo ABSENT; fi")
         return (
             "set -u\n"
+            f"printf '%s\\n' '{_COPY_BEGIN}'\n"
             f"docker cp {cref} - 2>/dev/null | base64 -w0\n"
             "rc=${PIPESTATUS[0]}\n"
             "printf '\\n'\n"

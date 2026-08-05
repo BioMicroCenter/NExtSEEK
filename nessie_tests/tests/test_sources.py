@@ -75,10 +75,11 @@ def _tar(entries, root="b"):
     return buf.getvalue()
 
 
-def _copy_out(archive=None, status=sources.COPIED):
+def _copy_out(archive=None, status=sources.COPIED, before=""):
     payload = base64.b64encode(archive).decode() if archive else ""
     return sources.Completed(
-        0, f"{payload}\n@@@COPY:{status}@@@\n".encode(), b"")
+        0, f"{before}{sources._COPY_BEGIN}\n{payload}\n@@@COPY:{status}@@@\n".encode(),
+        b"")
 
 
 # --------------------------------------------------------------------------- #
@@ -347,6 +348,53 @@ def test_the_container_script_is_valid_python():
         compile(sources._container_script(op, "/app"), "<container>", "exec")
 
 
+def _embedded_namespace():
+    """Define the embedded functions with ONLY what the container script gives
+    them: its own imports, and each other. No `nessie_tests`, no test globals."""
+    import ast
+
+    tree = ast.parse(sources._container_script({"op": "ping"}, "/app"))
+    wanted = {"canonical_task_ids", "project_task_rows", "merge_transcripts"}
+    defs = [n for n in tree.body
+            if isinstance(n, ast.FunctionDef) and n.name in wanted]
+    assert {n.name for n in defs} == wanted, "the script stopped embedding them"
+
+    import builtins
+
+    ns = {"__builtins__": builtins}
+    # `import base64, json, os, sys, uuid` -- the script's first line, and the
+    # ONLY names the far side has beyond builtins and these three functions.
+    exec("import base64, json, os, sys, uuid", ns)
+    exec(compile(ast.Module(body=defs, type_ignores=[]), "<embedded>", "exec"), ns)
+    return ns
+
+
+def test_the_embedded_functions_run_with_nothing_but_the_scripts_own_imports():
+    """`compile()` proves the script PARSES; it does not prove the functions can
+    RUN. A helper referenced but not embedded is a NameError raised inside the
+    container, halfway through a collection, on the one code path no host test
+    executes. So execute them here, in a namespace holding only what the far side
+    actually has."""
+    ns = _embedded_namespace()
+
+    assert ns["canonical_task_ids"](["not-a-uuid", _A]) == {_A: [_A]}
+    assert ns["project_task_rows"]([_A], [_db_row(_A)]) == {
+        _A: {"status": "completed", "progress": [], "result": None}}
+    assert ns["merge_transcripts"]([b"a\n", b"a\nb\n"]) == b"a\nb\n"
+
+
+def test_the_embedded_functions_agree_with_the_ones_tested_on_this_side():
+    """Same source, so they must -- and if `_container_script` ever transformed
+    the source instead of embedding it verbatim, this is what would catch it."""
+    ns = _embedded_namespace()
+    cases = ([b"a\n", b"a\nb\n"], [b"a\n", b"b\n"], [], [b"x"])
+
+    for chunks in cases:
+        assert ns["merge_transcripts"](chunks) == sources.merge_transcripts(chunks)
+    assert (ns["project_task_rows"]([_A, _B], [_db_row(_A)])
+            == sources.project_task_rows([_A, _B], [_db_row(_A)]))
+
+
 def test_the_transcript_is_recompressed_to_one_frame():
     """The rows are separate zstd frames and `collect.decompress_transcript`
     opens a single stream over what it is handed, so shipping them end to end
@@ -485,6 +533,153 @@ def test_the_staging_dir_is_cleaned_up_even_when_the_move_never_happens(tmp_path
         sources.DockerSources(run=run).copy_tree("/s", dest)
 
     assert list((tmp_path / "sub").iterdir()) == []
+
+
+# --------------------------------------------------------------------------- #
+# copy_tree raises `CopyFailed` AND NOTHING ELSE
+#
+# `collect._copy_into` catches only `CopyFailed`, so anything else propagates out
+# of `collect.collect` and one arm out of 254 aborts the whole collection: no
+# `collection.json`, and an `artifacts/` tree left half-written that `export`
+# cannot detect (it warns only when the tree is ABSENT) and so exports silently.
+# Each of the three below was reproduced before it was fixed.
+# --------------------------------------------------------------------------- #
+def _venv_symlink_tar():
+    """A CC scratch dir holding a venv: `bin/python -> /usr/bin/python3`.
+
+    `extractall(filter="data")` refuses an absolute symlink, which is the right
+    call -- following one out of a container onto this filesystem is not
+    something to do quietly -- but it refuses by raising `AbsoluteLinkError`.
+    """
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tf:
+        root = tarfile.TarInfo("b")
+        root.type, root.mode = tarfile.DIRTYPE, 0o755
+        tf.addfile(root)
+        link = tarfile.TarInfo("b/python")
+        link.type, link.linkname = tarfile.SYMTYPE, "/usr/bin/python3"
+        tf.addfile(link)
+    return buf.getvalue()
+
+
+def test_an_absolute_symlink_in_a_scratch_tree_is_CopyFailed_not_a_crash(tmp_path):
+    run = FakeRunner(_copy_out(_venv_symlink_tar()))
+
+    with pytest.raises(collect.CopyFailed) as exc:
+        sources.DockerSources(run=run).copy_tree("/s", tmp_path / "d")
+
+    assert "AbsoluteLinkError" in str(exc.value)
+
+
+def test_a_banner_before_the_archive_is_CopyFailed_not_a_tarfile_crash(tmp_path):
+    """An ssh banner or a sudo lecture on the `--host` path. Undelimited, it was
+    concatenated into the payload, `b64decode` folded it in, and the corrupt tar
+    surfaced as a `ReadError` from somewhere else entirely."""
+    run = FakeRunner(_copy_out(_tar({"a": b"1"}),
+                               before="Welcome to fairdata-dev\n"))
+
+    ok = sources.DockerSources(host="box", run=run).copy_tree("/s", tmp_path / "d")
+
+    assert ok is True
+    assert (tmp_path / "d" / "a").read_bytes() == b"1"
+
+
+def test_a_corrupt_archive_is_CopyFailed_not_a_tarfile_crash(tmp_path):
+    run = FakeRunner(_copy_out(b"this is not a tar archive at all, not even close"))
+
+    with pytest.raises(collect.CopyFailed):
+        sources.DockerSources(run=run).copy_tree("/s", tmp_path / "d")
+
+
+def test_a_transport_timeout_is_CopyFailed_not_a_TimeoutExpired(tmp_path):
+    import subprocess
+
+    def timing_out(argv, *, timeout=None):
+        raise subprocess.TimeoutExpired(argv, timeout or 1)
+
+    with pytest.raises(collect.CopyFailed) as exc:
+        sources.DockerSources(run=timing_out).copy_tree("/s", tmp_path / "d")
+
+    assert "TimeoutExpired" in str(exc.value)
+
+
+def test_the_script_delimits_the_archive_it_emits(tmp_path):
+    """The parser looks for a BEGIN line; the script has to write one. Two halves
+    of one decision, and only the parser half is exercised by a canned stdout."""
+    run = FakeRunner(_copy_out(status=sources.ABSENT))
+    sources.DockerSources(run=run).copy_tree("/s", tmp_path / "d")
+
+    script = run.script
+    assert sources._COPY_BEGIN in script
+    # BEFORE the copy, or it delimits nothing.
+    assert script.index(sources._COPY_BEGIN) < script.index("docker cp")
+
+
+def test_a_line_printed_AFTER_the_begin_marker_is_CopyFailed_not_a_corrupt_tar(
+        tmp_path):
+    """Delimiting bounds what is read; it cannot stop a hop printing INSIDE the
+    bounds. `validate=True` makes that loud, where `validate=False` would discard
+    the stray characters and hand back a tar that fails to open somewhere else --
+    reported against the wrong thing entirely."""
+    payload = base64.b64encode(_tar({"a": b"1"})).decode()
+    run = FakeRunner(sources.Completed(
+        0, (f"{sources._COPY_BEGIN}\n"
+            f"docker: 'cp' hint: use --quiet to suppress\n"
+            f"{payload}\n@@@COPY:{sources.COPIED}@@@\n").encode(), b""))
+
+    with pytest.raises(collect.CopyFailed) as exc:
+        sources.DockerSources(run=run).copy_tree("/s", tmp_path / "d")
+
+    assert "did not decode" in str(exc.value)
+
+
+def test_an_undelimited_archive_is_CopyFailed_rather_than_guessed_at(tmp_path):
+    run = FakeRunner(sources.Completed(
+        0, f"{base64.b64encode(_tar({'a': b'1'})).decode()}\n"
+           f"@@@COPY:{sources.COPIED}@@@\n".encode(), b""))
+
+    with pytest.raises(collect.CopyFailed) as exc:
+        sources.DockerSources(run=run).copy_tree("/s", tmp_path / "d")
+
+    assert "not delimited" in str(exc.value)
+
+
+def test_one_bad_arm_does_not_abort_the_whole_collection(tmp_path):
+    """The invariant `collect.collect`'s own docstring states: NOTHING here
+    raises on a missing artifact. Driven over three pairs, with the middle one's
+    copy blowing up in a way that is not `CopyFailed` at the source."""
+    from nessie_tests.bayes_manifest import BayesManifest, BayesPair
+    from nessie_tests.manifest import NessieManifestEntry
+
+    def entry(vid, tid):
+        return NessieManifestEntry(id=vid, family="f", tier="full",
+                                   status="passed", task_ids=[tid])
+
+    m = BayesManifest(pairs=[
+        BayesPair(id=f"p{i}", family="f", cc=entry(f"p{i}", f"t{i}"))
+        for i in range(3)])
+    row = {"status": "completed", "result": {},
+           "progress": [{"event": "query_complete",
+                         "data": {"session_id": "s",
+                                  "cc_raw_files": ["/m/u/output/raw/x"]}}]}
+    outs = [_payload({f"t{i}": row for i in range(3)})]
+    for i in range(3):
+        # scratch, then artifacts -- the middle pair's scratch is the venv tree.
+        outs.append(_copy_out(_venv_symlink_tar()) if i == 1
+                    else _copy_out(status=sources.ABSENT))
+        outs.append(_copy_out(status=sources.ABSENT))
+        outs.append(_payload(None))
+    run = FakeRunner(*outs)
+
+    payload = collect.collect(m, tmp_path, sources.DockerSources(run=run),
+                              retry_delay_s=0)
+
+    assert (tmp_path / "collection.json").is_file()
+    assert payload["arms_seen"] == 3
+    assert [m_["kind"] for m_ in payload["missing"] if m_["id"] == "p1"
+            and m_["what"] == "cc_scratch"] == ["copy_failed"]
+    # And the pair AFTER the bad one was still collected.
+    assert (collect.artifacts_dir(tmp_path) / "p2" / "cc" / "task.json").is_file()
 
 
 # --------------------------------------------------------------------------- #

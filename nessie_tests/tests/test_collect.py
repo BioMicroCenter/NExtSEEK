@@ -4,6 +4,7 @@ Every source is injected. A unit test must not need MySQL, docker, or a volume.
 """
 import json
 import pathlib
+import types
 
 import pytest
 
@@ -753,15 +754,91 @@ def test_a_host_without_zstandard_is_warned_before_it_pays_for_the_collection(
     assert "zstandard" in err and "session.jsonl" in err
 
 
+def test_the_contract_does_not_tell_the_next_implementer_to_concatenate():
+    """The `Sources` docstring is what a second implementation is written from,
+    and it carried "an implementation should concatenate them in turn order" as a
+    plain imperative. It is wrong: the rows are cumulative snapshots, so
+    concatenating duplicates every earlier turn -- into output that is still valid
+    jsonl, so nothing downstream notices. A retraction further down does not help
+    someone who read the imperative and stopped."""
+    doc = collect.Sources.__doc__
+
+    assert "should concatenate them in turn order" not in doc
+    # It states the trap, the ordering key, and where the answer lives.
+    assert "CUMULATIVE" in doc
+    assert "created_at" in doc and "turn_id" in doc
+    assert "merge_transcripts" in doc
+
+
+def test_the_contract_says_copy_tree_may_raise_nothing_but_CopyFailed():
+    """`_copy_into` catches only `CopyFailed`; anything else aborts the whole
+    collection over one arm."""
+    doc = collect.Sources.__doc__
+
+    assert "NOTHING ELSE" in doc
+
+
+def _summary(*kinds, **counts):
+    return "\n".join(collect._summarise(dict(
+        {"arms_seen": 2, "arms_outage": 0, "turns_seen": 2,
+         "run_roots_copied": 0, "cc_scratch_copied": 0,
+         "missing": [{"kind": k} for k in kinds]}, **counts)))
+
+
 def test_the_command_names_a_broken_copier_separately_from_an_absent_source(tmp_path):
     """The whole `CopyFailed` split is wasted if the summary adds them up."""
-    lines = "\n".join(collect._summarise({
-        "arms_seen": 2, "arms_outage": 0, "turns_seen": 2,
-        "run_roots_copied": 0, "cc_scratch_copied": 0,
-        "missing": [{"kind": "absent"}, {"kind": "copy_failed"}]}))
+    lines = _summary("absent", "copy_failed")
 
     assert "absent 1" in lines and "copy_failed 1" in lines
     assert "COLLECTOR" in lines
+
+
+def _with_zstandard(monkeypatch, present):
+    """Pin the branch rather than inheriting the lane's own answer."""
+    import builtins
+    import sys
+    if present:
+        monkeypatch.setitem(sys.modules, "zstandard", types.ModuleType("zstandard"))
+        return
+    monkeypatch.delitem(sys.modules, "zstandard", raising=False)
+    real = builtins.__import__
+    monkeypatch.setattr(builtins, "__import__", lambda n, *a, **k: (
+        (_ for _ in ()).throw(ImportError("no zstandard")) if n == "zstandard"
+        else real(n, *a, **k)))
+
+
+def test_unreadable_is_diagnosed_at_the_END_where_the_operator_is_looking(monkeypatch):
+    """`unreadable` is a fact about the COLLECTOR sitting in a list of facts
+    about the run, exactly like `copy_failed`, and it had no line at all. Its one
+    diagnosis was the zstandard warning printed to stderr BEFORE a multi-minute
+    collection -- long scrolled off by the time the run ends with "unreadable
+    127" and exit 0."""
+    _with_zstandard(monkeypatch, present=False)
+
+    lines = _summary(*["unreadable"] * 127)
+
+    assert "unreadable 127" in lines
+    assert "COLLECTOR" in lines
+    # The cause AND the command, at the end, not only in a warning 40 minutes up.
+    assert "zstandard" in lines
+    assert "--with zstandard" in lines
+
+
+def test_a_run_that_HAS_zstandard_is_not_told_to_go_and_install_it(monkeypatch):
+    """Same count, opposite diagnosis. Reading the reasons in collection.json is
+    the next step once the usual cause is ruled out."""
+    _with_zstandard(monkeypatch, present=True)
+
+    lines = _summary("unreadable")
+
+    assert "IS importable" in lines and "collection.json" in lines
+    assert "--with zstandard" not in lines
+
+
+def test_a_clean_run_carries_no_alarm_lines():
+    lines = _summary("absent")
+
+    assert "!!" not in lines
 
 
 # An `ns_run_root` already on the row, so `main`'s default `retry_delay_s` never
