@@ -266,6 +266,355 @@ def test_an_unobservable_engine_op_count_is_reported_not_buried(tmp_path):
     assert _rows(tmp_path / "hibayes_eval_rows_ns.csv")[0]["tool_calls_total"] == "0"
 
 
+# --- the terminated arm: is_error, answer_provided, and the message ----------
+# `advanced.bacteria_mtb`'s CC arm in the 13-pair smoke run. Claude Code refused
+# the turn under the Usage Policy, the endpoint wrote `status: "error"` with the
+# canned message in `result.error` and in a `query_error` event, `run_case` scored
+# the (failing) criteria and wrote the entry `failed` -- and the exported row read
+# is_error=false, answer_provided=true, runtime_success=true, failure_mode=none,
+# cost_usd empty. An arm that produced nothing presented as a clean answered turn,
+# and its empty string was queued for a paid LLM judge.
+
+_REFUSAL = ("API Error: Claude Code is unable to respond to this request, which "
+            "appears to violate our Usage Policy "
+            "(https://www.anthropic.com/legal/aup). Try rephrasing the request "
+            "or attempting a different approach.")
+
+
+def _refused(artifacts_dir, vid="a.one", arm="cc"):
+    """The collected task.json a Usage Policy termination actually writes."""
+    (_arm_dir(artifacts_dir, vid, arm) / "task.json").write_text(json.dumps({
+        "status": "error",
+        "progress": [_search("Bash"),
+                     {"event": "query_error", "data": {"error": _REFUSAL,
+                                                       "agent": "container_cc"}}],
+        "result": {"error": _REFUSAL, "agent": "container_cc"},
+    }), encoding="utf-8")
+
+
+def test_a_terminated_arm_is_not_exported_as_a_clean_answered_turn(tmp_path):
+    """THE case. Every one of the five columns was wrong at once.
+
+    `failed` is the harness saying the CRITERIA did not hold, which says nothing
+    about whether the engine spoke -- so it must not carry `answer_provided`, and
+    `is_error` must follow the row the endpoint wrote rather than the verdict the
+    harness reached about it.
+    """
+    art = tmp_path / "artifacts"
+    _refused(art)
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f",
+                                       cc=_entry(status="failed"))])
+
+    export.export(m, tmp_path, artifacts_dir=art)
+
+    row = _rows(tmp_path / "hibayes_eval_rows_cc.csv")[0]
+    assert row["is_error"] == "true"
+    assert row["answer_provided"] == "false"
+    assert row["runtime_success"] == "false"
+    assert row["failure_mode"] == "error"
+
+
+def test_the_grader_sees_the_same_verdict_on_the_terminated_arm(tmp_path):
+    """The three shared columns are in BOTH locked tuples, and Stage B's copy is
+    the one that reaches the LLM judge. `answer_provided=true` beside an empty
+    `final_answer` is a self-contradiction inside one row of one file."""
+    art = tmp_path / "artifacts"
+    _refused(art)
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f",
+                                       cc=_entry(status="failed"))])
+
+    export.export_stage_b(m, tmp_path, artifacts_dir=art,
+                          corpus_path=_corpus(tmp_path))
+
+    row = _rows(tmp_path / "hibayes_functional_eval_inputs.csv")[0]
+    assert row["final_answer"] == ""
+    assert row["answer_provided"] == "false"
+    assert row["runtime_success"] == "false"
+    assert row["failure_mode"] == "error"
+
+
+def test_an_arm_that_failed_its_criteria_WITH_an_answer_is_untouched(tmp_path):
+    """The control. `failed` still means "answered, and the criteria did not
+    hold" whenever the arm actually said something -- which is most of a paid
+    run's CC arms. Tightening `answer_provided` must not sweep those up: they are
+    exactly the rows the two graders exist to judge."""
+    art = tmp_path / "artifacts"
+    _reply(art, "a.one", "cc", "There are 705 mice.")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f",
+                                       cc=_entry(status="failed"))])
+
+    export.export(m, tmp_path, artifacts_dir=art)
+
+    row = _rows(tmp_path / "hibayes_eval_rows_cc.csv")[0]
+    assert row["answer_provided"] == "true"
+    assert row["is_error"] == "false"
+    assert row["runtime_success"] == "true"
+    assert row["failure_mode"] == "none"
+
+
+def test_an_uncollected_arm_is_not_declared_silent(tmp_path):
+    """An ABSENT collected row is not evidence that the engine said nothing --
+    the same rule `_is_unfinished` states for the deadline abort.
+
+    Reading it as evidence would stamp `answer_provided=false` on every arm of an
+    export run without a collected tree, which is the study's outcome variable
+    zeroed across a paid run. The status alone stands, and `unobserved.csv` says
+    that it is standing alone.
+    """
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f",
+                                       cc=_entry(status="failed"))])
+    export.export(m, tmp_path)                       # no artifacts_dir at all
+
+    row = _rows(tmp_path / "hibayes_eval_rows_cc.csv")[0]
+    assert row["answer_provided"] == "true"
+    assert row["runtime_success"] == "true"
+    named = {(r["arm"], r["column"]) for r in _rows(tmp_path / "unobserved.csv")}
+    assert ("cc", "answer_provided") in named
+
+
+def test_a_collected_arm_that_said_nothing_IS_declared_silent(tmp_path):
+    """The other half of the rule: a row that WAS read and carried no reply is a
+    measurement, and false is the honest reading of it."""
+    art = tmp_path / "artifacts"
+    (_arm_dir(art, "a.one", "cc") / "task.json").write_text(
+        json.dumps({"status": "completed", "progress": [], "result": None}),
+        encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f",
+                                       cc=_entry(status="passed"))])
+
+    export.export(m, tmp_path, artifacts_dir=art)
+
+    row = _rows(tmp_path / "hibayes_eval_rows_cc.csv")[0]
+    assert row["answer_provided"] == "false" and row["failure_mode"] == "no_answer"
+    # Measured, so it is NOT an unobserved cell. (`artifact_count` is, because
+    # this arm has no artifacts.json -- a different cell and a different fact.)
+    assert "answer_provided" not in {r["column"]
+                                     for r in _rows(tmp_path / "unobserved.csv")}
+
+
+def test_any_errored_turn_condemns_the_whole_arm(tmp_path):
+    """Same rule as `_deadline_aborted`, for the same reason: a follow-up asked
+    after a turn that errored is not the engine's answer to the question."""
+    art = tmp_path / "artifacts"
+    _turns_json(art, "a.one", "cc", [[], [{"event": "query_complete",
+                                           "data": {"reply": "705 mice."}}]],
+                statuses=["error", "completed"])
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+
+    export.export(m, tmp_path, artifacts_dir=art)
+
+    assert _rows(tmp_path / "hibayes_eval_rows_cc.csv")[0]["is_error"] == "true"
+
+
+def test_a_harness_error_with_no_collected_row_is_still_an_error(tmp_path):
+    """`is_error` is OR'd, not replaced. A turn whose harness raised before any
+    row existed (connection refused) has nothing on disk to read and still
+    failed."""
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f",
+                                       cc=_entry(status="error"))])
+    export.export(m, tmp_path)
+    assert _rows(tmp_path / "hibayes_eval_rows_cc.csv")[0]["is_error"] == "true"
+
+
+# --- arm_diagnostics.csv: the error text, and how the turn stopped -----------
+
+def test_the_refusal_message_survives_to_disk(tmp_path):
+    """The single most diagnostic thing that arm produced, and it reached nothing.
+
+    It cannot go in either locked tuple and it must NOT go in `final_answer` --
+    grading a refusal as an answer is how a blocked turn becomes a bad answer. It
+    goes in the third sidecar, verbatim.
+    """
+    art = tmp_path / "artifacts"
+    _refused(art)
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f",
+                                       cc=_entry(status="failed"))])
+
+    out = export.export(m, tmp_path, artifacts_dir=art)
+
+    row = _rows(tmp_path / "arm_diagnostics.csv")[0]
+    assert row["error_text"] == _REFUSAL
+    assert row["error_class"] == export.ERROR_USAGE_POLICY
+    assert out["errors_usage_policy"] == 1
+
+
+def test_the_error_text_is_recovered_from_query_error_when_the_result_never_landed(tmp_path):
+    """The sibling of `reply_of`'s `query_complete` fallback, and a real one: the
+    event and the result dict are written by separate code paths."""
+    art = tmp_path / "artifacts"
+    (_arm_dir(art, "a.one", "cc") / "task.json").write_text(json.dumps(
+        {"status": "error", "result": None,
+         "progress": [{"event": "query_error", "data": {"error": _REFUSAL}}]}),
+        encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+
+    export.export(m, tmp_path, artifacts_dir=art)
+
+    assert _rows(tmp_path / "arm_diagnostics.csv")[0]["error_text"] == _REFUSAL
+
+
+def test_an_excluded_arm_still_gets_a_diagnostics_row(tmp_path):
+    """The arms whose error text matters MOST are the excluded ones, and whether
+    a usage_policy refusal should join them is an open question -- so the evidence
+    a future ruling rests on must not vanish the moment it is made."""
+    art, m = _pending(tmp_path)
+    m.pairs[0].ns = _entry(status="error", outaged=True)
+
+    out = export.export(m, tmp_path, artifacts_dir=art)
+
+    assert _rows(tmp_path / "hibayes_eval_rows_cc.csv") == []
+    assert {(r["query_id"], r["arm"]) for r in _rows(tmp_path / "arm_diagnostics.csv")} == {
+        ("a.one", "ns"), ("a.one", "cc")}
+    assert out["arm_diagnostics"] == 2
+
+
+def test_the_diagnostics_file_is_written_even_when_nothing_went_wrong(tmp_path):
+    export.export(BayesManifest(pairs=[]), tmp_path)
+    with open(tmp_path / "arm_diagnostics.csv", encoding="utf-8") as fh:
+        assert fh.readline().strip() == ",".join(export.ARM_DIAGNOSTIC_COLUMNS)
+
+
+def test_an_outage_is_classified_through_the_one_detector_not_a_second_copy(tmp_path):
+    """`tests/test_evaluate.py` asserts `outage.py` is the ONLY production module
+    in `nessie_tests/*.py` holding the marker. Classification calls the detector."""
+    assert export.classify_error(
+        f"{outage.PROVIDER_OUTAGE_MARKER} � agent 'x': 503"
+    ) == export.ERROR_OUTAGE
+    src = (ROOT / "nessie_tests" / "export.py").read_text(encoding="utf-8")
+    assert outage.PROVIDER_OUTAGE_MARKER not in src
+
+
+@pytest.mark.parametrize("text, klass", [
+    (_REFUSAL, "usage_policy"),
+    ("blocked: https://www.anthropic.com/legal/aup", "usage_policy"),
+    ("TimeOut waiting for query_complete", "timeout"),
+    ("the socket timed out", "timeout"),
+    ("Traceback: ValueError: nope", "unclassified"),
+    ("", "none"),
+])
+def test_the_error_class_vocabulary(text, klass):
+    assert export.classify_error(text) == klass
+    assert klass in export.ERROR_CLASSES
+
+
+def test_no_collected_row_makes_the_error_class_unobserved_not_none(tmp_path):
+    """`none` says this arm had no error. With nothing collected there was
+    nothing to look in, and the two must never be summed together -- the same
+    distinction `cost_summary` draws between an observed 0 and an unmeasured
+    one."""
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+    out = export.export(m, tmp_path)
+    row = _rows(tmp_path / "arm_diagnostics.csv")[0]
+    assert row["error_class"] == export.ERROR_UNOBSERVED
+    assert row["error_text"] == ""
+    assert out["errors_unobserved"] == 1 and out["errors_none"] == 0
+
+
+def _transcript(artifacts_dir, vid, arm, records):
+    (_arm_dir(artifacts_dir, vid, arm) / export.SESSION_TRANSCRIPT_NAME).write_text(
+        "\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
+
+
+def _assistant(stop_reason):
+    return {"type": "assistant", "message": {"role": "assistant",
+                                             "stop_reason": stop_reason}}
+
+
+def test_stop_reason_is_the_last_one_the_transcript_recorded(tmp_path):
+    art = tmp_path / "artifacts"
+    _transcript(art, "a.one", "cc", [
+        _assistant("tool_use"), {"type": "user"}, _assistant("end_turn")])
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+
+    export.export(m, tmp_path, artifacts_dir=art)
+
+    row = _rows(tmp_path / "arm_diagnostics.csv")[0]
+    assert row["stop_reason"] == "end_turn"
+    assert row["stop_reason_status"] == export.STOP_OBSERVED
+
+
+def test_the_arm_with_no_transcript_reports_no_transcript_and_no_value(tmp_path):
+    """THE case this change is really tested by. `advanced.bacteria_mtb`'s CC arm
+    died before a transcript was written, so it can supply no stop_reason -- and
+    the only wrong answer is one that turns that into a value."""
+    art = tmp_path / "artifacts"
+    _refused(art)
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f",
+                                       cc=_entry(status="failed"))])
+
+    export.export(m, tmp_path, artifacts_dir=art)
+
+    row = _rows(tmp_path / "arm_diagnostics.csv")[0]
+    assert row["stop_reason"] == ""
+    assert row["stop_reason_status"] == export.STOP_NO_TRANSCRIPT
+
+
+def test_a_transcript_with_no_stop_reason_is_not_the_same_as_no_transcript(tmp_path):
+    """"We looked and it was not there" and "there was nothing to look in" are
+    different facts, and a reader must be able to tell them apart."""
+    art = tmp_path / "artifacts"
+    _transcript(art, "a.one", "cc", [{"type": "user"},
+                                     {"type": "assistant", "message": {}}])
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+
+    export.export(m, tmp_path, artifacts_dir=art)
+
+    row = _rows(tmp_path / "arm_diagnostics.csv")[0]
+    assert row["stop_reason"] == ""
+    assert row["stop_reason_status"] == export.STOP_NOT_RECORDED
+    assert export.STOP_NOT_RECORDED != export.STOP_NO_TRANSCRIPT
+
+
+def test_an_ns_arm_is_not_applicable_rather_than_missing_a_transcript(tmp_path):
+    """NS never had a CC transcript to lose. Reporting `no_transcript` for it
+    would put 127 absences in a column where nothing was ever expected."""
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", ns=_entry())])
+    export.export(m, tmp_path)
+    assert _rows(tmp_path / "arm_diagnostics.csv")[0][
+        "stop_reason_status"] == export.STOP_NOT_APPLICABLE
+
+
+def test_an_unparseable_line_does_not_discard_the_records_around_it(tmp_path):
+    """A transcript with a torn line still holds every complete record.
+
+    BOTH SIDES of the tear, deliberately. A bad line at the END is the cheap case
+    -- stopping there and stopping at EOF are the same thing -- so a test that
+    only writes one passes just as happily over an implementation that abandons
+    the file on the first bad line. The record AFTER the tear is what proves the
+    line is skipped rather than the file abandoned, and that is the case a
+    partially flushed write in the middle of an append-only log produces.
+    """
+    art = tmp_path / "artifacts"
+    path = _arm_dir(art, "a.one", "cc") / export.SESSION_TRANSCRIPT_NAME
+    path.write_text("\n".join([
+        json.dumps(_assistant("tool_use")),
+        '{"type": "assis',                          # torn mid-record
+        json.dumps(_assistant("end_turn")),         # and the log carries on
+        '{"type": "assis',                          # torn at EOF
+    ]), encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+
+    export.export(m, tmp_path, artifacts_dir=art)
+
+    row = _rows(tmp_path / "arm_diagnostics.csv")[0]
+    assert (row["stop_reason"], row["stop_reason_status"]) == (
+        "end_turn", export.STOP_OBSERVED)
+
+
+def test_an_unreadable_transcript_is_not_reported_as_an_absent_one(tmp_path):
+    art = tmp_path / "artifacts"
+    path = _arm_dir(art, "a.one", "cc") / export.SESSION_TRANSCRIPT_NAME
+    path.write_text(json.dumps(_assistant("end_turn")), encoding="utf-8")
+    path.chmod(0o000)
+    try:
+        value, status = export.stop_reason(art, "a.one", "cc")
+    finally:
+        path.chmod(0o644)
+    if status == export.STOP_OBSERVED:
+        pytest.skip("running as root: an unreadable file is not reachable")
+    assert (value, status) == ("", export.STOP_UNREADABLE)
+
+
 # --- exclusions ---------------------------------------------------------------
 
 def test_a_skipped_arm_is_excluded_not_scored(tmp_path):
@@ -397,15 +746,27 @@ def test_an_outage_outranks_a_deadline_abort(tmp_path):
 def test_an_unobserved_cell_names_its_row_on_disk(tmp_path):
     """`excluded.csv` exists because a count in a return dict identifies nothing.
     A `tool_calls_total` of 0 that means "not collected" sits indistinguishable
-    among real counts unless something on disk says which rows they were."""
+    among real counts unless something on disk says which rows they were.
+
+    `answer_provided` JOINED THIS LIST when it became a conjunction of the
+    manifest status and the collected reply. With no collected row only the first
+    half was evaluated, so the emitted `true` rests on a status meaning "the
+    criteria ran" and nobody ever read what the arm said -- and `runtime_success`
+    and `failure_mode`, the study's outcome variable, derive from it.
+    """
     m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", ns=_entry(), cc=_entry())])
     out = export.export(m, tmp_path)
     rows = _rows(tmp_path / "unobserved.csv")
     assert {(r["query_id"], r["arm"], r["column"]) for r in rows} == {
         ("a.one", "ns", "tool_calls_total"), ("a.one", "cc", "tool_calls_total"),
-        ("a.one", "ns", "artifact_count"), ("a.one", "cc", "artifact_count")}
-    assert {r["emitted"] for r in rows} == {"0"}
-    assert out["unobserved_cells"] == 4
+        ("a.one", "ns", "artifact_count"), ("a.one", "cc", "artifact_count"),
+        ("a.one", "ns", "answer_provided"), ("a.one", "cc", "answer_provided")}
+    counts = {r["emitted"] for r in rows if r["column"] != "answer_provided"}
+    assert counts == {"0"}
+    # The emitted value, not a placeholder: a reader must be able to see WHICH
+    # unsupported claim reached the CSV without recomputing it.
+    assert {r["emitted"] for r in rows if r["column"] == "answer_provided"} == {"true"}
+    assert out["unobserved_cells"] == 6
 
 
 def test_a_collected_arm_records_no_unobserved_cell(tmp_path):
@@ -839,7 +1200,7 @@ def test_the_documented_export_command_actually_writes_the_csvs(tmp_path):
     assert proc.returncode == 0, proc.stderr
     for name in ("hibayes_eval_rows_ns.csv", "hibayes_eval_rows_cc.csv",
                  "hibayes_functional_eval_inputs.csv", "excluded.csv",
-                 "unobserved.csv"):
+                 "unobserved.csv", "arm_diagnostics.csv"):
         assert (run / name).is_file(), f"{name} was not written"
     assert _rows(run / "hibayes_eval_rows_ns.csv")[0]["query_id"] == "a.one"
     # It also SAYS what it did. A silent success is how the no-op survived.

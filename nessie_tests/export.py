@@ -43,6 +43,27 @@ indistinguishable from a measured one. Those cells are listed by row in
 `unobserved.csv` -- `excluded.csv` exists precisely because a scalar in a return
 dict identifies nothing.
 
+THE 14 AND THE 12 ARE LOCKED, AND SOME OF WHAT A RUN OBSERVES DOES NOT FIT IN
+THEM. `arm_diagnostics.csv` is the third sidecar, on the same principle as the
+other two: it NAMES the rows rather than counting them, one row per arm, keyed
+`(query_id, arm)` exactly as `excluded.csv` and `unobserved.csv` are, so all
+three join to the locked files and to each other without a second key. It carries
+two things the locked tuples have no column for and must not grow one:
+
+* `error_text` -- the turn's own error message, verbatim. `advanced.bacteria_mtb`'s
+  CC arm was terminated by an Anthropic Usage Policy trigger and the canned
+  refusal is the single most diagnostic thing that run produced about it; it sat
+  in `result.error` and in the `query_error` event and reached nothing at all.
+  Recovering it is not new capture, it is reading what the collector already
+  wrote.
+* `stop_reason` / `stop_reason_status` -- how the CC transcript's last `assistant`
+  record says the model stopped, and whether that is a MEASUREMENT.
+
+EVERY arm gets a diagnostics row, INCLUDING the excluded ones. An excluded arm is
+the one whose error text matters most, and whether a policy refusal ends up
+excluded or scored is an open question -- so the evidence a future ruling would
+be made on must not disappear the moment the ruling is made.
+
 WHAT `artifacts_dir` IS. `collect.collect(manifest, out_dir, ...)` writes
 `<out_dir>/artifacts/<variant>/<arm>/`, so `artifacts_dir` is that `artifacts`
 directory -- not the collector's `out_dir`. It is DERIVED, by
@@ -90,6 +111,16 @@ EXCLUDED_COLUMNS: tuple[str, ...] = ("query_id", "arm", "cause", "status", "reas
 # CSV, so a reader can find it without recomputing anything.
 UNOBSERVED_COLUMNS: tuple[str, ...] = ("query_id", "arm", "column", "emitted", "reason")
 
+# One row per ARM -- every arm the manifest holds, scored or excluded. Two
+# columns for the stop reason and ONE for the error, because the two absences are
+# shaped differently: a `stop_reason` is a value whose existence is a separate
+# question from its content (there may be no transcript to look in at all),
+# whereas an error either happened or did not, so its own status IS its class.
+# `ERROR_CLASSES` below documents that vocabulary, absences included.
+ARM_DIAGNOSTIC_COLUMNS: tuple[str, ...] = (
+    "query_id", "arm", "stop_reason", "stop_reason_status", "error_class",
+    "error_text")
+
 ARMS = ("ns", "cc")
 
 CAUSE_OUTAGE = "provider_outage"
@@ -136,13 +167,20 @@ def failure_mode(*, answer_provided: bool, is_error: bool, timed_out: bool) -> s
     return "none"
 
 
-def runtime_flags(entry) -> tuple[bool, bool, bool]:
+def runtime_flags(entry, rows=()) -> tuple[bool, bool, bool]:
     """`(answer_provided, is_error, timed_out)` for one arm.
 
     ONE derivation, because `answer_provided`, `runtime_success` and
     `failure_mode` all appear in BOTH locked tuples and a downstream join puts
     the two files side by side. Two definitions of one column name is exactly the
     drift the rest of this harness refuses.
+
+    `rows` is this arm's COLLECTED turn rows (`_turn_rows`). It is what the
+    endpoint itself recorded, and it outranks the manifest entry on the two facts
+    the entry gets wrong -- see `_answered` and `_row_errored`. It defaults to
+    `()` so a caller with no collected tree still gets today's status-only
+    answer rather than a TypeError, and `export` passes the rows it has already
+    read for `_exclusion`.
 
     `timed_out` is read off `reason` because no status encodes it. That catches
     exactly ONE kind of timeout: a socket-level `TimeoutError` out of `urlopen`,
@@ -155,15 +193,74 @@ def runtime_flags(entry) -> tuple[bool, bool, bool]:
     carries no exception, no "timeout" anywhere in `reason`, and lands `failed` --
     a status inside `_ANSWERED`. That arm is EXCLUDED before it reaches this
     function (see `_deadline_aborted`), which is why this function can go on
-    treating `failed` as an answer.
+    treating `failed` as an answer WHEN THE ARM ALSO SAID SOMETHING.
     """
-    return (entry.status in _ANSWERED,
-            entry.status == "error",
+    rows = list(rows)
+    return (_answered(entry, rows),
+            entry.status == "error" or _row_errored(rows),
             "timeout" in (entry.reason or "").lower())
 
 
-def runtime_row(entry, *, arm, family, subtype, artifact_count, engine_ops=0) -> dict:
-    answer_provided, is_error, timed_out = runtime_flags(entry)
+def _answered(entry, rows) -> bool:
+    """Did this arm produce a reply?
+
+    TWO conditions, and the second is the fix. `_ANSWERED` contains `failed`,
+    which is the harness saying "the criteria did not hold" and says nothing at
+    all about whether the engine spoke -- so an arm that produced NOTHING but
+    landed `failed` (the Usage Policy refusal on `advanced.bacteria_mtb`'s CC arm
+    is the case) reported `answer_provided=true`, `runtime_success=true`,
+    `failure_mode=none`, and then went to a paid LLM judge as an empty string.
+    A status in `_ANSWERED` is now necessary and not sufficient: the arm must
+    also have said something.
+
+    THE COLLECTED REPLY CAN REFUTE, IT CANNOT ESTABLISH. `not rows` means nothing
+    was collected for this arm, which is not evidence that it stayed silent --
+    the same rule, and the same reason, as `_is_unfinished`: an absence is not a
+    positive fact, and reading it as one would stamp `answer_provided=false` on
+    every arm of any export run without a collected tree, silently zeroing the
+    study's outcome variable across a paid run. So an uncollected arm falls back
+    to the status alone, and `_unobserved` records that it did, by row.
+
+    An arm that WAS collected and whose last turn carried no reply is a
+    measurement, and `false` is the honest reading of it.
+    """
+    if entry.status not in _ANSWERED:
+        return False
+    return bool(final_answer(rows)) if rows else True
+
+
+# The task-row status that means the turn itself errored. This is the ENDPOINT's
+# vocabulary (`QueryTask.status`), which is why it is checked against a collected
+# row and not against a manifest entry; `collect._TERMINAL` is the same
+# vocabulary and holds this value as its second member.
+_ROW_ERROR = "error"
+
+
+def _row_errored(rows) -> bool:
+    """True when any collected turn row says the turn ERRORED.
+
+    `is_error` used to read `entry.status == "error"` alone, and the manifest
+    entry's status is the HARNESS's verdict, not the turn's: `run_case` records
+    `error` when the harness itself raised, and evaluates criteria otherwise. A
+    turn the endpoint terminated -- a Usage Policy refusal, a provider fault,
+    anything that lands `QueryTask.status = "error"` -- comes back with failing
+    criteria and is written `failed`. So the row on disk said `status: "error"`
+    while the CSV said `is_error=false`.
+
+    OR'd with the entry status rather than replacing it: an arm whose harness
+    raised before any row existed (connection refused) has no collected row to
+    read and is still an error.
+
+    ANY turn, not the last. Same rule as `_deadline_aborted`, for the same
+    reason: a follow-up asked after a turn that errored is not the engine's
+    answer to the question the corpus posed.
+    """
+    return any((r.get("status") or "") == _ROW_ERROR for r in rows)
+
+
+def runtime_row(entry, *, arm, family, subtype, artifact_count, engine_ops=0,
+                rows=()) -> dict:
+    answer_provided, is_error, timed_out = runtime_flags(entry, rows)
     return {
         "query_id": entry.id,
         "task_family": family,
@@ -312,6 +409,213 @@ def final_answer(rows) -> str:
     task_id of each row it kept and no marker for the ones it did not.
     """
     return reply_of(rows[-1]) if rows else ""
+
+
+# --- the error text, and what kind of error it was ---------------------------
+# `advanced.bacteria_mtb`'s CC arm produced this and nothing else:
+#
+#   "API Error: Claude Code is unable to respond to this request, which appears
+#    to violate our Usage Policy (https://www.anthropic.com/legal/aup). ..."
+#
+# It was in `result.error` and in the `query_error` event's `data.error`, and the
+# exported row said `is_error=false, answer_provided=true, failure_mode=none`.
+# Nothing downstream ever saw the message: the 14 columns have nowhere to put it,
+# Stage B's `final_answer` is empty (correctly -- the refusal is not an answer and
+# must never be graded as one), and the report page renders "No reply was recorded
+# for this arm". Recovering it costs one read of a file the collector already
+# wrote.
+
+def error_of(row) -> str:
+    """The error ONE collected turn recorded, or `""`.
+
+    `result.error` first, for the same reason `reply_of` reads `result.reply`
+    first: it is the endpoint's own final field. The `query_error` event is the
+    fallback for a row whose result never landed -- and it is a real fallback,
+    not a theoretical one, because `translate.py` emits the event and the result
+    dict is written separately.
+    """
+    result = row.get("result")
+    if isinstance(result, dict) and result.get("error"):
+        return str(result["error"])
+    for ev in reversed(row.get("progress") or []):
+        if ev.get("event") != "query_error":
+            continue
+        data = ev.get("data") or {}
+        if isinstance(data, dict) and data.get("error"):
+            return str(data["error"])
+    return ""
+
+
+def final_error(rows) -> str:
+    """The LAST error any of this arm's turns recorded, or `""`.
+
+    The last rather than the first, so a multi-turn arm reports the failure that
+    ended it. `_row_errored` condemns the arm on ANY errored turn, so an arm with
+    a non-empty text here need not have errored on its final turn -- the text
+    says which error, the flag says the arm had one.
+    """
+    for row in reversed(list(rows)):
+        text = error_of(row)
+        if text:
+            return text
+    return ""
+
+
+# The vocabulary of `error_class`, absences INCLUDED, because an absent value
+# must never read as a known one.
+#
+#   provider_outage  every provider in the fallback chain returned 503. Detected
+#                    through `outage.is_provider_outage` and NOT by a copy of the
+#                    marker -- `tests/test_evaluate.py` asserts `outage.py` is the
+#                    only production module in `nessie_tests/*.py` holding it.
+#   usage_policy     Claude Code refused the request under the Usage Policy. THIS
+#                    IS A CLASSIFICATION AND NOT A RULING: whether such an arm
+#                    should be excluded like an outage or scored like a failure is
+#                    the operator's call and is deliberately NOT made here or
+#                    anywhere else in this module. `_exclusion` is untouched.
+#   timeout          the error text itself says the turn timed out.
+#   unclassified     an error text this function has no rule for. A real error,
+#                    a real message, and no claim about its kind.
+#   none             rows WERE collected and none of them carried an error. A
+#                    measurement.
+#   unobserved       no rows were collected, so there was nothing to look in.
+#                    NOT the same as `none` and never folded into it.
+ERROR_OUTAGE = "provider_outage"
+ERROR_USAGE_POLICY = "usage_policy"
+ERROR_TIMEOUT = "timeout"
+ERROR_UNCLASSIFIED = "unclassified"
+ERROR_NONE = "none"
+ERROR_UNOBSERVED = "unobserved"
+
+ERROR_CLASSES: tuple[str, ...] = (
+    ERROR_OUTAGE, ERROR_USAGE_POLICY, ERROR_TIMEOUT, ERROR_UNCLASSIFIED,
+    ERROR_NONE, ERROR_UNOBSERVED)
+
+# Two markers, either of which is decisive. The prose has been reworded before and
+# will be again; the URL is the stable half, and a message carrying either is the
+# same refusal. Matched case-insensitively against the ERROR text only, never
+# against a reply, so a turn that merely discusses the usage policy is not at risk.
+_USAGE_POLICY_MARKERS = ("usage policy", "/legal/aup")
+
+_TIMEOUT_MARKERS = ("timeout", "timed out")
+
+
+def classify_error(text: str) -> str:
+    """One of `ERROR_CLASSES`, for an error text. `""` -> `ERROR_NONE`.
+
+    Order is by CAUSE, the same principle `_exclusion` orders exclusions by. An
+    outage is checked first because it is the one class with an independent
+    detector the rest of the harness already trusts, and a 503 chain that reports
+    itself with the word "timeout" in it is still an outage.
+    """
+    if not text:
+        return ERROR_NONE
+    if outage.is_provider_outage(text):
+        return ERROR_OUTAGE
+    low = text.lower()
+    if any(m in low for m in _USAGE_POLICY_MARKERS):
+        return ERROR_USAGE_POLICY
+    if any(m in low for m in _TIMEOUT_MARKERS):
+        return ERROR_TIMEOUT
+    return ERROR_UNCLASSIFIED
+
+
+# --- stop_reason --------------------------------------------------------------
+# `collect` writes the CC session transcript to `<arm>/session.jsonl`
+# (collect.py:587). Its `assistant` records are Claude's own API messages, so each
+# carries `message.stop_reason`: `end_turn`, `tool_use`, `max_tokens`, `refusal`,
+# `stop_sequence`. NS has no such thing at all.
+#
+# THE ARM THIS WHOLE CHANGE IS ABOUT HAS NO TRANSCRIPT. `advanced.bacteria_mtb`'s
+# CC arm died before one was written, so it can supply no stop_reason -- and the
+# only wrong answer here is one that turns that into a value.
+SESSION_TRANSCRIPT_NAME = "session.jsonl"
+
+# The vocabulary of `stop_reason_status`. `stop_reason` is EMPTY unless this says
+# `observed`; the two columns exist rather than one because Anthropic owns the
+# `stop_reason` vocabulary and may extend it, so a sentinel smuggled into that
+# column could one day collide with a real value.
+STOP_OBSERVED = "observed"
+STOP_NO_TRANSCRIPT = "no_transcript"          # no session.jsonl for this arm
+STOP_NOT_RECORDED = "not_recorded"            # a transcript, and no stop_reason in it
+STOP_UNREADABLE = "unreadable"                # the file is there and would not open
+STOP_NOT_APPLICABLE = "not_applicable"        # an NS arm; there is no transcript to have
+
+STOP_REASON_STATUSES: tuple[str, ...] = (
+    STOP_OBSERVED, STOP_NO_TRANSCRIPT, STOP_NOT_RECORDED, STOP_UNREADABLE,
+    STOP_NOT_APPLICABLE)
+
+
+def stop_reason(artifacts_dir, variant_id: str, arm: str) -> tuple[str, str]:
+    """`(stop_reason, status)` for one arm. `status` is from `STOP_REASON_STATUSES`.
+
+    THE LAST `assistant` RECORD'S, and read as a floor rather than as the turn's
+    final word. `CCSessionTranscript` stores the session file as of each turn and
+    the tail of a turn is not necessarily in it -- 11 of the 12 smoke-run CC arms
+    end on `tool_use`, which is the transcript stopping short of the closing
+    `end_turn`, not the model stopping mid-tool. So this says "the last stop
+    Claude recorded in what we collected", and that is all it says.
+
+    Streamed line by line: the store's own cap is 256MB (collect.py:106) and
+    reading one of those into a list to take its tail is not worth the memory. A
+    line that will not parse is SKIPPED rather than fatal -- a transcript
+    truncated mid-line still has every complete record before it, and losing all
+    of them to the last one would be the same absence-as-evidence mistake the
+    rest of this module refuses.
+    """
+    if arm != "cc":
+        # Not an absence to explain. NS never had a transcript to lose.
+        return "", STOP_NOT_APPLICABLE
+    base = _arm_dir(artifacts_dir, variant_id, arm)
+    path = None if base is None else base / SESSION_TRANSCRIPT_NAME
+    if path is None or not path.is_file():
+        return "", STOP_NO_TRANSCRIPT
+    found = ""
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(rec, dict) or rec.get("type") != "assistant":
+                    continue
+                message = rec.get("message")
+                if not isinstance(message, dict):
+                    continue
+                value = message.get("stop_reason")
+                if isinstance(value, str) and value:
+                    found = value
+    except OSError:
+        # "We could not look" is not "there was nothing there", the same
+        # distinction `artifact_status` draws between Unreadable and Missing.
+        return "", STOP_UNREADABLE
+    return (found, STOP_OBSERVED) if found else ("", STOP_NOT_RECORDED)
+
+
+def arm_diagnostic(artifacts_dir, variant_id: str, arm: str, rows) -> dict:
+    """One `arm_diagnostics.csv` row: what this arm's turn recorded about ending.
+
+    Written for EVERY arm, scored or excluded. The excluded ones are the arms
+    whose error text matters most, and whether a `usage_policy` refusal should be
+    excluded rather than scored is an open question -- the evidence for deciding
+    it must not vanish the moment it is decided.
+    """
+    value, status = stop_reason(artifacts_dir, variant_id, arm)
+    text = final_error(rows)
+    return {
+        "query_id": variant_id,
+        "arm": arm,
+        "stop_reason": value,
+        "stop_reason_status": status,
+        # `ERROR_UNOBSERVED`, not `ERROR_NONE`: with no collected row there was
+        # nothing to look in, and "this arm had no error" would be a claim.
+        "error_class": classify_error(text) if rows else ERROR_UNOBSERVED,
+        "error_text": text,
+    }
 
 
 def _deadline_aborted(rows) -> bool:
@@ -579,6 +883,16 @@ def _unobserved(pair_id, arm, rows, evidence, emitted) -> list[dict]:
                     "emitted": emitted["tool_calls_total"],
                     "reason": "no collected task row for this arm, so no progress "
                               "stream to count engine operations from"})
+        # `answer_provided` is a conjunction of the entry status and the collected
+        # reply (see `_answered`), and with no collected row only the first half
+        # was evaluated. The emitted value is the status's answer, which is the
+        # fail-safe direction -- but it rests on a status that means "the criteria
+        # ran", not "the engine spoke", and nobody looked at what was said.
+        out.append({"query_id": pair_id, "arm": arm, "column": "answer_provided",
+                    "emitted": emitted["answer_provided"],
+                    "reason": "no collected task row for this arm, so no reply was "
+                              "ever read: this value is the manifest status alone, "
+                              "and runtime_success and failure_mode derive from it"})
     if not evidence["observed"]:
         out.append({"query_id": pair_id, "arm": arm, "column": "artifact_count",
                     "emitted": emitted["artifact_count"], "reason": evidence["reason"]})
@@ -594,16 +908,20 @@ def export(manifest, out_dir, artifacts_dir=None, corpus_path=None) -> dict:
     it, and because `export_stage_b` alongside really does need it.
 
     Returned counts: `ns`, `cc`, `excluded`, one `excluded_<cause>` per cause,
-    `engine_ops_unobserved` and `unobserved_cells`. The per-cause counts are not
+    `engine_ops_unobserved`, `unobserved_cells`, `arm_diagnostics` and one
+    `errors_<class>` per non-empty error class. The per-cause counts are not
     decoration -- if this project's history repeats, `excluded_deadline` IS the
     run's headline result rather than a footnote, and it must not have to be
-    grepped out of a reason column to be seen.
+    grepped out of a reason column to be seen. The error classes are there for
+    the same reason: a run in which 12 CC arms were refused under the Usage
+    Policy is a fact about the study, not a footnote in a text column.
     """
     out_dir = pathlib.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     by_arm: dict[str, list[dict]] = {"ns": [], "cc": []}
     excluded: list[dict] = []
     unobserved: list[dict] = []
+    diagnostics: list[dict] = []
     ops_unobserved = 0
 
     for pair in manifest.pairs:
@@ -616,6 +934,9 @@ def export(manifest, out_dir, artifacts_dir=None, corpus_path=None) -> dict:
             # Read BEFORE the exclusion test: the collected rows are what a
             # deadline abort is visible in.
             rows = _turn_rows(artifacts_dir, pair.id, arm)
+            # BEFORE the exclusion `continue`, deliberately: an excluded arm still
+            # gets its diagnostics row. See the module docstring.
+            diagnostics.append(arm_diagnostic(artifacts_dir, pair.id, arm, rows))
             verdict = _exclusion(entry, rows)
             if verdict is not None:
                 cause, reason = verdict
@@ -627,7 +948,8 @@ def export(manifest, out_dir, artifacts_dir=None, corpus_path=None) -> dict:
             evidence = artifact_evidence(artifacts_dir, pair.id, arm)
             row = runtime_row(
                 entry, arm=arm, family=pair.family, subtype=pair.hibayes_subtype,
-                artifact_count=evidence["count"], engine_ops=engine_ops(rows))
+                artifact_count=evidence["count"], engine_ops=engine_ops(rows),
+                rows=rows)
             by_arm[arm].append(row)
             unobserved += _unobserved(pair.id, arm, rows, evidence, row)
 
@@ -635,14 +957,21 @@ def export(manifest, out_dir, artifacts_dir=None, corpus_path=None) -> dict:
         _write(out_dir / f"hibayes_eval_rows_{arm}.csv", HIBAYES_CSV_COLUMNS, rows)
     _write(out_dir / "excluded.csv", EXCLUDED_COLUMNS, excluded)
     _write(out_dir / "unobserved.csv", UNOBSERVED_COLUMNS, unobserved)
+    _write(out_dir / "arm_diagnostics.csv", ARM_DIAGNOSTIC_COLUMNS, diagnostics)
     summary = {"ns": len(by_arm["ns"]), "cc": len(by_arm["cc"]),
                "excluded": len(excluded),
                "engine_ops_unobserved": ops_unobserved,
-               "unobserved_cells": len(unobserved)}
+               "unobserved_cells": len(unobserved),
+               "arm_diagnostics": len(diagnostics)}
     for cause, key in ((CAUSE_OUTAGE, "excluded_outage"),
                        (CAUSE_NEVER_EXECUTED, "excluded_never_executed"),
                        (CAUSE_DEADLINE, "excluded_deadline")):
         summary[key] = sum(1 for e in excluded if e["cause"] == cause)
+    # Every class, `none` and `unobserved` included: a reader must be able to see
+    # that a run's arms were accounted for rather than infer it from a subtotal.
+    for klass in ERROR_CLASSES:
+        summary[f"errors_{klass}"] = sum(1 for d in diagnostics
+                                         if d["error_class"] == klass)
     return summary
 
 
@@ -707,6 +1036,16 @@ def export_stage_b(manifest, out_dir, artifacts_dir=None, corpus_path=None,
     is passed, receives `{"rows": int, "no_reply": int}`; the return value stays
     the row count because that is what the caller and its tests read.
 
+    `answer_provided` AND `final_answer` NOW AGREE on every collected arm, because
+    `runtime_flags` is given the same `turn_rows` this function reads the answer
+    from. They could not before: an arm that said nothing exported
+    `answer_provided=true` beside an empty `final_answer` in one row of one file,
+    which is a self-contradiction the grader was fed at up to 3 calls a row. The
+    one case where they still differ is an arm with NO collected rows at all --
+    there `final_answer` is empty because nothing was read and `answer_provided`
+    falls back to the manifest status, which `export`'s `unobserved.csv` names by
+    row.
+
     A variant in the manifest but not in the corpus RAISES. That is a
     disagreement between the run's record and the corpus, which makes the
     metadata suspect for every row rather than for one, and the alternative
@@ -740,7 +1079,7 @@ def export_stage_b(manifest, out_dir, artifacts_dir=None, corpus_path=None,
             turn_rows = _turn_rows(artifacts_dir, pair.id, arm)
             if _exclusion(entry, turn_rows) is not None:
                 continue
-            answer_provided, is_error, timed_out = runtime_flags(entry)
+            answer_provided, is_error, timed_out = runtime_flags(entry, turn_rows)
             expected = bool(meta["artifact_expected"])
             evidence = artifact_evidence(artifacts_dir, pair.id, arm)
             answer = final_answer(turn_rows)
@@ -808,6 +1147,11 @@ _EXPORT_CONSEQUENCES = (
     "measurement, and lands in unobserved.csv.",
     "every `final_answer` is empty, so Stage C grades 254 blank answers and "
     "returns verdicts that join cleanly and mean nothing.",
+    "every `answer_provided` falls back to the manifest status alone -- the "
+    "collected reply is what refutes it, and there is none to read -- so it also "
+    "lands in unobserved.csv, and runtime_success and failure_mode derive from it.",
+    "arm_diagnostics.csv carries no error text and no stop_reason for any arm: "
+    "both are read out of the collected tree.",
 )
 
 
@@ -879,6 +1223,13 @@ def main(argv=None) -> int:
                     for k in ("excluded_outage", "excluded_never_executed",
                               "excluded_deadline")))
     print(f"  unobserved.csv             {summary['unobserved_cells']} cell(s)")
+    # Never a bare total here either. `errors_usage_policy` is a run-shaped fact
+    # -- a refusal produced no answer at all -- and `errors_unobserved` says how
+    # many arms this file could say nothing about, which is the difference between
+    # "no errors" and "we did not look".
+    print(f"  arm_diagnostics.csv        {summary['arm_diagnostics']} arm(s): " +
+          ", ".join(f"{k} {summary[f'errors_{k}']}" for k in ERROR_CLASSES
+                    if summary[f"errors_{k}"]))
     return 0
 
 

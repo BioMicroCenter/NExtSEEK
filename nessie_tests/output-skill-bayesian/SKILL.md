@@ -37,7 +37,8 @@ python -m nessie_tests.collect --run ./nessie_bayes_out
 # 2. the HiBayes CSVs (also decides which arms are EXCLUDED, see below)
 python -m nessie_tests.export --run ./nessie_bayes_out        # writes hibayes_eval_rows_{ns,cc}.csv,
                                                               # hibayes_functional_eval_inputs.csv,
-                                                              # excluded.csv, unobserved.csv
+                                                              # excluded.csv, unobserved.csv,
+                                                              # arm_diagnostics.csv
 
 # 3. the blind report
 python nessie_tests/output-skill-bayesian/scripts/build_bayes_report.py \
@@ -191,6 +192,33 @@ unobserved arms would show a complete pass over a run that never observed them.
 
 A greyed arm with no band is different again -- that pair is half-written, which
 is what an interrupted run looks like, and it is not a failure of anything.
+
+## `arm_diagnostics.csv`: why a turn ended
+
+The 14- and 12-column tuples are locked to an upstream contract, so two facts a
+run observes have nowhere to go in them. They go in a third sidecar, keyed
+`(query_id, arm)` like `excluded.csv` and `unobserved.csv`, with one row for
+**every** arm the manifest holds -- excluded arms included, because those are the
+ones whose error text matters most.
+
+| column | what it is |
+|---|---|
+| `error_text` | the turn's own message, verbatim, from `result.error` or the `query_error` event |
+| `error_class` | `provider_outage` / `usage_policy` / `timeout` / `unclassified`, plus `none` (rows were read and carried no error) and `unobserved` (no rows to read) |
+| `stop_reason` | the last `stop_reason` in the collected CC transcript, empty unless `stop_reason_status` is `observed` |
+| `stop_reason_status` | `observed` / `no_transcript` / `not_recorded` / `unreadable` / `not_applicable` (an NS arm) |
+
+`usage_policy` is a **classification, not a ruling**. Whether an arm Claude Code
+refused under the Usage Policy should be excluded like an outage or scored like a
+failure is an open question and `export._exclusion` is untouched by it -- but the
+run of `advanced.bacteria_mtb` that raised the question exported
+`is_error=false, answer_provided=true, runtime_success=true, failure_mode=none`
+over an arm that produced nothing, and the refusal message reached no file at all.
+
+`stop_reason` is the last one **in what was collected**, and is a floor rather
+than the turn's final word: the transcript store holds the session file as of each
+turn and the tail of a turn is often not in it, which is why most CC arms read
+`tool_use` rather than `end_turn`.
 
 ## The grades.json contract
 
