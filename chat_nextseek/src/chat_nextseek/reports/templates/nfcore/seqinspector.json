@@ -2,17 +2,80 @@
   "report_type": "NFCORE_SEQINSPECTOR_SAMPLESHEET",
   "description": "nf-core/seqinspector samplesheet context JSON template, aligned to the pinned 1.1.0 nextflow_schema.json and assets/samplesheet.csv. QC-only pipeline: no genome reference required.",
   "params": {
-    "tools_bundle":            {"type": "enum", "allowed": ["default", "all", "minimal"], "default": "default", "steerable": true, "help": "named bundle of QC tools to run"},
-    "tools":                   {"type": "string", "default": null, "steerable": true, "help": "explicit comma-separated tool list; overrides tools_bundle when set"},
-    "skip_tools":              {"type": "string", "default": null, "steerable": true, "help": "comma-separated tools to skip from the selected bundle"},
-    "subsample_tools":         {"type": "string", "default": "fastqscreen,kraken2,picard_collectmultiplemetrics", "steerable": true, "help": "tools that run on a subsample rather than the full FastQ"},
-    "sample_size":             {"type": "number", "default": 0, "steerable": true, "help": "reads to subsample for subsample_tools; 0 means no subsampling"},
-    "continue_with_lint_fail": {"type": "bool", "default": true, "steerable": true, "help": "keep going when fq_lint flags a file (default true — a lint failure should not abort a QC survey)"},
-    "fq_lint_args":            {"type": "string", "default": null, "steerable": true},
-    "bbmap_clumpify_args":     {"type": "string", "default": "markduplicates=true", "steerable": true},
-    "save_bbmap_clumpify_reads": {"type": "bool", "default": false, "steerable": true},
-    "kraken2_db":              {"type": "string", "default": null, "steerable": true, "help": "REQUIRED if kraken2 is in the tool set. No kraken2 database is provisioned on Luria — leave kraken2 out of the bundle unless a db path is supplied."},
-    "multiqc_title":           {"type": "string", "default": null, "steerable": true, "help": "MultiQC report title"}
+    "tools_bundle": {
+      "type": "enum",
+      "allowed": [
+        "default",
+        "all",
+        "minimal"
+      ],
+      "default": "default",
+      "steerable": true,
+      "help": "named bundle of QC tools to run"
+    },
+    "tools": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "explicit comma-separated tool list; overrides tools_bundle when set"
+    },
+    "skip_tools": {
+      "type": "string",
+      "default": "fastqscreen",
+      "steerable": true,
+      "help": "fastqscreen is in the 'default' bundle, and its fastq_screen_references default is an EXAMPLE csv shipped with the pipeline pointing at three S3 iGenomes Bowtie2 indices (E. coli, PhiX, yeast). Screening against an example set is not a curated choice, and it pulls from S3. Skip it until a reference CSV that means something here is staged on Luria, then clear this."
+    },
+    "subsample_tools": {
+      "type": "string",
+      "default": "fastqscreen,kraken2,picard_collectmultiplemetrics",
+      "steerable": true,
+      "help": "tools that run on a subsample rather than the full FastQ"
+    },
+    "sample_size": {
+      "type": "number",
+      "default": 0,
+      "steerable": true,
+      "help": "reads to subsample for subsample_tools; 0 means no subsampling"
+    },
+    "continue_with_lint_fail": {
+      "type": "bool",
+      "default": true,
+      "steerable": true,
+      "help": "keep going when fq_lint flags a file (default true \u2014 a lint failure should not abort a QC survey)"
+    },
+    "fq_lint_args": {
+      "type": "string",
+      "default": null,
+      "steerable": true
+    },
+    "bbmap_clumpify_args": {
+      "type": "string",
+      "default": "markduplicates=true",
+      "steerable": true
+    },
+    "save_bbmap_clumpify_reads": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    },
+    "kraken2_db": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "REQUIRED if kraken2 is in the tool set. No kraken2 database is provisioned on Luria \u2014 leave kraken2 out of the bundle unless a db path is supplied."
+    },
+    "multiqc_title": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "MultiQC report title"
+    },
+    "fastq_screen_references": {
+      "type": "string",
+      "default": null,
+      "steerable": true,
+      "help": "Curated CSV of screening references (name,dir,basename,aligner). Required if fastqscreen is enabled; the pipeline default is an example file pointing at S3."
+    }
   },
   "reference_resources": [],
   "pipeline": {
@@ -65,10 +128,11 @@
     "fastq_1 must be a gzipped FASTQ path ending in .fastq.gz or .fq.gz.",
     "fastq_2 must be blank for single-end libraries and populated for paired-end libraries; the header must exist either way.",
     "tags is a colon-separated list of group labels; every distinct tag produces its own MultiQC report in addition to the global one.",
-    "Do NOT add kraken2 to the tool set without also setting kraken2_db — the run will fail with no database.",
-    "Do NOT pass --gtf: seqinspector's schema has no gtf parameter and nf-schema aborts the run on an unrecognised param."
+    "Do NOT add kraken2 to the tool set without also setting kraken2_db \u2014 the run will fail with no database.",
+    "Do NOT pass --gtf: seqinspector's schema has no gtf parameter and nf-schema aborts the run on an unrecognised param.",
+    "The 'default' tool bundle is fastqc, fastqscreen, fq_lint, picard_collectmultiplemetrics, rundirparser, seqfu_stats, sequali \u2014 it does NOT include kraken2, and the pipeline error()s if kraken2 is requested without kraken2_db, so there is no silent database download. fastqscreen is the one to watch: skipped by curated default because its reference list is an example pointing at S3."
   ],
-  "notes": "QC-only. Nothing here writes analysis results worth reingesting as A.* samples — the output is MultiQC reports for human review. Use it to triage a cohort before committing to a full pipeline, or to audit sequencing data already registered in NExtSEEK.",
+  "notes": "QC-only. Nothing here writes analysis results worth reingesting as A.* samples \u2014 the output is MultiQC reports for human review. Use it to triage a cohort before committing to a full pipeline, or to audit sequencing data already registered in NExtSEEK.",
   "sources": [
     {
       "label": "nf-core/seqinspector usage docs (latest)",
@@ -133,7 +197,7 @@
             "expected_value": "colon-separated string",
             "allowed_values": "",
             "description": "Grouping labels. Each distinct tag yields its own MultiQC report alongside the global one.",
-            "validation_hints": "This is the column worth populating from NExtSEEK metadata — cohort, treatment, genotype or study give per-group QC reports for free. Use short slugs; avoid commas.",
+            "validation_hints": "This is the column worth populating from NExtSEEK metadata \u2014 cohort, treatment, genotype or study give per-group QC reports for free. Use short slugs; avoid commas.",
             "example": "cohort_NDMA:genotype_RaDR"
           }
         }

@@ -29,6 +29,24 @@
       "type": "bool",
       "default": false,
       "steerable": true
+    },
+    "run_busco": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "MUST be false while skip_binqc is true. mag 5.5.0 defaults run_busco to TRUE, and subworkflows/local/utils_nfcore_mag_pipeline/main.nf calls error() on the combination '--skip_binqc and --run_<tool>'. Leaving it at the pipeline default aborted the run at validation."
+    },
+    "run_checkm": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "Same constraint as run_busco. Also needs a database we do not host."
+    },
+    "run_checkm2": {
+      "type": "bool",
+      "default": false,
+      "steerable": true,
+      "help": "Same constraint as run_busco. Also needs a database we do not host."
     }
   },
   "reference_resources": [],
@@ -72,7 +90,9 @@
     "Read columns are short_reads_1 / short_reads_2, NOT fastq_1 / fastq_2.",
     "Default to one group per sample (individual assembly). Only share a group value when the user has explicitly asked for co-assembly, and set coassemble_group true when you do.",
     "Do NOT pass --genome, --fasta or --gtf: mag declares none of them.",
-    "Bin QC and GTDB-Tk are OFF by default \u2014 do not report taxonomic classification or bin completeness as though they ran."
+    "Bin QC and GTDB-Tk are OFF by default \u2014 do not report taxonomic classification or bin completeness as though they ran.",
+    "skip_binqc=true REQUIRES run_busco=false. mag defaults run_busco to true and error()s on the combination, so the pipeline-default value aborts the run before anything starts. Verified against the 5.5.0 workflow on 2026-08-05.",
+    "skip_binqc or skip_gtdbtk being true is what stops the GTDB-Tk database being staged: workflows/mag.nf sets `gtdb = params.skip_binqc || params.skip_gtdbtk ? false : params.gtdb_db`, and gtdb_db defaults to a remote GTDB R232 tarball. Keep both true unless that database is hosted."
   ],
   "notes": "De novo metagenome assembly and binning. The `group` column decides what gets co-assembled, which is a scientific choice: state plainly which grouping was used.",
   "sources": [

@@ -2,14 +2,67 @@
   "report_type": "NFCORE_BACASS_SAMPLESHEET",
   "description": "nf-core/bacass samplesheet context, aligned to the pinned 2.6.1 nextflow_schema.json and assets/schema_input.json. Bacterial ISOLATE assembly and annotation.",
   "params": {
-    "assembler":        {"type": "string", "default": "unicycler", "steerable": true, "help": "Assembler to run. The pipeline default is the full list of eight; that is a benchmarking default and would run all of them. Pinned here to unicycler, the standard choice for short-read isolates."},
-    "annotation_tool":  {"type": "enum", "allowed": ["prokka", "bakta", "dfast", "liftoff"], "default": "prokka", "steerable": true, "help": "prokka needs no external database. bakta does (--baktadb), and none is provisioned on Luria."},
-    "skip_kraken2":     {"type": "bool", "default": true, "steerable": true, "help": "TRUE by curated default: Kraken2 read classification needs a database (--kraken2db) that Luria does not host."},
-    "skip_kmerfinder":  {"type": "bool", "default": true, "steerable": true, "help": "TRUE by curated default: the KmerFinder contamination check needs --kmerfinderdb, not provisioned."},
-    "skip_annotation":  {"type": "bool", "default": false, "steerable": true},
-    "skip_polish":      {"type": "bool", "default": false, "steerable": true},
-    "save_trimmed":     {"type": "bool", "default": false, "steerable": true},
-    "multiqc_title":    {"type": "string", "default": null, "steerable": true}
+    "assembly_type": {
+      "type": "enum",
+      "allowed": [
+        "short",
+        "long",
+        "hybrid"
+      ],
+      "default": "short",
+      "steerable": true,
+      "help": "REQUIRED \u2014 bacass has no default and error()s without it. 'short' is the curated value because NExtSEEK holds no long-read data at all; change it only for a genuinely long-read or hybrid cohort."
+    },
+    "assembler": {
+      "type": "string",
+      "default": "unicycler",
+      "steerable": true,
+      "help": "Assembler to run. The pipeline default is the full list of eight; that is a benchmarking default and would run all of them. Pinned here to unicycler, the standard choice for short-read isolates."
+    },
+    "annotation_tool": {
+      "type": "enum",
+      "allowed": [
+        "prokka",
+        "bakta",
+        "dfast",
+        "liftoff"
+      ],
+      "default": "prokka",
+      "steerable": true,
+      "help": "prokka needs no external database. bakta does (--baktadb), and none is provisioned on Luria."
+    },
+    "skip_kraken2": {
+      "type": "bool",
+      "default": true,
+      "steerable": true,
+      "help": "TRUE by curated default: Kraken2 read classification needs a database (--kraken2db) that Luria does not host."
+    },
+    "skip_kmerfinder": {
+      "type": "bool",
+      "default": true,
+      "steerable": true,
+      "help": "TRUE by curated default: the KmerFinder contamination check needs --kmerfinderdb, not provisioned."
+    },
+    "skip_annotation": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    },
+    "skip_polish": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    },
+    "save_trimmed": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    },
+    "multiqc_title": {
+      "type": "string",
+      "default": null,
+      "steerable": true
+    }
   },
   "reference_resources": [],
   "pipeline": {
@@ -18,39 +71,124 @@
     "documentation_url": "https://nf-co.re/bacass/latest/docs/usage/",
     "input_file_type": "tsv-or-csv",
     "core_rule": "Columns are ID, R1, R2, LongFastQ, Fast5, GenomeSize. Only ID is required by the schema, but a short-read assembly needs R1 (and R2 for paired). NOTE the non-standard names: this pipeline does NOT use sample/fastq_1/fastq_2.",
-    "required_columns": ["ID", "R1", "R2"],
-    "optional_columns": ["LongFastQ", "Fast5", "GenomeSize"],
+    "required_columns": [
+      "ID",
+      "R1",
+      "R2"
+    ],
+    "optional_columns": [
+      "LongFastQ",
+      "Fast5",
+      "GenomeSize"
+    ],
     "reference_requirement": "NONE. It assembles de novo. The 2.6.1 schema declares no genome/fasta/gtf parameter at all; an optional reference_fasta/reference_gff pair exists for the liftoff annotation route only."
   },
-  "samplesheet_template": [{"ID": null, "R1": null, "R2": null, "LongFastQ": null, "Fast5": null, "GenomeSize": null}],
+  "samplesheet_template": [
+    {
+      "ID": null,
+      "R1": null,
+      "R2": null,
+      "LongFastQ": null,
+      "Fast5": null,
+      "GenomeSize": null
+    }
+  ],
   "examples": {
-    "short_read_isolate": {"ID": "D.SEQ-260711ENG-12-PUB", "R1": "/net/bmc-pub10/data1/bmc/fastq/iso_R1.fastq.gz", "R2": "/net/bmc-pub10/data1/bmc/fastq/iso_R2.fastq.gz", "LongFastQ": "", "Fast5": "", "GenomeSize": ""}
+    "short_read_isolate": {
+      "ID": "D.SEQ-260711ENG-12-PUB",
+      "R1": "/net/bmc-pub10/data1/bmc/fastq/iso_R1.fastq.gz",
+      "R2": "/net/bmc-pub10/data1/bmc/fastq/iso_R2.fastq.gz",
+      "LongFastQ": "",
+      "Fast5": "",
+      "GenomeSize": ""
+    }
   },
   "validation_rules": [
     "The sample column is named ID; the read columns are R1 and R2. Emitting sample/fastq_1/fastq_2 will fail validation.",
+    "assembly_type must be set. bacass declares no default and aborts at validation without it; 'short' is curated here because we hold no long-read data.",
     "Do NOT pass --genome, --fasta or --gtf: the 2.6.1 schema declares none of them.",
     "Leave assembler at a single value. The pipeline's own default lists eight assemblers and would run every one of them.",
-    "Keep skip_kraken2 and skip_kmerfinder true unless a database path is supplied — both fail with no database.",
-    "This is for ISOLATES: one bacterial genome per sample. A metagenomic library sent here produces a meaningless chimeric assembly, not an error — use mag instead.",
+    "Keep skip_kraken2 and skip_kmerfinder true unless a database path is supplied \u2014 both fail with no database.",
+    "This is for ISOLATES: one bacterial genome per sample. A metagenomic library sent here produces a meaningless chimeric assembly, not an error \u2014 use mag instead.",
     "LongFastQ/Fast5 are for hybrid or long-read assembly. NExtSEEK holds no long-read data, so leave them blank."
   ],
-  "notes": "NO MATCHING DATA IN NExtSEEK as of 2026-08-05. Bacterial isolate sequencing does not exist here: the 1,402 BAC samples have zero D.SEQ children, and the 3,975 mycobacterium/TB mentions sit on host samples (MUS, PAV, PAT, NHP) — infected animals and patients, not sequenced isolates. Catalogued so the capability exists when an isolate cohort is registered. Verify the cohort really is isolate sequencing before launching.",
+  "notes": "NO MATCHING DATA IN NExtSEEK as of 2026-08-05. Bacterial isolate sequencing does not exist here: the 1,402 BAC samples have zero D.SEQ children, and the 3,975 mycobacterium/TB mentions sit on host samples (MUS, PAV, PAT, NHP) \u2014 infected animals and patients, not sequenced isolates. Catalogued so the capability exists when an isolate cohort is registered. Verify the cohort really is isolate sequencing before launching.",
   "sources": [
-    {"label": "nf-core/bacass usage docs", "url": "https://nf-co.re/bacass/latest/docs/usage/", "notes": "Samplesheet layout and assembly modes."},
-    {"label": "nf-core/bacass nextflow_schema.json @ 2.6.1", "url": "https://raw.githubusercontent.com/nf-core/bacass/2.6.1/nextflow_schema.json", "notes": "Authoritative: no required params beyond input/outdir; no genome/fasta/gtf; assembler defaults to a list of eight."},
-    {"label": "nf-core/bacass assets/schema_input.json @ 2.6.1", "url": "https://raw.githubusercontent.com/nf-core/bacass/2.6.1/assets/schema_input.json", "notes": "Authoritative columns: ID required; R1, R2, LongFastQ, Fast5, GenomeSize optional."}
+    {
+      "label": "nf-core/bacass usage docs",
+      "url": "https://nf-co.re/bacass/latest/docs/usage/",
+      "notes": "Samplesheet layout and assembly modes."
+    },
+    {
+      "label": "nf-core/bacass nextflow_schema.json @ 2.6.1",
+      "url": "https://raw.githubusercontent.com/nf-core/bacass/2.6.1/nextflow_schema.json",
+      "notes": "Authoritative: no required params beyond input/outdir; no genome/fasta/gtf; assembler defaults to a list of eight."
+    },
+    {
+      "label": "nf-core/bacass assets/schema_input.json @ 2.6.1",
+      "url": "https://raw.githubusercontent.com/nf-core/bacass/2.6.1/assets/schema_input.json",
+      "notes": "Authoritative columns: ID required; R1, R2, LongFastQ, Fast5, GenomeSize optional."
+    }
   ],
   "schema": {
     "sections": {
       "samplesheet_columns": {
         "description": "Column-level field dictionary for the nf-core/bacass input sheet.",
         "fields": {
-          "ID": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Sample identifier, no whitespace.", "validation_hints": "Use the NExtSEEK D.SEQ UID.", "example": "D.SEQ-260711ENG-12-PUB"},
-          "R1": {"required": "required in practice", "position_rule": "Column 2", "expected_value": "path", "allowed_values": ".fastq.gz", "description": "Short read 1.", "validation_hints": "Absolute Luria path from the sample's primary-data metadata.", "example": "/net/bmc-pub10/data1/bmc/fastq/iso_R1.fastq.gz"},
-          "R2": {"required": "header required, blank for single-end", "position_rule": "Column 3", "expected_value": "path or blank", "allowed_values": ".fastq.gz or blank", "description": "Short read 2.", "validation_hints": "Blank for single-end.", "example": "/net/bmc-pub10/data1/bmc/fastq/iso_R2.fastq.gz"},
-          "LongFastQ": {"required": "optional", "position_rule": "Column 4", "expected_value": "path or blank", "allowed_values": "", "description": "Long reads for hybrid assembly.", "validation_hints": "Leave blank — no long-read data exists in NExtSEEK.", "example": ""},
-          "Fast5": {"required": "optional", "position_rule": "Column 5", "expected_value": "path or blank", "allowed_values": "", "description": "Nanopore Fast5 directory.", "validation_hints": "Leave blank.", "example": ""},
-          "GenomeSize": {"required": "optional", "position_rule": "Column 6", "expected_value": "string or blank", "allowed_values": "", "description": "Estimated genome size, used by some assemblers.", "validation_hints": "Only for long-read/hybrid routes; leave blank otherwise.", "example": "2.8m"}
+          "ID": {
+            "required": "required",
+            "position_rule": "Column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Sample identifier, no whitespace.",
+            "validation_hints": "Use the NExtSEEK D.SEQ UID.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "R1": {
+            "required": "required in practice",
+            "position_rule": "Column 2",
+            "expected_value": "path",
+            "allowed_values": ".fastq.gz",
+            "description": "Short read 1.",
+            "validation_hints": "Absolute Luria path from the sample's primary-data metadata.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/iso_R1.fastq.gz"
+          },
+          "R2": {
+            "required": "header required, blank for single-end",
+            "position_rule": "Column 3",
+            "expected_value": "path or blank",
+            "allowed_values": ".fastq.gz or blank",
+            "description": "Short read 2.",
+            "validation_hints": "Blank for single-end.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/iso_R2.fastq.gz"
+          },
+          "LongFastQ": {
+            "required": "optional",
+            "position_rule": "Column 4",
+            "expected_value": "path or blank",
+            "allowed_values": "",
+            "description": "Long reads for hybrid assembly.",
+            "validation_hints": "Leave blank \u2014 no long-read data exists in NExtSEEK.",
+            "example": ""
+          },
+          "Fast5": {
+            "required": "optional",
+            "position_rule": "Column 5",
+            "expected_value": "path or blank",
+            "allowed_values": "",
+            "description": "Nanopore Fast5 directory.",
+            "validation_hints": "Leave blank.",
+            "example": ""
+          },
+          "GenomeSize": {
+            "required": "optional",
+            "position_rule": "Column 6",
+            "expected_value": "string or blank",
+            "allowed_values": "",
+            "description": "Estimated genome size, used by some assemblers.",
+            "validation_hints": "Only for long-read/hybrid routes; leave blank otherwise.",
+            "example": "2.8m"
+          }
         }
       }
     }
