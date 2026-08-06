@@ -158,3 +158,27 @@ def test_dotted_sample_type_codes_survive_extraction(_ctx, tmp_path):
     df = pd.DataFrame([{"uuid": "D.SEQ-240910LAU-3", "Name": "s1"}])
     write_samples_workbook(df, str(out))
     assert "D.SEQ" in load_workbook(out).sheetnames
+
+
+def test_dbtable_sample_retrieval_data_delegates_to_the_shared_writer():
+    from seek.dbtable_sample import DBtable_sample
+
+    # __init__ opens a DB connection (dmac/dbtable.py:51) and sampleRetrievalData
+    # needs none of it, so skip construction rather than pulling in django_db.
+    dbs = DBtable_sample.__new__(DBtable_sample)
+
+    df = pd.DataFrame([{"uuid": "MUS-1", "json_metadata": '{"Name": "m1"}'}])
+    with patch("seek.dbtable_sample.write_samples_workbook") as mock_write:
+        dbs.sampleRetrievalData(df, "/tmp/unused.xlsx")
+    mock_write.assert_called_once()
+    assert mock_write.call_args[0][1] == "/tmp/unused.xlsx"
+
+
+def test_seek_views_sample_retrieval_data_delegates_to_the_shared_writer():
+    from seek import views
+
+    df = pd.DataFrame([{"uuid": "MUS-1", "json_metadata": '{"Name": "m1"}'}])
+    with patch("seek.views.write_samples_workbook") as mock_write:
+        views.sample_retrieval_data(df, "/tmp/unused.xlsx")
+    mock_write.assert_called_once()
+    assert mock_write.call_args[0][1] == "/tmp/unused.xlsx"

@@ -50,6 +50,7 @@ from dmac.dbtable_clades import DBtable_clades
 from dmac.dbtable_sampletypesclades import DBtable_sample_types_clades as DBtable_stc
 from dmac.dbtable_internalassays import DBtable_internalassays
 from dmac.dbtable_assaysinternalassays import DBtable_assaysinternalassays
+from nextseek_api.services.sample_workbook import write_samples_workbook
 
 from .seekdb import SeekDB
 from .nextcloudapi import NextCloudAPI
@@ -1230,15 +1231,9 @@ def parse_children_uids(children_uids):
     return final_df
 
 def sample_retrieval_data(children_uids, output):
-    parsed_df = parse_children_uids(children_uids)
-    parsed_df['sample_type'] = parsed_df['uuid'].str.extract(r'([A-Z]+\.[A-Z]+|[A-Z]+)', expand=False)
-
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        for sample_type, sample_type_df in parsed_df.groupby('sample_type'):
-            sample_type_df = sample_type_df.drop(columns=['uuid', 'sample_type'])
-            sample_type_df.replace("", pd.NA, inplace=True)
-            sample_type_df.dropna(axis=1, how='all', inplace=True)
-            sample_type_df.to_excel(writer, sheet_name=sample_type, index=False)
+    # Sheet layout, README included, is owned by
+    # nextseek_api.services.sample_workbook so it cannot drift per call path.
+    write_samples_workbook(parse_children_uids(children_uids), output)
 
 def adminRetrieveSamples(request):
     seekdb = SeekDB(None, None, None)
