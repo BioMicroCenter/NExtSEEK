@@ -47,7 +47,8 @@ def test_body_shape_and_session_threading():
     p = _post()
     hd.drive("hello", tier="route", post_query=p, get_progress=_seq_get_progress([ROUTED]),
              session_id="sess9", sleep=lambda s: None, clock=lambda: 0.0)
-    assert p.body == {"query": "hello", "mode": "standard", "session_id": "sess9"}
+    assert p.body == {"query": "hello", "mode": "standard", "session_id": "sess9",
+                      "fresh_session": True}
 
 
 # ── per-case session isolation ────────────────────────────────────────────
@@ -56,7 +57,8 @@ def test_force_new_requests_a_fresh_session():
     p = _post()
     hd.drive("hello", tier="route", post_query=p, get_progress=_seq_get_progress([ROUTED]),
              force_new=True, sleep=lambda s: None, clock=lambda: 0.0)
-    assert p.body == {"query": "hello", "mode": "standard", "force_new": True}
+    assert p.body == {"query": "hello", "mode": "standard", "force_new": True,
+                      "fresh_session": True}
 
 
 def test_force_new_is_ignored_once_a_session_exists():
@@ -64,7 +66,51 @@ def test_force_new_is_ignored_once_a_session_exists():
     p = _post()
     hd.drive("hello", tier="route", post_query=p, get_progress=_seq_get_progress([ROUTED]),
              session_id="sess9", force_new=True, sleep=lambda s: None, clock=lambda: 0.0)
-    assert p.body == {"query": "hello", "mode": "standard", "session_id": "sess9"}
+    assert p.body == {"query": "hello", "mode": "standard", "session_id": "sess9",
+                      "fresh_session": True}
+
+
+def test_fresh_session_is_sent_by_default_on_every_turn():
+    """The CC memory layer is USER-scoped, so `force_new` does not cover it.
+
+    `_session_metas` filters `ChatSession.objects.filter(user=user)`
+    (cc_assistant.py:169), so a brand-new ChatSession still gets a rendered
+    ~/.claude/CLAUDE.md distilled from that user's recent CC sessions -- in a
+    benchmark, from OTHER CASES OF THE SAME RUN.
+
+    Measured, not hypothetical: across the two 2026-08-06 paired runs all 152 CC
+    arms carried digests of up to 5 other arms while every NS arm carried none,
+    so the paired comparison was not like-for-like. Five `refrec` variants were
+    handed "Out of the 408 NHP samples, 46 samples are CD8-depleted" before being
+    asked it.
+
+    Asserted on a CONTINUATION turn as well as a seed, because the flag has to
+    ride on every turn: the server default is False (models_api.py:19) and a turn
+    that omits it re-injects the memory the seed turn suppressed.
+    """
+    p = _post()
+    hd.drive("hello", tier="route", post_query=p, get_progress=_seq_get_progress([ROUTED]),
+             sleep=lambda s: None, clock=lambda: 0.0)
+    assert p.body["fresh_session"] is True
+
+    p = _post()
+    hd.drive("follow up", tier="route", post_query=p,
+             get_progress=_seq_get_progress([ROUTED]),
+             session_id="sess9", sleep=lambda s: None, clock=lambda: 0.0)
+    assert p.body["fresh_session"] is True
+
+
+def test_fresh_session_can_be_turned_off_to_measure_the_memory_feature():
+    """Opt-out exists so the memory layer itself remains testable.
+
+    Omitted entirely rather than sent as False: the server default is already
+    False, and sending it would make the wire body differ from what a normal
+    client sends when it wants memory.
+    """
+    p = _post()
+    hd.drive("hello", tier="route", post_query=p, get_progress=_seq_get_progress([ROUTED]),
+             fresh_session=False, sleep=lambda s: None, clock=lambda: 0.0)
+    assert "fresh_session" not in p.body
 
 
 # ── transient socket errors must not kill a case ──────────────────────────

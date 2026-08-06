@@ -57,6 +57,7 @@ def make_default_clients(base_url: str, auth_header: str, timeout_s: float = SOC
 def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
           get_progress: Callable[[str], dict], session_id: str | None = None,
           force_new: bool = False,
+          fresh_session: bool = True,
           force_route: str | None = None,
           mode: str = "standard", poll_interval_s: float = 2.0,
           route_timeout_s: float = 60.0, full_timeout_s: float = 600.0,
@@ -70,8 +71,35 @@ def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
     joins every case into one conversation and leaks results_history, pinned
     bundles and pipeline state across cases. It is ignored once ``session_id``
     is known, so a case's later turns stay in the session its seed opened.
+
+    ``fresh_session`` closes the OTHER half of that isolation, and defaults to
+    True because per-case isolation is this harness's whole premise.
+    ``force_new`` only buys a new ChatSession, and the CC memory layer does not
+    key on the session: `_session_metas` filters
+    `ChatSession.objects.filter(user=user)` (cc_assistant.py:169), so a CC turn
+    is primed with a rendered ~/.claude/CLAUDE.md distilled from that USER's
+    recent CC sessions -- in a benchmark, from other cases of the same run.
+
+    The 2026-08-06 paired runs measured the cost of not sending it. All 152 CC
+    arms were started carrying digests of up to 5 other CC arms; NS arms get no
+    equivalent, so the comparison was not like-for-like. Five `refrec` variants
+    were handed "Out of the 408 NHP samples, 46 samples are CD8-depleted" before
+    being asked, and `sandbox.can_you_pull_together_the_sequen` -- a question
+    with no legitimate referent -- was answered from five other cases' results
+    while the NS arm correctly said it had nothing stored.
+
+    It skips INJECTION only: 1b resume within the chat still applies, so a
+    multi-turn case keeps its own earlier turns, and the within-chat digest of
+    CC's own bundles is untouched. Pass False deliberately to measure the memory
+    feature itself, never to save a code change.
     """
     body = {"query": query, "mode": mode}
+    if fresh_session:
+        # Server-side default is False (models_api.py:19), so this must be sent
+        # explicitly on every turn. `preflight.assert_fresh_session_works` is
+        # what stops a silently-dropped flag costing another paid run its
+        # comparability, exactly as the force_route guard does.
+        body["fresh_session"] = True
     if force_route:
         # Admin-only server side; a non-admin's value is silently dropped back to
         # the router (cc_assistant.py:245-251). `preflight.assert_force_route_works`
