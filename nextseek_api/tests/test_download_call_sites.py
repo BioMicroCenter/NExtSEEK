@@ -94,3 +94,28 @@ def test_the_immport_export_did_not_become_a_download():
     text = (TEMPLATES / "pages/samples_stable.embed.html").read_text(encoding="utf-8", errors="replace")
     assert "simple_exportSamples($('#simple_dgtable'), '/seek/samples/export/')" in text
     assert "function simple_exportSamples(" in text
+
+
+STATIC = Path(__file__).resolve().parents[2] / "static"
+
+
+def test_collector_reads_both_uid_column_names():
+    """The two grids bind different columns. reformatDataForClient
+    (seek/dbtable_sample.py:1712-1713) emits `uuid` raw and `uid` as anchor
+    markup; the simple grid binds `uid`, the advanced grid binds `uuid`.
+    Reading only one of them silently yields zero selected samples."""
+    js = (STATIC / "js" / "ns_sample_download.js").read_text(encoding="utf-8")
+    assert "rows[i].uuid || rows[i].uid" in js
+
+
+def test_grid_uid_columns_are_still_what_the_collector_expects():
+    adv = (TEMPLATES / "pages/searchAdvanced_stable.embed.html").read_text(encoding="utf-8")
+    simple = (TEMPLATES / "pages/samples_stable.embed.html").read_text(encoding="utf-8")
+    assert "field:'uuid'" in adv, "advanced grid no longer binds uuid; update the collector"
+    assert "field: 'uid'" in simple, "simple grid no longer binds uid; update the collector"
+
+
+def test_reformat_emits_both_uid_shapes():
+    src = (Path(__file__).resolve().parents[2] / "seek" / "dbtable_sample.py").read_text(encoding="utf-8")
+    assert "datadic['uuid'] = data['uid']" in src
+    assert "datadic['uid'] = self.__getSamplelink(data['uid']" in src
