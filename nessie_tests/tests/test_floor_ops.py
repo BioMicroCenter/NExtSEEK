@@ -457,11 +457,17 @@ _CURATED_IDS = {v.id for v in corpus.curated(corpus.merged(CORPUS))}
 # met the corpus somebody had already written. Folding in variants added afterwards
 # would leave every assertion passing while quietly making it evidence for a
 # different corpus. The additions are covered by the corpus-level tests instead.
+# Any variant added or promoted AFTER the corpus these floor measurements are
+# evidence about. Matched by key PREFIX rather than by exact key, because the
+# 2026-08-06 question set writes `_added_2026_08_06_qset` and an exact-match list
+# would have silently folded its 58 new variants into a measurement that is
+# explicitly about the corpus as it stood before them — every assertion would
+# still have passed while quietly meaning something else.
 _ADDED_2026_08_06 = {
     v["id"]
     for fam in json.loads(CORPUS.read_text(encoding="utf-8"))["families"].values()
     for v in fam["variants"]
-    if "_promoted_2026_08_06" in v or "_added_2026_08_06" in v
+    if any(k.startswith(("_promoted_2026_08_06", "_added_2026_08_06")) for k in v)
 }
 
 RETIRED_FLOOR = {
@@ -910,7 +916,7 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     # 280 -> 283 on 2026-08-03: the create/update/delete refusal coverage came
     # back (one reinstated, two authored). This is the ONLY hardcoded corpus size
     # in the suite, so it is the one place that has to move.
-    assert len(merged) == 308
+    assert len(merged) == 365  # 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     ids = [v.id for v in merged]
     base_ids_all = {v.id for v in corpus.load_base()}
     defs = {v.id: v for v in corpus.load_all_definitions(CORPUS)}
@@ -1112,8 +1118,14 @@ HONEST_NEGATIVE = {
         "No samples matched the IMPACT study.",
     "advanced.find_me_sequencing_files_assoc":
         "No sequencing files are associated with Short Read Sequencing.",
-    "advanced.find_me_d_seq_samples_in_proje":
-        "No samples of that type are in project IMPACT.",
+    # `advanced.find_me_d_seq_samples_in_proje` was here until 2026-08-06 with
+    # "No samples of that type are in project IMPACT." It is gone because that
+    # sentence is no longer an HONEST negative: the question set ground-truthed the
+    # case at 1,858 D.SEQ samples in Impact (assay_assets -> assays -> studies ->
+    # investigations, and the Neo4j 2-hop agrees). A reply claiming zero is now
+    # simply wrong, and a test that demanded the floor accept it would have been
+    # protecting a fabrication. The other two entries stand: both really do have
+    # zero as a defensible answer.
 }
 
 # The exact shape the deleted branch existed to tolerate, and two plainer
@@ -1140,7 +1152,12 @@ def test_a_zero_result_non_answer_no_longer_scores_green(vid, reply):
     assert per_field["last_reply"] is False
 
 
-@pytest.mark.parametrize("vid", COULD_NOT_GUARDED)
+# Parametrized over HONEST_NEGATIVE rather than COULD_NOT_GUARDED. The two used to
+# be the same three ids; since 2026-08-06 they differ by one, because
+# `advanced.find_me_d_seq_samples_in_proje` still needs the could-not guard (below)
+# but no longer HAS an honest negative — its answer is 1,858. Driving this off the
+# mapping means the two sets can diverge again without anyone having to remember.
+@pytest.mark.parametrize("vid", sorted(HONEST_NEGATIVE))
 def test_an_honest_negative_is_still_accepted(vid):
     """The deletion must not turn "there are none" into a failure. That would be a
     guard that only a non-empty answer can satisfy, on questions whose correct

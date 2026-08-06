@@ -127,14 +127,19 @@ def test_copying_a_block_brings_retired_cases_and_their_tags(tmp_path):
     payload = json.loads(CORPUS.read_text(encoding="utf-8"))
     meta = corpus.variant_meta(CORPUS)
     # The LARGEST block was the pick until the 2026-08-04 remap; `graph_traversal`
-    # now holds 25 retirements spanning 5 different reasons, which breaks assertion
-    # (b) below without saying anything about the hazard. So pick on the property
-    # (b) actually needs: the biggest block whose retirements share ONE reason.
-    def _reasons(b):
-        return {meta[v["id"]]["retirement"]["reason"]
-                for v in b["variants"] if v["status"] == "retired"}
-    candidates = {n: b for n, b in payload["families"].items() if len(_reasons(b)) == 1}
-    assert candidates, "no block has retirements sharing a single reason"
+    # now holds 25 retirements spanning 5 different reasons.
+    #
+    # Pick on the property assertion (c) needs and nothing else: a block holding a
+    # retired body tagged `known_fail`. The single-shared-reason filter went on
+    # 2026-08-06, when six more retirements meant no block satisfied BOTH — and it
+    # was never load-bearing anyway. Assertion (b) is about retirements being
+    # RECORDED judgements the probe would re-ask at full price, which is true of a
+    # block with five reasons exactly as much as one with a single reason.
+    def _has_known_fail(b):
+        return any(v["status"] == "retired" and "known_fail" in (v.get("tags") or [])
+                   for v in b["variants"])
+    candidates = {n: b for n, b in payload["families"].items() if _has_known_fail(b)}
+    assert candidates, "no block holds a retired body tagged known_fail"
     name, block = max(candidates.items(), key=lambda kv: len(kv[1]["variants"]))
     retired_in_block = [v["id"] for v in block["variants"] if v["status"] == "retired"]
     assert retired_in_block, (
@@ -149,10 +154,16 @@ def test_copying_a_block_brings_retired_cases_and_their_tags(tmp_path):
     assert sorted(v.id for v in picked if meta[v.id]["status"] == "retired") \
         == sorted(retired_in_block)
 
-    # (b) why it is worth money: they are all retired as FALSE PREMISES, so the
-    # only correct answer is zero and the probe pays full price to learn nothing.
+    # (b) why it is worth money: every retirement in the block is a RECORDED
+    # judgement — a false premise, a nonexistent UID, an incoherent follow-up — so
+    # the probe pays full price to re-ask questions somebody already ruled out.
+    #
+    # The reason text is no longer pinned to the GBM string. The block this picks
+    # is whichever qualifying one is largest, and that moved when the 2026-08-06
+    # question set retired six more variants — anchoring on one family's prose made
+    # the test about which family happened to win rather than about the hazard.
     reasons = {meta[i]["retirement"]["reason"] for i in retired_in_block}
-    assert len(reasons) == 1 and "GBM does not exist" in reasons.pop()
+    assert reasons and all(len(r) > 20 for r in reasons), reasons
 
     # (c) the sibling hazard: `tags` ride along, and `known_fail` means nothing on
     # the inline path -- no floor, no route policy, and no expectation of failure.

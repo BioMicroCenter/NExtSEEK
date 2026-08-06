@@ -18,22 +18,36 @@ edit.
 - **full** (paid, nightly): runs the turn to completion; asserts counts + bundle
   richness. Requires the **seeded v2 instance** (project ids 2-14).
 
-## Running only the NOT-YET-GRADED variants (delta run)
+## The selection
 
-`--bayesian` drives every variant flagged `is_bayesian` + `active` — 152 today,
-of which 127 are already graded from the 2026-08-06 run. Running all 152 REPAYS
-about $30 to re-answer questions a human has already judged.
+`--bayesian` drives every variant flagged `is_bayesian` + `active` — **149 today**,
+the 2026-08-06 question set. 24 of the 25 task families, one distinct question per
+variant, and every one asserting a verified value on `last_reply` (the only field
+that survives forcing on a `container_cc` arm).
 
-To run only the 25 that have never been graded:
+**Read `docs/nessie-question-set-2026-08-06.md` before running it.** That document
+lists all 149 questions with their ground truth and how each was verified, the
+per-family targets and the reasoning behind them, the three write/launch hazards
+and what was done about each, and the cost. It is meant to be reviewed and argued
+with before any paid turn.
+
+Budget: ~**$35.60** of CC arms (149 x $0.2388 observed) plus ~5.3 hours serial.
+NS arms report $0.00. Suggested `--max-usd 45`.
+
+84 of the 149 keep their id AND their exact text from the 2026-08-06 run, 82 of
+which carry a human grade, so the next report can be diffed against that one
+question by question. 7 keep the id with changed text (the old grade is a
+baseline, not a pre-fill) and 58 are new.
+
+### Running only a subset
 
 ```bash
-python nessie_tests/scripts/delta_selection.py --graded nessie_bayes_full/grades.json
+python nessie_tests/scripts/delta_selection.py --graded <run>/grades.json
 # ... run --bayesian into its OWN --out ...
 git checkout nessie_tests/corpus.json   # the narrowing is run-time state, not a commit
 ```
 
-Full procedure, including grading and merging the two runs into one HiBayes-ready
-study: `docs/nessie-corpus-additive-2026-08-06.md`.
+Full grading and merge procedure: `docs/nessie-corpus-additive-2026-08-06.md`.
 
 ## Scope
 - `--scope specific` → only `route_gate`-tagged cases (+ consistency groups).

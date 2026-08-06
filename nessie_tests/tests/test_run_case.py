@@ -132,10 +132,17 @@ def test_a_forced_pass_is_not_promoted_where_an_unforced_one_is():
     forcing is the only difference — so the different status is the guard."""
     v = _variant("unsup.weather").model_copy(
         update={"tags": ["nessie", "full", "known_fail"]})
-    post_query, get_progress = _fakes(route="unrelated")
+    # The reply has to SATISFY the case, or both arms fail and the guard is not
+    # what the different status is measuring. `unsup.weather` used to assert only
+    # `parser_plan.mode`, so the default `reply="ok"` was enough; the 2026-08-06
+    # question set gave every selected variant a reply assertion, and this one's
+    # is a refusal guard. A refusal is exactly what a correct answer to "what is
+    # today's weather forecast" looks like, so this is the honest double.
+    refusal = "I can't answer that — weather is outside what NExtSEEK holds."
+    post_query, get_progress = _fakes(route="unrelated", reply=refusal)
     assert runner.run_case(v, tier="full",
                            post_query=post_query, get_progress=get_progress).status == "xpass"
-    post_query, get_progress = _fakes(route="unrelated")
+    post_query, get_progress = _fakes(route="unrelated", reply=refusal)
     assert runner.run_case(v, tier="full", force_route="ns", strip_route_criteria=True,
                            post_query=post_query,
                            get_progress=get_progress).status == "passed"

@@ -168,16 +168,24 @@ def test_the_write_case_rejects_budget_abort_language():
 
 
 def test_every_negative_guard_is_dotall():
-    """matches_re has no DOTALL. Without (?s), `^(?!.*X).*$` fails on ANY multi-line
-    reply — clean or not — so the guard can never go green."""
+    """matches_re has no DOTALL. Without it, `^(?!.*X).*$` fails on ANY multi-line
+    reply — clean or not — so the guard can never go green.
+
+    Checks the COMPILED flags, not a literal `(?s)` prefix. The prefix check
+    rejected `(?is)` — dotall AND ignorecase, strictly stronger than what it
+    demanded — which is what the 2026-08-06 question set writes on all six of its
+    new negative guards. It also could not see a global flag written anywhere but
+    the start of the pattern, which is a hard error in Python 3.11+ and exactly
+    the mistake worth catching.
+    """
     offenders = []
     for v in _overlay_origin():
         for t in v.turns:
             for c in t.pass_criteria:
                 if c.op == "matches_re" and isinstance(c.value, str) and "(?!" in c.value:
-                    if not c.value.startswith("(?s)"):
+                    if not re.compile(c.value).flags & re.DOTALL:
                         offenders.append(f"{v.id}: {c.value}")
-    assert not offenders, "negative guards missing the (?s) prefix: " + "; ".join(offenders)
+    assert not offenders, "negative guards are not DOTALL: " + "; ".join(offenders)
 
 
 def test_the_global_count_matches_the_seeded_database():

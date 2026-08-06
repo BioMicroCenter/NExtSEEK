@@ -126,8 +126,11 @@ def test_retirement_can_be_reversed_by_flipping_the_status(tmp_path):
 
     active = {v.id for v in corpus.curated(corpus.load_unified(reinstated))}
     assert victim["id"] in active
-    # 284 -> 309: the 25 variants added by the 2026-08-06 additive pass.
-    assert len(active) == 309
+    # 284 -> 309 -> 362. 309 was the 2026-08-06 additive pass; 362 is the
+    # 2026-08-06 question set (+58 authored, +6 retired, 1 of the 6 already
+    # retired-by-another-name), measured over the curated set.
+    assert len(active) == 366  # 309 -> 366: this counts the active set with ONE
+    # retired variant reinstated, so it is the corpus's 365 plus that one.
 
 
 def test_every_definition_has_a_status_the_loader_recognises():

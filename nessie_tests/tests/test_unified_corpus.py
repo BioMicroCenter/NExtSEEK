@@ -54,7 +54,7 @@ def test_unified_holds_every_definition():
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
     ids = {v["id"] for fam in payload["families"].values() for v in fam["variants"]
            if v.get("origin") != "atlas"}
-    assert len(ids) == 408
+    assert len(ids) == 470  # 408 -> 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_every_retired_definition_is_still_loadable():
@@ -64,7 +64,7 @@ def test_every_retired_definition_is_still_loadable():
     someone reinstates it."""
     retired = [v for v in corpus.load_all_definitions(CORPUS)
                if corpus.variant_meta(CORPUS)[v.id]["status"] == "retired"]
-    assert len(retired) == 100
+    assert len(retired) == 105  # 100 -> 105: 2026-08-06 question set: +58 new variants, +6 retirements, 76 deselections (is_bayesian only, still active).
     for v in retired:
         assert v.turns, f"{v.id} has no turns"
         assert all(t.query for t in v.turns), f"{v.id} has an empty query"
@@ -84,7 +84,7 @@ def test_retired_ids_carry_their_full_retirement_record():
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
     retired = [v for fam in payload["families"].values()
                for v in fam["variants"] if v["status"] == "retired"]
-    assert len(retired) == 100
+    assert len(retired) == 105  # 100 -> 105: 2026-08-06 question set: +58 new variants, +6 retirements, 76 deselections (is_bayesian only, still active).
     for v in retired:
         rec = v["retirement"]
         assert rec and rec["reason"] and rec["retired_on"] and rec["decided_by"], v["id"]
@@ -94,18 +94,18 @@ def test_load_unified_returns_the_active_variants_only():
     # 283 -> 308: +25 from the 2026-08-06 additive pass (16 promoted out of the
     # atlas set into the curated one, 9 written fresh). Nothing was removed.
     active = corpus.curated(corpus.load_unified(UNIFIED))
-    assert len(active) == 308
+    assert len(active) == 365  # 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_load_all_definitions_returns_active_plus_retired():
-    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 408
+    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 470  # 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_unified_resolution_preserves_turn_count():
     # 314 -> 343. The 25 additions carry 29 turns between them: several are
     # genuinely multi-turn, and three atlas variants were REPAIRED on promotion
     # because they had a multi-turn script flattened into one literal query.
-    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 343
+    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 413  # 343 -> 413: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. 15 of the 58 additions are multi-turn, and 3 edits split a flattened script into real turns.
 
 
 def test_the_hand_written_annotations_survived_adoption():
@@ -129,9 +129,17 @@ def test_the_hand_written_annotations_survived_adoption():
     # would make a promoted variant indistinguishable from one a human wrote. So
     # `_atlas` counts variants ever generated (80, +1 for a fresh variant modelled
     # on one), while the `atlas` TAG counts those still unreviewed (63).
-    assert counts == {"_why": 43, "_why_superseded_2026_08_03": 1,
+    # 2026-08-06 question set: `_why` 43 -> 101 (one per authored variant), plus
+    # `_added_2026_08_06_qset` 58, `_edited_2026_08_06_qset` 86,
+    # `_deselected_2026_08_06_qset` 76 and `_promoted_2026_08_06_qset` 4. Every
+    # deselection and every retirement records a written reason; that is what makes
+    # the selection reviewable without a diff.
+    assert counts == {"_why": 101, "_why_superseded_2026_08_03": 1,
                       "_2026_07_28": 1, "_atlas": 80,
-                      "_promoted_2026_08_06": 17, "_added_2026_08_06": 8}
+                      "_promoted_2026_08_06": 17, "_added_2026_08_06": 8,
+                      "_added_2026_08_06_qset": 58, "_edited_2026_08_06_qset": 86,
+                      "_deselected_2026_08_06_qset": 76,
+                      "_promoted_2026_08_06_qset": 4}
 
 
 def test_fingerprint_is_over_the_unified_corpus_only():
@@ -149,7 +157,7 @@ def test_fingerprint_is_over_the_unified_corpus_only():
 def test_variant_meta_covers_every_definition():
     meta = corpus.variant_meta(UNIFIED)
     curated_ids = {v.id for v in corpus.curated(corpus.load_all_definitions(UNIFIED))}
-    assert len({k for k in meta if k in curated_ids}) == 408
+    assert len({k for k in meta if k in curated_ids}) == 470  # 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     assert meta["repro.cypher_uid_dot"]["status"] == "retired"
     assert meta["green.mus_ndma"]["status"] == "active"
     # `is_bayesian` used to be pinned False on this variant, which was a pin on
@@ -232,11 +240,17 @@ def test_defaults_cover_the_retired_only_families_too():
     # 13 -> 21. The 2026-08-06 pass promoted atlas variants in 8 previously
     # atlas-only families into the curated set, so those families now hold an
     # active CURATED variant. The gap this test records shrank by exactly 8.
-    assert len(active) == 21, sorted(active)
+    assert len(active) == 25, sorted(active)  # 21 -> 25: the question set covers
+    # pipeline_output_reingest, session_lifecycle, cross_session_memory and
+    # entity_write for the first time.
     # pipeline_output_reingest and entity_write hold one RETIRED variant each and
     # no active one. They are not slop: a retired definition stays loadable and
     # `hibayes_meta` resolves it exactly like an active one.
-    assert declared - active == {"pipeline_output_reingest", "entity_write"}
+    # Was {"pipeline_output_reingest", "entity_write"}; both now hold active,
+    # selected variants, so the retired-only set is EMPTY. The invariant this test
+    # exists for is unchanged and is asserted below: every declared family resolves,
+    # active or not.
+    assert declared - active == set()
     # `_`-prefixed keys are the file's annotation convention, not families.
     # `corpus.load_family_defaults` strips them so a consumer can iterate.
     # Defaults cover every family in the block, not just the ones holding a
@@ -455,28 +469,63 @@ def test_bayesian_ids_drops_a_flagged_variant_that_was_later_retired(tmp_path):
     assert corpus.bayesian_ids(p) == ["a"]
 
 
-def test_bayesian_selection_takes_the_whole_refine_and_recall_family():
-    """The family where NS and CC differ most, and the reason the row unit is a
-    variant rather than a turn. Sampling it would defeat the point."""
+def test_every_deselected_refine_and_recall_member_records_why():
+    """Was `..._takes_the_whole_refine_and_recall_family`.
+
+    The original intent was "do not let a seeded RNG choose which of these run",
+    and taking the family WHOLE was how that was expressed. That held while whole
+    and distinct were the same thing. They are not: the 2026-08-06 study found ten
+    of the seventeen selected `followup_over_results` members opened with the SAME
+    seed question, and four of the nine `search_refinement` members shared both a
+    seed and a refinement. Taking the family whole meant paying for the same
+    opening turn ten times.
+
+    The intent survives and is what is asserted now: nothing leaves this selection
+    by accident. Every deselected member must carry a WRITTEN reason, so the only
+    way out of the paid run is a decision somebody recorded.
+    """
     ids = set(corpus.bayesian_ids(UNIFIED))
-    # The 2026-08-04 remap split `refine_and_recall` in two on the parser mode the
-    # variants already asserted: `ask_about_last_results` became
-    # `followup_over_results`, `refine_last_search` became `search_refinement`.
-    # Both halves must still be taken whole, so assert the union, not either name.
     halves = ("followup_over_results", "search_refinement")
-    active = corpus.curated(corpus.load_unified(UNIFIED))
-    rr = [v.id for v in active if v.family in halves]
-    assert rr and set(rr) <= ids
+    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
+    members = [v for fam in payload["families"].values() for v in fam["variants"]
+               if v["family"] in halves and v["status"] == "active"
+               and v.get("origin") != "atlas"]
+    assert members, "guard: no members means this proves nothing"
+    selected = [v for v in members if v["id"] in ids]
+    assert selected, "the whole family left the paid selection"
     for half in halves:
-        assert any(v.family == half for v in active), half
+        assert any(v["family"] == half for v in selected), half
+    unexplained = [v["id"] for v in members
+                   if v["id"] not in ids and not v.get("_deselected_2026_08_06_qset")]
+    assert not unexplained, (
+        f"deselected without a written reason: {sorted(unexplained)}")
 
 
-def test_bayesian_selection_includes_the_two_job_launching_pipeline_cases():
-    """Spec risk R2, accepted deliberately: each ends on a literal `submit` turn,
-    so a paired NS/CC run launches four real jobs. Pinned here so nobody quietly
-    drops them to make a run cheaper without reopening the decision."""
+def test_no_selected_variant_ends_on_a_bare_submit_turn():
+    """Was `..._includes_the_two_job_launching_pipeline_cases`, which PINNED the two
+    variants ending on a literal `submit`.
+
+    That pin was correct for a corpus in which nobody had checked what `submit`
+    reaches. It does reach: `PIPELINE_LAUNCH_MODE=LURIA` and a populated `LURIAKEY`
+    are both live in `docker/nextseek.env`, and `submit_to_luria` ssh+sbatches on
+    MIT Luria. Neither arm actually launched in the 2026-08-06 run, but both
+    refused for question-specific reasons (a degenerate single-group cohort, and a
+    UID that does not exist) rather than because anything stopped them.
+
+    So the decision was reopened, which is exactly what the old test asked for, and
+    reversed. Launch behaviour is still measured — `pipeline.describe_before_submitting`
+    asks for the full cohort and reference genome and carries a negative guard that
+    fails if the reply claims a job was queued — but no selected variant hands the
+    system the word `submit` with a build already staged.
+    """
     ids = set(corpus.bayesian_ids(UNIFIED))
-    assert {"pipeline.end_to_end_emit", "pipeline.happy_path_scrnaseq"} <= ids
+    merged = {v.id: v for v in corpus.merged(UNIFIED)}
+    offenders = [vid for vid in ids
+                 if (merged[vid].turns[-1].query or "").strip().lower().rstrip(".!")
+                 in {"submit", "yes, submit it", "go ahead and submit", "submit it"}]
+    assert not offenders, (
+        f"selected variants ending on a bare submit turn: {sorted(offenders)}. "
+        f"The deployed stack has a live LURIAKEY and submit_to_luria really sbatches.")
 
 
 # --- Fix round 2026-08-04: the generator pin, the hand overrides, and typing ---
@@ -664,7 +713,11 @@ def test_the_atlas_set_is_additive_and_inert():
     # documents ("promoting an atlas variant to reviewed is a tag flip"). The
     # invariant below is unchanged and is the one that matters: whatever remains
     # unreviewed stays out of the PAID selection.
-    assert len(atlas) == 63
+    # 79 -> 63 -> 59. The 2026-08-06 question set read, ground-truthed and
+    # selected four more of them, which is an origin AND tag flip; `_atlas`
+    # provenance is kept on all 80 so where the question came from is still on
+    # the record.
+    assert len(atlas) == 59
 
     assert all(v.turns and len(v.turns) == 1 for v in atlas), "one turn each"
     assert all(len(v.turns[0].pass_criteria) >= 1 for v in atlas), "every one asserts something"
@@ -690,13 +743,17 @@ def test_the_atlas_set_is_additive_and_inert():
     # flipped the tag, which is the intended direction; if it grows, a generator
     # ran again without anyone deciding to.
     newly = {v.family for v in atlas} - {v.family for v in corpus.curated(corpus.merged(UNIFIED))}
-    # Shrank from 11 to 3 on 2026-08-06, which the comment above names as the
-    # INTENDED direction: 8 of these families had their atlas variants read,
-    # ground-truthed and promoted, so they are now populated by curated variants
-    # and no longer depend on the generated set. The 3 that remain are the ones
-    # deliberately left: `entity_write` (a paid run would MUTATE the database),
-    # `cross_session_memory` (forcing pins both arms to one engine, so the
-    # cross-ENGINE recall it exists to test is unreachable) and `engine_routing`
-    # (asserting a route the harness itself forced is tautological).
-    assert newly == {"cross_session_memory", "engine_routing",
-                     "entity_write"}, sorted(newly)
+    # 11 -> 3 -> 1, the direction the comment above names as intended.
+    #
+    # `cross_session_memory` and `entity_write` left the set on 2026-08-06 when the
+    # question set covered them with curated variants. Neither hazard was waved
+    # away: `entity_write` is covered by three formulations that WITHHOLD consent
+    # (a read-only schema inspection, an explicit dry run, and a registration that
+    # cannot complete because the required fields are absent), and
+    # `cross_session_memory` is covered only for what forcing can actually reach —
+    # within-chat recall and the `fresh_session` guarantee — with the cross-ENGINE
+    # recall behind issues #36/#37/#38 recorded on the variants as out of reach.
+    #
+    # `engine_routing` remains, and remains for the original reason: asserting a
+    # route the harness itself forced is tautological.
+    assert newly == {"engine_routing"}, sorted(newly)
