@@ -731,7 +731,7 @@ def test_public_worker_consumes_configured_in_job_parallelism_or_default_one(dis
 
 
 @pytest.mark.django_db(transaction=True)
-def test_async_exact_fault_matrix_terminal_state_and_fingerprints(disposable_attribute_db, attribute_broker_lane, attribute_faults, django_db_blocker):
+def test_async_exact_fault_matrix_terminal_state_and_fingerprints(disposable_attribute_db, attribute_faults, django_db_blocker):
     django_db_blocker.unblock()
     database = disposable_attribute_db
     points = [
