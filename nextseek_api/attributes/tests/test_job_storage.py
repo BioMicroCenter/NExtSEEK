@@ -89,7 +89,32 @@ def _create_job(*, actor: dict | None = None, sample_type_ids=(7,), execution_mo
     )
 
 
+@pytest.mark.django_db(transaction=True)
 def test_supported_constructor_restart_round_trip():
+    # Amendment Log 2026-08-06 (2) (T03-surface repair, restart-simulation
+    # mechanics only -- every assertion below and the node id are unchanged
+    # from the original contract): the module-default `pytest.mark.django_db`
+    # (no `transaction=True`) wraps the whole test body in one implicit,
+    # rolled-back outer atomic block. Manually closing `connections["default"]`
+    # mid-test while that outer atomic block is still open leaves Django's
+    # atomic/savepoint bookkeeping (`in_atomic_block`, the savepoint stack)
+    # pointing at a connection object that no longer exists. Under
+    # `dmac.test_settings`' `:memory:` SQLite this is invisible -- Django's
+    # test runner patches `close()` to a no-op for in-memory SQLite
+    # specifically to avoid destroying the database, so the "restart" was
+    # never actually exercised there. Under the real MariaDB `default` alias
+    # (task-08 spec Section 7 Edit 3, also planned by task-10 Section 6) the
+    # patch does not apply: `.close()` genuinely drops the socket, and the
+    # next query -- still inside the stale outer atomic block -- surfaces as
+    # `MySQLdb.OperationalError: (2006, '')` inside `cursor._discard()`
+    # rather than a clean reconnect. `transaction=True` removes the implicit
+    # outer atomic wrapper (this job/partition data is committed for real,
+    # not rolled back), so `connections["default"].close()` followed by a
+    # fresh query is the standard, Django-supported "simulate a new process"
+    # pattern: `ensure_connection()` opens a genuinely new physical
+    # connection with no leftover transaction/savepoint state to reconcile --
+    # proper full-close/reconnect semantics, valid under both real MySQL and
+    # SQLite (where the in-memory patch still makes `close()` a safe no-op).
     actor = _actor(7)
     job, partitions = _create_job(actor=actor, sample_type_ids=(3, 9))
     job_id = job.job_id
@@ -99,25 +124,36 @@ def test_supported_constructor_restart_round_trip():
     envelope_bytes = bytes(job.resolved_plan_envelope)
     assert {partition.sample_type_id for partition in partitions} == {3, 9}
 
-    # Simulate a fresh process read: drop the cached connection and re-fetch
-    # by primary identity only, never reusing the in-memory Python objects.
-    connections["default"].close()
-    fresh_job = AttributeMutationJob.objects.get(job_id=job_id)
-    assert fresh_job.canonical_submitted_request_sha256 == submitted_sha
-    assert dict(fresh_job.canonical_submitted_request) == submitted_document
-    assert fresh_job.resolved_plan_sha256 == resolved_sha
-    assert bytes(fresh_job.resolved_plan_envelope) == envelope_bytes
-    assert dict(fresh_job.actor_identity) == actor
+    try:
+        # Simulate a fresh process read: drop the cached connection and
+        # re-fetch by primary identity only, never reusing the in-memory
+        # Python objects.
+        connections["default"].close()
+        fresh_job = AttributeMutationJob.objects.get(job_id=job_id)
+        assert fresh_job.canonical_submitted_request_sha256 == submitted_sha
+        assert dict(fresh_job.canonical_submitted_request) == submitted_document
+        assert fresh_job.resolved_plan_sha256 == resolved_sha
+        assert bytes(fresh_job.resolved_plan_envelope) == envelope_bytes
+        assert dict(fresh_job.actor_identity) == actor
 
-    fresh_partitions = list(
-        AttributeMutationPartition.objects.filter(job=fresh_job).order_by("sample_type_id")
-    )
-    assert [partition.sample_type_id for partition in fresh_partitions] == [3, 9]
-    for stored, expected in zip(fresh_partitions, sorted(partitions, key=lambda item: item.sample_type_id)):
-        assert stored.idempotency_key == expected.idempotency_key
-        assert stored.before_physical_fingerprint == expected.before_physical_fingerprint
-        assert stored.expected_after_semantic_fingerprint == expected.expected_after_semantic_fingerprint
-        assert list(stored.created_identity_tokens) == list(expected.created_identity_tokens)
+        fresh_partitions = list(
+            AttributeMutationPartition.objects.filter(job=fresh_job).order_by("sample_type_id")
+        )
+        assert [partition.sample_type_id for partition in fresh_partitions] == [3, 9]
+        for stored, expected in zip(fresh_partitions, sorted(partitions, key=lambda item: item.sample_type_id)):
+            assert stored.idempotency_key == expected.idempotency_key
+            assert stored.before_physical_fingerprint == expected.before_physical_fingerprint
+            assert stored.expected_after_semantic_fingerprint == expected.expected_after_semantic_fingerprint
+            assert list(stored.created_identity_tokens) == list(expected.created_identity_tokens)
+    finally:
+        # `transaction=True` commits for real instead of rolling back at
+        # test end; explicitly delete this test's own rows (partitions
+        # cascade off the job FK) so sibling tests in this module that rely
+        # on the table starting empty (e.g. the `AttributeMutationJob.
+        # objects.count() == 0` assertions below) are unaffected -- restoring
+        # the same isolation the module-default rollback would otherwise
+        # have given for free.
+        AttributeMutationJob.objects.filter(job_id=job_id).delete()
 
 
 @pytest.mark.parametrize("corruption", ["submitted-bytes", "submitted-hash", "resolved-bytes", "resolved-hash"])
