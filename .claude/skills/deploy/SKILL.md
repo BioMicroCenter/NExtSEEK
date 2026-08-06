@@ -9,12 +9,27 @@ description: Use when deploying, redeploying, rolling back, or verifying the NEx
 authoritative runbook and the stand-in for a CI/CD pipeline. This skill only
 routes you and holds the hard gates.
 
+## Standard verbs (use these, not raw docker compose)
+
+- **Redeploy an app change** (the common case): `./startup.sh rebuild` — the
+  fast path. It rebuilds+restarts only the `nextseek` service (volumes, seeds,
+  and config untouched; migrations still run at container boot), runs the
+  DEPLOYMENT.md §5.2 baked-secret gate on the fresh image, and **automatically
+  pushes the off-box rollback baseline to GHCR** (never failing the deploy —
+  a missing/expired token degrades to a loud banner + red doctor check).
+  Raw `docker compose build nextseek` silently skips the gate AND the
+  baseline push — do not use it for the app service.
+- **Diagnose**: `./startup.sh doctor` (read-only) before touching anything.
+- **First-ever install on a box**: `./startup.sh install` (full pipeline:
+  prereqs → config render → volumes → seeds → build → users → health).
+- **Nuke and reinstall**: `./startup.sh reset` (DESTRUCTIVE — drops volumes).
+
 ## Route by task
 
 | Task | Go to |
 |---|---|
 | Fresh install on a new box | DEPLOYMENT.md §2 (then NExtSTEPS.md before exposure) |
-| Ship a code change to a running instance | DEPLOYMENT.md §3 |
+| Ship a code change to a running instance | DEPLOYMENT.md §3 (`./startup.sh rebuild`) |
 | Config-only change (env / local_settings) | DEPLOYMENT.md §4 |
 | Roll back a bad deploy | DEPLOYMENT.md §5 |
 | Verify a deploy | DEPLOYMENT.md §6 (always, after every deploy) |
