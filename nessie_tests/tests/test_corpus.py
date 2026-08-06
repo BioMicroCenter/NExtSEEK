@@ -14,15 +14,22 @@ def test_base_loads_and_is_tagged():
 
 def test_every_definition_carries_its_origin_as_a_tag():
     """`origin` is stamped onto `tags` by `_to_variants`, so nothing downstream
-    had to learn a new field when the three files became one. 47 of the 383
-    definitions came from the overlay rather than from the vendored catalog."""
+    had to learn a new field when the three files became one. 72 of the 408
+    definitions came from the overlay rather than from the vendored catalog.
+
+    Both numbers moved together on 2026-08-06 and for one reason: 25 variants
+    changed origin from `atlas` to `overlay`. 16 were generated variants that a
+    human then read, ground-truthed and repaired, and 9 were written fresh
+    alongside them. `overlay` is where hand-owned definitions live, so promotion
+    out of the machine-generated set IS the move from one tag to the other.
+    """
     defs = corpus.load_all_definitions(CORPUS)
     for v in defs:
-        # "atlas" is the third origin, added 2026-08-04: 79 generated variants,
-        # one per expressible capability assertion. See corpus.curated.
+        # "atlas" is the third origin, added 2026-08-04: generated variants, one
+        # per expressible capability assertion. See corpus.curated.
         assert {"base", "overlay", "atlas"} & set(v.tags), f"{v.id} carries no origin tag"
-    assert len([v for v in defs if "overlay" in v.tags]) == 47
-    assert len([v for v in defs if "atlas" in v.tags]) == 79
+    assert len([v for v in defs if "overlay" in v.tags]) == 72
+    assert len([v for v in defs if "atlas" in v.tags]) == 63
 
 
 def test_merged_is_exactly_the_active_definitions():
@@ -34,7 +41,7 @@ def test_merged_is_exactly_the_active_definitions():
     retired = {vid for vid, m in meta.items() if m["status"] == "retired"}
     merged = corpus.curated(corpus.merged(CORPUS))
     all_defs = corpus.curated(all_defs)
-    assert len(merged) == len(all_defs) - len(retired) == 283
+    assert len(merged) == len(all_defs) - len(retired) == 308
     assert len({v.id for v in merged}) == len(merged)  # no duplicate ids
     assert not ({v.id for v in merged} & retired)
 
@@ -237,14 +244,44 @@ def _prepolicy():
     return corpus.apply_criterion_rewrites(out, corpus.load_criterion_rewrites(CORPUS))
 
 
+# The 8 families added on 2026-08-06 that have NO `route_policy.families` entry,
+# and therefore get no route criterion injected.
+#
+# This is a GAP, pinned here rather than papered over. `route_policy` is operator-
+# settled ("Settled by the operator 2026-07-28: bulk export is CC's job"), and
+# guessing an engine for a family nobody has ruled on would turn a free-tier run
+# red while asserting something no one decided. It does not affect the paired run
+# these families were added for: `--bayesian` FORCES the route and strips route
+# criteria on both arms, so a route assertion there is tautological anyway.
+#
+# To close it, add each family to `route_policy.families` in corpus.json and drop
+# it from this set. The set is asserted exactly, so a NEW family cannot join the
+# corpus without a route expectation and go unnoticed.
+_ROUTE_EXPECTATION_UNSETTLED = {
+    "artifact_delivery", "batch_upload_preparation", "cc_sandbox_contract",
+    "harmonization", "retrieval_path_selection", "turn_delivery_and_trace",
+    "turn_limits_and_failure", "vocabulary_resolution",
+}
+
+
 def test_every_resolved_variant_carries_a_route_criterion():
     merged = corpus.merged(CORPUS)
     merged = corpus.curated(merged)
-    with_route = [v for v in merged
+    expected = [v for v in merged if v.family not in _ROUTE_EXPECTATION_UNSETTLED]
+    with_route = [v for v in expected
                   if any(c.field == "route" for t in v.turns for c in t.pass_criteria)]
 
-    assert len(with_route) == len(merged) == 283, (
-        f"{len(with_route)} of {len(merged)} carry a route criterion — update {_DOCS}")
+    assert len(with_route) == len(expected) == 288, (
+        f"{len(with_route)} of {len(expected)} carry a route criterion — update {_DOCS}")
+
+    # The exemption is real and bounded: nothing outside those 8 families may skip
+    # a route criterion, and every one of the 8 must actually still lack one --
+    # otherwise the exemption has gone stale and is hiding a settled policy.
+    unsettled = {v.family for v in merged
+                 if not any(c.field == "route" for t in v.turns for c in t.pass_criteria)}
+    assert unsettled == _ROUTE_EXPECTATION_UNSETTLED, (
+        f"route-criterion gap moved: {sorted(unsettled)} — either a family gained a "
+        f"route_policy entry (drop it from the set) or a new one lost its criterion")
 
 
 def test_only_three_variants_are_route_gate():
@@ -256,7 +293,13 @@ def test_only_three_variants_are_route_gate():
 
 
 def test_the_route_policy_injects_the_number_the_docs_quote():
-    """268 injected + 15 written inline = the 283 above."""
+    """273 injected + 15 written inline = 288, the route-carrying set above.
+
+    268 -> 273: 5 of the 25 variants added on 2026-08-06 landed in families that
+    already have a `route_policy` entry, so they get an injection like any other.
+    The other 20 are in the 8 families with no settled route expectation and are
+    exempt — see `_ROUTE_EXPECTATION_UNSETTLED`.
+    """
     spec = corpus.load_route_policy(CORPUS)
     families = (spec or {}).get("families") or {}
     overrides = (spec or {}).get("overrides") or {}
@@ -269,7 +312,7 @@ def test_the_route_policy_injects_the_number_the_docs_quote():
 
     injected = corpus.curated(injected)
     inline = corpus.curated(inline)
-    assert len(injected) == 268, f"{len(injected)} injected — update {_DOCS}"
+    assert len(injected) == 273, f"{len(injected)} injected — update {_DOCS}"
     assert len(inline) == 15, f"{len(inline)} inline — update {_DOCS}"
 
 
@@ -297,9 +340,13 @@ def test_the_family_floor_injects_the_numbers_the_docs_quote():
     # 11 assay searches left sample_search for graph_traversal (so they now take
     # graph_truncation_disclosed as well, 36 -> 47), and green.* plus routing.*
     # landed in floored families where their old ones had no floor (146 -> 150).
-    assert variants == 207, f"{variants} variants floored — update {_DOCS}"
-    assert per_field == {"outcome_observed": 150, "report_produced_output": 57,
-                         "graph_truncation_disclosed": 47}, (
+    # 207 -> 210: the family floor reaches 3 of the 25 variants added
+    # 2026-08-06; the other 22 are in families the floor does not cover.
+    assert variants == 210, f"{variants} variants floored — update {_DOCS}"
+    # 2026-08-06: +3 outcome_observed and +1 graph_truncation_disclosed, from the
+    # 3 added variants the floor reaches.
+    assert per_field == {"outcome_observed": 153, "report_produced_output": 57,
+                         "graph_truncation_disclosed": 48}, (
         f"{per_field} — update {_DOCS}")
 
 

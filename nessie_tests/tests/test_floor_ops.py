@@ -449,6 +449,21 @@ def _evaluate(criteria, debug, *, last_reply="ok"):
 
 _CURATED_IDS = {v.id for v in corpus.curated(corpus.merged(CORPUS))}
 
+# The 25 variants added on 2026-08-06 to extend the already-graded set, identified
+# by the provenance markers the pass stamped on every one of them.
+#
+# Excluded from the measurements in this file for exactly the reason the atlas set
+# is (see `_CURATED_IDS`'s use below): each one is evidence about the floor as it
+# met the corpus somebody had already written. Folding in variants added afterwards
+# would leave every assertion passing while quietly making it evidence for a
+# different corpus. The additions are covered by the corpus-level tests instead.
+_ADDED_2026_08_06 = {
+    v["id"]
+    for fam in json.loads(CORPUS.read_text(encoding="utf-8"))["families"].values()
+    for v in fam["variants"]
+    if "_promoted_2026_08_06" in v or "_added_2026_08_06" in v
+}
+
 RETIRED_FLOOR = {
     "sample_search": ["api_ok", "api_outcome_observed"],
     "sample_retrieve": ["api_ok", "api_outcome_observed"],
@@ -548,7 +563,8 @@ def test_the_retired_floor_entries_were_inert_almost_everywhere():
     # somebody wrote, and 79 atlas variants landing in floored families would
     # rewrite the evidence set without changing what it is evidence for.
     added = _floor_added_under(RETIRED_FLOOR)
-    added = {vid: f for vid, f in added.items() if vid in _CURATED_IDS}
+    added = {vid: f for vid, f in added.items()
+             if vid in _CURATED_IDS and vid not in _ADDED_2026_08_06}
     assert {vid for vid, f in added.items() if "neo4j_ok" in f} == LOST_NEO4J_OK
     assert {vid for vid, f in added.items() if "api_ok" in f} == LOST_API_OK
 
@@ -579,7 +595,8 @@ def test_search_tree_got_stricter_not_looser_on_all_but_one_variant():
     # on api_ok + api_outcome_observed and never carried the trade risk.
     floored = [v for v in merged.values()
                if v.family == "lineage_tree" and v.id.startswith("tree.")
-               and "no_floor" not in v.tags and "atlas" not in v.tags]
+               and "no_floor" not in v.tags and "atlas" not in v.tags
+               and v.id not in _ADDED_2026_08_06]
     assert len(floored) == 13, [v.id for v in floored]
 
     traded = {v.id for v in floored if "api_ok" not in _inline_fields(v.id)}
@@ -893,7 +910,7 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     # 280 -> 283 on 2026-08-03: the create/update/delete refusal coverage came
     # back (one reinstated, two authored). This is the ONLY hardcoded corpus size
     # in the suite, so it is the one place that has to move.
-    assert len(merged) == 283
+    assert len(merged) == 308
     ids = [v.id for v in merged]
     base_ids_all = {v.id for v in corpus.load_base()}
     defs = {v.id: v for v in corpus.load_all_definitions(CORPUS)}
