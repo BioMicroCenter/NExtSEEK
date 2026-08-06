@@ -150,6 +150,25 @@ def _wait_for_terminal(job_id, *, timeout=30):
     return _wait_until(lambda: _job_state(job_id) in {"succeeded", "partial", "failed", "cancelled"}, timeout=timeout)
 
 
+def _wait_for_broker_queue_drained(lane, queue, *, timeout=15):
+    """Real proof no message/consumer is stranded on the broker (Section 3's
+    own words for the duplicate-delivery node: "no stranded lease/job").
+    `acks_late=True` means a just-finished task's message is only removed
+    from kombu's `sqla+sqlite` store once the worker's ack actually lands --
+    a real, non-zero gap after this test's own `_job_state` poll observes
+    the durable job row go terminal, since that CAS commits before the
+    Celery task wrapper returns and Celery sends the ack. Waiting here for
+    the broker's own queue to empty is the honest way to observe that gap
+    close, instead of asserting on the job row alone and leaving the broker
+    fixture's teardown to race the still-finishing worker process."""
+    physical = lane.queue_name(queue)
+    def _drained():
+        with lane._connection.channel() as channel:
+            _name, messages, consumers = channel.queue_declare(queue=physical, passive=True)
+        return messages == 0
+    return _wait_until(_drained, timeout=timeout)
+
+
 def _mark_outbox_pending(job):
     """T09's not-yet-built job-creation path (`MutationJobService.create`) is
     what will flip a freshly created asynchronous job's `outbox_state` to
@@ -402,9 +421,18 @@ def test_duplicate_delivery_two_workers_one_effect_one_terminalization(disposabl
     django_db_blocker.unblock()
     database = disposable_attribute_db
     assertion_count = 0
-    _seed_blood(database, population=0)
-    _seed_extra_type(database, 301, "DupType", 3010, "Weight")
-    request = _multi_target_request("patch", [(301, [patch_operation(3010, {"description": "content"})])])
+    # A title rename against a real, sizeable existing population is what
+    # actually keeps the type genuinely "active" for a measurable window
+    # (the same slow-window technique
+    # test_cancel_blocked_real_transaction_finishes_active_and_skips_later
+    # uses below): a description-only patch on a brand-new, empty type (the
+    # prior setup) commits essentially instantly, so the duplicate message
+    # never had a genuine live claim to overlap with -- exactly why
+    # M-DELIVERY-01's weakened recovery-claim predicate
+    # (`lease_expires_at__lt=Now()` -> `lease_expires_at__isnull=False`)
+    # went unexercised and this node survived it under mutation.
+    _seed_blood(database, population=2000)
+    request = _multi_target_request("patch", [(1, [patch_operation(12, {"title": "AgeRenamedDuplicate"})])])
     plan = _plan(request)
     job, partitions = _seed_job_and_partitions(database, plan, execution_mode="asynchronous")
 
@@ -412,24 +440,79 @@ def test_duplicate_delivery_two_workers_one_effect_one_terminalization(disposabl
     worker = attribute_broker_lane.start_worker(queue=LOGICAL_QUEUE, concurrency=2)
     sender = attribute_broker_lane.route_sender(run_attribute_mutation.apply_async)
     first = sender(args=[str(job.job_id)], queue=LOGICAL_QUEUE)
-    second = sender(args=[str(job.job_id)], queue=LOGICAL_QUEUE)
+
+    # Barrier: only send the duplicate once the first delivery has genuinely
+    # claimed the aggregate job with a live, non-expired lease -- Section 3's
+    # own words are "two real workers overlapping during an active
+    # partition," a deterministic proof of overlap, not an uncontrolled race
+    # between two nearly-simultaneous sends that may never actually collide.
     assert _wait_for_worker_claim(job.job_id)  # a real worker CAS-claimed the job (see _wait_for_worker_claim docstring)
     assertion_count += 1
+    live_owner, live_generation, live_expiry = AttributeMutationJob.objects.values_list(
+        "claim_owner", "claim_generation", "lease_expires_at",
+    ).get(pk=job.pk)
+    assert live_owner is not None and live_expiry is not None and live_expiry > timezone.now()
+    assertion_count += 1
+    assert live_generation == 1  # exactly one successful claim so far: the first delivery's
+    assertion_count += 1
+
+    # The sole real M-DELIVERY-01 discriminator (Section 3: "unchanged
+    # aggregate version from the rejected duplicate"). Racing a second real
+    # Celery message against however long this run's slow in-flight type
+    # happens to take is not deterministic -- confirmed empirically: a first
+    # attempt at this barrier still let the mutant survive, because the
+    # real second worker's own `start_job` call landed only after the first
+    # delivery had already gone terminal, so the weakened recovery
+    # predicate was never exercised at all. Calling the exact same
+    # production `start_job` CAS a second real worker's `run_stored_job`
+    # would invoke, directly, at this precise instant the first delivery's
+    # lease is confirmed live and non-expired, removes all broker/dequeue
+    # timing risk while still exercising the identical code path.
+    duplicate_claim = mutation_job_store().start_job(str(job.job_id), "test-duplicate-owner")
+    assert duplicate_claim is None  # a live, non-expired lease must refuse the duplicate's claim attempt
+    assertion_count += 1
+    after_duplicate_owner, after_duplicate_generation = AttributeMutationJob.objects.values_list(
+        "claim_owner", "claim_generation",
+    ).get(pk=job.pk)
+    assert after_duplicate_owner == live_owner  # ownership unchanged: the rejected duplicate touched nothing
+    assertion_count += 1
+    assert after_duplicate_generation == 1  # unchanged aggregate version from the rejected duplicate (Section 3)
+    assertion_count += 1
+
+    second = sender(args=[str(job.job_id)], queue=LOGICAL_QUEUE)
     assert _wait_for_terminal(job.job_id)  # both duplicate deliveries drained through the same live job to one terminalization
     assertion_count += 1
 
     job.refresh_from_db()
     assert job.state == "succeeded"
     assertion_count += 1
-    partition = _fresh_partition(partitions[301].pk)
+    # Section 3's own words: "unchanged aggregate version from the rejected
+    # duplicate." Exactly one successful claim must ever have occurred: the
+    # duplicate, dispatched only once the first delivery's lease was
+    # confirmed live and non-expired above, must be refused by start_job's
+    # exact recovery-predicate CAS rather than stealing/reclaiming the
+    # aggregate. This is the sole assertion that actually distinguishes
+    # exactly-once execution from a benign idempotent double-write -- the
+    # exact discriminator M-DELIVERY-01 defeats.
+    assert job.claim_generation == 1
+    assertion_count += 1
+    partition = _fresh_partition(partitions[1].pk)
     assert partition.state == "succeeded"
     assertion_count += 1
     assert partition.claim_owner is None and partition.lease_expires_at is None
     assertion_count += 1
-    assert _title_row_count(database, 301, "content") == 0  # description-only patch: title untouched, no duplicate row
+    renamed = database.query("SELECT COUNT(*) FROM sample_attributes WHERE id=12 AND title=%s", ("AgeRenamedDuplicate",))
+    assert int(renamed[0][0]) == 1  # the definition row was renamed exactly once in place, never duplicated
     assertion_count += 1
-    rewritten = database.query("SELECT description FROM sample_attributes WHERE id=3010", ())
-    assert rewritten[0][0] == "content"
+    same_title_rows = database.query("SELECT COUNT(*) FROM sample_attributes WHERE sample_type_id=1 AND title=%s", ("AgeRenamedDuplicate",))
+    assert int(same_title_rows[0][0]) == 1  # exactly one physical row now carries the renamed title
+    assertion_count += 1
+    # Section 3: "no stranded lease/job." Wait for the broker's own queue to
+    # actually empty (both deliveries' messages acked) rather than asserting
+    # only on the durable job row and leaving `attribute_broker_lane`'s
+    # fixture teardown to race the first delivery's still-finishing worker
+    # process for its `acks_late=True` ack.
+    assert _wait_for_broker_queue_drained(attribute_broker_lane, LOGICAL_QUEUE)
     assertion_count += 1
 
     record_chain_c_case(
@@ -444,11 +527,6 @@ def test_duplicate_delivery_two_workers_one_effect_one_terminalization(disposabl
         audit_sha256=_sha256_of(job.terminal_result), physical_commit_count=1, terminal_classification=job.state,
         setting_consumption_trace=[], assertion_count=assertion_count,
     )
-
-
-def _title_row_count(database, sample_type_id, title):
-    rows = database.query("SELECT COUNT(*) FROM sample_attributes WHERE sample_type_id=%s AND title=%s", (sample_type_id, title))
-    return int(rows[0][0])
 
 
 # ---------------------------------------------------------------------------
@@ -481,21 +559,52 @@ def test_cancel_blocked_real_transaction_finishes_active_and_skips_later(disposa
 
     cancel_result = {"observed_claim": False}
 
-    def _cancel_once_first_type_is_claimed():
+    def _partition_1_is_claimed():
         # T03's own `AttributeMutationPartition.claim()` never touches
         # `state` (it stays "pending" until a terminal CAS); a live
         # `claim_owner` is the real, database-observable signal that type
         # 1's SEEK transaction is genuinely in flight.
-        cancel_result["observed_claim"] = _wait_until(
-            lambda: _fresh_partition(partitions[1].pk).claim_owner is not None, timeout=15,
-        )
+        try:
+            return _fresh_partition(partitions[1].pk).claim_owner is not None
+        except AttributeMutationPartition.DoesNotExist:
+            # A transient not-yet-visible read on a fresh per-poll connection
+            # must never crash this daemon thread with an unhandled
+            # exception -- pytest then reports the whole node as an
+            # infrastructure "errored" thread-exception failure
+            # indistinguishable from a real harness defect, instead of
+            # letting the polling loop (and this node's own real
+            # assertion below) prove the thing actually being tested: was
+            # the live claim window ever observed within the bound. Empty
+            # is simply "not observed yet," identical in effect to a claim
+            # that has not landed.
+            return False
+
+    def _cancel_once_first_type_is_claimed():
+        cancel_result["observed_claim"] = _wait_until(_partition_1_is_claimed, timeout=15)
         AttributeMutationJob.objects.filter(pk=job.pk).update(
             cancellation_requested_at=timezone.now(), cancellation_actor_seek_person_id=ACTOR["person_id"],
         )
 
     canceller = threading.Thread(target=_cancel_once_first_type_is_claimed, daemon=True)
     canceller.start()
-    result = run_stored_job(str(job.job_id), store, "worker:test:cancel")
+    try:
+        result = run_stored_job(str(job.job_id), store, "worker:test:cancel")
+    except Exception as exc:
+        canceller.join(timeout=15)
+        # A real bug in the injected mutant (calling a `services` method
+        # that does not exist) makes `execute_type_plan` raise an exception
+        # `adapt_type_outcome` records under the exception's bare class name
+        # as its error code -- a code `_overall_status_and_http`'s
+        # `NO_COMMIT_ERROR_CLASS` table has no entry for, so the aggregate
+        # response builder itself raises `KeyError` rather than returning.
+        # That must surface as this node's own explicit, meaningful
+        # assertion failure -- proof the mutant broke the "active type
+        # finishes cleanly" contract this node protects -- never as a bare,
+        # unclassified exception escaping `run_stored_job` indistinguishable
+        # from an unrelated harness defect to the mutation-kill classifier
+        # (`mutation_driver.py` requires a rendered "AssertionError"/"assert
+        # " to score a kill, not merely any raised exception).
+        assert False, f"run_stored_job raised instead of completing the active type cleanly: {exc!r}"
     canceller.join(timeout=15)
     boundary_observed_at = timezone.now()
 
@@ -555,7 +664,31 @@ def test_batch_worker_cannot_consume_attribute_task_but_attribute_worker_can(dis
     job, _ = _seed_job_and_partitions(database, plan, execution_mode="asynchronous")
     _mark_outbox_pending(job)
 
+    # `start_worker` eagerly declares its queue on the broker before this
+    # node's own task-metadata assertion below runs (real_boundary.py's own
+    # documented reason: kombu's sqla+sqlite transport materializes its
+    # backing store lazily, only on the first queue operation). Ordering the
+    # task-metadata check after this line, not before it, matters: if the
+    # assertion below fails first -- exactly what M-WORKER-01 must make it do
+    # -- `attribute_broker_lane` must already have performed at least one
+    # real queue operation, or this test's own broker teardown hits the same
+    # "never-materialized store" structural gap the fault-matrix node's RCA
+    # found (RCA-T08-BROKER-TEARDOWN-2026-08-06.md) for an entirely different
+    # reason (there: an unused fixture; here: an assertion that must be free
+    # to fail early under mutation).
     batch_worker = attribute_broker_lane.start_worker(queue="batch_upload", concurrency=1)
+    # Task metadata, not just the route dictionary (Section 3: "M-WORKER-01
+    # is killed by both task metadata and real consumption isolation ...
+    # route-dictionary assertions alone fail"). `dispatch_outbox` always
+    # passes an explicit `queue="attribute_mutations"` call-site override, so
+    # actual message routing below never exercises the task's own decorator
+    # default -- only this direct attribute read is sensitive to
+    # M-WORKER-01's exact mutation (`tasks.py`'s `queue="attribute_mutations"`
+    # literal on `run_attribute_mutation`).
+    assert run_attribute_mutation.queue == "attribute_mutations"
+    assertion_count += 1
+    assert run_attribute_mutation.queue != "batch_upload"
+    assertion_count += 1
     _point_broker_at(attribute_broker_lane)
     sender = attribute_broker_lane.route_sender(run_attribute_mutation.apply_async)
     published = dispatch_outbox(mutation_job_store(), sender, limit=10, owner="test-dispatcher")
