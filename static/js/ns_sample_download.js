@@ -109,13 +109,19 @@
     return (m ? m[1] : s).trim();
   }
 
-  /** Checked rows of an EasyUI datagrid -> UID strings. */
+  /** Checked rows of an EasyUI datagrid -> UID strings.
+   *
+   * The grids disagree on which column holds the UID. reformatDataForClient
+   * (seek/dbtable_sample.py:1712-1713) emits BOTH: `uuid` is the raw string and
+   * `uid` is the same value wrapped in an anchor. The simple-search grid binds
+   * `uid`, the advanced-search grid binds `uuid`. Prefer the raw one and let
+   * nsExtractUid handle the markup case. */
   function nsCollectSelectedUids(dg) {
     var rows = dg.datagrid("getRows");
     var uids = [];
     for (var i = 0; i < rows.length; i++) {
       if (rows[i].ck) {
-        var uid = nsExtractUid(rows[i].uid);
+        var uid = nsExtractUid(rows[i].uuid || rows[i].uid);
         if (uid) {
           uids.push(uid);
         }
