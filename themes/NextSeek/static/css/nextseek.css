@@ -1638,6 +1638,15 @@ body.sidebar-open .sidebar-scrim { display: block; }
 #search_tab .layout-expand,
 #search_tab .layout-split-north,
 #search_tab .layout-split-center { display: none !important; }
+/* MUST stay after the rule above. EasyUI puts `layout-split-center` on the
+   region PANEL itself, not on a separate splitter handle, whenever that region
+   declares `split:true`. The Advanced Sample Search tab's centre region does
+   (searchAdvanced.html), so the splitter-hiding rule above was hiding the whole
+   results grid: the datagrid was built with all its rows and then display:none'd,
+   which is why the tab looked empty while the search reported 5658 hits. Same
+   specificity as that rule, so order is what decides it. The Sample Search tab
+   is unaffected because its centre region has no split:true. */
+#search_tab .layout-panel-center { display: block !important; }
 /* Tighten the search-criteria panel so there is less blank space around it. */
 #search_tab .well { padding: 12px 16px !important; margin-bottom: 10px !important; }
 #search_tab .well .table { margin-bottom: 8px !important; }
