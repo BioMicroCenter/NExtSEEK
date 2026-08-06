@@ -21,6 +21,7 @@ package = false
 [dependency-groups]
 test = [
     "pytest>=8.0.0",
+    "pytest-cov>=7.1.0",
 ]
 maintainer = [
     "python-dotenv>=1.0.0",

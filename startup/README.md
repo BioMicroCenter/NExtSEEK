@@ -138,6 +138,26 @@ Compose project namespacing is automatic via `COMPOSE_PROJECT_NAME`
 | `startup/.instance.json` | gitignored | Per-instance state (name, prefix, ports) |
 | `logs/` | gitignored | Container runtime logs |
 
+## Tests & coverage
+
+The startup CLI is deployment-critical and holds a **95% minimum** coverage
+bar (currently ~99%). Hermetic suite (no docker daemon touched):
+
+```
+uv run --project startup --group test python -m pytest startup/tests/
+```
+
+Coverage gate (fails under 95%):
+
+```
+uv run --project startup --group test python -m pytest startup/tests/ \
+  --cov=startup.cli --cov=startup.lib --cov=startup.steps --cov-fail-under=95
+```
+
+Integration lanes: `test_integration_startup.py` chains real git repos, real
+state files, and multi-command CLI flows (docker mocked); set
+`NEXTSEEK_STARTUP_DOCKER_TESTS=1` to also run the opt-in real-docker tests.
+
 ## Known failure modes
 
 - **Port already in use**: Use `--port-offset N` or one of the per-service

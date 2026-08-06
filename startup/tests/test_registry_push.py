@@ -342,6 +342,116 @@ def test_doctor_ok_when_last_attempt_pushed(tmp_path: Path) -> None:
     assert "baseline-20260807-abc1234" in detail
 
 
+def test_load_credentials_ignores_lines_without_equals(tmp_path: Path) -> None:
+    p = tmp_path / "ghcr.env"
+    p.write_text(f"JUNK LINE\nGHCR_USER=tavjo\nGHCR_TOKEN={TOKEN}\n")
+    assert load_credentials(p) == Credentials(user="tavjo", token=TOKEN)
+
+
+@patch("startup.steps.registry_push.subprocess.run")
+def test_tag_rev_parse_nonzero_falls_back_to_date_only(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=128, stdout="", stderr="not a git repo")
+    assert compute_baseline_tag(Path("/repo"), today=TODAY) == "baseline-20260806"
+
+
+@patch("startup.steps.registry_push.subprocess.run")
+def test_gate_fails_closed_when_probe_cannot_run(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=125, stdout="", stderr="no such image")
+    ok, detail = baked_secret_gate("img:latest")
+    assert ok is False
+    assert "could not run" in detail
+
+
+@patch("startup.steps.registry_push.subprocess.run")
+def test_gate_fails_closed_when_env_keys_unreadable(mock_run: MagicMock) -> None:
+    def dispatch(cmd, **kwargs):
+        if "cut" in " ".join(cmd):
+            return MagicMock(returncode=1, stdout="", stderr="cut: /app/.env: No such file")
+        return MagicMock(returncode=0, stdout="/app/.env\n", stderr="")
+
+    mock_run.side_effect = dispatch
+    ok, detail = baked_secret_gate("img:latest")
+    assert ok is False
+    assert "key names unreadable" in detail
+
+
+@patch("startup.steps.registry_push.subprocess.run")
+def test_docker_tag_failure_is_push_failed_without_login(mock_run: MagicMock, repo: Path) -> None:
+    calls: list[list[str]] = []
+
+    def dispatch(cmd, **kwargs):
+        calls.append(list(cmd))
+        if cmd[:2] == ["docker", "tag"]:
+            return MagicMock(returncode=1, stdout="", stderr="no such image")
+        if cmd[:2] == ["docker", "run"]:
+            return MagicMock(returncode=0, stdout="/app/docker/nextseek.env.example\n", stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = dispatch
+    outcome = push_baseline(repo, compose_project_name="nextseek", today=TODAY)
+    assert outcome.status == "push_failed"
+    assert "docker tag failed" in outcome.detail
+    assert not any(c[:2] == ["docker", "login"] for c in calls)
+
+
+@patch("startup.steps.registry_push.subprocess.run")
+def test_login_failure_skips_push_but_still_logs_out(mock_run: MagicMock, repo: Path) -> None:
+    calls: list[list[str]] = []
+    happy = _happy_run_dispatcher(calls)
+
+    def dispatch(cmd, **kwargs):
+        if cmd[:2] == ["docker", "login"]:
+            calls.append(list(cmd))
+            return MagicMock(returncode=1, stdout="", stderr="unauthorized: bad credentials")
+        return happy(cmd, **kwargs)
+
+    mock_run.side_effect = dispatch
+    outcome = push_baseline(repo, compose_project_name="nextseek", today=TODAY)
+    assert outcome.status == "push_failed"
+    assert "docker login failed" in outcome.detail
+    flat = [" ".join(c) for c in calls]
+    assert not any(f.startswith("docker push") for f in flat)
+    assert flat[-1] == "docker logout ghcr.io"
+
+
+@patch("startup.steps.registry_push.subprocess.run")
+def test_push_output_without_digest_line_yields_none_digest(mock_run: MagicMock, repo: Path) -> None:
+    calls: list[list[str]] = []
+    happy = _happy_run_dispatcher(calls)
+
+    def dispatch(cmd, **kwargs):
+        if cmd[:2] == ["docker", "push"]:
+            calls.append(list(cmd))
+            return MagicMock(returncode=0, stdout="layers pushed, no digest echoed\n", stderr="")
+        return happy(cmd, **kwargs)
+
+    mock_run.side_effect = dispatch
+    outcome = push_baseline(repo, compose_project_name="nextseek", today=TODAY)
+    assert outcome.status == "pushed"
+    assert outcome.digest is None
+
+
+def test_read_state_returns_none_on_corrupt_marker(tmp_path: Path) -> None:
+    (tmp_path / "startup").mkdir()
+    (tmp_path / "startup" / ".ghcr-push-state.json").write_text("{not json")
+    assert read_state(tmp_path) is None
+
+
+@patch("startup.steps.registry_push.ui")
+def test_render_outcome_all_branches(mock_ui: MagicMock) -> None:
+    from startup.steps.registry_push import PushOutcome, render_outcome
+
+    render_outcome(PushOutcome(status="pushed", tag="t"))
+    mock_ui.ok.assert_called_once()
+    render_outcome(PushOutcome(status="skipped", detail="secondary instance"))
+    mock_ui.info.assert_called_once()
+    render_outcome(PushOutcome(status="gate_failed", detail="bad", remediation="clean it"))
+    mock_ui.banner.assert_called_once()
+    mock_ui.remediation.assert_called_once()
+    render_outcome(PushOutcome(status="no_credentials", detail="none"))
+    assert mock_ui.fail.call_count == 2
+
+
 @patch("startup.steps.doctor.load_instance", return_value=None)
 @patch("startup.steps.doctor.prereqs")
 def test_doctor_diagnose_includes_baseline_check_even_without_instance(
