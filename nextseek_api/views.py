@@ -1,6 +1,7 @@
 import json
 import io
 import datetime
+import logging
 import os
 import MySQLdb
 from django.conf import settings
@@ -27,6 +28,8 @@ from seek.timeline.services.timeline_service import run_All, get_event_data
 from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
 from seek.views import get_children_uids, sample_retrieval_data
 from .batch_upload.views import BatchUploadViewSet
+
+logger = logging.getLogger(__name__)
 
 NEXTSEEK_DATABASE = settings.NEXTSEEK_DATABASE
 SEEK_DATABASE = settings.SEEK_DATABASE
@@ -516,11 +519,15 @@ class SampleQueryViewSet(viewsets.GenericViewSet):
 
 class AdminSampleViewSet(viewsets.GenericViewSet):
     """
-    ViewSet for admin-only sample operations.
+    ViewSet for sample retrieval and export.
     Supports JSON export (default) and Excel export (opt-in) of sample metadata,
-    including parent/child (derived) samples.
+    optionally including parent/child (derived) samples.
+
+    The `admin/` in the route is historical. This is the single download API
+    behind every sample-download control in the UI, so it is gated on
+    authentication only; data scope is enforced per caller further down.
     """
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated]
     
     @extend_schema(
         operation_id="Admin Sample Retrieval",
@@ -564,11 +571,14 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
         body = request.data or {}
         if isinstance(body, dict):
             output_format = body.get("output_format", "json")
+            # Form-encoded callers send "false"/"0"; pydantic coerces both.
+            include_tree = body.get("include_tree", True)
             raw_identifiers = body.get("identifiers")
             if raw_identifiers is None:
                 raw_identifiers = body.get("retrieval_uids") or body.get("uids") or body.get("retrieval_uids_text") or ""
         else:
             output_format = "json"
+            include_tree = True
             raw_identifiers = ""
 
         if isinstance(raw_identifiers, list):
@@ -578,7 +588,11 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
 
         try:
             req = AdminSampleRetrieveRequest.model_validate(
-                {"identifiers": identifiers, "output_format": output_format}
+                {
+                    "identifiers": identifiers,
+                    "output_format": output_format,
+                    "include_tree": include_tree,
+                }
             )
         except ValidationError as e:
             return Response(
@@ -589,14 +603,35 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
         if not req.identifiers:
             return Response({"detail": "identifiers required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Project scope and admin flag mirroring legacy behavior
-        seekdb = SeekDB(None, None, None)
+        # Project scope for this caller.
+        #
+        # This used to be SeekDB(None, None, None), which takes the username-is-None
+        # branch (seek/seekdb.py:31), never calls getSeekLogin(), and so leaves
+        # __server None. getCurrentUser() then did None + "/people/current"
+        # (seek/seekapi.py:188) -> TypeError -> swallowed by the bare except below ->
+        # user_project_ids was ALWAYS []. Build it from the credentials
+        # resolve_seek_auth already returned at the top of this method instead.
+        seekdb = SeekDB(None, basic_tuple[0], basic_tuple[1])
         try:
             user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
             user_project_ids = list(map(lambda x: x['id'], user_projects))
         except Exception:
+            logger.exception("Could not resolve SEEK projects for the caller")
             user_project_ids = []
-        # Treat Django staff as admin for data scope, matching IsAdminUser
+        # SECURITY, known gap — still open, deliberately. Read before touching this line.
+        #
+        # Treating staff as admin makes project membership a no-op for data scope: every
+        # SEEK user synced into NExtSEEK is marked staff (dmac/views.py:80,97), so this
+        # takes the unfiltered branch of getChildrenUIDs for essentially every user.
+        # It is also more permissive than the legacy path it mirrors — seek/views.py:1249
+        # uses verifySuperUser(), i.e. is_superuser alone.
+        #
+        # The prerequisite this comment used to name — resolving the caller's projects
+        # for real — is now done above, so dropping the is_staff clause is a safe
+        # one-line change on its own terms. It is NOT made here because it changes what
+        # every staff account can read (11 of 20 accounts in the local seed) and would
+        # narrow the assistant and container-CC consumers, which currently depend on
+        # unfiltered reads. Assess that impact first, then drop it.
         is_superuser = bool(getattr(request.user, 'is_superuser', False) or getattr(request.user, 'is_staff', False))
         
         dbs = DBtable_sample()
@@ -640,7 +675,13 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
 
         # Build dataset and write Excel to a temp path under MEDIA_ROOT/download
         try:
-            children_uids_df = dbs.getChildrenUIDs(requested_uids, user_project_ids, is_superuser)
+            if req.include_tree:
+                children_uids_df = dbs.getChildrenUIDs(requested_uids, user_project_ids, is_superuser)
+            else:
+                # No graph expansion: fetch exactly what was asked for. Raising here
+                # reuses the handler below, which is already the project-scoped MySQL
+                # query this path needs.
+                raise Neo4jError("include_tree=False")
         except IndexError:
             return Response({"detail": "No samples found for provided UIDs"}, status=status.HTTP_404_NOT_FOUND)
         except (AuthError, Neo4jError):

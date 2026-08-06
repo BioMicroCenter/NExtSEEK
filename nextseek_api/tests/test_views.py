@@ -1126,3 +1126,108 @@ class TestAdminSampleViewSet:
         vs.request = req
         resp = vs.admin_retrieve_samples(req)
         assert resp.status_code == 200
+
+
+class TestAdminSampleViewSetUnification:
+    """Task 4: un-gated, project-scoped, include_tree-aware sample retrieval."""
+
+    def _vs(self):
+        from nextseek_api.views import AdminSampleViewSet
+        vs = AdminSampleViewSet()
+        vs.format_kwarg = None
+        vs.kwargs = {}
+        return vs
+
+    def _df(self, rows):
+        import pandas as pd
+        return pd.DataFrame(rows)
+
+    def test_endpoint_is_not_admin_gated(self):
+        from nextseek_api.views import AdminSampleViewSet
+        from rest_framework.permissions import IsAdminUser, IsAuthenticated
+
+        assert IsAuthenticated in AdminSampleViewSet.permission_classes
+        assert IsAdminUser not in AdminSampleViewSet.permission_classes
+
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("alice", "pw"), {}))
+    def test_seekdb_is_built_from_the_resolved_credentials(self, mock_auth, mock_seekdb, mock_dbs):
+        """SeekDB(None, None, None) never sets __server, so getCurrentUser() always
+        raised and every caller fell through to an empty project list."""
+        mock_seekdb.return_value = _seekdb_mock([7])
+        mock_dbs.return_value.getChildrenUIDs.return_value = self._df([
+            {"id": 1, "uuid": "NHP-1", "sample_type_id": 12, "json_metadata": "{}"},
+        ])
+
+        req = _auth_request("post", "/", data={"identifiers": ["NHP-1"]}, user=_admin_user())
+        vs = self._vs()
+        vs.request = req
+        vs.admin_retrieve_samples(req)
+
+        mock_seekdb.assert_called_once_with(None, "alice", "pw")
+
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("alice", "pw"), {}))
+    def test_non_staff_user_gets_project_scoped_rows_not_404(self, mock_auth, mock_seekdb, mock_dbs):
+        mock_seekdb.return_value = _seekdb_mock([7])
+        mock_dbs.return_value.getChildrenUIDs.return_value = self._df([
+            {"id": 1, "uuid": "TIS-1", "sample_type_id": 13, "json_metadata": "{}"},
+        ])
+
+        user = MagicMock()
+        user.is_authenticated = True
+        user.is_staff = False
+        user.is_superuser = False
+        req = _auth_request("post", "/", data={"identifiers": ["TIS-1"]}, user=user)
+        vs = self._vs()
+        vs.request = req
+        resp = vs.admin_retrieve_samples(req)
+
+        assert resp.status_code == 200
+        # The caller's real projects reached getChildrenUIDs instead of [].
+        assert mock_dbs.return_value.getChildrenUIDs.call_args[0][1] == ["7"]
+        assert mock_dbs.return_value.getChildrenUIDs.call_args[0][2] is False
+
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("a", "p"), {}))
+    def test_include_tree_defaults_to_true(self, mock_auth, mock_seekdb, mock_dbs):
+        mock_seekdb.return_value = _seekdb_mock([1])
+        mock_dbs.return_value.getChildrenUIDs.return_value = self._df([
+            {"id": 1, "uuid": "NHP-1", "sample_type_id": 12, "json_metadata": "{}"},
+        ])
+
+        req = _auth_request("post", "/", data={"identifiers": ["NHP-1"]}, user=_admin_user())
+        vs = self._vs()
+        vs.request = req
+        vs.admin_retrieve_samples(req)
+
+        mock_dbs.return_value.getChildrenUIDs.assert_called_once()
+
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("a", "p"), {}))
+    def test_include_tree_false_skips_neo4j(self, mock_auth, mock_seekdb, mock_dbs, mock_s, mock_mysql):
+        _setup_settings(mock_s)
+        mock_seekdb.return_value = _seekdb_mock([1])
+        conn, cur = _mysql_cursor(
+            fetchall_val=[(1, 12, "NHP-1", "{}")],
+            description=[("id",), ("sample_type_id",), ("uuid",), ("json_metadata",)],
+        )
+        mock_mysql.connect.return_value = conn
+
+        req = _auth_request(
+            "post", "/",
+            data={"identifiers": ["NHP-1"], "include_tree": False},
+            user=_admin_user(),
+        )
+        vs = self._vs()
+        vs.request = req
+        resp = vs.admin_retrieve_samples(req)
+
+        assert resp.status_code == 200
+        mock_dbs.return_value.getChildrenUIDs.assert_not_called()
