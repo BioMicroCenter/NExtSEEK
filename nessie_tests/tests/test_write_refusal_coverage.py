@@ -822,12 +822,18 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
                                       _OBS_CC, last_reply="done")[0] for t in v.turns):
             green.append(v.id)
 
-    assert len(merged) == 308
-    assert len(green) == 13, sorted(green)
+    assert len(merged) == 365  # 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    # 13 -> 3. 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. The simulation asks how many
+    # variants would stay GREEN if every turn ran container_cc, and the answer
+    # collapsed because the question set gave 149 variants a substantive
+    # `last_reply` assertion: a case that asserts an ANSWER no longer passes
+    # just because the engine said something. The three survivors are the ones
+    # still asserting nothing but plan shape.
+    assert len(green) == 3, sorted(green)
     # 270 -> 295: all 25 variants added 2026-08-06 are RED under an all-CC
     # simulation replying "done", which is correct — none of them is satisfied
     # by a bare acknowledgement.
-    assert len(merged) - len(green) == 295, (
+    assert len(merged) - len(green) == 362, (  # 295 -> 362: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
         f"{len(merged) - len(green)} of {len(merged)} red — update the figure in "
         f"nessie_tests/README.md and nessie_tests/tests/test_evaluate.py")
 
@@ -855,13 +861,14 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
         for f in fields:
             counts[f] = counts.get(f, 0) + 1
 
-    # 2026-08-06, [226, 216, 130, 105] -> [231, 217, 130, 106]. The 25 added
-    # variants land in families whose route_policy injects a `route` criterion on
-    # 5 of them, and one asserts a parser mode and an endpoint inline. `api_ok` is
-    # unmoved: not one addition asserts NS plumbing, they assert ground truth on
-    # the reply instead.
+    # 2026-08-06, [226, 216, 130, 105] -> [231, 217, 130, 106] -> [250, 212, 129, 105].
+    # The question set adds 58 variants into route-policy'd families (`route` +19)
+    # and retires or reworks a handful that asserted a parser mode or an endpoint
+    # inline (`parser_plan.mode` -5, `api_ok` -1, `api_plan.endpoint` -1). Not one
+    # of the 58 additions asserts NS plumbing: they assert ground truth on the
+    # reply, which is the only field a forced container_cc arm can produce.
     assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
-                                    "api_plan.endpoint")] == [231, 217, 130, 106], (
+                                    "api_plan.endpoint")] == [250, 212, 129, 105], (
         f"{counts} — update the four counts in nessie_tests/README.md and in "
         f"tests/test_evaluate.py's 'Fix round 1' comment")
 
