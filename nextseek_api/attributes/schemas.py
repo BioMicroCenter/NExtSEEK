@@ -332,6 +332,7 @@ NO_COMMIT_ERROR_CLASS = {
     "create_definition_conflict": "conflict",
     "cross_target_conflict": "conflict",
     "conflicting_duplicate_operation": "conflict",
+    "ambiguous_recovery_state": "conflict",
     "sample_type_not_found": "semantic",
     "attribute_not_found": "semantic",
     "attribute_ambiguous": "semantic",
