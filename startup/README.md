@@ -70,6 +70,18 @@ is `nextseek`.
 ./startup.sh rebuild --service nextseek_nginx
 ```
 
+After a `nextseek` rebuild on the canonical instance (compose project
+`nextseek`), the CLI automatically tries to push an off-box rollback baseline
+to the private GHCR package (`ghcr.io/biomicrocenter/nextseek:baseline-<date>-<sha>`),
+gated by the DEPLOYMENT.md §5.2 baked-secret check. **This step never fails
+the rebuild**: with no credential (or an expired one) it prints a banner
+telling the deployer how to fix it, records the failure in
+`startup/.ghcr-push-state.json` (gitignored), and `./startup.sh doctor` keeps
+flagging it until a push succeeds. Credential: a classic PAT with
+`write:packages` (owner must be a BioMicroCenter org member) in
+`~/.config/nextseek/ghcr.env` as `GHCR_USER=…` / `GHCR_TOKEN=…` (mode 600;
+override the path with `NEXTSEEK_GHCR_ENV`). See DEPLOYMENT.md §5.2.
+
 ### `seed-filestore`
 
 Loads `startup/seed/filestore.tar.gz` into the running `seek` container's

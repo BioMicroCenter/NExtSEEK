@@ -220,17 +220,23 @@ git diff --name-only HEAD@{1} HEAD -- '*migrations*'
 docker tag nextseek-nextseek:latest nextseek-nextseek:pre-<short-change-name>
 docker image inspect nextseek-nextseek:pre-<short-change-name> --format '{{.Id}}'  # verify
 
-# 3. Rebuild what changed:
-docker compose -p nextseek build nextseek          # app change (the common case)
+# 3. Rebuild what changed. For the common case (app change) PREFER the CLI —
+#    it also auto-pushes the §5.2 off-box rollback baseline to GHCR:
+./startup.sh rebuild                               # app change (the common case)
+#    Granular builds when other images changed:
 docker compose -p nextseek build cc-agent          # ALSO, if docker/cc-runtime/** changed
 docker compose -p nextseek build bedrock-proxy     # only if docker/bedrock-proxy/** changed
 docker compose -p nextseek build nextseek-sidecar  # only if docker/ns-sidecar/** changed
 
-# 4. Recreate ONLY the rebuilt long-running service(s):
+# 4. Recreate ONLY the rebuilt long-running service(s) (`./startup.sh rebuild`
+#    already recreated nextseek; after raw compose builds do it yourself):
 docker compose -p nextseek up -d --no-deps --force-recreate nextseek
 #    (cc-agent is a build-target: the NEXT chat turn picks up the new image
 #     automatically — nothing to restart. Recreate proxy/sidecar only if you
 #     rebuilt them.)
+#    If you rebuilt nextseek WITHOUT `./startup.sh rebuild`, the off-box
+#    baseline was NOT pushed — `./startup.sh doctor` will flag it; run
+#    `./startup.sh rebuild` next time or push per §5.2.
 
 # 5. Watch the boot (entrypoint runs collectstatic → DB probe → migrate):
 docker logs -f nextseek        # until gunicorn workers are up; no FAILED markers
@@ -329,6 +335,22 @@ rollback.
   runtime environment (i.e. real secrets) in the image config. Only push
   images produced by `docker build` / `docker compose build`, whose env is
   injected at runtime and never baked.
+- **Automated off-box baseline (startup CLI):** `./startup.sh rebuild` on the
+  canonical instance automatically runs the pre-push gate below on the fresh
+  image, tags it `ghcr.io/biomicrocenter/nextseek:baseline-<YYYYMMDD>-<sha>`,
+  pushes it to the private org package, and logs docker out again. The step
+  **never fails the deploy**: missing/expired credentials, a gate failure, or
+  a registry error each print an unmissable banner with the fix, are recorded
+  in `startup/.ghcr-push-state.json` (gitignored), and stay red in
+  `./startup.sh doctor` until a push succeeds. Credential: a classic PAT with
+  `write:packages` — its owner must be a **BioMicroCenter org member** (repo
+  roles are not enough; this was learned the hard way) — stored per deploying
+  user at `~/.config/nextseek/ghcr.env` (`GHCR_USER=…`/`GHCR_TOKEN=…`, mode
+  600, path overridable via `NEXTSEEK_GHCR_ENV`). When a token expires, any
+  org member can mint their own and drop it in their own home — no shared
+  credential. The gate encodes one accepted deviation: `/app/.env` passes
+  only if its sole key is `LURIAKEY` (a file path, verified non-credential,
+  accepted 2026-08-05); any other key name fails the gate.
 - **Pre-push gate (mandatory before ANY off-box push):** even a
   build-produced image can carry secrets if the build context was dirty —
   ad-hoc copies of rendered env files (e.g. `docker/nextseek.env.bak.<date>`)

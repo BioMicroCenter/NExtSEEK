@@ -473,6 +473,20 @@ def rebuild(
         )
     ui.ok(f"{service} rebuilt and restarted")
 
+    if service == "nextseek":
+        # Off-box rollback baseline (DEPLOYMENT.md §5.2). Non-fatal by
+        # contract, and belt-and-braces guarded: the deploy is never hostage
+        # to the registry.
+        try:
+            from startup.steps import registry_push
+
+            outcome = registry_push.push_baseline(
+                REPO_ROOT, compose_project_name=state.compose_project_name
+            )
+            registry_push.render_outcome(outcome)
+        except Exception as exc:
+            ui.warn(f"off-box baseline push step crashed ({exc}) — deploy unaffected")
+
 
 @app.command(name="seed-filestore")
 def seed_filestore_cmd(

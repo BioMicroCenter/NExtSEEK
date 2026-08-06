@@ -9,6 +9,7 @@ dependencies = [
     # Used by steps/seed.py:load_neo4j_dump to bulk-load the Neo4j seed via
     # parameterized UNWIND batches over the bolt driver (fast path).
     "neo4j>=5.0.0",
+    "orjson>=3.11.9",
 ]
 
 # `package = false` tells uv to manage deps for this directory without trying
