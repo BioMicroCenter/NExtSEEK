@@ -33,6 +33,49 @@ def _purge_disposable_binlogs(database):
         connection.close()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _attribute_default_db_environment_sync(django_db_setup):
+    """task-08 spec §7 Edit 3 harness obligation.
+
+    `dmac.attribute_performance_settings.DATABASES["default"]` has no
+    `TEST.NAME` override, so pytest-django's own `django_db_setup` (a
+    built-in, session-scoped fixture -- forced to run here via the
+    dependency) swaps `connections["default"].settings_dict` to a
+    `"test_"`-prefixed database and runs every default-alias migration
+    against *that* (same lifecycle "default" already goes through under
+    `dmac.test_settings`'s `:memory:` SQLite; just a real, network-visible
+    MariaDB backend now). That swap only mutates Django's live in-process
+    connection state -- it never touches `os.environ`.
+
+    Every real subprocess this suite spawns
+    (`DisposableAttributeBroker.start_worker`/`restart_worker`'s Celery
+    worker in `real_boundary.py`; `test_sync_recovery.py`'s
+    `_spawn_web_owner` web-owner simulation) builds its child environment
+    from `os.environ` (`dict(os.environ)` / `os.environ.copy()`) at spawn
+    time, not from Django's live connection state. Without this sync, a
+    freshly spawned subprocess re-importing
+    `dmac.attribute_performance_settings` would resolve the original,
+    pre-swap database name -- one pytest-django never actually created --
+    instead of the one the pytest parent is really using.
+
+    Session-scoped and autouse: runs once, before any test body, so every
+    later `os.environ`-derived subprocess environment already carries the
+    corrected coordinates. No-ops under any non-MariaDB `default` alias
+    (e.g. `dmac.test_settings`'s SQLite `:memory:`), so it is safe for every
+    other task's lane that shares this same pytest_plugin.
+    """
+    from django.db import connections
+
+    default = connections["default"].settings_dict
+    if default.get("ENGINE") == "django.db.backends.mysql":
+        os.environ["ATTRIBUTE_DEFAULT_DATABASE_NAME"] = str(default["NAME"])
+        os.environ["ATTRIBUTE_DEFAULT_DB_HOST"] = str(default["HOST"])
+        os.environ["ATTRIBUTE_DEFAULT_DB_PORT"] = str(default["PORT"])
+        os.environ["ATTRIBUTE_DEFAULT_DB_USER"] = str(default["USER"])
+        os.environ["ATTRIBUTE_DEFAULT_DB_PASSWORD"] = str(default["PASSWORD"])
+    yield
+
+
 @pytest.fixture
 def disposable_attribute_db():
     database = DisposableAttributeDatabase.from_environment()

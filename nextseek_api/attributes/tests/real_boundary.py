@@ -961,6 +961,23 @@ class DisposableAttributeBroker:
         if concurrency < 1:
             raise ValueError("concurrency must be positive")
         physical_queue = self.queue_name(queue)
+        # Eagerly declare the queue on the parent's own kombu connection
+        # before spawning anything. kombu's SQLAlchemy transport creates its
+        # backing tables (kombu_queue et al.) lazily, on first real
+        # declare/connect against a given broker sqlite file -- there is no
+        # other schema-init step. Without this, a caller that starts the
+        # worker subprocess and immediately publishes (the pattern every
+        # real-broker test here uses) races the newly spawned worker's own
+        # bootstrap: whichever side's kombu connection touches the queue
+        # first creates the schema, so a publish that loses the race sees a
+        # genuine "no such table: kombu_queue" OperationalError from the
+        # disposable per-test sqlite broker file -- observed directly,
+        # non-deterministically, not assumed. Declaring here, before the
+        # worker subprocess even starts, removes the race entirely: both the
+        # parent's later publishes and the worker's own consumption connect
+        # to an already-initialized broker.
+        with self._connection.channel() as channel:
+            channel.queue_declare(queue=physical_queue, passive=False)
         self._worker_argv = ["python", "-m", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker", "-Q", physical_queue, "-c", str(concurrency), "--events"]
         self._worker_cwd = Path.cwd()
         if environment is not None and (not isinstance(environment, dict)

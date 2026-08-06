@@ -212,6 +212,8 @@ ATTRIBUTE_TEST_DB_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_ur
 ATTRIBUTE_TEST_DB_PORT=3306
 boundary_prepared=0
 cleanup_complete=0
+attribute_default_db_created=0
+attribute_default_database_name=""
 cleanup_boundary() {
   local status=0
   [[ "$cleanup_complete" -eq 1 ]] && return 0
@@ -220,6 +222,28 @@ cleanup_boundary() {
     "${boundary_tool[@]}" finalize --identity "$evidence_root/boundary-identity.json" \
       --run-root "$evidence_root" || status=$?
     boundary_prepared=0
+  fi
+  if [[ "$attribute_default_db_created" -eq 1 ]] && docker inspect "$db_container" >/dev/null 2>&1; then
+    # spec §7 Edit 3: "Teardown must drop the disposable default database with
+    # the same rigor as the SEEK-schema database (explicit drop plus post-run
+    # absence assertion)." Runs before the container itself is removed below
+    # so the absence assertion is a real, auditable check, not an artifact of
+    # the whole container simply going away. Checks both the plain name (never
+    # actually created -- pytest-django targets the "test_"-prefixed name --
+    # but asserted absent defensively) and the "test_"-prefixed name
+    # pytest-django's own session teardown normally already dropped; this is
+    # the explicit backstop for a run that crashed before that teardown ran.
+    for candidate in "$attribute_default_database_name" "test_${attribute_default_database_name}"; do
+      docker exec "$db_container" mysql -uroot -p"$ATTRIBUTE_TEST_DB_PASSWORD" \
+        -e "DROP DATABASE IF EXISTS \`$candidate\`" >/dev/null 2>&1 || status=74
+      remaining="$(docker exec "$db_container" mysql -uroot -p"$ATTRIBUTE_TEST_DB_PASSWORD" -N -e \
+        "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='$candidate'" 2>/dev/null)"
+      if [[ "$remaining" != "0" ]]; then
+        echo "disposable default database survived explicit drop: $candidate" >&2
+        status=74
+      fi
+    done
+    attribute_default_db_created=0
   fi
   docker rm -f "$db_container" >/dev/null 2>&1 || true
   docker network rm "$network_name" >/dev/null 2>&1 || true
@@ -380,6 +404,44 @@ PY
   export ATTRIBUTE_TEST_RAILS_SEED="$evidence_root/.rails-seed.json"
   export ATTRIBUTE_TEST_ORACLE_VERIFY_KEY_FILE="$oracle_key_file"
 fi
+if [[ "$task_id" == "task-08" ]]; then
+  # spec §7 Edit 3: a uniquely named disposable default-alias MariaDB database
+  # on the SAME per-run disposable server that hosts the SEEK-schema database
+  # ($db_container). Deliberately NOT pre-created/pre-migrated here: Edit 3's
+  # DATABASES["default"] has no TEST.NAME override, so pytest-django's normal
+  # per-session create_test_db() swaps connections["default"].settings_dict to
+  # a "test_"-prefixed database and runs every default-alias migration against
+  # THAT (including nextseek_api.0010_attribute_mutation_job /
+  # 0011_attribute_async_orchestration, which create the attributes_mutation_job/
+  # outbox tables) -- exactly the same lifecycle the "default" alias already
+  # goes through under dmac.test_settings' :memory: SQLite, just on a real,
+  # network-visible MariaDB backend now. Pre-migrating the plain (non-prefixed)
+  # name here would just create a second, dead database nothing ever touches.
+  # The pytest parent only needs valid connection coordinates + a name Django
+  # can safely CREATE DATABASE against; a session-scoped autouse fixture
+  # (attribute_fixtures._attribute_default_db_environment_sync) re-syncs these
+  # very env vars to the live post-swap values before any test body runs, so
+  # every subprocess this suite spawns (attribute_broker_lane's Celery worker,
+  # test_sync_recovery.py's web-owner simulation) -- which build their own
+  # environment from os.environ at spawn time, not from these bash-level
+  # values -- inherits the *same* database the pytest parent actually ended up
+  # using, not this original pre-swap name.
+  attribute_default_database_name="attribute_default_$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')"
+  attribute_default_db_created=1
+  export ATTRIBUTE_DEFAULT_DB_HOST="$ATTRIBUTE_TEST_DB_HOST" ATTRIBUTE_DEFAULT_DB_PORT="$ATTRIBUTE_TEST_DB_PORT"
+  export ATTRIBUTE_DEFAULT_DB_USER="$ATTRIBUTE_TEST_DB_USER" ATTRIBUTE_DEFAULT_DB_PASSWORD="$ATTRIBUTE_TEST_DB_PASSWORD"
+  export ATTRIBUTE_DEFAULT_DATABASE_NAME="$attribute_default_database_name"
+  # Deliberately switched here, not right after $task_id is computed: the
+  # earlier boundary_tool (lane_boundary.py prepare/finalize) and
+  # managed-index-apply steps above only need django.conf.settings to import
+  # cleanly (for SEEK_DATABASE alias bookkeeping / a raw MySQLdb connection),
+  # never dmac.attribute_performance_settings' MariaDB-backed default/seek
+  # DATABASES -- and they run before ATTRIBUTE_DEFAULT_DATABASE_NAME exists,
+  # so switching any earlier makes every one of those steps fail importing
+  # settings. Only the actual test-running container (below) and whatever
+  # subprocesses it spawns need this settings module.
+  export DJANGO_SETTINGS_MODULE="dmac.attribute_performance_settings"
+fi
 export ATTRIBUTE_TEST_DATABASE_PRECREATED=1
 export ATTRIBUTE_TEST_DOCKER_NETWORK ATTRIBUTE_TEST_DATABASE_NAME
 export ATTRIBUTE_TEST_DISPOSABLE_DB_UUID ATTRIBUTE_TEST_DB_HOST ATTRIBUTE_TEST_DB_PORT
@@ -416,6 +478,8 @@ container_args=(--rm --network "${ATTRIBUTE_TEST_DOCKER_NETWORK:?required dispos
   -e ATTRIBUTE_TEST_DB_HOST -e ATTRIBUTE_TEST_DB_PORT -e ATTRIBUTE_TEST_DB_USER
   -e ATTRIBUTE_TEST_DB_PASSWORD -e ATTRIBUTE_TEST_DATABASE_NAME -e ATTRIBUTE_TEST_DISPOSABLE_DB_UUID
   -e ATTRIBUTE_TEST_DATABASE_PRECREATED=1
+  -e ATTRIBUTE_DEFAULT_DB_HOST -e ATTRIBUTE_DEFAULT_DB_PORT -e ATTRIBUTE_DEFAULT_DB_USER
+  -e ATTRIBUTE_DEFAULT_DB_PASSWORD -e ATTRIBUTE_DEFAULT_DATABASE_NAME
   -e ATTRIBUTE_TEST_SEEK_URL -e ATTRIBUTE_TEST_RAILS_BOUNDARY -e ATTRIBUTE_TEST_RAILS_SEED
   -e ATTRIBUTE_TEST_ORACLE_VERIFY_KEY_FILE
   -e ATTRIBUTE_PERFORMANCE_MATRIX_MODE -e ATTRIBUTE_T06_CHUNK_SELECTION_POINTER -e ATTRIBUTE_T06_CHUNK_SELECTION
