@@ -82,8 +82,6 @@ Create `nextseek_api/tests/test_sample_types_context_model.py`:
 import gzip
 from pathlib import Path
 
-import pytest
-
 from seek.models import Sample_types_context
 
 SEED = Path(__file__).resolve().parents[2] / "startup" / "seed" / "dmac.sql.gz"
@@ -105,8 +103,12 @@ def test_tags_field_maps_to_the_capitalised_db_column():
     assert field.db_column == "Tags"
 
 
-@pytest.mark.host_only
 def test_seed_ships_the_context_table_and_rows():
+    """Asserts what startup/seed/dmac.sql.gz actually contains.
+
+    In-container this reads /app/startup/seed/dmac.sql.gz, so it fails loudly if
+    the seed was not copied in alongside the code under test.
+    """
     sql = gzip.decompress(SEED.read_bytes()).decode("utf-8", errors="replace")
     assert "CREATE TABLE `sample_types_context`" in sql
     insert = [ln for ln in sql.splitlines() if ln.startswith("INSERT INTO `sample_types_context`")]
@@ -192,19 +194,23 @@ Expected: `101`.
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
+The seed itself is under test, so copy it in alongside the model:
+
 ```bash
 docker cp seek/models.py nextseek:/app/seek/
+docker cp startup/seed/dmac.sql.gz nextseek:/app/startup/seed/
 docker exec -e DJANGO_SETTINGS_MODULE=dmac.test_settings nextseek \
   sh -c 'cd /app && uv run pytest nextseek_api/tests/test_sample_types_context_model.py --no-migrations -q'
 ```
 
-Expected: 4 passed. The `host_only` seed test reads the repo copy of the seed —
-run it on the host too:
+Expected: 4 passed.
 
-```bash
-uv run pytest nextseek_api/tests/test_sample_types_context_model.py::test_seed_ships_the_context_table_and_rows \
-  -q -p no:cacheprovider --no-migrations
-```
+Note on `host_only`: an earlier draft marked the seed test with it. Don't —
+nothing filters the marker (`pyproject.toml:148` only registers it, and
+`nextseek_api/cc_assistant/scripts/verify_host_only_allowlist.py` scans only
+`nextseek_api/cc_assistant/tests/` against an allowlist path that does not exist
+on this machine). The marker would not have moved the test to a host lane; it
+would only have made the in-container run misleading.
 
 - [ ] **Step 7: Delete the scratch dump and commit**
 
