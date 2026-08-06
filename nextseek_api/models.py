@@ -1896,6 +1896,11 @@ class AdminSampleRetrieveRequest(BaseModel):
                     "Numeric strings are treated as SEEK IDs; non-numeric strings are treated as sample UIDs."
     )
     output_format: Literal["json", "excel"] = Field("json", description="Output format")
+    include_tree: bool = Field(
+        True,
+        description="Expand the selection over the Neo4j DERIVED_FROM graph to include "
+                    "parent and child samples. False returns only the requested identifiers.",
+    )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 

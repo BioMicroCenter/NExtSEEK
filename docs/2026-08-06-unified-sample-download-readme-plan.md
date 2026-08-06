@@ -801,6 +801,28 @@ after the `output_format` field:
 `model_config` already sets `extra='forbid'`, so the new field must be declared
 here or callers passing it get a 422.
 
+**The field alone is not enough.** `admin_retrieve_samples` hand-normalises the
+body before validating, and only forwards `identifiers` and `output_format` — so
+`include_tree` would silently always default to `True`. Also extract it in the
+normalisation block (`views.py:568-578`):
+
+```python
+            # Form-encoded callers send "false"/"0"; pydantic coerces both.
+            include_tree = body.get("include_tree", True)
+```
+
+with `include_tree = True` in the non-dict `else` branch, and pass it through:
+
+```python
+            req = AdminSampleRetrieveRequest.model_validate(
+                {
+                    "identifiers": identifiers,
+                    "output_format": output_format,
+                    "include_tree": include_tree,
+                }
+            )
+```
+
 - [ ] **Step 4: Un-gate the view**
 
 In `nextseek_api/views.py`, line 526:
@@ -827,6 +849,11 @@ Replace lines 596-601 (the `seekdb = SeekDB(None, None, None)` block and its
             logger.exception("Could not resolve SEEK projects for the caller")
             user_project_ids = []
 ```
+
+**`nextseek_api/views.py` has no `logger`.** It is the only module in the app
+without one, so `logger.exception` here would raise `NameError` inside an
+`except` block and mask the original error. Add `import logging` to the imports
+and, after the last import, `logger = logging.getLogger(__name__)`.
 
 Then replace the long `# SECURITY, known gap` comment block at lines 602-627 with:
 
