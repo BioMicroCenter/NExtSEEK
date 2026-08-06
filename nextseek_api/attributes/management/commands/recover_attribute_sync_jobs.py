@@ -57,7 +57,7 @@ def _claim_for_recovery(job_model, job_id, owner, *, lease_seconds=LEASE_SECONDS
         lease_version=observed.lease_version, state_version=observed.state_version,
         lease_expires_at__lt=Now(), last_heartbeat_at__lte=stale_cutoff,
     ).update(
-        claim_owner=owner, claim_generation=models.F("claim_generation") + 1,
+        state="running", claim_owner=owner, claim_generation=models.F("claim_generation") + 1,
         lease_version=models.F("lease_version") + 1, state_version=models.F("state_version") + 1,
         last_heartbeat_at=Now(), lease_expires_at=Now() + timedelta(seconds=lease_seconds),
     )
