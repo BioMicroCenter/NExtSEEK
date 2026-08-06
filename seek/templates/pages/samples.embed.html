@@ -1,6 +1,7 @@
+<script type="text/javascript" src="{{STATIC_URL}}js/ns_sample_download.js"></script>
 <style type="text/css">
 	.TFtable{
-		width:100%; 
+		width:100%;
 		border-collapse:collapse; 
 	}
 	.TFtable td{ 
@@ -48,14 +49,11 @@
     <br/>
     <div data-options="region:'center',split:true,border:true" title="Sample info" style="overflow: scroll; width:auto; height:500px;">
 		<div class="well" style="overflow: scroll;">
-        <form method="POST" action="/seek/admin/retrieve/">
-            {% csrf_token %}
-            <input name="retrieval_uids" style="display:none" value="{% for dici in report.sampleinfo %}{% if dici.attrname == 'UID' %}{{dici.attrvalue}}{% endif %}{% endfor %}"></input>
-            <button class="l-btn-left l-btn-icon-left"type="submit">
-                <span class="l-btn-text">Download All Samples</span>
-                <span class="l-btn-icon icon-save"></span>
-            </button>
-        </form>
+        <button class="l-btn-left l-btn-icon-left" type="button"
+                onclick="nsDownloadSamples(['{% for dici in report.sampleinfo %}{% if dici.attrname == 'UID' %}{{dici.attrvalue}}{% endif %}{% endfor %}'], {includeTree: true})">
+            <span class="l-btn-text">Download All Samples</span>
+            <span class="l-btn-icon icon-save"></span>
+        </button>
 			<div class="widget-body">
 				<div class="widget-main">
 					<div id="piechart-placeholder">
