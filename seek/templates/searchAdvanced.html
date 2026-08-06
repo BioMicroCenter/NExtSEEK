@@ -32,8 +32,33 @@ $(document).ready(function() {
         }
 });
 	
+/* The Advanced Sample Search grid is built while its tab is still hidden, so
+   EasyUI measures it at zero height and its body stays collapsed (~8px) even
+   after rows load -- the grid renders every row into a container nothing can
+   see. A resize once it is actually visible is what lays it out. Pair this with
+   the `#search_tab .layout-panel-center { display: block !important; }` rule in
+   nextseek.css, which un-hides the panel itself; neither half works alone. */
+function nsResizeGridsIn(container) {
+	if (!container || !container.length) { return; }
+	container.find('.datagrid-f').each(function () {
+		try { $(this).datagrid('resize'); } catch (e) {}
+	});
+}
+
+$(document).ready(function () {
+	$('#search_tab').tabs({
+		onSelect: function (title, index) {
+			nsResizeGridsIn($('#search_tab').tabs('getTab', index));
+		}
+	});
+});
+
 $(document).ready(function(){
     $('#advanced_dgtable').datagrid({
+		onLoadSuccess: function () {
+			// Results arrive while the tab may still have been hidden at build time.
+			$(this).datagrid('resize');
+		},
 		onCheck: function(index,row){
 		    row.ck = true;
 		},
