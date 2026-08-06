@@ -41,12 +41,20 @@ def test_corpus_json_exists_and_parses():
 
 
 def test_unified_holds_every_definition():
-    """383 = 366 adopted from catalog.json + 17 that only ever existed in the
-    overlay. Retired ones are KEPT, which is why this is 383 and not 283."""
+    """408 = 366 adopted from catalog.json + 17 that only ever existed in the
+    overlay + 25 added by the 2026-08-06 additive pass. Retired ones are KEPT,
+    which is why this is 408 and not 308.
+
+    Was 383. The 2026-08-06 pass extended an ALREADY-GRADED set rather than
+    rebuilding it: 16 atlas variants were read, repaired and promoted (so they
+    leave the atlas set and enter the curated one) and 9 were written fresh.
+    Nothing was retired, deselected or edited, because every one of those voids
+    a human grade that has already been paid for.
+    """
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
     ids = {v["id"] for fam in payload["families"].values() for v in fam["variants"]
            if v.get("origin") != "atlas"}
-    assert len(ids) == 383
+    assert len(ids) == 408
 
 
 def test_every_retired_definition_is_still_loadable():
@@ -83,16 +91,21 @@ def test_retired_ids_carry_their_full_retirement_record():
 
 
 def test_load_unified_returns_the_active_variants_only():
+    # 283 -> 308: +25 from the 2026-08-06 additive pass (16 promoted out of the
+    # atlas set into the curated one, 9 written fresh). Nothing was removed.
     active = corpus.curated(corpus.load_unified(UNIFIED))
-    assert len(active) == 283
+    assert len(active) == 308
 
 
 def test_load_all_definitions_returns_active_plus_retired():
-    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 383
+    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 408
 
 
 def test_unified_resolution_preserves_turn_count():
-    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 314
+    # 314 -> 343. The 25 additions carry 29 turns between them: several are
+    # genuinely multi-turn, and three atlas variants were REPAIRED on promotion
+    # because they had a multi-turn script flattened into one literal query.
+    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 343
 
 
 def test_the_hand_written_annotations_survived_adoption():
@@ -106,11 +119,19 @@ def test_the_hand_written_annotations_survived_adoption():
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
     variants = [v for fam in payload["families"].values() for v in fam["variants"]]
     counts = collections.Counter(k for v in variants for k in v if k.startswith("_"))
-    # `_atlas` is machine provenance ({capability, assertion}) on the 79 generated
+    # `_atlas` is machine provenance ({capability, assertion}) on the generated
     # variants, under ONE key so it cannot drown the signal this test exists for:
-    # that the 37 hand-written notes are still here.
-    assert counts == {"_why": 35, "_why_superseded_2026_08_03": 1,
-                      "_2026_07_28": 1, "_atlas": 79}
+    # that the hand-written notes are still here.
+    #
+    # 2026-08-06: `_why` 35 -> 43 and a new `_promoted_2026_08_06` key on 17.
+    # Promotion out of the atlas set does NOT strip `_atlas` -- the machine
+    # provenance is a true record of where the question came from, and deleting it
+    # would make a promoted variant indistinguishable from one a human wrote. So
+    # `_atlas` counts variants ever generated (80, +1 for a fresh variant modelled
+    # on one), while the `atlas` TAG counts those still unreviewed (63).
+    assert counts == {"_why": 43, "_why_superseded_2026_08_03": 1,
+                      "_2026_07_28": 1, "_atlas": 80,
+                      "_promoted_2026_08_06": 17, "_added_2026_08_06": 8}
 
 
 def test_fingerprint_is_over_the_unified_corpus_only():
@@ -128,7 +149,7 @@ def test_fingerprint_is_over_the_unified_corpus_only():
 def test_variant_meta_covers_every_definition():
     meta = corpus.variant_meta(UNIFIED)
     curated_ids = {v.id for v in corpus.curated(corpus.load_all_definitions(UNIFIED))}
-    assert len({k for k in meta if k in curated_ids}) == 383
+    assert len({k for k in meta if k in curated_ids}) == 408
     assert meta["repro.cypher_uid_dot"]["status"] == "retired"
     assert meta["green.mus_ndma"]["status"] == "active"
     # `is_bayesian` used to be pinned False on this variant, which was a pin on
@@ -208,7 +229,10 @@ def test_defaults_cover_the_retired_only_families_too():
            if v.get("origin") != "atlas"]
     active = {v["family"] for v in cur if v.get("status") == "active"}
     declared = {v["family"] for v in cur}
-    assert len(active) == 13, sorted(active)
+    # 13 -> 21. The 2026-08-06 pass promoted atlas variants in 8 previously
+    # atlas-only families into the curated set, so those families now hold an
+    # active CURATED variant. The gap this test records shrank by exactly 8.
+    assert len(active) == 21, sorted(active)
     # pipeline_output_reingest and entity_write hold one RETIRED variant each and
     # no active one. They are not slop: a retired definition stays loadable and
     # `hibayes_meta` resolves it exactly like an active one.
@@ -336,7 +360,13 @@ def test_bayesian_selection_is_nonempty_active_and_family_balanced():
     so it evaporates on its own the day a non-gate variant joins `nessie_route`.
     """
     ids = corpus.bayesian_ids(UNIFIED)
-    assert 100 <= len(ids) <= 150, f"selection is {len(ids)}; spec asks for 100-150"
+    # 100-150 was the bound while the selection WAS the study: one run, priced as
+    # a whole. From 2026-08-06 the selection is an already-paid 127 plus a 25
+    # variant extension, and the study is assembled from two runs at the CSV
+    # layer. The upper bound moves to 160 to admit that, and no further: it is
+    # still the thing that stops a selection growing without anyone pricing it.
+    # Re-running all 152 would REPAY for the 127 -- see the delta-run runbook.
+    assert 100 <= len(ids) <= 160, f"selection is {len(ids)}; spec asks for 100-160"
     active = [v for v in corpus.load_unified(UNIFIED)]
     assert set(ids) <= {v.id for v in active}, "a retired variant cannot be selected"
     # Curated only. The atlas set is `is_bayesian: false` by design (unreviewed
@@ -629,7 +659,12 @@ def test_the_atlas_set_is_additive_and_inert():
     """
     defs = corpus.load_all_definitions(UNIFIED)
     atlas = [v for v in defs if "atlas" in v.tags]
-    assert len(atlas) == 79
+    # 79 -> 63. On 2026-08-06, 16 were READ, ground-truthed, repaired where wrong
+    # and promoted into the curated set, which is exactly the exit `corpus.curated`
+    # documents ("promoting an atlas variant to reviewed is a tag flip"). The
+    # invariant below is unchanged and is the one that matters: whatever remains
+    # unreviewed stays out of the PAID selection.
+    assert len(atlas) == 63
 
     assert all(v.turns and len(v.turns) == 1 for v in atlas), "one turn each"
     assert all(len(v.turns[0].pass_criteria) >= 1 for v in atlas), "every one asserts something"
@@ -655,8 +690,13 @@ def test_the_atlas_set_is_additive_and_inert():
     # flipped the tag, which is the intended direction; if it grows, a generator
     # ran again without anyone deciding to.
     newly = {v.family for v in atlas} - {v.family for v in corpus.curated(corpus.merged(UNIFIED))}
-    assert newly == {"artifact_delivery", "batch_upload_preparation",
-                     "cc_sandbox_contract", "cross_session_memory", "engine_routing",
-                     "entity_write", "harmonization", "retrieval_path_selection",
-                     "turn_delivery_and_trace", "turn_limits_and_failure",
-                     "vocabulary_resolution"}, sorted(newly)
+    # Shrank from 11 to 3 on 2026-08-06, which the comment above names as the
+    # INTENDED direction: 8 of these families had their atlas variants read,
+    # ground-truthed and promoted, so they are now populated by curated variants
+    # and no longer depend on the generated set. The 3 that remain are the ones
+    # deliberately left: `entity_write` (a paid run would MUTATE the database),
+    # `cross_session_memory` (forcing pins both arms to one engine, so the
+    # cross-ENGINE recall it exists to test is unreachable) and `engine_routing`
+    # (asserting a route the harness itself forced is tautological).
+    assert newly == {"cross_session_memory", "engine_routing",
+                     "entity_write"}, sorted(newly)

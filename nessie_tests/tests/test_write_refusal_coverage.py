@@ -822,9 +822,12 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
                                       _OBS_CC, last_reply="done")[0] for t in v.turns):
             green.append(v.id)
 
-    assert len(merged) == 283
+    assert len(merged) == 308
     assert len(green) == 13, sorted(green)
-    assert len(merged) - len(green) == 270, (
+    # 270 -> 295: all 25 variants added 2026-08-06 are RED under an all-CC
+    # simulation replying "done", which is correct — none of them is satisfied
+    # by a bare acknowledgement.
+    assert len(merged) - len(green) == 295, (
         f"{len(merged) - len(green)} of {len(merged)} red — update the figure in "
         f"nessie_tests/README.md and nessie_tests/tests/test_evaluate.py")
 
@@ -852,8 +855,13 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
         for f in fields:
             counts[f] = counts.get(f, 0) + 1
 
+    # 2026-08-06, [226, 216, 130, 105] -> [231, 217, 130, 106]. The 25 added
+    # variants land in families whose route_policy injects a `route` criterion on
+    # 5 of them, and one asserts a parser mode and an endpoint inline. `api_ok` is
+    # unmoved: not one addition asserts NS plumbing, they assert ground truth on
+    # the reply instead.
     assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
-                                    "api_plan.endpoint")] == [226, 216, 130, 105], (
+                                    "api_plan.endpoint")] == [231, 217, 130, 106], (
         f"{counts} — update the four counts in nessie_tests/README.md and in "
         f"tests/test_evaluate.py's 'Fix round 1' comment")
 
