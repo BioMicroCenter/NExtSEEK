@@ -211,3 +211,8 @@ docs/superpowers/
 # on S3 and downloaded on demand by the startup CLI. See startup/seed/README.md.
 /filestore/
 startup/seed/filestore.tar.gz
+
+# Paired --bayesian run directories: manifests are ~800K and the artifacts/
+# tree is ~325M per run. They are deliverables, not source, and a `git add -A`
+# that swept one in would be very hard to undo.
+nessie_bayes_*/
