@@ -201,8 +201,11 @@ function sendSamples(dg, url_publish) {
 		<thead>
 			<tr>
 				<th data-options="field:'ck',width:100,align:'center', checkbox:true, editor:{type:'checkbox',options:{on:'Y',off:'N'}}">Select file</th>
-				<th data-options="field:'idurl',width:60" sortable="true"><b>ID</b></th>
-				<th data-options="field:'uuid',width:200,editor:'text',formatter: nsEllipsisFormatter" sortable="true"><b>UID</b></th>
+				<!-- Link the UID rather than the ID, matching the Simple Search grid.
+				     reformatDataForClient emits `id`/`uuid` plain and `idurl`/`uid` as
+				     anchors to /seek/sample/id=<id>/, so this is a straight field swap. -->
+				<th data-options="field:'id',width:60" sortable="true"><b>ID</b></th>
+				<th data-options="field:'uid',width:200,editor:'text',formatter: nsEllipsisFormatter" sortable="true"><b>UID</b></th>
 				<th data-options="field:'sample_type',width:100,formatter: nsEllipsisFormatter" sortable="true"><b>Sample Type</b></th>
 				<th data-options="field:'attributeValue',align:'left',width:900,formatter: nsEllipsisFormatter"><b>Attribute:Value</b></th>
 			</tr>
