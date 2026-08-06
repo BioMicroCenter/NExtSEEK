@@ -34,6 +34,7 @@ from .dbtable_sops import DBtable_sops
 from .dbtable_policies import DBtable_policies
 
 from .dbtable_ontology import DBtable_ontology
+from nextseek_api.services.sample_workbook import write_samples_workbook
 from concurrent.futures import ThreadPoolExecutor
 from api_app.updateTrees import updateTrees
 from neo4j import GraphDatabase
@@ -924,15 +925,9 @@ class DBtable_sample(DBtable):
         return final_df
 
     def sampleRetrievalData(self, children_uids, output):
-        parsed_df = self.__parse_children_uids(children_uids)
-        parsed_df['sample_type'] = parsed_df['uuid'].str.extract(r'([A-Z]+\.[A-Z]+|[A-Z]+)', expand=False)
-
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            for sample_type, sample_type_df in parsed_df.groupby('sample_type'):
-                sample_type_df = sample_type_df.drop(columns=['uuid', 'sample_type'])
-                sample_type_df.replace("", pd.NA, inplace=True)
-                sample_type_df.dropna(axis=1, how='all', inplace=True)
-                sample_type_df.to_excel(writer, sheet_name=sample_type, index=False)
+        # Sheet layout, README included, is owned by
+        # nextseek_api.services.sample_workbook so it cannot drift per call path.
+        write_samples_workbook(self.__parse_children_uids(children_uids), output)
 
     def __batchUploadTest(self, seekdb, sampleType, diclist, diclist_feedback, attributeInfo, attributeMapping, diclist_assay, uploadEnforced=False):
         user_seek = seekdb.user_seek
