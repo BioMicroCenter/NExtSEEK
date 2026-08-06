@@ -204,7 +204,7 @@ ones whose error text matters most.
 | column | what it is |
 |---|---|
 | `error_text` | the turn's own message, verbatim, from `result.error` or the `query_error` event |
-| `error_class` | `provider_outage` / `usage_policy` / `timeout` / `unclassified`, plus `none` (rows were read and carried no error) and `unobserved` (no rows to read) |
+| `error_class` | `provider_outage` / `usage_policy` / `timeout` / `unclassified`, plus `no_text` (it errored and left no message), `none` (rows were read, it did not error) and `unobserved` (no rows to read) |
 | `stop_reason` | the last `stop_reason` in the collected CC transcript, empty unless `stop_reason_status` is `observed` |
 | `stop_reason_status` | `observed` / `no_transcript` / `not_recorded` / `unreadable` / `not_applicable` (an NS arm) |
 
@@ -214,6 +214,12 @@ failure is an open question and `export._exclusion` is untouched by it -- but th
 run of `advanced.bacteria_mtb` that raised the question exported
 `is_error=false, answer_provided=true, runtime_success=true, failure_mode=none`
 over an arm that produced nothing, and the refusal message reached no file at all.
+
+`error_class` can never contradict `is_error`: it takes the flag from the same
+`runtime_flags` call the CSV row is built from, and `none` is the only token that
+asserts the arm was fine. An arm that errored without a recoverable message is
+`no_text`, and an arm with nothing collected is `unobserved` — which asserts
+nothing, so it cannot contradict anything either.
 
 `stop_reason` is the last one **in what was collected**, and is a floor rather
 than the turn's final word: the transcript store holds the session file as of each

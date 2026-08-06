@@ -392,6 +392,67 @@ def test_a_collected_arm_that_said_nothing_IS_declared_silent(tmp_path):
                                      for r in _rows(tmp_path / "unobserved.csv")}
 
 
+@pytest.mark.parametrize("reply", ["   ", "\n", "\t \n "])
+def test_a_whitespace_only_reply_is_not_an_answer(tmp_path, reply):
+    """`bool("   ")` is True, and three spaces is not an answer.
+
+    Harmless while `reply_of` only fed a report heading; not harmless once the
+    reply is load-bearing for `answer_provided` and through it for the study's
+    outcome variable -- and that blank-looking string would still have gone to a
+    paid judge, which maps only `""` to None.
+
+    ALL FOUR SURFACES AGREE, which is the point of fixing it in `reply_of` rather
+    than in `_answered`: `answer_provided=false` beside a `final_answer` of three
+    spaces would be the same self-contradiction one column over.
+    """
+    art = tmp_path / "artifacts"
+    _reply(art, "a.one", "cc", reply)
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+    stats: dict = {}
+
+    export.export(m, tmp_path, artifacts_dir=art)
+    export.export_stage_b(m, tmp_path, artifacts_dir=art,
+                          corpus_path=_corpus(tmp_path), stats=stats)
+
+    assert _rows(tmp_path / "hibayes_eval_rows_cc.csv")[0]["answer_provided"] == "false"
+    b = _rows(tmp_path / "hibayes_functional_eval_inputs.csv")[0]
+    assert b["answer_provided"] == "false" and b["final_answer"] == ""
+    assert stats["no_reply"] == 1
+
+
+def test_padding_around_a_real_answer_is_not_stripped_from_it(tmp_path):
+    """Blank-vs-absent is decided, and the string is then returned VERBATIM. The
+    two graders judge one string, and quietly editing it here would make the
+    disagreement set measure this function."""
+    art = tmp_path / "artifacts"
+    _reply(art, "a.one", "cc", "  705 mice.  ")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+
+    export.export_stage_b(m, tmp_path, artifacts_dir=art,
+                          corpus_path=_corpus(tmp_path))
+
+    row = _rows(tmp_path / "hibayes_functional_eval_inputs.csv")[0]
+    assert row["final_answer"] == "  705 mice.  "
+    assert row["answer_provided"] == "true"
+
+
+def test_a_blank_result_reply_falls_through_to_the_event_that_has_one(tmp_path):
+    """The fallback already existed for `""`; a whitespace-only `result.reply`
+    must not shadow a real answer on `query_complete` either."""
+    art = tmp_path / "artifacts"
+    (_arm_dir(art, "a.one", "cc") / "task.json").write_text(json.dumps(
+        {"status": "completed", "result": {"reply": "   "},
+         "progress": [{"event": "query_complete", "data": {"reply": "705 mice."}}]}),
+        encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+
+    export.export_stage_b(m, tmp_path, artifacts_dir=art,
+                          corpus_path=_corpus(tmp_path))
+
+    assert _rows(tmp_path / "hibayes_functional_eval_inputs.csv")[0][
+        "final_answer"] == "705 mice."
+
+
 def test_any_errored_turn_condemns_the_whole_arm(tmp_path):
     """Same rule as `_deadline_aborted`, for the same reason: a follow-up asked
     after a turn that errored is not the engine's answer to the question."""
@@ -495,6 +556,62 @@ def test_an_outage_is_classified_through_the_one_detector_not_a_second_copy(tmp_
 def test_the_error_class_vocabulary(text, klass):
     assert export.classify_error(text) == klass
     assert klass in export.ERROR_CLASSES
+
+
+def test_an_errored_arm_with_no_message_is_no_text_and_never_none(tmp_path):
+    """`error_class` must not contradict `is_error`.
+
+    The two were derived from different evidence -- the class from whether a TEXT
+    was recoverable, the flag from the row STATUS -- so a row carrying
+    `status: "error"` with an empty `result` exported `is_error=true,
+    failure_mode=error` beside `error_class=none`, which is documented as a
+    measurement that the arm was FINE. An operator grouping by `error_class`
+    would read zero errors off a run whose eval rows said otherwise: this
+    commit's own defect, one column over.
+    """
+    art = tmp_path / "artifacts"
+    (_arm_dir(art, "a.one", "cc") / "task.json").write_text(
+        json.dumps({"status": "error", "progress": [], "result": {}}),
+        encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+
+    out = export.export(m, tmp_path, artifacts_dir=art)
+
+    assert _rows(tmp_path / "hibayes_eval_rows_cc.csv")[0]["is_error"] == "true"
+    diag = _rows(tmp_path / "arm_diagnostics.csv")[0]
+    assert diag["error_class"] == export.ERROR_NO_TEXT
+    assert diag["error_text"] == ""
+    assert out["errors_no_text"] == 1 and out["errors_none"] == 0
+
+
+def test_none_is_the_only_token_that_says_the_arm_was_fine(tmp_path):
+    """The invariant, over every shape an arm can take at once: an arm whose
+    `error_class` is `none` is an arm whose `is_error` is false. `no_text` and
+    `unobserved` both exist so that this can never be violated -- the first
+    asserts an error with no message, the second asserts nothing at all."""
+    art = tmp_path / "artifacts"
+    _reply(art, "answered", "cc", "705 mice.")                    # fine
+    _refused(art, "refused")                                      # errored, texted
+    (_arm_dir(art, "silent", "cc") / "task.json").write_text(     # errored, no text
+        json.dumps({"status": "error", "progress": [], "result": {}}),
+        encoding="utf-8")
+    m = BayesManifest(pairs=[
+        BayesPair(id=vid, family="f", cc=_entry(vid, status="failed"))
+        for vid in ("answered", "refused", "silent", "uncollected")])
+
+    export.export(m, tmp_path, artifacts_dir=art)
+
+    flags = {r["query_id"]: r["is_error"]
+             for r in _rows(tmp_path / "hibayes_eval_rows_cc.csv")}
+    classes = {r["query_id"]: r["error_class"]
+               for r in _rows(tmp_path / "arm_diagnostics.csv")}
+    assert classes == {"answered": export.ERROR_NONE,
+                       "refused": export.ERROR_USAGE_POLICY,
+                       "silent": export.ERROR_NO_TEXT,
+                       "uncollected": export.ERROR_UNOBSERVED}
+    for vid, klass in classes.items():
+        if klass == export.ERROR_NONE:
+            assert flags[vid] == "false", vid
 
 
 def test_no_collected_row_makes_the_error_class_unobserved_not_none(tmp_path):

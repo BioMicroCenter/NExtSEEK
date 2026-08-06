@@ -382,13 +382,32 @@ def reply_of(row) -> str:
     output, so noise introduced here is indistinguishable from the result.
     """
     result = row.get("result")
-    if isinstance(result, dict) and result.get("reply"):
+    if isinstance(result, dict) and _spoke(result.get("reply")):
         return str(result["reply"])
     for ev in reversed(row.get("progress") or []):
         data = ev.get("data") or {}
-        if isinstance(data, dict) and data.get("reply"):
+        if isinstance(data, dict) and _spoke(data.get("reply")):
             return str(data["reply"])
     return ""
+
+
+def _spoke(value) -> bool:
+    """Did this field carry an ANSWER, as opposed to nothing wearing a shape?
+
+    `bool("   ")` is True, and an arm that returned three spaces is not an arm
+    that answered. That was harmless while `reply_of` only fed a report heading;
+    it is not harmless now that `_answered` makes the reply load-bearing for
+    `answer_provided`, and through it for `runtime_success` and `failure_mode` --
+    the study's outcome variable. Such a row would also have gone to a paid judge
+    as a blank-looking string that `functional_evaluator.py` does NOT map to
+    None, because it only does that for `""`.
+
+    Blank-vs-absent is decided here and the string is then returned VERBATIM: a
+    whitespace-only reply is no reply, but `"  705 mice.  "` is an answer with
+    incidental padding, and stripping it would change the string the two graders
+    judge. This function decides presence; it never edits content.
+    """
+    return bool(str(value).strip()) if value is not None else False
 
 
 def final_answer(rows) -> str:
@@ -476,20 +495,26 @@ def final_error(rows) -> str:
 #   timeout          the error text itself says the turn timed out.
 #   unclassified     an error text this function has no rule for. A real error,
 #                    a real message, and no claim about its kind.
-#   none             rows WERE collected and none of them carried an error. A
-#                    measurement.
+#   no_text          the arm ERRORED and no message was recoverable from any
+#                    collected row. See `arm_diagnostic`: this is the token that
+#                    keeps `error_class` from contradicting `is_error`.
+#   none             rows WERE collected, the arm did not error, and none of them
+#                    carried an error text. A measurement, and the ONLY token
+#                    that asserts the arm was fine.
 #   unobserved       no rows were collected, so there was nothing to look in.
-#                    NOT the same as `none` and never folded into it.
+#                    NOT the same as `none` and never folded into it. It asserts
+#                    nothing, so it cannot contradict `is_error` either.
 ERROR_OUTAGE = "provider_outage"
 ERROR_USAGE_POLICY = "usage_policy"
 ERROR_TIMEOUT = "timeout"
 ERROR_UNCLASSIFIED = "unclassified"
+ERROR_NO_TEXT = "no_text"
 ERROR_NONE = "none"
 ERROR_UNOBSERVED = "unobserved"
 
 ERROR_CLASSES: tuple[str, ...] = (
     ERROR_OUTAGE, ERROR_USAGE_POLICY, ERROR_TIMEOUT, ERROR_UNCLASSIFIED,
-    ERROR_NONE, ERROR_UNOBSERVED)
+    ERROR_NO_TEXT, ERROR_NONE, ERROR_UNOBSERVED)
 
 # Two markers, either of which is decisive. The prose has been reworded before and
 # will be again; the URL is the stable half, and a message carrying either is the
@@ -501,7 +526,14 @@ _TIMEOUT_MARKERS = ("timeout", "timed out")
 
 
 def classify_error(text: str) -> str:
-    """One of `ERROR_CLASSES`, for an error text. `""` -> `ERROR_NONE`.
+    """Classify one error TEXT. `""` -> `ERROR_NONE`.
+
+    A pure function of the string, and therefore NOT the whole story: the absence
+    of a message is not the absence of an error, so the arm-level decision
+    between `none`, `no_text` and `unobserved` belongs to `arm_diagnostic`, which
+    knows whether the arm errored and whether anything was collected. Calling
+    this alone on an arm is how `error_class=none` came to sit beside
+    `is_error=true`.
 
     Order is by CAUSE, the same principle `_exclusion` orders exclusions by. An
     outage is checked first because it is the one class with an independent
@@ -596,24 +628,50 @@ def stop_reason(artifacts_dir, variant_id: str, arm: str) -> tuple[str, str]:
     return (found, STOP_OBSERVED) if found else ("", STOP_NOT_RECORDED)
 
 
-def arm_diagnostic(artifacts_dir, variant_id: str, arm: str, rows) -> dict:
+def arm_diagnostic(entry, artifacts_dir, variant_id: str, arm: str, rows) -> dict:
     """One `arm_diagnostics.csv` row: what this arm's turn recorded about ending.
 
     Written for EVERY arm, scored or excluded. The excluded ones are the arms
     whose error text matters most, and whether a `usage_policy` refusal should be
     excluded rather than scored is an open question -- the evidence for deciding
     it must not vanish the moment it is decided.
+
+    `error_class` CANNOT CONTRADICT `is_error`, structurally. The two used to be
+    derived from different evidence -- the class from whether a TEXT was
+    recoverable, the flag from the row STATUS -- and a row carrying
+    `status: "error"` with an empty `result` exported `is_error=true,
+    failure_mode=error` beside `error_class=none`, whose own documentation calls
+    it a measurement that the arm was fine. An operator grouping by
+    `error_class` would have read zero errors off a run whose eval rows said
+    otherwise: the same defect this module was just fixed for, one column over.
+
+    So the flag is taken from `runtime_flags`, the SAME call the CSV row is built
+    from, rather than recomputed here from a second reading of the evidence; and
+    an errored arm with no recoverable message gets `no_text` rather than `none`.
+    `none` is now the only token that asserts the arm was fine, and it is
+    reachable only when the arm did not error.
+
+    An arm with NO collected rows stays `unobserved` even when it errored. That
+    token asserts nothing -- it says there was nothing to look in, which is true
+    and is not contradicted by a flag derived from the manifest entry.
     """
     value, status = stop_reason(artifacts_dir, variant_id, arm)
     text = final_error(rows)
+    _answer, is_error, _timed_out = runtime_flags(entry, rows)
+    if not rows:
+        # With no collected row there was nothing to look in, and "this arm had
+        # no error" would be a claim.
+        klass = ERROR_UNOBSERVED
+    elif text:
+        klass = classify_error(text)
+    else:
+        klass = ERROR_NO_TEXT if is_error else ERROR_NONE
     return {
         "query_id": variant_id,
         "arm": arm,
         "stop_reason": value,
         "stop_reason_status": status,
-        # `ERROR_UNOBSERVED`, not `ERROR_NONE`: with no collected row there was
-        # nothing to look in, and "this arm had no error" would be a claim.
-        "error_class": classify_error(text) if rows else ERROR_UNOBSERVED,
+        "error_class": klass,
         "error_text": text,
     }
 
@@ -936,7 +994,8 @@ def export(manifest, out_dir, artifacts_dir=None, corpus_path=None) -> dict:
             rows = _turn_rows(artifacts_dir, pair.id, arm)
             # BEFORE the exclusion `continue`, deliberately: an excluded arm still
             # gets its diagnostics row. See the module docstring.
-            diagnostics.append(arm_diagnostic(artifacts_dir, pair.id, arm, rows))
+            diagnostics.append(
+                arm_diagnostic(entry, artifacts_dir, pair.id, arm, rows))
             verdict = _exclusion(entry, rows)
             if verdict is not None:
                 cause, reason = verdict
