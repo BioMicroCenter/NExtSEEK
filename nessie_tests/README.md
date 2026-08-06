@@ -18,6 +18,23 @@ edit.
 - **full** (paid, nightly): runs the turn to completion; asserts counts + bundle
   richness. Requires the **seeded v2 instance** (project ids 2-14).
 
+## Running only the NOT-YET-GRADED variants (delta run)
+
+`--bayesian` drives every variant flagged `is_bayesian` + `active` — 152 today,
+of which 127 are already graded from the 2026-08-06 run. Running all 152 REPAYS
+about $30 to re-answer questions a human has already judged.
+
+To run only the 25 that have never been graded:
+
+```bash
+python nessie_tests/scripts/delta_selection.py --graded nessie_bayes_full/grades.json
+# ... run --bayesian into its OWN --out ...
+git checkout nessie_tests/corpus.json   # the narrowing is run-time state, not a commit
+```
+
+Full procedure, including grading and merging the two runs into one HiBayes-ready
+study: `docs/nessie-corpus-additive-2026-08-06.md`.
+
 ## Scope
 - `--scope specific` → only `route_gate`-tagged cases (+ consistency groups).
 - `--scope all` → the whole active corpus (`nessie_tests/corpus.json`).
@@ -45,7 +62,7 @@ uv run --no-project --with pytest --with pydantic --with requests --with beautif
 
 The figure that IS fixed, and is pinned by a test rather than by prose, is the
 size of the resolved corpus: `corpus.merged(Path('nessie_tests/corpus.json'))`
-returns **283** variants
+returns **308** variants
 (`tests/test_floor_ops.py::test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus`).
 
 `--no-project` and the explicit `--with` list are load-bearing, not decoration.
@@ -112,9 +129,9 @@ mixing the two prints `PARTIAL`.
 ## Known-fail (RED) cases
 
 **No variant in the resolved corpus is tagged `known_fail` any more.** None of
-the 283 variants returned by `corpus.merged(Path('nessie_tests/corpus.json'))`
+the 308 variants returned by `corpus.merged(Path('nessie_tests/corpus.json'))`
 carries that tag — which is a statement about `known_fail` only; they carry
-plenty of other tags, and all 283 carry an injected `route` criterion (see
+plenty of other tags, and 288 of the 308 carry an injected `route` criterion (see
 "Scale" below). Four DEFINITIONS still carry `known_fail` in `corpus.json` —
 `repro.parent_attr_aggregate` (#32a), `repro.thin_bundle_recall` (#32b),
 `repro.eof_truncation_reporter` (the reporter EOF bonus) and
@@ -152,10 +169,10 @@ NS turn the same four fields are real assertions and still fail.
 
 **Scale, stated honestly.** Skipping them removes ONE of the reasons a CC-routed
 case in a floored family goes red — not all of them. Simulate every case in the
-resolved corpus routing CC and **270 of 283 are still red**, with all six floored
+resolved corpus routing CC and **295 of 308 are still red**, with all six floored
 families at 100%. Four criteria account for nearly all of it, and none of them is
-skipped: `route` fails on **226** variants, `parser_plan.mode` on **216**,
-`api_ok` on **130** and `api_plan.endpoint` on **105**. Those cases stay red
+skipped: `route` fails on **231** variants, `parser_plan.mode` on **217**,
+`api_ok` on **130** and `api_plan.endpoint` on **106**. Those cases stay red
 until the corpus itself is settled.
 
 **Name the frame, because the two frames disagree.** Under that all-CC
@@ -176,8 +193,8 @@ scored, not because it started holding.
 
 **Every figure above is RECOMPUTED, not remembered**, in
 `tests/test_write_refusal_coverage.py`: the headline by
-`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (283 total /
-13 green / 270 red), the four per-criterion counts by
+`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (308 total /
+13 green / 295 red), the four per-criterion counts by
 `test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too`, and the
 two-frames claim by `test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation`.
 All three drive the resolved corpus through `evaluate.evaluate_turn` with the real
