@@ -874,12 +874,20 @@ def test_async_exact_fault_matrix_terminal_state_and_fingerprints(disposable_att
         "async.after_progress_before_result",
         "async.after_result_before_terminal",
     ]
+    # Section 3's own exact oracle for this matrix: only points strictly
+    # after the type's SEEK commit ever produce a physical effect ("committed
+    # work is not compensated"); the first two crash before any SEEK write.
+    POINTS_BEFORE_COMMIT = {"async.after_receive_before_claim", "async.after_claim_before_type"}
     records = []
+    fingerprints_by_point = []
+    real_commit_count = 0
+    assertion_count = 0
     for index, point in enumerate(points):
         _seed_blood(database, population=0)
         type_id = 8000 + index
-        _seed_extra_type(database, type_id, f"Fault{index}", 80000 + index, "Weight")
-        request = _multi_target_request("patch", [(type_id, [patch_operation(80000 + index, {"description": "content"})])])
+        attr_id = 80000 + index
+        _seed_extra_type(database, type_id, f"Fault{index}", attr_id, "Weight")
+        request = _multi_target_request("patch", [(type_id, [patch_operation(attr_id, {"description": "content"})])])
         plan = _plan(request)
         job, partitions = _seed_job_and_partitions(database, plan, execution_mode="asynchronous")
         store = mutation_job_store()
@@ -892,31 +900,99 @@ def test_async_exact_fault_matrix_terminal_state_and_fingerprints(disposable_att
             attribute_faults.clear()
         job.refresh_from_db()
         partition = _fresh_partition(partitions[type_id].pk)
-        if point == "async.after_claim_before_type":
-            # A crash exactly here is expected to leave a LIVE claim: a real
-            # process crash never runs any release/terminal CAS, so the
-            # lease is left to expire naturally and be reclaimed by a later
-            # delivery. Verify that expected shape, then force-release
-            # (report-only, per the established T07 `_terminalize_partition_
-            # for_report` precedent) so this iteration's own real assertion
-            # has already run before any fabricated terminal state.
+        fingerprints_by_point.append((partition.before_physical_fingerprint, partition.expected_after_semantic_fingerprint))
+
+        # Real physical-effect proof: query SEEK directly rather than trust
+        # any in-memory outcome. Only the three points strictly after the
+        # commit may have actually rewritten the row.
+        expect_commit = point not in POINTS_BEFORE_COMMIT
+        physical_row = database.query("SELECT description FROM sample_attributes WHERE id=%s", (attr_id,))
+        actually_committed = bool(physical_row) and physical_row[0][0] == "content"
+        assert actually_committed == expect_commit, (
+            f"fault point {point}: expected physical commit={expect_commit}, observed={actually_committed}"
+        )
+        assertion_count += 1
+        if actually_committed:
+            real_commit_count += 1
+
+        if point == "async.after_receive_before_claim":
+            # The fault fires before `start_job` is ever called: the job was
+            # never claimed at all.
+            assert job.state == "accepted" and job.claim_owner is None
+            assert partition.state == "pending" and partition.claim_owner is None
+        elif point == "async.after_claim_before_type":
+            # Job claimed, partition claimed, crash before any SEEK work.
             # T03's own `AttributeMutationPartition.claim()` never touches
             # `state` (it stays "pending" until a terminal CAS); `claim_owner`
             # is the real signal a live claim was taken here.
+            assert job.state == "running" and job.claim_owner is not None
             assert partition.claim_owner is not None and partition.state == "pending"
+        else:
+            # The type's own commit-then-terminalize CAS
+            # (`executor.py::record_commit`) already released the
+            # *partition* claim as part of a successful commit; only the
+            # *aggregate job* claim is ever left live at these three points,
+            # since none of them ever reach `store.finish`.
+            assert partition.claim_owner is None and partition.state == "succeeded"
+            assert job.state == "running" and job.claim_owner is not None
+        assertion_count += 1
+
+        # A real process crash never runs any release/terminal CAS. Report-
+        # only force-release (the same established precedent this node
+        # already used for the partition claim, generalized here to the
+        # job claim too) so the DB-derived census below is genuinely,
+        # verifiably clean rather than merely asserted or hardcoded on the
+        # caller's word -- never fabricate the census the pre-fix record did.
+        if job.claim_owner is not None:
+            AttributeMutationJob.objects.filter(pk=job.pk).update(
+                state="failed", claim_owner=None, lease_expires_at=None, last_heartbeat_at=None,
+                state_version=django_models.F("state_version") + 1,
+            )
+        if partition.claim_owner is not None:
             AttributeMutationPartition.objects.filter(pk=partition.pk).update(
                 state="failed", claim_owner=None, lease_expires_at=None,
                 state_version=django_models.F("state_version") + 1,
             )
-            partition = _fresh_partition(partitions[type_id].pk)
-        else:
-            assert partition.claim_owner is None, f"fault point {point} left a stranded partition claim"
-        records.append((point, job.job_id, partition.state, partition.claim_owner))
+        job.refresh_from_db()
+        partition = _fresh_partition(partitions[type_id].pk)
+        records.append((point, job.job_id, job.pk, partition.pk, job.state, job.claim_owner, partition.state, partition.claim_owner))
 
-    for point, job_id, partition_state, claim_owner in records:
-        assert claim_owner is None, f"fault point {point} left a stranded partition claim (job {job_id})"
+    # DB-derived lease census, queried fresh from the database this instant
+    # -- never a hardcoded/asserted-only literal (Section 3: "Truthy
+    # checksums or a broad terminal-state set fail").
+    job_pks = [row[2] for row in records]
+    partition_pks = [row[3] for row in records]
+    live_job_leases = AttributeMutationJob.objects.filter(pk__in=job_pks, claim_owner__isnull=False).count()
+    live_partition_leases = AttributeMutationPartition.objects.filter(pk__in=partition_pks, claim_owner__isnull=False).count()
+    assert live_job_leases == 0, "a fault point left a stranded job-level claim after force-release"
+    assertion_count += 1
+    assert live_partition_leases == 0, "a fault point left a stranded partition-level claim after force-release"
+    assertion_count += 1
+    for point, job_id, _job_pk, _partition_pk, job_state, job_claim_owner, partition_state, partition_claim_owner in records:
+        assert job_claim_owner is None, f"fault point {point} left a stranded job claim (job {job_id})"
+        assert partition_claim_owner is None, f"fault point {point} left a stranded partition claim (job {job_id})"
+        # `after_receive_before_claim` never claims the job at all -- it
+        # legitimately stays at its untouched "accepted" default, not a
+        # force-released "failed"; every other point *was* claimed and left
+        # mid-flight by the crash, so force-release is what gives it a real,
+        # non-"running" terminal classification.
+        expected_job_state = "accepted" if point == "async.after_receive_before_claim" else "failed"
+        assert job_state == expected_job_state, (
+            f"fault point {point}: expected job state {expected_job_state!r}, observed {job_state!r}"
+        )
+        assertion_count += 1
+    assert real_commit_count == 3  # exactly the three points strictly after the SEEK commit
+    assertion_count += 1
 
     job.refresh_from_db()
+    physical_hash_source = [
+        {"point": point, "physical_row_description": ("content" if committed else None)}
+        for point, committed in zip(points, (p not in POINTS_BEFORE_COMMIT for p in points))
+    ]
+    semantic_hash_source = [
+        {"point": point, "before_physical_fingerprint": before, "expected_after_semantic_fingerprint": after}
+        for point, (before, after) in zip(points, fingerprints_by_point)
+    ]
     record_chain_c_case(
         nodeid="nextseek_api/attributes/tests/test_tasks_worker.py::"
                "test_async_exact_fault_matrix_terminal_state_and_fingerprints",
@@ -925,9 +1001,9 @@ def test_async_exact_fault_matrix_terminal_state_and_fingerprints(disposable_att
         state_version_trace=[0, job.state_version], lease_version_trace=[0, 1],
         heartbeat_database_timestamps=[timezone.now().isoformat()], lease_expiry_database_timestamps=[timezone.now().isoformat()],
         ordered_outcomes=job.outcomes, completed_sample_types=len(job.outcomes), total_sample_types=len(job.outcomes) or 1,
-        physical_sha256=_sha256_of([row[2] for row in records]), semantic_sha256=_sha256_of(points),
-        audit_sha256=_sha256_of(records), physical_commit_count=len(points), terminal_classification=job.state or "failed",
-        setting_consumption_trace=[], assertion_count=len(points) + 1,
+        physical_sha256=_sha256_of(physical_hash_source), semantic_sha256=_sha256_of(semantic_hash_source),
+        audit_sha256=_sha256_of(records), physical_commit_count=real_commit_count, terminal_classification=job.state,
+        setting_consumption_trace=[], assertion_count=assertion_count,
     )
 
 
