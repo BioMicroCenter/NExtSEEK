@@ -19,9 +19,14 @@ import dataclasses
 import hashlib
 import threading
 import time
+from datetime import timedelta
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import orjson
 import pytest
+import yaml
+from django.core.management import call_command
 from django.db import models as django_models
 from django.utils import timezone
 
@@ -37,6 +42,7 @@ from nextseek_api.attributes.jobs import (
     mutation_job_store,
     run_stored_job,
 )
+from nextseek_api.attributes.models_async import AttributeOutboxDispatcherHeartbeat
 from nextseek_api.attributes.models_db import AttributeMutationJob, AttributeMutationPartition
 from nextseek_api.attributes.tasks import run_attribute_mutation
 from nextseek_api.attributes.tests.chain_c_t08 import record_chain_c_case
@@ -52,6 +58,7 @@ from nextseek_api.attributes.tests.test_planner_db import ACTOR, _seed_blood, pa
 from nextseek_api.attributes.tests.test_repository import _reset_seek_tables
 
 LOGICAL_QUEUE = "attribute_mutations"
+COMPOSE_PATH = Path(__file__).resolve().parents[3] / "docker-compose.yml"
 
 
 @pytest.fixture(autouse=True)
@@ -1061,3 +1068,170 @@ def test_cancellation_latency_uses_durable_request_and_boundary_timestamps(dispo
         audit_sha256=_sha256_of(job.terminal_result), physical_commit_count=0, terminal_classification=job.state,
         setting_consumption_trace=[], assertion_count=assertion_count,
     )
+
+
+
+# ---------------------------------------------------------------------------
+# 15. Spec Section 7 Edit 2: compose verification surface (Review Blocker 2)
+# ---------------------------------------------------------------------------
+
+
+def _compose_services():
+    return yaml.safe_load(COMPOSE_PATH.read_text())["services"]
+
+
+def test_compose_attribute_mutation_worker_exact_shape():
+    service = _compose_services()["attribute_mutation_worker"]
+    assert service["command"] == [
+        "uv", "run", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker",
+        "--loglevel=info", "-Q", "attribute_mutations", "--hostname=attribute_mutations@%h",
+        "--concurrency=${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}",
+    ]
+    assert service["depends_on"] == {"seek": {"condition": "service_started"}, "db": {"condition": "service_healthy"}}
+    assert service["healthcheck"] == {
+        "test": ["CMD-SHELL", "uv run celery -A nextseek_api.batch_upload.celery_app inspect ping --timeout=5 -d attribute_mutations@$${HOSTNAME} | grep -q pong"],
+        "interval": "30s", "timeout": "10s", "retries": 3,
+    }
+    assert service["deploy"]["resources"]["limits"] == {
+        "cpus": "${ATTRIBUTE_MUTATION_WORKER_CPUS:-1.0}", "memory": "${ATTRIBUTE_MUTATION_WORKER_MEMORY:-768M}",
+    }
+    assert "attribute_mutation_broker:/var/lib/attribute-broker" in service["volumes"]
+    assert service["environment"]["CELERY_BROKER_URL"] == "sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3"
+
+
+def test_compose_attribute_mutation_dispatcher_exact_shape():
+    service = _compose_services()["attribute_mutation_dispatcher"]
+    assert service["command"] == ["uv", "run", "python", "manage.py", "dispatch_attribute_outbox"]
+    assert service["depends_on"] == {"seek": {"condition": "service_started"}, "db": {"condition": "service_healthy"}}
+    assert service["healthcheck"] == {
+        "test": ["CMD", "uv", "run", "python", "manage.py", "check_attribute_outbox_heartbeat"],
+        "interval": "30s", "timeout": "10s", "retries": 3,
+    }
+    assert service["deploy"]["resources"]["limits"] == {
+        "cpus": "${ATTRIBUTE_MUTATION_DISPATCHER_CPUS:-0.25}", "memory": "${ATTRIBUTE_MUTATION_DISPATCHER_MEMORY:-256M}",
+    }
+    assert "attribute_mutation_broker:/var/lib/attribute-broker" in service["volumes"]
+    assert service["environment"]["CELERY_BROKER_URL"] == "sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3"
+
+
+def test_compose_attribute_mutation_recovery_scheduler_exact_shape_and_no_broker_ability():
+    service = _compose_services()["attribute_mutation_recovery_scheduler"]
+    assert service["command"] == [
+        "uv", "run", "python", "manage.py", "recover_attribute_sync_jobs", "--loop", "--interval-seconds", "30",
+    ]
+    assert service["depends_on"] == {"seek": {"condition": "service_started"}, "db": {"condition": "service_healthy"}}
+    assert service["healthcheck"] == {
+        "test": ["CMD", "uv", "run", "python", "manage.py", "recover_attribute_sync_jobs", "--check-heartbeat", "--max-age-seconds", "90"],
+        "interval": "30s", "timeout": "10s", "retries": 3,
+    }
+    assert service["deploy"]["resources"]["limits"] == {
+        "cpus": "${ATTRIBUTE_MUTATION_RECOVERY_CPUS:-0.25}", "memory": "${ATTRIBUTE_MUTATION_RECOVERY_MEMORY:-256M}",
+    }
+    # Section 3/spec Section 7 Edit 2 (Review Blocker 2, "attack #5"): the
+    # recovery scheduler can never consume either Celery queue -- no broker
+    # volume, no broker environment, no Celery command/queue argument
+    # anywhere in its definition.
+    volume_targets = [entry.split(":", 1)[0] for entry in service.get("volumes", [])]
+    assert "attribute_mutation_broker" not in volume_targets
+    assert "environment" not in service
+    full_command_text = " ".join(service["command"]).lower()
+    assert "celery" not in full_command_text
+    for arg in service["command"]:
+        assert arg not in {"-Q", "--queue"}
+
+
+def test_compose_attribute_mutation_broker_volume_is_disposable_not_external():
+    volumes = yaml.safe_load(COMPOSE_PATH.read_text())["volumes"]
+    # A plain compose-managed volume, unlike every `external: true` SEEK/
+    # NExtSEEK volume above it -- disposable Celery broker state, not
+    # durable app data (matches the compose file's own comment).
+    assert volumes["attribute_mutation_broker"] is None
+
+
+# ---------------------------------------------------------------------------
+# 16. Dispatcher heartbeat freshness + command-loop handle paths (Review
+#     Blocker 1 -- empirically proven production defect -- and Blocker 2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dispatch_attribute_outbox_loop_heartbeat_freshness_and_healthcheck(disposable_attribute_db, django_db_blocker):
+    django_db_blocker.unblock()
+    assertion_count = 0
+    with pytest.raises(SystemExit, match="heartbeat is absent"):
+        call_command("check_attribute_outbox_heartbeat")
+    assertion_count += 1
+
+    call_command("dispatch_attribute_outbox", iterations=1)
+    first = AttributeOutboxDispatcherHeartbeat.objects.get(singleton_key="attribute_mutations")
+    first_observed_at, first_version = first.observed_at, first.state_version
+    time.sleep(1.5)
+    call_command("dispatch_attribute_outbox", iterations=1)
+    second = AttributeOutboxDispatcherHeartbeat.objects.get(singleton_key="attribute_mutations")
+    # Review Blocker 1: Django's `auto_now` fires only on `Model.save()`,
+    # never on `QuerySet.update()` -- the loop's own CAS must set
+    # `observed_at` explicitly (spec Section 6's own pinned command body
+    # did exactly this) or the compose healthcheck goes permanently
+    # unhealthy roughly 90s after the heartbeat row is first created.
+    assert second.observed_at > first_observed_at
+    assertion_count += 1
+    assert second.state_version == first_version + 1
+    assertion_count += 1
+    call_command("check_attribute_outbox_heartbeat", max_age_seconds=5)  # must not raise: fresh
+    assertion_count += 1
+
+    AttributeOutboxDispatcherHeartbeat.objects.filter(singleton_key="attribute_mutations").update(
+        observed_at=timezone.now() - timedelta(seconds=200),
+    )
+    with pytest.raises(SystemExit, match="heartbeat is stale"):
+        call_command("check_attribute_outbox_heartbeat", max_age_seconds=90)
+    assertion_count += 1
+    assert assertion_count >= 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dispatch_outbox_publish_failure_retains_pending_and_retries(disposable_attribute_db, attribute_faults, django_db_blocker):
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    assertion_count = 0
+    _seed_blood(database, population=0)
+    _seed_extra_type(database, 1201, "OutboxFaultType", 12010, "Weight")
+    request = _multi_target_request("patch", [(1201, [patch_operation(12010, {"description": "content"})])])
+    plan = _plan(request)
+    job, _ = _seed_job_and_partitions(database, plan, execution_mode="asynchronous")
+    _mark_outbox_pending(job)
+
+    store = mutation_job_store()
+    # T07's disposition (`test_executor_db.py:630-644`) assigns every
+    # `async.*` fault point other than `during_active_type` to T08; this is
+    # the frozen `after_acceptance_before_outbox_publish` point, armed by no
+    # test on the branch until now (Review Blocker 2). The fault fires
+    # inside `dispatch_outbox`'s try block strictly before `sender` is ever
+    # called, so a never-called sender proves the exact failure boundary.
+    never_called_sender = MagicMock(side_effect=AssertionError("sender must not run: the fault fires before it"))
+    attribute_faults.arm("async.after_acceptance_before_outbox_publish")
+    try:
+        published = dispatch_outbox(store, never_called_sender, limit=10, owner="test-dispatcher-fault")
+    finally:
+        attribute_faults.clear()
+    assert published == 0
+    assertion_count += 1
+    never_called_sender.assert_not_called()
+    assertion_count += 1
+    job.refresh_from_db()
+    assert job.outbox_state == "pending"  # released for retry, never left stuck in "publishing"
+    assertion_count += 1
+    assert job.outbox_last_error and "after_acceptance_before_outbox_publish" in job.outbox_last_error
+    assertion_count += 1
+
+    real_sender = MagicMock()
+    real_sender.return_value.id = "fault-retry-message-id"
+    republished = dispatch_outbox(store, real_sender, limit=10, owner="test-dispatcher-retry")
+    assert republished == 1
+    assertion_count += 1
+    job.refresh_from_db()
+    assert job.outbox_state == "published"
+    assertion_count += 1
+    assert job.outbox_payload["message_id"] == "fault-retry-message-id"
+    assertion_count += 1
+    assert assertion_count >= 1

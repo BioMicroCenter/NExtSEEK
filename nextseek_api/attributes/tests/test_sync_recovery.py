@@ -22,10 +22,13 @@ import sys
 import textwrap
 import time
 import uuid
+from datetime import timedelta
 
 import pytest
+from django.core.management import call_command
 from django.utils import timezone
 
+from nextseek_api.attributes.models_async import AttributeOutboxDispatcherHeartbeat
 from nextseek_api.attributes.models_db import AttributeMutationJob, AttributeMutationPartition
 from nextseek_api.attributes.tests.chain_c_t08 import record_chain_c_case
 from nextseek_api.attributes.tests.test_executor_db import _fresh_partition, _multi_target_request, _plan, _seed_extra_type, _seed_job_and_partitions
@@ -425,3 +428,53 @@ def test_recovery_refuses_ambiguous_partition_replay(disposable_attribute_db, dj
         audit_sha256=_sha256_of_outcomes(job.terminal_result), physical_commit_count=0, terminal_classification=job.state,
         setting_consumption_trace=[], assertion_count=assertion_count,
     )
+
+
+# ---------------------------------------------------------------------------
+# 15. Recovery scheduler heartbeat freshness + command-loop handle paths
+#     (Review Blocker 1 -- empirically proven production defect -- and
+#     Blocker 2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_recover_attribute_sync_jobs_loop_heartbeat_freshness_and_check_heartbeat(disposable_attribute_db, django_db_blocker):
+    django_db_blocker.unblock()
+    assertion_count = 0
+    with pytest.raises(SystemExit, match="heartbeat is absent"):
+        call_command("recover_attribute_sync_jobs", check_heartbeat=True)
+    assertion_count += 1
+
+    # Bare invocation (no --loop) still performs exactly one heartbeat CAS +
+    # scan pass before returning (Command.handle's own docstring: "Bare
+    # invocation performs exactly one scan-and-recover pass").
+    call_command("recover_attribute_sync_jobs")
+    first = AttributeOutboxDispatcherHeartbeat.objects.get(singleton_key="attribute_sync_recovery")
+    first_observed_at, first_version = first.observed_at, first.state_version
+    time.sleep(1.5)
+    call_command("recover_attribute_sync_jobs")
+    second = AttributeOutboxDispatcherHeartbeat.objects.get(singleton_key="attribute_sync_recovery")
+    # Review Blocker 1: identical defect to the dispatcher's heartbeat --
+    # Django's `auto_now` fires only on `Model.save()`, never on
+    # `QuerySet.update()`; the loop's own CAS must set `observed_at`
+    # explicitly or the compose healthcheck goes permanently unhealthy.
+    assert second.observed_at > first_observed_at
+    assertion_count += 1
+    assert second.state_version == first_version + 1
+    assertion_count += 1
+    call_command("recover_attribute_sync_jobs", check_heartbeat=True, max_age_seconds=5)  # must not raise: fresh
+    assertion_count += 1
+
+    AttributeOutboxDispatcherHeartbeat.objects.filter(singleton_key="attribute_sync_recovery").update(
+        observed_at=timezone.now() - timedelta(seconds=200),
+    )
+    with pytest.raises(SystemExit, match="heartbeat is stale"):
+        call_command("recover_attribute_sync_jobs", check_heartbeat=True, max_age_seconds=90)
+    assertion_count += 1
+
+    # --loop bounded by --iterations: exactly two more heartbeat CASes.
+    call_command("recover_attribute_sync_jobs", loop=True, iterations=2, interval_seconds=0)
+    looped = AttributeOutboxDispatcherHeartbeat.objects.get(singleton_key="attribute_sync_recovery")
+    assert looped.state_version == second.state_version + 2
+    assertion_count += 1
+    assert assertion_count >= 1
