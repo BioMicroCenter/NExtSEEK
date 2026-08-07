@@ -3042,10 +3042,33 @@ class DBtable_sample(DBtable):
         return weblink
 
     def __formatSopUIDLink(self, sop_uid):
-        url = "/seek/sop/uid=" + str(sop_uid) + "/";
+        # This used to point at /seek/sop/uid=<uid>/, whose route and view were
+        # both removed in 5834cda when the SOP pages moved to nextseek_api, so
+        # every protocol link on the sample page 404'd. Link to the SOP in SEEK
+        # instead, which is where the SOPs table already sends users. The SEEK
+        # route is id-based, so resolve the UID (stored as sops.title) to its
+        # id; only reached from getSampleInfo for a single sample, so the
+        # lookup is per protocol on one detail page, not per grid row.
+        sop_uid = str(sop_uid)
+        sop_id = None
+        try:
+            dbsop = DBtable_sops("DEFAULT")
+            records = dbsop.queryRecordsByConstraint({'title': sop_uid})
+            if records is not None and len(records) == 1:
+                sop_id = records[0]['id']
+        except Exception:
+            logger.exception('failed resolving SOP UID to a SEEK id: %s', sop_uid)
+            sop_id = None
+
+        # No unambiguous match: render the UID as plain text rather than emit a
+        # link that is known to go nowhere.
+        if sop_id is None:
+            return html.escape(sop_uid)
+
+        url = settings.SEEK_PUBLIC_URL + "/sops/" + str(sop_id)
         # Rendered as raw HTML by the client; escape the untrusted uid in both
         # the href attribute and the link text to prevent HTML injection.
-        weblink = '<a href="' + html.escape(url) + '" target="_blank">' + html.escape(str(sop_uid)) + '</a>'
+        weblink = '<a href="' + html.escape(url) + '" target="_blank">' + html.escape(sop_uid) + '</a>'
         return weblink
     
     def __formatExternalLink(self, urlValue):
