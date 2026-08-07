@@ -14,6 +14,14 @@
 > pre-V7 plan is `docs/superpowers/plans/2026-07-31-hibayes-eval-routing.pre-v7-20260805T131500-0400.md`
 > (SHA-256 `77b0d0b0acb9adbde8af88981ec6bf7b2f2ea1a6a828d68895db087c80e94fcf`).
 
+> **V8 (2026-08-07) — CURRENT AUTHORITY, NOT YET RE-VETTED.** V8 records the maintainer's
+> 2026-08-07 rulings and supersedes conflicting earlier prose for the Stage-2 corpus-growth loop,
+> the eval-row schema (`EVAL_ROW_SCHEMA_VERSION` 2 → 3), the combined outcome definition and its
+> total disposition mapping, stack-version identity, execution reuse, and the terminology
+> corrections V8-H…V8-K. Read V8 before V2–V7 wherever they disagree. **V8 changes this artifact
+> after the last vetting pass and therefore invalidates it; the plan must be re-vetted before
+> execution.** V4-0 and the V5 evidence-manifest release gate are unchanged by V8.
+
 **Goal:** Build a Bayesian router for the NExtSEEK assistant. A forced-route experiment runs one
 question corpus down the NExtSEEK path and down the Container-CC path and estimates a paired,
 family-conditional route difference (V4-1 through V4-4). Policy-selected online telemetry remains a
@@ -1367,6 +1375,219 @@ variant's declared family to reference a key in `families`. Missing route policy
 does not remove a label; it makes comparative support unknown/`TooUncertain`. The validator emits
 the corpus content hash, schema version, family-key hash and validation result. Incompatible shape
 fails classification/fit preparation before any model call or partial run is started.
+
+
+## V8 maintainer-ruling amendment (2026-08-07)
+
+> **V8 records the maintainer's 2026-08-07 rulings and supersedes conflicting V7/V6/V5/V4/V3/V2
+> prose** for: the Stage-2 purpose and the corpus-growth loop, the eval-row schema, the outcome
+> definition and its total disposition mapping, stack-version identity, execution reuse, and the
+> terminology corrections in V8-H through V8-K. Everything not named here is unchanged. V8 is not
+> execution authorization: V4-0 and the V5 evidence-manifest release gate stand as written.
+
+### V8-A — Stage 2 feeds Stage 1 by growing the corpus, not by updating the posterior
+
+V4-7 struck the original goal sentence that let real usage update the comparative baseline, and
+that removal stands: policy-selected online outcomes must never update the comparative posterior.
+**V4-7 did not, however, replace it with the maintainer's actual intent, which is restored here.**
+
+Real traffic feeds Stage 1 by **supplying questions**, not outcomes. The loop is:
+
+1. The classifier assigns each turn a declared task family or `unrelated`.
+2. Every classified turn whose family is **not** `unrelated` becomes a candidate for promotion
+   into the `nessie_tests` corpus.
+3. Promoted questions are executed in a subsequent **forced paired** Stage-1 run.
+4. Only those forced paired outcomes update the comparative posterior.
+
+There is no feedback loop on outcomes: route assignment in the re-run remains imposed, so the
+causal contrast is unaffected. The loop is on question *selection* only, and selection is
+outcome-blind by construction — promotion depends on the classifier's family assignment, never
+on whether the turn succeeded.
+
+**Promotion rule (v1): promote everything classified.** No de-duplication and no novelty filter.
+The corpus is deliberately greedy for data at this stage; the same question asked ten times is
+ten promotions, because padding thin families is worth more right now than corpus elegance.
+A similarity-based novelty filter that prioritises unlike-anything-seen queries is explicitly
+deferred as future work, and the infrastructure for it already exists in the `schema_rag`
+endpoint's similarity search.
+
+**`unrelated` is not a task family and never will be.** It is a permanent, non-negotiable
+classifier outcome — the spend gate — and it is not a key under the corpus's `families` object.
+The Bayesian router never sees an `unrelated` query when the classifier is functioning. No
+`unrelated` turn is promoted, and no `unrelated` row reaches the fit.
+
+### V8-B — Execution reuse: a grown corpus does not re-execute unchanged arms
+
+**This supersedes the sentence at V3-C ("A partially completed/resumed run must retain its
+original corpus fingerprint and selected IDs; it cannot mix corpus versions within one run")
+insofar as that sentence forces full re-execution when the corpus grows.**
+
+The judge cache is already per-case and content-addressed, so corpus growth does not force
+re-judging. The same principle applies one layer down, to arm execution:
+
+- [ ] Maintain an execution cache keyed **`(query_id, route, stack_id, task_family)`**. A prior
+  arm execution is reusable when, and only when, all four match.
+- [ ] `task_family` is part of the key because family membership selects `family_floor` and
+  `expected_behavior` from the corpus's `family_defaults`: a reclassified question is scored
+  against different success criteria, and the fit groups by family. Re-labelling a question
+  therefore invalidates its cached arms even though its text is unchanged.
+- [ ] `stack_id` is part of the key because a component upgrade is a new experiment (V8-E).
+  A stack bump invalidates every cached arm; this is intended, not a defect.
+- [ ] A run assembled from cached and freshly executed arms records every contributing corpus
+  version, in the manner `run_meta.superseded_runs` already records contributing builds.
+- [ ] Reuse must be provable: the fit's input set records, per arm, whether it was executed in
+  this run or reused, and from which prior run.
+
+### V8-C — The eval row (supersedes the Task 7 `EvalRow` dataclass)
+
+The eight-field `EvalRow` in Task 7 carries no outcome, no cost signal, and no artifact facts,
+and therefore cannot support a comparative fit. It is replaced. `EVAL_ROW_SCHEMA_VERSION`
+becomes **3**. The row is one route arm of one question:
+
+| Field | Kind | Notes |
+|---|---|---|
+| `query_id` | identity | pairs the two arms of the same question; without it the design is unpaired |
+| `route` | grouping | `nextseek_query` \| `container_cc` — a closed set, safe as a Literal |
+| `task_family` | grouping | plain string, **never** a Literal or static enum (V8-F); never `unrelated` |
+| `route_source` | provenance | `forced` \| `baml` \| `sticky` \| `heuristic` — separates experiment from traffic |
+| `family_source` | provenance | `corpus` \| `baml`; forced arms **must** carry `corpus` |
+| `stack_id` | provenance | foreign key to `StackVersion` (V8-E) |
+| `answer_provided`, `is_error`, `timed_out` | deterministic | the three flags `runtime_success` is derived from |
+| `runtime_success` | deterministic | `answer_provided ∧ ¬is_error ∧ ¬timed_out`, validator-enforced |
+| `failure_mode` | deterministic | `none` \| `timeout` \| `error` \| `no_answer` (V8-D) |
+| `error_class` | deterministic | `none` \| `provider_outage` \| `usage_policy` \| `code_error` (V8-D) |
+| `latency_seconds` | deterministic | the **only** cost signal the NExtSEEK route emits |
+| `cost_usd` | deterministic | nullable; null is unknown, never zero |
+| `artifact_expected` | deterministic | which families are eligible for the artifact gate |
+| `artifact_status` | deterministic | `not_expected` \| `delivered_valid` \| `delivered_invalid` \| `missing` |
+| `artifact_success` | deterministic | derived from `artifact_status`, validator-enforced |
+| `functional_success` | **judged** | the only LLM-produced field in the row |
+
+- [ ] The model is pydantic v2 with `extra="forbid"`. `runtime_success` and `artifact_success`
+  are **derived and validator-enforced**, never independently asserted: a row whose asserted
+  target disagrees with its own facts is rejected rather than silently fitted.
+- [ ] A forced arm carrying `family_source != "corpus"` is rejected.
+
+**Only `functional_success` may be produced by an LLM.** Everything else the existing standalone
+tooling already computes deterministically, and re-deriving any of it through a judge call would
+add stochasticity where none is needed. This is a binding constraint on implementation, not a
+preference.
+
+### V8-D — One combined outcome, and the total disposition mapping V4-3 requires
+
+V4-3 requires "one total outcome mapping from DD-44 output to desired/not-desired/excluded" but
+never states it. **This is that mapping.** It is total; an unrecognised value fails closed.
+
+**Success is one combined bit per arm:**
+
+```text
+success = runtime_success AND artifact_success AND functional_success
+```
+
+A family that expects no artifact cannot fail the artifact gate (`artifact_status =
+not_expected` ⇒ `artifact_success = true`). Because the semantics are conjunctive, an arm that
+has already failed either deterministic gate is `false` regardless of any verdict, and **must
+not be sent to the judge** — the combined bit is what makes that saving sound.
+
+**Disposition — `error_class` is read first; `failure_mode` only when `error_class` is `none`:**
+
+| Condition | Disposition |
+|---|---|
+| `error_class = none` and `failure_mode = none` | scored — judge decides |
+| `error_class = provider_outage` | **excluded** (unchanged from V3-C: outages must be dropped) |
+| `error_class = usage_policy` | **scored 0** — a content-driven refusal is genuine route incapability |
+| `error_class = code_error` | **scored 0** |
+| `failure_mode = timeout` | **scored 0** |
+| `failure_mode = no_answer` | **scored 0** |
+| deterministic gate failed | **scored 0**, judge not called |
+| gates passed but unjudged | **excluded** — never coerced to 0 |
+| zero-criteria case | **excluded** (unchanged from V3-C) |
+| unevaluable criteria | judged on remaining evidence, else **excluded** (unchanged) |
+| missing arm | pending / **excluded**, never a loss (unchanged) |
+| any unrecognised value | **fail closed** — halt, never coerce to success |
+
+`failure_mode` is precedence-resolved over overlapping facts, not a disjoint classification:
+a timeout also sets `is_error` and clears `answer_provided`. Precedence, highest first:
+`timeout > error > no_answer > none`. `no_answer` is the residual — not timed out, no error,
+still no answer.
+
+- [ ] Conservation holds per group: `rows = n_total + n_excluded`, and per-reason exclusion
+  counts are published as machine-readable output, not prose.
+
+### V8-E — Stack identity is four components, referenced by key
+
+`image` in the standalone tool meant the container agent's image. In the integrated stack the
+assistant is four independently-versioned parts, and a change in any of them can move outcomes:
+**NExtSEEK, the container agent, the sidecar, and SEEK.** SEEK is included because many API
+endpoints query it, so a change in SEEK's code affects the NExtSEEK route indirectly.
+
+- [ ] Define a `StackVersion` record: `stack_id`, `nextseek_image`, `container_agent_image`,
+  `sidecar_image`, `seek_image`.
+- [ ] The eval row carries **`stack_id` only**. The four version strings are not repeated on
+  every row: they are high-cardinality, and admitting them into the row invites stratifying the
+  fit by them, which fragments `n` and manufactures `TooUncertain` bands.
+- [ ] The fit's group key stays `(task_family, route)`. `stack_id` is provenance and an
+  execution-cache component (V8-B); it is **not** a grouping dimension.
+
+### V8-F — The classifier enum is generated from the corpus, never hardcoded
+
+Restating V6-D/V7-B as a binding implementation constraint, because it has been lost in
+downstream reading more than once:
+
+- [ ] `ClassifiedFamily` is declared `@@dynamic` with **no static members**. Its members are
+  every key under the corpus's top-level `families` object, injected at runtime through
+  `TypeBuilder` with each family's `description` attached, plus `unrelated`.
+- [ ] No pydantic model, BAML type, test, or fixture may contain a literal list of family names
+  or a literal family count. A `Literal[...]` of task families is a defect on sight.
+- [ ] Storage-side fields stay plain strings, because the valid set is not knowable at
+  model-definition time. The enum exists at the LLM boundary, not in the database.
+
+### V8-G — `NessieManifestEntry` is named but never defined
+
+The prospective code block types `ns` and `cc` as `NessieManifestEntry | None` but no definition
+of that type appears anywhere in this plan; the twelve per-arm field names are bound only by the
+prose phrase "Each arm is a full harness entry carrying …".
+
+- [ ] The V4-2 task deliverable that defines the concrete pydantic models must define
+  `NessieManifestEntry` explicitly against the real emitted artifact, or rename the annotation to
+  a type it does define. An implementer must not infer the field list from prose.
+
+### V8-H — Stage lettering is defined
+
+"Stage B" appears exactly once in this plan and is never defined. The lettering is the standalone
+tool's, and is fixed here:
+
+- **Stage A** — artifact validity validation (`run_stage_a`; emits the artifact-validity CSV).
+- **Stage B** — functional eval **input** construction (emits the judge's input CSV; reads the
+  manifest, the runtime CSV and the Stage A CSV).
+- **Stage C** — the judge itself (the ported `functional_evaluator`).
+
+### V8-I — Which `families` object is the label space
+
+The corpus contains two objects named `families`: the top-level one, and `route_policy.families`,
+a strict subset. V7-B's "every key under the corpus's `families` object is a classifier label"
+means the **top-level** object.
+
+- [ ] The label-space reader must resolve the top-level `families` key. Resolving
+  `route_policy.families` yields a proper subset and fails the both-directions enum-equality gate
+  for a non-obvious reason.
+
+### V8-J — The upstream that locks the per-arm export column set is named
+
+V3-C says the per-arm export's column set "is locked verbatim upstream and must not be re-derived
+here" without saying where upstream is. It is named elsewhere in this plan: the `tools/hibayes/*`
+modules and the `hibayes_*` evaluation packages listed in the V4 port inventory, at the recorded
+port-source commit.
+
+- [ ] Any task consuming or producing the per-arm export cites that inventory entry as the
+  column-set authority rather than treating the set as unlocatable.
+
+### V8-K — Correction: live runs have happened
+
+V3-C states "Nothing has run live yet." That is stale as of 2026-08-05. A smoke run and a full
+paired run have both been executed by the harness author. The surrounding requirement is
+unaffected: forcing a route remains admin-gated, those runs were executed by the harness author
+rather than by this plan, and V3-C still cannot be marked validated on their basis alone.
 
 
 ## Referenced artifacts (dev box)
