@@ -9,8 +9,8 @@
 > is not permission to bypass a V4 gate. The original 15 tasks and all V4 prerequisite work remain
 > **unexecuted**. V5 hardened the retrieved V4 artifact; V6 changed the classifier source but also
 > introduced unapproved assumptions. V7 records the maintainer's 2026-08-05 rulings, corrects those
-> assumptions, and reconciles the latest fetched corpus/source facts. This V7 is the published plan
-> authority on `origin/dev`. Vetting is neither implementation nor execution authorization. The preserved
+> assumptions, and reconciles the latest fetched corpus/source facts. V7 was the published plan
+> authority on `origin/dev` until **V8 below superseded it**. Vetting is neither implementation nor execution authorization. The preserved
 > pre-V7 plan is `docs/superpowers/plans/2026-07-31-hibayes-eval-routing.pre-v7-20260805T131500-0400.md`
 > (SHA-256 `77b0d0b0acb9adbde8af88981ec6bf7b2f2ea1a6a828d68895db087c80e94fcf`).
 
@@ -39,6 +39,9 @@ generation and otherwise falls back to the LLM routing function (V4-5 and V4-6).
 per-turn ledger row is written alongside the existing JSON envelope; a nightly Celery task exports
 ledger rows and judges only new/changed turns against a fingerprinted cache. These observations
 support route-conditional monitoring and playbooks, not the paired comparative fit (V4-7).
+Stage 2 also feeds Stage 1, by **supplying questions rather than outcomes**: every classified turn
+whose family is not `unrelated` is a candidate for promotion into the corpus, which a later forced
+paired run then executes (V8-A).
 
 **Stage 3 — consumers.** Published posteriors feed playbook guidance first, then routing itself (V3-D), with the LLM routing function retained as the fallback.
 
@@ -524,9 +527,10 @@ accompany the per-arm files. The arm is carried by the image/identity column, va
 HiBayes subtype label (CamelCase) are distinct fields carried side by side. Neither may be derived
 from the other, and the fit must not silently collapse them into one grouping level.
 
-**Live-run gate.** Nothing has run live yet, and forcing a route is admin-gated, so a real paired run
-requires a staff account. V3-C therefore cannot be validated against real data until that run
-happens. Do not fabricate a paired dataset from two independent unpaired runs, and do not treat a
+**Live-run gate.** Nothing had run live when this was written (**corrected by V8-K** — a smoke run
+and a full paired run have since been executed by the harness author), and forcing a route is
+admin-gated, so a real paired run requires a staff account. V3-C therefore cannot be validated
+against real data on those runs' basis alone. Do not fabricate a paired dataset from two independent unpaired runs, and do not treat a
 dry-run or partial manifest as a baseline.
 
 **The judge determines success — this is the core of the comparison.**
@@ -609,7 +613,8 @@ two thirds before any full run is paid for.
   in `run_meta.corpus_fingerprint` alongside `git_sha` — travels with every fitted generation.
   Content drift does not invalidate the plan or unrelated cached judgments: cache identity is
   per-case and content-addressed. A partially completed/resumed run must retain its original corpus
-  fingerprint and selected IDs; it cannot mix corpus versions within one run.
+  fingerprint and selected IDs; it cannot mix corpus versions within one run (**superseded in part
+  by V8-B**, which permits reuse of unchanged arms across corpus versions under an execution cache).
 
 **Model architecture is unfrozen for this design** (see Freeze boundaries); band thresholds are not.
 
@@ -2431,13 +2436,19 @@ git commit -m "feat(eval): vendor the evaluation pipeline into NExtSEEK"
 
 ### Task 7: Export ledger rows to the versioned eval schema
 
+**V8-C REPLACEMENT — the eight-field `EvalRow` in the code block below is superseded and must not
+be implemented as written.** It carries no outcome, no cost signal and no artifact facts, so it
+cannot support a comparative fit. Implement the seventeen-field row defined in V8-C, with the
+derived-target validators and the V8-D disposition mapping. The retained body below is historical:
+its step order, commands and success condition still apply, but its row shape does not.
+
 **Files:**
 - Create: `nextseek_api/eval/export.py`
 - Test: `nextseek_api/cc_assistant/tests/test_eval_export.py`
 
 **Interfaces:**
 - Consumes: `TurnLedger` (Task 1).
-- Produces: `export_rows(since=None) -> list[EvalRow]`; `EVAL_ROW_SCHEMA_VERSION = 2`.
+- Produces: `export_rows(since=None) -> list[EvalRow]`; `EVAL_ROW_SCHEMA_VERSION = 3` (V8-C).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2452,7 +2463,7 @@ pytestmark = pytest.mark.django_db
 
 
 def test_schema_is_versioned_and_not_the_legacy_14_column_shape():
-    assert EVAL_ROW_SCHEMA_VERSION >= 2
+    assert EVAL_ROW_SCHEMA_VERSION >= 3  # V8-C; >= 2 could not detect the stale value
 
 
 def test_every_row_carries_route_and_family_as_separate_columns():
@@ -2491,12 +2502,15 @@ Expected: FAIL — `ModuleNotFoundError: nextseek_api.eval.export`
 
 Supersedes the legacy 14-column offline format, which was built for a headless
 fixture and carries no route column at all.
+
+HISTORICAL SHAPE — superseded by V8-C. The eight fields below are not sufficient
+for a comparative fit; implement the V8-C row instead.
 """
 from dataclasses import dataclass
 
 from nextseek_api.assistant.models_db import TurnLedger
 
-EVAL_ROW_SCHEMA_VERSION = 2
+EVAL_ROW_SCHEMA_VERSION = 3  # V8-C
 
 
 @dataclass(frozen=True)
