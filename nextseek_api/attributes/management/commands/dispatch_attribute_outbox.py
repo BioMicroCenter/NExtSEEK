@@ -21,6 +21,7 @@ import time
 
 from django.core.management.base import BaseCommand
 from django.db import models
+from django.utils import timezone
 
 from nextseek_api.attributes.jobs import ATTRIBUTE_MUTATION_OUTBOX_BATCH_SIZE, ATTRIBUTE_MUTATION_OUTBOX_IDLE_SECONDS, dispatch_outbox, mutation_job_store
 from nextseek_api.attributes.models_async import AttributeOutboxDispatcherHeartbeat
@@ -54,7 +55,7 @@ class Command(BaseCommand):
             )
             changed = AttributeOutboxDispatcherHeartbeat.objects.filter(
                 pk=heartbeat.pk, state_version=heartbeat.state_version,
-            ).update(owner=owner, state_version=models.F("state_version") + 1)
+            ).update(owner=owner, observed_at=timezone.now(), state_version=models.F("state_version") + 1)
             if changed != 1:
                 raise RuntimeError("lost dispatcher heartbeat CAS")
             try:

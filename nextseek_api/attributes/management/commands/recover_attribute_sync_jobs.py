@@ -195,7 +195,7 @@ class Command(BaseCommand):
             )
             changed = AttributeOutboxDispatcherHeartbeat.objects.filter(
                 pk=heartbeat.pk, state_version=heartbeat.state_version,
-            ).update(owner=owner, state_version=models.F("state_version") + 1)
+            ).update(owner=owner, observed_at=timezone.now(), state_version=models.F("state_version") + 1)
             if changed != 1:
                 raise RuntimeError("lost sync-recovery scheduler heartbeat CAS")
             run_one_scan(AttributeMutationJob, AttributeMutationPartition)
