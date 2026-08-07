@@ -1478,6 +1478,14 @@ tooling already computes deterministically, and re-deriving any of it through a 
 add stochasticity where none is needed. This is a binding constraint on implementation, not a
 preference.
 
+**Runnable form: `nextseek_api/eval/router_models_proposal.py`.** That file carries this row, the
+V8-D disposition mapping, the derived-target validators, and the `(task_family, route)` binomial
+aggregate the fit actually ingests, as executable pydantic v2. It is a **proposal, not the
+implementation**: this plan reserves `nextseek_api/eval/export.py` for the row itself, and V4-0's
+ownership map has not yet assigned a home to `StackVersion` (V8-E) or to `error_class`. Read it as
+the precise contract these two sections state in prose; do not import it as product code, and do
+not treat its location as an ownership decision.
+
 ### V8-D — One combined outcome, and the total disposition mapping V4-3 requires
 
 V4-3 requires "one total outcome mapping from DD-44 output to desired/not-desired/excluded" but
