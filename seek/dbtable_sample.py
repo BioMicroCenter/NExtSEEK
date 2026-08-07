@@ -3049,7 +3049,17 @@ class DBtable_sample(DBtable):
         # route is id-based, so resolve the UID (stored as sops.title) to its
         # id; only reached from getSampleInfo for a single sample, so the
         # lookup is per protocol on one detail page, not per grid row.
-        sop_uid = str(sop_uid)
+        sop_uid = str(sop_uid).strip()
+
+        # Not every Protocol value is a NExtSEEK SOP UID: samples also record it
+        # as a full URL into FAIRDOMHub or another SEEK instance (e.g.
+        # https://fairdomhub.org/sops/795). Those are already addressable, so
+        # link them straight through rather than failing a UID lookup and
+        # degrading them to plain text. The 'http' prefix check blocks
+        # javascript:/data: schemes, matching __formatExternalLink.
+        if sop_uid[0:4].lower() == 'http':
+            return '<a href="' + html.escape(sop_uid) + '" target="_blank">' + html.escape(sop_uid) + '</a>'
+
         sop_id = None
         try:
             dbsop = DBtable_sops("DEFAULT")
