@@ -617,6 +617,69 @@ def tool_submit_to_tower(config: "ChatConfig", state: dict) -> str:
 
 
 
+def format_luria_followup(runs: list[dict] | None, ssh_target: str | None = None) -> str:
+    """Render the 'how to watch this run' block appended to a successful submit reply.
+
+    Built here in Python rather than left to the model on purpose: a monitoring
+    command carrying a paraphrased job id or a half-remembered path is worse than
+    no command at all. Nothing polls SLURM, so this block is the only thing that
+    tells the user where their run went.
+    """
+    runs = [r for r in (runs or []) if isinstance(r, dict)]
+    if not runs:
+        return ""
+    target = ssh_target or "<user>@luria.mit.edu"
+    user = target.split("@", 1)[0]
+    multi = len(runs) > 1
+
+    out: list[str] = ["", "**Watching this run**" if not multi else "**Watching these runs**", ""]
+    out.append("Copy these into a terminal on your own computer — Terminal on a Mac, or any "
+               "shell that has `ssh`. They will not do anything typed into this chat. Each one "
+               "opens a connection to Luria, prints what it finds, and changes nothing about "
+               "the run.")
+    for run in runs:
+        job_id = run.get("job_id")
+        log = run.get("log")
+        remote_dir = run.get("remote_dir")
+        out.append("")
+        if multi:
+            label = run.get("run_name") or "run"
+            out.append(f"*{label}*" + (f" — job `{job_id}`" if job_id else ""))
+            out.append("")
+        if job_id:
+            out.append("- **Has it finished yet?**")
+            out.append(f'  `ssh {target} "sacct -j {job_id} '
+                       '--format=JobID,JobName%30,State,Elapsed,ExitCode"`')
+            out.append("  Prints the job's state — PENDING (queued), RUNNING, COMPLETED, or "
+                       "FAILED/CANCELLED — with how long it has been going and an exit code "
+                       "(`0:0` means it ended cleanly).")
+        else:
+            # sbatch printed something we couldn't parse a job id out of — fall back
+            # to the queue view rather than emitting a command with a blank id in it.
+            out.append("- **Is it still running?** (the job id didn't come back from sbatch, "
+                       "so this lists everything you have queued)")
+            out.append(f'  `ssh {target} "squeue -u {user}"`')
+            out.append("  Prints one row per job of yours that is still pending or running. "
+                       "An empty list means nothing of yours is left in the queue.")
+        if log:
+            out.append("- **What is it doing right now?**")
+            out.append(f'  `ssh {target} "tail -f {log}"`')
+            out.append("  Streams the pipeline's progress log live, one line per step as it "
+                       "completes. Press Ctrl-C to stop watching — that stops the watching, "
+                       "not the run.")
+        if remote_dir:
+            out.append("- **Where are my results?**")
+            out.append(f"  `{remote_dir}/` on Luria")
+            out.append("  The pipeline writes its output into this directory as it goes, so you "
+                       "can look before it finishes." + (
+                           f" If something goes wrong, `{Path(log).name[:-4]}.err` in that same "
+                           "directory holds the error." if log and log.endswith(".out") else ""))
+    out.append("")
+    out.append("Nothing reports back to this chat — the run keeps going after the "
+               "conversation ends, so the commands above are the way to check on it.")
+    return "\n".join(out)
+
+
 def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | None = None) -> str:
     artifacts = state.get("artifacts") or {}
     launch = artifacts.get("launch")
@@ -656,6 +719,10 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     if not runs:
         return json.dumps({"ok": False, "message": "No runs submitted — check Luria logs."})
     state.setdefault("artifacts", {})["luria_runs"] = runs
+    # Stash the ssh target now, while we still have config in hand — _conclude builds the
+    # follow-up block from state alone and has no ChatConfig to ask.
+    if luria_env.get("user") and luria_env.get("host"):
+        state["artifacts"]["luria_ssh_target"] = f'{luria_env["user"]}@{luria_env["host"]}'
     return json.dumps({"ok": True, "luria_runs": runs})
 
 

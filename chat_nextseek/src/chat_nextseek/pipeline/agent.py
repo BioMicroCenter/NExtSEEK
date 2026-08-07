@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from ..config import ChatConfig
     from ..session import SessionState
 
-from .agent_tools import build_pipeline_tool_schemas, dispatch_pipeline_tool_call
+from .agent_tools import build_pipeline_tool_schemas, dispatch_pipeline_tool_call, format_luria_followup
 from ..helpers import summarize_pinned_bundle
 from ..seqera.catalog import catalog_for_prompt
 
@@ -165,7 +165,10 @@ def _conclude(session, state: dict, tool_input: dict) -> dict[str, Any]:
     state["active"] = False
     _save(session, state)
     if outcome == "submitted":
-        return {"action": "execute", "reply": message, "params": {"artifacts": artifacts}}
+        followup = format_luria_followup(artifacts.get("luria_runs"),
+                                         artifacts.get("luria_ssh_target"))
+        return {"action": "execute", "reply": (message + "\n" + followup) if followup else message,
+                "params": {"artifacts": artifacts}}
     if outcome == "cancelled":
         return {"action": "cancel", "reply": message or "Cancelled.", "params": None}
     return {"action": "ask", "reply": message, "params": None}
