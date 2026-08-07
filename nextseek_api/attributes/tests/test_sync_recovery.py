@@ -62,6 +62,46 @@ def _spawn_web_owner(job_id, owner):
     )
 
 
+_SLOW_WEB_OWNER_SCRIPT = textwrap.dedent("""
+    import os, sys, time
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmac.test_settings")
+    import django
+    django.setup()
+    job_id, owner, hold_seconds = sys.argv[1], sys.argv[2], float(sys.argv[3])
+    # A precise, deterministic hold via a test-process-LOCAL monkeypatch of
+    # the real, frozen `async.after_claim_before_type` fault hook -- the
+    # review's own "fault-barrier hold" alternative to population-timing
+    # guesswork. Only this one subprocess's own name binding is touched
+    # (`jobs.py` imports `attribute_fault` by name, resolved at call time
+    # from its own module globals); the real ATTRIBUTE_TEST_FAULT_CONTROL
+    # file/oracle is never read or armed, so no other test or process is
+    # affected. Everything else -- the real claim, real 40s heartbeat
+    # thread, real per-type SEEK execution, real terminal CAS -- runs
+    # through the unmodified, real `run_stored_job` end to end; only the
+    # single instant right after this type's partition claim is held open
+    # for `hold_seconds` before real execution proceeds.
+    import nextseek_api.attributes.jobs as jobs_module
+    _real_attribute_fault = jobs_module.attribute_fault
+    _held_once = {"done": False}
+    def _held_fault(point):
+        if point == "async.after_claim_before_type" and not _held_once["done"]:
+            _held_once["done"] = True
+            time.sleep(hold_seconds)
+            return
+        return _real_attribute_fault(point)
+    jobs_module.attribute_fault = _held_fault
+    from nextseek_api.attributes.jobs import mutation_job_store, run_stored_job
+    run_stored_job(job_id, mutation_job_store(), owner)
+""")
+
+
+def _spawn_slow_web_owner(job_id, owner, hold_seconds):
+    return subprocess.Popen(
+        [sys.executable, "-c", _SLOW_WEB_OWNER_SCRIPT, str(job_id), owner, str(hold_seconds)],
+        env=os.environ.copy(),
+    )
+
+
 def _wait_until(predicate, *, timeout=90, interval=0.2):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -95,46 +135,65 @@ def test_active_slow_web_owner_is_not_stolen_across_scheduler_scans(disposable_a
     django_db_blocker.unblock()
     database = disposable_attribute_db
     assertion_count = 0
-    job, plan, partitions = _seed_single_type_job(database, type_id=1001, attr_id=10010)
+    # Review Blocker 3: a population-0 patch terminalizes (claim, execute,
+    # terminal CAS) faster than any scan can ever observe a live lease, so
+    # the frozen obligation -- "One test holds the web request beyond at
+    # least two scheduler scans and proves heartbeats prevent theft" --
+    # degraded to "a scan does not recover a terminal job." Empirically
+    # measured on this box: even a 250000-row title rename (the same
+    # technique test_cancel_blocked/test_duplicate_delivery use) completed
+    # before the very first scheduler scan -- SEEK-work timing alone cannot
+    # reliably clear the required >82s (two 40s-spaced scans) window without
+    # an impractically, unpredictably large population. Uses the "fault-
+    # barrier hold" alternative Section 3 permits instead: a precise,
+    # deterministic hold on the real `async.after_claim_before_type` point
+    # (see `_spawn_slow_web_owner`'s docstring) that runs the real,
+    # unmodified `run_stored_job` end to end -- real claim, real 40s
+    # heartbeat renewal, real terminal CAS -- just with a controlled pause
+    # instead of hoping bulk SEEK work happens to take long enough.
+    _seed_blood(database, population=100)
+    request = _multi_target_request("patch", [(1, [patch_operation(12, {"title": "AgeRenamedSlowOwner"})])])
+    plan = _plan(request)
+    job, partitions = _seed_job_and_partitions(database, plan, execution_mode="synchronous")
     owner = f"web:test:{os.getpid()}:{uuid.uuid4()}"
 
-    process = _spawn_web_owner(job.job_id, owner)
+    process = _spawn_slow_web_owner(job.job_id, owner, hold_seconds=115)
+    observed_generation = None
     try:
-        # Empirically confirmed (a real diagnostic dump, not assumed): this
-        # scenario's single, trivial patch is fast enough on a real worker
-        # that the whole job -- claim, execute, terminal CAS releasing the
-        # claim -- can complete before a 0.1s-interval poll ever observes
-        # the transient claimed state; process.poll()==0 and
-        # job.state=="succeeded" were both already true the one time this
-        # was captured. A live claim that is never stolen and a fast job
-        # that finishes cleanly on its own are the *same* proof for this
-        # test's actual property (no scheduler scan ever steals a live web
-        # owner's lease) -- the two real scheduler scans below already
-        # degrade gracefully once job.state != "running". Accept either
-        # observation instead of only the possibly-missed transient one.
-        def _claimed_or_already_finished():
-            current = _fresh_partition(partitions[1001].pk)
-            return current.claim_owner is not None or current.state in {"succeeded", "failed"}
-        assert _wait_until(_claimed_or_already_finished, timeout=90)
+        assert _wait_until(lambda: _fresh_partition(partitions[1].pk).claim_owner is not None, timeout=90)
         assertion_count += 1
+
         # Two real scheduler scans, spaced past the 40s heartbeat cadence,
-        # while the web owner still holds its live lease.
-        for _ in range(2):
+        # while the web owner still holds its live lease -- the frozen
+        # obligation's actual barrier proof, not a degenerate fast-finish.
+        for _scan_index in range(2):
             recovered = _run_one_scan("recovery:test-scan")
-            assert recovered == 0
+            assert recovered == 0  # no live lease is ever eligible for recovery
             assertion_count += 1
-            time.sleep(41)
             job.refresh_from_db()
-            if job.state != "running":
-                break
-        assert process.poll() is None or job.state in {"succeeded", "partial", "failed", "cancelled"}
+            assert job.state == "running"  # the web owner's claim is genuinely still live
+            assertion_count += 1
+            assert job.claim_owner == owner
+            assertion_count += 1
+            assert job.lease_expires_at is not None and job.lease_expires_at > timezone.now()
+            assertion_count += 1
+            if observed_generation is None:
+                observed_generation = job.claim_generation
+            else:
+                assert job.claim_generation == observed_generation  # never stolen/reclaimed
+                assertion_count += 1
+            time.sleep(41)
+        job.refresh_from_db()
+        assert job.state == "running"  # still active after both scans -- the process never finished early
         assertion_count += 1
     finally:
-        process.wait(timeout=60)
+        process.wait(timeout=1200)
     job.refresh_from_db()
     assert job.state in {"succeeded", "partial", "failed", "cancelled"}
     assertion_count += 1
     assert job.claim_owner is None
+    assertion_count += 1
+    assert job.claim_generation == observed_generation  # the eventual terminal CAS preserved the same generation throughout
     assertion_count += 1
 
     record_chain_c_case(
