@@ -210,6 +210,23 @@ services:
       - neo4j-data:/data
     environment:
       NEO4J_AUTH: "neo4j/demopassword"
+      # Kill any transaction that runs longer than this. The graph agent generates
+      # its Cypher with an LLM, so it is not always sane: on 2026-08-05 it emitted
+      # `MATCH (m:Sample) WHERE (m)-[:DERIVED_FROM*0..]->(s) OR (s)-[...]->(m)`,
+      # an unanchored scan of every Sample testing an unbounded path in both
+      # directions. That never finishes. The Django thread blocks on the bolt
+      # socket, and once enough of them do, the single ASGI process stops serving
+      # entirely -- it wedged the whole stack twice and burned 19 benchmark arms.
+      #
+      # Killing the query afterwards does NOT release the threads; only a restart
+      # does. So this bound is the only thing that keeps one bad generated query
+      # from taking the app down with it.
+      #
+      # 120s is ~1800x the healthy version of that same lineage query (66ms), so
+      # it fires only on the pathological case. `agents/graph.py:299,446` already
+      # catch driver errors, so a terminated transaction surfaces as one failed
+      # graph step rather than an outage.
+      NEO4J_db_transaction_timeout: "120s"
     ports:
       - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
       - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
