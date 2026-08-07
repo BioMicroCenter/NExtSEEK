@@ -766,6 +766,87 @@ class PersonUpdateRequest(BaseModel):
 
 
 # -----------------------------
+# Users admin: constants
+# -----------------------------
+
+USERS_ADMIN_TAG = "Users (admin)"
+
+
+# -----------------------------
+# Users admin: request / response models
+# -----------------------------
+
+class UserCreateRequest(BaseModel):
+    login: str
+    password: str
+    password_confirmation: str
+    email: str
+    first_name: str
+    last_name: str
+    project_id: int
+    institution_id: int
+    is_superuser: bool = False
+    activate: bool = True
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class UserUpdateRequest(BaseModel):
+    password: Optional[str] = None
+    password_confirmation: Optional[str] = None
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    project_id: Optional[int] = None
+    institution_id: Optional[int] = None
+    is_superuser: Optional[bool] = None
+    active: Optional[bool] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class UserAdminRecord(BaseModel):
+    user_id: int
+    person_id: int
+    login: str
+    email: str
+    first_name: str
+    last_name: str
+    active: bool
+    django_is_active: bool
+    django_is_superuser: bool
+    project_id: Optional[int] = None
+    institution_id: Optional[int] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class UserListResponse(BaseModel):
+    data: List[UserAdminRecord]
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class UserSingleResponse(BaseModel):
+    data: UserAdminRecord
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AdminUserErrorItem(BaseModel):
+    title: str
+    detail: Optional[str] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AdminUserErrorResponse(BaseModel):
+    errors: List[AdminUserErrorItem]
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
 # Investigations: constants
 # -----------------------------
 

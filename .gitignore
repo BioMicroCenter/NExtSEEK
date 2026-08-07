@@ -168,6 +168,9 @@ local_settings.py
 # See docker/nextseek.env.example for the template.
 docker/nextseek.env
 docker/db.env
+# Ad-hoc backup copies of rendered env files (nextseek.env.bak.<date>, …) —
+# same secrets, same rule, any depth.
+*.env.bak*
 
 # Bedrock auth-proxy real secret env (holds AWS_BEARER_TOKEN_BEDROCK). Never
 # tracked; injected into the proxy container only at runtime via compose
@@ -175,7 +178,9 @@ docker/db.env
 docker/bedrock-proxy/proxy-secret.env
 internal_docs/
 .cursor/
-.claude/
+# .claude/ is local agent state — ignored except the committed project skills.
+.claude/*
+!.claude/skills/
 duckdb/
 embedding_models/
 *.swp
@@ -199,12 +204,26 @@ show
 
 # Per-instance startup state (per-clone, not shared).
 startup/.instance.json
+startup/.ghcr-push-state.json
 
 # Generated BAML router client (regenerate via baml-cli generate --from dmac_assistant/baml_src)
 dmac_assistant/src/dmac_assistant/router/baml_client/
 
-# Local design specs + plans (working docs, not part of the public repo)
-docs/superpowers/
+# Local design specs + plans (working docs, not part of the public repo).
+# Excluded level-by-level so a single file can be re-included below; git will not descend
+# into a directory excluded outright, which makes a bare negation inside it a no-op.
+docs/superpowers/*
+!docs/superpowers/specs/
+docs/superpowers/specs/*
+# Exception: this design spec is deliberately tracked. The repo is PUBLIC, so it carries no
+# environment concretes and no reproduction detail for any unresolved platform issue.
+!docs/superpowers/specs/2026-07-31-hibayes-eval-routing-design.md
+!docs/superpowers/plans/
+docs/superpowers/plans/*
+# Exception: the implementation plan for the spec above is tracked alongside it, so the
+# design and the work it implies travel together. Same public-repo review applied: no
+# environment concretes, no credentials, no reproduction detail for any unresolved issue.
+!docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md
 
 # SEEK filestore — too large for git (raw dir ~500MB; snapshot ~215MB, over
 # GitHub's 100MB/file limit, and forks can't host LFS). The snapshot is hosted

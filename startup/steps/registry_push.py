@@ -1,0 +1,345 @@
+"""Automated off-box rollback-baseline push to GHCR (DEPLOYMENT.md §5.2).
+
+After a rebuild of the canonical instance, the freshly built image is gated
+for baked secrets, tagged ``baseline-<YYYYMMDD>-<shortsha>``, and pushed to
+the private org package — so a known-good image survives disk cleanups on the
+deploy host (which have destroyed every local rollback tag before).
+
+Contract: this step NEVER fails the deploy. ``push_baseline`` returns an
+outcome for every failure mode instead of raising; failures are surfaced as a
+loud banner at rebuild time, persisted to a state marker
+(``startup/.ghcr-push-state.json``, gitignored), and re-surfaced by
+``startup doctor`` until a push succeeds again.
+
+Credentials are deliberately per-deploying-user and OUTSIDE the repo/build
+context: a classic PAT with ``write:packages`` (its owner must be a
+BioMicroCenter org *member*) in ``~/.config/nextseek/ghcr.env`` as
+``GHCR_USER=…`` / ``GHCR_TOKEN=…``. The token is passed to ``docker login``
+via stdin only — never argv, never logged.
+"""
+from __future__ import annotations
+
+import datetime
+import os
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+
+import orjson
+
+from startup.lib import ui
+
+REGISTRY_IMAGE = "ghcr.io/biomicrocenter/nextseek"
+GHCR_ENV_OVERRIDE_VAR = "NEXTSEEK_GHCR_ENV"
+DEFAULT_CREDENTIAL_PATH = "~/.config/nextseek/ghcr.env"
+CANONICAL_PROJECT = "nextseek"
+STATE_FILENAME = ".ghcr-push-state.json"
+
+# §5.2 gate: files whose presence in the image is always acceptable.
+_GATE_ALLOWED_FILES = {"/app/docker/nextseek.env.example"}
+# /app/.env is conditionally acceptable: the deployed lineage carries a
+# known-benign single-key residue (LURIAKEY = a file path, not a credential —
+# user-verified and accepted for the 2026-08-05 baseline push). Any other key
+# name in that file fails the gate. Key NAMES may appear in diagnostics;
+# values are never read.
+_BENIGN_ENV_FILE = "/app/.env"
+_BENIGN_ENV_KEYS = {"LURIAKEY"}
+
+
+@dataclass(frozen=True)
+class Credentials:
+    user: str
+    token: str
+
+
+@dataclass(frozen=True)
+class PushOutcome:
+    status: str  # pushed | skipped | gate_failed | no_credentials | push_failed | error
+    detail: str = ""
+    remediation: str = ""
+    tag: str | None = None
+    digest: str | None = None
+
+
+def credential_env_path() -> Path:
+    override = os.environ.get(GHCR_ENV_OVERRIDE_VAR)
+    if override:
+        return Path(override)
+    return Path(DEFAULT_CREDENTIAL_PATH).expanduser()
+
+
+def load_credentials(path: Path) -> Credentials | None:
+    """Parse GHCR_USER / GHCR_TOKEN from a shell-style env file.
+
+    Returns None (never raises) when the file is missing, unreadable, or does
+    not define both keys — the caller turns that into the nudge outcome.
+    """
+    try:
+        text = path.read_text()
+    except OSError:
+        return None
+    values: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        values[key.strip()] = value.strip().strip("'\"")
+    user, token = values.get("GHCR_USER", ""), values.get("GHCR_TOKEN", "")
+    if not user or not token:
+        return None
+    return Credentials(user=user, token=token)
+
+
+def compute_baseline_tag(repo_root: Path, today: datetime.date | None = None) -> str:
+    """``baseline-<YYYYMMDD>[-<shortsha>[-dirty]]``; date-only if git fails."""
+    date_part = (today or datetime.date.today()).strftime("%Y%m%d")
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if head.returncode != 0 or not head.stdout.strip():
+            return f"baseline-{date_part}"
+        sha = head.stdout.strip()
+        status = subprocess.run(
+            ["git", "-C", str(repo_root), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+        )
+        dirty = status.returncode == 0 and bool(status.stdout.strip())
+        return f"baseline-{date_part}-{sha}" + ("-dirty" if dirty else "")
+    except Exception:
+        return f"baseline-{date_part}"
+
+
+def _image_sh(image: str, script: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["docker", "run", "--rm", "--network", "none", "--entrypoint", "sh", image, "-c", script],
+        capture_output=True,
+        text=True,
+    )
+
+
+def baked_secret_gate(image: str) -> tuple[bool, str]:
+    """DEPLOYMENT.md §5.2 pre-push gate: prove the image carries no baked
+    config/secret files. Returns (ok, detail); never raises past the caller's
+    catch-all because push_baseline wraps everything."""
+    probe = _image_sh(
+        image,
+        "ls /app/.env /app/docker/*env* /app/dmac/local_settings.py 2>/dev/null; true",
+    )
+    if probe.returncode != 0:
+        return False, f"gate probe could not run (exit {probe.returncode}): {probe.stderr.strip()}"
+    found = [line.strip() for line in probe.stdout.splitlines() if line.strip()]
+    offending = [f for f in found if f not in _GATE_ALLOWED_FILES and f != _BENIGN_ENV_FILE]
+    if _BENIGN_ENV_FILE in found:
+        keys_probe = _image_sh(image, f"cut -d= -f1 {_BENIGN_ENV_FILE}")
+        if keys_probe.returncode != 0:
+            offending.append(f"{_BENIGN_ENV_FILE} (key names unreadable)")
+        else:
+            extra_keys = {
+                k.strip() for k in keys_probe.stdout.splitlines() if k.strip()
+            } - _BENIGN_ENV_KEYS
+            if extra_keys:
+                offending.append(
+                    f"{_BENIGN_ENV_FILE} (non-benign keys: {', '.join(sorted(extra_keys))})"
+                )
+    if offending:
+        return False, "baked config/secret files found: " + "; ".join(offending)
+    return True, "image free of baked config/secret files"
+
+
+def _state_path(repo_root: Path) -> Path:
+    return repo_root / "startup" / STATE_FILENAME
+
+
+def read_state(repo_root: Path) -> dict | None:
+    try:
+        return orjson.loads(_state_path(repo_root).read_bytes())
+    except (OSError, orjson.JSONDecodeError):
+        return None
+
+
+def _record(repo_root: Path, outcome: PushOutcome) -> None:
+    state = read_state(repo_root) or {"last_success": None}
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    state["last_attempt"] = {"at": now, "status": outcome.status, "detail": outcome.detail}
+    if outcome.status == "pushed":
+        state["last_success"] = {"at": now, "tag": outcome.tag, "digest": outcome.digest}
+    _state_path(repo_root).write_bytes(orjson.dumps(state, option=orjson.OPT_INDENT_2))
+
+
+def _nudge(cred_path: Path) -> str:
+    return (
+        "off-box rollback baselines are NOT being saved — after a disk cleanup "
+        "this host's images would be unrecoverable (it has happened). Fix: mint "
+        "a classic PAT with the write:packages scope on YOUR OWN GitHub account "
+        "(the account must be a BioMicroCenter org member), then write it to "
+        f"{cred_path} as GHCR_USER=<github-username> / GHCR_TOKEN=<token> "
+        "(file mode 600). Details: DEPLOYMENT.md §5.2."
+    )
+
+
+def push_baseline(
+    repo_root: Path,
+    compose_project_name: str,
+    today: datetime.date | None = None,
+) -> PushOutcome:
+    """Gate → tag → login → push → logout. Returns an outcome; NEVER raises."""
+    if compose_project_name != CANONICAL_PROJECT:
+        # Secondary instances (port-offset test stacks) must not overwrite the
+        # org baseline nor the canonical instance's doctor state.
+        return PushOutcome(
+            status="skipped",
+            detail=f"instance '{compose_project_name}' is not the canonical deploy instance",
+        )
+    cred_path = credential_env_path()
+    try:
+        local_image = f"{compose_project_name}-nextseek:latest"
+        gate_ok, gate_detail = baked_secret_gate(local_image)
+        if not gate_ok:
+            outcome = PushOutcome(
+                status="gate_failed",
+                detail=gate_detail,
+                remediation=(
+                    "do NOT push this image off-box. Clean the build context "
+                    "(.dockerignore excludes env files by pattern — see "
+                    "test_build_context_env_guard.py), rebuild, and the next "
+                    "rebuild will push automatically. DEPLOYMENT.md §5.2."
+                ),
+            )
+            _record(repo_root, outcome)
+            return outcome
+
+        creds = load_credentials(cred_path)
+        if creds is None:
+            outcome = PushOutcome(
+                status="no_credentials",
+                detail=f"no usable GHCR credential at {cred_path}",
+                remediation=_nudge(cred_path),
+            )
+            _record(repo_root, outcome)
+            return outcome
+
+        tag = f"{REGISTRY_IMAGE}:{compute_baseline_tag(repo_root, today=today)}"
+        tag_result = subprocess.run(
+            ["docker", "tag", local_image, tag], capture_output=True, text=True
+        )
+        if tag_result.returncode != 0:
+            outcome = PushOutcome(
+                status="push_failed",
+                detail=f"docker tag failed: {tag_result.stderr.strip()}",
+                remediation=_nudge(cred_path),
+                tag=tag,
+            )
+            _record(repo_root, outcome)
+            return outcome
+
+        try:
+            login = subprocess.run(
+                ["docker", "login", "ghcr.io", "-u", creds.user, "--password-stdin"],
+                input=creds.token,
+                capture_output=True,
+                text=True,
+            )
+            if login.returncode != 0:
+                outcome = PushOutcome(
+                    status="push_failed",
+                    detail=f"docker login failed: {login.stderr.strip()}",
+                    remediation=(
+                        "the stored token was rejected — it has likely expired or "
+                        "lost org access. " + _nudge(cred_path)
+                    ),
+                    tag=tag,
+                )
+            else:
+                push = subprocess.run(
+                    ["docker", "push", tag], capture_output=True, text=True
+                )
+                if push.returncode != 0:
+                    outcome = PushOutcome(
+                        status="push_failed",
+                        detail=f"docker push failed: {push.stderr.strip() or push.stdout.strip()}",
+                        remediation=(
+                            "if the error mentions permission_denied, the token's "
+                            "owner may have lost BioMicroCenter membership or "
+                            "package access. " + _nudge(cred_path)
+                        ),
+                        tag=tag,
+                    )
+                else:
+                    digest = ""
+                    for line in push.stdout.splitlines():
+                        if " digest: " in line:
+                            digest = line.split(" digest: ")[1].split()[0]
+                    outcome = PushOutcome(
+                        status="pushed",
+                        detail=f"pushed {tag}",
+                        tag=tag,
+                        digest=digest or None,
+                    )
+        finally:
+            # Shared box: never leave the credential in ~/.docker/config.json.
+            subprocess.run(["docker", "logout", "ghcr.io"], capture_output=True, text=True)
+
+        _record(repo_root, outcome)
+        return outcome
+    except Exception as exc:  # the deploy is never hostage to this step
+        outcome = PushOutcome(
+            status="error",
+            detail=f"unexpected failure in baseline push step: {exc}",
+            remediation=_nudge(cred_path),
+        )
+        try:
+            _record(repo_root, outcome)
+        except Exception:
+            pass
+        return outcome
+
+
+def render_outcome(outcome: PushOutcome) -> None:
+    """Loud, non-fatal reporting. Success is one quiet ✓; every failure is an
+    unmissable banner with a concrete fix."""
+    if outcome.status == "pushed":
+        ui.ok(f"off-box rollback baseline pushed: {outcome.tag}")
+        return
+    if outcome.status == "skipped":
+        ui.info(f"off-box baseline push skipped ({outcome.detail})")
+        return
+    ui.banner("⚠ OFF-BOX ROLLBACK BASELINE NOT PUSHED — ACTION NEEDED ⚠")
+    ui.fail(outcome.detail)
+    if outcome.remediation:
+        ui.remediation(outcome.remediation)
+    ui.warn("the deploy itself is unaffected; 'startup doctor' will keep flagging this")
+
+
+def check_registry_baseline(repo_root: Path) -> tuple[str, bool, str]:
+    """Doctor check: red until the most recent push attempt succeeded."""
+    state = read_state(repo_root)
+    if state is None:
+        return (
+            "off-box baseline",
+            False,
+            "never pushed from this host — images are unrecoverable after a "
+            "disk cleanup until a rebuild pushes to GHCR (DEPLOYMENT.md §5.2)",
+        )
+    attempt = state.get("last_attempt") or {}
+    if attempt.get("status") != "pushed":
+        return (
+            "off-box baseline",
+            False,
+            f"last attempt {attempt.get('at', '?')} -> {attempt.get('status', '?')}: "
+            f"{attempt.get('detail', '')}",
+        )
+    success = state.get("last_success") or {}
+    return (
+        "off-box baseline",
+        True,
+        f"last push {success.get('tag', '?')} at {success.get('at', '?')}",
+    )

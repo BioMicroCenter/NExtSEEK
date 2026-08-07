@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from startup.lib.instance import load_instance
-from startup.steps import prereqs, validate
+from startup.steps import prereqs, registry_push, validate
 
 
 def diagnose(repo_root: Path) -> list[tuple[str, bool, str]]:
@@ -13,6 +13,10 @@ def diagnose(repo_root: Path) -> list[tuple[str, bool, str]]:
 
     for r in prereqs.run_all():
         results.append((r.name, r.ok, r.detail))
+
+    # Before the instance-state early return: the off-box baseline nudge must
+    # surface even on a box that was never (or incompletely) installed.
+    results.append(registry_push.check_registry_baseline(repo_root))
 
     state = load_instance(repo_root)
     if state is None:
