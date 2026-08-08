@@ -36,8 +36,10 @@ from nextseek_api.attributes.executor import (
     execute_type_plan,
     execution_services_factory,
 )
+from nextseek_api.attributes.faults import InjectedAttributeFault
 from nextseek_api.attributes.jobs import (
     ATTRIBUTE_MUTATION_OUTBOX_BATCH_SIZE,
+    MutationJobService,
     dispatch_outbox,
     mutation_job_store,
     run_stored_job,
@@ -177,16 +179,20 @@ def _wait_for_broker_queue_drained(lane, queue, *, timeout=15):
 
 
 def _mark_outbox_pending(job):
-    """T09's not-yet-built job-creation path (`MutationJobService.create`) is
-    what will flip a freshly created asynchronous job's `outbox_state` to
-    `pending`; T03's real, already-merged `AttributeMutationAuditStore.
-    create_job` -- the sole authorized write surface these test helpers
-    otherwise reuse via `_seed_job_and_partitions` -- deliberately leaves
-    every field at its model default (`outbox_state="not_required"`)
-    regardless of `execution_mode`. Simulate T09's follow-up write directly,
-    matching the withdrawn Section 6 sketch's own `outbox_state`/`outbox_
-    payload` shape for exactly this one field (the sketch's job/partition
-    CAS *logic* is what is withdrawn, not this literal wire shape)."""
+    """Every node above this helper builds its job via `_seed_job_and_
+    partitions` (T07's `AttributeMutationAuditStore.create_job` write
+    surface), which deliberately leaves every field at its model default
+    (`outbox_state="not_required"`) regardless of `execution_mode` -- that
+    helper predates `MutationJobService` (Amendment 2026-08-08 (1)) and is
+    left as-is here so these already-fixed/reviewed nodes' behavior is
+    unchanged. `MutationJobService.create` (this module's own
+    `test_mutation_job_service_create_*` nodes, below) now performs this
+    exact `not_required`->`pending` flip atomically as part of real job
+    creation; this helper simulates only that one field for nodes that
+    still build their job the older way, matching the withdrawn Section 6
+    sketch's `outbox_state`/`outbox_payload` wire shape (the sketch's
+    job/partition CAS *logic* is what stays withdrawn, not this literal
+    wire shape)."""
     AttributeMutationJob.objects.filter(pk=job.pk).update(
         outbox_state="pending", outbox_payload={"task": "attribute_mutations.run"},
         state_version=django_models.F("state_version") + 1,
@@ -1233,5 +1239,155 @@ def test_dispatch_outbox_publish_failure_retains_pending_and_retries(disposable_
     assert job.outbox_state == "published"
     assertion_count += 1
     assert job.outbox_payload["message_id"] == "fault-retry-message-id"
+    assertion_count += 1
+    assert assertion_count >= 1
+
+
+# ---------------------------------------------------------------------------
+# 8. MutationJobService.create: atomic pending creation + armed crash point
+#    leaves no partially-created job (Amendment 2026-08-08 (1), Review
+#    Blocker 5). Not one of the 14 frozen Chain-C nodes -- Section 3's node
+#    list is closed -- so these emit no chain-c record; they are pure
+#    disposable-DB proofs of the amendment's own required behavior.
+# ---------------------------------------------------------------------------
+
+
+def test_mutation_job_service_create_rejects_unresolved_types_before_any_write():
+    """Amendment requirement: "Resolution failures never reach `create`; a
+    `plan` carrying any `sample_type_id is None` raises before any write."
+    No database fixture is needed -- the rejection is the very first thing
+    `create` does, strictly before it ever touches `AttributeMutationJob`/
+    `AttributeMutationPartition`."""
+    plan = MagicMock(unresolved_types=(MagicMock(sample_type_id=None),))
+    actor_identity = {"person_id": 1, "django_user_id": 1, "login": "unit-test", "scheme": "session"}
+    with pytest.raises(ValueError, match="resolution failures"):
+        MutationJobService().create(plan, actor_identity, "asynchronous")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_mutation_job_service_create_commits_job_and_outbox_pending_atomically(disposable_attribute_db, attribute_faults, django_db_blocker):
+    # `attribute_faults` is requested here even though this test arms
+    # nothing: both `MutationJobService.create` and `dispatch_outbox` below
+    # unconditionally call `attribute_fault("async.after_acceptance_before_
+    # outbox_publish")` (it only *raises* when armed, but always increments
+    # the shared control file's cumulative `observed` counter for that
+    # point). Requesting the fixture here means its teardown `clear()`s that
+    # bookkeeping, so a sibling node's own `observed(...)` delta assertion
+    # is never polluted by this test's unarmed calls.
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    assertion_count = 0
+    _seed_blood(database, population=0)
+    _seed_extra_type(database, 1401, "B5TypeCommit", 14010, "Weight")
+    request = _multi_target_request("patch", [(1401, [patch_operation(14010, {"description": "content"})])])
+    plan = _plan(request)
+
+    job = MutationJobService().create(plan, dict(plan.actor), "asynchronous")
+    assertion_count += 1
+    assert job.pk is not None
+    assertion_count += 1
+
+    fresh = AttributeMutationJob.objects.get(pk=job.pk)
+    assert fresh.outbox_state == "pending"
+    assertion_count += 1
+    assert fresh.outbox_payload == {"task": "attribute_mutations.run"}
+    assertion_count += 1
+    assert fresh.state == "accepted"
+    assertion_count += 1
+    assert fresh.execution_mode == "asynchronous"
+    assertion_count += 1
+
+    stored = list(AttributeMutationPartition.objects.filter(job=fresh).order_by("sample_type_id"))
+    assert [row.sample_type_id for row in stored] == [item.sample_type_id for item in plan.executable_types]
+    assertion_count += 1
+    assert [row.idempotency_key for row in stored] == [item.idempotency_key for item in plan.executable_types]
+    assertion_count += 1
+    assert all(row.state == "pending" and row.claim_owner is None for row in stored)
+    assertion_count += 1
+
+    # The atomically-committed "pending" outbox row is genuinely dispatchable
+    # -- not merely a same-process illusion -- proven with a fresh store read
+    # and a mocked sender (no real broker/worker needed for this proof).
+    sender = MagicMock()
+    sender.return_value.id = "b5-commit-message-id"
+    published = dispatch_outbox(mutation_job_store(), sender, limit=10, owner="test-dispatcher-b5-commit")
+    assert published == 1
+    assertion_count += 1
+    fresh.refresh_from_db()
+    assert fresh.outbox_state == "published"
+    assertion_count += 1
+    assert assertion_count >= 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_mutation_job_service_create_armed_crash_leaves_no_partially_created_job(disposable_attribute_db, attribute_faults, django_db_blocker):
+    django_db_blocker.unblock()
+    database = disposable_attribute_db
+    assertion_count = 0
+    _seed_blood(database, population=0)
+    _seed_extra_type(database, 1402, "B5TypeCrash", 14020, "Weight")
+    request = _multi_target_request("patch", [(1402, [patch_operation(14020, {"description": "content"})])])
+    plan = _plan(request)
+
+    before_count = AttributeMutationJob.objects.filter(
+        canonical_submitted_request_sha256=plan.canonical_submitted_request_sha256,
+    ).count()
+    assert before_count == 0
+    assertion_count += 1
+
+    # Section 3's own convention (see run_stored_job): every attribute_fault
+    # call site sits between two already-durable states, never inside an
+    # atomic block. MutationJobService.create follows the same rule -- the
+    # fault fires only after the job+partitions+outbox_state transaction has
+    # already committed, so a raise here can prove the committed row is
+    # genuinely non-partial, not merely that a rollback erased everything.
+    #
+    # `observed(...)` is a cumulative counter over the whole shared control
+    # file, not scoped to this test -- `attribute_fault()` bumps it on every
+    # call regardless of whether the point is armed (only the *raise* is
+    # conditional). Capture a baseline and assert the delta, not an absolute
+    # value, so this assertion holds regardless of what any sibling node
+    # already observed against the same point earlier in the same run.
+    before_observed = attribute_faults.observed("async.after_acceptance_before_outbox_publish")
+    attribute_faults.arm("async.after_acceptance_before_outbox_publish")
+    try:
+        with pytest.raises(InjectedAttributeFault):
+            MutationJobService().create(plan, dict(plan.actor), "asynchronous")
+        assertion_count += 1
+        assert attribute_faults.observed("async.after_acceptance_before_outbox_publish") == before_observed + 1
+        assertion_count += 1
+    finally:
+        attribute_faults.clear()
+
+    jobs = list(AttributeMutationJob.objects.filter(
+        canonical_submitted_request_sha256=plan.canonical_submitted_request_sha256,
+    ))
+    # Exactly one job exists -- neither zero (the write silently vanished)
+    # nor a row visibly missing its partitions/outbox flip (a genuine
+    # partial create). The raise from the armed fault happened strictly
+    # after this row (and every one of its partitions) was already durable.
+    assert len(jobs) == 1
+    assertion_count += 1
+    job = jobs[0]
+    assert job.outbox_state == "pending"
+    assertion_count += 1
+    assert job.outbox_payload == {"task": "attribute_mutations.run"}
+    assertion_count += 1
+    stored = list(AttributeMutationPartition.objects.filter(job=job).order_by("sample_type_id"))
+    assert [row.sample_type_id for row in stored] == [item.sample_type_id for item in plan.executable_types]
+    assertion_count += 1
+    assert [row.idempotency_key for row in stored] == [item.idempotency_key for item in plan.executable_types]
+    assertion_count += 1
+
+    # The durably-committed job is not stuck: a fresh dispatch pass after
+    # clearing the fault proves it is exactly as publishable as an unarmed
+    # creation would have left it -- no leftover partial/inconsistent state.
+    sender = MagicMock()
+    sender.return_value.id = "b5-crash-retry-message-id"
+    published = dispatch_outbox(mutation_job_store(), sender, limit=10, owner="test-dispatcher-b5-crash")
+    assert published == 1
+    assertion_count += 1
+    job.refresh_from_db()
+    assert job.outbox_state == "published"
     assertion_count += 1
     assert assertion_count >= 1

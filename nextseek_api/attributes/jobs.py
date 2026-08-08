@@ -2,13 +2,27 @@
 Section 3 binding subsection; DD-12, DD-15, DD-23, DD-29, DD-31 through
 DD-34).
 
-This module owns three things: the transactional-outbox dispatcher that
-turns a durably-persisted, pending `AttributeMutationJob` outbox row into
-one Celery message; the dedicated `attribute_mutations` worker's
-stored-job execution (`run_stored_job`, invoked by `tasks.run_attribute_mutation`);
-and the shared six-field DD-13 lease/CAS primitives both the worker and
-(later, T09's synchronous request path) heartbeat against the same
+This module owns four things: durable job creation (`MutationJobService`,
+below); the transactional-outbox dispatcher that turns a durably-persisted,
+pending `AttributeMutationJob` outbox row into one Celery message; the
+dedicated `attribute_mutations` worker's stored-job execution
+(`run_stored_job`, invoked by `tasks.run_attribute_mutation`); and the
+shared six-field DD-13 lease/CAS primitives both the worker and (later,
+T09's synchronous request path) heartbeat against the same
 `AttributeMutationJob` row.
+
+This module also owns `MutationJobService` (Amendment 2026-08-08 (1) to the
+task-08 spec, Section 3): the durable job-creation path that persists one
+`AttributeMutationJob` row plus its per-planned-type `AttributeMutationPartition`
+rows in a single transaction, including the creation-time
+`outbox_state` `not_required`->`pending` flip for an asynchronous job. T08
+previously deferred that flip to T09 (see the withdrawn history below), but
+task-09's frozen Section 6 imports the class from *this* T08-owned module
+(`from .jobs import MutationJobService`, constructed with no arguments in
+`AttributeServices.build`) and grants T09 no edit right over `jobs.py` --
+unclosable without T08 supplying the symbol itself. The amendment authors
+fresh normative Section 3 text for this; it does not reinstate any part of
+the withdrawn Sections 5-6 sketch below.
 
 Section 3 is the sole authoritative behavior contract; the plan's own
 Sections 5-6 are explicitly withdrawn, non-normative Phase-3 sketches that
@@ -18,11 +32,15 @@ module is an independent implementation of Section 3's exact predicates,
 not a port of that withdrawn sketch; two concrete points where the real
 merged code forced a different design from the withdrawn sketch:
 
-1. Job/partition creation (`MutationJobService.create`, `AttributeMutationAuditStore`)
-   belongs to T09 (`task-09-attribute-viewset-routes-openapi.md` Section 6:
-   `AttributeServices.build` constructs `MutationJobService()` in T09's own
-   `service.py`), not this module -- T08's scope is dispatch and execution of
-   an *already-durably-created* job, never its creation.
+1. (Superseded 2026-08-08 -- see above.) The withdrawn Phase-3 sketch's
+   `MutationJobService.create` is not copied; this module's own `create`
+   below is an independent implementation against the real T03 model fields
+   (`canonical_submitted_request_sha256`/`canonical_submitted_request`/
+   `resolved_plan_sha256`/`resolved_plan_envelope`, not the sketch's
+   differently-named `canonical_request_sha256`/`canonical_request`), reusing
+   the same `build_resolved_plan_envelope`/`AttributeMutationPartition`
+   construction the T07/T08 test suite's own `_seed_job_and_partitions`
+   helper already exercises.
 2. T05's planner deliberately has no plan<->bytes round-trip codec
    (`planner.py`'s own comment on `build_resolved_plan_envelope`: "why a full
    round-trip codec is not part of the real contract"). DD-23 names the real
@@ -40,6 +58,7 @@ merged code forced a different design from the withdrawn sketch:
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 import time
@@ -500,3 +519,78 @@ class DjangoMutationJobStore:
                 continue
             token = PartitionClaim(row.pk, owner, row.claim_generation, row.lease_version, row.state_version)
             return DjangoExecutionServices(job, token, synchronous=True)
+
+
+# ---------------------------------------------------------------------------
+# Durable job creation (Amendment 2026-08-08 (1), Review Blocker 5)
+# ---------------------------------------------------------------------------
+
+
+class MutationJobService:
+    """Creates the durable `AttributeMutationJob`/`AttributeMutationPartition`
+    row pair the rest of this module (dispatcher, worker, recovery) operates
+    on. Task-09's frozen `service.py` composes `MutationJobService()` (no
+    constructor arguments) into `AttributeServices.build` and calls
+    `.create(plan, actor_identity, execution_mode)`; this is the exact,
+    verbatim-satisfied signature (Amendment 2026-08-08 (1))."""
+
+    def create(self, plan, actor_identity, execution_mode):
+        """Persist one durable job and its per-planned-type partitions in
+        exactly one `transaction.atomic()` block -- a partial create is
+        never observable. `outbox_state` is set inside that same
+        transaction: `"pending"` for an asynchronous job (the
+        `not_required`->`pending` flip this module previously deferred to
+        T09) or `"not_required"` otherwise; there is no separate
+        post-commit flip anywhere in this class. Resolution failures never
+        reach a write: any unresolved type (`sample_type_id is None`) raises
+        before the transaction opens. `unchanged` types are not partitioned
+        (`plan.executable_types` already excludes them, along with
+        `failed`/`plan_delta_required` types).
+
+        `attribute_fault("async.after_acceptance_before_outbox_publish")`
+        fires immediately *after* the transaction above has committed --
+        matching this module's own convention everywhere else (see
+        `run_stored_job`'s fault calls, always positioned between two
+        already-durable states, never inside an atomic block): the
+        frozen crash point is therefore armed against a job that is, by
+        construction, already fully and durably committed (job row +
+        every partition row + the correct `outbox_state`), never a
+        partially-created one. When armed, the raised
+        `InjectedAttributeFault` propagates to the caller, but the row this
+        method already committed remains exactly as durable and complete as
+        the unarmed case -- there is no code path that commits only the job
+        row without its partitions, or the partitions without the job, or
+        an asynchronous job without its `outbox_state="pending"` flip.
+        """
+        from nextseek_api.attributes.models_db import AttributeMutationJob, AttributeMutationPartition
+        from nextseek_api.attributes.planner import build_resolved_plan_envelope
+
+        if plan.unresolved_types:
+            raise ValueError("resolution failures must be rejected before job creation")
+        envelope_bytes = build_resolved_plan_envelope(plan, execution_mode=execution_mode)
+        outbox_pending = execution_mode == "asynchronous"
+        with transaction.atomic():
+            job = AttributeMutationJob.objects.create(
+                actor_seek_person_id=actor_identity["person_id"],
+                actor_django_user_id=actor_identity["django_user_id"],
+                actor_login=actor_identity["login"],
+                actor_scheme=actor_identity["scheme"],
+                actor_identity=dict(actor_identity),
+                canonical_submitted_request_sha256=plan.canonical_submitted_request_sha256,
+                canonical_submitted_request={"actor": dict(plan.actor), "request": plan.canonical_submitted_request},
+                resolved_plan_sha256=hashlib.sha256(envelope_bytes).hexdigest(),
+                resolved_plan_envelope=envelope_bytes,
+                execution_mode=execution_mode,
+                outbox_state="pending" if outbox_pending else "not_required",
+                outbox_payload={"task": "attribute_mutations.run"} if outbox_pending else {},
+            )
+            for type_plan in plan.executable_types:
+                AttributeMutationPartition.objects.create(
+                    job=job, sample_type_id=type_plan.sample_type_id,
+                    idempotency_key=type_plan.idempotency_key,
+                    before_physical_fingerprint=type_plan.before_physical_fingerprint,
+                    expected_after_semantic_fingerprint=type_plan.expected_after_semantic_fingerprint,
+                    created_identity_tokens=[list(item) for item in type_plan.created_identity_tokens],
+                )
+        attribute_fault("async.after_acceptance_before_outbox_publish")
+        return job
