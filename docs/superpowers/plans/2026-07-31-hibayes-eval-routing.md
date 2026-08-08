@@ -14,13 +14,22 @@
 > pre-V7 plan is `docs/superpowers/plans/2026-07-31-hibayes-eval-routing.pre-v7-20260805T131500-0400.md`
 > (SHA-256 `77b0d0b0acb9adbde8af88981ec6bf7b2f2ea1a6a828d68895db087c80e94fcf`).
 
-> **V8 (2026-08-07) — CURRENT AUTHORITY, NOT YET RE-VETTED.** V8 records the maintainer's
+> **V8 (2026-08-07) — SUPERSEDED IN PART BY V9 BELOW; NOT YET RE-VETTED.** V8 records the maintainer's
 > 2026-08-07 rulings and supersedes conflicting earlier prose for the Stage-2 corpus-growth loop,
 > the eval-row schema (`EVAL_ROW_SCHEMA_VERSION` 2 → 3), the combined outcome definition and its
 > total disposition mapping, stack-version identity, execution reuse, and the terminology
 > corrections V8-H…V8-K. Read V8 before V2–V7 wherever they disagree. **V8 changes this artifact
 > after the last vetting pass and therefore invalidates it; the plan must be re-vetted before
 > execution.** V4-0 and the V5 evidence-manifest release gate are unchanged by V8.
+
+> **V9 (2026-08-08) — CURRENT AUTHORITY, NOT YET RE-VETTED.** V9 records the maintainer's
+> 2026-08-08 rulings on the **deterministic artifact axis**: who owns it, how artifact validity is
+> computed, the multi-artifact unit, the required-field rule, and the projection onto the eval
+> row's four-value `artifact_status`. Read V9 before V2–V8 wherever they disagree on those five
+> points; V8 is otherwise unchanged and remains authority for the eval-row schema and the combined
+> outcome. **V9 also changes this artifact after the last vetting pass. It does not add a second
+> re-vet: V9 rides the same re-vet V8 already requires before execution.** V4-0 and the V5
+> evidence-manifest release gate are unchanged by V9.
 
 **Goal:** Build a Bayesian router for the NExtSEEK assistant. A forced-route experiment runs one
 question corpus down the NExtSEEK path and down the Container-CC path and estimates a paired,
@@ -1603,6 +1612,196 @@ unaffected: forcing a route remains admin-gated, those runs were executed by the
 rather than by this plan, and V3-C still cannot be marked validated on their basis alone.
 
 
+## V9 maintainer-ruling amendment (2026-08-08)
+
+> **V9 records the maintainer's 2026-08-08 rulings and supersedes conflicting V8/V7/V6/V5/V4/V3/V2
+> prose** for: ownership of the artifact axis, how artifact validity is computed, the multi-artifact
+> unit, the required-field rule, and the projection onto the eval row's four-value
+> `artifact_status`. Everything not named here is unchanged. V9 is not execution authorization:
+> V4-0 and the V5 evidence-manifest release gate stand as written.
+
+### V9-A — Artifact validity is owned by NExtSEEK; one upstream module is replaced
+
+The artifact axis is produced by **`nextseek_api/eval/artifact_validity.py`**, consumed by
+`nextseek_api/eval/export.py` (which V8-C reserves for the eval row).
+
+**`dmac_assistant` remains the port source for this plan.** The judge, the four fit packages, their
+configs and templates, and the eval container are ported from it per Task 6. V9 narrows exactly one
+thing: **`tools/hibayes/artifact_validator.py` is written fresh rather than ported**, because it
+routes `task_family -> ArtifactKind` through a hardcoded dispatch, so every new report type needs a
+new branch — and that design is the direct cause of the defects in V9-B. Its enum surface
+(`ArtifactStatus`, `ArtifactKind`, declared in `tools/e2e/functional_evaluator_models.py`) **is**
+ported unchanged, so results stay comparable with prior runs.
+
+`artifact_success` and `artifact_status` remain deterministic per V8-C — **no LLM may produce
+them**. `functional_success` stays the only judged field in the row.
+
+### V9-B — Validation is kind-agnostic: the artifact declares its own schema
+
+Both engines mark required fields with a leading `*` (single-valued) or `**` (multi-valued) — the
+convention the upstream module already reads at `artifact_validator.py:378`. Validation **reads the
+markers the artifact carries**. It does not switch on what kind of report it is.
+
+- [ ] `ArtifactKind` is retained as a **reporting label only**. It must not appear in any
+  control-flow branch that decides validity. A new report type requires no code change.
+- [ ] No validator may key on filename or extension. Type is determined from **content**.
+- [ ] Spreadsheet reading uses **calamine** (via `fastexcel`); `openpyxl` is prohibited on this path
+  for the reason in row 4 below.
+- [ ] OOXML sub-type is discriminated by **part directory** (`xl/`, `word/`, `ppt/`), never by
+  `[Content_Types].xml`, which is present in every OOXML container.
+
+**Why this is binding, not stylistic.** Four independent defects on the 2026-08-07 paired delivery,
+all one root cause — an assumption about the `nextseek_query` output shape applied to
+`container_cc`:
+
+| # | Where | Effect |
+|---|---|---|
+| 1 | upstream path resolution (the DD-25 hazard its own docstring warns of) | all 18 CC artifact-expected arms `Missing`, 9 of them holding real deliverables |
+| 2 | upstream single-file guard (`NotImplementedError`, plan-DD-03) | every multi-file deposit unvalidatable |
+| 3 | upstream dispatch has no `PRIDE_PACKAGE`/`SRA_PACKAGE` branch | 9 NS arms `Indeterminate` — "no rule", recorded as a data fact |
+| 4 | `openpyxl` rejects extension-stripped `.xlsx` **on the filename**, before reading a byte | 9 real CC workbooks would read as `Unreadable` |
+
+Net effect before remediation: **zero `Valid` artifacts on either arm**, and
+`report.sra_submission` scored identically (`Missing`) on the arm that delivered three workbooks and
+the arm that delivered nothing.
+
+### V9-C — The unit is a set of artifacts; worst status wins
+
+One arm routinely emits several artifacts of mixed origin: an NS PRIDE deposit is 4 (two inline
+`table` artifacts carrying `columns` + `data`, plus two files); the paired CC arm is 8 files.
+Multi-artifact is the **normal case**, and the upstream single-file guard is the anomaly.
+
+- [ ] Every artifact is validated and its per-artifact verdict **retained**, not collapsed at
+  discovery time.
+- [ ] The arm's status is the **worst** status across its set, on the full ten-value
+  `ArtifactStatus` vocabulary, by this severity order (ascending):
+  `NotExpected < Valid < Incomplete < SchemaInvalid < Unreadable < Inaccessible <
+  PartialAfterFailure < Missing < RuntimeFailed < Indeterminate`.
+- [ ] `Indeterminate` is deliberately **worst**: under V9-B it means the validator met a shape it
+  has no rule for, which must be loud rather than absorbed.
+- [ ] `NotExpected` is an **arm-level** state, never a per-artifact verdict. It is decided before the
+  set is walked, from `artifact_expected`. Admitting it as a per-artifact status would let it enter
+  the maximum and silently outrank a real failure in a mixed set.
+- [ ] An arm expecting an artifact that produced none is `Missing` when the run succeeded and
+  `RuntimeFailed` when it did not (DD-36) — different defects, different dispositions.
+
+### V9-D — Required-but-empty is structural only
+
+A required field is satisfied by the **key being present**. A null or empty value does not fail the
+artifact.
+
+Rationale: the engines cannot invent values NExtSEEK does not hold — the CC PRIDE deposit fills
+submitter name, affiliation, lab head and project title but leaves `*submitter_email`,
+`*lab_head_email` and `*submitter_pride_login` null, because the source has no such values. Failing
+that would measure the database, not the engine. Content-completeness grading is deferred; if
+introduced later it must be a **separate axis**, never folded into `artifact_success`.
+
+### V9-E — The projection is total, and unmeasurable is not failure
+
+| ten-value status | `artifact_status` (V8-C) | `artifact_success` |
+|---|---|---|
+| `NotExpected` | `not_expected` | **true** — a family expecting no artifact cannot fail the gate |
+| `Valid` | `delivered_valid` | true |
+| `Incomplete`, `SchemaInvalid`, `Unreadable`, `Inaccessible`, `PartialAfterFailure` | `delivered_invalid` | false |
+| `Missing`, `RuntimeFailed` | `missing` | false |
+| `Indeterminate` | — | **null → excluded** |
+
+- [ ] `Indeterminate` maps to **excluded**, never to `false`. "We had no rule" must never be
+  recorded as "the engine failed" — that confusion is the entire defect class V9-B exists to
+  remove.
+- [ ] **`Indeterminate` has no `artifact_status` value, by construction.** V8-C's four-value field
+  is non-optional under `extra="forbid"`, so an `Indeterminate` arm **emits no eval row at all**: it
+  is excluded before row construction, with reason `artifact_indeterminate`, and appears in the
+  per-reason exclusion counts V8-D requires as machine-readable output. Do not widen
+  `artifact_status` to carry it, and do not default it to `missing`.
+- [ ] Any `Indeterminate` arm is reported explicitly at run time, never counted silently.
+- [ ] The mapping is total; an unrecognised status **fails closed** per V8-D's final row
+  ("any unrecognised value — fail closed") and V4-3's requirement that unknown enum values are not
+  coerced to success. *(Line-number citations are deliberately avoided here: this document is
+  amended in place, so any line reference rots on the next amendment.)*
+
+### V9-F — One validator, two sources: it must ingest the next paired run unchanged
+
+Validation logic is source-independent. Path resolution is the **only** arm-specific step, and it
+lives behind an adapter:
+
+- [ ] `LiveTurnSource` — reads a turn's `result.artifacts` (inline tables and file references) and
+  `result.files`, resolving file paths against the configured outputs/scratch volume. This is the
+  production path, invoked from `export.py` as rows are built.
+- [ ] `ExportedRunSource` — reads an exported run directory (`raw_files/<query_id>/<arm>/`),
+  resolving `output/**` for `container_cc` and `run_root/files/**` for `nextseek_query`. This is the
+  path that ingests a delivered E2E run.
+- [ ] Both adapters yield the same artifact records; **no validation rule may differ between them**,
+  and a test must assert identical verdicts for one run expressed both ways.
+- [ ] A bundle (`output/artifacts.zip`) is skipped **only** when its members are provably a subset
+  of the loose tree; otherwise it carries unique content and is validated.
+- [ ] `result.cc_raw_files` is empty in delivered runs and must not be relied on. Its emptiness is
+  the same defect that produced the upstream `no_path_prefix` collection gap; the resolver must
+  enumerate the volume rather than trust the declaration.
+
+### V9-G — Reference results this task must reproduce
+
+Re-validating the 2026-08-07 delivery's `set3_final` (298 arms, 36 artifact-expected) must yield:
+
+| | `container_cc` | `nextseek_query` |
+|---|---|---|
+| `Valid` | 9 | 9 |
+| `Missing` | 7 | 7 |
+| `RuntimeFailed` | 2 | 2 |
+| `NotExpected` | 131 | 131 |
+
+- [ ] **18 of 36** artifact-expected arms `Valid`, against **0** under the superseded validator.
+- [ ] Verdicts symmetric across arms — an asymmetric result indicates the resolver favours one
+  engine's layout and is a failure condition, not a finding.
+- [ ] Zero `Indeterminate`.
+
+### V9-H — Where the evidence lives
+
+All of the following are committed or staged, not local-only, so a future session or a different
+machine can re-derive V9-G rather than trust it.
+
+**Committed in this repository**, beside the V8-C router models, under `nextseek_api/eval/`:
+
+| Path | What it is |
+|---|---|
+| `router_models_proposal.py` | V8-C/V8-D row and aggregate models (runnable form, per V8-C) |
+| `artifact_validity_proposal.py` | **runnable reference validator for V9** — proposal, not the implementation |
+| `artifact_validity_set3_final.csv` | 298 arm verdicts — the V9-G regression pins |
+| `artifact_detail_set3_final.csv` | 256 per-artifact verdicts behind those arm rows |
+
+Verified reproducible from that directory: deleting both CSVs and re-running the proposal
+regenerates them byte-identical. It requires `uv run --no-project` — without it uv resolves this
+repo's own dependencies and dies on `torch` (no x86_64 macOS wheel), so the script never runs and an
+unchanged output file falsely reads as a clean reproduction.
+
+### V9-I — Two consequences elsewhere in this plan
+
+Both follow from V9 and would otherwise be discovered late, so they are stated here rather than left
+to an implementer to notice.
+
+**1. Recomputed artifact facts must invalidate cached judgments.** V2-T8's canonical fingerprint
+already covers "a changed query, answer, outcome, **artifact/trace fact**, or version". V9 changes
+artifact facts wholesale — 18 of 36 artifact-expected arms move from `Missing`/`Indeterminate` to
+`Valid` — so any judgment cached against the superseded facts is stale.
+
+- [ ] The judgment fingerprint must include the arm's artifact facts, not merely its identity and
+  version tuple. The historical Task 8 code block hashes only session, turn, route, family and the
+  three version fields; that shape cannot detect this change and must not be implemented as written.
+- [ ] Re-deriving artifact validity over an already-judged run is therefore a cache-invalidating
+  event for exactly the affected arms, and must not silently reuse their verdicts.
+
+**2. The upstream 29-column artifact-validity CSV shape is superseded; the per-arm eval-row export
+is not.** V3-C locks the per-arm export column set "verbatim upstream" and V8-J names that upstream.
+That lock covers the **eval-row** export and is untouched by V9.
+
+- [ ] `CSV_HEADER_29` in the superseded `artifact_validator.py` is **not** binding on
+  `artifact_validity.py`. V9-A replaces that module, so its output shape is replaced with it.
+- [ ] The replacement emits, per arm, the ten-value status plus its V8-C projection, and retains a
+  per-artifact record (V9-C). The reference implementation's two files
+  (`artifact_validity_*.csv`, V9-H) show the shape that produced the V9-G pins.
+- [ ] No task may cite V8-J as authority for the artifact-validity column set. V8-J governs the
+  per-arm eval-row export only.
+
 ## Referenced artifacts (dev box)
 
 On the specifically inventoried development box, external artifacts cited by this plan have
@@ -1628,6 +1827,25 @@ be released for execution, the V5 evidence manifest must be materialized at stab
 URIs accessible to the authorized verifier, fresh-retrieved, and hash-validated; box-local copies
 alone cannot close that release gate.
 
+### Paired-run delivery (dev box, outside the repository)
+
+The 2026-08-07 paired E2E delivery is staged on the same box at
+`~/work/NExtSEEK-dev/testquestions-2026-08-07/`, mirroring the `nessie-bayes-full-2026-08-06`
+convention. It sits **outside this repository** — it is not under `_plan018-refs/`, is not covered
+by the gitdir `info/exclude` above, and is not reachable from a clone.
+
+| Under `~/work/NExtSEEK-dev/testquestions-2026-08-07/` | What it is |
+|---|---|
+| `testquestions.zip` | the delivery; sha256 `4e7c57a1c04015fb…`, 66,473,692 bytes; 2,432 files across `set1_toosimple`, `set2_ccbleed`, `set3_final` and `corpus/` |
+| `MANIFEST.json` | per-file manifest of all 2,432 archive members — sha256, content-detected type, zip-entry dates, row counts, JSON-schema sidecar pointers |
+| `build_manifest.py` | regenerates the manifest |
+| `artifact_validity_set3_final.csv`, `artifact_detail_set3_final.csv` | the V9-G results, identical to the committed copies under `nextseek_api/eval/` |
+
+All five were sha256-verified byte-identical to their laptop sources after transfer. The manifest is
+the join between a file on disk and what it is: every artifact V9's Task 7b validates has an entry
+there carrying its checksum, detected type and provenance date. The same caveat as above applies —
+these box-local copies do not close the V5 release gate.
+
 ## File Structure
 
 **Historical/incomplete under V4.** This retained table describes the original decomposition only.
@@ -1644,6 +1862,8 @@ The approved V4-0 ownership map must supersede and extend it before any implemen
 | `nextseek_api/cc_assistant/family_labels.py` | **Create.** Validate/read the latest corpus family set and construct the runtime TypeBuilder snapshot. |
 | `nextseek_api/eval/` | **Create.** Vendored evaluation package (tools + fit packages). |
 | `nextseek_api/eval/export.py` | **Create.** Ledger → versioned eval rows. |
+| `nextseek_api/eval/artifact_validity.py` | **Create.** Deterministic artifact axis; kind-agnostic per V9-A/V9-B. |
+| `nextseek_api/eval/artifact_sources.py` | **Create.** Live-turn and exported-run artifact adapters (V9-F). |
 | `nextseek_api/eval/judge_cache.py` | **Create.** Fingerprint, lookup, invalidation, partial-failure policy. |
 | `nextseek_api/eval/tasks.py` | **Create.** Celery nightly task, spend cap, force path. |
 | `nextseek_api/eval/publish.py` | **Create.** Posterior store writer. |
@@ -2354,6 +2574,13 @@ git commit -m "feat(eval): record a ledger row on every turn, both routes"
 **Interfaces:**
 - Produces: `nextseek_api.eval.*` importable with no `dmac_assistant` eval dependency; a `docker/eval/Dockerfile` whose build context is this repository.
 
+**V9-A carve-out.** `tools/hibayes/artifact_validator.py` is **not** ported — it is replaced by
+`nextseek_api/eval/artifact_validity.py` per V9-A, because its `task_family -> ArtifactKind`
+dispatch requires a new hardcoded branch for every report type. Its enum surface (`ArtifactStatus`,
+`ArtifactKind`) **is** ported unchanged so results stay comparable with prior runs. Everything else
+in scope here — the judge, the four fit packages, their configs and templates, and
+`docker/eval/Dockerfile` — is ported as written.
+
 - [ ] **Step 1: Write the failing test**
 
 ```python
@@ -2398,8 +2625,17 @@ Expected: FAIL — `ModuleNotFoundError: nextseek_api.eval`
 - [ ] **Step 3: Copy the source in, preserving behaviour**
 
 Copy from the `dmac-assistant` checkout **once**, verbatim, adjusting only import paths:
-- `tools/hibayes/{exporter,expected_behavior,artifact_validator,functional_inputs,enums}.py` → `nextseek_api/eval/`
+- `tools/hibayes/{exporter,expected_behavior,functional_inputs,enums}.py` → `nextseek_api/eval/`
+  — **`artifact_validator.py` is deliberately absent from this list (V9-A).** Copying it
+  reintroduces the `task_family -> ArtifactKind` dispatch V9 removes; `artifact_validity.py`
+  (Task 7b) replaces it.
 - `tools/e2e/functional_evaluator.py` (local copy: `_plan018-refs/port-source/functional_evaluator.py`) → `nextseek_api/eval/judge.py`
+- `tools/e2e/functional_evaluator_models.py` (local copy:
+  `_plan018-refs/port-source/functional_evaluator_models.py`) → `nextseek_api/eval/` —
+  **required, and previously missing from this list.** The copied `enums.py` re-exports
+  `ArtifactStatus`, `ArtifactKind` and `ExpectedBehavior` from it (`tools/hibayes/enums.py:22`), so
+  omitting it leaves `enums.py` importing a module that does not exist in this repository. It is
+  also the enum surface V9-A requires be ported unchanged.
 - `src/dmac_assistant/eval/hibayes_{runtime_reliability,artifact_validity,functional_usefulness,combined_report}/` → `nextseek_api/eval/fit/` including their `config/*.yaml` and templates
 
 Do not change thresholds, band logic, model selection, or control flow. Record the source commit in a
@@ -2565,11 +2801,77 @@ git commit -m "feat(eval): versioned exporter over the turn ledger"
 
 **Success condition:** Met only if the pytest command exits 0 with output at `evidence/task07.log`,
 and a test proves route, route provenance, family and classification provenance are separate columns;
-a forced corpus turn must retain both `route_source="forced"` and `family_source="corpus"`.
+a forced corpus turn must retain both `route_source="forced"` and `family_source="corpus"`; and the
+row's artifact fields are populated from Task 7b rather than defaulted — a row whose
+`artifact_status` is absent or hardcoded fails this condition.
 
-**Failure conditions:** route collapsed into family; forced rows indistinguishable; a non-incremental export.
+**Failure conditions:** route collapsed into family; forced rows indistinguishable; a non-incremental export; artifact fields defaulted rather than computed.
 
 **Rollback:** `git revert`.
+
+---
+
+### Task 7b: Deterministic artifact validity (V9)
+
+Slots between Task 7 and Task 8: the eval row cannot carry V8-C's artifact facts without it, and the
+conjunctive outcome cannot gate judge calls without those facts.
+
+**Files:**
+- Create: `nextseek_api/eval/artifact_validity.py`
+- Create: `nextseek_api/eval/artifact_sources.py`
+- Modify: `nextseek_api/eval/export.py` (populate the row's artifact fields)
+- Test: `nextseek_api/cc_assistant/tests/test_artifact_validity.py`
+
+**Interfaces:**
+- Consumes: `LiveTurnSource` | `ExportedRunSource` (V9-F).
+- Produces: `validate_arm(source, arm_key) -> ArmArtifactVerdict(status, artifacts, plan_status, artifact_success)`; module constants `SEVERITY` and `PLAN_STATUS` per V9-C/V9-E.
+- Reference implementation: `nextseek_api/eval/artifact_validity_proposal.py` (V9-H) — port from it; do not import it.
+
+- [ ] **Step 1: Write the failing tests.** At minimum:
+  `test_kind_never_appears_in_control_flow` (AST assertion: no branch on `ArtifactKind`);
+  `test_extension_stripped_xlsx_validates` (a workbook named `all_tables__11`);
+  `test_docx_is_not_read_as_a_workbook`;
+  `test_worst_status_wins_across_a_mixed_set`;
+  `test_required_key_present_with_null_value_is_valid`;
+  `test_not_expected_passes_the_gate`;
+  `test_indeterminate_yields_null_not_false`;
+  `test_both_sources_agree_on_one_run`;
+  `test_arm_with_no_artifacts_is_missing_when_runtime_succeeded_and_runtimefailed_otherwise`.
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `docker exec -w /app nextseek uv run --no-sync python -m pytest nextseek_api/cc_assistant/tests/test_artifact_validity.py -v`
+Expected: FAIL — `ModuleNotFoundError`
+
+- [ ] **Step 3: Implement** per V9-A…V9-F, replacing the reference implementation's hardcoded
+  delivery path with the two source adapters.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `docker exec -w /app nextseek uv run --no-sync python -m pytest nextseek_api/cc_assistant/tests/test_artifact_validity.py -v 2>&1 | tee evidence/task07b.log`
+Expected: 9 passed
+
+- [ ] **Step 5: Regression-pin against the delivered run.** Re-validate `set3_final` through
+  `ExportedRunSource` and assert the V9-G table exactly (9/9 `Valid`, 7/7 `Missing`, 2/2
+  `RuntimeFailed`, 131/131 `NotExpected`, zero `Indeterminate`).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add nextseek_api/eval/artifact_validity.py nextseek_api/eval/artifact_sources.py nextseek_api/eval/export.py nextseek_api/cc_assistant/tests/test_artifact_validity.py
+git commit -m "feat(eval): kind-agnostic deterministic artifact validity"
+```
+
+**Success condition:** Met only if the pytest command exits 0 with output at `evidence/task07b.log`;
+the V9-G counts reproduce exactly; `grep -n "ArtifactKind" nextseek_api/eval/artifact_validity.py`
+returns no line inside a conditional; and `grep -rn "openpyxl" nextseek_api/eval/` returns nothing.
+
+**Failure conditions:** any branch keyed on artifact kind, task family or file extension; `openpyxl`
+on this path; `Indeterminate` collapsed to `false`; `not_expected` failing the gate; a validation
+rule that differs between the two sources; the bundle skipped without proving subset-hood.
+
+**Rollback:** `git revert`; `export.py` reverts to leaving artifact fields unpopulated, which fails
+Task 7's own success condition — so this task cannot be silently dropped.
 
 ---
 

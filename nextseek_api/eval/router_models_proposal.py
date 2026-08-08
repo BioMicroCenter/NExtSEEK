@@ -81,7 +81,8 @@ class Disposition(str, Enum):
     excluded = "excluded"  # enters neither n_total nor n_success
 
 
-# Total mapping, no default. An unrecognised key fails closed (plan line 790) rather
+# Total mapping, no default. An unrecognised key fails closed (V8-D's final row, and V4-3's
+# "unknown enum values ... are not coerced to success") rather
 # than being coerced to success. Keys are checked in this order: error_class first,
 # then failure_mode when error_class is `none`.
 ERROR_CLASS_DISPOSITION: dict[ErrorClass, Disposition] = {
