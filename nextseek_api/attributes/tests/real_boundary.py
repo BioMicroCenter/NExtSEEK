@@ -979,6 +979,22 @@ class DisposableAttributeBroker:
         with self._connection.channel() as channel:
             channel.queue_declare(queue=physical_queue, passive=False)
         self._worker_argv = ["python", "-m", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker", "-Q", physical_queue, "-c", str(concurrency), "--events"]
+        # Task-08 Review Blocker 6 (coverage-lane only, disclosed alongside
+        # the eager queue_declare fix above for the same root ratification):
+        # Celery's default prefork pool executes every task in a forked
+        # child, and coverage.py's subprocess-measurement hook
+        # (`coverage.process_startup()`, installed via `sitecustomize.py` at
+        # this *worker* process's own exec-time startup) does not reliably
+        # survive across a subsequent `fork()` + the pool's own worker-exit
+        # path (empirically confirmed: attribute_mutations.run showed 0%
+        # coverage from real worker-subprocess runs under prefork, despite
+        # 21/21 real tests passing and genuinely consuming real messages).
+        # `--pool=solo` runs every task in this same, single, already-
+        # instrumented process -- no further fork boundary -- fixing
+        # coverage measurement. Off (unset) for every other lane; only
+        # `scripts/run_attribute_coverage.py` ever sets this env var.
+        if os.environ.get("ATTRIBUTE_COVERAGE_WORKER_POOL"):
+            self._worker_argv += ["--pool", os.environ["ATTRIBUTE_COVERAGE_WORKER_POOL"]]
         self._worker_cwd = Path.cwd()
         if environment is not None and (not isinstance(environment, dict)
                 or any(not isinstance(key, str) or not isinstance(value, str)

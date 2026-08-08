@@ -9,6 +9,24 @@ from pathlib import Path
 import pytest
 from coverage import Coverage
 
+# Task-08 Review Blocker 6: `run_attribute_mutation`'s body only ever runs
+# inside a real, separately spawned Celery worker subprocess
+# (`DisposableAttributeBroker.start_worker`), and the synchronous-web-owner
+# barrier nodes (`test_sync_recovery.py`'s `_spawn_web_owner`/
+# `_spawn_slow_web_owner`) run `run_stored_job` in a real, separately
+# spawned Python subprocess too -- both invisible to a `coverage.Coverage`
+# object that only instruments the parent pytest process. `coverage.py`'s
+# own documented mechanism for this is a `sitecustomize.py` that calls
+# `coverage.process_startup()`, discoverable via `PYTHONPATH`, activated by
+# `COVERAGE_PROCESS_START` naming a parallel-mode config file -- both
+# written per-run into the disposable evidence root below and exported into
+# `os.environ` before pytest starts, so every subprocess spawned during
+# this lane (by any task, not just task-08) that inherits the parent
+# environment is automatically measured. Harmless when no subprocess reads
+# these env vars (every other task's coverage run): the write is a few
+# bytes into an already-disposable directory, and `combine()` below is a
+# no-op when no parallel `.coverage.*` files exist.
+
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = Path("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")
 SOURCE_PATHS = (
@@ -136,6 +154,60 @@ def ensure_report_lists_all_sources(coverage: Coverage, output: Path) -> None:
     output.write_text(json.dumps(payload, indent=4) + "\n")
 
 
+def _enable_subprocess_coverage(run_root: Path, data_file: Path) -> None:
+    sitecustomize_dir = run_root / "subprocess_sitecustomize"
+    sitecustomize_dir.mkdir(parents=True, exist_ok=True)
+    (sitecustomize_dir / "sitecustomize.py").write_text(
+        "import coverage\n"
+        "# The image already carries an unconditional coverage-subprocess\n"
+        "# .pth hook (site-packages/a1_coverage.pth: calls\n"
+        "# coverage.process_startup(slug=\"pth\") whenever COVERAGE_PROCESS_\n"
+        "# START/CONFIG is set) that runs before sitecustomize.py -- so by\n"
+        "# the time this module imports, coverage.process_startup() has\n"
+        "# already returned (and consumed) the instance; a second call here\n"
+        "# always returns None (coverage.py's own re-entrancy guard).\n"
+        "# Coverage.current() retrieves that already-started instance\n"
+        "# regardless of which caller started it.\n"
+        "_cov = coverage.Coverage.current()\n"
+        "if _cov is not None:\n"
+        "    try:\n"
+        "        from celery.signals import task_postrun, worker_process_shutdown\n"
+        "    except ImportError:\n"
+        "        pass\n"
+        "    else:\n"
+        "        # The disposable-broker worker is always SIGKILLed at test\n"
+        "        # teardown/crash points (real_boundary.py::kill_worker --\n"
+        "        # a deliberate, unchanged hard-crash simulation other tests\n"
+        "        # depend on), which bypasses atexit entirely, so coverage.py's\n"
+        "        # own auto-save-on-exit never runs. Save explicitly after\n"
+        "        # every task instead, so data is already on disk well before\n"
+        "        # any kill.\n"
+        "        task_postrun.connect(lambda *a, **k: _cov.save())\n"
+        "        worker_process_shutdown.connect(lambda *a, **k: _cov.save())\n"
+    )
+    subprocess_coveragerc = run_root / "subprocess.coveragerc"
+    subprocess_coveragerc.write_text(
+        "[run]\n"
+        f"data_file = {data_file.as_posix()}\n"
+        "parallel = True\n"
+        "branch = True\n"
+        "source =\n" + "".join(f"    {root}\n" for root in source_roots())
+    )
+    os.environ["COVERAGE_PROCESS_START"] = str(subprocess_coveragerc)
+    existing_pythonpath = os.environ.get("PYTHONPATH", "")
+    os.environ["PYTHONPATH"] = (
+        f"{sitecustomize_dir.as_posix()}:{existing_pythonpath}" if existing_pythonpath
+        else sitecustomize_dir.as_posix()
+    )
+    # Celery's default prefork pool executes every task in a forked child;
+    # coverage.py's subprocess hook does not reliably survive that further
+    # fork boundary (empirically confirmed). `real_boundary.py::start_worker`
+    # honors this env var (coverage-lane only) to run the worker under
+    # `--pool=solo` instead -- same single, already-instrumented process,
+    # no fork.
+    os.environ["ATTRIBUTE_COVERAGE_WORKER_POOL"] = "solo"
+
+
 def main() -> int:
     raw_full = sys.argv[1:] == ["--raw-full"]
     if sys.argv[1:] not in ([], ["--raw-full"]):
@@ -145,10 +217,12 @@ def main() -> int:
         raise SystemExit("coverage source contract drift")
     run_root = Path(os.environ["ATTRIBUTE_EVIDENCE_RUN_ROOT"])
     output = run_root / "coverage.json"
+    data_file = run_root / ".coverage"
     coverage = Coverage(
-        data_file=str(run_root / ".coverage"), branch=True, source=source_roots(),
+        data_file=str(data_file), branch=True, source=source_roots(),
     )
     coverage.start()
+    _enable_subprocess_coverage(run_root, data_file)
     pytest_args = ["-q", "-p", "no:cacheprovider"]
     if raw_full:
         pytest_args += ["-p", "scripts.attribute_pytest_reporter", "--ignore=nextseek_api/attributes/tests/test_final_gate.py"]
@@ -163,6 +237,13 @@ def main() -> int:
     ]
     pytest_exit = pytest.main([*pytest_args, *PYTEST_SELECTION])
     coverage.stop()
+    subprocess_data_files = sorted(str(p) for p in run_root.glob(".coverage.*"))
+    if subprocess_data_files:
+        # Merge the real Celery worker / web-owner subprocess measurements
+        # (Review Blocker 6) into the parent process's own data before
+        # reporting -- `combine()` both reads and deletes the per-process
+        # parallel files (`keep=False`), leaving one coherent data file.
+        coverage.combine(data_paths=subprocess_data_files, strict=True)
     coverage.save()
     coverage.json_report(outfile=str(output), pretty_print=True, show_contexts=False, include=include_patterns())
     ensure_report_lists_all_sources(coverage, output)
@@ -210,6 +291,17 @@ def main() -> int:
         if len(matches) != 1 or matches[0]["summary"]["percent_covered"] < 95.0:
             print("task-06 metadata.py coverage is below 95%")
             return 1
+    if os.environ.get("ATTRIBUTE_EVIDENCE_TASK_ID") == "task-08":
+        # Spec Section 4: ">=95% of attributes/tasks.py and attributes/
+        # jobs.py" (Review Blocker 6 -- previously unmet and undisclosed,
+        # masked by the aggregate-only ACCEPT check above).
+        payload = json.loads(output.read_text())
+        for suffix in ("nextseek_api/attributes/jobs.py", "nextseek_api/attributes/tasks.py"):
+            matches = [row for name, row in payload["files"].items() if name.endswith(suffix)]
+            if len(matches) != 1 or matches[0]["summary"]["percent_covered"] < 95.0:
+                observed = matches[0]["summary"]["percent_covered"] if len(matches) == 1 else None
+                print(f"task-08 {suffix} coverage is below 95% (observed: {observed})")
+                return 1
     return int(pytest_exit)
 
 
