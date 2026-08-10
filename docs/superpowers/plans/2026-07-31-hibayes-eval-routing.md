@@ -22,7 +22,7 @@
 > after the last vetting pass and therefore invalidates it; the plan must be re-vetted before
 > execution.** V4-0 and the V5 evidence-manifest release gate are unchanged by V8.
 
-> **V9 (2026-08-08) — CURRENT AUTHORITY, NOT YET RE-VETTED.** V9 records the maintainer's
+> **V9 (2026-08-08) — SUPERSEDED IN PART BY V10 BELOW.** V9 records the maintainer's
 > 2026-08-08 rulings on the **deterministic artifact axis**: who owns it, how artifact validity is
 > computed, the multi-artifact unit, the required-field rule, and the projection onto the eval
 > row's four-value `artifact_status`. Read V9 before V2–V8 wherever they disagree on those five
@@ -30,6 +30,33 @@
 > outcome. **V9 also changes this artifact after the last vetting pass. It does not add a second
 > re-vet: V9 rides the same re-vet V8 already requires before execution.** V4-0 and the V5
 > evidence-manifest release gate are unchanged by V9.
+
+> **V10 (2026-08-10) — SUPERSEDED IN PART BY V11 BELOW; V10 EXACT-DIFF REVIEW CLEAN.** V10 records the
+> maintainer's eight 2026-08-10 blocker rulings and applies the confirmed V9 re-vet oracle repairs.
+> It preserves the paired estimand, greedy promotion, dynamic corpus-owned family taxonomy,
+> permanent `unrelated` spend gate, four-component stack boundary, deterministic artifact axis,
+> required-but-empty semantics, and every V4/V5 approval gate. It grants no implementation,
+> provider, paid-run, database, deployment, activation, commit, or push authority. The preserved
+> byte-for-byte V9 backup is
+> `docs/superpowers/plans/2026-07-31-hibayes-eval-routing.pre-v10-20260810T112554-0400.md`
+> (SHA-256 `8da83f5b6fd1b29bad448b5ca10550c655e27cf00d342d11f71a429fe4950df8`).
+
+> **V11 (2026-08-10) — SUPERSEDED IN PART BY V12 BELOW; V11 EXACT-DIFF REVIEW CLEAN.** V11
+> simplifies only the approval process: ask the maintainer directly in the active conversation when
+> a decision or risky action is actually needed. It removes V5-2's separate authenticated-record,
+> signature, external authority-resolver, and nonce infrastructure. It changes no product design,
+> safety condition, paid cap, or action boundary and grants no implementation or operational action.
+> The preserved exact V10 backup is
+> `docs/superpowers/plans/2026-07-31-hibayes-eval-routing.pre-v11-20260810T115925-0400.md`
+> (SHA-256 `0cc82c0fa1fec47b4d1a5976c295fca1689c6a1d18b3b6ee5b88f83d7ae3ba02`).
+
+> **V12 (2026-08-10) — CURRENT AUTHORITY; INDEPENDENT EXACT-DIFF REVIEW CLEAN.** V12
+> removes V5-1's new governance-policy STOP. NExtSEEK's existing private-instance, authenticated,
+> API/project-scoped security model remains the authority; Plan 018 adds no parallel governance
+> regime. It preserves narrow technical access tests and direct at-time approval for actual external
+> judge payloads. The exact V11 backup is
+> `docs/superpowers/plans/2026-07-31-hibayes-eval-routing.pre-v12-20260810T120551-0400.md`
+> (SHA-256 `e2eaf7331a141005753aca15cf4b51f70e769effe0b891f6325ea4562d5de695`).
 
 **Goal:** Build a Bayesian router for the NExtSEEK assistant. A forced-route experiment runs one
 question corpus down the NExtSEEK path and down the Container-CC path and estimates a paired,
@@ -1801,6 +1828,405 @@ That lock covers the **eval-row** export and is untouched by V9.
   (`artifact_validity_*.csv`, V9-H) show the shape that produced the V9-G pins.
 - [ ] No task may cite V8-J as authority for the artifact-validity column set. V8-J governs the
   per-arm eval-row export only.
+
+## V10 post-re-vet hardening amendment (2026-08-10)
+
+### Change control, authority, and precedence
+
+V10 follows the all-instance V9 inventory, independent adversarial/gameability reviews, independent
+claim verification, and the maintainer's explicit answers to all eight escalated design questions.
+It supersedes conflicting V9/V8/V7/V6/V5/V4/V3/V2/original prose only for the contracts named
+below. Every other prior constraint remains binding.
+
+The exact V9 source preserved before this edit is
+`docs/superpowers/plans/2026-07-31-hibayes-eval-routing.pre-v10-20260810T112554-0400.md`, SHA-256
+`8da83f5b6fd1b29bad448b5ca10550c655e27cf00d342d11f71a429fe4950df8`.
+
+The maintainer's rulings are binding design decisions:
+
+1. Extend execution reuse with a canonical execution-input hash.
+2. Dynamically construct a pydantic model from an independently represented artifact schema and
+   use pydantic validation to enforce marker-declared required fields.
+3. Promote every eligible occurrence automatically without mutating the on-disk corpus; persist
+   exact corpus uploads as immutable, checksum-unique database records with timestamps and
+   metadata. A byte-identical upload is rejected.
+4. Derive `stack_id` from the four immutable image digests; model, configuration, and data
+   identities remain separate provenance/reuse guards.
+5. Resolve `artifact_expected` from versioned corpus `family_defaults` with an explicit
+   per-variant override.
+6. Add `posterior` to the shared `route_source` vocabulary.
+7. `unrelated` remains a non-negotiable enum member and spend gate. The existing router's
+   unrelated-enforcement prompt language and behavior must not be mutated or dropped.
+8. Execute every promoted occurrence independently, even when query bytes repeat.
+
+Confirmed factual/oracle repairs are also binding: preserve pair identity through the statistical
+decision boundary; durably conserve pre-row exclusions; contain and bound artifact access; prove
+bundle subsets by bytes; bind regression evidence to fresh raw inputs and exact rows; enforce
+failure-mode coherence and exhaustive status projection; compare independent source adapters at
+the canonical-record layer; and mechanically void conflicting historical execution snippets.
+
+No V10 text changes a V4/V5 STOP or supplies its answer. No task may implement from the historical
+body alone. Before execution, V4-0 must emit `evidence/plan018-controlling-contract.json`, mapping
+every task/step to its controlling V10/V9/V8/V7/V5/V4 clause and marking every conflicting old
+command or oracle `void`. The validator fails on an unmapped step, multiple active authorities, or
+any attempt to execute a void command.
+
+### V10-A — Content-bound execution reuse and independent promoted occurrences
+
+The V8-B key is extended to:
+
+```text
+(query_id, route, stack_id, task_family, execution_input_sha256)
+```
+
+`execution_input_sha256` is SHA-256 over a canonical, versioned serialization of all resolved bytes
+that can alter that arm's execution or scoring contract: the complete single-/multi-turn question,
+criteria and expected behavior, resolved family defaults and per-variant overrides, independently
+declared artifact schema identity, and non-secret execution parameters. The serializer name/version
+and component hashes are stored beside the digest. It never hashes a mutable path, object `repr`,
+timestamp, or unordered dictionary iteration.
+
+Model/client identity, non-secret configuration hash, and data/seed identity are required separate
+fields and exact-match reuse guards. They are not folded into `stack_id` and are not fit grouping
+dimensions. A cache lookup is reusable only when the five-field key and every separate guard match.
+Changed content under a stable `query_id` must miss the cache; a collision or inconsistent stored
+component map fails closed.
+
+Every `StackVersion` component is independently resolved to the immutable OCI digest syntax
+`sha256:<64 lowercase hexadecimal characters>`; tags, container names, branch names, and aliases
+such as `latest` are rejected even if they currently resolve to the same bytes. The canonical
+`stack-v1` input is a length-delimited encoding of exactly these ordered named pairs:
+`nextseek_image`, `container_agent_image`, `sidecar_image`, `seek_image`. `stack_id` is
+`stack-v1:sha256:<hex SHA-256 of those canonical bytes>`. The derivation version, canonical tuple,
+and resulting ID are stored under a uniqueness/equality constraint: the same tuple always resolves
+to the same ID, and an existing ID associated with any different tuple is an integrity collision
+that fails closed. Tests reject aliases and malformed digests, permute tuple order/names, mutate
+each digest independently, prove same-tuple determinism, and reject an inconsistent stored record.
+Model/config/data identities remain separate guards and never enter this tuple or the fit grouping.
+
+Each promoted occurrence receives a unique immutable `promotion_id` and `query_id`. Repeated
+questions are not aliases: every occurrence independently executes both forced arms. The execution
+cache must never reuse an arm across two different promotion/query IDs, even when their text and
+all other input bytes are equal. Tests must mutate each canonical input and each separate guard,
+prove a miss, and prove a no-op executor cannot satisfy a reuse-path test.
+
+### V10-B — Immutable corpus uploads and automatic database-backed promotion
+
+Runtime code never edits `nessie_tests/corpus.json` or any other on-disk corpus file. Add an
+immutable `CorpusVersion` database record holding the exact uploaded bytes plus:
+
+- `sha256` with a database uniqueness constraint;
+- `byte_length`;
+- database-generated `created_at` in UTC;
+- original source name/identifier, uploader or producing process, format/schema version, and
+  provenance metadata.
+
+Upload/import reads the on-disk file bytes once, hashes those raw bytes without parsing,
+canonicalizing, reformatting, or rewriting them, and checks the database. If a row with that hash
+already exists, the attempt is rejected as a duplicate, not reported as a successful upload and not
+silently treated as a no-op. The unique constraint is the concurrency authority. A same-hash row
+with different length or bytes is a collision/integrity incident and fails closed. Successful
+retrieval returns the exact stored bytes and verifies checksum and length before parsing. Parsed
+schema validity is a separate admission check and never changes the stored identity bytes.
+
+Automatic online promotion is not a corpus-file upload. A `CorpusPromotion` row is inserted for
+every classified non-`unrelated` turn, linked to the selected immutable `CorpusVersion`, source turn,
+classifier snapshot, family, exact query/turn bytes, resolved criteria/defaults, artifact schema,
+governance decision, and unique occurrence identity. It retains multiplicity and has no dedup or
+novelty check. The next paired-run input is the selected immutable corpus version plus all eligible
+linked promotion rows; assembling that input occurs in memory/database and never rewrites the
+stored corpus blob or disk file.
+
+V5-1 applies explicitly before promoted bytes are admitted or disclosed. If governance or required
+runnable criteria cannot be resolved, the occurrence is still represented by one durable promotion
+disposition with the exact failure reason; it is never silently dropped or invented as runnable.
+Conservation is equality with multiplicity between classified source-turn IDs and exactly one of
+`promoted_ready`, `promotion_failed`, or `unrelated_not_promoted`. Promotion code has no access to
+route outcome, answer quality, success, posterior, or judgment fields; tests kill outcome-branch,
+drop, dedup, and unrelated-admission mutants.
+
+### V10-C — Independently declared schemas and dynamic pydantic validation
+
+V9-B's phrase “the artifact declares its own schema” means a schema declaration independently
+represented from the data records, not a schema inferred from the fields that happen to be present
+in the delivered payload. The source adapter carries canonical schema bytes/schema ID and SHA-256
+beside each structured artifact. A generated observational schema derived from the same payload is
+not authority for omission detection.
+
+The validator converts that declaration into a cached pydantic v2 model (`create_model`,
+`TypeAdapter`, or an equivalent pydantic-native construction) keyed by schema hash:
+
+- a `*field` becomes a required, single-valued field using its exact external name as an alias;
+- a `**field` becomes a required multi-valued/list field using its exact external name as an alias;
+- required fields have no default, so absence fails. Their generated pydantic types explicitly
+  union the declared strict nonempty type with the approved empty representations: `None`, the
+  zero-length string, and the zero-length container of the declared container kind (`[]` for a
+  multi-valued/list field and `{}` for an object field). A `mode="before"` field/model validator
+  checks alias presence before content validation and recognizes only those exact empty forms;
+  whitespace-only or wrong-kind values are not silently treated as empty;
+- configured unknown-field behavior is explicit and tested; it may not silently discard data that
+  affects validation;
+- JSON objects and inline tables are converted to record mappings; CSV/TSV rows and each declared
+  XLSX sheet/table are converted to mappings before pydantic validation. Pydantic validates these
+  structured records, not binary containers or filesystem safety.
+
+The required set comes only from the independently carried schema. Deriving a model from the
+payload's present keys/columns is forbidden because deleting a whole marked field would delete the
+only evidence it was required. A malformed declaration is `SchemaInvalid`; a structured artifact
+whose required schema cannot be independently resolved is `Indeterminate`, never `Valid`. An
+independently declared schema with zero required fields may validate normally.
+
+Golden and mutation tests, for every supported structured form, delete each required key/column and
+require `Incomplete`, then restore it separately with `None`, `""`, and every schema-approved empty
+container and require validity. Nonempty values still undergo strict declared-type validation;
+their raw representation and the recognized empty form are retained for downstream axes rather
+than coerced away. Tests distinguish an absent alias from each present-empty representation for
+both `*` and `**` fields and kill marker stripping, schema/data join bypass, first-row-only
+validation, empty-to-absent normalization, wrong-kind empty acceptance, and “nonempty means valid.”
+
+### V10-D — Canonical artifact expectation and total artifact safety
+
+`artifact_expected` is deterministically resolved from the selected, checksum-bound
+`CorpusVersion`: begin with that task family's `family_defaults.artifact_expected`, then apply an
+explicit non-null per-variant override when present. The resolver stores the corpus ID/hash,
+family-default value, override value, final value, and resolver version. Missing family defaults,
+unknown families, invalid override types, conflicting provenance, or caller-supplied values that
+disagree with the resolver fail closed. Callers may not provide an unbound boolean, and all-false
+fixtures cannot bypass the positive-family tests.
+
+Both artifact sources must resolve only regular files beneath an allowlisted per-run root using a
+no-follow, canonical containment policy. Reject absolute/traversal paths, symlink/hardlink/special-
+file escapes, zip-slip members, duplicate ambiguous paths, and paths owned by another run/project.
+Enforce explicit configurable maxima for file count, individual/total bytes, rows/cells, archive
+members, compressed and expanded bytes/ratio, nesting, and parser time. Limit violations produce a
+deterministic non-success status/reason and cannot hang or exhaust the worker.
+
+`artifacts.zip` is a subset of the loose tree only when every safe normalized relative member path,
+byte length, and SHA-256 matches a loose artifact. Basename equality is never proof. Otherwise the
+unique member is independently validated. Tests cover same-name/different-byte members, duplicate
+basenames, archive traversal, archive limits, and unique bundle content.
+
+`LiveTurnSource` and `ExportedRunSource` independently construct the same canonical artifact-record
+schema. A heterogeneous run represented both ways must match byte-for-byte at the canonical-record
+layer and then match per-artifact and arm verdicts. Mutating either adapter alone must turn the gate
+red; final-status equality alone cannot satisfy parity.
+
+### V10-E — Durable dispositions, pair preservation, and coherent rows
+
+Before `EvalRow` construction, every source arm produces exactly one durable disposition:
+`EmittedArm` or `ExcludedArm`. `ExcludedArm` contains the immutable run/pair/query/arm FK and source
+hash, route, family, stack/input identities, exclusion reason, triggering facts, and disposition
+version. It is not an auxiliary hand count. Foreign-key and uniqueness constraints prevent an arm
+from being both emitted and excluded or from disappearing.
+
+Conservation is recomputed from the pre-row arm universe:
+
+```text
+all source arm IDs == emitted arm IDs DISJOINT-UNION excluded arm IDs
+```
+
+Counts are also published by run, family, route, and reason. Unknown reasons, dangling IDs,
+duplicates, or a mismatch halt fit admission.
+
+`failure_mode` is derived by trusted code from source flags using
+`timeout > error > no_answer > none`; a supplied value that disagrees is rejected. Tests exhaust
+all flag combinations and kill every precedence/operator branch. `error_class` is likewise bound
+to source evidence; unknown or incoherent facts fail closed.
+
+The fit admission object remains pair-addressable through the V4-4 STOP. It carries `query_id`,
+pair/run identity, both route arms or their bound disposition, and all lineage hashes. The V8
+`(task_family, route)` marginal aggregate in `router_models_proposal.py` is not fit input and must
+not discard pair identity. V4-4 still decides the dependence-preserving likelihood/sufficient
+statistics, repeated-unit treatment beyond the already-ruled independent promoted executions,
+thresholds, and decision rule. Nothing in V10 chooses those reserved statistical semantics.
+
+### V10-F — Posterior provenance and the permanent `unrelated` gate
+
+The shared closed `route_source` vocabulary is:
+
+```text
+forced | baml | sticky | heuristic | posterior
+```
+
+A posterior-selected route records `posterior` plus the activated generation/decision provenance
+required by V4-5/V4-6. Attempted, selected, actual, fallback, and safety-override facts remain
+distinguishable; no route source is relabeled to fit an older enum.
+
+`unrelated` is permanently retained in both relevant enum surfaces:
+
+- the existing `Route` enum retains `Unrelated @alias("unrelated")` for legacy/fallback
+  compatibility; and
+- runtime TypeBuilder constructs the effective `ClassifiedFamily` set as exactly
+  `corpus["families"].keys() union {"unrelated"}` — no other extra member is allowed.
+
+The existing unrelated guard paragraph in both byte-identical BAML router trees must remain
+byte-for-byte unchanged:
+
+```text
+If the query has no connection to NExtSEEK, the BioMicro Center lab, or
+the user's research data — for example general world trivia, celebrity or
+pop-culture gossip, current events, or chit-chat unrelated to the lab's
+samples, studies, code, or files — select `unrelated`. Do NOT route such
+queries to `container_cc` or `nextseek_query`.
+```
+
+The split classifier carries that exact paragraph without deleting or mutating it in the existing
+router. An `unrelated` classification immediately emits the existing fixed canned response and
+produces no routing decision, NS dispatch, CC dispatch, downstream model/provider call, posterior
+lookup/fit input, or promotion. History stickiness, posterior selection, fallback, and safety
+overrides cannot convert `unrelated` into an in-scope route.
+
+Tests pin the paragraph byte-for-byte in both BAML copies, pin both copies byte-identical, assert
+the exact enum equality above, assert the canned reply, and instrument every downstream seam to
+prove zero calls. They specifically prove sticky history cannot override `unrelated`. No task may
+weaken the exact-equality oracle to subset containment or remove/reword the current guard.
+
+### V10-G — Artifact-status, regression, and evidence oracles
+
+Test every singleton and every ordered pair/permutation of the ten `ArtifactStatus` values through
+the public validator/export seam. Assert the full severity order, total V9-E projection, prohibition
+of per-artifact `NotExpected`, empty expected/non-expected sets, and fail-closed handling of unknown
+future values. Mutating any severity or projection entry must fail.
+
+The V9-G clean counts remain unchanged, but aggregate equality alone is insufficient. The delivery
+test must:
+
+- fresh-retrieve and verify stable evidence identities before use per V5;
+- bind exact V10 plan/backup, source/diff, dependency locks, raw delivery SHA-256, `MANIFEST.json`
+  SHA-256, and every raw member identity;
+- generate into a newly created empty output directory and reject pre-existing outputs;
+- prevent product code from importing or reading the expected committed CSVs;
+- compare every arm and per-artifact row by stable ID, source hash, detected type, schema hash,
+  status, projection, and conservation before checking aggregates; and
+- run leave-one-out and corrupt-one-byte mutations for every supported structural type, proving the
+  exact affected row/arm changes and unrelated rows do not.
+
+The registry release verifier resolves the plan from fresh-fetched `origin/main` and verifies exact
+bytes/hashes. It must not trust the checked-out machine-branch vault, basename, or stale manifest
+pointer. Box-local delivery paths remain evidence inputs only until V5's stable release gate is
+satisfied.
+
+### V10-H — Owned implementation tasks and local DONE conditions
+
+V4-0 must assign exact files after selecting/reconciling the implementation base. At minimum the
+ownership map includes:
+
+| Owner | Required deliverable |
+|---|---|
+| V4-0 / Task 1 | `CorpusVersion`, `CorpusPromotion`, immutable stack/config/data provenance, migrations and constraints |
+| Task 2 / Task 5 | automatic promotion writer, governance/disposition conservation, terminal-path coverage |
+| Task 3 / V4-6 | split classifier, exact dynamic enum, preserved unrelated prompt/canned gate |
+| Task 7 | coherent EvalRow export, `EmittedArm`/`ExcludedArm`, pair-preserving fit-admission object |
+| Task 7b | independent artifact-schema model builder, safe sources, exhaustive validity/status oracles |
+| Task 8 | five-field execution cache plus separate guards; complete judgment fingerprint |
+| Task 9 | promotion/run assembly and paid reservation over exact independently executed arms |
+| Task 10 / V4-4 | reviewed paired model adapter, immutable generation publication and activation |
+| Task 12 / V4-6 | posterior selection with `route_source="posterior"` and exact fallback provenance |
+| Task 13 / V5 | source-derived completion manifest, mutations, evidence release and rollback proof |
+
+Local DONE requires all controlling V10 tests plus the earlier non-conflicting task conditions.
+Historical Task 7's `created_at__gt` watermark test, “non-incremental export” failure, running
+container commands, V8 marginal-fit aggregate, permissive publisher upsert, premature beat
+registration, post-call spend arithmetic, and skipped-live-test-as-acceptance are explicitly void.
+A skipped paid test proves default safety only. No task is DONE from a grep, copied count, mock-only
+assertion, schema-only manifest, or test suite with unexpected skip/xfail/deselection/zero selection.
+
+### V10 completion and release gate
+
+V10 hardening is complete only when an independent verifier reviews only the exact V9-backup-to-V10
+diff against the persisted V9 adversarial, gameability, claim-verification, all-instance inventory,
+and the maintainer rulings, with zero blockers. That review does not authorize implementation.
+
+Execution remains blocked on V4-0, V4-1, V4-4, V5-1, V5-2, stable evidence release, and every
+separate paid/deploy/activation/commit/push approval. A future changed plan, corpus bytes, selected
+base, proposal, raw delivery, or review finding invalidates only the evidence bound to its prior
+hash; it never silently inherits a CLEAN verdict.
+
+## V11 direct-at-time approval amendment (2026-08-10)
+
+V11 records the maintainer's explicit choice of the simple approval process and supersedes V5-2,
+V10's reference to V5-2 as an implementation blocker, and every conflicting requirement for a
+separate approval schema, database, signature, external authority resolver, system-of-record ID,
+expiry field, or consumable nonce.
+
+When this plan reaches a maintainer decision or a gated action, the active agent asks the maintainer
+directly **at that time**. The question must clearly state the decision/action, why it is needed,
+the exact scope and material consequences, and multiple viable options with any recommendation
+justified. The maintainer's explicit answer in that conversation is the approval authority. The
+agent records it in the normal durable handoff as user-stated context, but the handoff is an audit
+record, not a second approval mechanism.
+
+- [ ] Approval is specific to the question actually asked. It cannot be inferred, bundled with a
+  different action, carried into materially changed inputs/targets, or treated as standing
+  permission. If material scope changes, ask again at the time it changes.
+- [ ] V4-1 taxonomy/common-support/estimand, V4-4 statistical-contract, and V5-1 governance
+  decisions require only this direct maintainer answer after their decision artifact is presented.
+  No V5-2A infrastructure or external verification must be built first.
+- [ ] Paid/model runs still present the exact run scope, clients, current price basis, estimated and
+  maximum spend, retry allowance, and target before asking. The existing atomic budget reservation,
+  hard-cap, idempotency, and reconciliation controls remain implementation requirements; they do
+  not require an approval-record service or nonce.
+- [ ] Candidate activation, deployment, production enablement, commit/push, live mutation, and
+  destructive rollback are each asked separately when ready, with their exact target and rollback/
+  impact context. Direct conversational approval replaces V5-2B's authenticated-record and nonce
+  verifier; it does not merge these action boundaries or authorize them in advance.
+- [ ] An agent-authored assertion that approval occurred is insufficient when the conversation does
+  not contain the maintainer's explicit answer. Conversely, an explicit answer does not become
+  invalid merely because no signature, external resolver, approval database, or nonce exists.
+
+**Immediate effect:** there is no approval-mechanism implementation blocker. A new implementation
+session needs only the maintainer's direct authorization to begin V4-0. It must return for the
+remaining V4-1, V4-4, V5-1, paid, activation, deployment, production, commit/push, live-mutation,
+and destructive-action decisions when each becomes current; it must not ask for or manufacture
+those approvals prematurely.
+
+## V12 existing-security-baseline amendment (2026-08-10)
+
+V12 records the maintainer's correction that V5-1 designed a parallel governance regime for risks
+already controlled by NExtSEEK's existing operating model. V12 supersedes V5-1 as a STOP, V11's
+remaining reference to a future V5-1 decision, and every conflicting requirement to author or
+approve a new Plan-018-specific lawful-basis/notice, retention matrix, encryption/key, offboarding,
+legal-hold, incident-owner, or general data-governance policy before implementation.
+
+The binding baseline is:
+
+- NExtSEEK is a private system and users must authenticate before using Nessie.
+- User-facing operations and actions traverse the existing API authorization layer, which scopes
+  access by project. Plan 018 reuses that boundary and does not create a bypass.
+- Historical query/run/evaluation data is internal and no non-admin user is given a new list,
+  retrieve, export, search, or download surface for it.
+- The two already documented admin-endpoint authorization exceptions are existing defects tracked
+  separately. Plan 018 neither fixes them nor treats them as precedent; no new Plan 018 endpoint may
+  reuse their permissive `IsAdminUser` pattern or expose Plan 018 history through them.
+- Internal/private evaluation data remains retained by default per V7-D. Plan 018 does not add a
+  general erasure workflow, retention scheduler, legal-policy engine, or separate governance store.
+
+These are implementation invariants, not a policy-approval project:
+
+- [ ] Reuse existing authentication and project-authorization helpers at every user-facing seam;
+  do not duplicate or weaken them.
+- [ ] Keep historical ledger, corpus-promotion, artifact, judgment, cache, and generation reads
+  internal to explicitly trusted admin/service paths. Any new HTTP/API surface is denied to
+  unauthenticated and ordinary non-admin users; tests prove cross-user/project denial and that no
+  list/retrieve/export endpoint leaks another user's history.
+- [ ] Do not route new Plan 018 data through either separately tracked permissive admin endpoint.
+  Those issues remain independent remediation work and do not block Plan 018 implementation.
+- [ ] Preserve existing secret-handling and logging rules. Literal credentials/secrets are not
+  intentionally persisted in ordinary evaluation fields or sent to a judge; this is ordinary input
+  hygiene, not a new governance-policy gate.
+- [ ] When a real external judge/provider run is ready, show the maintainer the exact payload
+  categories, target/provider, scope, and spend under V11 and ask directly at that time. Free/fake
+  implementation and tests do not wait for this later action approval.
+- [ ] Negative tests cover unauthenticated access, ordinary-user history access, cross-project
+  access, accidental endpoint registration, and provider-payload construction. They validate the
+  existing boundary; they do not require a new role system, policy database, retention service, or
+  approval mechanism.
+
+**Immediate effect:** there is no V5-1 governance-policy blocker. After direct implementation
+authorization, a new session may begin V4-0. The next maintainer decision is V4-1 after the session
+produces the actual taxonomy/common-support artifact; V4-4 and real provider/paid/activation/
+deployment/production/commit-push/live-mutation/destructive-action decisions are asked only when
+their work reaches the corresponding gate.
 
 ## Referenced artifacts (dev box)
 
