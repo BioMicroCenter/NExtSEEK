@@ -743,6 +743,20 @@ class TestRunUidGen:
         parent_uid = result_rows[0].UID
         assert child_meta["Parent"] == parent_uid
 
+    def test_literal_ab_parent_uid_preserved(self):
+        """Parent=AB-* literal UID must stay as UID, not name_identity lookup."""
+        from nextseek_api.batch_upload.uid_gen import _resolve_parents, _build_identity_to_uid_map
+
+        rows = [
+            _make_row(uid="NHP-260225MIT-2", meta='{"Name":"Child","Parent":"AB-230327BOO-3"}'),
+        ]
+        identity_map = _build_identity_to_uid_map(rows)
+        conn = MagicMock()
+        result_rows, warnings, resolved, failed = _resolve_parents(rows, identity_map, conn)
+        child_meta = json.loads(result_rows[0].json_metadata)
+        assert child_meta["Parent"] == "AB-230327BOO-3"
+        conn.execute.assert_not_called()
+
     def test_deduplication_with_warnings(self):
         rows = [
             _make_row(meta='{"Name":"Dup"}'),

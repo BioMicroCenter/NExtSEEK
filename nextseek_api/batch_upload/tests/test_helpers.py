@@ -61,6 +61,27 @@ class TestUidRe:
     def test_name_not_uid(self):
         assert not UID_RE.match("UtEC - 2015010902")
 
+    def test_two_letter_type_ab(self):
+        assert UID_RE.match("AB-230522GRI-1")
+
+    def test_two_letter_type_ab_pub(self):
+        assert UID_RE.match("AB-230522GRI-1-PUB")
+
+    def test_m_dot_prefix_lmm(self):
+        assert UID_RE.match("M.LMM-231208ALT-1")
+
+    def test_m_dot_prefix_cnn(self):
+        assert UID_RE.match("M.CNN-231208ALT-1")
+
+    def test_a_gex_prefix(self):
+        assert UID_RE.match("A.GEX-260101MIT-1")
+
+    def test_free_text_not_uid(self):
+        assert not UID_RE.match("See Protocol")
+
+    def test_trailing_newline_rejected(self):
+        assert not UID_RE.match("NHP-260225MIT-1\n")
+
 
 class TestCollectParentTokens:
     """Tests for collect_parent_tokens: extracts parent tokens from all parent-containing keys."""

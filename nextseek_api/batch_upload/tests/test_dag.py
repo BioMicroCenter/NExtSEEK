@@ -76,6 +76,16 @@ class TestExtractParentsRegexVariants:
         meta = '{"Parent":"D.IMG-260225MIT-3"}'
         assert "D.IMG-260225MIT-3" in extract_parents(meta)
 
+    def test_two_letter_ab_prefix(self):
+        extract_parents.cache_clear()
+        meta = '{"Parent":"AB-230327BOO-3"}'
+        assert extract_parents(meta) == frozenset({"AB-230327BOO-3"})
+
+    def test_m_dot_prefix_lmm(self):
+        extract_parents.cache_clear()
+        meta = '{"Parent":"M.LMM-231208ALT-1"}'
+        assert extract_parents(meta) == frozenset({"M.LMM-231208ALT-1"})
+
 
 class TestExtractParentsNameWithSpaces:
     """Names with spaces must not be fragmented by the split regex."""

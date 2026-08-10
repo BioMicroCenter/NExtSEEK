@@ -626,6 +626,23 @@ class TestSampleAdvancedSearch:
 
     @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
     @patch("nextseek_api.services.samples.DBtable_sample")
+    def test_ab_uid_routes_to_uids_search(self, mock_dbs, _):
+        """Two-letter AB UIDs route to indexed UIDs search path (#69)."""
+        vs = self._viewset()
+        mock_dbs.return_value.searchAdvanced.return_value = _adv_search_result([])
+        terms = ["AB-230522GRI-1", "AB-230522GRI-2"]
+        req = self._req({
+            "filter_searchText": terms,
+            "searchText_logic": "OR",
+            "filter_matchType": "EXACT",
+        })
+        vs.create(req)
+        call_args = mock_dbs.return_value.searchAdvanced.call_args
+        assert call_args[0][2] == "UIDs"
+        assert call_args[0][1]["filter_searchUIDs"] == "\n".join(terms)
+
+    @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
+    @patch("nextseek_api.services.samples.DBtable_sample")
     def test_multiple_search_texts_and_nests_three_terms(self, mock_dbs, _):
         vs = self._viewset()
         mock_dbs.return_value.searchAdvanced.return_value = _adv_search_result([])
