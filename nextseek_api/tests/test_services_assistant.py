@@ -1158,3 +1158,82 @@ class PermissionDeniedTests(TestCase):
     def test_test_cases_permission_denied(self):
         resp = self.client.get("/nextseek_api/assistant/test-cases/")
         self.assertEqual(resp.status_code, 403)
+
+
+# ============================================================================
+# OpenAPI request examples must actually validate (#39)
+# ============================================================================
+
+
+class OpenApiExamplesValidateTests(TestCase):
+    """Every request-only OpenApiExample declared for a QueryRequest-typed
+    endpoint must validate against QueryRequest.
+
+    QueryRequest.mode is Field(...) — required — so an example that omits it is
+    copy-pasteable straight into a 422. Scanned from source (rather than from a
+    generated schema) so new examples are covered automatically, and so the
+    check does not depend on whether a given viewset reaches the public schema.
+    """
+
+    MODULES = ("services/assistant.py", "services/cc_assistant.py")
+
+    @staticmethod
+    def _query_request_examples(path):
+        """(module, example_name, value) for each request_only OpenApiExample
+        under an @extend_schema(request=QueryRequest, ...)."""
+        import ast
+
+        tree = ast.parse(path.read_text())
+        found = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "extend_schema"):
+                continue
+            kw = {k.arg: k.value for k in node.keywords}
+            request = kw.get("request")
+            if not (isinstance(request, ast.Name) and request.id == "QueryRequest"):
+                continue
+            examples = kw.get("examples")
+            if not isinstance(examples, ast.List):
+                continue
+            for ex in examples.elts:
+                if not (isinstance(ex, ast.Call)
+                        and isinstance(ex.func, ast.Name)
+                        and ex.func.id == "OpenApiExample"):
+                    continue
+                exkw = {k.arg: k.value for k in ex.keywords}
+                if "value" not in exkw:
+                    continue
+                name = exkw.get("name")
+                name = name.value if isinstance(name, ast.Constant) else "<unnamed>"
+                found.append((name, ast.literal_eval(exkw["value"])))
+        return found
+
+    def test_every_query_request_example_validates(self):
+        from pydantic import ValidationError as PydanticValidationError
+
+        from nextseek_api.assistant.models_api import QueryRequest
+
+        repo_root = Path(__file__).resolve().parents[2]
+        checked = 0
+        for rel in self.MODULES:
+            path = repo_root / "nextseek_api" / rel
+            examples = self._query_request_examples(path)
+            self.assertTrue(examples, f"no QueryRequest examples found in {rel}")
+            for name, value in examples:
+                with self.subTest(module=rel, example=name):
+                    try:
+                        QueryRequest.model_validate(value)
+                    except PydanticValidationError as exc:
+                        self.fail(
+                            f"{rel} example {name!r} would 422 if copied: {exc}"
+                        )
+                    checked += 1
+        self.assertGreaterEqual(checked, 4)
+
+    def test_mode_is_required_on_query_request(self):
+        """The premise of the test above: drop this and it silently passes."""
+        from nextseek_api.assistant.models_api import QueryRequest
+
+        self.assertTrue(QueryRequest.model_fields["mode"].is_required())

@@ -662,12 +662,12 @@ class AssistantViewSet(viewsets.ViewSet):
         examples=[
             OpenApiExample(
                 name="Simple query (auto-session)",
-                value={"query": "Find me mice treated with NDMA"},
+                value={"query": "Find me mice treated with NDMA", "mode": "standard"},
                 request_only=True,
             ),
             OpenApiExample(
                 name="Query with explicit session",
-                value={"session_id": "abc12345-def6-7890-abcd-ef1234567890", "query": "Find me mice treated with NDMA"},
+                value={"session_id": "abc12345-def6-7890-abcd-ef1234567890", "query": "Find me mice treated with NDMA", "mode": "standard"},
                 request_only=True,
             ),
         ],
@@ -795,7 +795,7 @@ class AssistantViewSet(viewsets.ViewSet):
         examples=[
             OpenApiExample(
                 name="Async query (auto-session)",
-                value={"query": "Find me mice treated with NDMA"},
+                value={"query": "Find me mice treated with NDMA", "mode": "standard"},
                 request_only=True,
             ),
         ],

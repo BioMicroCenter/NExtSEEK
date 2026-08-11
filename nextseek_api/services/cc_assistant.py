@@ -682,7 +682,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
         request=QueryRequest,
         responses={202: AsyncQueryResponse},
         examples=[OpenApiExample(
-            name="Routed query", value={"query": "Find me mice treated with NDMA"},
+            name="Routed query",
+            value={"query": "Find me mice treated with NDMA", "mode": "standard"},
             request_only=True,
         )],
     )
