@@ -101,7 +101,17 @@
   "v4_1_status": "CLOSED",
   "v4_1_closed_at": "2026-08-11T15:00:29Z",
   "v4_1_closeout": "evidence/plan018-v4-1-closeout.json",
-  "next_gate": "V4-2",
+  "v4_2_status": "CLOSED",
+  "v4_2_closed_at": "2026-08-11T16:00:00Z",
+  "v4_2_closeout": "evidence/plan018-v4-2-closeout.json",
+  "next_gate": "V4-3",
+  "v4_2_evidence": {
+    "host_lane": "evidence/plan018-v4-2-host-lane.sidecar.json",
+    "product_seams": "evidence/plan018-v4-2-product-seams.sidecar.json",
+    "verifier": "evidence/plan018-v4-2-verifier.sidecar.json",
+    "prereq": "evidence/plan018-v4-2-prereq.json",
+    "port_receipt": "evidence/plan018-v4-2-port-receipt.json"
+  },
   "port_provenance": {
     "ref": "evidence/plan018-v4-0-port-provenance.json",
     "gate": "PASS",

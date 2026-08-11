@@ -57,4 +57,5 @@ Canonical owner = the task that may create/modify the path. Consumers may read b
 3. ~~`evidence/plan018-controlling-contract.json` full task→clause map.~~ **done** (`v4-0-complete-for-plan-tasks`; see `plan018-controlling-contract-summary.md`)
 4. ~~Port provenance file enum + newer-tip review.~~ **done** (`plan018-v4-0-port-provenance.*`)
 5. ~~Forward migrate empty + prod-shaped disposable.~~ **done** (SA `startup/seed` → leaf `0009`; live DB untouched)
-6. Maintainer closeout of V4-0 → authorize **V4-1** (mechanical; no product port).
+6. ~~Maintainer closeout of V4-0 → authorize **V4-1** (mechanical; no product port).~~ **done**
+7. ~~V4-2 ordinary+paired Nessie port onto `6881b6a8` base.~~ **done** — see `plan018-v4-2-closeout.json`; next gate **V4-3**.

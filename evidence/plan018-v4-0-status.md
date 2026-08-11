@@ -26,4 +26,4 @@
 
 ## Next gate
 
-**V4-1** — mechanical families/common-support from V13-A delivery (in progress / see `plan018-v4-1-*` evidence).
+**V4-3** — judgment attempts, DD-44 aggregation, outcome conservation (pending authorization).

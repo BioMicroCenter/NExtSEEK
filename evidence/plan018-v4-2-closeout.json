@@ -1,0 +1,51 @@
+{
+  "schema": "plan018-v4-2-closeout/v1",
+  "recorded_at": "2026-08-11T16:00:00Z",
+  "gate": "PASS",
+  "worktree_sha": "625b198ebf659ddea10a10b8355b6db06d92f8a3",
+  "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+  "next_gate": "V4-3",
+  "artifacts": {
+    "prereq": "plan018-v4-2-prereq.json",
+    "port_receipt": "plan018-v4-2-port-receipt.json",
+    "host_lane": "plan018-v4-2-host-lane.sidecar.json",
+    "product_seams": "plan018-v4-2-product-seams.sidecar.json",
+    "verifier": "plan018-v4-2-verifier.sidecar.json",
+    "verifier_log": "plan018-v4-2-verifier.log",
+    "cold_review": "plan018-v4-2-cold-outcome-review.md"
+  },
+  "summary": {
+    "nessie_tree_oid": "c1f468de3d52284d05438a95a35ed051d64cf571",
+    "host_lane_passed": 1218,
+    "host_lane_skipped": 28,
+    "product_seams_passed": 36,
+    "verifier_checks_passed": 22,
+    "set3_pairs": 149,
+    "set3_arms": 298,
+    "route_execution_for_acceptance": false,
+    "set3_rerun": false,
+    "paid_or_live_resources_used": false
+  },
+  "residual_debt": [
+    "Live paid --bayesian on this base needs separate at-time authorization (V4-8)",
+    "Tip frontend force-route UI not ported",
+    "Broader tip cc_assistant drift beyond force_route/ns_run_root not merged",
+    "Living-plan progress SHA differs from published V14 SHA until explicit republish authorization",
+    "Product seam tests run via docker worktree mount + dmac.test_settings override (not pure host §3.1 one-liner)",
+    "Stored set3_final bayes_manifest predates schema_version field; strict replay accepts via optional default"
+  ],
+  "artifact_sha256": {
+    "plan018-v4-2-prereq.json": "85f45a355a2ed3bed8b248c78d60a6b5e3137bb9147d128c1ecdb0fa0e0ad62e",
+    "plan018-v4-2-port-receipt.json": "0a1826f0ecece9d5baef76fd81d232d4833b668846fd49f0c47ae970a148c752",
+    "plan018-v4-2-host-lane.sidecar.json": "e3c80ba2036c8b0f3b658ebff84705c46fd018c157d00aba031d82efa46d6117",
+    "plan018-v4-2-product-seams.sidecar.json": "7a9022c2274862629a06516ba3834a441ac96ccaf1d4fef9c04cec84a5ca421e",
+    "plan018-v4-2-verifier.sidecar.json": "c354996d2d2d5280eb8408f07eb0929a74d0ab0a17fbe664035aeeb9388a9a4a"
+  },
+  "living_plan_progress": {
+    "updated_at": "2026-08-11T16:00:00Z",
+    "path": "/home/taishajo/work/NExtSEEK-deploydocs/docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md",
+    "local_sha_after_v4_2_close": "625b198ebf659ddea10a10b8355b6db06d92f8a3",
+    "published_sha256_v14": "af99a24b765f04330cf25b09c005a80002d175890f66743d2b2115b9b2f74a6e",
+    "note": "Progress markers only; not republished to origin/dev or registry"
+  }
+}
