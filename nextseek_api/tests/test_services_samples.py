@@ -673,6 +673,30 @@ class TestSampleAdvancedSearch:
 
     @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
     @patch("nextseek_api.services.samples.DBtable_sample")
+    def test_multiple_search_texts_or_nests_three_non_uid_terms(self, mock_dbs, _):
+        """OR nesting for plain (non-UID) terms.
+
+        The existing *_or_nests_three_terms / *_or_nests_five_terms cases all
+        use UID-shaped terms, which short-circuit to the indexed UIDs search
+        path (b2640b7) and never reach _nest_boolean_search_terms. Nothing
+        covered the OR branch of the nesting itself — the AND branch was tested
+        alone. The upstream seek/search.py parser is strictly binary, so the
+        flat "(alpha) OR (beta) OR (gamma)" form would be rejected.
+        """
+        vs = self._viewset()
+        mock_dbs.return_value.searchAdvanced.return_value = _adv_search_result([])
+        terms = ["alpha", "beta", "gamma"]
+        req = self._req({
+            "filter_searchText": terms,
+            "searchText_logic": "OR",
+            "filter_matchType": "EXACT",
+        })
+        vs.create(req)
+        filters = mock_dbs.return_value.searchAdvanced.call_args[0][1]
+        assert filters["filter_searchText"] == "(alpha) OR ((beta) OR (gamma))"
+
+    @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
+    @patch("nextseek_api.services.samples.DBtable_sample")
     def test_multiple_search_texts_or(self, mock_dbs, _):
         vs = self._viewset()
         mock_dbs.return_value.searchAdvanced.return_value = _adv_search_result([
