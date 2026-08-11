@@ -1090,6 +1090,29 @@ def run_cc_turn(
         send_event("query_error", {"error": f"Container-CC turn failed: {type(exc).__name__}",
                                    "agent": "container_cc", "cc_session_id": translator.session_id})
     finally:
+        # Stop the agent BEFORE scrubbing (#72). Order matters: on any exception
+        # that leaves the container ALIVE — an attach failure, a mid-stream
+        # docker error — the agent goes on writing its transcript, so a scrub
+        # that ran first would be overtaken by the tail appended after it, and
+        # nothing re-scrubs that tail unless the same chat happens to run
+        # another turn. Stopping first also closes the smaller race the other
+        # way: scrub_transcript_store rewrites via tmp + os.replace, which would
+        # silently discard whatever a still-running agent appended between the
+        # read and the swap.
+        #
+        # Both calls stay best-effort: the container is spawned with
+        # auto_remove=True, so a clean stop usually removes it and the remove()
+        # below is the belt-and-braces path for a container that outlived its
+        # own cleanup. Neither failing may skip the scrub.
+        if container is not None:
+            try:
+                container.stop(timeout=5)
+            except Exception:
+                pass
+            try:
+                container.remove(force=True)
+            except Exception:
+                pass
         # #72: scrub the SOURCE transcript, not just the derived copies. In the
         # finally (not the query_complete branch) because a turn that errored,
         # timed out or was budget-killed still leaves a jsonl behind holding
@@ -1106,15 +1129,6 @@ def run_cc_turn(
                         report.skipped, report.skipped + report.rewritten, run_id)
         except Exception:  # noqa: BLE001
             logger.warning("cc #72: transcript store scrub failed", exc_info=True)
-        if container is not None:
-            try:
-                container.stop(timeout=5)
-            except Exception:
-                pass
-            try:
-                container.remove(force=True)
-            except Exception:
-                pass
 
 
 def _snapshot_tree(root: Path) -> dict[str, tuple[int, int]]:

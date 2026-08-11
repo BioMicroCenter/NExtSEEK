@@ -326,6 +326,53 @@ def test_scrub_runs_in_the_finally_so_failed_turns_are_covered():
     )
 
 
+def _finally_call_order(finalbody) -> dict[str, int]:
+    """First statement index at which each called name appears."""
+    positions: dict[str, int] = {}
+    for i, stmt in enumerate(finalbody):
+        for node in ast.walk(stmt):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+            if name:
+                positions.setdefault(name, i)
+    return positions
+
+
+def test_the_container_is_stopped_before_the_transcript_is_scrubbed():
+    """Scrub-then-stop leaves a window the scrub cannot cover.
+
+    On any exception where the container is still ALIVE — an attach failure, a
+    mid-stream docker error — the agent keeps appending to its transcript after
+    the scrub has already run, and nothing re-scrubs that tail unless the same
+    chat happens to run another turn. Stopping first also closes a smaller race
+    in the other direction: scrubbing a file the agent is still writing means
+    the os.replace can discard whatever it appended between the read and the
+    swap.
+    """
+    src = Path(cc_engine.__file__).with_suffix(".py").read_text()
+    tree = ast.parse(src)
+    fn = next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "run_cc_turn"
+    )
+    finallies = [
+        _finally_call_order(n.finalbody)
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Try) and n.finalbody
+    ]
+    orders = [p for p in finallies if "scrub_transcript_store" in p]
+    assert len(orders) == 1, "expected exactly one scrubbing finally block"
+    order = orders[0]
+
+    assert "stop" in order, "the finally must stop the container"
+    assert order["stop"] < order["scrub_transcript_store"], (
+        "stop the container BEFORE scrubbing, or a still-running agent appends "
+        "plaintext to the transcript after the scrub has passed over it"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Gap 2a: the staged copy mounted RO into LATER agent containers
 # ---------------------------------------------------------------------------
