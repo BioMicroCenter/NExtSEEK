@@ -45,6 +45,18 @@ describe("remarkUidLinks", () => {
     expect(output).toContain("[A.GEX-220630FLY-2-PUB]");
   });
 
+  it("handles two-letter AB UIDs", async () => {
+    const input = "Antibody AB-230522GRI-1 used.";
+    const output = await process(input);
+    expect(output).toContain("[AB-230522GRI-1](/seek/sampletree/uid=AB-230522GRI-1/)");
+  });
+
+  it("handles M. prefix UIDs", async () => {
+    const input = "Model M.LMM-231208ALT-1 sample.";
+    const output = await process(input);
+    expect(output).toContain("[M.LMM-231208ALT-1](/seek/sampletree/uid=M.LMM-231208ALT-1/)");
+  });
+
   it("handles -PUB with integer suffix", async () => {
     const input = "Published: NHP-220630FLY-1-PUB1";
     const output = await process(input);
