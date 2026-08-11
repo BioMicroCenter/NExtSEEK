@@ -81,14 +81,17 @@ def get_clade_color(sample_type):
     nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
     conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
     cursor = conn.cursor()
+    # sample_type is caller-supplied and MUST stay parameterized. Only the
+    # schema names (from settings) are interpolated, matching the already-safe
+    # twin at services/entity_tree.py::EntityTreeViewSet._get_clade_color.
     query = f"""
     SELECT c.color FROM {nextseekdb["NAME"]}.clades c
     JOIN {nextseekdb["NAME"]}.sample_types_clades stc ON stc.clade_id = c.id
     JOIN {db["NAME"]}.sample_types st ON stc.sample_type_id = st.id
-    WHERE st.title = '{sample_type}'
+    WHERE st.title = %s
     """
-    
-    cursor.execute(query)
+
+    cursor.execute(query, [sample_type])
     try:
         color = cursor.fetchone()[0]
     except Exception:

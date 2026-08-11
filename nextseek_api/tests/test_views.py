@@ -187,6 +187,51 @@ class TestGetCladeColor:
 
         assert get_clade_color("BadType") == "#000000"
 
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    def test_sample_type_is_parameterized_not_interpolated(self, mock_settings, mock_mysql):
+        """sample_type is caller-supplied; it must never be inlined into SQL.
+
+        The query used to build `WHERE st.title = '{sample_type}'` with an
+        f-string, so a single quote in sample_type breaks out of the literal.
+        Mirrors the already-safe twin in services/entity_tree.py.
+        """
+        _setup_settings(mock_settings)
+        from nextseek_api.views import get_clade_color
+
+        conn, cur = _mysql_cursor(fetchone_val=("#FF5733",))
+        mock_mysql.connect.return_value = conn
+
+        payload = "NHP' UNION SELECT '#DEADBE'-- "
+        assert get_clade_color(payload) == "#FF5733"
+
+        cur.execute.assert_called_once()
+        args, kwargs = cur.execute.call_args
+        sql = args[0]
+        params = args[1] if len(args) > 1 else kwargs.get("args")
+
+        # The value travels as a bound parameter, never in the statement.
+        assert params == [payload], f"sample_type was not bound: {params!r}"
+        assert payload not in sql
+        assert "UNION" not in sql.upper()
+        assert "st.title = %s" in sql
+
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    def test_quote_in_sample_type_does_not_change_statement(self, mock_settings, mock_mysql):
+        """Two different sample_types must produce the identical SQL text."""
+        _setup_settings(mock_settings)
+        from nextseek_api.views import get_clade_color
+
+        seen = []
+        for value in ("NHP_blood", "O'Brien'; DROP TABLE clades; --"):
+            conn, cur = _mysql_cursor(fetchone_val=("#FF5733",))
+            mock_mysql.connect.return_value = conn
+            get_clade_color(value)
+            seen.append(cur.execute.call_args[0][0])
+
+        assert seen[0] == seen[1]
+
 
 # ===========================================================================
 # SampleTreeViewSet
