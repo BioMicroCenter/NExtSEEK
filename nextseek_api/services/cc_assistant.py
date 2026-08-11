@@ -201,6 +201,53 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     return metas
 
 
+def _summarize_sync_target(user, tgt, mem_cfg, scrub) -> bool:
+    """cc-1c: summarize one OTHER session's transcript, in-request. #72.
+
+    ``tgt`` comes from ``cc_memory.select_sync_target(metas, current_id=...)``,
+    which deliberately skips the CURRENT session — so this transcript belongs to
+    a chat that is not running, and may predate ``cc_engine.scrub_transcript_store``
+    entirely (that scrub runs only in the ``finally`` of a turn the owning session
+    itself ran, so a chat that never runs another turn is never cleaned).
+
+    ``scrub`` therefore has to be applied HERE, at the read: the bytes go to a
+    third-party summarizer model and the summary lands in ``extra_state`` and
+    then in the merged ``CLAUDE.md`` mounted into later agent containers. It is
+    the same ``bytes -> bytes`` scrubber the staged transcript copies get.
+
+    The persisted FINGERPRINT is deliberately taken over the RAW bytes, not the
+    scrubbed ones. It is a change-detection hash of the file as it lies on disk,
+    and the two other producers of it -- ``_session_metas`` (which has no
+    credentials for a scrub) and ``cc_sweep`` -- hash the file unmodified.
+    Fingerprinting the scrubbed bytes here would mismatch theirs forever, so
+    this session would look "changed" on every turn and be re-summarized (a paid
+    LLM call) each time.
+
+    Returns True when a summary was persisted; the caller then re-derives metas.
+    Never raises: a summarizer failure must not fail the user's turn.
+    """
+    from django.utils import timezone
+
+    try:
+        # G7-10: transcript_path is already the mount path inside the volume —
+        # read directly, no host translation.
+        raw = Path(tgt.transcript_path).read_bytes()
+        prov = cc_summary.SummaryProvenance(
+            chat_session_id=tgt.session_id,
+            claude_session_id=(tgt.summary or {}).get("claude_session_id"),
+            transcript_path=tgt.transcript_path,
+            chat_model=cc_router._resolve_cc_model_id() or "",
+            generated_at=timezone.now().isoformat())
+        summary = cc_summary.summarize_transcript(
+            scrub(raw) if scrub is not None else raw, prov, mem_cfg)
+        _persist_summary_standalone(
+            user, tgt.session_id, summary.model_dump(), cc_summary.fingerprint(raw))
+        return True
+    except Exception:
+        logger.exception("cc-1c: sync summarize failed; continuing")
+        return False
+
+
 def _emit_ns_run_root(send_event, session) -> None:
     """Publish the NS engine's output directory to the event stream.
 
@@ -552,31 +599,26 @@ class CCAssistantViewSet(viewsets.ViewSet):
                     mem_root = Path(dirs.memory_mnt)
                     memory_md = ""
                     if not fresh:
-                        from django.utils import timezone
-
+                        # #72: ONE scrubber for every point in this turn that
+                        # re-reads a transcript belonging to a session other than
+                        # the current one — the sync summarizer just below, and
+                        # the read-only staged copies further down. Both republish
+                        # those bytes (to a third-party model / to a later agent
+                        # container), and the engine's in-place source scrub
+                        # covers neither for a session that never runs again.
+                        transcript_scrub = cc_engine.transcript_scrubber({
+                            "NEXTSEEK_USERNAME": user_api_user or "",
+                            "NEXTSEEK_PASSWORD": user_api_pass or "",
+                            "API_PASS": user_api_pass or "",
+                        })
                         metas = _session_metas(
                             request.user, cc_state_key, paths, mem_cfg, project_dirname)
                         tgt = cc_memory.select_sync_target(metas, current_id=cc_state_key)
                         if tgt is not None and tgt.transcript_path:
-                            try:
-                                # G7-10: transcript_path is already the mount path
-                                # inside the volume — read directly, no host xlate.
-                                raw = Path(tgt.transcript_path).read_bytes()
-                                prov = cc_summary.SummaryProvenance(
-                                    chat_session_id=tgt.session_id,
-                                    claude_session_id=(tgt.summary or {}).get("claude_session_id"),
-                                    transcript_path=tgt.transcript_path,
-                                    chat_model=cc_router._resolve_cc_model_id() or "",
-                                    generated_at=timezone.now().isoformat())
-                                summary = cc_summary.summarize_transcript(raw, prov, mem_cfg)
-                                _persist_summary_standalone(
-                                    request.user, tgt.session_id,
-                                    summary.model_dump(),
-                                    cc_summary.fingerprint(raw))
+                            if _summarize_sync_target(
+                                    request.user, tgt, mem_cfg, transcript_scrub):
                                 metas = _session_metas(
                                     request.user, cc_state_key, paths, mem_cfg, project_dirname)
-                            except Exception:
-                                logger.exception("cc-1c: sync summarize failed; continuing")
 
                         window = cc_memory.select_window(
                             metas, current_id=cc_state_key, window_size=mem_cfg.window_size)
@@ -588,12 +630,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         # transcripts written before the engine's in-place source
                         # scrub existed, and sessions that never run another turn.
                         staged = cc_memory_io.stage_transcripts(
-                            window, mem_root / "transcripts",
-                            scrub=cc_engine.transcript_scrubber({
-                                "NEXTSEEK_USERNAME": user_api_user or "",
-                                "NEXTSEEK_PASSWORD": user_api_pass or "",
-                                "API_PASS": user_api_pass or "",
-                            }),
+                            window, mem_root / "transcripts", scrub=transcript_scrub,
                         )
                         if staged:
                             transcripts_subpath = dirs.transcripts_subpath
