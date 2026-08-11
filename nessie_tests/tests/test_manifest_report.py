@@ -184,10 +184,16 @@ def test_a_genuine_pass_is_still_a_pass(tmp_path):
 
 
 def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
-    """`README.md` tells the operator that a vacuous turn stays visible in the
-    observation table with its rows marked SKIPPED. Drives the REAL runner over
-    the real `tree.then_ask_about` — NS seed, container_cc follow-up — so the
-    claim is held against the harness rather than against a hand-built entry."""
+    """`README.md` tells the operator that a SKIPPED row stays visible in the
+    observation table and is counted apart from the passes. Drives the REAL runner
+    over the real `tree.then_ask_about` — NS seed, container_cc follow-up — so the
+    claim is held against the harness rather than against a hand-built entry.
+
+    That turn is no longer VACUOUS: #35 gave it `last_reply matches_re \\b38\\b`, so
+    the fixture reply carries the real answer and the turn has one scored criterion
+    beside its two skips. The README claim under test is about the skipped ROWS, not
+    about vacuity, and it still holds — the summary must count the skips separately
+    and never say `all passed`."""
     from nessie_tests import corpus, runner
 
     corpus_json = Path(__file__).resolve().parents[1] / "corpus.json"
@@ -202,7 +208,7 @@ def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
     cc_follow = {"status": "completed", "progress": [
         {"event": "route_decided", "data": {"route": "container_cc", "source": "baml"}},
         {"event": "query_complete", "data": {
-            "reply": "I have no idea what you are talking about", "mode": "cc"}}]}
+            "reply": "38 of them are sequencing samples.", "mode": "cc"}}]}
 
     seen = []
 

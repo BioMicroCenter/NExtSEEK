@@ -782,7 +782,7 @@ _TREE_CC_FOLLOWUP = {"status": "completed", "progress": [
      "data": {"route": "container_cc", "model_class": "opus", "source": "baml",
               "reasoning": ""}},
     {"event": "query_complete",
-     "data": {"reply": "3 of them are sequencing samples.", "mode": "cc"}}]}
+     "data": {"reply": "38 of them are sequencing samples.", "mode": "cc"}}]}
 
 _OBS_TREE_NS = RouteObservation("nextseek_query", None, "baml", "", "new_search", "sample-tree")
 
@@ -800,6 +800,12 @@ def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
     failing it. `_outcome_observed` still resolves False on that turn — the fix is
     that it is no longer SCORED, not that it became true — and the case is not
     vacuous because the seed turn really evaluated four criteria.
+
+    #35 then gave the follow-up its own observable assertion, `last_reply matches_re
+    \\b38\\b` (D.SEQ descendants of NHP-220630FLY-5-PUB, verified against Neo4j), so
+    the fixture reply has to carry the real answer. That is the point of the
+    criterion: a CC arm that answers the question passes and one that does not
+    fails, which was not true when the turn scored plan shape alone.
     """
     v = _merged_variant("tree.then_ask_about")
     seed = next(t for t in v.turns if t.label == "seed")
@@ -814,7 +820,7 @@ def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
 
     follow_passed, follow_results, _ = evaluate.evaluate_turn(
         _TREE_CC_FOLLOWUP, list(follow.pass_criteria), OBS_CC,
-        last_reply="3 of them are sequencing samples.")
+        last_reply="38 of them are sequencing samples.")
     assert follow_passed
     assert {r["field"] for r in follow_results if r.get("skipped")} == {
         "chat_log.length", "outcome_observed"}

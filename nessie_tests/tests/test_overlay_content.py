@@ -245,17 +245,19 @@ def test_the_turns_that_evaluate_nothing_are_a_known_named_set():
     because the whole `pipeline_agent.` family was skipped. #66 narrowed that skip
     to `pipeline_agent.launch_plan.`, so `pipeline_agent.active` — the sole
     criterion on each of those two turns — is a real assertion again and neither
-    turn is vacuous. The list is empty and should stay that way.
+    turn is vacuous.
+
+    `tree.then_ask_about:follow_up` was the last entry in the container_cc list. #35
+    gave it an observable `last_reply` assertion — the issue's own complaint about
+    that variant — so it is no longer vacuous on any route. Both lists are empty and
+    a new entry in either has to be argued for.
     """
     def turns_where(predicate):
         return sorted(f"{v.id}:{t.label}" for v in _corpus.merged(_CORPUS) for t in v.turns
                       if t.pass_criteria and all(predicate(c) for c in t.pass_criteria))
 
     assert turns_where(_skipped_now) == []
-    # One turn is still vacuous, but only if it routes container_cc.
-    assert turns_where(_skipped_if_cc) == [
-        "tree.then_ask_about:follow_up",
-    ]
+    assert turns_where(_skipped_if_cc) == []
 
 
 def test_every_such_case_still_asserts_real_criteria_on_another_turn():
