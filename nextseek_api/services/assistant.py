@@ -160,6 +160,33 @@ def _error_response(title: str, detail: str, http_status: int) -> Response:
     )
 
 
+def _most_recent_session(user) -> "ChatSession | None":
+    """The user's most recently updated ChatSession, or None.
+
+    Two-step lookup: only ``session_id`` enters the ORDER BY query, so the
+    multi-MB JSON columns (``results_history`` / ``last_debug``) never land in
+    the MySQL sort buffer. A plain ``.order_by("-updated_at").first()`` selects
+    every column and raises "Out of sort memory, consider increasing
+    server sort buffer size" (errno 1038) once ``results_history`` outgrows
+    ``sort_buffer_size``. Same rationale as ``list_sessions`` below.
+
+    Deliberately NOT ``.defer("results_history")``: every caller hands the
+    returned object to ``DictSessionAdapter``, which reads ``results_history``
+    in ``__init__``, so a deferred field would just trigger a second query.
+    The second ``get()`` here fetches the full row by primary key with no
+    filesort at all.
+    """
+    session_id = (
+        ChatSession.objects.filter(user=user)
+        .order_by("-updated_at")
+        .values_list("session_id", flat=True)
+        .first()
+    )
+    if session_id is None:
+        return None
+    return ChatSession.objects.get(session_id=session_id)
+
+
 def _auto_title_if_unset(chat_session: ChatSession, fallback_query: str = "") -> None:
     """Populate ChatSession.title from the first user query if currently NULL.
 
@@ -705,11 +732,7 @@ class AssistantViewSet(viewsets.ViewSet):
             chat_session = ChatSession.objects.create(user=request.user)
         else:
             # No session_id — reuse most recent or auto-create
-            chat_session = (
-                ChatSession.objects.filter(user=request.user)
-                .order_by("-updated_at")
-                .first()
-            )
+            chat_session = _most_recent_session(request.user)
             if chat_session is None:
                 chat_session = ChatSession.objects.create(user=request.user)
 
@@ -832,11 +855,7 @@ class AssistantViewSet(viewsets.ViewSet):
             # Frontend "New chat" path — unconditionally create.
             chat_session = ChatSession.objects.create(user=request.user)
         else:
-            chat_session = (
-                ChatSession.objects.filter(user=request.user)
-                .order_by("-updated_at")
-                .first()
-            )
+            chat_session = _most_recent_session(request.user)
             if chat_session is None:
                 chat_session = ChatSession.objects.create(user=request.user)
 

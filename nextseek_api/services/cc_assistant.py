@@ -49,6 +49,7 @@ from nextseek_api.services.assistant import (
     CsrfExemptSessionAuthentication,
     _auto_title_if_unset,
     _error_response,
+    _most_recent_session,
     _select_chat_config,
 )
 
@@ -370,9 +371,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             return ChatSession.objects.get(session_id=req.session_id, user=request.user)
         if getattr(req, "force_new", False):
             return ChatSession.objects.create(user=request.user)
-        existing = (
-            ChatSession.objects.filter(user=request.user).order_by("-updated_at").first()
-        )
+        existing = _most_recent_session(request.user)
         return existing or ChatSession.objects.create(user=request.user)
 
     def _resolve_credentials(self, request):

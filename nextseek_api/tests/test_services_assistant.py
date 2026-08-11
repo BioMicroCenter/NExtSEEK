@@ -1237,3 +1237,111 @@ class OpenApiExamplesValidateTests(TestCase):
         from nextseek_api.assistant.models_api import QueryRequest
 
         self.assertTrue(QueryRequest.model_fields["mode"].is_required())
+
+
+# ============================================================================
+# "Most recent session" lookups must not sort over results_history (#40)
+# ============================================================================
+
+
+class MostRecentSessionSortBufferTests(TestCase):
+    """MySQL raises errno 1038 ("Out of sort memory") when a filesort has to
+    carry the multi-MB results_history JSON column. Every "reuse the user's
+    most recent chat" lookup must therefore keep that column out of the
+    ORDER BY query.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user("sortbuf", password="x")
+        # Two sessions so the ORDER BY actually has something to order.
+        ChatSession.objects.create(user=self.user, results_history=[{"user_query": "old"}])
+        self.newest = ChatSession.objects.create(
+            user=self.user, results_history=[{"user_query": "new"}]
+        )
+
+    @staticmethod
+    def _ordering_queries(captured):
+        return [q["sql"] for q in captured if "ORDER BY" in q["sql"].upper()]
+
+    def test_helper_keeps_results_history_out_of_the_sort(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from nextseek_api.services.assistant import _most_recent_session
+
+        with CaptureQueriesContext(connection) as ctx:
+            got = _most_recent_session(self.user)
+
+        self.assertEqual(got.session_id, self.newest.session_id)
+        ordering = self._ordering_queries(ctx.captured_queries)
+        self.assertTrue(ordering, "expected an ORDER BY query")
+        for sql in ordering:
+            self.assertNotIn("results_history", sql, f"sorted over the blob: {sql}")
+
+    def test_helper_returns_a_fully_loaded_row(self):
+        """Not .defer() — callers hand this straight to DictSessionAdapter,
+        which reads results_history in __init__. A deferred field would cost a
+        second query per turn."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from nextseek_api.services.assistant import _most_recent_session
+
+        got = _most_recent_session(self.user)
+        with CaptureQueriesContext(connection) as ctx:
+            self.assertEqual(got.results_history, [{"user_query": "new"}])
+        self.assertEqual(
+            len(ctx.captured_queries), 0,
+            "results_history was deferred and lazily re-fetched",
+        )
+
+    def test_helper_returns_none_for_a_user_with_no_sessions(self):
+        from nextseek_api.services.assistant import _most_recent_session
+
+        other = User.objects.create_user("nosessions", password="x")
+        self.assertIsNone(_most_recent_session(other))
+
+    def test_cc_resolve_session_keeps_results_history_out_of_the_sort(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from nextseek_api.services.cc_assistant import CCAssistantViewSet
+
+        vs = CCAssistantViewSet()
+        request = MagicMock()
+        request.user = self.user
+        req = MagicMock()
+        req.session_id = None
+        req.force_new = False
+
+        with CaptureQueriesContext(connection) as ctx:
+            got = vs._resolve_session(request, req)
+
+        self.assertEqual(got.session_id, self.newest.session_id)
+        ordering = self._ordering_queries(ctx.captured_queries)
+        self.assertTrue(ordering, "expected an ORDER BY query")
+        for sql in ordering:
+            self.assertNotIn("results_history", sql, f"sorted over the blob: {sql}")
+
+    def test_no_naive_most_recent_lookup_survives_in_either_module(self):
+        """Source guard: the three sites that used to do a bare
+        `.order_by("-updated_at").first()` on a full ChatSession queryset must
+        all go through the helper (or the two-step lookup in list_sessions)."""
+        import re
+
+        repo_root = Path(__file__).resolve().parents[2]
+        # filter(...) -> order_by("-updated_at") -> first(), with nothing in
+        # between. The helper survives because .values_list() sits in the
+        # chain; list_sessions survives because it has no .first().
+        pattern = re.compile(
+            r"ChatSession\.objects\.filter\([^()]*\)"
+            r"\s*\.order_by\(\s*[\"']-updated_at[\"']\s*\)"
+            r"\s*\.first\(\)"
+        )
+        offenders = []
+        for rel in ("services/assistant.py", "services/cc_assistant.py"):
+            text = (repo_root / "nextseek_api" / rel).read_text()
+            # Collapse the multi-line chained form onto one line first.
+            flat = re.sub(r"\n\s*", " ", text)
+            offenders += [f"{rel}: {m.group(0)}" for m in pattern.finditer(flat)]
+        self.assertEqual(offenders, [], f"unsorted-blob lookups remain: {offenders}")
