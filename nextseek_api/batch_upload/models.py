@@ -381,6 +381,12 @@ class Metrics(BaseModel):
     derived_from_rels_created: int = 0
     of_type_rels_created: int = 0
     in_study_rels_created: int = 0
+    # #44: IN_STUDY rows whose Sample or Study node did not exist are dropped by the
+    # MERGE's MATCH with no error. `attempted - created` is the only evidence, so it
+    # is recorded rather than inferred, and the drop count also lands in
+    # in_study_warnings so an existing reader of that field sees it.
+    in_study_rels_attempted: int = 0
+    in_study_rels_dropped: int = 0
     in_study_warnings: int = 0
     sample_type_nodes_created: int = 0
     study_nodes_created: int = 0
