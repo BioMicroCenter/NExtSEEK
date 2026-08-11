@@ -1,0 +1,148 @@
+"""``manage.py nessie`` — run the Nessie router-aware assistant test harness.
+
+Runs the ``nessie_tests`` harness (see ``nessie_tests/README.md``) from inside
+the trusted Django process, so the full-tier bundle reader (which imports Django
+models) works with no separate ``django.setup()`` bootstrap.
+
+    docker exec nextseek uv run manage.py nessie --tier route              # cheap route gate
+    docker exec nextseek uv run manage.py nessie --tier full --scope all   # paid full pass (needs seed)
+
+The harness drives cases through the real top-level router at ``--base-url``
+(default ``http://localhost:8000`` — gunicorn inside the same container),
+writes ``manifest.json`` + ``report.html`` under ``--out``, prints a summary,
+and exits non-zero iff a real (non ``known_fail``) case failed.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from django.core.management.base import BaseCommand
+
+# This file is nextseek_api/management/commands/nessie.py; the repo root (which
+# holds the top-level ``nessie_tests`` package) is four parents up.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_CORPUS = _REPO_ROOT / "nessie_tests" / "corpus.json"
+
+
+class Command(BaseCommand):
+    help = "Run the Nessie router-aware assistant test harness (route/full tiers)."
+
+    def add_arguments(self, parser) -> None:
+        parser.add_argument("--tier", choices=["route", "full"], default="route")
+        parser.add_argument("--scope", choices=["specific", "all"], default="specific")
+        parser.add_argument("--base-url", default="http://localhost:8000")
+        parser.add_argument("--family", default=None)
+        parser.add_argument("--variant", default=None)
+        parser.add_argument("--user", default="demo")
+        parser.add_argument("--password", default="demopassword")
+        parser.add_argument("--pace", type=float, default=0.0)
+        parser.add_argument(
+            "--consistency", action="store_true",
+            help="Run the #33 consistency groups (auto-on for --tier full).",
+        )
+        parser.add_argument("--sample", type=float, default=1.0,
+                            help="Fraction of selected variants to run, sampled per family (e.g. 0.1 for a tenth). Default 1.0 = all.")
+        parser.add_argument("--seed", type=int, default=0, help="Deterministic sampling seed.")
+        parser.add_argument("--cases", default=None,
+                            help="Path to a catalog-shaped JSON file listing exactly which cases to "
+                                 "run, instead of a seeded sample. Keys: include_ids (existing corpus "
+                                 "variants, by id, in file order) and/or families (new ad-hoc variants "
+                                 "inline). Overrides --scope/--family/--variant/--sample/--seed; "
+                                 "inline variants run exactly as written, with no family floor.")
+        parser.add_argument("--out", default="/app/nessie_out")
+
+    def handle(self, *args, **opts) -> None:
+        from nessie_tests import http_driver, runner
+
+        tier = opts["tier"]
+        run_consistency = opts["consistency"] or tier == "full"
+        bundle_reader = None
+        if tier == "full":
+            # Safe here: the management command runs inside a configured Django.
+            from nessie_tests.bundle import summary_for_session
+            bundle_reader = summary_for_session
+
+        manifest = runner.run_suite(
+            base_url=opts["base_url"],
+            auth_header=http_driver.basic_auth(opts["user"], opts["password"]),
+            tier=tier,
+            scope=opts["scope"],
+            family=opts["family"],
+            variant_id=opts["variant"],
+            corpus_path=_CORPUS,
+            out_dir=Path(opts["out"]),
+            bundle_reader=bundle_reader,
+            pace_s=opts["pace"],
+            run_consistency=run_consistency,
+            sample=opts["sample"], seed=opts["seed"],
+            cases_path=opts["cases"],
+        )
+        self._summarize(manifest, tier, opts["scope"], opts["out"], runner)
+
+    def _summarize(self, manifest, tier, scope, out, runner) -> None:
+        # Classification lives in runner.classify_entries so this summary and
+        # runner.gate_failed cannot disagree again. They used to: "real failures" here
+        # excluded xpass while the gate counted it, so a run printed "GATE: PASS" and
+        # then raised SystemExit(1).
+        summary = runner.classify_entries(manifest)
+        count = summary["counts"]
+        real_fails = summary["real_fails"]
+        known_failed = summary["known_failed"]
+
+        w = self.stdout.write
+        w("")
+        w(f"Nessie harness  tier={tier}  scope={scope}  ({summary['total']} cases)")
+        w(f"  passed  : {count['passed']}")
+        w(f"  failed  : {count['failed']}")
+        w(f"  skipped : {count['skipped']}")
+        w(f"  error   : {count['error']}")
+        w(f"  xpass   : {count['xpass']}  (known_fail that PASSED — stale expectation, counted as a failure)")
+        w(f"  no-assert: {count['no_assertions']}  (evaluated ZERO criteria — green here would be vacuous, counted as a failure)")
+        w(f"  known-fail that failed as expected (excluded from gate): {len(known_failed)}")
+        # `cost_display`, not `total_cost`. The latter is float-or-None by design —
+        # a route-tier turn never emits `query_complete`, so its cost is unobservable
+        # rather than zero — and interpolating it prints the literal "$None".
+        w(f"  cost    : {summary['cost_display']}")
+        if summary["outage"]:
+            w("")
+            w(self.style.WARNING(
+                f"  INFRASTRUCTURE: {len(summary['outage'])} case(s) were lost to an LLM provider "
+                f"outage — they were not scored and say nothing about the product:"))
+            for e in summary["outage"]:
+                w(f"    - {e.family}/{e.id}")
+            w(self.style.WARNING(
+                "  Re-run these before reading the headline. Without this line they would "
+                "vanish from the printout entirely: an outaged known_fail is excluded from "
+                "`known-fail that failed as expected` with nothing else reporting it."))
+        if summary["heuristic_routed"]:
+            w("")
+            w(self.style.WARNING(
+                f"  INFRASTRUCTURE: {len(summary['heuristic_routed'])} case(s) were not routed "
+                f"by BAML — their route is not evidence about routing:"))
+            for e in summary["heuristic_routed"]:
+                w(f"    - {e.family}/{e.id}  (route_source={e.route_source})")
+        w("")
+        selection = (f"cases={manifest.cases_file}" if manifest.cases_file
+                     else f"seed={manifest.seed}  sample={manifest.sample}")
+        w(f"  {selection}  "
+          f"corpus={(manifest.corpus_fingerprint or '')[:12]}  git={manifest.git_sha}")
+        w("")
+        if real_fails:
+            w(self.style.ERROR(f"GATE: FAIL — {len(real_fails)} real failure(s):"))
+            for e in real_fails:
+                detail = e.reason or ", ".join(e.failed_criteria)
+                w(f"    - {e.family}/{e.id}  [{e.status}]  {detail}")
+        else:
+            w(self.style.SUCCESS("GATE: PASS (no real failures)"))
+        if known_failed:
+            w("")
+            w("  known-fail cases that failed as expected (until #32/#33 are fixed):")
+            for e in known_failed:
+                w(f"    - {e.family}/{e.id}")
+        w("")
+        w(f"  report:   {out}/report.html")
+        w(f"  manifest: {out}/manifest.json")
+
+        # Non-zero exit iff a real (non known_fail) case failed, so CI/gates work.
+        if runner.gate_failed(manifest):
+            raise SystemExit(1)

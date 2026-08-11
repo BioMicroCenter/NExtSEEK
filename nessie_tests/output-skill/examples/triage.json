@@ -1,0 +1,452 @@
+{
+ "title": "nessie_tests full-tier run review",
+ "eyebrow": "Test run review // dev box, seeded v2",
+ "headline": "44 cases, 31 green, and a different story underneath",
+ "subhead": "Full triage of the first live full-tier nessie_tests run through the real top-level router. Every failure was resolved from the stored event streams on the dev box, so nothing here required re-running a paid turn.",
+ "runline": [
+  "manage.py nessie --tier full --scope all --sample 0.1",
+  "harness 5dc640c",
+  "tasks 721-774",
+  "25m 43s wall"
+ ],
+ "runroot": "/app/outputs/260724_190304_demo",
+ "graph_limit": 250,
+ "reframe": "<b>After triage the 12 real failures split three ways</b>, and only five are product defects. Two cases that reported green are also hiding something, and one known-fail never actually executed.",
+ "coverage_lede": "The 10% sample touched every family, but thinly. Reporting, search and refine each ran roughly one case in ten, so a green gate here is a smoke signal and not a guarantee.",
+ "findings": [
+  {
+   "severity": "real",
+   "title": "The pipeline agent hijacks unrelated queries across sessions",
+   "body": [
+    "Case <span class='mono'>refrec.of_those_which_are_actually_fr_2</span> asked a plain search question and got refused by the nf-core samplesheet builder. Routing never reached the BAML router: the decision came from <span class='mono'>source: \"pipeline\"</span> with reasoning <span class='mono'>\"pipeline_active\"</span>.",
+    "The two preceding samplesheet cases left the pipeline agent active, and that state survived into a case that starts with <span class='mono'>session_id = None</span>. So sticky mode is keyed to something broader than the chat session. This is a live user-facing bug: any user who builds a samplesheet then asks a normal question gets stonewalled."
+   ],
+   "evidence": "task 737  route_decided: {\"route\":\"nextseek_query\",\"source\":\"pipeline\",\"reasoning\":\"pipeline_active\"}\nreply: \"Searching the sample database isn't something I can do. I build nf-core samplesheets + launch\nconfigs from samples you've already pinned...\""
+  },
+  {
+   "severity": "real",
+   "title": "Graph queries silently truncate at 250, and the suite cannot see it",
+   "body": [
+    "Across the eleven graph queries the result counts were 11, 0, <b>250</b>, 10, <b>250</b>, 5, 6, 0, 1, 0, <b>250</b>. Three hit the <span class='mono'>LIMIT 250</span> cap exactly. One of them, <span class='mono'>graph.what_mice_are_in_the_impact_st</span>, <b>passed every assertion</b>, because no criterion in the corpus looks at result counts.",
+    "The overlay already encodes <span class='mono'>count_not: 250</span> in the consistency group precisely to catch this, but that group never ran."
+   ]
+  },
+  {
+   "severity": "real",
+   "title": "\"Study X\" resolves inconsistently to Study.title or Investigation.title",
+   "body": [
+    "The same phrase produces structurally different cypher run to run. Matching <span class='mono'>Investigation.title</span> returned 250 rows; matching <span class='mono'>Study.title</span> alone returned 0 for a name that is an Investigation in this data.",
+    "This is the actual mechanism behind issue #33. It is not really a REST-versus-graph split: it is node-resolution instability inside the graph planner. Task 753 (\"How many samples are in the GBM study?\") matched Study.title and answered <b>1</b>, which is likely wrong too, and it passed."
+   ],
+   "evidence": "755: WHERE s.type = $sample_type AND toLower(st.title) CONTAINS toLower($study_title)          -> 0\n758: OPTIONAL MATCH (st)-[:IN_INVESTIGATION]->(inv) ... st.title CONTAINS ... OR inv.title CONTAINS  -> 250\n729: WHERE toLower(inv.title) CONTAINS toLower($investigation_title) AND s.type IN $sample_types     -> 250"
+  },
+  {
+   "severity": "drift",
+   "title": "The web tier stalled under consecutive Container-CC turns",
+   "body": [
+    "The last three things to run all failed with <span class='mono'>TimeoutError</span>, and cases 41, 42 and 43 were the only three <span class='mono'>container_cc</span> turns in the run, back to back. Inside CC, its own calls back into NExtSEEK failed with <span class='mono'>TRANSPORT_ERROR ... /nextseek_api/assistant/parse/: timed out</span>.",
+    "gunicorn runs <b>4 sync workers</b>, each turn executes in a daemon thread inside a worker, and a CC turn occupies a worker thread while spawning a container that calls <i>back</i> into the same four workers. It is re-entrant. Only 2 TRANSPORT_ERRORs exist in the whole 218-row task history and both are here, so this is load-correlated, not chronic. Task 774 is still wedged in <span class='mono'>status=running</span> with no reaper.",
+    "This contradicts the earlier read that writes hang: both write tasks <b>completed</b> server-side, in 164s and 118s. The harness gave up first, at its own 30 second socket timeout."
+   ]
+  }
+ ],
+ "gaps": [
+  {
+   "id": "no actuals",
+   "text": "<b>The manifest records criterion names only, never observed values.</b> This is the biggest gap. Every answer in this report came from querying <span class='mono'>assistant_query_task</span> instead. Recording the resolved value next to each failed criterion makes future runs self-triaging."
+  },
+  {
+   "id": "socket 30s",
+   "text": "<b>A 30 second socket timeout turns infrastructure latency into a test error</b> and discards the route observation with it. All three errors in this run were this, not product failures."
+  },
+  {
+   "id": "route inject",
+   "text": "<b>Every imported variant gets <span class='mono'>route == nextseek_query</span> injected</b> by <span class='mono'>default_route_criterion</span>, because <span class='mono'>load_base</span> tags them all \"base\". That assumption, not a curated expectation, is what makes Container-CC routes look like failures."
+  },
+  {
+   "id": "artifacts",
+   "text": "<b><span class='mono'>api_artifact.*</span> criteria can never pass.</b> They resolve against <span class='mono'>run_root</span> on disk and <span class='mono'>evaluate.py</span> never passes one. The expected filenames are also stale."
+  },
+  {
+   "id": "no xpass",
+   "text": "<b>A known-fail that passes still reads as green.</b> <span class='mono'>repro.cypher_uid_dot</span> did exactly that."
+  },
+  {
+   "id": "no isolation",
+   "text": "<b>Cases share state.</b> Pipeline agent state leaked from one case into the next, so case order can change results."
+  },
+  {
+   "id": "consistency",
+   "text": "<b>Consistency groups never record <span class='mono'>elapsed_s</span></b>, so a 0.0 in the manifest is a reporting artifact rather than an instant failure."
+  }
+ ],
+ "next": [
+  "<b>Fix the pipeline-agent hijack.</b> Clearest user-facing defect found, and it sits in the top-level routing path ahead of the BAML router.",
+  "<b>Decide the Container-CC policy</b> for writes and open-ended analysis. That call converts 3 failures into either bugs or expectations.",
+  "<b>Make the 250 cap visible</b> by asserting on result counts, so a truncated answer stops reading as a pass.",
+  "<b>Record observed values in the manifest</b> so triage stops requiring database archaeology.",
+  "<b>Isolate the web tier from turn execution</b>, and add a reaper for tasks wedged in <span class='mono'>running</span>."
+ ],
+ "verdicts": {
+  "graph.what_mice_are_in_the_impact_st": {
+   "verdict": "masked",
+   "task": 727,
+   "head": "Passed while silently truncated at the 250 cap",
+   "observed": [
+    [
+     "all criteria",
+     "",
+     "passed",
+     "ok"
+    ],
+    [
+     "graph_result.count",
+     "n/a",
+     "250 (LIMIT cap)",
+     "info"
+    ]
+   ],
+   "note": "Nothing in the criteria looks at result counts, so a capped result set is indistinguishable from a complete one."
+  },
+  "graph.tissue_cell_impact": {
+   "verdict": "drift",
+   "task": 729,
+   "head": "Cypher is parameterised now, so the literal \"IMPACT\" never appears",
+   "observed": [
+    [
+     "parser_plan.mode",
+     "graph_query",
+     "graph_query",
+     "ok"
+    ],
+    [
+     "neo4j_ok",
+     "true",
+     "true",
+     "ok"
+    ],
+    [
+     "graph_cypher",
+     "contains \"IMPACT\"",
+     "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE toLower(inv.title) CONTAINS toLower($investigation_title) AND s.type IN $sample_types ... LIMIT 250",
+     "fail"
+    ]
+   ],
+   "note": "The assertion assumes the study name is interpolated into the cypher text. It is now bound as $investigation_title, which is safer. The criterion is obsolete. Separately this query returned exactly 250 rows, the LIMIT cap."
+  },
+  "repro.cypher_uid_dot": {
+   "verdict": "masked",
+   "task": 733,
+   "head": "Marked known-fail but it PASSED (xpass)",
+   "observed": [
+    [
+     "last_reply",
+     "matches (NHP-220524FLY|D.SEQ)",
+     "matched",
+     "ok"
+    ]
+   ],
+   "note": "expected_fail is true but status is passed. The harness has no xpass detection so this reads as green. Either the defect is fixed on the HTTP path or the assertion is too weak to bite."
+  },
+  "refrec.of_those_which_are_actually_fr_2": {
+   "verdict": "real",
+   "task": 737,
+   "head": "The pipeline_agent hijacked an unrelated search",
+   "observed": [
+    [
+     "route source",
+     "baml router",
+     "pipeline (reasoning: \"pipeline_active\")",
+     "fail"
+    ],
+    [
+     "api_ok",
+     "true",
+     "no api_result_meta at all; debug empty",
+     "fail"
+    ],
+    [
+     "reply",
+     "sample search results",
+     "\"Searching the sample database isn't something I can do. I build nf-core samplesheets...\"",
+     "fail"
+    ]
+   ],
+   "note": "The two preceding samplesheet cases left the pipeline_agent active. Its state survived into a new case and short-circuited routing before the BAML router ever ran. The follow-up turn itself was fine; only the seed turn failed."
+  },
+  "report.put_together_an_annual_progres": {
+   "verdict": "drift",
+   "task": 748,
+   "head": "\"Kamm\" resolves as a lab, not a project",
+   "observed": [
+    [
+     "parser_plan.mode",
+     "reporter",
+     "reporter",
+     "ok"
+    ],
+    [
+     "reporter_plan.reporter_mode",
+     "summary",
+     "summary",
+     "ok"
+    ],
+    [
+     "reporter_plan.project",
+     "\"Kamm\"",
+     "null (entity_result.labs = [\"Kamm\"], lab_codes = [\"KAM\"])",
+     "fail"
+    ]
+   ],
+   "note": "Kamm is modelled as a lab in this data, and routing.lab_ooc_kamm_count passes on that basis, so asserting project == \"Kamm\" looks wrong. UNVERIFIED CONCERN worth its own look: reporter_result showed project_id null and rows_returned 50,886, which is the whole database, so the RPPR summary may not be scoped at all."
+  },
+  "report.how_many_samples_did_metnet_up": {
+   "verdict": "drift",
+   "task": 749,
+   "head": "Correct project, different casing",
+   "observed": [
+    [
+     "parser_plan.mode",
+     "reporter",
+     "reporter",
+     "ok"
+    ],
+    [
+     "reporter_plan.reporter_mode",
+     "summary",
+     "summary",
+     "ok"
+    ],
+    [
+     "reporter_plan.project",
+     "\"MetNet\"",
+     "\"METNET\"",
+     "fail"
+    ]
+   ],
+   "note": "Pure case sensitivity in an eq assertion. The system identified the project correctly."
+  },
+  "report.sra_submission": {
+   "verdict": "drift",
+   "task": 750,
+   "head": "The harness cannot evaluate artifact criteria at all",
+   "observed": [
+    [
+     "parser_plan.mode",
+     "reporter",
+     "reporter",
+     "ok"
+    ],
+    [
+     "reporter_plan.report_type",
+     "\"SRA\"",
+     "\"SRA\"",
+     "ok"
+    ],
+    [
+     "api_artifact.sra_seq.xlsx",
+     "true",
+     "None (unevaluable)",
+     "fail"
+    ]
+   ],
+   "note": "Two independent reasons it can never pass. First, api_artifact.* resolves against run_root and evaluate.py never passes one, so the value is always None. Second, no file named sra_seq.xlsx exists anywhere under /app/outputs; the reporter now writes merged_report_SRA_SRA_metadata_filled.xlsx and merged_report_SRA_SRA_biosample_filled.xlsx. The product did the work at 20:28, exactly when this case ran."
+  },
+  "advanced.find_me_nhp_samples_from_study": {
+   "verdict": "real",
+   "task": 755,
+   "head": "Went to graph instead of REST and returned nothing",
+   "observed": [
+    [
+     "parser_plan.mode",
+     "new_search",
+     "graph_query",
+     "fail"
+    ],
+    [
+     "api_plan.endpoint",
+     "contains advanced_search",
+     "null (no REST call made)",
+     "fail"
+    ],
+    [
+     "api_ok",
+     "true",
+     "false",
+     "fail"
+    ],
+    [
+     "graph_result.count",
+     "n/a",
+     "0",
+     "info"
+    ]
+   ],
+   "note": "Cypher matched on Study.title only. GBM is an Investigation in this data, not a Study title, so the match collapsed to 0 rows. Sibling queries for the same phrase matched Investigation.title instead and returned 250."
+  },
+  "advanced.find_me_nhp_samples_from_study_2": {
+   "verdict": "real",
+   "task": 758,
+   "head": "Same question shape, different cypher, capped at 250",
+   "observed": [
+    [
+     "parser_plan.mode",
+     "new_search",
+     "graph_query",
+     "fail"
+    ],
+    [
+     "api_plan.endpoint",
+     "contains advanced_search",
+     "null (no REST call made)",
+     "fail"
+    ],
+    [
+     "api_ok",
+     "true",
+     "false",
+     "fail"
+    ],
+    [
+     "graph_result.count",
+     "n/a",
+     "250 (LIMIT cap)",
+     "info"
+    ]
+   ],
+   "note": "Cypher matched Study.title OR Investigation.title via an OPTIONAL MATCH, found rows, then hit the LIMIT 250 cap. Same question shape as the GBM case, different generated cypher, 0 versus 250. The instability is in how 'study X' resolves to a graph node, not in the routing."
+  },
+  "pbct.patients_seq_imaging": {
+   "verdict": "real",
+   "task": 763,
+   "head": "Structured parsing failed, so the API got a malformed request",
+   "observed": [
+    [
+     "parser_plan.mode",
+     "new_search",
+     "new_search",
+     "ok"
+    ],
+    [
+     "api_plan.endpoint",
+     "contains parents_by_child_types",
+     "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+     "ok"
+    ],
+    [
+     "api_ok",
+     "true",
+     "false, HTTP 422",
+     "fail"
+    ]
+   ],
+   "note": "api_plan.notes read \"Fallback minimal plan; structured parsing failed.\" with an empty requestBody, and the endpoint rejected it with 422. Right endpoint, unusable payload."
+  },
+  "sys.show_me_all_assays_i_have_acce": {
+   "verdict": "real",
+   "task": 769,
+   "head": "Two near-identical questions classify differently",
+   "observed": [
+    [
+     "parser_plan.mode",
+     "system_question",
+     "new_search",
+     "fail"
+    ],
+    [
+     "last_reply",
+     "nonempty",
+     "nonempty",
+     "ok"
+    ]
+   ],
+   "note": "Sibling case \"What assays are available to me\" (task 770) classified as system_question and passed. This one classified as new_search, yet still hit /nextseek_api/assays/ and answered acceptably. Low user impact, real inconsistency."
+  },
+  "unsup.is_treatment_a_significantly_b": {
+   "verdict": "policy",
+   "task": 771,
+   "head": "Router sent an analysis question to Container-CC, deliberately",
+   "observed": [
+    [
+     "route",
+     "nextseek_query (auto-injected by the harness)",
+     "container_cc",
+     "fail"
+    ],
+    [
+     "parser_plan.mode",
+     "unsupported",
+     "no parser_plan exists on the CC route",
+     "fail"
+    ]
+   ],
+   "note": "BAML reasoning: \"open-ended data analysis ... reading data files, statistical reasoning, and potentially running code, which are tasks uniquely handled by the full agentic environment in container_cc.\" The route expectation was not curated; the harness injects route == nextseek_query for all 366 imported variants. Both failed criteria stem from one decision."
+  },
+  "write.create_me_investigation_testin": {
+   "verdict": "policy",
+   "task": 772,
+   "head": "Write routed to CC; harness gave up before the server did",
+   "observed": [
+    [
+     "route",
+     "nextseek_query (auto-injected)",
+     "container_cc",
+     "fail"
+    ],
+    [
+     "parser_plan.mode",
+     "unsupported",
+     "no parser_plan on the CC route",
+     "fail"
+    ],
+    [
+     "harness status",
+     "completed",
+     "TimeoutError from its own 30s socket timeout",
+     "fail"
+    ]
+   ],
+   "note": "Task 772 COMPLETED server-side in 164s. CC refused to write without confirmation and reported it could not reach the parse endpoint (TRANSPORT_ERROR). Nothing was created."
+  },
+  "write.create_me_investigation_test_c": {
+   "verdict": "policy",
+   "task": 773,
+   "head": "Same as above",
+   "observed": [
+    [
+     "route",
+     "nextseek_query (auto-injected)",
+     "container_cc",
+     "fail"
+    ],
+    [
+     "parser_plan.mode",
+     "unsupported",
+     "no parser_plan on the CC route",
+     "fail"
+    ],
+    [
+     "harness status",
+     "completed",
+     "TimeoutError from its own 30s socket timeout",
+     "fail"
+    ]
+   ],
+   "note": "Task 773 COMPLETED server-side in 118s, same TRANSPORT_ERROR, nothing created."
+  },
+  "cons.nhp_sequencing_engine": {
+   "verdict": "notrun",
+   "task": 774,
+   "head": "Never executed, so it proves nothing",
+   "observed": [
+    [
+     "group assertions",
+     "same_route, same_count, count_not 250",
+     "never evaluated",
+     "fail"
+    ]
+   ],
+   "note": "Died on a 30s socket timeout while the web tier was saturated. Its task (774) is still wedged in status=running on the dev box. The handoff recorded this as a correct known-fail; it was not."
+  }
+ }
+}
