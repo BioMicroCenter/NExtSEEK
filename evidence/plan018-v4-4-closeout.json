@@ -1,0 +1,41 @@
+{
+  "schema": "plan018-v4-4-closeout/v1",
+  "recorded_at": "2026-08-11T21:50:00Z",
+  "gate": "PASS",
+  "worktree_sha": "86e9eb6ee6d49269e8617df917e51ba5c407c64a",
+  "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+  "next_gate": "V4-5",
+  "summary": {
+    "eval_tests_passed": 48,
+    "vendoring_tests_passed": 4,
+    "verifier_checks_passed": 12,
+    "recovery_slots_completed": 40,
+    "feasibility_slots": 5,
+    "route_execution_for_acceptance": false,
+    "set3_rerun": false,
+    "paid_or_live_resources_used": false
+  },
+  "modules_added": [
+    "nextseek_api/eval/enums.py",
+    "nextseek_api/eval/exporter.py",
+    "nextseek_api/eval/expected_behavior.py",
+    "nextseek_api/eval/functional_inputs.py",
+    "nextseek_api/eval/fit/**",
+    "nextseek_api/eval/fit/v14/**",
+    "docker/eval/Dockerfile",
+    "scripts/plan018_v4_4_verifier.py"
+  ],
+  "residual_debt": [
+    "Recovery/feasibility evidence used use_mcmc=False fast path; full numpyro MCMC diagnostic suite (R-hat/ESS/divergences) requires Lane F timed run with maintainer authorization for longer wall clock",
+    "V4-5 publish.py + live active-generation pointer not implemented",
+    "V4-8 live paid three-call judge not implemented",
+    "DB judge_cache/TurnJudgment/FamilyPosterior migrations deferred",
+    "Formal pytest-cov >=95% not recorded this gate",
+    "Living-plan V4-4 progress markers local only until republish authorized"
+  ],
+  "artifact_sha256": {
+    "feasibility": "see evidence/plan018-v4-4-feasibility.json",
+    "recovery": "see evidence/plan018-v4-4-recovery.json",
+    "verifier": "see evidence/plan018-v4-4-verifier.sidecar.json"
+  }
+}

@@ -107,7 +107,21 @@
   "v4_3_status": "CLOSED",
   "v4_3_closed_at": "2026-08-11T19:40:00Z",
   "v4_3_closeout": "evidence/plan018-v4-3-closeout.json",
-  "next_gate": "V4-4",
+  "v4_4_status": "CLOSED",
+  "v4_4_closed_at": "2026-08-11T21:50:00Z",
+  "v4_4_closeout": "evidence/plan018-v4-4-closeout.json",
+  "next_gate": "V4-5",
+  "v4_4_evidence": {
+    "phase0_publish": "evidence/plan018-v4-4-phase0-publish.json",
+    "prereq": "evidence/plan018-v4-4-prereq.json",
+    "vendoring": "evidence/plan018-v4-4-vendoring.log",
+    "eval_image": "evidence/plan018-v4-4-eval-image.sidecar.json",
+    "decision_tests": "evidence/plan018-v4-4-decision-tests.sidecar.json",
+    "feasibility": "evidence/plan018-v4-4-feasibility.json",
+    "recovery": "evidence/plan018-v4-4-recovery.json",
+    "verifier": "evidence/plan018-v4-4-verifier.sidecar.json",
+    "cold_review": "evidence/plan018-v4-4-cold-outcome-review.md"
+  },
   "v4_3_evidence": {
     "prereq": "evidence/plan018-v4-3-prereq.json",
     "port_receipt": "evidence/plan018-v4-3-port-receipt.json",

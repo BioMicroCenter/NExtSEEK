@@ -1,0 +1,14 @@
+{
+  "schema": "plan018-evidence-sidecar/v1",
+  "lane": "A-hermetic",
+  "recorded_at": "2026-08-11T21:45:00Z",
+  "gate": "PASS",
+  "exit_status": 0,
+  "counts": {"passed": 48, "failed": 0},
+  "modules": [
+    "nextseek_api/eval/tests/test_v14_pair_input.py",
+    "nextseek_api/eval/tests/test_v14_decision.py"
+  ],
+  "log": "evidence/plan018-v4-4-decision-tests.log",
+  "paid_or_live_resources_used": false
+}

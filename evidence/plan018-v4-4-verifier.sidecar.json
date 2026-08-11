@@ -1,0 +1,72 @@
+{
+  "schema": "plan018-v4-4-verifier/v1",
+  "gate": "PASS",
+  "checks_passed": 12,
+  "checks_total": 12,
+  "errors": [],
+  "checks": [
+    {
+      "name": "v13a_zip_exists",
+      "pass": true,
+      "detail": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip"
+    },
+    {
+      "name": "v13a_zip_sha",
+      "pass": true,
+      "detail": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814"
+    },
+    {
+      "name": "config_fingerprint",
+      "pass": true,
+      "detail": "aef07561e66ce17a"
+    },
+    {
+      "name": "strong_quality_decision",
+      "pass": true,
+      "detail": "activated_all"
+    },
+    {
+      "name": "no_route_execution",
+      "pass": true,
+      "detail": "hermetic only"
+    },
+    {
+      "name": "no_set3_rerun",
+      "pass": true,
+      "detail": "read-only V13-A binding"
+    },
+    {
+      "name": "cost_excluded",
+      "pass": true,
+      "detail": "cost nullable only"
+    },
+    {
+      "name": "matrix_fingerprint",
+      "pass": true,
+      "detail": "f7d1b57f9f29bcbd"
+    },
+    {
+      "name": "fdr_complete_set",
+      "pass": true,
+      "detail": "activated_all"
+    },
+    {
+      "name": "support_gate_fixture",
+      "pass": true,
+      "detail": "deterministic tests cover gate"
+    },
+    {
+      "name": "independent_recompute",
+      "pass": true,
+      "detail": "aef07561e66ce17a"
+    },
+    {
+      "name": "v4_8_note",
+      "pass": true,
+      "detail": "Live MCMC at scale requires separate authorization"
+    }
+  ],
+  "route_execution": false,
+  "set3_rerun": false,
+  "paid_or_live_resources_used": false
+}
