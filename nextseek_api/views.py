@@ -699,26 +699,36 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
                 conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
                 cursor = conn.cursor()
 
-                uids_str = ', '.join(["'%s'" % uid for uid in requested_uids])
+                # requested_uids comes straight from the caller's `identifiers`
+                # POST body (models.py:1974 is an unvalidated List[str]), so it
+                # MUST stay parameterized -- it used to be inlined as
+                # "'%s'" % uid and a single quote broke out of the literal.
+                # Only the schema name (from settings) is interpolated, matching
+                # get_clade_color and services/entity_tree.py.
+                uid_placeholders = ', '.join(['%s'] * len(requested_uids))
 
                 if is_superuser:
                     query = f"""
                     SELECT id, sample_type_id, uuid, json_metadata
                     FROM {db["NAME"]}.samples
-                    WHERE uuid IN ({uids_str})
+                    WHERE uuid IN ({uid_placeholders})
                     """
+                    params = list(requested_uids)
                 else:
-                    # Avoid SQL syntax error when user has no mapped projects
-                    project_ids_str = ', '.join(["'%s'" % pid for pid in user_project_ids]) if user_project_ids else "''"
+                    # Sentinel keeps the statement valid, and matching nothing,
+                    # when the caller has no mapped projects.
+                    scoped_project_ids = [str(pid) for pid in user_project_ids] or ['']
+                    project_placeholders = ', '.join(['%s'] * len(scoped_project_ids))
                     query = f"""
                     SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
                     FROM {db["NAME"]}.samples s
                     JOIN {db["NAME"]}.projects_samples ps
                     ON s.id = ps.sample_id
-                    WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
+                    WHERE s.uuid IN ({uid_placeholders}) AND ps.sample_id = s.id AND ps.project_id IN ({project_placeholders})
                     """
+                    params = list(requested_uids) + scoped_project_ids
 
-                cursor.execute(query)
+                cursor.execute(query, params)
                 columns = [col[0] for col in cursor.description]
                 rows = cursor.fetchall()
                 children_uids_df = pd.DataFrame(rows, columns=columns)

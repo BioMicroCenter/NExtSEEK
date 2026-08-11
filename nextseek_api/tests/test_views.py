@@ -1282,3 +1282,131 @@ class TestAdminSampleViewSetUnification:
 
         assert resp.status_code == 200
         mock_dbs.return_value.getChildrenUIDs.assert_not_called()
+
+
+# ===========================================================================
+# AdminSampleViewSet — SQL injection in the include_tree=False MySQL fallback
+# ===========================================================================
+
+
+class TestAdminSampleRetrieveSQLInjection:
+    """The MySQL fallback built ``WHERE uuid IN ('a', 'b')`` by interpolating
+    caller-supplied identifiers, so a single quote breaks out of the literal.
+
+    ``identifiers`` is the POST body of admin_retrieve_samples and is not
+    format-validated (models.py:1974 is a plain List[str]); the endpoint is
+    gated on IsAuthenticated only, and ``include_tree=false`` deliberately
+    raises Neo4jError to land in this except-branch, so any authenticated
+    caller reaches it on demand.
+    """
+
+    _PAYLOAD = "NHP-1' UNION SELECT id, sample_type_id, uuid, json_metadata FROM testdb.samples WHERE '1'='1"
+
+    def _vs(self):
+        from nextseek_api.views import AdminSampleViewSet
+        vs = AdminSampleViewSet()
+        vs.format_kwarg = None
+        vs.kwargs = {}
+        return vs
+
+    @staticmethod
+    def _executed(cur):
+        """Return (sql, params) for the fallback SELECT."""
+        args, kwargs = cur.execute.call_args
+        sql = args[0]
+        params = args[1] if len(args) > 1 else kwargs.get("args")
+        return sql, params
+
+    def _run(self, mock_mysql, mock_seekdb, user, project_ids, identifiers):
+        mock_seekdb.return_value = _seekdb_mock(project_ids)
+        conn, cur = _mysql_cursor(
+            fetchall_val=[(1, 12, "NHP-1", "{}")],
+            description=[("id",), ("sample_type_id",), ("uuid",), ("json_metadata",)],
+        )
+        mock_mysql.connect.return_value = conn
+
+        req = _auth_request(
+            "post", "/",
+            data={"identifiers": identifiers, "include_tree": False},
+            user=user,
+        )
+        vs = self._vs()
+        vs.request = req
+        return vs.admin_retrieve_samples(req), cur
+
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("a", "p"), {}))
+    def test_uids_are_bound_not_interpolated(self, mock_auth, mock_seekdb, mock_dbs, mock_s, mock_mysql):
+        _setup_settings(mock_s)
+        resp, cur = self._run(mock_mysql, mock_seekdb, _admin_user(), [1], [self._PAYLOAD])
+
+        assert resp.status_code == 200
+        sql, params = self._executed(cur)
+        assert params is not None, "identifiers were interpolated into the statement, not bound"
+        assert list(params) == [self._PAYLOAD]
+        assert self._PAYLOAD not in sql
+        assert "UNION" not in sql.upper()
+        assert "IN (%s)" in sql
+
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("a", "p"), {}))
+    def test_quote_in_uid_does_not_change_the_statement(self, mock_auth, mock_seekdb, mock_dbs, mock_s, mock_mysql):
+        """Two single-identifier requests must produce byte-identical SQL."""
+        _setup_settings(mock_s)
+        seen = []
+        for value in ("NHP-1", "O'Brien'; DROP TABLE samples; --"):
+            _, cur = self._run(mock_mysql, mock_seekdb, _admin_user(), [1], [value])
+            seen.append(self._executed(cur)[0])
+        assert seen[0] == seen[1]
+
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("a", "p"), {}))
+    def test_project_scoped_branch_binds_uids_and_project_ids(self, mock_auth, mock_seekdb, mock_dbs, mock_s, mock_mysql):
+        """The non-superuser branch interpolated project ids too."""
+        _setup_settings(mock_s)
+        user = MagicMock()
+        user.is_authenticated = True
+        user.is_staff = False
+        user.is_superuser = False
+
+        resp, cur = self._run(mock_mysql, mock_seekdb, user, [7, 8], [self._PAYLOAD, "TIS-2"])
+
+        assert resp.status_code == 200
+        sql, params = self._executed(cur)
+        assert params is not None, "identifiers/project ids were interpolated, not bound"
+        assert list(params) == [self._PAYLOAD, "TIS-2", "7", "8"]
+        assert self._PAYLOAD not in sql
+        assert "'7'" not in sql and "'8'" not in sql
+        assert "s.uuid IN (%s, %s)" in sql
+        assert "ps.project_id IN (%s, %s)" in sql
+
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("a", "p"), {}))
+    def test_no_project_ids_still_matches_nothing(self, mock_auth, mock_seekdb, mock_dbs, mock_s, mock_mysql):
+        """A caller with no mapped projects must stay syntactically valid and
+        select nothing, as the old `IN ('')` sentinel did."""
+        _setup_settings(mock_s)
+        user = MagicMock()
+        user.is_authenticated = True
+        user.is_staff = False
+        user.is_superuser = False
+
+        resp, cur = self._run(mock_mysql, mock_seekdb, user, [], ["NHP-1"])
+
+        assert resp.status_code == 200
+        sql, params = self._executed(cur)
+        assert params is not None
+        assert list(params) == ["NHP-1", ""]
+        assert "ps.project_id IN (%s)" in sql
