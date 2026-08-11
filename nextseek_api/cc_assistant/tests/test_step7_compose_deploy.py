@@ -1754,12 +1754,34 @@ def test_compose_config_bedrock_proxy_build_context_is_docker_bedrock_proxy(tmp_
 
 
 @pytest.mark.host_only
-def test_compose_config_bedrock_proxy_attached_only_to_dmac_cc_net(tmp_path):
-    """The proxy must be reachable only on dmac-cc-net -- never the default
-    stack network (db/seek/solr/neo4j must not be able to reach it either)."""
+def test_compose_config_bedrock_proxy_attached_to_cc_net_and_egress_only(tmp_path):
+    """The proxy sits on dmac-cc-net (reachable by the agent) AND the dedicated
+    dmac-cc-egress net (F1: so it can still reach AWS Bedrock once dmac-cc-net is
+    internal) -- but NEVER the default stack network (db/seek/solr/neo4j must not
+    be able to reach it)."""
     cfg = _real_compose_config(tmp_path)
     nets = set(cfg["services"]["bedrock-proxy"].get("networks") or {})
-    assert nets == {"dmac-cc-net"}
+    assert nets == {"dmac-cc-net", "dmac-cc-egress"}
+    assert "default" not in nets
+
+
+@pytest.mark.host_only
+def test_compose_config_dmac_cc_net_is_internal(tmp_path):
+    """F1: the CC agent's network must have no internet egress. The per-turn
+    agent joins dmac-cc-net alone (via docker-py) with the user's plaintext
+    password in its env; `internal: true` removes the NAT path a jailbroken turn
+    would use to exfiltrate it. bedrock-proxy keeps AWS egress via dmac-cc-egress."""
+    cfg = _real_compose_config(tmp_path)
+    assert cfg["networks"]["dmac-cc-net"].get("internal") is True
+
+
+@pytest.mark.host_only
+def test_compose_config_dmac_cc_egress_present_and_not_internal(tmp_path):
+    """F1: the egress network exists (so bedrock-proxy reaches AWS) and is NOT
+    internal (or the proxy loses its outbound path too)."""
+    cfg = _real_compose_config(tmp_path)
+    assert "dmac-cc-egress" in cfg["networks"]
+    assert not cfg["networks"]["dmac-cc-egress"].get("internal")
 
 
 @pytest.mark.host_only

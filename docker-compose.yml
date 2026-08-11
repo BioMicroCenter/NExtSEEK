@@ -87,7 +87,13 @@ services:
     env_file:
       - ./docker/bedrock-proxy/proxy-secret.env
     networks:
+      # On dmac-cc-net (internal, F1) so the agent reaches it, AND on the
+      # dedicated dmac-cc-egress network so the proxy itself can still reach
+      # bedrock-runtime.<region>.amazonaws.com. The agent is NOT on cc-egress,
+      # so it inherits no internet path. Still never on `default` — db/seek/
+      # solr/neo4j cannot reach the proxy.
       - dmac-cc-net
+      - dmac-cc-egress
     # :8080 must be reachable ONLY on dmac-cc-net (R-8/gate G5) — no host
     # `ports:` publish here, ever.
 
@@ -306,6 +312,16 @@ networks:
   # through this file. No manual `docker network create`/`connect` needed.
   dmac-cc-net:
     name: dmac-cc-net
+    # F1: no NAT/gateway. The per-turn agent (spawned onto this net via docker-py)
+    # runs `claude --permission-mode auto` with the requesting user's plaintext
+    # NExtSEEK password in its env — an internal net removes the L3 path a
+    # prompt-injected or jailbroken turn would use to exfiltrate it. bedrock-proxy
+    # keeps AWS egress via dmac-cc-egress below; the agent is not on that net.
+    internal: true
+  # F1: egress-capable network carrying ONLY bedrock-proxy, so the proxy can reach
+  # AWS Bedrock while dmac-cc-net stays internal. No other service joins this.
+  dmac-cc-egress:
+    name: dmac-cc-egress
 
 
 volumes:
