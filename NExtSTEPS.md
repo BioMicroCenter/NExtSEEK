@@ -35,15 +35,16 @@ UI:
 `docker/nextseek.env` does not set `DJANGO_DEBUG` by default, which Django
 interprets as production mode — good.
 
-> ⚠ **Do NOT write `DJANGO_DEBUG=False`.** The settings code is
-> `DEBUG = os.getenv("DJANGO_DEBUG", False)` — it does **no** string
-> parsing, so ANY non-empty value (including the literal strings `False`
-> or `false`) turns debug mode **on**. If you ever toggled it on for
-> debugging, **delete the line entirely** (or set it to an empty value):
+The settings code is
+`DEBUG = (os.getenv("DJANGO_DEBUG") or "").strip().lower() in ("1", "true", "yes")`,
+so debug turns **on** only for the explicit values `1`, `true` or `yes`
+(case-insensitive, surrounding whitespace stripped). Absent, empty, `0`,
+`False`/`false`, `no` and `off` all leave debug **off**. Deleting the line
+entirely is still the clearest production state:
 
 ```ini
-# docker/nextseek.env — remove the DJANGO_DEBUG line altogether;
-# absent/empty is the only safe production state.
+# docker/nextseek.env — absent, empty, or an explicitly falsy value
+# (0 / false / no / off) all keep debug off. Deleting the line is clearest.
 ```
 
 Apply: `docker compose up -d --force-recreate nextseek`
