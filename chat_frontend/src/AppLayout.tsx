@@ -8,6 +8,7 @@ import { SessionSidebar } from "@/components/Sessions";
 import { getForceRoute } from "@/lib/forceRoute";
 import { getUseProd } from "@/lib/useProd";
 import { getMaxTurnLength } from "@/lib/maxTurnLength";
+import { adoptTerminalSession } from "@/lib/sessionAdoption";
 import type {
   ProgressEvent,
   AgentStartedData,
@@ -149,11 +150,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           });
           resetProcessing();
           setDebugData((prev) => ({ ...prev, bundleId: d.bundle_id }));
-          const authSid = getAuthoritativeSessionId() ?? d.session_id;
-          if (authSid) {
-            if (sessions.pendingNewChat) sessions.promoteCreatedSession(authSid);
-            else sessions.refresh();
-          }
+          adoptTerminalSession(sessions, getAuthoritativeSessionId() ?? d.session_id);
           break;
         }
         case "query_error": {
@@ -163,6 +160,11 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           pendingDebugRef.current.push(errEntry);
           setDebugData((prev) => ({ ...prev, entries: [...prev.entries, errEntry] }));
           resetProcessing();
+          // #38: the backend created the session before the turn failed, and
+          // query_error carries the same session_id. Without adopting it,
+          // pendingNewChat stays true and the NEXT send posts force_new again,
+          // producing a second empty session.
+          adoptTerminalSession(sessions, getAuthoritativeSessionId() ?? d.session_id);
           break;
         }
       }
