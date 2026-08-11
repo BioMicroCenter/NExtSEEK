@@ -236,23 +236,24 @@ def test_no_variant_in_the_corpus_asserts_nothing_at_all():
 def test_the_turns_that_evaluate_nothing_are_a_known_named_set():
     """Per-TURN vacuity, which the case-level status deliberately does not flag.
 
-    These turns really do assert nothing evaluable, but each belongs to a case
-    whose other turns assert four real criteria — so the case is not vacuous and
-    must not be labelled as such. Recorded here so the residue is visible and a
-    NEW vacuous turn has to be acknowledged rather than appearing silently.
+    Such a turn asserts nothing evaluable, but belongs to a case whose other turns
+    assert four real criteria — so the case is not vacuous and must not be labelled
+    as such. Recorded here so the residue is visible and a NEW vacuous turn has to
+    be acknowledged rather than appearing silently.
+
+    Both entries that used to sit in the router-decided list were vacuous ONLY
+    because the whole `pipeline_agent.` family was skipped. #66 narrowed that skip
+    to `pipeline_agent.launch_plan.`, so `pipeline_agent.active` — the sole
+    criterion on each of those two turns — is a real assertion again and neither
+    turn is vacuous. The list is empty and should stay that way.
     """
     def turns_where(predicate):
         return sorted(f"{v.id}:{t.label}" for v in _corpus.merged(_CORPUS) for t in v.turns
                       if t.pass_criteria and all(predicate(c) for c in t.pass_criteria))
 
-    assert turns_where(_skipped_now) == [
-        "pipeline.activation_rnaseq:trigger_pipeline",
-        "pipeline.end_to_end_emit:issue_directive",
-    ]
-    # ...plus one more, but only if that turn routes container_cc.
+    assert turns_where(_skipped_now) == []
+    # One turn is still vacuous, but only if it routes container_cc.
     assert turns_where(_skipped_if_cc) == [
-        "pipeline.activation_rnaseq:trigger_pipeline",
-        "pipeline.end_to_end_emit:issue_directive",
         "tree.then_ask_about:follow_up",
     ]
 
