@@ -1305,6 +1305,41 @@ class MostRecentSessionSortBufferTests(TestCase):
         other = User.objects.create_user("nosessions", password="x")
         self.assertIsNone(_most_recent_session(other))
 
+    def test_helper_returns_none_when_the_row_vanishes_between_the_two_queries(self):
+        """TOCTOU: the two-step lookup must keep the pre-#40 contract.
+
+        The ordered ``values_list`` query and the ``get()`` by primary key are
+        two round trips with no transaction around them. A concurrent delete
+        (another tab's "delete chat", a retention sweep) landing in that window
+        makes ``get()`` raise ``ChatSession.DoesNotExist``. Before #40 the
+        single ``.first()`` simply returned ``None`` and every caller then
+        created a fresh session, so raising here would be a new 500 on the hot
+        Container-CC path.
+
+        The race is simulated for real, not mocked: the row is deleted from
+        inside the patched ``get`` and the genuine ORM call is then allowed to
+        run and raise its genuine ``DoesNotExist``.
+        """
+        from nextseek_api.services.assistant import _most_recent_session
+
+        racer = User.objects.create_user("toctou", password="x")
+        doomed = ChatSession.objects.create(user=racer, results_history=[])
+
+        real_get = ChatSession.objects.get
+        calls = []
+
+        def racing_get(*args, **kwargs):
+            calls.append(kwargs)
+            # The window: the row is gone by the time the PK fetch executes.
+            ChatSession.objects.filter(session_id=doomed.session_id).delete()
+            return real_get(*args, **kwargs)
+
+        with patch.object(ChatSession.objects, "get", side_effect=racing_get):
+            got = _most_recent_session(racer)
+
+        self.assertEqual(len(calls), 1, "expected exactly one PK fetch")
+        self.assertIsNone(got)
+
     def test_cc_resolve_session_keeps_results_history_out_of_the_sort(self):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext

@@ -175,6 +175,13 @@ def _most_recent_session(user) -> "ChatSession | None":
     in ``__init__``, so a deferred field would just trigger a second query.
     The second ``get()`` here fetches the full row by primary key with no
     filesort at all.
+
+    Two queries with no transaction around them is a TOCTOU window: a
+    concurrent delete landing between them makes ``get()`` raise
+    ``DoesNotExist``. The pre-split implementation was a single ``.first()``
+    that returned ``None``, and every caller treats ``None`` as "make a fresh
+    session", so the miss is swallowed here to keep that contract rather than
+    turning a lost race into a 500 on the hot Container-CC path.
     """
     session_id = (
         ChatSession.objects.filter(user=user)
@@ -184,7 +191,10 @@ def _most_recent_session(user) -> "ChatSession | None":
     )
     if session_id is None:
         return None
-    return ChatSession.objects.get(session_id=session_id)
+    try:
+        return ChatSession.objects.get(session_id=session_id)
+    except ChatSession.DoesNotExist:
+        return None
 
 
 def _auto_title_if_unset(chat_session: ChatSession, fallback_query: str = "") -> None:
