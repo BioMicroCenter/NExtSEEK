@@ -50,13 +50,33 @@
 > `docs/superpowers/plans/2026-07-31-hibayes-eval-routing.pre-v11-20260810T115925-0400.md`
 > (SHA-256 `0cc82c0fa1fec47b4d1a5976c295fca1689c6a1d18b3b6ee5b88f83d7ae3ba02`).
 
-> **V12 (2026-08-10) — CURRENT AUTHORITY; INDEPENDENT EXACT-DIFF REVIEW CLEAN.** V12
+> **V12 (2026-08-10) — SUPERSEDED IN PART BY V13 BELOW; V12 EXACT-DIFF REVIEW CLEAN.** V12
 > removes V5-1's new governance-policy STOP. NExtSEEK's existing private-instance, authenticated,
 > API/project-scoped security model remains the authority; Plan 018 adds no parallel governance
 > regime. It preserves narrow technical access tests and direct at-time approval for actual external
 > judge payloads. The exact V11 backup is
 > `docs/superpowers/plans/2026-07-31-hibayes-eval-routing.pre-v12-20260810T120551-0400.md`
 > (SHA-256 `e2eaf7331a141005753aca15cf4b51f70e769effe0b891f6325ea4562d5de695`).
+
+> **V13 (2026-08-10) — SUPERSEDED IN PART BY V14 BELOW; V13 EXACT-DIFF REVIEW CLEAN.** V13
+> applies only the maintainer-approved fifteen-item change set recorded in
+> `PLAN018-V12-PROPOSED-CHANGESET-2026-08-10.md`. It binds analysis to the transferred completed
+> `set3_final` paired evidence, eliminates every replacement paired-benchmark requirement, resolves
+> V4-1 dynamically from that run without historical taxonomy mapping, freezes DD-44 at exactly
+> three calls, and corrects mutation, activation, Git, and non-destructive recovery gates. It does
+> not choose V4-4 statistical semantics or authorize implementation, push, provider use, live
+> mutation, deployment, production enablement, or activation. The exact committed V12 backup is
+> `docs/superpowers/plans/2026-07-31-hibayes-eval-routing.pre-v13-8c622f91.md`
+> (SHA-256 `b6834471817d9450e57ea0fe06649dc4a618db47260ce117cd526e790075c313`).
+
+> **V14 (2026-08-10) — CURRENT STATISTICAL-CONTRACT CANDIDATE; INDEPENDENT EXACT-DIFF REVIEW
+> CLEAN.** V14 records only the maintainer-approved V4-4 quality, latency, prior, decision,
+> multiplicity, support, and validation contract. It removes the former open statistical-choice
+> STOP without changing evidence, corpus, taxonomy, DD-44, security, Git/live-action, recovery, or
+> `unrelated` behavior. V14 is not implementation readiness or authorization. The exact pre-V14
+> backup is
+> `docs/superpowers/plans/2026-07-31-hibayes-eval-routing.pre-v14-20260810T155104-0400.md`
+> (SHA-256 `3444579a4fdcc7906334ea3a7036be926f882d22598f6dfdb11e5119464ea68b`).
 
 **Goal:** Build a Bayesian router for the NExtSEEK assistant. A forced-route experiment runs one
 question corpus down the NExtSEEK path and down the Container-CC path and estimates a paired,
@@ -69,7 +89,10 @@ generation and otherwise falls back to the LLM routing function (V4-5 and V4-6).
 
 **The router** is two functions (V3-B): a permanent classification call mapping a query to a declared task family or to `unrelated` — the spend gate — and a routing function selecting destination and model.
 
-**Stage 1 — baseline (V3-C).** The `nessie_tests` harness runs the corpus under forced routes and the paired results are fitted into the prior. This is an experiment, not observation: the same question goes down both routes.
+**Stage 1 — baseline (V3-C/V13).** The completed, hash-bound `set3_final` evidence contains the same
+question executed under both forced routes; Plan 018 verifies and fits those stored pairs without
+rerunning them. This is experimental evidence, not observation: question identity is held fixed and
+only route varies. Future genuinely new promoted occurrences retain that paired execution behavior.
 
 **Stage 2 — online monitoring.** `task_family` comes back from the classification call and a durable
 per-turn ledger row is written alongside the existing JSON envelope; a nightly Celery task exports
@@ -105,7 +128,9 @@ pytest / pytest-django, Docker.
   (V7-A) — **not** `dmac_assistant/build_context/route_capabilities.json`. Every key under the
   corpus's `families` object is a classifier label; axes declared outside `families` are not labels.
   There is no second include/exclude list, fixed count, or label-selection approval layer.
-- **Never commit or push without the maintainer's explicit go-ahead.** Tasks end at `git commit` on the feature branch only.
+- **Local Git work needs no approval.** Use the V13 integration-branch/worktree workflow; reviewed
+  task commits and local merges proceed without asking. Ask before every push and before every live
+  mutation.
 - **Hermetic test command:** `pytest nextseek_api/cc_assistant/tests/`
 - **DB-backed tests run in the V2 worktree-mounted harness**, using `uv run --no-sync` and the
   canonical test DB. The running `nextseek` container is not a source harness unless provenance
@@ -138,8 +163,8 @@ Rules of precedence:
    non-conflicting original requirement. A conflicting original snippet or command is void.
 3. No task may be marked DONE from helper-only tests, string greps, a skipped live test, a stale
    evidence file, or output from source other than the task worktree.
-4. No commit, push, deploy, live DB migration, paid/model call, or destructive rollback occurs
-   without its existing explicit maintainer gate. This vetting pass grants none of those gates.
+4. This vetting pass grants no implementation, push, deploy, live DB migration, or paid/model call.
+   Destructive rollback of persistent data or schema is prohibited by V13.
 
 ### V2-0 — Mandatory execution preflight (before original Task 0)
 
@@ -217,13 +242,15 @@ available fixture smoke executes successfully. A fixture body that raises must m
 - The ledger implements the complete durable contract above, not the metadata-only sketch.
 - Deliberately update/replace `test_no_new_migrations` in the same task with a guard that permits
   the enumerated Plan 018 migrations and still fails on any unplanned migration.
-- Apply forward and reverse migrations only against the identified test DB; introspect exact FK,
+- Apply forward migrations against the identified disposable test DB and use ordinary disposable
+  reset/teardown for clean-state testing; introspect exact FK,
   unique constraint, indexes, charset/collation, cascade behavior, and migration ledger. Test fresh
   and seed-derived schema shapes.
 
 **DONE only if:** applied-schema introspection, not `sqlmigrate` text alone, proves the contract.
-Rollback after data exists requires a snapshot and maintainer approval; `migrate ... 0009` is not a
-routine code rollback and must never silently drop evaluation data.
+Persistent reverse migration after data exists is prohibited by V13; `migrate ... 0009` is not a
+routine code rollback and must never drop evaluation data. Disposable test-database teardown is
+permitted.
 
 #### V2-T2 — Collision translation and atomic persistence primitive
 
@@ -384,13 +411,14 @@ route heuristic into a classifier, or writes `family_source="forced"` violates t
 
 Before any migration/scheduler/consumer activation, snapshot migration state, affected table row
 counts and active-generation identity, beat/task configuration, source SHA/diff, image ID, and
-relevant non-secret env-file hashes. A rollback must compare those identities afterward. Never
-delete evaluation tables/data or reverse below the recorded pre-plan migration leaf without an
-explicit destructive-data approval.
+relevant non-secret env-file hashes. Non-destructive recovery must compare those identities
+afterward. Never delete evaluation tables/data or reverse persistent schema below the recorded
+pre-plan migration leaf; V13 provides no approval path for doing so.
 
 Final completion requires: all V2 gates; original non-conflicting tests; full hermetic and DB lanes
 with no regression versus the recorded baseline; source/vault plan equality; a final independent
-outcome review; and the existing maintainer gates for commits, push, deploy, and paid live calls.
+outcome review; and the existing maintainer gates for push, deploy, paid live calls, and other live
+mutations. Reviewed local task commits and local merges need no approval per V13-F.
 
 ## V3 binding amendment (2026-08-04, post-vetting)
 
@@ -418,8 +446,8 @@ Rules of precedence:
 
 1. V3 supersedes V2 where they conflict. V2 continues to supersede the original task prose.
 2. Every V2 completion contract not amended here remains mandatory and unchanged.
-3. No V3 item grants any commit, push, deploy, live-DB, paid/model, or destructive-rollback
-   authorisation. All existing maintainer gates survive intact.
+3. No V3 item grants implementation, push, deploy, live-DB or paid/model authorisation.
+   Destructive rollback of persistent data or schema is prohibited by V13.
 
 ### V3-A — The task-family set is not frozen (applied inline)
 
@@ -508,15 +536,16 @@ existing row and manifest shapes are a **reference, not a constraint**. Where th
 evidence that is genuinely useful for deciding which route is better, that evidence is carried into
 the models rather than discarded to fit the older shapes.
 
-**Cost is optional data, not an implicit utility rule.** Computing true cost on the NExtSEEK path is
-non-trivial. The ingestion schema carries nullable `cost` and measured latency, but V4-4 must state
-whether and how either enters operational utility. A null cost is unknown, never zero and never a
-failure; populated cost does not automatically alter the winner without the approved rule.
+**Cost is optional reporting data, never utility.** Computing true cost on the NExtSEEK path is
+non-trivial. The ingestion schema carries nullable `cost`, but V14 excludes it from fitting,
+utility and winner selection. A null cost is unknown, never zero and never a failure. Latency is a
+separate paired outcome and can select a winner only after V14's quality-equivalence gate.
 
-**Prospective paired-run output shape, not an implemented claim.** The names below record V3's
-proposed interface only. Full-scope verification found no paired runner or these Bayesian types on
-any fetched ref or in the deployment. V4-2 may revise the concrete strict schema after the producer
-is implemented and reviewed; the invariants and provenance requirements remain mandatory.
+**Historical interface sketch.** The names below record V3's early proposal. V13 uses the exact
+stored `set3_final` manifest and the existing arm-level pydantic contract in
+`nextseek_api/eval/router_models_proposal.py`; no implementer may revise that data contract as part
+of V4-4. V4-2 still owns finished-product production of genuinely new promoted occurrences, while
+the invariants and provenance requirements remain mandatory.
 
 **Read `bayes_manifest.json`, never `manifest.json`.** The paired run writes
 `<out_dir>/bayes_manifest.json`. A normal unpaired run writes `manifest.json`. Pointing a reader at
@@ -563,11 +592,11 @@ accompany the per-arm files. The arm is carried by the image/identity column, va
 HiBayes subtype label (CamelCase) are distinct fields carried side by side. Neither may be derived
 from the other, and the fit must not silently collapse them into one grouping level.
 
-**Live-run gate.** Nothing had run live when this was written (**corrected by V8-K** — a smoke run
-and a full paired run have since been executed by the harness author), and forcing a route is
-admin-gated, so a real paired run requires a staff account. V3-C therefore cannot be validated
-against real data on those runs' basis alone. Do not fabricate a paired dataset from two independent unpaired runs, and do not treat a
-dry-run or partial manifest as a baseline.
+**Completed-run evidence (V13 correction).** A smoke run and the full `set3_final` paired run were
+executed and transferred. Who initiated the execution is not a validity criterion. Acceptance uses
+the exact V13 evidence hashes, manifest, pair identities, route traces, replayable raw bytes,
+exclusions, and artifacts. Do not fabricate a paired dataset from two independent unpaired runs,
+substitute a dry-run or partial manifest, or require Plan 018 to initiate a replacement run.
 
 **The judge determines success — this is the core of the comparison.**
 
@@ -616,11 +645,10 @@ crashed, interrupted or partial run must resume from where it stopped rather tha
 start, and a re-run in which an arm's answer is unchanged must incur no new judge calls. Re-running
 everything after a harness failure is unacceptable on both time and cost grounds.
 
-**Measure inter-call disagreement before committing to three calls.** DD-44's aggregation only buys
-something if the three calls sometimes differ, and nothing in the client configuration guarantees
-that they will. Measure the disagreement rate on a small sample first. If the three calls agree
-essentially always, the vote is decorative and the call count can drop to one, cutting judge spend by
-two thirds before any full run is paid for.
+**DD-44 call count is frozen.** Every eligible arm receives exactly three sequential evaluator
+calls, followed by the existing per-field aggregation above. No disagreement pilot, cost argument,
+or implementation-time amendment may reduce the count. Only the maintainer may independently
+reopen DD-44 in a later decision.
 
 **Validity requirements.**
 
@@ -654,13 +682,13 @@ two thirds before any full run is paid for.
 
 **Model architecture is unfrozen for this design** (see Freeze boundaries); band thresholds are not.
 
-**DONE only if:** a paired run over the corpus is ingested with both arms present per question; every
-ingested arm carries a judge-produced functional outcome, aggregated per DD-44; the expected-cost
-calculation was computed from the configured client and approved before any paid call; the cache
-proved idempotent by resuming an interrupted run without re-judging completed arms; the fit produces
-per-family posteriors carrying corpus identity, run identity, code commit and judge model identity;
-evidence-free and unevaluable cases are provably excluded rather than scored; and a fresh reader can
-reproduce the baseline from the recorded artifacts alone.
+**DONE only if:** the exact transferred `set3_final` run is replayed from stored evidence with both
+arms present per retained question; every eligible arm carries a judge-produced functional outcome
+aggregated from exactly three sequential DD-44 calls; deterministic validators reproduce from the
+stored files; the fit produces per-family posteriors carrying corpus identity, run identity, code
+commit and judge model identity; evidence-free and unevaluable cases are provably excluded rather
+than scored; and a fresh reader can reproduce the baseline from the recorded artifacts alone. No
+replacement paired execution is part of this DONE condition.
 
 ### V3-D — Posterior-driven routing with LLM fallback
 
@@ -738,8 +766,9 @@ silently fill the contracts that V3 left undefined.
 2. Original Tasks 0–13 are retained as historical implementation decomposition. They must be
    resequenced under V4-0 through V4-9. No original task may start merely because its old local
    prerequisites appear satisfied.
-3. No product-code commit, push, deployment, live mutation, paid call, schedule activation,
-   posterior activation, or destructive rollback is authorized by this document or its vetting.
+3. No implementation, push, deployment, live mutation, paid call, schedule activation or live
+   posterior activation is authorized by this document or its vetting. Destructive rollback of
+   persistent data or schema is prohibited by V13.
 4. A STOP gate requires a recorded maintainer decision. An implementation agent may not invent a
    taxonomy crosswalk, statistical threshold, spend amount, deployment target, or rollback target.
 5. A DONE claim requires executable evidence from the recorded source worktree. Hand-authored
@@ -774,35 +803,35 @@ silently fill the contracts that V3 left undefined.
 can test the approved base, the pre-change suite passes there, and no deployed or paid resource was
 used. The ordinary-harness port itself occurs only in V4-2 after V4-1 approval.
 
-### V4-1 — Corpus taxonomy compatibility and common estimand decision (STOP)
+### V4-1 — Exact-run dynamic families and common support (resolved by V13)
 
-The historical 7-, 8-, 10-, and 15-family schemes are not interchangeable with the current corpus.
-For classification, however, V7-B removes the selection question: every family declared by the
-latest compatible corpus is canonical. Before a posterior schema is authored, prepare a decision
-artifact that contains:
+V4-1 is resolved mechanically from the exact embedded corpus and `set3_final` evidence bound by
+V13. Read every family dynamically from the top-level `families` object in embedded
+`testquestions/corpus/corpus.json` SHA-256
+`99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652`. Verify that every
+`set3_final` pair names one of those declared families, then calculate retained pair counts and
+common support separately for each dynamically read family within this run.
 
-- every source taxonomy with source SHA and file hash;
-- the corpus-declared family IDs, schema version, descriptions, aliases, renames, splits, merges,
-  and tombstones, without an include/exclude column or second label list;
-- a total crosswalk from historical/online/ordinary-Nessie labels into the corpus-declared IDs;
-- route feasibility and explicit common-support status for every canonical family;
-- counts by source and route, plus unmapped/ambiguous rows that remain errors rather than being
-  silently assigned; and
-- migration/compatibility rules for stored observations and published generations.
+There is no approved family list, fixed family count, `Literal`, static taxonomy, canonical master
+taxonomy, include/exclude layer, or label-selection approval. There is also no historical taxonomy
+crosswalk, alias/rename/split/merge mapping, cross-version pooling, migration of historical
+observations, or attempt to reconcile earlier label schemes. Those activities are out of scope and
+were remnants of the superseded plan to construct a new corpus. Escalate only a genuine ambiguity
+inside the exact run-bound evidence that cannot be resolved mechanically.
 
-The paired target is a within-question comparison on the exact corpus snapshot recorded for that
-run: for family `f`, estimate the difference in desired-outcome probability between a genuinely
-forced Container-CC arm and a genuinely forced NExtSEEK arm while preserving pair identity. This
-does not freeze the corpus for future runs and does not select the practical-effect threshold,
-precision requirement, minimum sample, or operational winner rule.
-
-**STOP:** the maintainer must approve the crosswalk compatibility, common-support policy, and
-estimand before V4-2. Label inclusion is not part of this STOP. A newly declared corpus family is
-immediately a classifier label, but without support on both routes or adequate evidence it cannot
-yield a comparative route claim and remains `TooUncertain`/fallback or is reported
-route-conditionally.
+The paired target remains the within-question difference in desired-outcome probability between
+the genuinely forced Container-CC and NExtSEEK arms for family `f`, preserving pair identity.
+Families without both-route support or sufficient evidence remain indecisive/fallback and yield no
+comparative winner. V4-1 does not choose any V4-4 prior, threshold, precision requirement, minimum
+sample, multiplicity rule, utility treatment, or operational winner rule.
 
 ### V4-2 — Own and prove the ordinary and paired producers
+
+V13 narrows acceptance of this task: the paired producer is finished-product behavior for genuinely
+new promoted occurrences only. Plan 018 implementation and acceptance must not run `set3_final`,
+the 127-pair predecessor, or any replacement corpus through NExtSEEK and Container-CC again.
+Producer mechanics are exercised hermetically with stored records and synthetic fixtures; they do
+not satisfy or require a new paired benchmark.
 
 - [ ] Port the reviewed ordinary-Nessie harness as an explicit task with source-by-source tests.
   Its existing `manifest.json` remains an ordinary run artifact and must never be renamed and
@@ -821,14 +850,18 @@ route-conditionally.
   executions. Validate with strict models (`extra=forbid`), canonical hashes, referential integrity,
   and conservation counts. No hand-authored `BayesManifest` fixture may prove the producer.
 
-**V4-2 DONE:** a verifier can replay a tiny free/fake corpus end to end and prove from independent
-route traces that each arm actually traversed its declared route. Mocks may test failure handling
-but cannot satisfy the route-enforcement acceptance test.
+**V4-2 DONE:** a verifier replays the exact transferred `set3_final` manifest, pair identities and
+independent stored route traces, and hermetically exercises the producer's parsers, adapters,
+pair-conservation checks, route-enforcement validation and rejection cases without executing either
+route. Future promoted occurrences still execute independently through both forced routes when the
+finished product is later used; that future behavior is not a rerun or acceptance condition for the
+completed `set3_final` evidence.
 
 ### V4-3 — Judgment attempts, exact DD-44 aggregation, and outcome conservation
 
-- [ ] Keep DD-44 at three evaluator calls unless a separately approved quantitative pilot and plan
-  amendment changes it. Store every immutable canonical raw request and response payload (or a
+- [ ] Keep DD-44 at exactly three sequential evaluator calls per eligible arm. There is no pilot or
+  amendment escape hatch inside this plan; only the maintainer may independently reopen the
+  decision later. Store every immutable canonical raw request and response payload (or a
   durable content-addressed artifact reference that is retrieved and hash-verified during replay),
   including failed attempts, with stable attempt ID, provider request ID when available, input
   fingerprint, model/client, prompt/evaluator versions, start/end timestamps, retry linkage,
@@ -849,39 +882,196 @@ but cannot satisfy the route-enforcement acceptance test.
 - [ ] Enforce the conservation equation for every run and each arm:
   `input = scored_desired + scored_not_desired + excluded_by_reason + pending`.
   Pair inclusion additionally requires two retained arms.
-- [ ] The maintainer-approved analysis contract must set minimum retained pairs and differential-
-  attrition bounds. Report sensitivity bounds; do not hide a route-specific exclusion imbalance.
+- [ ] Apply V14's configurable default minimum of five retained pairs and two discordant pairs for
+  any winner. Report differential attrition and sensitivity bounds; never hide a route-specific
+  exclusion imbalance or use it to bypass the support rule.
 
 **V4-3 DONE:** raw-attempt replay deterministically reproduces aggregates and totals, deliberate
 failure/outage/unknown-status tests fail safely, and no excluded or pending case reaches the fit.
 
-### V4-4 — Paired model and operational decision contract (STOP)
+### V4-4 — Paired model and operational decision contract (resolved by V14)
 
-Before fitting real evidence, write and review a versioned statistical contract defining:
+`nextseek_api/eval/router_models_proposal.py` already defines the arm-level pydantic data contract.
+V4-4 is not another row-schema design exercise. It covers only the remaining pair-preserving
+statistical analysis and operational decision rule. Per V10-E, `RouteFamilyAggregate` cannot be fit
+input because it discards `query_id` and pair identity.
 
-- the paired likelihood or other dependence-preserving model and exact priors;
-- the canonical family/corpus/common-support population to which each claim applies;
-- minimum retained pairs, precision/calibration requirements, practical-effect threshold, winner/
-  tie/indecisive rules, multiplicity policy, and fallback behaviour;
-- whether latency and nullable cost are excluded, reported as secondary outcomes, constrained, or
-  incorporated into operational utility; the units, normalization, missing-cost treatment, and
-  trade-off rule must be explicit, and unknown cost can never be imputed as zero by convenience;
-- treatment of missingness, outages, unevaluable criteria, differential attrition, and sensitivity
-  bounds;
-- holdout or cross-validation discipline plus simulation-recovery tests for null, positive,
-  negative, sparse, imbalanced, and adversarial cases; and
-- compatibility/staleness keys for taxonomy, corpus, producer, judge, aggregation, model, client,
-  and source versions.
+The versioned contract uses the exact `set3_final` pair structure, V8-D combined success outcome,
+unchanged standalone HiBayes port and the bounded recovery/oracle suite below. Every family is read
+dynamically from the exact corpus; no family name, count or capability exception is hardcoded.
 
-`TooUncertain` is an uncertainty band, not by itself an operational definition of which route a
-posterior “favours.” No implementation may hardcode a route for a favourable-looking fixture or
-select a winner from posterior mean alone.
+**Primary quality and total disposition.** The quality bit is exactly V8-D:
 
-**STOP:** the maintainer must approve the numeric thresholds, priors, validation criteria, and
-decision rule. **V4-4 DONE** only when blinded fixtures/simulations recover their generating cases,
-negative controls do not publish a winner, and an independent recomputation matches the fit.
+```text
+success = runtime_success AND artifact_success AND functional_success
+```
+
+`artifact_success=true` for `NotExpected` only when the corpus resolver says no artifact is
+expected. Preserve V8-D's exact total mapping for provider outage, usage policy, code error,
+timeout, no answer, deterministic failure, unjudged, zero-criteria, unevaluable, missing-arm and
+unknown states. Nothing excluded/pending enters the fit, and no terminal failure is erased by the
+latency model.
+
+**Pair-preserving quality model.** For every retained paired question, model one multinomial draw
+over exactly four joint states: `both_succeed`, `nextseek_only_succeeds`,
+`container_cc_only_succeeds`, and `both_fail`. Parameterize the four sum-to-zero logits in their
+three-dimensional contrast space. With any fixed versioned orthonormal contrast basis `B` satisfying
+`B'B = I_3` and `B'1_4 = 0`, use the basis-invariant parameterization:
+
+```text
+z_global ~ MVNormal(0_3, 2.0^2 * I_3)
+delta_family[f] ~ MVNormal(0_3, 2.0^2 * I_3)
+logits_family[f] = B * (z_global + delta_family[f])
+```
+
+Thus the global logits have an isotropic Normal prior centered at no route advantage in the 3D
+contrast space, and each dynamic-family offset has an isotropic Normal prior centered on the global
+logits in that same space. The covariance is fixed and diagonal in contrast coordinates. The
+configurable default scale is `2.0` for both levels. Do not introduce a learned covariance,
+dispersion parameter or additional quality hyperprior.
+
+For family `f`, define:
+
+```text
+quality_advantage_ns[f] = P(nextseek_only_succeeds | f)
+                          - P(container_cc_only_succeeds | f)
+quality_advantage_cc[f] = -quality_advantage_ns[f]
+```
+
+A quality winner requires at least the configured support defaults of five retained pairs and two
+discordant pairs, then either:
+
+- NExtSEEK wins quality when
+  `P(quality_advantage_ns >= 0.10 | evidence) >= 0.95`; or
+- Container-CC wins quality when
+  `P(quality_advantage_ns <= -0.10 | evidence) >= 0.95`.
+
+The practical advantage `0.10` and posterior probability `0.95` are configurable, versioned and
+fingerprinted defaults. A clear quality winner is selected regardless of latency: latency cannot
+veto or overturn it. There are no taxonomy-specific exceptions; genuine one-route-only capability
+is protected by combined-success evidence itself.
+
+**Quality equivalence gate.** Latency may affect a winner only when support passes and
+`P(abs(quality_advantage_ns) <= 0.10 | evidence) >= 0.95`. The ROPE half-width `0.10` and
+equivalence probability `0.95` are configurable, versioned and fingerprinted. Outside a clear
+quality winner or this equivalence gate, the result is indecisive and uses the exact legacy fallback.
+
+**Paired robust latency model.** Let
+`d = log(latency_ns / latency_cc) = log(latency_ns) - log(latency_cc)`. Model `d` with the paired
+hierarchical likelihood and priors:
+
+```text
+mu_latency ~ Normal(0, 1.0^2)
+delta_latency[f] ~ Normal(0, 1.0^2)
+d_i | family=f ~ StudentT(nu=4, location=mu_latency + delta_latency[f], scale=sigma_latency)
+```
+
+Dynamic-family offsets are centered on the global log effect. The fixed configurable default prior
+scale is `1.0` for both levels. Degrees of freedom `nu` is configurable/versioned with default `4`.
+
+Use one globally learned positive residual scale shared by every dynamic family:
+
+```text
+sigma_latency ~ HalfNormal(1.0)
+```
+
+That prior is on the log-latency scale. `sigma_latency`, its prior, `nu`, the Normal effect priors,
+the quality contrast basis and isotropic Normal priors, and all decision settings are configurable,
+versioned and included in the candidate fingerprint. Do not add family-specific residual scales,
+a learned effect covariance or another latency scale/hyperprior.
+
+Observed paired latencies contribute exact `d`. A timeout/incomplete NS arm with recorded lower
+bound and observed CC arm contributes the corresponding right-censored lower bound on `d`; a
+timeout/incomplete CC arm with observed NS contributes the mathematically corresponding upper
+bound on `d` while retaining the arm's original right-censoring fact. If both arms are right-
+censored, retain and count the pair explicitly as latency-uninformative rather than imputing a
+difference; both terminal failures remain on the quality axis. Never cap, zero-impute, convenience-
+impute or silently drop a censored observation.
+
+Within demonstrated quality equivalence only, NExtSEEK wins latency when
+`P(latency_ns <= 0.80 * latency_cc | evidence) >= 0.95`; Container-CC wins latency under the
+mirrored condition. The `20%` improvement and `0.95` probability are configurable, versioned and
+fingerprinted defaults. Otherwise the result is indecisive and uses exact legacy fallback. The
+previous configurable `25%` slowdown threshold is reporting/diagnostic warning only and never
+affects winner selection.
+
+**Cost.** Cost remains nullable recorded/reporting provenance only. It is excluded from the
+quality fit, latency fit, utility and winner selection; missing cost is never zero.
+
+**Multiplicity and activation.** For every support-eligible dynamic family that passes an approved
+`0.95` winner rule, compute a local posterior error probability. For a quality candidate, error is
+the posterior probability that its claimed directional `0.10` quality advantage is false. For a
+latency candidate, error is the posterior probability that the joint claim—quality equivalence and
+the claimed directional `20%` speed improvement—is false.
+
+```text
+quality NS error = P(quality_advantage_ns < 0.10 | evidence)
+quality CC error = P(quality_advantage_ns > -0.10 | evidence)
+latency NS error = 1 - P(abs(quality_advantage_ns) <= 0.10
+                         AND latency_ns <= 0.80 * latency_cc | evidence)
+latency CC error = 1 - P(abs(quality_advantage_ns) <= 0.10
+                         AND latency_cc <= 0.80 * latency_ns | evidence)
+```
+
+The candidate set is deterministically **all** such eligible winners for the generation. No subset,
+sorting, largest-prefix rule, tie-break or discretionary omission is permitted. For this complete
+non-empty set, posterior expected FDR is the arithmetic mean of its local error probabilities. If
+that mean is at most the configurable/versioned default `0.05`, activate every candidate in the
+complete set. If it exceeds `0.05`, activate none and mark the generation
+`multiplicity_indecisive`; every family uses exact legacy fallback. An empty candidate set means no
+winners and exact legacy fallback, never a vacuous FDR pass. No family-specific exemption is
+permitted.
+
+**Validation and DONE.** All thresholds, priors, censoring rules, model/config versions, frozen
+fixtures/seeds and input identities are fingerprinted. This suite is designed to catch pair,
+direction/sign, gating, censoring, threshold and FDR wiring errors. It does **not** claim precise
+frequentist calibration, coverage, type-I error or power. V4-4 DONE requires:
+
+- zero sampler divergences;
+- configurable/versioned `R-hat <= 1.01` for every monitored parameter;
+- configurable/versioned bulk and tail ESS `>= 400` for every monitored parameter;
+- fast deterministic, no-MCMC decision tests covering every quality/equivalence/latency/support
+  boundary; quality-first latency gating; the reporting-only `25%` warning; the exact complete-set
+  FDR algorithm including empty and over-limit sets; pair reversal and copied/swapped arms;
+  minimum-support fallback; configuration fingerprints; and cost exclusion;
+- exactly `40` full Bayesian recovery fits: eight frozen scenarios by five deterministic seeds.
+  The scenarios are null/equal; NExtSEEK strong quality; Container-CC strong quality;
+  quality-equivalent NExtSEEK at least `20%` faster; quality-equivalent Container-CC at least `20%`
+  faster; below-minimum support; `30%` right censoring; and imbalanced/adversarial outliers. Freeze
+  fixture bytes, ground-truth classification and seeds before inspecting fitter output. The
+  configured ground truth mechanically classifies each case as an approved strong-effect case or
+  a genuinely indecisive case; output cannot change that classification;
+- recovery acceptance of at least `4/5` correct decisions for every strong-effect scenario, `5/5`
+  exact legacy fallback for null, sparse/below-support and every genuinely indecisive scenario,
+  and zero wrong-direction winners across all `40` fits;
+- independent recomputation matching eligibility and winner exactly for every fit, with negative
+  controls publishing no winner; and
+- mutation tests proving cost and the `25%` slowdown warning cannot affect a winner, latency cannot
+  overturn a quality winner, insufficient support/discordance cannot win, the complete-set FDR rule
+  cannot cherry-pick, and `unrelated` always takes its permanent canned spend-gate path.
+
+Before the suite proceeds, run five representative fits selected from the already frozen
+eight-by-five matrix and measure their durations. Those five are the first five of the required
+`40` and must be reused as their identical scenario/seed fits; they are not five additional fits.
+Project the remaining `35` from measured fit times. Both total serial-equivalent fit time and actual
+suite wall-clock time have an absolute `60`-minute ceiling. If the projection exceeds `60` minutes,
+or either clock reaches the cap, stop and mark the suite inconclusive; optimize or ask the
+maintainer before retrying. Never run beyond the cap, count a timeout as a pass, substitute an
+unfrozen probe, or execute/report `45` full fits. The total full-fit budget across feasibility and
+recovery is `40`: an inconclusive feasibility fit consumes its frozen scenario/seed slot. Optimize
+with deterministic/no-MCMC profiling and resume only the remaining slots when the fitted contract
+and frozen outputs remain valid; if a change would invalidate or require rerunning a consumed slot,
+stop and ask the maintainer rather than exceeding `40`.
+
+`TooUncertain` remains an uncertainty band, not a winner rule. Posterior mean alone never selects a
+route. V14 resolves the former V4-4 design STOP; it does not execute or authorize the contract.
 
 ### V4-5 — Immutable generation publication and activation
+
+Candidate activation means changing the active posterior-generation pointer. Candidate creation,
+test-database activation, and local or isolated-harness activation require no approval. Ask first
+before changing that pointer in the live NExtSEEK database. Production routing enablement is a
+separate live mutation and requires its own at-time question and approval.
 
 - [ ] Publish immutable candidate generations containing complete input/attempt/aggregate hashes,
   all compatibility keys, counts/exclusions, fit diagnostics, decision results, source provenance,
@@ -976,27 +1166,32 @@ separate approval events and cannot be bundled with implementation authorization
   mapping, conservation, DD-44 aggregation, paired dependence, winner rule, hash validation,
   activation, fallback, spend reservation, and evidence provenance. Unexpected skip/xfail/
   deselection or an unchanged mutation fails.
-- [ ] Keep paid and deployed live E2E outside default/CI lanes. A free/fake end-to-end must cover
-  question → two genuinely forced arms → three raw judgments → aggregate → fit → candidate →
-  activation → routing/fallback before any paid pilot is proposed.
+- [ ] Keep paid and deployed live acceptance outside default/CI lanes. Hermetic acceptance replays
+  the transferred paired evidence through manifest/trace/raw-output/artifact validation → exactly
+  three stored judgments per eligible arm → aggregate → pair-preserving fit → candidate →
+  test/local activation → routing/fallback. It executes no new NExtSEEK or Container-CC paired run.
 - [ ] Before enabling posterior routing, bind a deploy record to source SHA/diff, immutable image
   digest, migration set, settings, schedule state, flag state, active generation, smoke checks, and
   owner. The currently running image is baseline evidence, not a rollback image.
-- [ ] Create and verify a recoverable prior image and a rollback procedure that restores image,
-  active generation, schedule, flag, and compatible DB state. Current assumed git/image tags are
-  absent; `git revert` and the existing unchecked rollback script are not sufficient. Do not use a
-  destructive reverse migration without separate approval and a verified restore.
+- [ ] Create and verify non-destructive recovery: disable feature flags; stop schedules/workers;
+  reactivate a prior immutable posterior generation; restore a compatible prior image/configuration;
+  apply forward corrective migrations; or restore verified data without deleting retained data.
+  Current assumed git/image tags are absent, and `git revert` plus the unchecked rollback script are
+  not sufficient. Destructive rollback of persistent data or schema and destructive reverse
+  migrations are categorically forbidden, not later approvable. Ordinary disposable test-database
+  reset/teardown remains permitted because it does not destroy retained application data.
 
-**V4-9 DONE:** an authorized disposable deployment demonstrates forward deploy and rollback to the
-recorded prior state without data loss. Production enablement remains a separate explicit gate.
+**V4-9 DONE:** a disposable deployment demonstrates forward deploy and non-destructive recovery to
+the recorded prior compatible state without deleting retained data. Production enablement remains
+a separate explicit gate.
 
 ### V4 completion matrix
 
 | Before this action | Required V4 gates |
 |---|---|
 | classifier split/runtime label implementation | V4-0 and recorded V7 decisions |
-| ledger/evaluation/posterior implementation | V4-0 and approved V4-1 |
-| paired fitting implementation | V4-2, V4-3, and approved V4-4 contract |
+| ledger/evaluation/posterior implementation | V4-0, V13 exact-evidence verification, and the resolved V14 statistical contract where fitting semantics are required |
+| paired fitting implementation | V4-2, V4-3, and resolved V14/V4-4 contract |
 | comparative candidate publication | V4-0 through V4-5 |
 | posterior-routing implementation | V4-0 through V4-7 |
 | any provider call | approved immutable V4-8 manifest and reservation controls |
@@ -1029,114 +1224,45 @@ The later corrective source plan is separately preserved as
 V5 supersedes conflicting V4/V3/V2/original prose. The corrected Task 0 topology and resolvable
 references already incorporated from source commit `5e9c189` are part of V5 change control; that
 commit is evidence, not a second authority. Final release requires source plan, registry vault
-plan, approval subject, evidence manifest, and diff-review target to name one identical final
-SHA-256. Local convenience copies under `_plan018-refs/` do not by themselves establish remote
+plan, evidence manifest, and diff-review target to name one identical final SHA-256; any gated live
+action separately uses the scope directly approved at that time. Local convenience copies under `_plan018-refs/` do not by themselves establish remote
 availability; the evidence manifest must carry stable registry IDs/URIs, disclosure class, source
 identity, and hashes.
 
-### Corrected current facts and closed inventory universe
+### Exact-run family diagnostics (V13 replacement)
 
-The fresh scan found 7-, 8-, 10-, and 15-family committed capability taxonomies. Every earlier
-closed-list reference to only 8/10/15 is void. The ref count changed during the shared-workspace
-review as parallel branches appeared without adding a new source generation, demonstrating that a
-handwritten count is not a closure oracle.
+Historical 7-, 8-, 10-, and 15-family observations are non-authoritative context only. They create
+no inventory, mapping, compatibility, migration, approval, or implementation prerequisite.
 
-Before the V4-1 decision artifact is signed, generate `evidence/plan018-source-universe.json` from:
+For V4-1, verify only the exact V13 transferred evidence: dynamically read every family from the
+top-level `families` object of embedded corpus SHA-256 `99efa7a1...`; verify every `set3_final` pair
+names a declared family; and report pair counts and common support per dynamically read family
+within that run. Unsupported or insufficiently evidenced families remain indecisive/fallback.
+There is no historical-label crosswalk, alias/rename/split/merge map, canonical master taxonomy,
+cross-version pooling, historical-observation migration, or source-universe prerequisite.
 
-- every named local branch, fetched remote-tracking ref, and tag after an immediately preceding
-  fetch, including stored refs whose remote is no longer configured;
-- every registered worktree HEAD plus a content hash of dirty/untracked taxonomy- or Plan-018-
-  relevant bytes;
-- the deployed clone HEAD/branch/dirty-diff hash and immutable running-image digest plus sampled
-  source hashes, as evidence only;
-- every capability, BAML taxonomy, corpus label, ordinary-Nessie label, annotation vocabulary,
-  online schema, and generated mirror that can produce or consume a family ID.
+### V5-1 — SUPERSEDED by the existing-security baseline (V12/V13)
 
-The manifest records ref name, commit, path, Git blob/file SHA-256, family IDs/count, reachability,
-and equivalence group. A validator recomputes the complete named-ref/worktree/deployment set and
-fails on any unvisited identity, unclassified no-taxonomy state, historical label that cannot map
-to a corpus family, duplicate canonical ID, or unresolved ambiguity. V4-1 approval binds the
-crosswalk contract and compatibility rules, not immutable corpus contents. Ref/source drift forces
-the inventory and compatibility validator to rerun and records a new evidence hash; it makes the
-approval stale only when the schema, crosswalk semantics, or common-support/estimand contract is no
-longer compatible. Ordinary corpus content changes and newly declared families do not stale the
-decision. Aliases to an already inventoried commit remain explicit rows, not silent drops.
+V5-1 creates no STOP, DONE gate, policy artifact, governance schema, approval task, retention
+service, role system, or implementation prerequisite. The binding security contract is V12:
+NExtSEEK is private and authenticated; user-facing operations reuse existing project-scoped API
+authorization; historical evaluation data remains internal to trusted admin/service paths; the two
+separately tracked permissive endpoints are neither reused nor fixed here; and internal/private
+evaluation data is retained by default. Preserve existing secret/logging hygiene and the narrow
+unauthenticated, ordinary-user-history, cross-project, accidental-endpoint and provider-payload
+negative tests. Before a real external provider payload is sent, present its exact categories,
+provider/target, scope and spend and ask the maintainer directly at that time. None of this creates
+a parallel Plan-018 governance project or blocks free/hermetic implementation.
 
-### V5-1 — Internal evaluation-data governance (STOP before schema implementation)
+### V5-2 — SUPERSEDED by direct at-time approval (V11/V13)
 
-The durable ledger, raw judge payloads, artifacts, caches, playbook examples, generations, audit
-rows, and backups are internal/private operational data and are retained by default. Plan 018 does
-not invent a general user-initiated erasure right or require routine deletion/recomputation. Before
-Task 1 or V4-3 schema work, the maintainer must approve a versioned governance artifact that defines:
-
-- lawful/authorized collection purpose and notice/consent or other approved basis for each data
-  class, including whether provider disclosure is permitted;
-- minimization/redaction before persistence and provider submission, plus fields forbidden from
-  every store and log;
-- reader/writer/service-role matrix, project/user scoping, encryption/key scope, audit events, and
-  incident owner;
-- retention/expiry or deliberate indefinite retention for ledger, raw requests/responses, failures,
-  cache, artifacts, generations, logs, backups, and provider-side copies;
-- access revocation, offboarding, incident/legal-hold handling, and fail-closed behavior when
-  governance metadata or reader authority is incomplete; and
-- a security-incident path for credential/secret exfiltration: rotate/revoke the credential,
-  quarantine the original incident evidence under restricted access, remove or redact literal
-  secret bytes from ordinary stores and provider payloads where feasible, and create sanitized
-  fake/canary regression variants that preserve the exploit shape without preserving a live secret.
-
-The schema binds owner/project, data class, governance-policy version, retention state, and incident
-restriction state without weakening replay for retained authorized data. Negative tests use marked
-cross-user/project/revoked/quarantined/backup-restored fixtures and prove that unauthorized or
-quarantined bytes cannot enter ordinary exports, provider payloads, caches, playbooks, or retrievable
-artifacts. A restore rehearsal reapplies access restrictions before readers or workers start.
-
-Forced comparative evidence and observational monitoring retain separate governance. If an actual
-statistical input is withdrawn, only a generation that consumed that input is deactivated and
-recomputed from remaining eligible inputs; an unrelated corpus-only comparative generation is not
-invalidated. Redacting literal secret text while retaining an authorized sanitized observation,
-family and outcome does not by itself withdraw the statistical row. **V5-1 DONE** requires approved
-policy bytes/hash, an implemented access/retention/incident inventory covering every store, and
-rerunnable negative evidence; completeness or replay tests cannot waive governance failures.
-
-### V5-2 — Authenticated, action-scoped approval records
-
-“Recorded maintainer approval” is not satisfiable by self-authored prose. Every V4-1/V4-4 decision,
-paid run, candidate activation, deployment, production enablement, destructive rollback, and data-
-governance ruling uses a strict approval record containing schema version, action class, exact
-subject/evidence/plan hashes, environment/target, approver identity and verified authority source,
-system-of-record ID or signature, issued/expiry times, one-use nonce where the action is consumable,
-and action-specific caps.
-
-This gate is deliberately split so it does not make V4-1 circular:
-
-- **V5-2A — decision-record gate (pre-implementation).** Before a V4-1, V4-4, or V5-1 decision
-  counts, an external/durable authority resolver must validate the strict record and immutable
-  subject hashes. This is decision-artifact work, not product implementation. V5-2A DONE requires
-  the canonical schema, independently resolvable authority/system-of-record identity, immutable
-  record, and negative validation of copied, expired, revoked, wrong-action, wrong-environment,
-  wrong-target, changed-hash, and unsigned/unresolvable records. It creates no product entry point
-  and consumes no action.
-- **V5-2B — consumable-action enforcement (implemented only with its owning later task).** The
-  production entry point for each paid run, activation, deployment, enablement, or destructive
-  rollback verifies the record and atomically consumes its nonce with the action/reservation.
-  Each owning task adds its own append-only audit/replay row and negative tests for expiry,
-  revocation, wrong action/environment/target/hash, concurrency, and replay. An implementation go
-  can never authorize any of these action classes.
-
-Decision-only approvals are immutable and superseded only by a new linked record. V5-2A is a
-prerequisite only for the decision it authenticates. Each V5-2B verifier is a prerequisite only for
-its corresponding consumable action; later nonexistent entry points do not block V4-1. **V5-2 is
-fully DONE** only when V5-2A and every implemented V5-2B entry point are complete, but the acyclic
-action table below governs when each partial gate is required.
-
-| Before this event | Required approval enforcement |
-|---|---|
-| accept V4-1/V4-4/V5-1 decision | V5-2A record for that exact decision subject |
-| first provider call | paid-run V5-2B + V4-8 DONE |
-| candidate activation | activation V5-2B + V4-5 DONE |
-| deployment | deployment V5-2B + V5-4/V4-9 prerequisites |
-| production enablement | enablement V5-2B + all production gates |
-| destructive rollback | rollback V5-2B + verified restore target |
+There is no approval schema, database, signature, authority resolver, system-of-record ID, expiry,
+nonce, V5-2A/V5-2B DONE gate, or approval-infrastructure prerequisite. When a genuine decision or
+action reaches its gate, ask the maintainer directly in the active conversation with clear context,
+multiple options and any recommendation justified. Real provider payload/spend, push, live
+NExtSEEK DB activation, deployment, production enablement and other live mutations remain separate
+at-time questions. Local commits/merges, candidate creation and test/local activation need no
+approval. Destructive rollback of persistent data or schema remains prohibited.
 
 ### V5-3 — Binding producer, judgment, model, store, and selector oracles
 
@@ -1156,11 +1282,15 @@ The following clauses strengthen the corresponding V4 gates:
    incomplete/duplicate/failed-attempt handling, future-enum fail-closed behavior, and replay from
    retrieved hash-verified raw bytes through the public aggregate and fitter-admission seams. A
    mutation report must kill each aggregation operator/tie-break mutation.
-3. **V4-4 model oracle.** The approved contract pins an externally owned fixture generator,
-   freeze/blinding procedure, hidden-until-freeze seeds, parameter grid, repetitions, calibration/
-   precision/power/type-I/wrong-sign tolerances, near-boundary negatives, sparse/imbalanced/MNAR/
-   adversarial cases, and an independently implemented recomputation. Fixtures selected after
-   seeing fitter output cannot satisfy DONE.
+3. **V4-4 efficient recovery/oracle contract (V14 replacement).** The controlling V4-4 validation
+   clause requires fast deterministic no-MCMC boundary/mutation oracles and exactly `40` full fits
+   over eight frozen scenarios by five deterministic seeds, with the stated recovery, fallback,
+   wrong-direction, convergence, independent-recomputation and `60`-minute acceptance rules. Its
+   five frozen feasibility fits count inside the `40`. This bounded suite replaces every earlier
+   requirement for a broad parameter grid, additional repetitions, hidden-seed/blinding scheme,
+   externally owned generator, or precise calibration/precision/coverage/power/type-I tolerance.
+   Fixture bytes, seeds and ground-truth classification still freeze before fitter output; changing
+   them afterward cannot satisfy DONE.
 4. **V4-5 real store.** The store is the production MySQL ORM/schema and reader entry point in the
    isolated harness, with named isolation level and transaction/CAS constraints. Barrier-driven
    writer/writer and reader/writer tests observe one complete generation hash per reader and cover
@@ -1218,32 +1348,34 @@ after provider return, and before reconciliation; test broker redelivery, idempo
 retry charging, orphan-reservation recovery, expiry, and changed manifest/rate/resolver output.
 Conservation must reconcile approved maximum = available + reserved + reconciled actual + explicit
 released/expired amounts, and calls = succeeded + failed + pending with stable attempt IDs. Bind the
-rate table bytes/source timestamp and all resolved client/model/output identities to the approved
-V5-2 record.
+rate table bytes/source timestamp and all resolved client/model/output identities to the exact run
+scope presented for direct at-time maintainer approval under V11/V13. No V5-2 record service,
+signature, resolver, expiry, or nonce is required.
 
 **V4-8 DONE:** every source-derived provider-call seam uses the same pre-transport atomic
 reservation/approval verifier; locking/reservation-order/retry/idempotency mutations fail; N-way
 contention, crash recovery, replay rejection, and reconciliation artifacts are independently
-rerunnable. Only then may a separately approved pilot record be consumed.
+rerunnable. Only then may a real provider run proceed after its separate direct at-time approval.
 
-### V5-4 — Evidence completeness, coverage, deployment, and rollback
+### V5-4 — Evidence completeness, coverage, deployment, and non-destructive recovery
 
 - Generate the owned-module/config/migration/generated-file coverage manifest from the V4-0
   ownership map plus the exact base-to-candidate diff. Fail if any owned production or safety
   surface is absent. Enforce 95% statement and branch coverage per named critical module and
-  overall, plus a maintainer-approved minimum mutation score for route enforcement, data
-  governance, exclusions, aggregation, model decision, store/activation, boundary separation,
-  approval/reservation, and rollback.
+  overall. Mutation acceptance kills 100% of the explicitly enumerated safety-, pairing-,
+  exclusion-, routing-, spend-, and decision-critical mutants. Report and review all other
+  automatically generated survivors; equivalent or irrelevant generated mutants do not become an
+  arbitrary global percentage decision for the maintainer.
 - Seed the disposable deployment with active/prior candidates, non-empty judgments and exclusions,
   pending/failed attempts, reservations, tombstones, post-migration rows, schedule/flag state, and
-  concurrent readers/writers. Forward deploy and rollback must compare exact image, schema,
+  concurrent readers/writers. Forward deploy and non-destructive recovery must compare exact image, schema,
   generation, schedule, flag, DB/artifact/tombstone, network, and owner identities and preserve
-  post-contract-compatible writes without data loss. An empty DB or image-only rollback cannot
+  post-contract-compatible writes without data loss. An empty DB or image-only recovery cannot
   satisfy V4-9.
 - Exercise an explicit **expand → migrate/backfill → contract** matrix against the production
   MySQL schema with simultaneously running old/new web and Celery images at their real entry
   points. Cover old-reader/new-writer and new-reader/old-writer directions, queued old tasks and
-  broker redelivery, generation activation/snapshot reads, governance tombstones, and rollback
+  broker redelivery, generation activation/snapshot reads, access restrictions, and recovery
   after forward writes. Record the only safe rollout order. The contract/destructive step must
   refuse while any old web/worker/queued-task identity can still run; mutations that remove version
   guards or compatibility fields must turn the matrix red.
@@ -1251,36 +1383,38 @@ rerunnable. Only then may a separately approved pilot record be consumed.
   image is baseline evidence, not a rollback artifact; the unchecked rollback script and `git
   revert` remain forbidden as complete rollback evidence.
 
-**V5-4 DONE:** source-derived coverage/mutation manifests are complete, the free/fake E2E crosses
-the real production seams, and an authorized non-empty concurrent disposable deploy/rollback
-rehearsal reproduces all pre/post identities with governance tombstones effective before readers.
+**V5-4 DONE:** source-derived coverage/mutation manifests are complete, stored-evidence replay
+crosses the real parser/adapter/store/selector seams without a new paired route execution, and a
+non-empty concurrent disposable deploy/non-destructive-recovery rehearsal reproduces all pre/post
+identities with access restrictions effective before readers.
 
 ### Machine-readable gate completion
 
 Each V4/V5 gate emits one schema-validated completion manifest listing every required artifact,
-command argv/exit/counts, source/diff/image/DB/schema/corpus/evidence/approval hashes, mutation
+command argv/exit/counts, source/diff/image/DB/schema/corpus/evidence hashes, directly approved live-
+action scope when applicable, mutation
 results, and dependency gate IDs. A validator fails on a missing checklist item, stale hash,
 unexpected skip/xfail/deselection, zero selection, unvisited source-derived seam, or unapproved
 action. Prose, helper-only tests, filenames, or a partial checklist cannot mark a gate DONE.
 
-Until the STOP decisions are recorded, the only permissible next work is decision-artifact
-preparation and read-only verification. No “mostly complete” status may count an unapproved or
-unexecuted gate as done.
+V14 resolves V4-4's statistical choices. V4-1 is mechanically resolved by V13; V5-1 and V5-2
+create no STOP. Implementation still requires direct authorization, V4-0 and every genuine
+technical/evidence/release prerequisite. No “mostly complete” status may count an unexecuted gate
+as done.
 
 ## V6 amendment — the classifier's label space comes from the corpus (2026-08-05)
 
 ### Change control and precedence
 
 V6 controls over V5, V4, V3, V2 and any original task body wherever they conflict on **where task
-families come from**. It changes nothing else: every V2 safety, privacy, paid-call, provenance and
-per-action approval gate survives, V4's STOP gates remain STOP gates, and V5's evidence-identity,
-closed-inventory and source-universe requirements are untouched and still binding.
+families come from**. V13 further narrows this to the exact transferred run: every family is read
+dynamically from the exact embedded corpus, and pair counts/common support are diagnosed only
+within `set3_final`. Historical family counts are observations, never a closure oracle.
 
-V6 is consistent with V5 rather than a competing account: V5 voids every earlier closed-list
-reference to a 7/8/10/15-family taxonomy and shows that a handwritten count is not a closure oracle;
-V6 says the same thing about counts and additionally names *which artifact* the classifier's labels
-are drawn from. V5's `evidence/plan018-source-universe.json` inventory remains a prerequisite of the
-V4-1 decision, and V6 does not shortcut it.
+No closed inventory, source-universe file, historical-label mapping, crosswalk, alias/rename/split/
+merge map, cross-version pooling, or historical-observation migration is a prerequisite. V4-1 is
+mechanically resolved by exact-run verification; only a genuine ambiguity inside those exact bytes
+is escalated.
 
 ### V6-A — `route_capabilities.json` is not the classifier's source
 
@@ -1497,7 +1631,7 @@ becomes **3**. The row is one route arm of one question:
 | `runtime_success` | deterministic | `answer_provided ∧ ¬is_error ∧ ¬timed_out`, validator-enforced |
 | `failure_mode` | deterministic | `none` \| `timeout` \| `error` \| `no_answer` (V8-D) |
 | `error_class` | deterministic | `none` \| `provider_outage` \| `usage_policy` \| `code_error` (V8-D) |
-| `latency_seconds` | deterministic | the **only** cost signal the NExtSEEK route emits |
+| `latency_seconds` | deterministic | latency measurement; not cost, and usable for selection only inside V14 quality equivalence |
 | `cost_usd` | deterministic | nullable; null is unknown, never zero |
 | `artifact_expected` | deterministic | which families are eligible for the artifact gate |
 | `artifact_status` | deterministic | `not_expected` \| `delivered_valid` \| `delivered_invalid` \| `missing` |
@@ -1634,9 +1768,10 @@ port-source commit.
 ### V8-K — Correction: live runs have happened
 
 V3-C states "Nothing has run live yet." That is stale as of 2026-08-05. A smoke run and a full
-paired run have both been executed by the harness author. The surrounding requirement is
-unaffected: forcing a route remains admin-gated, those runs were executed by the harness author
-rather than by this plan, and V3-C still cannot be marked validated on their basis alone.
+paired run have both been executed and the full run was transferred as the V13-authoritative
+`set3_final` evidence. Evidence validity depends on its exact hashes, external and embedded
+manifests, preserved pair identities, route traces, raw bytes, exclusions and artifacts—not on
+which session or person initiated it. V3-C's contrary authorship conclusion is void.
 
 
 ## V9 maintainer-ruling amendment (2026-08-08)
@@ -1747,7 +1882,7 @@ introduced later it must be a **separate axis**, never folded into `artifact_suc
   coerced to success. *(Line-number citations are deliberately avoided here: this document is
   amended in place, so any line reference rots on the next amendment.)*
 
-### V9-F — One validator, two sources: it must ingest the next paired run unchanged
+### V9-F — One validator, two sources: it must ingest stored paired evidence unchanged
 
 Validation logic is source-independent. Path resolution is the **only** arm-specific step, and it
 lives behind an adapter:
@@ -1932,14 +2067,15 @@ schema validity is a separate admission check and never changes the stored ident
 Automatic online promotion is not a corpus-file upload. A `CorpusPromotion` row is inserted for
 every classified non-`unrelated` turn, linked to the selected immutable `CorpusVersion`, source turn,
 classifier snapshot, family, exact query/turn bytes, resolved criteria/defaults, artifact schema,
-governance decision, and unique occurrence identity. It retains multiplicity and has no dedup or
+existing project/access-scope context, and unique occurrence identity. It retains multiplicity and has no dedup or
 novelty check. The next paired-run input is the selected immutable corpus version plus all eligible
 linked promotion rows; assembling that input occurs in memory/database and never rewrites the
 stored corpus blob or disk file.
 
-V5-1 applies explicitly before promoted bytes are admitted or disclosed. If governance or required
+V12's existing authentication/project-authorization boundary applies at every user-facing seam;
+there is no V5-1 policy or governance-artifact prerequisite. If existing access scope or required
 runnable criteria cannot be resolved, the occurrence is still represented by one durable promotion
-disposition with the exact failure reason; it is never silently dropped or invented as runnable.
+disposition with the exact technical failure reason; it is never silently dropped or invented as runnable.
 Conservation is equality with multiplicity between classified source-turn IDs and exactly one of
 `promoted_ready`, `promotion_failed`, or `unrelated_not_promoted`. Promotion code has no access to
 route outcome, answer quality, success, posterior, or judgment fields; tests kill outcome-branch,
@@ -2033,12 +2169,12 @@ duplicates, or a mismatch halt fit admission.
 all flag combinations and kill every precedence/operator branch. `error_class` is likewise bound
 to source evidence; unknown or incoherent facts fail closed.
 
-The fit admission object remains pair-addressable through the V4-4 STOP. It carries `query_id`,
+The fit admission object remains pair-addressable through the resolved V14/V4-4 contract. It carries `query_id`,
 pair/run identity, both route arms or their bound disposition, and all lineage hashes. The V8
 `(task_family, route)` marginal aggregate in `router_models_proposal.py` is not fit input and must
-not discard pair identity. V4-4 still decides the dependence-preserving likelihood/sufficient
-statistics, repeated-unit treatment beyond the already-ruled independent promoted executions,
-thresholds, and decision rule. Nothing in V10 chooses those reserved statistical semantics.
+not discard pair identity. V14 supplies the dependence-preserving four-state multinomial quality
+likelihood, paired censored Student-t latency likelihood, priors, support, thresholds, multiplicity
+and decision rule. Independent promoted occurrences remain separate paired units.
 
 ### V10-F — Posterior provenance and the permanent `unrelated` gate
 
@@ -2122,7 +2258,7 @@ ownership map includes:
 | Task 9 | promotion/run assembly and paid reservation over exact independently executed arms |
 | Task 10 / V4-4 | reviewed paired model adapter, immutable generation publication and activation |
 | Task 12 / V4-6 | posterior selection with `route_source="posterior"` and exact fallback provenance |
-| Task 13 / V5 | source-derived completion manifest, mutations, evidence release and rollback proof |
+| Task 13 / V5 | source-derived completion manifest, mutations, evidence release and non-destructive recovery proof |
 
 Local DONE requires all controlling V10 tests plus the earlier non-conflicting task conditions.
 Historical Task 7's `created_at__gt` watermark test, “non-incremental export” failure, running
@@ -2137,8 +2273,11 @@ V10 hardening is complete only when an independent verifier reviews only the exa
 diff against the persisted V9 adversarial, gameability, claim-verification, all-instance inventory,
 and the maintainer rulings, with zero blockers. That review does not authorize implementation.
 
-Execution remains blocked on V4-0, V4-1, V4-4, V5-1, V5-2, stable evidence release, and every
-separate paid/deploy/activation/commit/push approval. A future changed plan, corpus bytes, selected
+Execution remains blocked on V4-0, stable evidence release, and every separate real-provider/push/
+live-DB-activation/deployment/production-
+enablement approval. V4-1 is mechanically resolved by V13; V5-1 and V5-2 are superseded by
+V12/V11; V4-4 is resolved by V14. Local commits, local merges, candidate creation, test-database activation and local/
+isolated-harness activation need no approval. A future changed plan, corpus bytes, selected
 base, proposal, raw delivery, or review finding invalidates only the evidence bound to its prior
 hash; it never silently inherits a CLEAN verdict.
 
@@ -2159,26 +2298,30 @@ record, not a second approval mechanism.
 - [ ] Approval is specific to the question actually asked. It cannot be inferred, bundled with a
   different action, carried into materially changed inputs/targets, or treated as standing
   permission. If material scope changes, ask again at the time it changes.
-- [ ] V4-1 taxonomy/common-support/estimand, V4-4 statistical-contract, and V5-1 governance
-  decisions require only this direct maintainer answer after their decision artifact is presented.
-  No V5-2A infrastructure or external verification must be built first.
+- [ ] V4-4's statistical-contract choices are resolved by V14. V4-1 is mechanically resolved from
+  exact transferred evidence, and V5-1 is superseded by the existing-security baseline. No V5-2
+  infrastructure or external approval verification is built.
 - [ ] Paid/model runs still present the exact run scope, clients, current price basis, estimated and
   maximum spend, retry allowance, and target before asking. The existing atomic budget reservation,
   hard-cap, idempotency, and reconciliation controls remain implementation requirements; they do
   not require an approval-record service or nonce.
-- [ ] Candidate activation, deployment, production enablement, commit/push, live mutation, and
-  destructive rollback are each asked separately when ready, with their exact target and rollback/
-  impact context. Direct conversational approval replaces V5-2B's authenticated-record and nonce
-  verifier; it does not merge these action boundaries or authorize them in advance.
+- [ ] Live NExtSEEK database activation, deployment, production enablement, push, and other live
+  mutation are each asked separately when ready, with their exact target and non-destructive
+  recovery/impact context. Candidate creation, test-database or local/isolated activation, local
+  commits and local merges need no approval. Destructive rollback of persistent data or schema is
+  prohibited and cannot be approved through this plan. Direct conversational approval replaces
+  V5-2B's authenticated-record and nonce verifier; it does not merge the remaining boundaries or
+  authorize them in advance.
 - [ ] An agent-authored assertion that approval occurred is insufficient when the conversation does
   not contain the maintainer's explicit answer. Conversely, an explicit answer does not become
   invalid merely because no signature, external resolver, approval database, or nonce exists.
 
 **Immediate effect:** there is no approval-mechanism implementation blocker. A new implementation
 session needs only the maintainer's direct authorization to begin V4-0. It must return for the
-remaining V4-1, V4-4, V5-1, paid, activation, deployment, production, commit/push, live-mutation,
-and destructive-action decisions when each becomes current; it must not ask for or manufacture
-those approvals prematurely.
+real provider/paid action, live NExtSEEK DB activation,
+deployment, production enablement, push, and other live-mutation decisions when each becomes
+current; it must not ask for or manufacture those approvals prematurely. Local commits/merges and
+test/local activation proceed without approval; destructive persistent rollback is forbidden.
 
 ## V12 existing-security-baseline amendment (2026-08-10)
 
@@ -2223,10 +2366,212 @@ These are implementation invariants, not a policy-approval project:
   approval mechanism.
 
 **Immediate effect:** there is no V5-1 governance-policy blocker. After direct implementation
-authorization, a new session may begin V4-0. The next maintainer decision is V4-1 after the session
-produces the actual taxonomy/common-support artifact; V4-4 and real provider/paid/activation/
-deployment/production/commit-push/live-mutation/destructive-action decisions are asked only when
-their work reaches the corresponding gate.
+authorization, a new session may begin V4-0. V13 resolves V4-1 mechanically from exact run-bound
+evidence, and V14 resolves V4-4. Real provider/paid/live-DB-activation/deployment/production/push/live-mutation
+decisions are asked only when their work reaches the corresponding gate. Local commits/merges and
+test/local activation need no approval; destructive persistent rollback is forbidden.
+
+## V13 transferred-evidence and execution-boundary amendment (2026-08-10)
+
+### Authority, exact scope, and mechanical voids
+
+V13 applies the maintainer-approved fifteen-item change set at SHA-256
+`00fff51e12b73fd54129459139ad704c24e6b06e73751b1797540acc076a8fa6`. It supersedes prior
+text only where necessary to bind the completed paired evidence and correct the named workflow
+boundaries. Dynamic/non-hardcoded families, immutable corpus bytes, independent promoted
+occurrences, pair preservation, V8-D's combined outcome, V10 artifact rules, four-digest `stack_id`,
+the existing private/authenticated/project-scoped security baseline, and the permanent `unrelated`
+gate—including the byte-exact router prompt paragraph in V10-F—remain unchanged.
+
+The following older requirements are mechanically void and must not be copied into a controlling
+contract, implementation task, test oracle, DONE condition, completion manifest, or status summary:
+
+- any claim that the completed paired run is invalid because the harness author, rather than this
+  plan, initiated it (V3-C/V8-K);
+- any new tiny, free/fake, production-seam, pilot, live, or replacement paired E2E execution,
+  including rerunning `set3_final` or the older 127-pair corpus (V4-2/V4-9/V5-4/V9-F and original
+  Task 13 wherever they imply a new paired benchmark);
+- V4-1/V5 inventory work that creates a historical family crosswalk, aliases, rename/split/merge
+  mappings, a master taxonomy, cross-version pooling, or historical-observation migration;
+- DD-44 disagreement measurement or any path from three calls to one;
+- a maintainer-approved global mutation-score percentage;
+- approval for candidate creation, test/local activation, local commits, or local merges; every
+  combined `commit/push` gate;
+- any destructive rollback, destructive persistent reverse migration, or destructive-data/schema
+  recovery as a later approvable action; and
+- V5-1 policy-program and V5-2 approval-infrastructure blockers already superseded by V12/V11.
+
+No conflict may be resolved by following the older text. V4-0's controlling-contract validator
+must mark every occurrence above `void_by_v13` and fail if an executable step retains one.
+
+### V13-A — Authoritative completed paired evidence
+
+The only paired evidence for Plan 018 implementation and acceptance is this exact transferred set:
+
+| Evidence object | Binding identity |
+|---|---|
+| transferred `testquestions.zip` | SHA-256 `4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814`; 66,473,692 bytes |
+| external archive-content `MANIFEST.json` | SHA-256 `d14cb4b153448e295110f3bfdbc5004f1e0455e0673ebcac15ecfe9d635227c2` |
+| embedded `testquestions/corpus/corpus.json` | SHA-256 `99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652` |
+| embedded `testquestions/set3_final/bayes_manifest.json` | `run_meta.corpus_fingerprint` exactly `99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652` |
+
+`set3_final` contains exactly 149 selected questions, 149 complete pairs, and 298 arms. Verify the
+ZIP length/hash before opening it; verify the external manifest hash and every member identity;
+then verify the two embedded identities, selected IDs, complete pair conservation and arm count.
+A mismatch fails closed. The stale `_plan018-refs/corpus/corpus.json` convenience copy, the older
+127-pair corpus, and any other working corpus are prohibited substitutes for this analysis.
+
+Evidence validity is determined by those identities plus the stored manifest, pair IDs, route
+traces, raw outputs, exclusion dispositions and artifacts. It does not depend on the author,
+operator, agent or session that initiated the completed run.
+
+### V13-B — Stored-evidence verification; no replacement paired benchmark
+
+Implementation and acceptance perform no new NExtSEEK/Container-CC paired route execution. They:
+
+1. verify the transferred ZIP and external archive-content manifest;
+2. read `set3_final` directly and replay its manifest, pair identities, per-turn route traces, raw
+   outputs, exclusions and artifacts;
+3. rerun deterministic artifact validation against the stored files;
+4. exercise parsers, source adapters, pair/disposition conservation and statistical code
+   hermetically from those bytes; and
+5. exercise statistical recovery and decision wiring with V14's bounded deterministic-oracle and
+   exactly-40-fit suite.
+
+Tests may construct synthetic records and may validate the future producer's mechanics without
+dispatching either route, but no test or DONE condition may execute a replacement paired corpus.
+This restriction does not change the finished product: each genuinely new promoted occurrence is
+still executed independently through both forced arms later, even when its query bytes repeat.
+
+### V13-C — Dynamic exact-run V4-1 and completed arm schema
+
+V4-1 is no longer a future taxonomy decision. Dynamically read every family declared in the exact
+embedded corpus, verify every `set3_final` pair refers to one, and compute pair counts/common support
+per dynamically read family within that run. Unsupported or insufficiently evidenced families stay
+indecisive/fallback. There is no approved family list, fixed count, `Literal`, static/canonical
+master taxonomy or second label-selection layer.
+
+Do not build any historical taxonomy crosswalk, alias/rename/split/merge map, cross-version pooling,
+or historical-observation migration. Escalate only a genuine internal ambiguity in the exact
+run-bound bytes that cannot be resolved mechanically.
+
+`nextseek_api/eval/router_models_proposal.py` already defines the completed arm-level pydantic data
+contract. V4-4 is the pair-preserving statistical analysis and operational decision rule now
+resolved by V14. `RouteFamilyAggregate` remains reporting output only and cannot be fit input because it drops
+`query_id`.
+
+### V13-D — SUPERSEDED: V4-4 is resolved by V14
+
+V13 correctly reserved the statistical choices for the maintainer rather than an implementation
+agent. The maintainer has now supplied every V4-4 choice, including the globally shared latency
+residual scale in V14. The resolved contract is the controlling V4-4 section above plus the V14
+amendment below; there is no remaining statistical-choice STOP.
+
+### V13-E — Exactly three DD-44 calls and critical-mutant acceptance
+
+Every eligible arm receives exactly three sequential DD-44 calls. Preserve the existing field
+aggregation: outcome plurality with failure-partition tie-break; primary-issue majority with
+severity tie-break; usefulness median; review-priority maximum; needs-human-review OR; and the
+rationale from the first call matching the aggregate outcome. No pilot, disagreement measurement,
+spend argument or implementer amendment may reduce the count. Only the maintainer may independently
+reopen DD-44 later.
+
+Mutation acceptance requires detection of 100% of explicitly enumerated safety-, pairing-,
+exclusion-, routing-, spend-, and decision-critical mutants. Other automatically generated
+survivors are reported and reviewed. Equivalent or irrelevant generated mutants do not create a
+global score choice or approval question for the maintainer.
+
+### V13-F — Activation and local Git workflow
+
+Candidate activation is the change to the active posterior-generation pointer. Boundaries are:
+
+| Action | Approval boundary |
+|---|---|
+| create immutable candidate | no approval |
+| activate in test database | no approval |
+| activate in local/isolated harness | no approval |
+| activate in live NExtSEEK database | ask directly first; live mutation |
+| enable production posterior routing | ask directly first as a separate live mutation |
+
+Git work uses this exact sequence:
+
+1. Create a local integration branch.
+2. Create each task worktree from that integration branch.
+3. Implement and review the task.
+4. Commit the reviewed task locally without asking the maintainer.
+5. Merge it into the local integration branch without asking the maintainer.
+6. Ask before pushing.
+7. Ask before any live mutation.
+
+No older `commit/push` phrase combines those boundaries or requires pre-approval for local commits
+or merges.
+
+### V13-G — Non-destructive recovery only
+
+Destructive rollback of persistent application data or schema is categorically forbidden. Allowed
+recovery is limited to disabling feature flags; stopping schedules/workers; reactivating a prior
+immutable posterior generation; restoring a compatible prior image/configuration; applying forward
+corrective migrations; and restoring verified data without deleting retained data. Ordinary reset
+or teardown of a disposable test database is allowed because it does not destroy retained
+application data. No conversation approval can convert destructive persistent rollback or a
+destructive reverse migration into an allowed Plan 018 action.
+
+### V13-H — Controlling readiness and action gates
+
+V5-1/V5-2 infrastructure, a replacement paired E2E, a future V4-1 decision, a DD-44 call-count
+decision, a mutation-score percentage, commit approval and destructive-rollback approval are not
+implementation blockers. Readiness still requires V4-0 reconciliation; exact V13-A evidence
+verification; the resolved V14 statistical contract; all non-conflicting technical,
+security, provenance, spend and stable-release gates; and an independent exact-diff review.
+
+Direct at-time approval remains required only for the genuine action in front of the maintainer:
+real external-provider payload/spend, push, live NExtSEEK DB activation, deployment, production
+enablement and any other live mutation. Each is separate. Before a real external judge run, show
+the exact payload categories, target/provider, scope and spend. Local/test candidate operations,
+local commits/merges and free/hermetic stored-evidence work need no approval.
+
+This V13 edit is plan maintenance only. It grants no implementation, provider call, paid run,
+database operation, activation, commit, push, deployment, production enablement, live mutation or
+destructive action.
+
+### V13-I — Independent review before publication or implementation
+
+An independent verifier must compare only the exact committed V12 backup
+`2026-07-31-hibayes-eval-routing.pre-v13-8c622f91.md` at SHA-256
+`b6834471817d9450e57ea0fe06649dc4a618db47260ce117cd526e790075c313` against the final V13
+candidate. The review maps every changed hunk to the approved fifteen-item changeset and confirms no
+unrelated product choice changed. It explicitly checks `unrelated` and its byte-exact prompt,
+dynamic taxonomy, corpus immutability, independent promoted occurrences, pair preservation,
+three-call DD-44, existing security, direct action gates, Git boundaries and non-destructive-only
+recovery. Persist the exact diff review and final hashes. Do not publish or implement before a CLEAN
+result, and do not push without the maintainer's direct approval.
+
+## V14 resolved statistical-contract amendment (2026-08-10)
+
+V14 records the maintainer's complete V4-4 rulings and supersedes every statement that V4-4 is an
+unresolved STOP or that an implementation agent must choose its likelihood, priors, thresholds,
+utility, latency, multiplicity or validation rule. The controlling executable contract is the
+directly rewritten V4-4 section above.
+
+The final follow-up rulings fully specify: isotropic Normal quality priors in the sum-to-zero 3D
+contrast space with fixed diagonal covariance; Normal latency global/family effects; one globally
+learned `sigma_latency ~ HalfNormal(1.0)` on the log-latency scale; the deterministic complete-set
+posterior expected-FDR rule; and the bounded deterministic-oracle plus exactly-40-fit recovery
+suite. Every setting is configurable, versioned and fingerprinted. There are no learned quality
+covariances, family-specific latency residual scales or additional scale hyperpriors.
+
+V14 preserves without amendment: the exact V13 transferred evidence and no-rerun rule; dynamic
+corpus-owned families and no historical mapping; pair identity and independent promoted
+occurrences; V8-D total disposition; exactly three sequential DD-44 calls; deterministic artifact
+rules; permanent byte-exact `unrelated` prompt/canned spend gate; four-digest `stack_id`; immutable
+corpus storage; existing private/authenticated/project-scoped security; local Git versus push/live
+approval boundaries; and non-destructive-only recovery.
+
+V14 resolves a design gate only. It does not make implementation ready by itself, grant
+implementation authorization, approve provider payload/spend, permit a push or registry refresh,
+or authorize a database action, activation, deployment, production enablement, live mutation or
+destructive action. Independent exact-diff review is CLEAN for the final candidate; that verdict
+does not itself authorize the separately controlled commit/push/registry publication workflow.
 
 ## Referenced artifacts (dev box)
 
@@ -2262,8 +2607,10 @@ by the gitdir `info/exclude` above, and is not reachable from a clone.
 
 | Under `~/work/NExtSEEK-dev/testquestions-2026-08-07/` | What it is |
 |---|---|
-| `testquestions.zip` | the delivery; sha256 `4e7c57a1c04015fb…`, 66,473,692 bytes; 2,432 files across `set1_toosimple`, `set2_ccbleed`, `set3_final` and `corpus/` |
-| `MANIFEST.json` | per-file manifest of all 2,432 archive members — sha256, content-detected type, zip-entry dates, row counts, JSON-schema sidecar pointers |
+| `testquestions.zip` | authoritative delivery; SHA-256 `4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814`, 66,473,692 bytes; 2,432 files across `set1_toosimple`, `set2_ccbleed`, `set3_final` and `corpus/` |
+| `MANIFEST.json` | external archive-content manifest; SHA-256 `d14cb4b153448e295110f3bfdbc5004f1e0455e0673ebcac15ecfe9d635227c2`; per-file checksum, detected type, zip-entry dates, row counts and JSON-schema sidecar pointers |
+| embedded `testquestions/corpus/corpus.json` | authoritative V4-1 corpus; SHA-256 `99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652` |
+| embedded `testquestions/set3_final/bayes_manifest.json` | authoritative paired manifest; `run_meta.corpus_fingerprint` equals the embedded corpus SHA-256; 149 selected questions, 149 complete pairs, 298 arms |
 | `build_manifest.py` | regenerates the manifest |
 | `artifact_validity_set3_final.csv`, `artifact_detail_set3_final.csv` | the V9-G results, identical to the committed copies under `nextseek_api/eval/` |
 
@@ -2670,7 +3017,9 @@ git commit -m "feat(eval): add TurnLedger table for durable per-turn identity"
 
 **Failure conditions:** migration errors 3780 (charset alignment missing/misordered); unique constraint absent from `sqlmigrate` output.
 
-**Rollback:** `git revert` the commit; the migration is additive, so `migrate nextseek_api 0009` reverses it.
+**Recovery:** revert unpushed local code if needed. Do not reverse a persistent schema or delete
+retained application data; use a forward corrective migration. Disposable test databases may be
+reset or torn down normally.
 
 ---
 
