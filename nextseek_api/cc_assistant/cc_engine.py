@@ -4,7 +4,8 @@ Runs ONE headless ``claude`` container per CC query:
 
 * private user input mounted READ-ONLY at ``/data/input``,
 * project shared input mounted READ-ONLY at ``/data/shared``,
-* per-user RW scratch mounted at ``/data/scratch``,
+* PER-TURN RW scratch mounted at ``/data/scratch`` (#70/#36 — the user-scoped
+  scratch root is never mounted into an agent),
 * after the turn, a host-side copier publishes new scratch files to the user's
   nested output dir.
 
@@ -150,6 +151,11 @@ _CONTAINER_SHARED = "/data/shared"
 # is here. Running in /data/scratch leaves the agent with no plugin guidance, so
 # it never invokes nextseek-query. The agent writes artifacts to /data/scratch
 # per the container CLAUDE.md.
+# #70/#36 note: this stays /home/user, so a bare relative path from the agent
+# does NOT land in scratch. Per-turn isolation is therefore achieved by mounting
+# the per-run subtree AT _CONTAINER_SCRATCH (see _build_volumes) rather than by
+# moving the workdir — moving it would break plugin discovery, which is the very
+# thing this constant exists to preserve.
 _CONTAINER_WORKDIR = "/home/user"
 # The agent's HOME .claude (session transcripts + config). Mounted per chat
 # session so --resume finds the transcript across the ephemeral per-turn
@@ -634,6 +640,7 @@ def _build_volumes(
     project_dirname: str,
     user_id: str,
     cc_state_key: str | None,
+    run_id: str,
     transcripts_subpath: str | None = None,
 ) -> list[dict]:
     """Engine-API ``Mount`` payloads (volume subpaths of ``dmac-cc-users``) for
@@ -652,12 +659,23 @@ def _build_volumes(
     """
     from .cc_provision import build_user_dirs
 
-    dirs = build_user_dirs(paths, project_dirname, user_id, session_id=cc_state_key)
+    dirs = build_user_dirs(
+        paths, project_dirname, user_id, session_id=cc_state_key, run_id=run_id
+    )
     vol = paths.users_volume
     mounts: list[dict] = [
         _mount_volume_subpath(vol, _CONTAINER_INPUT, dirs.input_subpath, read_only=True),
         _mount_volume_subpath(vol, _CONTAINER_SHARED, dirs.shared_subpath, read_only=True),
-        _mount_volume_subpath(vol, _CONTAINER_SCRATCH, dirs.scratch_subpath, read_only=False),
+        # #70/#36: the PER-TURN subtree, not the user-scoped scratch root. Scratch
+        # used to be mounted whole and read-write, so one turn could read, act on
+        # and overwrite files another turn left behind — and a bare
+        # ``/data/scratch/foo.json`` from two different turns was the SAME file.
+        # The user root is now not mounted into the agent at all; nothing in the
+        # agent's contract needs cross-turn scratch (prior artifacts are published
+        # host-side into output/, which is not an agent mount either).
+        _mount_volume_subpath(
+            vol, _CONTAINER_SCRATCH, dirs.run_scratch_subpath, read_only=False
+        ),
     ]
     if cc_state_key and dirs.cc_state_subpath:
         mounts.append(
@@ -732,8 +750,15 @@ def run_cc_turn(
     from .cc_provision import build_user_dirs
 
     effective_session_id = session_id
-    dirs = build_user_dirs(paths, project_dirname, user_id, session_id=cc_state_key)
-    scratch_mount = Path(dirs.scratch_mnt)
+    dirs = build_user_dirs(
+        paths, project_dirname, user_id, session_id=cc_state_key, run_id=run_id
+    )
+    # #70/#36: every turn-scoped consumer of "scratch" — the pre/post snapshot
+    # diff that publishes artifacts, the path mappings the agent reports paths
+    # with, and the sidecar staging sweep — must address the SAME per-turn
+    # subtree the agent has mounted at /data/scratch. Re-pointing the mount
+    # without re-pointing these would silently publish nothing.
+    scratch_mount = Path(dirs.run_scratch_mnt)
     output_mount = Path(dirs.output_mnt)
     mount_root = Path(paths.user_root_mount.rstrip("/"))
 
@@ -743,7 +768,8 @@ def run_cc_turn(
     # (root in nextseek) mkdirs + chmod 0777 each one via user_root_mount.
     mounts = _build_volumes(
         paths=paths, project_dirname=project_dirname, user_id=user_id,
-        cc_state_key=cc_state_key, transcripts_subpath=transcripts_subpath,
+        cc_state_key=cc_state_key, run_id=run_id,
+        transcripts_subpath=transcripts_subpath,
     )
     for _m in mounts:
         _backing = mount_root / _m["VolumeOptions"]["Subpath"]
@@ -756,11 +782,12 @@ def run_cc_turn(
         except OSError:
             pass
 
-    # Per-run working dir lives under the user's scratch subpath.
-    user_scratch = Path(dirs.scratch_mnt)
-    (user_scratch / run_id).mkdir(parents=True, exist_ok=True)
+    # Per-run working dir lives under the user's scratch subpath. The mount pass
+    # above already mkdir'd it (it is now the scratch mount's own backing dir);
+    # kept for the chmod and as a belt-and-braces preflight.
+    scratch_mount.mkdir(parents=True, exist_ok=True)
     try:
-        os.chmod(user_scratch / run_id, 0o777)
+        os.chmod(scratch_mount, 0o777)
     except OSError:
         pass
 
@@ -794,7 +821,7 @@ def run_cc_turn(
         "output": {"container_root": _CONTAINER_OUTPUT,
                    "logical_root": dirs.output_mnt},
         "scratch": {"container_root": _CONTAINER_SCRATCH,
-                    "logical_root": dirs.scratch_mnt},
+                    "logical_root": dirs.run_scratch_mnt},
     }
     # OI-3: the COMPLETE agent env from the single builder — zero AWS/backend
     # creds; Bedrock only via the auth-proxy, NExtSEEK only via the user's login.
@@ -902,7 +929,11 @@ def run_cc_turn(
                 from . import cc_staging
                 cc_staging.sweep_user_staging(
                     user_root_mount=paths.user_root_mount,
-                    scratch_dir=dirs.scratch_mnt,
+                    # #70/#36: sweep into THIS turn's scratch subtree — that is
+                    # what the publish diff below looks at, and what the agent
+                    # had mounted. Sweeping into the user root would drop these
+                    # artifacts outside the diffed tree entirely.
+                    scratch_dir=dirs.run_scratch_mnt,
                     api_user=api_user,
                     user_id=user_id,
                     project_dirname=project_dirname,

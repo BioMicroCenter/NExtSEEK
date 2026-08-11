@@ -69,6 +69,12 @@ class UserDirs:
     ``*_mnt`` values are the same directories at their nextseek-container mount
     point (under ``user_root_mount``) for mkdir/chmod, artifact publishing, and
     memory rendering.
+
+    ``scratch_*`` is the USER-scoped scratch root. It is the right scope for
+    out-of-band work that is not tied to one turn (the ``cc_sweep_staging``
+    recovery command), but it is NOT what a turn's agent may see: #70/#36. The
+    per-turn ``run_scratch_*`` pair, populated only when ``run_id`` is given, is
+    what gets mounted at ``/data/scratch`` for an agent.
     """
 
     # Volume-relative subpaths (each is a CC sibling mount's exact Subpath).
@@ -85,6 +91,9 @@ class UserDirs:
     output_mnt: str
     cc_state_mnt: str | None
     memory_mnt: str | None
+    # #70/#36: per-turn scratch, the agent's actual /data/scratch.
+    run_scratch_subpath: str | None = None
+    run_scratch_mnt: str | None = None
 
 
 def build_user_dirs(
@@ -93,8 +102,14 @@ def build_user_dirs(
     user_id: str,
     *,
     session_id: str | None = None,
+    run_id: str | None = None,
 ) -> UserDirs:
-    """Build the single source of truth for the nested CC volume layout."""
+    """Build the single source of truth for the nested CC volume layout.
+
+    ``run_id`` (#70/#36) adds the per-turn scratch subtree. It is validated as a
+    path segment exactly like the others, because it is interpolated into a
+    ``VolumeOptions.Subpath``.
+    """
     mount_root = paths.user_root_mount.rstrip("/")
     if not paths.users_volume or not mount_root:
         raise ValueError("users_volume and user_root_mount are required")
@@ -102,6 +117,8 @@ def build_user_dirs(
     _validate_segment("user_id", user_id)
     if session_id is not None:
         _validate_segment("session_id", session_id)
+    if run_id is not None:
+        _validate_segment("run_id", run_id)
     # Volume-relative tails (no leading slash — an absolute Subpath is rejected
     # by the Engine and would defeat per-user isolation).
     project_rel = project_dirname
@@ -121,6 +138,8 @@ def build_user_dirs(
         output_mnt=f"{user_mount}/output",
         cc_state_mnt=f"{user_mount}/cc-state/{session_id}" if session_id else None,
         memory_mnt=f"{user_mount}/_memory/{session_id}" if session_id else None,
+        run_scratch_subpath=f"{user_rel}/scratch/{run_id}" if run_id else None,
+        run_scratch_mnt=f"{user_mount}/scratch/{run_id}" if run_id else None,
     )
 
 
