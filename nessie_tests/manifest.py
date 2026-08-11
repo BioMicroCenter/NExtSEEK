@@ -1,10 +1,11 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CriterionObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     """One criterion's expected-vs-OBSERVED record.
 
     The manifest used to store criterion *names* only, so a failure list could
@@ -29,6 +30,8 @@ class CriterionObservation(BaseModel):
 
 
 class NessieManifestEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     family: str
     tier: Literal["route", "full"]
@@ -100,6 +103,8 @@ class NessieManifestEntry(BaseModel):
 
 
 class NessieManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     """One run's record.
 
     The bookkeeping fields below exist so two runs can be diffed honestly. Without
