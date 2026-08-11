@@ -1,0 +1,33 @@
+{
+  "schema": "plan018-evidence-sidecar/v1",
+  "lane": "A-hermetic",
+  "attempt": 6,
+  "note": "Same-path worktree+git-common mounts; docker.sock+docker CLI for compose-config tests; network none; excluded realstack/within_chat_db (Lane B / paid).",
+  "image_id": "sha256:f5d30294bee1d7180ed80ad33b89fb4e87f50b82734105155002ed4caeb97f74",
+  "network": "none",
+  "deselected": [
+    "realstack marker",
+    "test_within_chat_db.py",
+    "test_cc_realstack.py"
+  ],
+  "db_alias": null,
+  "utc_start": "2026-08-11T14:10:07Z",
+  "utc_end": "2026-08-11T14:10:29Z",
+  "duration_s": 21,
+  "exit_status": 1,
+  "source_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+  "dirty_diff_sha256": "9007975ae8a15b010d3d71e6d821d027facf023349dd5f6ba426da318e56f440",
+  "counts": {
+    "tests": 1199,
+    "failures": 33,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 1166
+  },
+  "summary_lines": [
+    "33 failed, 1166 passed in 13.17s"
+  ],
+  "log_sha256": "8de25fec2bf0890aa8542615309269d19097ea1a98b3f1f0662e8e12f180723a",
+  "junit_sha256": "8ea26f14c342000467242995c0c8f5134784117381fc4e2132c533dcd7e9112a",
+  "gate": "FAIL"
+}

@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from nessie_tests import evaluate
+from nessie_tests.conftest import path_accessible
 from nessie_tests.route_observer import RouteObservation
 
 NS_PAYLOAD = {"status": "completed", "progress": [
@@ -411,7 +412,7 @@ _TURNS = _EVIDENCE / "turns.json"
 _MANIFEST = _EVIDENCE / "manifest.json"
 
 requires_seed6b = pytest.mark.skipif(
-    not (_TURNS.exists() and _MANIFEST.exists()),
+    not (path_accessible(_TURNS) and path_accessible(_MANIFEST)),
     reason=f"stored run evidence absent: {_EVIDENCE}",
 )
 

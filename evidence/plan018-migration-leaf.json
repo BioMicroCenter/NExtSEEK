@@ -1,0 +1,18 @@
+{
+  "schema": "plan018-migration-leaf/v1",
+  "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+  "leaf": "0009_normalize_chat_log_turn_ids.py",
+  "files": [
+    "0001_initial.py",
+    "0002_querytask.py",
+    "0003_chatsession_title.py",
+    "0004_chatsession_extra_state_state_only.py",
+    "0005_chatsession_extra_state_column.py",
+    "0005_ensure_chatsession_extra_state_column.py",
+    "0006_merge_extra_state_guards.py",
+    "0007_ccsessiontranscript.py",
+    "0008_heal_cc_transcript_fk.py",
+    "0009_normalize_chat_log_turn_ids.py"
+  ],
+  "note": "Do not assume 0010; next TurnLedger migration must depend on actual leaf"
+}

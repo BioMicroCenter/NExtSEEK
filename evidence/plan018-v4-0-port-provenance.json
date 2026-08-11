@@ -1,0 +1,1101 @@
+{
+  "schema": "plan018-v4-0-port-provenance/v1",
+  "recorded_at": "2026-08-11T10:31:25-04:00",
+  "implementation_base": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+  "nessie_tip": "3fe71670b954b78573795ac087caedec5eac2b97",
+  "nessie_git_tree": "c1f468de3d52284d05438a95a35ed051d64cf571",
+  "nessie_files": [
+    {
+      "path": "nessie_tests/bayesian.py",
+      "tip_blob": "ef29cad231b628eb4855bc50778eeae3860e4794",
+      "content_sha256": "71eb267e3cb1ecdb28a55d37241d5fb61999a40c19c2de7b9c6166ff477a4786",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/bayes_manifest.py",
+      "tip_blob": "dd5f2b130f515104c7d48b6cd395796c9c920482",
+      "content_sha256": "baeb7526bd4d84d592b2555147864813bf496ceacbdc0a3f203fc7ca99140bc6",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/bundle.py",
+      "tip_blob": "055dee774ef372c1eb6210cf627bbb692b2bf012",
+      "content_sha256": "b7ae00cda9f2a81590343fea11e029e47bbb74c63626350d7e7a85a648a608ed",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/cli.py",
+      "tip_blob": "adcbd96b6b0330fc0983c8ad97c478fb4fd1e691",
+      "content_sha256": "a1bbdef68a8f9e1130fe94535d87266481a071099cb1589b55909132f4062c7e",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/collect.py",
+      "tip_blob": "d8e0a0e3b80b78817c8142805008610017940dc5",
+      "content_sha256": "a1dde9451bd3b80383ff9e08f57a4cbf85b7943df9011c51e9773c201297e663",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/conftest.py",
+      "tip_blob": "b7f87e2ffa9967a79ddc739496ac8796b4d994ce",
+      "content_sha256": "c7c0883a8777ae403be3737317717bc2c9d4b6eb0d46bcee464d3af2fcf21e9f",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/consistency.py",
+      "tip_blob": "5aaca03acb093965120038b95edc389d57f5de3d",
+      "content_sha256": "b4269732a3a55f15a70d09a5aa9fc903a03cc5edf25816f57d2a4defb056de09",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/corpus.json",
+      "tip_blob": "3f401921acd592404e9f7f805e9a4d238e5bf61f",
+      "content_sha256": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/corpus.py",
+      "tip_blob": "e921315d4d6c081ef1b50be98f44de80ae256cfc",
+      "content_sha256": "a61368fc74896c189b2c9ace5aff459d2212d1c616a1a698a22a39eae9148d03",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/evaluate.py",
+      "tip_blob": "ee172ef477fdd826e9628dd8cc60518cd5689596",
+      "content_sha256": "e0a40093fffa4479b3234d770da5ec4615e196aba712b07ae8d45b48447b3393",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/export.py",
+      "tip_blob": "37bc25cbf98dd8ec4ae7786908fe258caaac9a20",
+      "content_sha256": "05d498c1752068dd45026e03d8ec69695bab7de83ebc1c8c56ba1b712fddc6d9",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/FAMILIES.json",
+      "tip_blob": "b8e27917e76915e0c14011d42a7f31c6947d477a",
+      "content_sha256": "ce94bfade7c6c88054b8b5072a38e0771d70c2be3040e2a6ef8cbf8661cb8d17",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/http_driver.py",
+      "tip_blob": "1f69f3d15f151780cb17fcc94d1404011e1fd5b9",
+      "content_sha256": "b67f0457ab619eb9a9486d98c0b8a1d5b0ccbc225ef2061b40a2425005a78464",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/__init__.py",
+      "tip_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/limits.py",
+      "tip_blob": "ed21dc3cdc999bbd1540f70aad636957c17ecea6",
+      "content_sha256": "79d123dc2793c9bd4b49d6c038dd0b09cb493c438a04348e6b5b71b435ba91dc",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/__main__.py",
+      "tip_blob": "de3ff3f5401bf549926f5d5e8a5425c044e9821f",
+      "content_sha256": "a7288a43bc20ac259d96008a6f8baa98a3bb678f259032fda0d5326f4abf6dc7",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/manifest.py",
+      "tip_blob": "a95015866a5b840335055cdcc7b87292477eabc8",
+      "content_sha256": "7e2d67cdebae7f49d52c9680313f609aa7331edef572b3cc86c4dcc27d6634a4",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/outage.py",
+      "tip_blob": "b902038c3a33ca8f9829d5444a3869bcbfa2623a",
+      "content_sha256": "a9b688f11cf835240fd00bea5c3b64293e3f9190a1145db6c03835880eeb6c1f",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output_skill_bayesian/__init__.py",
+      "tip_blob": "5be53f0c802bd109e18b2744c8f6df994aeb51dc",
+      "content_sha256": "e9450b1af8150b03d008f2ef3c5d9a4136094a709734f8b9d17dfe65ac9b2f7c",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output_skill_bayesian/merge_grades.py",
+      "tip_blob": "674affe96d4ea93351e9818aae3845e7c9d878d8",
+      "content_sha256": "92f0f3c41c01c37537937642c76b420226ab24b2487702f3f1c849ad5c5e235d",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill-bayesian/scripts/build_bayes_report.py",
+      "tip_blob": "d232c1c500b865b5e34bcc859a831dd6ea5b4557",
+      "content_sha256": "b4fa9edef44116c1ea8640b2044c8f9793161dc541a2d7d5aabc172c928f282d",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill-bayesian/scripts/merge_grades.py",
+      "tip_blob": "bbc8c59a8abea3df1f04d8da3f9511408ed17301",
+      "content_sha256": "08f61bea0b4a88ab1e1526bda172aca16449567ee5d428da5bce1a5acd6dc981",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill-bayesian/SKILL.md",
+      "tip_blob": "d17a6b2cb7f467b9dc9119194481ac6ea09a552b",
+      "content_sha256": "568375e39493d8af876ec0301404741ef7b676c1aff01d61d25fc59fb397d8b2",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill-bayesian/templates/report_bayes.html.tpl",
+      "tip_blob": "3b22eed99f83d1b43def4796b35defae09d0c330",
+      "content_sha256": "30d2cdbc69140e158618e4b8b600673bdcde895fa1347fe1a97cfa4219e1d4d8",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill/examples/run-2026-07-24/manifest.json",
+      "tip_blob": "321a83fbd78271594b74384bce7ec6ec3d4db5ce",
+      "content_sha256": "059ba48bb00f2eae54186bc7a6d655ca325c1a79d1fadc71b9c20e195c083018",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill/examples/run-2026-07-24/turns.json",
+      "tip_blob": "3f627aa71a572058c8fcabbecbb18d59b17d333b",
+      "content_sha256": "12efd006478bee2f5ac7ef7f860dedd525f86670b0212f405084b71f40f8b0f2",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill/examples/triage.json",
+      "tip_blob": "37809dcb7ee1c7b47a89a94fdba23dacd9addaf1",
+      "content_sha256": "ce468c0d99784c29497e916f016fda6e790bea8e1e11bab666e1b6508f873778",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill/README.md",
+      "tip_blob": "73fb61104985de3a7cf335e092ca20d93e46fefe",
+      "content_sha256": "c8d4d08e587a506aaff13610c2f1a77e317372200fbe9d0a32bdd2730eca5e8d",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill/REFERENCE.md",
+      "tip_blob": "c7d4e61cb1b51af437bec9730502c5053de2f289",
+      "content_sha256": "dc76992a3cbc2efc6f7970be8bee473b4905142f394b22e5cd6d81f18d9887b5",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill/scripts/build_report.py",
+      "tip_blob": "3eb1d2f4debfa67ec5b91fb94413a19d389b72be",
+      "content_sha256": "dc99f1f0c604121ffce94c5f4be1ae2dc61884d4d5f88654fb6e4ee83f105bb1",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill/scripts/fetch_run.py",
+      "tip_blob": "8a83169ec486ea477a8f70f741c0a63a76b082bc",
+      "content_sha256": "2733665fa55fec5998f3d56ccdd08b8f1144ab17f2cb509603b5b9a575a09dcf",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill/scripts/rehydrate_report.py",
+      "tip_blob": "b31aae813cfa25f9e11e907a67bfa78cf113a48b",
+      "content_sha256": "4afbf1bca8e3af29e4e323206c1664cf9ecd8cb3c5fe53b699f6d22fc23e737f",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill/SKILL.md",
+      "tip_blob": "f255cd159dde2c07c147efe0e86388c9a05feeb1",
+      "content_sha256": "76102c00e098c83f7817c496e34ba2f54051b390286b1b39a213370cb190e6bc",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/output-skill/templates/report.html.tpl",
+      "tip_blob": "19df76054006e82c1860df7cf1102e99d364a6e8",
+      "content_sha256": "846fa4695132b27c64f7e590ce5e953876caf2892b4b00816693698bb5a81d16",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/pathsetup.py",
+      "tip_blob": "bf2bc2b059be701cc066d83d48f132815507adf2",
+      "content_sha256": "101722f94299c3eae395d4e1a24498051737ae21a9617bb7ffa68800e61de138",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/preflight.py",
+      "tip_blob": "c89a225d9685d786533c810a46b2768b25acb5cc",
+      "content_sha256": "aee401fdda47182a3c10a67b6a2c5c53ced42bf7f1e2783a3cdd8cfca9e735df",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/probes/probe-2026-07-29.json",
+      "tip_blob": "8c68a121718fa2a9172b5246a2a25dcfca4fa901",
+      "content_sha256": "36f03d8d5123166c8f1cc192cdc27f23c86ded0fee2a90957ab55938a5225dfd",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/probes/probe-2026-07-29-retest.json",
+      "tip_blob": "ee073efad7b7e5148bbb3177e70f8dae30966551",
+      "content_sha256": "b337f18a4bae5142077776c877a723ce2e3979368483e685078404937723af71",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/probes/probe-cc-2026-07-31.json",
+      "tip_blob": "095002df24723bbdabf9a1913120b2e49ca50388",
+      "content_sha256": "4696dd3b2caf3acdb5f1abaee1a1619fda49f7e75a20e5a9f449382b823e2d6b",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/README.md",
+      "tip_blob": "664fd2a4ded4749feb2f39a46612ec83164862bb",
+      "content_sha256": "53214f5401ea616e0bb50fe1d82e3d8c3a5808abb6c61533df92e6fde9bbc5bf",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/report.py",
+      "tip_blob": "7be2306fdfdede6d1e4c2957f7a4857d8059bf19",
+      "content_sha256": "ec8d19d33de669a763fb083d268396fb5a66e18daaecb75f5c21a2def2ca9a69",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/route_observer.py",
+      "tip_blob": "981f76c558a1eef9572b74a80f4610c288717dbc",
+      "content_sha256": "f875d5535379e76bc7ad6eac5fd35dd9114ffea1bf9937cc069053db76d60b62",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/runner.py",
+      "tip_blob": "ce8adf8e47bae7fa78c83ba8f9fa0a27645b083b",
+      "content_sha256": "b57dc02bda82470367c4867fcc665da439d67bedac5eb2f06674796531b4e8a6",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/scripts/apply_qset.py",
+      "tip_blob": "dec1ab9dc1a0b42e701cd209a70b883fcfaccc9d",
+      "content_sha256": "7ce1114696eeafb94d32b03b20fdf7efa85f20eb46db654abb213912b97142c6",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/scripts/atlas_variants.py",
+      "tip_blob": "56200ddba06d02799fcc11c102e696f98386b768",
+      "content_sha256": "47a5ed3d9d762a40e4204628a86429fcd42e6388dd0d71f0eec446fb5f5b47fc",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/scripts/build_doc.py",
+      "tip_blob": "c3094501fcde93fef2afaf650a1b2b548732e42f",
+      "content_sha256": "318f8c3fafeeec9c6d94a21f6064ca532cbabf4bb220953b51da9d1300f8fd51",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/scripts/build_qset.py",
+      "tip_blob": "bb7d805de80776548e063f0579394d13bb32ddc6",
+      "content_sha256": "88d1c1dbc8b3b898d695962722ee52096507fa6b3b956fa7439401b91c95d66a",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/scripts/check_qset.py",
+      "tip_blob": "ea40bedfa426aae318840492c1d43ee39e5e6da9",
+      "content_sha256": "da59ae7b205b6c5fe2f4c27328a2340f811375ea45ff1542d470cd439716fb1f",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/scripts/delta_selection.py",
+      "tip_blob": "a9ad663ad3dbaa88e5a14d037df485159370ec0d",
+      "content_sha256": "1fe2b15580901f0d1c8d621f49f6bcce77ffb7f574cb0834d591ebd229dd4e8e",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/scripts/human_functional_rows.py",
+      "tip_blob": "124c236a4214f2ad8dc607ed33a61966f04010f8",
+      "content_sha256": "c5e37468c896b096bcb3712fe45dbcd4873b577e9d1f693dac2d54c3cf53ee7d",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/scripts/__init__.py",
+      "tip_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/scripts/qset_data.py",
+      "tip_blob": "1bc267eb2a087646bd5882052bd10ca60e36a5b9",
+      "content_sha256": "98395f817996e36a800ceb51597a5dd1de0c32a23a660faaf583d8d2c5d04d53",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/scripts/remap_families.py",
+      "tip_blob": "83441ac43927c23f8b2fae8f4a8c7da96c6d2882",
+      "content_sha256": "fb67061536530421a4c51c9357a8b7bd7e4814170dd910814c2a5632519baa64",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/scripts/reverify.sh",
+      "tip_blob": "be143b8e421c29c341bc16662b4e3ca61d9cf19b",
+      "content_sha256": "ad9cb0d2f040c60fc8c2595ac406f405648fb38a60093933d7013044bfba1615",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/sources.py",
+      "tip_blob": "3c9d3d781c791411866cfc114689c27b65ac5ce2",
+      "content_sha256": "dbebae3f4ee317db7cfea68efda8dcf32f94634cbcedfe16892be64dcaf183d1",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests_container/__init__.py",
+      "tip_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests_container/test_bundle.py",
+      "tip_blob": "aea12e9aa8b42ac0613ad67681830a54e71842b1",
+      "content_sha256": "72e25cc665021601dbf4cdca562fce06f5293b440353ebe41a32974fe3fbec15",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests_container/test_endpoint_contract.py",
+      "tip_blob": "eba8fdc7ecea96f1466a203bd8e3bc47065c962a",
+      "content_sha256": "0b368bd11492c948145570cf8bdc25086556308d0cd1286777d5a2e57874604b",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests_container/test_management_command.py",
+      "tip_blob": "f9342ad003ae52a214d5341bcc35f70ee60257d2",
+      "content_sha256": "28b7e92d87fa345709c3fbae736696ea24aa9fe48b414f1f9308cd204d3fda50",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/__init__.py",
+      "tip_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_bayesian.py",
+      "tip_blob": "bb00a478cde35ba952ccba1ddce09250f7f0f01a",
+      "content_sha256": "789c3b97ea0d970be952fa2c4cfd8f85dd2fa92d97cfcbe5cdc701d147ace225",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_bayes_report.py",
+      "tip_blob": "ceac3af6aa004761aea3f017877b0c097c8653ab",
+      "content_sha256": "b53216025b0a3a6644e3541a09abb3a3e09288d4eb53df3cd2d881f59a7e05d4",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_case_file.py",
+      "tip_blob": "bbfe134def756df0444a0fff41fbf4f670087b63",
+      "content_sha256": "d55ea11c13d4240aee313cb7f6e095f6bc313c48914d5a3097b3a33277d4347c",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_catalog_drift.py",
+      "tip_blob": "fd65f68334732356283595aa15787701ee2c5374",
+      "content_sha256": "7c23c00f471742d98c145186b28b6ea426f7827184364084ded49b0787f7bf7a",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_cli.py",
+      "tip_blob": "4fb3f9a7a1482e57a18bf4cbdf8c01fb980ffcfb",
+      "content_sha256": "c825a8c3f3d966740b660d0a32dfed2f87a5846c82371023f375597c5216a9ac",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_collect.py",
+      "tip_blob": "1c96782f6995c41e3e6e2453a002728b6338e726",
+      "content_sha256": "80fd80b09ab47cb66d5a4237968aad85eb53fcbbe329ce552b726bf968955bb7",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_consistency.py",
+      "tip_blob": "a8bdfd77b783f6140138f24bb68637d46a6a44f4",
+      "content_sha256": "6925452fccc7e3d353d799540304361c539c6cfd5a2b3f33f855b78b4d31abab",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_corpus.py",
+      "tip_blob": "4d21ac91f36fc1952edcfd8a308a79efce6806ac",
+      "content_sha256": "9b9638a08a4dddd230e7e6b5016feb71cadc93111ef56607306acda6666b8dc4",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_evaluate.py",
+      "tip_blob": "a486ac512b5d2ad902cdb41178080c8765c26442",
+      "content_sha256": "63d600861fa5f450ed34412fec897a63e9dfa152bbe40cd166a9b8e07dd04e27",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_export.py",
+      "tip_blob": "49f52b31e2d49252d7bfadcbe391f17439bbf458",
+      "content_sha256": "e3e66b5a2e45180a17902ac6f515dddff7ab2c2cd807619103025bea3bfded6d",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_floor_ops.py",
+      "tip_blob": "7bccb1a3cda84157f8d0b3f8275df25bbbbe52d4",
+      "content_sha256": "00f258547b0386ba9d90a687a796be6f75bc8a34647660c9d801c4e8874f98ad",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_http_driver.py",
+      "tip_blob": "6c9c428a8b51f01cfcec1ef69951f6b859ced8e9",
+      "content_sha256": "8857b86a19780d795e436270b4d99b4a0ab778ec89a2fd9a98ef4ae16ac36445",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_import_smoke.py",
+      "tip_blob": "b936451ed40e2cf670d96205f557ac511bd3be11",
+      "content_sha256": "66c6b67475799b3fb69b24a61917896f14a37cc51b7dc5a5b33d87cd74cd2433",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_inline_route_assertions.py",
+      "tip_blob": "f6c946070db20cece1cb8595732144dafaada9b6",
+      "content_sha256": "6e77a0440395bb4700f26efe35bba5c6cd5b065917a9eec649afc235aba4e4d1",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_manifest_report.py",
+      "tip_blob": "3468c0938e1590dad06edd63968cdb0ef67464db",
+      "content_sha256": "2502c869582079b2e62ae948c5e7bc3a19b7dd7d0fae2775c59b95c8cc2e4d21",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_merge_grades.py",
+      "tip_blob": "9ba6532fe2b98a18735c6945c448e07396c2f865",
+      "content_sha256": "e510352342dcf4c143f02ff2b4e04501788f29ad774e06c51c4235783262079a",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_output_skill_scripts.py",
+      "tip_blob": "8bb1f6c800a43e3520efeb890b12100e13a72f88",
+      "content_sha256": "0d06279feefd046c059a9c90704f859e0a5fdf55e979edec95961b5e0a3e781c",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_overlay_content.py",
+      "tip_blob": "7462973ecf8eca5fd27f15cbafe0f3e4e5d62942",
+      "content_sha256": "16d5a553f6da8b55764d7bd55bb9b93de1a37103cc970f0a527b8142c436bea3",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_preflight.py",
+      "tip_blob": "640a3dfab121c8ae2e2819dc8665390e5e37c8c1",
+      "content_sha256": "d48d27cf852e2de647f0781800085b0603b152e98ff521e65baa98fccd3af595",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_probe_files.py",
+      "tip_blob": "3c8490dd75b65594347f6ed9e48eced3baa280b8",
+      "content_sha256": "a2bc381fe926345822ce1fdf6359d058eec1f121cb55bee5b63eb0fea393e319",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_repro_and_consistency_wiring.py",
+      "tip_blob": "ef7a3db34f8a5c91404e91ed01f0317c5e47c882",
+      "content_sha256": "60a065b8d40d683a4fdee497713c04b182c34c53ec1b22ba7a0772a226ad9906",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_retired.py",
+      "tip_blob": "91645d7e8b4ceba36fa1f0c7dffd26053facac2e",
+      "content_sha256": "8c89720f4243b23b5955ae3c07319c219e070b395417b46907c404d02aca6e4a",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_route_observer.py",
+      "tip_blob": "27ce20ee48d06df24adfa1692f18f3324c5aa77b",
+      "content_sha256": "c08f62990bb2b57b45d2ce65011c691c797e31adecddcdaa8bf605e1d5029867",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_route_policy_drop.py",
+      "tip_blob": "2ccf9332b29816154f655f62bfac72ac9d076f02",
+      "content_sha256": "f14efb71deb7da8bb363d7dd832a833241c9afd928ae6a95d525c8b51ebaf320",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_route_policy_gate.py",
+      "tip_blob": "5068c163a2eea743305477f96511d8048a636959",
+      "content_sha256": "b1b5aee28d22f5028163300c2c4a126d5cab169d472ddc660a314f069c59ac01",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_route_policy.py",
+      "tip_blob": "cff6ee46ae6de67a67fabb61a4538e8efe5d7bae",
+      "content_sha256": "12673902862d1e86992affc0aac1014f753390d3b9a41131c16cb878d50b4ddd",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_run_case.py",
+      "tip_blob": "9cae03aedb1ed71a9b9be5efd3e7037e6e961852",
+      "content_sha256": "75acf39355991efd80a5a1e9061c49bd3298cad6b3f24b899726db1386ecc3ba",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_runner.py",
+      "tip_blob": "531dca4d7b793723ef630143f594fc7005bcebd6",
+      "content_sha256": "15b69d82f1ce5fd478ee1123139f2ce6488fdec3bd479b6a35ce66431e5a8db4",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_sample.py",
+      "tip_blob": "681e87718e5c683d231d4abc57a46a8e86934218",
+      "content_sha256": "60eb760848830f09dc4a2350f265578e71fe5ef05be59bcd5900aabc0f54dfec",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_sources.py",
+      "tip_blob": "55432b155c605981c994ac9ea1c602dc1cc806e3",
+      "content_sha256": "c3526160c817cedabf31fbcfa29be9098f30b94c4b2450b77a5dd81964f2829a",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_unified_corpus.py",
+      "tip_blob": "e71e852f07f91e1b7015294a6f08f789c2254ce8",
+      "content_sha256": "b17693c6a783a958ce8788248e5038990819ecf15ef3eff1f51f4271526c851d",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    },
+    {
+      "path": "nessie_tests/tests/test_write_refusal_coverage.py",
+      "tip_blob": "00b43f8f6f5726516ad298a0a6ca9bb14ffc8c96",
+      "content_sha256": "40924e0d779e7aabbeda7e2b0387b89d1ae2261087c8920ff11a53d2af50a501",
+      "in_base": false,
+      "base_blob": null,
+      "status": "absent_on_base_add"
+    }
+  ],
+  "nessie_counts": {
+    "tip_non_bytecode": 92,
+    "absent_on_base_add": 92,
+    "added_since_0aca6fc": 36,
+    "removed_since_0aca6fc": 2,
+    "changed_since_0aca6fc": 30
+  },
+  "companions": [
+    {
+      "path": "nextseek_api/management/commands/nessie.py",
+      "tip_blob": "c44212776d64d2dd3f006d8785ad0a0161e83974",
+      "in_base": false,
+      "status": "absent_on_base_add"
+    }
+  ],
+  "eval_vendor_sha": "dcca50c187890dc93659e5594810179793bb94eb",
+  "eval_files": [
+    {
+      "path": "Dockerfile.hibayes-eval",
+      "blob": "b0b13dc159e31b18cd4222e3d8e3133e7af93225",
+      "content_sha256": "f95bbf7313d1704e3e09d0bd15323760436fa0c6f317232cf4dc6c4d0e5c5795",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_artifact_validity/config/hibayes_artifact_validity.yaml",
+      "blob": "7cc3de2989738318bc376ef68460d947371e84e4",
+      "content_sha256": "ad245ad4ad8aa3abc7e8511a221e895ff55e4b7a9bc68e34d9376a9bec883deb",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_artifact_validity/__init__.py",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_artifact_validity/load_csv.py",
+      "blob": "91293cbde743fa30d2bc6b1e0a210a0a9041f6d8",
+      "content_sha256": "598e10c25bd5e4fb852b46e96eb2ac563afb9eb23ba4c4901c33a2f9bfecf343",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_artifact_validity/models.py",
+      "blob": "e12d3ac1d0431995106fc8fdff9fa6df9348035d",
+      "content_sha256": "304e4da9b7f2150b82b9dc4a4181dae95edffab8e0dd323ab350bf1654afe0dd",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_artifact_validity/process.py",
+      "blob": "48e4b5edd9faa27af4c84f51f838328ef4940204",
+      "content_sha256": "04eb54c6513b853b7f96883ff8660acd8ffe860d82f84835d87b32197865bba9",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_artifact_validity/run_hibayes.py",
+      "blob": "1b42601464c0719bde31f46e26230b8d267c3f20",
+      "content_sha256": "74d110d14ac46ebea425f8ec3777d04ec5a124cd8936e2758d2405eae1b97f8c",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_combined_report/__init__.py",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_combined_report/render.py",
+      "blob": "22430b4cb08e878518a728afe55129df9f29be41",
+      "content_sha256": "dcc4bc7068e6837fbdd2b481df6a17332d59447feaddb8cdbc85b6d8ee1038b3",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_combined_report/report_template/combined.html.j2",
+      "blob": "699ed593f481f713922a00eba99860b672060261",
+      "content_sha256": "b598a02913ef1ceb24f2f33487b14aee86f8d9785662bb3a16382a7443e3731c",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_functional_usefulness/config/hibayes_functional_usefulness.yaml",
+      "blob": "7cc3de2989738318bc376ef68460d947371e84e4",
+      "content_sha256": "ad245ad4ad8aa3abc7e8511a221e895ff55e4b7a9bc68e34d9376a9bec883deb",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_functional_usefulness/__init__.py",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_functional_usefulness/load_csv.py",
+      "blob": "6d2555b5a8b9b62115bbfef3b22a7bec93ada539",
+      "content_sha256": "f3918c5193797a3cd671fb380e6822b8c283e44807eff240e79c81cfe8f983a4",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_functional_usefulness/models.py",
+      "blob": "3017bd78a8500a64fd2f4efcc1da213dcbc72f47",
+      "content_sha256": "4235bb66d4c05aeb908230f70b26945062df379946766973892843f756d42354",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_functional_usefulness/process.py",
+      "blob": "bcf8df45d9d209bb1cc3dd91e26a5443ab3ed349",
+      "content_sha256": "be88406d339a5273b4c4a8795bc485734cadeb016c26e12c4eac25c2d9e901e3",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_functional_usefulness/run_hibayes.py",
+      "blob": "8f44ddce2efa0ba3c40de5193faceaef142eb8de",
+      "content_sha256": "25f3c0c9f1d4668356a03b831ff946c7de232e0d7f6ca5019d8865a8714ceec5",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_runtime_reliability/config/.gitkeep",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_runtime_reliability/config/hibayes_runtime_reliability.yaml",
+      "blob": "f025d9a72fabdbc42018eb2296f016ecaffbdba6",
+      "content_sha256": "1c898495aa38eb1212b497e7350a7137869e6a4788640e4a2281371f21a7162b",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_runtime_reliability/__init__.py",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_runtime_reliability/load_csv.py",
+      "blob": "20eb3268c44f65fbd7c6efac22412fb146e60367",
+      "content_sha256": "fa5c4b92fe0dddd7ab263ebd1d3d7e80a25d17f76929669dc5d5415b3a4dc6d9",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_runtime_reliability/models.py",
+      "blob": "d231062aa9a2e9a7cf6a792076a548df58f2f1f9",
+      "content_sha256": "7de2c1a347d392a12e6f0fbef0e075d3a3ede97d5e60a6d1081eaba72132148e",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_runtime_reliability/posterior_json_adapter.py",
+      "blob": "1eb9fef5faf29495fced16d43e7034b18d81680c",
+      "content_sha256": "c4fc482d0764519e366ded8348369bbec4c1472c0d97889290deab1feedbc61f",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_runtime_reliability/process_runtime_reliability.py",
+      "blob": "9f9aae7006a80cf2ace3dc74d3155e6fd5df235b",
+      "content_sha256": "a2fab3b38be4c84902e80f4a429a4a0ea4a92823198eac6fc11ab0c63b403912",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_runtime_reliability/README.md",
+      "blob": "0c2db5bd271b715080aa08836b0bbc64b53b3a7b",
+      "content_sha256": "6cd730d7c126e65d4f213cdd3ac54c37d8b9ecdfe66357c92ca4ec6023e5e06f",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_runtime_reliability/render_report.py",
+      "blob": "a6e5c2876920e6a902302fdb6883815d021f164d",
+      "content_sha256": "e0f1c960861afc6fdd87a39b5a3e1f49b38eb545955a50070478d53b5d857c68",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_runtime_reliability/run_hibayes.py",
+      "blob": "818a7f1f3a5ef605e98ef9812f6e98d660ee2a50",
+      "content_sha256": "841a186241fa343a64afee81495bdf6bd24670f6cf7ba220658c06fb74ad9112",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_runtime_reliability/templates/.gitkeep",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "src/dmac_assistant/eval/hibayes_runtime_reliability/templates/hibayes_runtime_report.html.j2",
+      "blob": "c6474c7ae73e927f99ca66d16ac21de9ef8808ae",
+      "content_sha256": "f921446ec109d9cd5cd0505c6de7dd7ccf409811860fb22bc6caaf57d0122be2",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/e2e/functional_evaluator_models.py",
+      "blob": "02f62fef4de2aa91e6122e0027bfc904634da3ce",
+      "content_sha256": "05845d5131cde07b929cb1c941795cba3cc6897e327303cc33ca9b0aa326cff8",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/e2e/functional_evaluator.py",
+      "blob": "8584cd50970493f7653982b02cb4099b0077ac3d",
+      "content_sha256": "2f736ad5cc58810a4e75533fdaeb9f1ab23fe4a94a82c8e8ff1241963ce8eee9",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/artifact_validator.py",
+      "blob": "be47d01ec1b5a89e6194df9b2caad94af25b1613",
+      "content_sha256": "da25d5aeac6d8ef1c3f9ee34f55a2fc38767f3440c8f3282023260b9bd792f6c",
+      "port": "void_do_not_port"
+    },
+    {
+      "path": "tools/hibayes/conftest.py",
+      "blob": "f5e1594eb1c8c9443ef61a9c84fd974593234911",
+      "content_sha256": "16b4064d31658e1e3fbe6ece127a7ed10c273ccee4014f777678d707abac7d9b",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/enums.py",
+      "blob": "583dfa3360d81f3e10f792a5a070c07e50e5f912",
+      "content_sha256": "4904d768d6ef16e87db7f8a0abb6734dbc27f8aa0a0e3f3155b296214054b52d",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/expected_behavior.py",
+      "blob": "e74790f93b7303d77aa1bfa67c3dc1f2e2475d49",
+      "content_sha256": "752d39a07eeafe4f7b2c6f7e84fdc631a5a67f5f7eb53fedd0f81ee0697a8a7a",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/exporter.py",
+      "blob": "139ac64f38befef8134c76a3e74c28c68a4ecc69",
+      "content_sha256": "b651555df63c06ed1ee7f6f243e292e5544f4d62d5ee95bcc315840fb1849445",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/functional_inputs.py",
+      "blob": "4b060b1ded443e66801af2fb73e01c1360b3be2f",
+      "content_sha256": "3d71f662418fe156701b1ed63677442eaddc9f35887747fd0f900b3230e90adc",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/in_image_coverage.cfg",
+      "blob": "6315f48e4f7bc59b32033986812d654c11250c7b",
+      "content_sha256": "44d2ab9d78f7abb68cb1b0379dd25defaf1657efc6b94cf893d33ee5a4b64b42",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/__init__.py",
+      "blob": "2d4cd5ac92d35bdb434d119918bab610477a5018",
+      "content_sha256": "b094b24e586b306c7c750aed95f5b8a07fe473fdb8d7498bc77c1d20956d5201",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/README.md",
+      "blob": "df82e1449c2a8ca9a8e169f44bc81d44ff24535c",
+      "content_sha256": "c1b2cf2c69aebbd7c081a1c12f025e3d2fecefff166b63300f9c5bff1bb6efe6",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/resources/GEO-updated.json",
+      "blob": "9bb148997084a7e4f78bf9a70562ac0d0f32ee96",
+      "content_sha256": "4ce6bc4c2193951ab3e594a48feea663cba6d5d44bfa3b10932459e26048578f",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/resources/README.md",
+      "blob": "454f88e241c3483a8227b1eb10f4e366fe2b29dc",
+      "content_sha256": "2f854c23b06170ac5fd6e7837ba08b4a2769a4bc65f18711cbd288a9cd67ce8f",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/__init__.py",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "content_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/test_artifact_validator.py",
+      "blob": "4c2983dc1343a31d0d227ce5016b914ba26ba3f8",
+      "content_sha256": "8818b0eef82ee09f520b6a171219f2fc544ada8c610cacf5a7d871a32b6ad312",
+      "port": "void_do_not_port"
+    },
+    {
+      "path": "tools/hibayes/tests/test_baml_generate_makefile.py",
+      "blob": "e8e623db88839e35572ed8511de049fbb1f79e05",
+      "content_sha256": "0965fbe6a461bedf11b7a7f0e9e15db591b04597f55ed869b49ce63441a16ccc",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/test_docs_presence.py",
+      "blob": "452bfaba2941a90e1a125d9d269f964462ac2bb5",
+      "content_sha256": "a7df885c6c963c12750913a6d79ddb1f4faf1c011ada374b40784faa0a48a9a2",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/test_expected_behavior.py",
+      "blob": "73506236e6448f11c74511827255a923fd1ab629",
+      "content_sha256": "0480c49aa0bc5307fc4a33cdbbe1459e8b73f2b83f80d96b06abac363c91e990",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/test_exporter.py",
+      "blob": "b2b25837424f1ce16c33aac5a2e9c2493683ffec",
+      "content_sha256": "3c19bf8184a85ab3b8e4fea3742947b45ea79d97d269daeae3645443af5e801b",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/test_functional_inputs.py",
+      "blob": "05246600c0cdc34c90f81fdd942579b934ef5019",
+      "content_sha256": "2d15f6ef07c10922d38dec54a8d8336bca35ce78e00b6ed01d300d584bf74b70",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/test_geo_template_parity.py",
+      "blob": "014191fca00232e7d9463736acb4769ea99228da",
+      "content_sha256": "3f23e87d67fceed5336194fcf5d72bc4730f121dd40d5eafe88cee581d61f8d5",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/test_in_image_cov_invocation.py",
+      "blob": "dc9ef60ab6a17698b74eccae8892c36e48660bb7",
+      "content_sha256": "897957ea63f463ea9fb7c931d68b8596542b3aba1dae905d37e087366654be64",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/test_makefile_targets.py",
+      "blob": "a5617d38833854e633105ddca1b70e8939aba790",
+      "content_sha256": "9d76e577ea434862ab684c14d494c985fbd6c50dfdd96ae3ecbb64a4457b1ac6",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/test_openpyxl_dep.py",
+      "blob": "530472332793c8bb20025220b013a45b2a978916",
+      "content_sha256": "07a0179af806c9862d2531e14bab26de3b9d5eb9e6cf26271bf68dfb1618a7cc",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/test_sibling_wrappers.py",
+      "blob": "de11cbe0efacee0f02602a7a974b44e4d9d5432d",
+      "content_sha256": "defce2a7bc5e53f17cacf51ea2d0cc2f713fd02711c7e1c10d184676ee673622",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/test_stage_a_smoke.py",
+      "blob": "2131cb6d823b51104a3a4692f22b07fbf65ca931",
+      "content_sha256": "d84195fa1c4108f2cd79089bc56eeb50c900982de532ab6417035f85091cfc64",
+      "port": "task6_candidate"
+    },
+    {
+      "path": "tools/hibayes/tests/test_wrapper_mounts_build_tools.py",
+      "blob": "89dc60acc3f58935d3956e31d4b4e65931643c7d",
+      "content_sha256": "bc2093addbb8c45be430144131fcd48973548312c92039bf7c0ee4a9b591cbe2",
+      "port": "task6_candidate"
+    }
+  ],
+  "eval_counts": {
+    "paths": 55,
+    "task6_candidate": 53,
+    "void_do_not_port": 2
+  },
+  "human_review": "evidence/plan018-v4-0-port-provenance.md",
+  "port_not_performed": true,
+  "v4_0_provenance_gate": "PASS"
+}

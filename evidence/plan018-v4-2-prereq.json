@@ -1,0 +1,32 @@
+{
+  "schema": "plan018-v4-2-prereq/v1",
+  "recorded_at": "2026-08-11T15:34:22Z",
+  "gate": "PASS",
+  "checks": {
+    "v4_0_closed": true,
+    "v4_1_closed": true,
+    "base_sha": true,
+    "head_matches_base": true,
+    "dirty_only_evidence": true,
+    "dirty_paths": [
+      "evidence/"
+    ],
+    "tip_nessie_tree_oid": "c1f468de3d52284d05438a95a35ed051d64cf571",
+    "expected_tree_oid": "c1f468de3d52284d05438a95a35ed051d64cf571",
+    "tip_tree_matches": true,
+    "enum_add_count": 92,
+    "enum_92_adds": true,
+    "ownership_accepted": true,
+    "v13a_zip": true,
+    "v13a_manifest": true,
+    "v13a_corpus": true,
+    "v13a_set3": true,
+    "v13a_pairs": true,
+    "baseline_s31": true,
+    "baseline_s33": true,
+    "force_route_absent_on_base": true,
+    "force_route_present_on_tip": true,
+    "ns_run_root_absent_on_base": true,
+    "ns_run_root_present_on_tip": true
+  }
+}

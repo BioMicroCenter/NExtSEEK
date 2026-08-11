@@ -21,3 +21,15 @@ DATABASES = {
 PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.MD5PasswordHasher",
 ]
+
+# Required by nextseek_api.services.assistant at import time (normally in local_settings.py)
+ASSISTANT_PARTICIPATING_PROJECTS = set(["1"])
+TEST_CASES = {
+    "test_case_1": {
+        "question_name": {
+            "prompt": "Example prompt",
+            "reasoning": "Example reasoning",
+            "output": "",
+        }
+    },
+}

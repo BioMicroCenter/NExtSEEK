@@ -1,0 +1,30 @@
+{
+  "schema": "plan018-evidence-sidecar/v1",
+  "lane": "A-hermetic-OPS-3.1",
+  "authority": "OPS-TESTING-HARNESSES.md \u00a73.1 best-known working host variant",
+  "baml_generate": "baml-cli generate --from dmac_assistant/baml_src (throwaway container; not hand-copied)",
+  "argv_note": "Exact \u00a73.1 uv/pytest invocation; cwd=/home/taishajo/work/NExtSEEK-plan018; plus --junitxml for evidence",
+  "utc_start": "2026-08-11T14:13:19Z",
+  "utc_end": "2026-08-11T14:13:38Z",
+  "duration_s": 19,
+  "exit_status": 1,
+  "source_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+  "dirty_diff_sha256": "9960fa90b7148c2a1c688b3323acd328e41cfe4e6a9d7d1926f05e3fdb3fefa1",
+  "counts": {
+    "tests": 1180,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 1179
+  },
+  "summary_lines": [
+    "1 failed, 1179 passed, 1 warning in 15.63s"
+  ],
+  "failed_or_error_lines": [
+    "FAILED nextseek_api/cc_assistant/tests/test_cc_staging_sweep.py::test_management_command_recovery_delivers_all"
+  ],
+  "matches_documented_1136p_1f_residual": true,
+  "log_sha256": "8d75ef39178fc70a5280362ab4663d601775ad178b241a4123d8028b76294edb",
+  "junit_sha256": "b52bf8f5885d566b748b98583cc4689728378bb74ab527799beff2a955d1c899",
+  "gate": "PASS-WITH-DOCUMENTED-RESIDUAL"
+}

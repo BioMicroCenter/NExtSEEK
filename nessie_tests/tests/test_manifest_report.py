@@ -1,5 +1,6 @@
 from pathlib import Path
 import pytest
+from nessie_tests.conftest import path_accessible
 from nessie_tests import manifest as M
 from nessie_tests import report
 
@@ -340,7 +341,7 @@ def test_route_sources_round_trips(tmp_path):
     assert M.load_manifest(p).entries[0].route_sources == ["baml", "sticky"]
 
 
-@pytest.mark.skipif(not SEED6B.exists(), reason=f"stored run evidence absent: {SEED6B}")
+@pytest.mark.skipif(not path_accessible(SEED6B), reason=f"stored run evidence absent: {SEED6B}")
 def test_the_stored_seed6b_run_still_loads():
     """Real run evidence, written before `route_sources` existed."""
     loaded = M.load_manifest(SEED6B)
@@ -407,7 +408,7 @@ def test_a_known_fail_that_asserted_nothing_is_not_rendered_as_xfail(tmp_path):
     assert "xfail" not in doc
 
 
-@pytest.mark.skipif(not SEED6B.exists(), reason=f"stored run evidence absent: {SEED6B}")
+@pytest.mark.skipif(not path_accessible(SEED6B), reason=f"stored run evidence absent: {SEED6B}")
 def test_the_stored_seed6b_run_still_loads_after_the_new_status():
     """Real 142 KB run evidence written before `no_assertions` existed."""
     loaded = M.load_manifest(SEED6B)
@@ -454,7 +455,7 @@ def test_cost_summary_of_an_empty_run_is_a_truthful_zero():
     assert "unmeasured" not in s["cost_display"]
 
 
-@pytest.mark.skipif(not SEED6B.exists(), reason=f"stored run evidence absent: {SEED6B}")
+@pytest.mark.skipif(not path_accessible(SEED6B), reason=f"stored run evidence absent: {SEED6B}")
 def test_the_stored_seed6b_run_still_totals_its_real_spend():
     """$1.4791 across 5 cases that had at least one container_cc TURN.
 

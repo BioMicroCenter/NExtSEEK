@@ -53,6 +53,7 @@ from nextseek_api.services.assistant import (
 )
 
 from chat_nextseek.orchestrator import run_query, run_query_plan
+from chat_nextseek.pipeline import agent as pipeline_agent
 
 from nextseek_api.cc_assistant import router as cc_router
 from nextseek_api.cc_assistant import router_context
@@ -174,6 +175,89 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     return metas
 
 
+def _emit_ns_run_root(send_event, session) -> None:
+    """Publish the NS engine's output directory to the event stream."""
+    try:
+        run_root = session.get("run_root_dir") if session is not None else None
+        if run_root:
+            send_event("ns_run_root", {"run_root": str(run_root)})
+    except Exception:
+        return
+
+
+def _prev_route_was_cc(history: list[router_context.HistoryTurn] | None) -> bool:
+    for turn in reversed(history or []):
+        if turn.router_choice == cc_router.ROUTE_UNRELATED:
+            continue
+        return (
+            turn.router_choice == cc_router.ROUTE_CC
+            and turn.status == "completed"
+        )
+    return False
+
+
+def _decide_route(
+    user,
+    req,
+    *,
+    force_cc: bool,
+    session=None,
+    history: list[router_context.HistoryTurn] | None = None,
+) -> cc_router.RouteDecision:
+    """Pick the route for a query, honoring the admin-only force_route override."""
+    forced = getattr(req, "force_route", None)
+    if forced in ("ns", "cc"):
+        is_admin = bool(
+            getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)
+        )
+        if not is_admin:
+            forced = None
+
+    if force_cc or forced == "cc":
+        return cc_router.RouteDecision(
+            route=cc_router.ROUTE_CC,
+            model_class="opus",
+            model_id=cc_router._resolve_cc_model_id(),
+            reasoning="forced",
+            source="forced",
+        )
+    if forced == "ns":
+        return cc_router.RouteDecision(
+            route=cc_router.ROUTE_NS,
+            model_class=None,
+            model_id=None,
+            reasoning="forced",
+            source="forced",
+        )
+    decision = cc_router.decide(req.query, history=history)
+    if (
+        session is not None
+        and pipeline_agent.is_active(session)
+        and decision.route == cc_router.ROUTE_NS
+    ):
+        return cc_router.RouteDecision(
+            route=cc_router.ROUTE_NS,
+            model_class=None,
+            model_id=None,
+            reasoning=f"pipeline_active; router said ns ({decision.reasoning})",
+            source="pipeline",
+        )
+    try:
+        sticky = decision.route == cc_router.ROUTE_NS and _prev_route_was_cc(history)
+    except Exception:  # noqa: BLE001
+        logger.warning("CC router: sticky-CC history inspection failed", exc_info=True)
+        sticky = False
+    if sticky:
+        return cc_router.RouteDecision(
+            route=cc_router.ROUTE_CC,
+            model_class="opus",
+            model_id=cc_router._resolve_cc_model_id(),
+            reasoning=f"sticky_cc; router said ns ({decision.reasoning})",
+            source="sticky",
+        )
+    return decision
+
+
 class CCAssistantViewSet(viewsets.ViewSet):
     """Router + Container-Claude-Code assistant (additive to AssistantViewSet)."""
 
@@ -245,19 +329,16 @@ class CCAssistantViewSet(viewsets.ViewSet):
             ran_ns = False
             decision = None
             try:
-                if force_cc:
-                    # CC always runs Opus (the only proxy-allowlisted model);
-                    # hardcoding sonnet here would 403 at the Bedrock proxy.
-                    decision = cc_router.RouteDecision(
-                        route=cc_router.ROUTE_CC, model_class="opus",
-                        model_id=cc_router._resolve_cc_model_id(),
-                        reasoning="forced", source="forced",
-                    )
-                else:
-                    history = router_context.build_history(
-                        (chat_session.extra_state or {}).get("chat_log") or []
-                    )
-                    decision = cc_router.decide(req.query, history=history)
+                history = router_context.build_history(
+                    (chat_session.extra_state or {}).get("chat_log") or []
+                )
+                decision = _decide_route(
+                    request.user,
+                    req,
+                    force_cc=force_cc,
+                    session=adapter,
+                    history=history,
+                )
 
                 send_event("route_decided", {
                     "route": decision.route, "model_class": decision.model_class,
@@ -282,10 +363,13 @@ class CCAssistantViewSet(viewsets.ViewSet):
                 if decision.route == cc_router.ROUTE_NS:
                     ran_ns = True
                     creds = {"api_user": api_user, "api_pass": api_pass}
-                    if mode == "plan":
-                        run_query_plan(adapter, chat_config, req.query, send_event, credentials=creds)
-                    else:
-                        run_query(adapter, chat_config, req.query, send_event, credentials=creds)
+                    try:
+                        if mode == "plan":
+                            run_query_plan(adapter, chat_config, req.query, send_event, credentials=creds)
+                        else:
+                            run_query(adapter, chat_config, req.query, send_event, credentials=creds)
+                    finally:
+                        _emit_ns_run_root(send_event, adapter)
                 else:
                     ok, detail = cc_engine.cc_runner_available()
                     if not ok:
