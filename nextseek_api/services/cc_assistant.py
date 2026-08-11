@@ -583,7 +583,18 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         memory_md = cc_memory.render_memory(
                             window, fresh_session=False,
                             transcripts_mount=cc_engine._CONTAINER_MEMORY_TRANSCRIPTS)
-                        staged = cc_memory_io.stage_transcripts(window, mem_root / "transcripts")
+                        # #72: this staging dir is mounted READ-ONLY into the next
+                        # agent container, so scrub secrets on the way in. Covers
+                        # transcripts written before the engine's in-place source
+                        # scrub existed, and sessions that never run another turn.
+                        staged = cc_memory_io.stage_transcripts(
+                            window, mem_root / "transcripts",
+                            scrub=cc_engine.transcript_scrubber({
+                                "NEXTSEEK_USERNAME": user_api_user or "",
+                                "NEXTSEEK_PASSWORD": user_api_pass or "",
+                                "API_PASS": user_api_pass or "",
+                            }),
+                        )
                         if staged:
                             transcripts_subpath = dirs.transcripts_subpath
                     within_chat_md = ns_digest.render_within_chat_digest(

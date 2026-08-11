@@ -19,6 +19,7 @@ while the bridge reads/writes the same dirs at ``CCPaths.user_root_mount``.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -29,6 +30,7 @@ import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote
 
 import docker
 
@@ -341,6 +343,39 @@ def _redact_env(env: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+def _secret_variants(environment: Mapping[str, str]) -> list[bytes]:
+    """#72: every on-the-wire ENCODING of a secret value, longest-first.
+
+    Scrubbing the UTF-8 plaintext alone is not enough, because the tools the
+    agent actually reaches for do not print the plaintext:
+
+    * ``curl -v -u user:pass`` (and requests' ``HTTPBasicAuth``) emit
+      ``Authorization: Basic <base64("user:pass")>`` — the plaintext never
+      appears, so a plaintext-only scrub leaves a trivially decodable
+      credential in the transcript.
+    * ``curl https://user:pass@host`` and any URL built with ``urlencode``
+      percent-encode the password.
+
+    Longest-first ordering matters twice over: a value containing a shorter
+    one is masked whole, and the padded base64 form is consumed before its
+    own unpadded prefix.
+    """
+    secrets = {v for k in _REDACTED_ENV_KEYS if (v := environment.get(k))}
+    # Not secrets themselves — only the left half of the Basic-auth pair.
+    users = {u for k in ("NEXTSEEK_USERNAME", "API_USER") if (u := environment.get(k))}
+    variants: set[bytes] = set()
+    for value in secrets:
+        variants.add(value.encode("utf-8"))
+        # url-encoded (userinfo in a URL, form bodies, query strings)
+        variants.add(quote(value, safe="").encode("utf-8"))
+        for user in users:
+            encoded = base64.b64encode(f"{user}:{value}".encode("utf-8"))
+            variants.add(encoded)
+            variants.add(encoded.rstrip(b"="))  # emitters that drop padding
+    variants.discard(b"")
+    return sorted(variants, key=len, reverse=True)
+
+
 def _scrub_secret_bytes(raw: bytes, environment: Mapping[str, str]) -> bytes:
     """#72: replace any secret VALUE present in the agent env with ``<REDACTED>``
     inside the raw transcript bytes, before they are copied to disk or persisted
@@ -349,15 +384,73 @@ def _scrub_secret_bytes(raw: bytes, environment: Mapping[str, str]) -> bytes:
     The leak is the value appearing verbatim inside a ``tool_result`` string — an
     accidental ``env``/``printenv``, a ``curl -v`` printing the Basic-auth tuple,
     a requests/urllib traceback — so this is a literal-VALUE replacement over the
-    jsonl bytes. ``_redact_env`` is key-based and cannot cover this. Values are
-    scrubbed longest-first so a value that contains a shorter one is masked whole.
+    jsonl bytes. ``_redact_env`` is key-based and cannot cover this.
+
+    Idempotent: ``<REDACTED>`` contains no secret, so re-running is a no-op.
     """
     if not raw:
         return raw
-    secrets = {v for k in _REDACTED_ENV_KEYS if (v := environment.get(k))}
-    for value in sorted(secrets, key=len, reverse=True):
-        raw = raw.replace(value.encode("utf-8"), b"<REDACTED>")
+    for needle in _secret_variants(environment):
+        raw = raw.replace(needle, b"<REDACTED>")
     return raw
+
+
+def transcript_scrubber(environment: Mapping[str, str]) -> Callable[[bytes], bytes]:
+    """Bind ``environment`` to a ``bytes -> bytes`` scrub for read/copy points
+    that hold credentials but not the whole agent env (memory staging)."""
+    return lambda raw: _scrub_secret_bytes(raw, environment)
+
+
+def scrub_transcript_store(cc_state_dir: Path | str, environment: Mapping[str, str]) -> int:
+    """#72: scrub the SOURCE session transcripts in place. Returns files rewritten.
+
+    The per-session jsonl under ``<cc_state>/projects`` is the origin of every
+    other copy, and it is deliberately never deleted — ``--resume`` needs it
+    across the ephemeral per-turn containers. Scrubbing only the derived copies
+    (the ``raw/`` file and the DB blob) therefore left the plaintext password
+    sitting in the ``cc-state`` volume indefinitely, where two production paths
+    re-read it: ``cc_memory_io.stage_transcripts`` copies it into a dir mounted
+    read-only into LATER agent containers, and ``cc_sweep`` feeds it verbatim to
+    the summarizer whose output lands in the merged ``CLAUDE.md``.
+
+    Rewritten via tmp + ``os.replace`` so a reader never observes a truncated
+    file and the jsonl stays structurally valid: ``<REDACTED>`` carries no quote
+    or backslash, so replacing a value inside a JSON string cannot break the
+    escaping that ``--resume`` parses.
+    """
+    root = Path(cc_state_dir) / "projects"
+    if not root.is_dir():
+        return 0
+    rewritten = 0
+    for path in root.rglob("*.jsonl"):
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            continue
+        clean = _scrub_secret_bytes(raw, environment)
+        if clean == raw:
+            continue
+        tmp = path.with_name(path.name + ".scrub-tmp")
+        try:
+            tmp.write_bytes(clean)
+            os.replace(tmp, path)
+            # os.replace installs a NEW inode owned by root (Django); the agent
+            # runs as uid 1001 and must still read/append it on the next turn.
+            # Same world-permission approach as the mount backing dirs above.
+            try:
+                os.chmod(path, 0o666)
+            except OSError:
+                pass
+            rewritten += 1
+        except OSError:
+            logger.warning("cc #72: failed to scrub transcript %s", path.name)
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+    return rewritten
 
 
 def _cc_limit_args(max_budget_usd: float) -> list[str]:
@@ -911,6 +1004,17 @@ def run_cc_turn(
         send_event("query_error", {"error": f"Container-CC turn failed: {type(exc).__name__}",
                                    "agent": "container_cc", "cc_session_id": translator.session_id})
     finally:
+        # #72: scrub the SOURCE transcript, not just the derived copies. In the
+        # finally (not the query_complete branch) because a turn that errored,
+        # timed out or was budget-killed still leaves a jsonl behind holding
+        # whatever the agent echoed before it died — and that file survives for
+        # --resume, gets staged read-only into later agents, and is fed to the
+        # summarizer. Best-effort: a scrub failure must never fail the turn.
+        try:
+            if dirs.cc_state_mnt:
+                scrub_transcript_store(Path(dirs.cc_state_mnt), environment)
+        except Exception:  # noqa: BLE001
+            logger.warning("cc #72: transcript store scrub failed", exc_info=True)
         if container is not None:
             try:
                 container.stop(timeout=5)
