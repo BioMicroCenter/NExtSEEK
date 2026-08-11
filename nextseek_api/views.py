@@ -101,6 +101,80 @@ def get_clade_color(sample_type):
     conn.close()
     return color
 
+
+def _caller_seek_project_ids(basic_tuple):
+    """SEEK project ids the caller belongs to, as a list of str.
+
+    Same derivation as AdminSampleViewSet.admin_retrieve_samples: SeekDB has to
+    be built from real credentials, because the username-is-None branch
+    (seek/seekdb.py:31) never calls getSeekLogin() and so leaves __server unset,
+    after which getCurrentUser() raises.
+
+    Returns [] when the caller's projects cannot be resolved. Callers must treat
+    that as "sees nothing", not as "sees everything".
+    """
+    if not basic_tuple or not basic_tuple[0] or not basic_tuple[1]:
+        return []
+    try:
+        seekdb = SeekDB(None, basic_tuple[0], basic_tuple[1])
+        user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+        return [str(p['id']) for p in user_projects]
+    except Exception:
+        logger.exception("Could not resolve SEEK projects for the caller")
+        return []
+
+
+def _samples_visible_to_projects(sample_ids, project_ids):
+    """Subset of ``sample_ids`` (SEEK ``samples.id``) that belongs to one of
+    ``project_ids``, as a set of str.
+
+    Fails closed: an empty project list, an unresolvable id, or a DB error all
+    yield an empty set, i.e. nothing is visible.
+    """
+    numeric = []
+    for sid in sample_ids:
+        try:
+            numeric.append(int(sid))
+        except (TypeError, ValueError):
+            continue
+    scoped_projects = [str(pid) for pid in (project_ids or []) if str(pid).strip()]
+    if not numeric or not scoped_projects:
+        return set()
+
+    db = settings.DATABASES[SEEK_DATABASE]
+    try:
+        conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
+    except Exception:
+        logger.exception("Could not open SEEK DB connection for a project-scope check")
+        return set()
+    try:
+        cursor = conn.cursor()
+        # Both lists are bound, never interpolated; only the schema name (from
+        # settings) is formatted in.
+        sample_placeholders = ', '.join(['%s'] * len(numeric))
+        project_placeholders = ', '.join(['%s'] * len(scoped_projects))
+        cursor.execute(
+            f"""
+            SELECT DISTINCT sample_id
+            FROM {db["NAME"]}.projects_samples
+            WHERE sample_id IN ({sample_placeholders})
+              AND project_id IN ({project_placeholders})
+            """,
+            numeric + scoped_projects,
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        return {str(r[0]) for r in rows if r and r[0] is not None}
+    except Exception:
+        logger.exception("Project-scope check failed")
+        return set()
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 class SampleTreeViewSet(viewsets.GenericViewSet):
     """
     ViewSet for sample tree retrieval by SEEK id (numeric) or Sample UID (string).
@@ -185,6 +259,23 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
         if seek_id is None:
             return Response({"detail": "Sample not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        # Project scope (#60). The traversal below resolves ANY uid and walks
+        # DERIVED_FROM from it, so without this gate any authenticated caller
+        # could read the lineage of any sample in the instance by UID.
+        #
+        # is_superuser ALONE is the admin predicate, deliberately. is_staff is
+        # set to 1 on every SEEK user at login (dmac/views.py:80 and :97, both
+        # the create and the update branch), so including it -- as
+        # admin_retrieve_samples still does, see the SECURITY comment there --
+        # would make this scoping a no-op for every account. Same predicate as
+        # nextseek_api.permissions.IsSuperUser and seek.views.verifySuperUser.
+        is_admin = bool(getattr(request.user, 'is_superuser', False))
+        project_ids = [] if is_admin else _caller_seek_project_ids(basic_tuple)
+        if not is_admin and str(seek_id) not in _samples_visible_to_projects([seek_id], project_ids):
+            # Same 404 as an unknown UID: do not confirm the sample exists to a
+            # caller who may not see it.
+            return Response({"detail": "Sample not found"}, status=status.HTTP_404_NOT_FOUND)
+
         try:
             NEO4J_DATABASE = settings.NEO4J_DATABASE
             with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
@@ -211,6 +302,10 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
                     nodeDict[nodeUid] = {'id': str(nodeId), 'type': nodeType, 'parents': []}
 
                 rel_props = []
+                # Endpoint ids taken from the graph itself, in lockstep with
+                # rel_props, so pruning below does not depend on the
+                # relationship carrying child_id/parent_id properties.
+                rel_endpoints = []
                 for rel in r.relationships:
                     relProps = rel._properties
                     startRelProps = rel.start_node._properties
@@ -236,6 +331,30 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
                         if k in relProps_norm and relProps_norm[k] is not None:
                             relProps_norm[k] = str(relProps_norm[k])
                     rel_props.append(relProps_norm)
+                    rel_endpoints.append((str(startRelProps.get('id', '')), parentId))
+
+                # Prune anything outside the caller's projects (#60). The
+                # traversal reaches ancestors and descendants that may live in
+                # other projects, so the root gate above is not sufficient on
+                # its own. parentIds and rels are pruned in lockstep: a node
+                # whose parent was dropped simply becomes a root, so the
+                # response stays referentially consistent for the D3 consumer
+                # (static/js/dag/dag.js, whose graphStratify throws on a
+                # dangling parent id).
+                if not is_admin:
+                    visible_ids = _samples_visible_to_projects(
+                        [v['id'] for v in nodeDict.values()], project_ids
+                    )
+                    nodeDict = {
+                        uid_key: v for uid_key, v in nodeDict.items()
+                        if str(v['id']) in visible_ids
+                    }
+                    for v in nodeDict.values():
+                        v['parents'] = [p for p in v['parents'] if p in visible_ids]
+                    rel_props = [
+                        props for props, (child_id, parent_id) in zip(rel_props, rel_endpoints)
+                        if child_id in visible_ids and parent_id in visible_ids
+                    ]
 
                 nodes = []
                 for k, v in nodeDict.items():
