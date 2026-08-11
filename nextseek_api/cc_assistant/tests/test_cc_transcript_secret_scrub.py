@@ -104,6 +104,66 @@ def test_unpadded_base64_is_scrubbed():
     assert unpadded.encode() not in out
 
 
+def test_json_escaped_password_is_scrubbed():
+    """The transcript IS jsonl, so a password holding a quote or a backslash is
+    stored escaped and its plaintext appears NOWHERE in the file.
+
+    Both characters are legal in a SEEK password, and the failure is silent and
+    total: not one variant matches, so the scrub is a whole no-op — for the
+    source file too, not merely a derived copy.
+    """
+    import json
+
+    pw = 'pa"ss\\word'
+    env = {"NEXTSEEK_USERNAME": USER, "NEXTSEEK_PASSWORD": pw, "API_PASS": pw}
+    line = json.dumps(
+        {"type": "user", "content": f"NEXTSEEK_PASSWORD={pw}"}
+    ).encode() + b"\n"
+    assert pw.encode() not in line, "the raw form must genuinely be absent"
+
+    out = cc_engine._scrub_secret_bytes(line, env)
+
+    assert json.dumps(pw)[1:-1].encode() not in out
+    assert b"<REDACTED>" in out
+    assert json.loads(out)["content"] == "NEXTSEEK_PASSWORD=<REDACTED>"
+
+
+def test_json_escaped_password_is_scrubbed_at_the_source(tmp_path):
+    """End to end through the in-place source scrub, which is where a total
+    no-op leaves the plaintext sitting in the cc-state volume for --resume."""
+    import json
+
+    pw = 'q\\uote"pw'
+    env = {"NEXTSEEK_USERNAME": USER, "NEXTSEEK_PASSWORD": pw}
+    path = tmp_path / "projects" / "sess.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(json.dumps({"content": f"pass={pw}"}).encode() + b"\n")
+
+    cc_engine.scrub_transcript_store(tmp_path, env)
+
+    body = path.read_bytes()
+    assert json.dumps(pw)[1:-1].encode() not in body
+    assert json.loads(body)["content"] == "pass=<REDACTED>"
+
+
+def test_quote_plus_form_of_a_password_is_scrubbed():
+    """``urlencode`` (and every requests form body) encodes space as ``+``,
+    not ``%20`` — a different string from ``quote(value, safe="")``."""
+    from urllib.parse import quote, quote_plus
+
+    pw = "correct horse battery"
+    env = {"NEXTSEEK_USERNAME": USER, "NEXTSEEK_PASSWORD": pw}
+    plus = quote_plus(pw)
+    assert plus != quote(pw, safe=""), "test value must distinguish the two"
+
+    out = cc_engine._scrub_secret_bytes(
+        b'{"content":"body=' + plus.encode() + b'"}', env
+    )
+
+    assert plus.encode() not in out
+    assert b"<REDACTED>" in out
+
+
 def test_scrub_is_idempotent_and_leaves_nonsecrets_alone():
     once = cc_engine._scrub_secret_bytes(TRANSCRIPT, ENV)
     assert cc_engine._scrub_secret_bytes(once, ENV) == once

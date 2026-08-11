@@ -31,7 +31,7 @@ import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote
+from urllib.parse import quote, quote_plus
 
 import docker
 
@@ -360,11 +360,31 @@ def _secret_variants(environment: Mapping[str, str]) -> list[bytes]:
       appears, so a plaintext-only scrub leaves a trivially decodable
       credential in the transcript.
     * ``curl https://user:pass@host`` and any URL built with ``urlencode``
-      percent-encode the password.
+      percent-encode the password — with ``+`` for a space in a form body
+      (``quote_plus``) but ``%20`` in a URL path (``quote``): two distinct
+      strings, and a space is legal in a SEEK password.
+    * The transcript is JSONL, so a password containing ``"`` or ``\\`` — both
+      legal — is stored ESCAPED (``pa\\"ss``), and its plaintext then appears
+      nowhere in the file. That case is why the escaped body is covered here
+      and not left to chance: without it the scrub does not merely miss one
+      encoding, it silently no-ops entirely, source file included, with no
+      signal that it did.
 
     Longest-first ordering matters twice over: a value containing a shorter
     one is masked whole, and the padded base64 form is consumed before its
     own unpadded prefix.
+
+    Deliberately NOT covered, because the scrub defends against an ACCIDENTAL
+    echo (an ``env`` dump, a ``curl -v``, a traceback) and not against an agent
+    that is trying to exfiltrate — which no literal-match filter can stop:
+    ``base64(password)`` with no username (nothing in the agent's toolbelt emits
+    it; Basic auth always encodes the pair), base64 at a non-3-byte-aligned
+    offset (Basic auth pins the offset at 0), a value split across two JSON
+    strings (the emitter would have to chunk it, and the plaintext then exists
+    contiguously nowhere), and lowercase percent-hex (urllib, requests, curl and
+    ``encodeURIComponent`` all emit uppercase; matching it needs a ``%XX``-aware
+    transform, which is a moving part inside a security-critical function bought
+    for no known emitter).
     """
     secrets = {v for k in _REDACTED_ENV_KEYS if (v := environment.get(k))}
     # Not secrets themselves — only the left half of the Basic-auth pair.
@@ -372,8 +392,14 @@ def _secret_variants(environment: Mapping[str, str]) -> list[bytes]:
     variants: set[bytes] = set()
     for value in secrets:
         variants.add(value.encode("utf-8"))
-        # url-encoded (userinfo in a URL, form bodies, query strings)
+        # url-encoded (userinfo in a URL, path/query) and its form-body cousin
         variants.add(quote(value, safe="").encode("utf-8"))
+        variants.add(quote_plus(value).encode("utf-8"))
+        # JSON-escaped body, as the transcript writer stores it. Both forms:
+        # ensure_ascii=True escapes non-ASCII to \\uXXXX, False leaves it UTF-8.
+        # For a password needing neither, these collapse into the plaintext.
+        variants.add(json.dumps(value)[1:-1].encode("utf-8"))
+        variants.add(json.dumps(value, ensure_ascii=False)[1:-1].encode("utf-8"))
         for user in users:
             encoded = base64.b64encode(f"{user}:{value}".encode("utf-8"))
             variants.add(encoded)
