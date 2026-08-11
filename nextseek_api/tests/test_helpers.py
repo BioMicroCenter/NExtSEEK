@@ -682,3 +682,22 @@ class TestBasicAuthHeader:
 
         assert basic_auth_header(None) == {}
         assert basic_auth_header(()) == {}
+
+    def test_none_credentials_yield_no_header(self):
+        """SeekDB(server, None, None) builds SeekAPI(server, None, None)
+        (seek/seekdb.py:31). Stringifying that would send the literal
+        credential pair ``None:None``."""
+        from nextseek_api.helpers import basic_auth_header
+
+        assert basic_auth_header((None, None)) == {}
+        assert basic_auth_header(("demo", None)) == {}
+        assert basic_auth_header((None, "user")) == {}
+
+    def test_empty_password_is_still_a_credential(self):
+        import base64
+
+        from nextseek_api.helpers import basic_auth_header
+
+        header = basic_auth_header(("demo", ""))["Authorization"]
+        decoded = base64.b64decode(header.split(" ", 1)[1]).decode("utf-8")
+        assert decoded == "demo:"

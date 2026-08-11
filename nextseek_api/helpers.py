@@ -24,10 +24,16 @@ def basic_auth_header(basic_tuple: Optional[Tuple[str, str]]) -> Dict[str, str]:
     request is even sent. RFC 7617 leaves the credential charset to the server
     and SEEK reads UTF-8, so encode the header ourselves.
 
-    Returns an empty dict for a falsy tuple, so callers can merge it
-    unconditionally.
+    Returns an empty dict for a falsy tuple, or for a tuple carrying a None
+    username or password, so callers can merge it unconditionally. The None
+    check matters for the seek/ call sites: SeekDB(server, None, None) builds
+    a SeekAPI with no credentials (seek/seekdb.py:31), and stringifying that
+    would send a literal ``None:None`` as the credential pair. An empty-string
+    password is still a credential and is encoded normally.
     """
     if not basic_tuple:
+        return {}
+    if basic_tuple[0] is None or basic_tuple[1] is None:
         return {}
     raw = f"{basic_tuple[0]}:{basic_tuple[1]}"
     return {
