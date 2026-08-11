@@ -833,20 +833,20 @@ the 127-pair predecessor, or any replacement corpus through NExtSEEK and Contain
 Producer mechanics are exercised hermetically with stored records and synthetic fixtures; they do
 not satisfy or require a new paired benchmark.
 
-- [ ] Port the reviewed ordinary-Nessie harness as an explicit task with source-by-source tests.
+- [x] Port the reviewed ordinary-Nessie harness as an explicit task with source-by-source tests.
   Its existing `manifest.json` remains an ordinary run artifact and must never be renamed and
   presented as Bayesian evidence.
-- [ ] Implement a NExtSEEK-owned paired producer. It must execute the same immutable question
+- [x] Implement a NExtSEEK-owned paired producer. It must execute the same immutable question
   identity exactly once per requested arm using two unique session/execution IDs and a server-side
   route override that cannot be undone by sticky-session or downstream router state.
-- [ ] Record requested route, actual route, route source, question/corpus hashes, execution/session
+- [x] Record requested route, actual route, route source, question/corpus hashes, execution/session
   IDs, source SHA/diff hash, image digest, model/client identity, timestamps, status, and raw result
   references for both arms and for every turn in a multi-turn arm. Validate every per-turn route and
   route source against the forced arm; a final-summary label is not enough.
-- [ ] Reject missing, duplicate, swapped, copied, same-session, or same-execution arms;
+- [x] Reject missing, duplicate, swapped, copied, same-session, or same-execution arms;
   requested/actual route mismatches on any turn; unapproved models; changed questions; sticky
   overrides; and partial pairs. A missing arm is pending/excluded, never a loss.
-- [ ] Emit a non-empty, schema-versioned `bayes_manifest.json` only from real completed paired
+- [x] Emit a non-empty, schema-versioned `bayes_manifest.json` only from real completed paired
   executions. Validate with strict models (`extra=forbid`), canonical hashes, referential integrity,
   and conservation counts. No hand-authored `BayesManifest` fixture may prove the producer.
 
@@ -857,9 +857,23 @@ route. Future promoted occurrences still execute independently through both forc
 finished product is later used; that future behavior is not a rerun or acceptance condition for the
 completed `set3_final` evidence.
 
+> **Progress (2026-08-11):** V4-2 closed on worktree `625b198e` (`ultraplan/hibayes-eval-routing`).
+> Ported `nessie_tests` @ `c1f468de` + `nessie.py`; hardened `extra=forbid`; surgical
+> `force_route`/`ns_run_root` product seams; host lane 1218 passed / 28 skipped; product hermetic
+> 36 passed; set3_final replay verifier PASS (22 checks, no route execution). Evidence:
+> `NExtSEEK-plan018/evidence/plan018-v4-2-closeout.json`. Published V14 SHA remains `af99a24b…`
+> (local progress only; not republished).
+
 ### V4-3 — Judgment attempts, exact DD-44 aggregation, and outcome conservation
 
-- [ ] Keep DD-44 at exactly three sequential evaluator calls per eligible arm. There is no pilot or
+> **Progress (2026-08-11):** V4-3 closed on worktree `35b46d3a` (`ultraplan/hibayes-eval-routing`).
+> Ported DD-44 aggregation from `dmac-assistant@dcca50c`; content-addressed attempt store;
+> exactly-three Stage C runner with hermetic replay; V8-D disposition; human-annotation schema;
+> conservation + fit-admission; eval unit suite 33 passed; V4-3 verifier PASS (12 checks, no provider
+> spend). Evidence: `NExtSEEK-plan018/evidence/plan018-v4-3-closeout.json`. Published V14 SHA remains
+> `af99a24b…` (local progress only; not republished).
+
+- [x] Keep DD-44 at exactly three sequential evaluator calls per eligible arm. There is no pilot or
   amendment escape hatch inside this plan; only the maintainer may independently reopen the
   decision later. Store every immutable canonical raw request and response payload (or a
   durable content-addressed artifact reference that is retrieved and hash-verified during replay),
@@ -867,22 +881,22 @@ completed `set3_final` evidence.
   fingerprint, model/client, prompt/evaluator versions, start/end timestamps, retry linkage,
   token/cost facts, status/error class, and payload hashes. A hash without retrievable bytes is not
   replay evidence.
-- [ ] Implement and golden-test the actual DD-44 aggregation stated in the verified facts above.
+- [x] Implement and golden-test the actual DD-44 aggregation stated in the verified facts above.
   Do not add, infer, or route on a nonexistent confidence output.
-- [ ] Define one total outcome mapping from DD-44 output to desired/not-desired/excluded. Unknown
+- [x] Define one total outcome mapping from DD-44 output to desired/not-desired/excluded. Unknown
   enum values and incomplete aggregation fail closed; they are not coerced to success.
-- [ ] Inspect criterion-level `unevaluable`, zero-criteria, provider-outage, missing-arm, timeout,
+- [x] Inspect criterion-level `unevaluable`, zero-criteria, provider-outage, missing-arm, timeout,
   and infrastructure statuses before scoring. Publish counts for each exclusion reason.
-- [ ] Own human annotations with a strict, versioned, `extra=forbid` schema. Bind each annotation
+- [x] Own human annotations with a strict, versioned, `extra=forbid` schema. Bind each annotation
   to run, corpus, case, question hash, arm/execution, annotator authority/provenance, vocabulary
   version, timestamp, and immutable content hash; reject orphan, duplicate, stale, unauthorized, or
   conflicting annotations. The complete observed vocabulary (`pass`, `real`, `masked`, `policy`,
   `drift`, `notrun`) and every future/unknown value must have an approved total mapping to scored,
   excluded-by-reason, pending, or hard failure. Sidecar labels never override judge output silently.
-- [ ] Enforce the conservation equation for every run and each arm:
+- [x] Enforce the conservation equation for every run and each arm:
   `input = scored_desired + scored_not_desired + excluded_by_reason + pending`.
   Pair inclusion additionally requires two retained arms.
-- [ ] Apply V14's configurable default minimum of five retained pairs and two discordant pairs for
+- [x] Apply V14's configurable default minimum of five retained pairs and two discordant pairs for
   any winner. Report differential attrition and sensitivity bounds; never hide a route-specific
   exclusion imbalance or use it to bypass the support rule.
 
