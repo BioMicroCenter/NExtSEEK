@@ -2,7 +2,7 @@
   "schema": "plan018-v4-4-debt-closeout/v1",
   "recorded_at": "2026-08-11T22:30:00Z",
   "gate": "PASS",
-  "worktree_sha": "pending-commit",
+  "worktree_sha": "d0c487b3",
   "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
   "debts_closed": [
     "DB migrations 0010-0014: TurnLedger, TurnJudgment, PosteriorGeneration, FamilyPosterior, ActiveGenerationPointer, ApprovedRunManifest, SpendReservation",
