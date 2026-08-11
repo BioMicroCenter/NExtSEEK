@@ -1251,12 +1251,16 @@ class MostRecentSessionSortBufferTests(TestCase):
     ORDER BY query.
     """
 
-    def setUp(self):
-        self.user = User.objects.create_user("sortbuf", password="x")
+    @classmethod
+    def setUpTestData(cls):
+        # Class-level (one write batch for the whole class) rather than per-test
+        # setUp: these rows are read-only here, and the suite shares one SQLite
+        # file with pipeline threads that outlive their tests.
+        cls.user = User.objects.create_user("sortbuf", password="x")
         # Two sessions so the ORDER BY actually has something to order.
-        ChatSession.objects.create(user=self.user, results_history=[{"user_query": "old"}])
-        self.newest = ChatSession.objects.create(
-            user=self.user, results_history=[{"user_query": "new"}]
+        ChatSession.objects.create(user=cls.user, results_history=[{"user_query": "old"}])
+        cls.newest = ChatSession.objects.create(
+            user=cls.user, results_history=[{"user_query": "new"}]
         )
 
     @staticmethod

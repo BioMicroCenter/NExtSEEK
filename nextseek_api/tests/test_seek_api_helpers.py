@@ -100,8 +100,11 @@ class TestCall:
         auth = ("u", "p")
         result = call(auth, "https://example.com/api")
         assert result == {"data": [1, 2]}
+        # Credentials travel as a pre-encoded UTF-8 header, never as requests'
+        # Latin-1 auth= (#52).
         mock_get.assert_called_once_with(
-            "https://example.com/api", auth=auth, headers=HEADERS
+            "https://example.com/api",
+            headers={**HEADERS, "Authorization": _expected_header(*auth)},
         )
 
     @patch("nextseek_api.seek_api_helpers.requests.get")
@@ -114,9 +117,8 @@ class TestCall:
         assert result == {"results": []}
         mock_get.assert_called_once_with(
             "https://example.com/api",
-            auth=auth,
             params={"page": 2},
-            headers=HEADERS,
+            headers={**HEADERS, "Authorization": _expected_header(*auth)},
         )
 
     @patch("nextseek_api.seek_api_helpers.requests.get")
@@ -156,9 +158,8 @@ class TestPostCall:
         assert result == {"id": 99}
         mock_post.assert_called_once_with(
             "https://example.com/api",
-            auth=auth,
             json={"name": "test"},
-            headers=HEADERS,
+            headers={**HEADERS, "Authorization": _expected_header(*auth)},
         )
 
     @patch("nextseek_api.seek_api_helpers.requests.post")
@@ -239,3 +240,81 @@ class TestGetSop:
         assert result is None
         captured = capsys.readouterr()
         assert "unexpected" in captured.out.lower()
+
+
+# ===========================================================================
+# Basic auth must be UTF-8 safe (#52)
+# ===========================================================================
+
+import base64
+from contextlib import contextmanager
+
+# Outside Latin-1: requests' auth= would raise UnicodeEncodeError on this.
+NON_LATIN1_USER = "jörg"
+NON_LATIN1_PASSWORD = "pa55wörd-✓-Ω"
+
+
+@contextmanager
+def _captured_send():
+    """Let the real requests machinery prepare the request (that is where the
+    Latin-1 auth encoding happens) but stop short of any socket."""
+    sent = {}
+
+    def fake_send(self, request, **kwargs):
+        sent["request"] = request
+        resp = requests.Response()
+        resp.status_code = 200
+        resp._content = b'{"ok": true}'
+        resp.headers["Content-Type"] = "application/json"
+        resp.url = request.url
+        return resp
+
+    with patch("requests.adapters.HTTPAdapter.send", fake_send):
+        yield sent
+
+
+def _expected_header(user, password):
+    raw = f"{user}:{password}".encode("utf-8")
+    return "Basic " + base64.b64encode(raw).decode("ascii")
+
+
+class TestUtf8BasicAuth:
+    """auth=(user, password) makes requests encode credentials as Latin-1, so a
+    password with any character outside that range raises UnicodeEncodeError
+    before the request is sent. These modules must send a pre-encoded UTF-8
+    Authorization header instead."""
+
+    AUTH = (NON_LATIN1_USER, NON_LATIN1_PASSWORD)
+
+    def test_call_sends_utf8_authorization(self):
+        with _captured_send() as sent:
+            call(self.AUTH, "http://seek.example/sops/")
+        req = sent["request"]
+        assert req.headers["Authorization"] == _expected_header(*self.AUTH)
+
+    def test_call_with_query_params_sends_utf8_authorization(self):
+        with _captured_send() as sent:
+            call(self.AUTH, "http://seek.example/sops/", {"page": "1"})
+        req = sent["request"]
+        assert req.headers["Authorization"] == _expected_header(*self.AUTH)
+
+    def test_post_call_sends_utf8_authorization(self):
+        with _captured_send() as sent:
+            post_call(self.AUTH, "http://seek.example/sops/", {"a": 1})
+        req = sent["request"]
+        assert req.headers["Authorization"] == _expected_header(*self.AUTH)
+
+    def test_accept_header_is_preserved_alongside_auth(self):
+        with _captured_send() as sent:
+            call(self.AUTH, "http://seek.example/sops/")
+        assert sent["request"].headers["Accept"] == HEADERS["Accept"]
+
+    def test_no_auth_still_works_and_sends_no_authorization(self):
+        with _captured_send() as sent:
+            call(None, "http://seek.example/sops/")
+        assert "Authorization" not in sent["request"].headers
+
+    def test_ascii_credentials_unchanged(self):
+        with _captured_send() as sent:
+            call(("demo", "demo"), "http://seek.example/sops/")
+        assert sent["request"].headers["Authorization"] == _expected_header("demo", "demo")

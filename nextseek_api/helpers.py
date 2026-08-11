@@ -14,6 +14,27 @@ log = logging.getLogger(__name__)
 
 JSONAPI_ACCEPT = 'application/vnd.api+json'
 
+
+def basic_auth_header(basic_tuple: Optional[Tuple[str, str]]) -> Dict[str, str]:
+    """Build a UTF-8-safe HTTP Basic ``Authorization`` header.
+
+    Never pass credentials to requests as ``auth=(user, password)``: requests
+    encodes them with Latin-1, so a password containing any character outside
+    that range (e.g. a non-ASCII letter) raises UnicodeEncodeError before the
+    request is even sent. RFC 7617 leaves the credential charset to the server
+    and SEEK reads UTF-8, so encode the header ourselves.
+
+    Returns an empty dict for a falsy tuple, so callers can merge it
+    unconditionally.
+    """
+    if not basic_tuple:
+        return {}
+    raw = f"{basic_tuple[0]}:{basic_tuple[1]}"
+    return {
+        'Authorization': 'Basic ' + base64.b64encode(raw.encode('utf-8')).decode('ascii')
+    }
+
+
 def get_basic_auth(request) -> Optional[Tuple[str, str]]:
     try:
         auth_header = request.META.get('HTTP_AUTHORIZATION') or ''
@@ -118,9 +139,7 @@ class SeekAPIClient:
             headers.update(extra_headers)
         # Encode Basic auth header manually to preserve UTF-8 (requests uses
         # Latin-1, which corrupts passwords with special characters).
-        if basic_tuple:
-            raw = f"{basic_tuple[0]}:{basic_tuple[1]}"
-            headers['Authorization'] = 'Basic ' + base64.b64encode(raw.encode('utf-8')).decode('ascii')
+        headers.update(basic_auth_header(basic_tuple))
         resp = self.session.request(
             method=method.upper(),
             url=url,
@@ -314,9 +333,7 @@ class SeekAPIClient:
         headers = {'Accept': accept}
         if extra_headers:
             headers.update(extra_headers)
-        if basic_tuple:
-            raw = f"{basic_tuple[0]}:{basic_tuple[1]}"
-            headers['Authorization'] = 'Basic ' + base64.b64encode(raw.encode('utf-8')).decode('ascii')
+        headers.update(basic_auth_header(basic_tuple))
 
         t0 = time.time()
         resp = self.session.request(
@@ -350,9 +367,7 @@ class SeekAPIClient:
         headers = {'Content-Type': 'application/octet-stream'}
         if extra_headers:
             headers.update(extra_headers)
-        if basic_tuple:
-            raw = f"{basic_tuple[0]}:{basic_tuple[1]}"
-            headers['Authorization'] = 'Basic ' + base64.b64encode(raw.encode('utf-8')).decode('ascii')
+        headers.update(basic_auth_header(basic_tuple))
 
         t0 = time.time()
         resp = self.session.request(
