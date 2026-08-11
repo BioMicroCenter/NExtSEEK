@@ -905,6 +905,13 @@ failure/outage/unknown-status tests fail safely, and no excluded or pending case
 
 ### V4-4 — Paired model and operational decision contract (resolved by V14)
 
+> **Progress (2026-08-11):** V4-4 closed on worktree `45e5227f` (`ultraplan/hibayes-eval-routing`).
+> V14 pair-preserving fitter, quality/latency/decision/FDR modules, vendor scaffold, eval image,
+> 48 eval unit tests, 40-slot recovery matrix (fast path), verifier PASS (12 checks). Residual debt
+> closeout added migrations (TurnLedger/TurnJudgment/PosteriorGeneration), judge cache, publish +
+> generation store, V4-8 reservation gate. Evidence: `NExtSEEK-plan018/evidence/plan018-v4-4-closeout.json`,
+> `plan018-v4-4-debt-closeout.json`. MCMC recovery evidence: `plan018-v4-4-recovery-mcmc.json`.
+
 `nextseek_api/eval/router_models_proposal.py` already defines the arm-level pydantic data contract.
 V4-4 is not another row-schema design exercise. It covers only the remaining pair-preserving
 statistical analysis and operational decision rule. Per V10-E, `RouteFamilyAggregate` cannot be fit
@@ -1081,6 +1088,11 @@ stop and ask the maintainer rather than exceeding `40`.
 route. V14 resolves the former V4-4 design STOP; it does not execute or authorize the contract.
 
 ### V4-5 — Immutable generation publication and activation
+
+> **Progress (2026-08-11):** Hermetic store scaffold landed on worktree (`PosteriorGeneration`,
+> `FamilyPosterior`, `ActiveGenerationPointer`, `publish.py`, `generation_store.py` CAS activation).
+> Product tests 28 passed via docker worktree mount + `dmac.test_settings`. Live DB activation remains
+> a separate at-time approval. Evidence: `NExtSEEK-plan018/evidence/plan018-v4-4-debt-closeout.json`.
 
 Candidate activation means changing the active posterior-generation pointer. Candidate creation,
 test-database activation, and local or isolated-harness activation require no approval. Ask first
