@@ -30,7 +30,7 @@ import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 from urllib.parse import quote, quote_plus
 
 import docker
@@ -433,8 +433,23 @@ def transcript_scrubber(environment: Mapping[str, str]) -> Callable[[bytes], byt
     return lambda raw: _scrub_secret_bytes(raw, environment)
 
 
-def scrub_transcript_store(cc_state_dir: Path | str, environment: Mapping[str, str]) -> int:
-    """#72: scrub the SOURCE session transcripts in place. Returns files rewritten.
+class ScrubReport(NamedTuple):
+    """Outcome of one ``scrub_transcript_store`` pass.
+
+    ``rewritten`` alone cannot tell a caller whether the store is clean: a pass
+    that scrubbed nothing because there was nothing to scrub and a pass that
+    scrubbed nothing because every file threw both report 0. ``skipped`` is the
+    count of files this function KNOWS it left unscrubbed.
+    """
+
+    rewritten: int
+    skipped: int
+
+
+def scrub_transcript_store(
+    cc_state_dir: Path | str, environment: Mapping[str, str]
+) -> ScrubReport:
+    """#72: scrub the SOURCE session transcripts in place.
 
     The per-session jsonl under ``<cc_state>/projects`` is the origin of every
     other copy, and it is deliberately never deleted — ``--resume`` needs it
@@ -449,17 +464,29 @@ def scrub_transcript_store(cc_state_dir: Path | str, environment: Mapping[str, s
     file and the jsonl stays structurally valid: ``<REDACTED>`` carries no quote
     or backslash, so replacing a value inside a JSON string cannot break the
     escaping that ``--resume`` parses.
+
+    Every file it cannot scrub is LOGGED with its path and the error, and
+    counted in ``ScrubReport.skipped``. ``cc_sweep`` re-reads these same files
+    raw and has no credentials of its own to scrub with, so this function is the
+    single thing standing between the store and the summarizer: skipping a file
+    quietly is a silent leak into the merged ``CLAUDE.md``, and a bare return
+    count cannot distinguish "scrubbed 0, skipped 0" from "scrubbed 0,
+    skipped 4".
     """
     root = Path(cc_state_dir) / "projects"
     if not root.is_dir():
-        return 0
+        return ScrubReport(0, 0)
     rewritten = 0
+    skipped = 0
     for path in root.rglob("*.jsonl"):
         if path.is_symlink() or not path.is_file():
             continue
         try:
             raw = path.read_bytes()
-        except OSError:
+        except OSError as exc:
+            skipped += 1
+            logger.warning("cc #72: cannot read transcript %s, left unscrubbed: %r",
+                           path, exc)
             continue
         clean = _scrub_secret_bytes(raw, environment)
         if clean == raw:
@@ -476,13 +503,15 @@ def scrub_transcript_store(cc_state_dir: Path | str, environment: Mapping[str, s
             except OSError:
                 pass
             rewritten += 1
-        except OSError:
-            logger.warning("cc #72: failed to scrub transcript %s", path.name)
+        except OSError as exc:
+            skipped += 1
+            logger.warning("cc #72: failed to scrub transcript %s, left "
+                           "unscrubbed: %r", path, exc)
             try:
                 tmp.unlink()
             except OSError:
                 pass
-    return rewritten
+    return ScrubReport(rewritten=rewritten, skipped=skipped)
 
 
 def _cc_limit_args(max_budget_usd: float) -> list[str]:
@@ -1069,7 +1098,12 @@ def run_cc_turn(
         # summarizer. Best-effort: a scrub failure must never fail the turn.
         try:
             if dirs.cc_state_mnt:
-                scrub_transcript_store(Path(dirs.cc_state_mnt), environment)
+                report = scrub_transcript_store(Path(dirs.cc_state_mnt), environment)
+                if report.skipped:
+                    logger.warning(
+                        "cc #72: transcript store scrub left %d of %d file(s) "
+                        "UNSCRUBBED (run_id=%s) — cc_sweep will read those raw",
+                        report.skipped, report.skipped + report.rewritten, run_id)
         except Exception:  # noqa: BLE001
             logger.warning("cc #72: transcript store scrub failed", exc_info=True)
         if container is not None:

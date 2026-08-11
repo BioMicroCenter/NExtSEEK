@@ -185,9 +185,9 @@ def test_source_transcript_is_scrubbed_in_place(tmp_path):
     path = _write_store(tmp_path)
     assert _leaks(path.read_bytes()), "fixture must start dirty"
 
-    rewritten = cc_engine.scrub_transcript_store(tmp_path, ENV)
+    report = cc_engine.scrub_transcript_store(tmp_path, ENV)
 
-    assert rewritten == 1
+    assert (report.rewritten, report.skipped) == (1, 0)
     assert _leaks(path.read_bytes()) == []
 
 
@@ -210,12 +210,12 @@ def test_source_scrub_is_a_noop_when_nothing_leaked(tmp_path):
     clean = b'{"type":"assistant","message":{"content":"hello"}}\n'
     path.write_bytes(clean)
 
-    assert cc_engine.scrub_transcript_store(tmp_path, ENV) == 0
+    assert cc_engine.scrub_transcript_store(tmp_path, ENV) == (0, 0)
     assert path.read_bytes() == clean
 
 
 def test_source_scrub_tolerates_a_missing_store(tmp_path):
-    assert cc_engine.scrub_transcript_store(tmp_path / "nope", ENV) == 0
+    assert cc_engine.scrub_transcript_store(tmp_path / "nope", ENV) == (0, 0)
 
 
 def test_source_scrub_covers_every_session_in_the_store(tmp_path):
@@ -223,9 +223,82 @@ def test_source_scrub_covers_every_session_in_the_store(tmp_path):
     a = _write_store(tmp_path, "sess-a.jsonl")
     b = _write_store(tmp_path, "sess-b.jsonl")
 
-    assert cc_engine.scrub_transcript_store(tmp_path, ENV) == 2
+    assert cc_engine.scrub_transcript_store(tmp_path, ENV) == (2, 0)
     assert _leaks(a.read_bytes()) == []
     assert _leaks(b.read_bytes()) == []
+
+
+# ---------------------------------------------------------------------------
+# Gap 1b: a silent skip in the sweep's single point of failure
+# ---------------------------------------------------------------------------
+# cc_sweep re-reads these same files raw and has NO credentials of its own to
+# scrub with (it iterates every user with no request in scope), so its safety
+# rests entirely on this function having succeeded. A file skipped without a
+# signal is therefore a silent leak into the merged CLAUDE.md, and "scrubbed 0,
+# skipped 4" is indistinguishable from "scrubbed 0, skipped 0" -- both look like
+# a clean store.
+
+
+def _explode_on(name: str, method: str, monkeypatch, exc):
+    real = getattr(Path, method)
+
+    def boom(self, *args, **kwargs):
+        if self.name.startswith(name):
+            raise exc
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, method, boom)
+
+
+def test_unreadable_transcript_is_logged_and_counted(tmp_path, monkeypatch, caplog):
+    import logging
+
+    good = _write_store(tmp_path, "good.jsonl")
+    bad = _write_store(tmp_path, "bad.jsonl")
+    _explode_on("bad.jsonl", "read_bytes", monkeypatch,
+                PermissionError(13, "Permission denied"))
+
+    with caplog.at_level(logging.WARNING,
+                         logger="nextseek_api.cc_assistant.cc_engine"):
+        report = cc_engine.scrub_transcript_store(tmp_path, ENV)
+
+    monkeypatch.undo()          # read the files back for real
+    assert report.rewritten == 1
+    assert report.skipped == 1
+    assert _leaks(good.read_bytes()) == []
+    assert _leaks(bad.read_bytes()), "the skipped file is still dirty"
+
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert str(bad) in logged, "the log must name the file that was skipped"
+    assert "Permission denied" in logged or "PermissionError" in logged
+
+
+def test_a_failed_rewrite_counts_as_skipped(tmp_path, monkeypatch, caplog):
+    """A file that could be read but not written back is just as unscrubbed."""
+    import logging
+
+    path = _write_store(tmp_path, "sess-a.jsonl")
+    _explode_on("sess-a.jsonl.scrub-tmp", "write_bytes", monkeypatch,
+                OSError(28, "No space left on device"))
+
+    with caplog.at_level(logging.WARNING,
+                         logger="nextseek_api.cc_assistant.cc_engine"):
+        report = cc_engine.scrub_transcript_store(tmp_path, ENV)
+
+    assert report.rewritten == 0
+    assert report.skipped == 1
+    assert _leaks(path.read_bytes()), "the fixture must still be dirty"
+
+
+def test_a_fully_scrubbed_store_reports_no_skips(tmp_path):
+    """The distinction the caller needs: 2 rewritten / 0 skipped is a clean
+    store; 0 rewritten / 2 skipped is a leak wearing the same return value."""
+    _write_store(tmp_path, "sess-a.jsonl")
+    _write_store(tmp_path, "sess-b.jsonl")
+
+    report = cc_engine.scrub_transcript_store(tmp_path, ENV)
+
+    assert (report.rewritten, report.skipped) == (2, 0)
 
 
 def test_scrub_runs_in_the_finally_so_failed_turns_are_covered():
