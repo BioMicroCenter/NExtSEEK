@@ -1,0 +1,23 @@
+{
+  "schema": "plan018-v4-3-prereq/v1",
+  "recorded_at": "2026-08-11T19:35:00Z",
+  "gate": "PASS",
+  "worktree_sha": "35b46d3a6f75614915d2075b2cd7f59df440c0ac",
+  "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+  "checks": {
+    "preflight_v4_0_closed": true,
+    "preflight_v4_1_closed": true,
+    "preflight_v4_2_closed": true,
+    "preflight_next_gate_v4_3": true,
+    "vendor_pin_dcca50c": true,
+    "aggregation_operators_present": true,
+    "judge_py_absent": true,
+    "v4_1_gate_pass": true,
+    "test_lane_ops_harness": "/home/taishajo/work/OPS-TESTING-HARNESSES.md",
+    "test_lane_v4_2_host_sidecar": "evidence/plan018-v4-2-host-lane.sidecar.json",
+    "test_lane_v4_2_product_sidecar": "evidence/plan018-v4-2-product-seams.sidecar.json",
+    "default_lanes": ["A_host_hermetic", "C_docker_worktree_mount"]
+  },
+  "hard_refuses_in_force": true,
+  "paid_or_live_resources_used": false
+}
