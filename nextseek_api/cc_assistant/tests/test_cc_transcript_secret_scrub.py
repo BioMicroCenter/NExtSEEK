@@ -247,6 +247,68 @@ def test_stage_transcripts_without_a_scrubber_is_unchanged(tmp_path):
     assert not (staging / "stale.jsonl").exists()
 
 
+# A password whose scrub is EXACTLY length-neutral: len("<REDACTED>") == 10, so
+# a 10-character password rewrites to the same number of bytes. No username is
+# given for this env, so no base64(user:pass) variant exists to change the
+# length either -- the whole scrub is byte-for-byte length-preserving.
+PW10 = "s3cr3tpwXY"
+ENV10 = {"NEXTSEEK_PASSWORD": PW10, "API_PASS": PW10}
+TRANSCRIPT10 = (
+    '{"type":"user","message":{"content":[{"type":"tool_result","content":'
+    f'"NEXTSEEK_PASSWORD={PW10}\\n"'
+    "}]}}\n"
+).encode()
+
+
+def test_stale_plaintext_is_replaced_even_when_the_scrub_is_length_neutral(tmp_path):
+    """Copy-on-change by SIZE is a no-op exactly when the scrub does not resize.
+
+    The staged dir is mounted read-only into later agent containers and is
+    written once per turn from a window of sessions. A destination staged
+    BEFORE the scrub existed holds plaintext; if the freshly scrubbed payload
+    happens to be the same length as that stale file, a size comparison sees no
+    change and never overwrites it, so the plaintext is republished to every
+    later agent forever.
+    """
+    source = tmp_path / "state" / "sess-a.jsonl"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(TRANSCRIPT10)
+    staging = tmp_path / "staging"
+
+    # Turn 1, before the scrub existed: the plaintext is staged verbatim.
+    cc_memory_io.stage_transcripts([_Meta("sess-a", source)], staging)
+    assert PW10.encode() in (staging / "sess-a.jsonl").read_bytes()
+
+    # Turn 2, with the scrub: same length, so a size check sees "unchanged".
+    payload = cc_engine._scrub_secret_bytes(TRANSCRIPT10, ENV10)
+    assert len(payload) == len(TRANSCRIPT10), "fixture must be length-neutral"
+    cc_memory_io.stage_transcripts(
+        [_Meta("sess-a", source)], staging, scrub=cc_engine.transcript_scrubber(ENV10)
+    )
+
+    staged = (staging / "sess-a.jsonl").read_bytes()
+    assert PW10.encode() not in staged
+    assert b"<REDACTED>" in staged
+
+
+def test_stale_unscrubbed_copy_is_replaced_when_the_source_changes_in_place(tmp_path):
+    """Same defect, no scrub involved: a same-size source edit must still copy.
+
+    The in-place source scrub (``scrub_transcript_store``) rewrites a transcript
+    without necessarily changing its size, so this is the very same event seen
+    from the ``scrub=None`` branch.
+    """
+    source = tmp_path / "sess-a.jsonl"
+    source.write_bytes(b'{"content":"AAAA"}\n')
+    staging = tmp_path / "staging"
+    cc_memory_io.stage_transcripts([_Meta("sess-a", source)], staging)
+
+    source.write_bytes(b'{"content":"BBBB"}\n')
+    cc_memory_io.stage_transcripts([_Meta("sess-a", source)], staging)
+
+    assert (staging / "sess-a.jsonl").read_bytes() == b'{"content":"BBBB"}\n'
+
+
 def test_staging_prunes_scrubbed_files_not_in_the_window(tmp_path):
     source = _write_store(tmp_path / "state")
     staging = tmp_path / "staging"
