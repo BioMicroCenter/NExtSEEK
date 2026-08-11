@@ -41,6 +41,33 @@ def test_run_kwargs_attaches_default_network():
     assert "volumes" not in kw  # G7-10 atomic cutover: mounts=, never volumes=
 
 
+# --- #73 / F15: per-turn resource ceilings + self-reaping -----------------------
+
+def test_run_kwargs_sets_resource_limits():
+    # #73: a per-turn container with no mem/cpu/pids/disk cap can DoS the co-tenant
+    # mysql/neo4j/seek. These must be present on every spawn.
+    kw = cc_engine._run_kwargs(
+        image="img", command=["claude"], environment={}, mounts=[],
+        run_id="a1", user_id="demo",
+    )
+    assert kw["mem_limit"] == cc_engine._DEFAULT_MEM_LIMIT
+    assert kw["memswap_limit"] == kw["mem_limit"]  # else the cap escapes into swap
+    assert kw["nano_cpus"] == cc_engine._DEFAULT_NANO_CPUS
+    assert kw["pids_limit"] == cc_engine._DEFAULT_PIDS_LIMIT
+    fsize = [u for u in kw["ulimits"] if u.name == "fsize"]
+    assert fsize and fsize[0].hard == cc_engine._DEFAULT_FSIZE_BYTES
+
+
+def test_run_kwargs_auto_removes_to_reap_orphans():
+    # F15: parent worker death skips the finally-block remove; auto_remove reaps
+    # the sibling regardless.
+    kw = cc_engine._run_kwargs(
+        image="img", command=["claude"], environment={}, mounts=[],
+        run_id="a1", user_id="demo",
+    )
+    assert kw["auto_remove"] is True
+
+
 # --- Step 2b (iter-1 H-2): deterministic agent container naming --------------
 
 def test_run_kwargs_sets_deterministic_container_name():
@@ -321,6 +348,26 @@ def test_redact_env_masks_secret_keys():
     assert red["API_PASS"] == "<REDACTED>"
     assert red["DMAC_PATH_MAPPINGS"] == "<REDACTED>"
     assert red["NEXTSEEK_URL"] == "u"  # non-secret passes through
+
+
+# --- #72: secret-value scrub of the raw transcript bytes ----------------------
+
+def test_scrub_secret_bytes_masks_password_value_in_transcript():
+    # The leak is the VALUE landing inside a tool_result (an accidental `env`
+    # dump), not a key -- so scrubbing keys off is not enough.
+    env = {"NEXTSEEK_PASSWORD": "s3cr3t-pw", "API_PASS": "s3cr3t-pw",
+           "NEXTSEEK_USERNAME": "demo"}
+    raw = b'{"type":"tool_result","content":"user=demo NEXTSEEK_PASSWORD=s3cr3t-pw\\n"}'
+    out = cc_engine._scrub_secret_bytes(raw, env)
+    assert b"s3cr3t-pw" not in out
+    assert b"<REDACTED>" in out
+    assert b"demo" in out  # non-secret username in the transcript is untouched
+
+
+def test_scrub_secret_bytes_is_noop_without_secrets_and_on_empty():
+    assert cc_engine._scrub_secret_bytes(b"", {"NEXTSEEK_PASSWORD": "x"}) == b""
+    clean = b'{"type":"assistant","text":"hello"}'
+    assert cc_engine._scrub_secret_bytes(clean, {"NEXTSEEK_URL": "u"}) == clean
 
 
 # --- loopback base-URL rewrite (route via nginx) ------------------------------

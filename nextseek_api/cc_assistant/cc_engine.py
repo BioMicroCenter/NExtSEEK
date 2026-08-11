@@ -80,6 +80,20 @@ _DEFAULT_TURN_TIMEOUT = min(
     _TIMEOUT_HARD_MAX,
 )
 
+# #73 (production DoS): hard cgroup ceilings for the per-turn sibling container.
+# Cost/turn/time caps above bound spend and wall-clock, but NOT RAM/CPU/PIDs/disk
+# — so a single turn (malicious, or an accidental huge query result / artifact
+# write) can exhaust the host and starve the co-tenant mysql/neo4j/seek serving
+# real users; the kernel OOM killer selects by RSS (the JVM/mysqld), not the
+# agent. All env-tunable, same pattern as the caps above.
+_DEFAULT_MEM_LIMIT = os.environ.get("NEXTSEEK_CC_MEM_LIMIT", "4g")
+_DEFAULT_NANO_CPUS = int(os.environ.get("NEXTSEEK_CC_NANO_CPUS", str(2_000_000_000)))
+_DEFAULT_PIDS_LIMIT = int(os.environ.get("NEXTSEEK_CC_PIDS_LIMIT", "512"))
+# Portable per-file write cap (fsize ulimit, bytes). storage_opt is unusable on
+# overlayfs + the containerd snapshotter (no xfs pquota) and would only cap the
+# rootfs anyway, not the scratch volume; the fsize ulimit brakes runaway writes.
+_DEFAULT_FSIZE_BYTES = int(os.environ.get("NEXTSEEK_CC_FSIZE_BYTES", str(10 * 1024 ** 3)))
+
 
 def clamp_turn_timeout(seconds: int | None) -> int:
     """Clamp a requested per-turn wall-clock (seconds) to
@@ -327,6 +341,25 @@ def _redact_env(env: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+def _scrub_secret_bytes(raw: bytes, environment: Mapping[str, str]) -> bytes:
+    """#72: replace any secret VALUE present in the agent env with ``<REDACTED>``
+    inside the raw transcript bytes, before they are copied to disk or persisted
+    into ``assistant_cc_transcript``.
+
+    The leak is the value appearing verbatim inside a ``tool_result`` string — an
+    accidental ``env``/``printenv``, a ``curl -v`` printing the Basic-auth tuple,
+    a requests/urllib traceback — so this is a literal-VALUE replacement over the
+    jsonl bytes. ``_redact_env`` is key-based and cannot cover this. Values are
+    scrubbed longest-first so a value that contains a shorter one is masked whole.
+    """
+    if not raw:
+        return raw
+    secrets = {v for k in _REDACTED_ENV_KEYS if (v := environment.get(k))}
+    for value in sorted(secrets, key=len, reverse=True):
+        raw = raw.replace(value.encode("utf-8"), b"<REDACTED>")
+    return raw
+
+
 def _cc_limit_args(max_budget_usd: float) -> list[str]:
     """OI-5 per-turn caps: turn count + hard USD budget (both exit-with-error)."""
     args = ["--max-turns", _DEFAULT_MAX_TURNS]
@@ -445,6 +478,21 @@ def _run_kwargs(
         "tty": False,
         "stdout": True,
         "stderr": True,
+        # #73: hard resource ceilings so one turn cannot DoS the co-tenant
+        # mysql/neo4j/seek. memswap_limit == mem_limit, or the cap escapes into
+        # swap. fsize ulimit is the portable disk brake (see _DEFAULT_FSIZE_BYTES).
+        "mem_limit": _DEFAULT_MEM_LIMIT,
+        "memswap_limit": _DEFAULT_MEM_LIMIT,
+        "nano_cpus": _DEFAULT_NANO_CPUS,
+        "pids_limit": _DEFAULT_PIDS_LIMIT,
+        "ulimits": [docker.types.Ulimit(
+            name="fsize", soft=_DEFAULT_FSIZE_BYTES, hard=_DEFAULT_FSIZE_BYTES)],
+        # F15: reap the sibling even when the parent Django worker dies mid-turn
+        # (a SIGKILL/worker-recycle skips the finally-block remove, orphaning the
+        # container on dmac-cc-net with an rw mount and live spend). Safe here:
+        # the code never container.wait()s or inspects post-exit, and the now-
+        # redundant finally remove(force=True) is already guarded by except pass.
+        "auto_remove": True,
     }
 
 
@@ -801,12 +849,20 @@ def run_cc_turn(
                     break
                 time.sleep(0.2)
             raw = jsonl_path.read_bytes() if jsonl_path else b""
+            # #72: scrub secret VALUES (the per-request NExtSEEK password et al.)
+            # out of the raw transcript BEFORE either sink — the on-disk raw/ copy
+            # AND the assistant_cc_transcript blob below (raw_jsonl=raw). Without
+            # this a single tool call echoing the env writes the user's plaintext
+            # password into a permanent DB row.
+            raw = _scrub_secret_bytes(raw, environment)
             if raw:
                 raw_copy = Path(dirs.output_mnt) / "raw" / f"transcript-{run_id}.jsonl"
                 raw_copy.parent.mkdir(parents=True, exist_ok=True)
                 if not _safe_relpath(raw_copy.name):
                     raise ValueError("bad transcript basename")
-                shutil.copy2(jsonl_path, raw_copy)
+                # write the SCRUBBED bytes (not shutil.copy2 of the raw file) so
+                # the on-disk copy carries no secrets either.
+                raw_copy.write_bytes(raw)
             parsed = cc_summary.parse_transcript(raw) if raw else None
             trace = cc_trace.extract_trace(
                 parsed, cc_session_id=translator.session_id or "",
