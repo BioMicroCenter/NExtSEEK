@@ -857,21 +857,17 @@ route. Future promoted occurrences still execute independently through both forc
 finished product is later used; that future behavior is not a rerun or acceptance condition for the
 completed `set3_final` evidence.
 
-> **Progress (2026-08-11):** V4-2 closed on worktree `625b198e` (`ultraplan/hibayes-eval-routing`).
-> Ported `nessie_tests` @ `c1f468de` + `nessie.py`; hardened `extra=forbid`; surgical
-> `force_route`/`ns_run_root` product seams; host lane 1218 passed / 28 skipped; product hermetic
-> 36 passed; set3_final replay verifier PASS (22 checks, no route execution). Evidence:
-> `NExtSEEK-plan018/evidence/plan018-v4-2-closeout.json`. Published V14 SHA remains `af99a24b…`
-> (local progress only; not republished).
+> **Progress (2026-08-13):** V4-2 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`).
+> Lane C **48/48** incl. authenticated HTTP cross + product mutation killers; set3 schema_version note;
+> SDD final review APPROVED. Evidence: `plan018-v4-2-closeout.json`, `plan018-v4-2-lane-c.sidecar.json`.
+> Published V14 SHA remains `af99a24b…` (local progress only; not republished).
 
 ### V4-3 — Judgment attempts, exact DD-44 aggregation, and outcome conservation
 
-> **Progress (2026-08-11):** V4-3 closed on worktree `35b46d3a` (`ultraplan/hibayes-eval-routing`).
-> Ported DD-44 aggregation from `dmac-assistant@dcca50c`; content-addressed attempt store;
-> exactly-three Stage C runner with hermetic replay; V8-D disposition; human-annotation schema;
-> conservation + fit-admission; eval unit suite 33 passed; V4-3 verifier PASS (12 checks, no provider
-> spend). Evidence: `NExtSEEK-plan018/evidence/plan018-v4-3-closeout.json`. Published V14 SHA remains
-> `af99a24b…` (local progress only; not republished).
+> **Progress (2026-08-13):** V4-3 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`).
+> Full DD-44 mutant matrix **14/14**; human-annotation validators; V8-D goldens; attrition/sensitivity;
+> pytest-cov **≥95%** on critical modules; Lane C **80/80**. Evidence: `plan018-v4-3-closeout.json`,
+> `plan018-v4-3-dd44-mutation-manifest.json`. Published V14 SHA remains `af99a24b…` (local only).
 
 - [x] Keep DD-44 at exactly three sequential evaluator calls per eligible arm. There is no pilot or
   amendment escape hatch inside this plan; only the maintainer may independently reopen the
@@ -907,13 +903,9 @@ failure/outage/unknown-status tests fail safely, and no excluded or pending case
 
 ### V4-4 — Paired model and operational decision contract (resolved by V14)
 
-> **Progress (2026-08-12):** V4-4 remediation closed cold-review FAIL items on worktree
-> `ultraplan/hibayes-eval-routing`. Ruling **B** amended V14 support (discordance for quality winners
-> only; latency-after-ROPE uses retained minimum + ROPE + latency posteriors). Matrix re-frozen under
-> `v14b-ruling-b`; fail-closed `recovery_runner` + `recovery_acceptance.py`; 63 Lane A unit tests;
-> 28 Lane C product tests; verifier 13/13; **40/40 MCMC recovery PASS** (`diagnostics_ok` 0 failures,
-> wrong-direction 0, strong 4/5+, indecisive 5/5). MCMC config bump: warmup 600 / samples 2000 / chains 2.
-> Evidence: `NExtSEEK-plan018/evidence/plan018-v4-4-remediation-closeout.json`,
+> **Progress (2026-08-13):** V4-4 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`;
+> recovery-feasibility JSON PASS; Lane A **30/30**; stale artifact banners; preflight pointers).
+> Ruling **B** amended V14 support. Evidence: `plan018-v4-4-remediation-closeout.json`,
 > `plan018-v4-4-recovery-mcmc.json`, `plan018-v4-4-cold-outcome-review.md` (PASS).
 
 `nextseek_api/eval/router_models_proposal.py` already defines the arm-level pydantic data contract.
@@ -1095,10 +1087,9 @@ route. V14 resolves the former V4-4 design STOP; it does not execute or authoriz
 
 ### V4-5 — Immutable generation publication and activation
 
-> **Progress (2026-08-12):** V4-5 **hermetic CLOSED** (post-remediation cold PASS @ `a89fb3dc`;
-> vault-sync DONE @ deploydocs `d3153692` / registry SHA `24c03eb…`). Lane C 32/32, Lane M 11/11
-> (disposable MySQL REPEATABLE-READ), verifier 22/22. Live DB activation and production routing
-> enablement remain separately gated.
+> **Progress (2026-08-13):** V4-5 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`;
+> prior cold PASS @ `a89fb3dc`). Lane C 32/32, Lane M **12/12** (payload-canonical tamper oracle),
+> verifier 22/22. Live DB activation and production routing enablement remain separately gated.
 
 Candidate activation means changing the active posterior-generation pointer. Candidate creation,
 test-database activation, and local or isolated-harness activation require no approval. Ask first
@@ -1123,11 +1114,9 @@ view or silently activate a candidate.
 
 ### V4-6 — Router split and explicit call-count contract
 
-> **Progress (2026-08-12):** V4-6 **hermetic CLOSED** (cold PASS @ `3da7aedd` on
-> `ultraplan/hibayes-eval-routing`; vault-sync DONE @ deploydocs `d160590d` / registry SHA
-> `b88825a9…`). Lane C **42/42** (`evidence/plan018-v4-6-lane-c.log`); verifier **28/28**.
-> `NEXTSEEK_POSTERIOR_ROUTING_ENABLED` stays default-off; live DB activation and production
-> routing enablement remain separately gated.
+> **Progress (2026-08-13):** V4-6 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`;
+> cold PASS @ `3da7aedd`). Lane C **36/36**; verifier **28/28**. TurnLedger `attempted_route`/`attempted_source`
+> persisted (migration `0018`). Live DB activation and production routing enablement remain separately gated.
 
 The classifier and router must be structurally separate. The classifier schema returns only a
 taxonomy version plus family/unrelated classification and classification provenance; it contains no
@@ -1159,10 +1148,10 @@ with two thin wrappers around one route-bearing output.
 
 ### V4-7 — Separate experimental evidence from observational monitoring
 
-> **Progress (2026-08-12):** V4-7 **hermetic CLOSED** (cold PASS @ `62911a17` on
-> `ultraplan/hibayes-eval-routing`; vault-sync DONE @ deploydocs `b22227a2` / registry SHA
-> `70bee91d…`). Lane C **30/30**; Lane M **15/15**; verifier **30/30**. Live DB activation and
-> production routing enablement remain separately gated.
+> **Progress (2026-08-13):** V4-7 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`;
+> cold PASS @ `62911a17`). Lane C **36/36** (monitoring alerts); Lane M **15/15**; verifier **30/30**.
+> Playbook (`playbook.py`/`ns_digest`) deferred Task 11 per `evidence/plan018-v4-7-playbook-descope.md`.
+> Live DB activation and production routing enablement remain separately gated.
 
 Forced paired evidence and policy-selected online traffic are different data products with distinct
 schemas, lineage, storage, fit entry points, and publication labels.
@@ -1170,11 +1159,15 @@ schemas, lineage, storage, fit entry points, and publication labels.
 - [x] The comparative route posterior may update only from approved forced/randomized paired
   evidence under the V4 estimand. Policy-selected online outcomes must not update it unless a
   separately reviewed assignment/causal-identification strategy is approved.
-- [x] Online observations may update route-conditional quality monitoring and playbook guidance.
-  They must carry assignment propensity/policy/generation where available and display selection
-  caveats. They cannot claim the counterfactual route would be better.
+- [x] Online observations may update route-conditional quality monitoring. Playbook guidance
+  (`playbook.py` / `ns_digest` injection) remains **Task 11** — V4-7 delivers thin
+  `route_monitoring.py` only (see `evidence/plan018-v4-7-playbook-descope.md`).
+  They must carry assignment propensity/policy/generation where available (or explicit
+  `propensity_unavailable` + reason when not logged) and display selection caveats. They
+  cannot claim the counterfactual route would be better.
 - [x] Add a hard schema/type boundary and tests proving online rows cannot enter the paired fitter.
-  Alert on policy drift, family mix, missingness, and route-specific outcome changes.
+  Operational alerts on policy drift, family mix, missingness, and route-specific outcome
+  changes are implemented in `route_monitoring.py` (V4-7 remediation).
 
 This replaces the goal/Stage 2 sentence that says real usage updates the comparative baseline.
 Allowing the routing policy to train its own comparison from its selected traffic would create a
@@ -1182,9 +1175,10 @@ self-confirming feedback loop.
 
 ### V4-8 — Paid-run authorization, reservation, and resumability
 
-> **Progress (2026-08-12):** V4-8 **hermetic SDD authorized** (start @ `fa48b42b` on
-> `ultraplan/hibayes-eval-routing`; checkboxes remain `[ ]` until cold PASS). Real paid pilot,
-> live DB activation, and production routing enablement remain separately gated.
+> **Progress (2026-08-13):** V4-8 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`;
+> prior cold review PARTIAL remediated). Lane M **10/10** multiprocess crash×4 + broker redelivery;
+> verifier **39/39**; AST-derived seam inventory; independent conservation. Real paid pilot / live DB /
+> production routing remain separately gated.
 
 No live/provider call occurs before a maintainer approves an immutable run manifest hash binding:
 corpus and question IDs/hashes, taxonomy, requested pairs/turns/arms, three judge calls for every
@@ -1193,12 +1187,12 @@ the maximum approved retry calls, clients/models and versions, retry policy, rat
 per-call and worst-case total estimates, hard caps, source SHA/diff hash, image digest, schemas,
 output location, and approval expiry. Retained-arm count is a post-run reconciliation field only.
 
-- [ ] Atomically reserve budget before each provider call. Concurrency cannot overspend; retries
+- [x] Atomically reserve budget before each provider call. Concurrency cannot overspend; retries
   consume the same run's cap; exhaustion stops cleanly. Approval is for one exact hash and cannot
   be replayed for changed inputs or a later run.
-- [ ] Resume by stable arm and attempt IDs. Completed calls are never repeated; partial work remains
+- [x] Resume by stable arm and attempt IDs. Completed calls are never repeated; partial work remains
   pending; cache keys bind the complete judge input and every relevant version.
-- [ ] Reconcile estimates, reservations, provider usage, attempts, cache hits, exclusions, and
+- [x] Reconcile estimates, reservations, provider usage, attempts, cache hits, exclusions, and
   outputs after the run. No schedule or default command can enter this lane.
 
 Unit/integration tests use fake providers. The first real pilot and every larger paid run are
