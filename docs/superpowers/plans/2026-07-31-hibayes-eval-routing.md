@@ -1095,10 +1095,13 @@ route. V14 resolves the former V4-4 design STOP; it does not execute or authoriz
 
 ### V4-5 — Immutable generation publication and activation
 
-> **Progress (2026-08-11):** Hermetic store scaffold landed on worktree (`PosteriorGeneration`,
-> `FamilyPosterior`, `ActiveGenerationPointer`, `publish.py`, `generation_store.py` CAS activation).
-> Product tests 28 passed via docker worktree mount + `dmac.test_settings`. Live DB activation remains
-> a separate at-time approval. Evidence: `NExtSEEK-plan018/evidence/plan018-v4-4-debt-closeout.json`.
+> **Progress (2026-08-12):** V4-5 hermetic SDD authorized and starting on worktree
+> `ultraplan/hibayes-eval-routing` @ `f515392b` (post-V4-4 cold PASS). Prior scaffold
+> (`PosteriorGeneration`, `FamilyPosterior`, `ActiveGenerationPointer`, `publish.py`,
+> `generation_store.py`) is **not** V4-5 DONE — CAS semantics, validate-before-activate,
+> per-turn snapshot, MySQL barrier oracles, and overlay remain open. Live DB activation and
+> production routing enablement remain separately gated. Evidence:
+> `NExtSEEK-plan018/evidence/plan018-v4-5-phase0-publish.json`.
 
 Candidate activation means changing the active posterior-generation pointer. Candidate creation,
 test-database activation, and local or isolated-harness activation require no approval. Ask first
