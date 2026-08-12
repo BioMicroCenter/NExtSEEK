@@ -1123,8 +1123,9 @@ view or silently activate a candidate.
 
 ### V4-6 — Router split and explicit call-count contract
 
-> **Progress (2026-08-12):** V4-6 **hermetic SDD authorized and starting** on worktree
-> `ultraplan/hibayes-eval-routing` @ `0a5b052a`. Checkboxes remain open until cold PASS;
+> **Progress (2026-08-12):** V4-6 **hermetic CLOSED** (cold PASS; push on
+> `ultraplan/hibayes-eval-routing`; vault-sync DONE on next republish commit).
+> Lane C **42/42** (`evidence/plan018-v4-6-lane-c.log`); verifier **28/28**.
 > `NEXTSEEK_POSTERIOR_ROUTING_ENABLED` stays default-off; live DB activation and production
 > routing enablement remain separately gated.
 
@@ -1146,14 +1147,14 @@ consequences. Pre-transport validation failures make no classifier provider call
 paths are unacceptable, implementation stops for a revised architecture; it may not fake separation
 with two thin wrappers around one route-bearing output.
 
-- [ ] Test every row with real generated clients and separate provider-transport call tracing,
+- [x] Test every row with real generated clients and separate provider-transport call tracing,
   including model/destination equivalence when off and fallback on corpus/TypeBuilder/provider/
   parse/returned-label/storage/compatibility failures. Pre-transport failures must prove zero
   classifier provider calls; post-attempt failures must prove exactly one. Classification failure
   must not fabricate a family.
-- [ ] A selected route must carry generation ID and decision provenance to the ledger. Failures
+- [x] A selected route must carry generation ID and decision provenance to the ledger. Failures
   never block a turn and never silently choose a posterior route.
-- [ ] Prevent sticky-session and downstream stages from overriding the audited selection unless an
+- [x] Prevent sticky-session and downstream stages from overriding the audited selection unless an
   explicit safety fallback records both attempted and actual routes.
 
 ### V4-7 — Separate experimental evidence from observational monitoring
