@@ -1,0 +1,23 @@
+{
+  "schema": "plan018-v4-8-reserve/v1",
+  "recorded_at": "2026-08-12T22:00:00Z",
+  "gate": "PASS",
+  "lane": "C",
+  "recipe": "docker worktree mount + dmac.test_settings (V4-3)",
+  "counts": {"passed": 35, "failed": 0},
+  "cases": [
+    "create_once_same_body",
+    "changed_manifest_new_approval",
+    "hash_collision_refused",
+    "spend_cap",
+    "call_cap",
+    "idempotency_replay",
+    "non_positive_refused",
+    "expired_refused",
+    "consumed_refused",
+    "conservation_balanced",
+    "expire_stale_reservations"
+  ],
+  "log": "evidence/plan018-v4-8-lane-c.log",
+  "paid_or_live_resources_used": false
+}

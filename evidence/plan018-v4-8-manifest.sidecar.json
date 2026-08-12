@@ -1,0 +1,19 @@
+{
+  "schema": "plan018-v4-8-manifest/v1",
+  "recorded_at": "2026-08-12T22:00:00Z",
+  "gate": "PASS",
+  "lane": "A",
+  "recipe": "host uv run --no-project + pydantic --noconftest",
+  "counts": {"tests": 7, "passed": 7, "failed": 0},
+  "cases": [
+    "requires_all_fields",
+    "rejects_extra_field",
+    "rejects_retained_arm_count",
+    "judge_calls_must_be_three",
+    "question_hash_length_match",
+    "manifest_hash_stable",
+    "changed_rate_table_changes_hash"
+  ],
+  "log": "evidence/plan018-v4-8-lane-a.log",
+  "paid_or_live_resources_used": false
+}

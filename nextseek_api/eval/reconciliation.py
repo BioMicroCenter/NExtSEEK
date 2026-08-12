@@ -65,6 +65,8 @@ def _conservation_dict(snap: ConservationSnapshot) -> dict[str, Any]:
         "reconciled_actual_usd": str(snap.reconciled_actual_usd),
         "released_expired_usd": str(snap.released_expired_usd),
         "pending_calls": snap.pending_calls,
+        "succeeded_calls": snap.succeeded_calls,
+        "failed_calls": snap.failed_calls,
         "reconciled_calls": snap.reconciled_calls,
         "released_calls": snap.released_calls,
     }

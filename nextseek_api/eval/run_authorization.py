@@ -86,13 +86,24 @@ def approve_manifest(
     *,
     max_spend_usd: Decimal | None = None,
     max_calls: int | None = None,
-    ttl_seconds: int = 3600,
+    ttl_seconds: int | None = None,
 ) -> ApprovedRunManifest:
     body = validate_manifest_dict(manifest)
-    if max_spend_usd is None:
-        max_spend_usd = Decimal(str(body["hard_cap_usd"]))
-    if max_calls is None:
-        max_calls = int(body["max_calls"])
+    body_cap = Decimal(str(body["hard_cap_usd"]))
+    body_calls = int(body["max_calls"])
+    if max_spend_usd is not None and Decimal(str(max_spend_usd)) != body_cap:
+        raise AuthorizationError("max_spend_usd override diverges from manifest body")
+    if max_calls is not None and int(max_calls) != body_calls:
+        raise AuthorizationError("max_calls override diverges from manifest body")
+    if ttl_seconds is not None:
+        raise AuthorizationError("ttl_seconds override diverges from manifest body")
+
+    expires_at = body["approval_expires_at"]
+    if isinstance(expires_at, str):
+        from datetime import datetime
+
+        expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+
     fp = manifest_body_hash(body)
     if ApprovedRunManifest.objects.filter(manifest_hash=fp).exists():
         existing = ApprovedRunManifest.objects.get(manifest_hash=fp)
@@ -106,9 +117,9 @@ def approve_manifest(
         manifest_hash=fp,
         manifest=body,
         approved_at=now,
-        expires_at=now + timezone.timedelta(seconds=ttl_seconds),
-        max_spend_usd=max_spend_usd,
-        max_calls=max_calls,
+        expires_at=expires_at,
+        max_spend_usd=body_cap,
+        max_calls=body_calls,
         consumed=False,
     )
 

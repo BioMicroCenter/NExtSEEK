@@ -1,0 +1,18 @@
+{
+  "schema": "plan018-v4-8-resume/v1",
+  "recorded_at": "2026-08-12T22:00:00Z",
+  "gate": "PASS",
+  "lane": "C",
+  "recipe": "docker worktree mount + dmac.test_settings (V4-3)",
+  "migration": "0017_paid_run_state.py",
+  "counts": {"passed": 35, "failed": 0},
+  "cases": [
+    "overlap_lock_refused",
+    "completed_never_repeated",
+    "cache_key_binds_versions",
+    "durable_pending_to_succeeded",
+    "schedule_entry_refused"
+  ],
+  "log": "evidence/plan018-v4-8-lane-c.log",
+  "paid_or_live_resources_used": false
+}
