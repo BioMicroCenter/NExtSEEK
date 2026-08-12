@@ -1,0 +1,166 @@
+{
+  "schema": "plan018-v4-7-verifier/v1",
+  "recorded_at": "2026-08-12T20:15:59Z",
+  "gate": "PASS",
+  "checks_passed": 30,
+  "checks_total": 30,
+  "errors": [],
+  "checks": [
+    {
+      "name": "evidence_plan018-v4-7-prereq.json",
+      "pass": true,
+      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-prereq.json"
+    },
+    {
+      "name": "plan018-v4-7-prereq.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-7-schemas.sidecar.json",
+      "pass": true,
+      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-schemas.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-7-schemas.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-7-fit-refuse.sidecar.json",
+      "pass": true,
+      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-fit-refuse.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-7-fit-refuse.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-7-registry.sidecar.json",
+      "pass": true,
+      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-registry.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-7-registry.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-7-monitoring.sidecar.json",
+      "pass": true,
+      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-monitoring.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-7-monitoring.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-7-lane-m.sidecar.json",
+      "pass": true,
+      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-lane-m.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-7-lane-m.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "module_nextseek_api/eval/evidence_kinds.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/evidence_kinds.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/paired_run.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/paired_run.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/online_observation.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/online_observation.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/fit/fit_boundary.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/fit/fit_boundary.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/paired_run_registry.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/paired_run_registry.py"
+    },
+    {
+      "name": "module_nextseek_api/cc_assistant/route_monitoring.py",
+      "pass": true,
+      "detail": "nextseek_api/cc_assistant/route_monitoring.py"
+    },
+    {
+      "name": "module_nextseek_api/migrations/0016_paired_run_registry.py",
+      "pass": true,
+      "detail": "nextseek_api/migrations/0016_paired_run_registry.py"
+    },
+    {
+      "name": "inventory_exists",
+      "pass": true,
+      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-seam-inventory.json"
+    },
+    {
+      "name": "inventory_complete",
+      "pass": true,
+      "detail": "all"
+    },
+    {
+      "name": "inventory_status",
+      "pass": true,
+      "detail": "complete"
+    },
+    {
+      "name": "posterior_flag_default_off",
+      "pass": true,
+      "detail": "default False"
+    },
+    {
+      "name": "may_reroute_only_false",
+      "pass": true,
+      "detail": "False,False,False,False,False,False"
+    },
+    {
+      "name": "monitoring_no_publish_import",
+      "pass": true,
+      "detail": "grep"
+    },
+    {
+      "name": "boundary_validate_publish",
+      "pass": true,
+      "detail": "fn"
+    },
+    {
+      "name": "boundary_require_approved",
+      "pass": true,
+      "detail": "fn"
+    },
+    {
+      "name": "lane_c_log_exists",
+      "pass": true,
+      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-lane-c.log"
+    },
+    {
+      "name": "lane_c_all_passed",
+      "pass": true,
+      "detail": "30 passed in 2.12s"
+    },
+    {
+      "name": "migration_leaf_0016",
+      "pass": true,
+      "detail": "0016_paired_run_registry.py"
+    }
+  ],
+  "hashes": {
+    "evidence_kinds_sha256": "41bd4c3566fdea543f00a95d11d282545742cb71bbca0783c012b64b7d3395e0",
+    "fit_boundary_sha256": "fd3c623d026b12b06ac864199ea1e72562c6ccdc7e9f8944ef1b3bfbbb1f9594",
+    "migration_0016_sha256": "c5ffe4ac21547cc0abf6bc91fb1dc4849afc2b85e36f3545d89b4f68c7fb3c51"
+  },
+  "paid_or_live_resources_used": false
+}

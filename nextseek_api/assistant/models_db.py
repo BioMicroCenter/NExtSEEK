@@ -222,6 +222,19 @@ class ApprovedRunManifest(models.Model):
         app_label = "nextseek_api"
 
 
+class PairedRunRegistry(models.Model):
+    """Approved forced paired run lineage (V4-7). Immutable once registered."""
+
+    paired_run_id = models.CharField(max_length=128, primary_key=True)
+    schema_version = models.CharField(max_length=32)
+    content_hash = models.CharField(max_length=64)
+    approved_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "eval_paired_run_registry"
+        app_label = "nextseek_api"
+
+
 class SpendReservation(models.Model):
     """Atomic pre-call budget reservation against an approved manifest."""
 

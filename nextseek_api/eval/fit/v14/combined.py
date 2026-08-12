@@ -27,7 +27,16 @@ def run_v14_generation(
     *,
     seed: int = 0,
     use_mcmc: bool = True,
+    paired_batch: "PairedExperimentalBatch | None" = None,
 ) -> CombinedFitResult:
+    if paired_batch is not None:
+        from nextseek_api.eval.fit.fit_boundary import (
+            assert_paired_experimental_only,
+            require_approved_paired_run,
+        )
+
+        assert_paired_experimental_only(paired_batch)
+        require_approved_paired_run(paired_batch.paired_run_id)
     families = sorted({r.family for r in rows})
     quality: dict[str, QualityFitResult] = {}
     latency: dict[str, LatencyFitResult] = {}

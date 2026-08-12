@@ -97,7 +97,20 @@ def np_log(x: float) -> float:
     return math.log(x)
 
 
-def build_pair_rows(admission: FitAdmission, arm_records: dict[str, dict[str, Any]]) -> list[PairFitRow]:
+def build_pair_rows(
+    admission: FitAdmission,
+    arm_records: dict[str, dict[str, Any]],
+    *,
+    paired_batch: "PairedExperimentalBatch | None" = None,
+) -> list[PairFitRow]:
+    if paired_batch is not None:
+        from nextseek_api.eval.fit.fit_boundary import (
+            assert_paired_experimental_only,
+            require_approved_paired_run,
+        )
+
+        assert_paired_experimental_only(paired_batch)
+        require_approved_paired_run(paired_batch.paired_run_id)
     rows: list[PairFitRow] = []
     for pair_id, query_id, family in admission.retained_pairs:
         ns_id = _arm_for_pair(arm_records, pair_id, "nextseek")

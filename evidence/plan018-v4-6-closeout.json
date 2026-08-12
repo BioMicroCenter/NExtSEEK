@@ -1,11 +1,10 @@
 {
   "schema": "plan018-v4-6-closeout/v1",
-  "recorded_at": "2026-08-12T19:25:00Z",
+  "recorded_at": "2026-08-12T19:55:00Z",
   "gate": "PASS",
-  "worktree_sha": "85d2660a",
-  "implementation_note": "V4-6 SDD complete locally; uncommitted WIP atop Phase 0 evidence commit; cold review pending; no push",
+  "worktree_sha": "3da7aedd",
+  "implementation_note": "V4-6 SDD complete; pushed @ 3da7aedd; vault-sync DONE; superseded hygiene refresh 2026-08-12 V4-7 Task 0",
   "base_sha": "0a5b052a2d74d1df319b55c8b505d38e69cf23f3",
-  "dirty_diff_sha256": "47f6de0dc3fa32e44e892f620526285dd220bc6148022e7428c3c2c59daf0ab9",
   "next_gate": "V4-7",
   "summary": {
     "lane_c_passed": 42,
@@ -23,6 +22,7 @@
     "inventory": "evidence/plan018-v4-6-callsite-inventory.json",
     "lane_c_log": "evidence/plan018-v4-6-lane-c.log",
     "verifier": "evidence/plan018-v4-6-verifier.sidecar.json",
+    "vault_sync": "evidence/plan018-v4-6-vault-sync.json",
     "sdd_review": "evidence/plan018-v4-6-sdd-final-review.md",
     "cold_review": "evidence/plan018-v4-6-cold-outcome-review.md"
   },
@@ -32,12 +32,14 @@
     "corpus_sha256": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652"
   },
   "residual_debt": [
-    "Implementation commits not pushed; living-plan DONE markers await maintainer vault-sync",
     "attempted_route/attempted_source not persisted to TurnLedger columns (only on RouteDecision for sticky)",
     "baml_client regenerated at test time (gitignored); bind via baml_src hashes in evidence"
   ],
   "vault_sync": {
-    "status": "not_requested",
-    "note": "Phase 0 vault-sync DONE @ a48e4a24; V4-6 DONE republish awaits maintainer authorization after cold PASS"
+    "status": "DONE",
+    "ref": "evidence/plan018-v4-6-vault-sync.json",
+    "deploydocs_sha": "d160590d",
+    "living_plan_sha256": "b88825a9d2b7390f37290a042c10877379f2dbb7ded14aee9a82774d0834469f",
+    "implementation_sha": "3da7aedd"
   }
 }

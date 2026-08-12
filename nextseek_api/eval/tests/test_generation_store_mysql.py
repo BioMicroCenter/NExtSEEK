@@ -26,6 +26,7 @@ pytestmark = pytest.mark.django_db(transaction=True)
 
 
 def _manifest(suffix: str, **overrides):
+    run_id = f"paired-{suffix}"
     base = {
         "input_hash": f"input-{suffix}",
         "attempt_hash": f"attempt-{suffix}",
@@ -43,8 +44,20 @@ def _manifest(suffix: str, **overrides):
         ],
         "compatibility_keys": {"taxonomy_version": "v1", "corpus_hash": f"corpus-{suffix}"},
         "counts": {"retained_pairs": 10},
+        "source_provenance": {
+            "paired_run_id": run_id,
+            "evidence_kind": "paired_experimental",
+            "route_source": "forced",
+        },
     }
     base.update(overrides)
+    from nextseek_api.eval.paired_run_registry import register_paired_run
+
+    register_paired_run(
+        paired_run_id=run_id,
+        schema_version="paired_run/v1",
+        content_hash=f"hash-{suffix}",
+    )
     return GenerationManifest(**base)
 
 

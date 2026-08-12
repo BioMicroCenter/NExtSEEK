@@ -38,7 +38,7 @@ Canonical owner = the task that may create/modify the path. Consumers may read b
 | Task 11 | `playbook.py` | playbook consumer | monitoring only |
 | Task 12 / V4-6 | `nextseek_api/cc_assistant/posterior_selector.py`, `nextseek_api/cc_assistant/tests/test_posterior_selector.py`, `nextseek_api/cc_assistant/transport_trace.py` (consumers: `router.py`, `services/cc_assistant.py`) | `route_source="posterior"` comparative selector (flag-gated) | online routing |
 | Task 13 / V5 | coverage manifest + release/recovery proofs | gate | Phase close |
-| V4-7 | schema/type boundary online vs paired | hard separation | fitter must refuse online rows |
+| V4-7 | `nextseek_api/eval/evidence_kinds.py`, `nextseek_api/eval/paired_run.py`, `nextseek_api/eval/online_observation.py`, `nextseek_api/eval/fit/fit_boundary.py`, `nextseek_api/eval/paired_run_registry.py`, `nextseek_api/cc_assistant/route_monitoring.py`, `nextseek_api/migrations/0016_paired_run_registry.py`, tests `test_v4_7_*` | typed experimental vs observational boundary; approved paired-run registry; hard fit/publish/activate refuse | fitter must refuse online rows; monitoring cannot call publisher/activator; Task 11 `playbook.py` remains future |
 | V4-8 | authorization/reservation/spend controls | budget safety | Task 9 paid path |
 | V4-9 | deployment/recovery docs+tests | non-destructive recovery only | ops |
 

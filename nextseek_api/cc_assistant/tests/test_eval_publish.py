@@ -6,9 +6,29 @@ from nextseek_api.eval.fit.v14.combined import CombinedFitResult
 from nextseek_api.eval.fit.v14.decision import CandidateDecision, DecisionStatus, GenerationDecision
 from nextseek_api.eval.fit.v14.latency_model import LatencyFitResult
 from nextseek_api.eval.fit.v14.quality_model import QualityFitResult
+from nextseek_api.eval.paired_run_registry import register_paired_run
 from nextseek_api.eval.publish import FitGroup, FitResult, publish
 
 pytestmark = pytest.mark.django_db
+
+_PAIRED_PROVENANCE = {
+    "paired_run_id": "publish-test-run",
+    "evidence_kind": "paired_experimental",
+    "route_source": "forced",
+}
+
+
+@pytest.fixture(autouse=True)
+def _approved_publish_run():
+    for run_id, content_hash in (
+        ("publish-test-run", "publish-test-hash"),
+        ("combined-fit-local", "combined-fit-local-hash"),
+    ):
+        register_paired_run(
+            paired_run_id=run_id,
+            schema_version="paired_run/v1",
+            content_hash=content_hash,
+        )
 
 
 @pytest.fixture
@@ -24,6 +44,7 @@ def fit_result():
         config_fingerprint="cfg-a",
         compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "corpus-a"},
         counts={"retained_pairs": 10},
+        source_provenance=dict(_PAIRED_PROVENANCE),
     )
 
 
@@ -46,6 +67,7 @@ def sparse_fit_result():
         decision_status="empty_candidate_set",
         compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "sparse"},
         counts={"retained_pairs": 10},
+        source_provenance=dict(_PAIRED_PROVENANCE),
     )
 
 

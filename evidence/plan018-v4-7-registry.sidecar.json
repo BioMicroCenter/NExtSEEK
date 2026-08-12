@@ -1,0 +1,7 @@
+{
+  "schema": "plan018-v4-7-registry/v1",
+  "recorded_at": "2026-08-12T20:11:10Z",
+  "gate": "PASS",
+  "migration_leaf": "0016_paired_run_registry.py",
+  "paid_or_live_resources_used": false
+}

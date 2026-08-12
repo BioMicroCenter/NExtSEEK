@@ -8,8 +8,24 @@ from nextseek_api.eval.generation_store import (
     activate_generation,
     publish_generation,
 )
+from nextseek_api.eval.paired_run_registry import register_paired_run
 
 pytestmark = pytest.mark.django_db
+
+_PAIRED_PROVENANCE = {
+    "paired_run_id": "risk-overlay-test-run",
+    "evidence_kind": "paired_experimental",
+    "route_source": "forced",
+}
+
+
+@pytest.fixture(autouse=True)
+def _approved_risk_overlay_run():
+    register_paired_run(
+        paired_run_id="risk-overlay-test-run",
+        schema_version="paired_run/v1",
+        content_hash="risk-overlay-test-hash",
+    )
 
 
 @pytest.fixture
@@ -31,6 +47,7 @@ def brittle_posterior(db):
         ],
         compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "abc"},
         counts={"retained_pairs": 10},
+        source_provenance=dict(_PAIRED_PROVENANCE),
     )
     generation = publish_generation(manifest)
     activate_generation(generation, expected_hash=EMPTY_ACTIVE_HASH)
@@ -56,6 +73,7 @@ def sparse_posterior(db):
         ],
         compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "sparse"},
         counts={"retained_pairs": 10},
+        source_provenance=dict(_PAIRED_PROVENANCE),
     )
     generation = publish_generation(manifest)
     activate_generation(generation, expected_hash=EMPTY_ACTIVE_HASH)

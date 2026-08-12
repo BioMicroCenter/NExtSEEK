@@ -1,7 +1,7 @@
 {
   "schema": "plan018-migration-leaf/v1",
-  "base_sha": "f515392b",
-  "leaf": "0015_v4_5_generation_audit_and_turn_pin.py",
+  "base_sha": "b2cca5d7",
+  "leaf": "0016_paired_run_registry.py",
   "files": [
     "0001_initial.py",
     "0002_querytask.py",
@@ -18,7 +18,8 @@
     "0012_posterior_generation.py",
     "0013_family_posterior.py",
     "0014_generation_activation_and_reservation.py",
-    "0015_v4_5_generation_audit_and_turn_pin.py"
+    "0015_v4_5_generation_audit_and_turn_pin.py",
+    "0016_paired_run_registry.py"
   ],
-  "note": "V4-5 adds activation audit trail and per-turn generation pin fields"
+  "note": "V4-7 adds PairedRunRegistry approved-run lineage"
 }

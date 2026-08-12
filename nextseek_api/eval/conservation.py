@@ -70,8 +70,18 @@ def build_conservation_report(buckets: list[ArmBucket]) -> ConservationReport:
 def build_fit_admission(
     pairs: list[dict[str, Any]],
     buckets_by_arm: dict[str, ArmBucket],
+    *,
+    paired_batch: "PairedExperimentalBatch | None" = None,
 ) -> FitAdmission:
     """Emit fit-admission with only scored retained pairs; excluded/pending never appear."""
+    if paired_batch is not None:
+        from nextseek_api.eval.fit.fit_boundary import (
+            assert_paired_experimental_only,
+            require_approved_paired_run,
+        )
+
+        assert_paired_experimental_only(paired_batch)
+        require_approved_paired_run(paired_batch.paired_run_id)
     retained: list[tuple[str, str, str]] = []
     excluded: list[str] = []
     pending: list[str] = []

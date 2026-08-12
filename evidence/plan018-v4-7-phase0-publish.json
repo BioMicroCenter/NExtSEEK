@@ -1,0 +1,14 @@
+{
+  "schema": "plan018-v4-7-phase0-publish/v1",
+  "recorded_at": "2026-08-12T20:11:10Z",
+  "gate": "PASS-WITH-LOCAL-DEPLOYDOCS",
+  "worktree": "/home/taishajo/work/NExtSEEK-plan018",
+  "implementation_branch": "ultraplan/hibayes-eval-routing",
+  "worktree_sha": "b2cca5d7",
+  "deploydocs_branch": "dev",
+  "deploydocs_sha": "local-uncommitted",
+  "living_plan_sha256": "baf034865a69d0439c7b75024445e6f6bc0c63b0a57af74f8d2523ec2f165062",
+  "registry_asset": "nextseek--plan-018",
+  "note": "deploydocs V4-7 banner edited locally; push/vault-sync deferred per hard-refuse until maintainer authorization",
+  "paid_or_live_resources_used": false
+}

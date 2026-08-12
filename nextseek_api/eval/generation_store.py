@@ -270,6 +270,9 @@ def create_generation(
 
 
 def publish_generation(manifest: GenerationManifest, *, actor: str = "local") -> PosteriorGeneration:
+    from nextseek_api.eval.fit.fit_boundary import validate_publish_provenance
+
+    validate_publish_provenance(dict(manifest.source_provenance or {}))
     return create_generation(manifest, actor=actor)
 
 
@@ -331,8 +334,13 @@ def activate_generation(
     activated_by: str = "local",
 ) -> ActiveGenerationPointer:
     from nextseek_api.eval.generation_validation import require_valid_for_activation
+    from nextseek_api.eval.fit.fit_boundary import validate_publish_provenance
 
     require_activate_permission(activated_by)
+    payload = generation.payload or {}
+    canonical = payload.get("_canonical_hash_inputs") or {}
+    provenance = dict(canonical.get("source_provenance") or payload.get("source_provenance") or {})
+    validate_publish_provenance(provenance)
     require_valid_for_activation(generation)
     current_hash = get_current_active_hash()
     if expected_hash != current_hash:

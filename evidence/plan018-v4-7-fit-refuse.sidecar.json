@@ -1,0 +1,16 @@
+{
+  "schema": "plan018-v4-7-fit-refuse/v1",
+  "recorded_at": "2026-08-12T20:11:10Z",
+  "gate": "PASS",
+  "injection_cases": [
+    "online_observational_row",
+    "forged_online_dict",
+    "unapproved_paired_run",
+    "approved_batch_path",
+    "online_route_source_provenance",
+    "missing_paired_run_id",
+    "raw_dict_v14",
+    "zero_online_ids_in_hash"
+  ],
+  "paid_or_live_resources_used": false
+}

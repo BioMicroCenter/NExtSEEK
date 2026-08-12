@@ -9,6 +9,12 @@ from nextseek_api.eval.generation_store import GenerationManifest, publish_gener
 
 __all__ = ["FitGroup", "FitResult", "publish"]
 
+_DEFAULT_PAIRED_PROVENANCE = {
+    "paired_run_id": "combined-fit-local",
+    "evidence_kind": "paired_experimental",
+    "route_source": "forced",
+}
+
 
 @dataclass
 class FitGroup:
@@ -86,7 +92,7 @@ def _groups_from_combined(fit_result) -> tuple[list[FitGroup], GenerationManifes
         compatibility_keys={"taxonomy_version": "v14", "corpus_hash": fp[:16]},
         counts={"retained_pairs": max(len(groups), 5)},
         decision_results=payload_extra,
-        source_provenance={"origin": "combined_fit_result"},
+        source_provenance={"origin": "combined_fit_result", **_DEFAULT_PAIRED_PROVENANCE},
     )
     return groups, manifest
 
@@ -133,5 +139,8 @@ def publish(fit_result: FitResult | object) -> int:
         groups = fit_result.groups
     else:
         groups, manifest = _groups_from_combined(fit_result)
+    from nextseek_api.eval.fit.fit_boundary import validate_publish_provenance
+
+    validate_publish_provenance(dict(manifest.source_provenance or {}))
     publish_generation(manifest)
     return len(groups)
