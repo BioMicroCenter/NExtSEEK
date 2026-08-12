@@ -14,7 +14,11 @@ def fit_result():
             FitGroup("cc_sandbox_contract"),
         ],
         input_hash="input-a",
+        attempt_hash="attempt-a",
+        aggregate_hash="aggregate-a",
         config_fingerprint="cfg-a",
+        compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "corpus-a"},
+        counts={"retained_pairs": 10},
     )
 
 
@@ -31,8 +35,12 @@ def sparse_fit_result():
             )
         ],
         input_hash="input-sparse",
+        attempt_hash="attempt-sparse",
+        aggregate_hash="aggregate-sparse",
         config_fingerprint="cfg-sparse",
         decision_status="empty_candidate_set",
+        compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "sparse"},
+        counts={"retained_pairs": 10},
     )
 
 

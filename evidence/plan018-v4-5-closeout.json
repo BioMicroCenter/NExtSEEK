@@ -1,0 +1,37 @@
+{
+  "schema": "plan018-v4-5-closeout/v1",
+  "recorded_at": "2026-08-12T17:30:00Z",
+  "gate": "PASS",
+  "worktree_sha": "0bd1549c345b63a493d339ad9750ab3ddeeef24c",
+  "implementation_note": "V4-5 code present locally; commit pending maintainer push authorization",
+  "base_sha": "f515392b",
+  "next_gate": "V4-6",
+  "summary": {
+    "lane_c_passed": 24,
+    "lane_m_passed": 6,
+    "verifier_checks_passed": 16,
+    "migration_leaf": "0015_v4_5_generation_audit_and_turn_pin.py",
+    "mysql_isolation": "REPEATABLE-READ",
+    "paid_or_live_resources_used": false
+  },
+  "evidence": {
+    "phase0": "evidence/plan018-v4-5-phase0-publish.json",
+    "prereq": "evidence/plan018-v4-5-prereq.json",
+    "publish": "evidence/plan018-v4-5-publish.sidecar.json",
+    "validate": "evidence/plan018-v4-5-validate.sidecar.json",
+    "cas": "evidence/plan018-v4-5-cas.sidecar.json",
+    "snapshot": "evidence/plan018-v4-5-snapshot.sidecar.json",
+    "overlay": "evidence/plan018-v4-5-overlay.sidecar.json",
+    "realstore": "evidence/plan018-v4-5-realstore.sidecar.json",
+    "verifier": "evidence/plan018-v4-5-verifier.sidecar.json",
+    "sdd_review": "evidence/plan018-v4-5-sdd-final-review.md",
+    "cold_review": "evidence/plan018-v4-5-cold-outcome-review.md"
+  },
+  "residual_debt": [
+    "Lane M recipe initially used ad-hoc test_settings_lane_m; corrected to within-chat-lane + V4-0 forward-migrate shape (test_settings_realstack + lane_local_settings)",
+    "No explicit crash-at-publish/activation-boundary MySQL oracle (partial publish flag covered in Lane C only)",
+    "Verifier negative_validation_fails uses skip path on FakeGen id type — should use real ORM row in follow-up",
+    "Living-plan V4-5 DONE progress local only until maintainer vault-sync/push authorized",
+    "V4-6 posterior selector and live DB activation remain separately gated"
+  ]
+}

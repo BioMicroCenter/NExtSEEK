@@ -1,0 +1,15 @@
+{
+  "schema": "plan018-v4-5-validate/v1",
+  "gate": "PASS",
+  "lane": "C",
+  "settings_module": "dmac.test_settings",
+  "tests": [
+    "nextseek_api/cc_assistant/tests/test_generation_store_validation.py::test_validate_refuses_missing_compatibility_keys",
+    "nextseek_api/cc_assistant/tests/test_generation_store_validation.py::test_validate_refuses_partial_publish",
+    "nextseek_api/cc_assistant/tests/test_generation_store_validation.py::test_activate_refuses_invalid_generation"
+  ],
+  "refusal_classes": ["compatibility", "partial_publish", "activate_fail_closed"],
+  "counts": {"passed": 24, "failed": 0},
+  "log": "evidence/plan018-v4-5-lane-c.log",
+  "paid_or_live_resources_used": false
+}

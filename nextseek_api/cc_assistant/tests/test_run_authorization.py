@@ -2,7 +2,13 @@ import pytest
 from decimal import Decimal
 
 from nextseek_api.assistant.models_db import SpendReservation
-from nextseek_api.eval.generation_store import ActivationError, activate_generation, create_generation
+from nextseek_api.eval.generation_store import (
+    EMPTY_ACTIVE_HASH,
+    ActivationError,
+    GenerationManifest,
+    activate_generation,
+    publish_generation,
+)
 from nextseek_api.eval.provider_gate import AuthorizationError, guarded_provider_call
 from nextseek_api.eval.run_authorization import approve_manifest, manifest_hash, reserve_budget
 
@@ -82,8 +88,10 @@ def test_guarded_provider_call_requires_reservation(approved_manifest):
 
 
 def test_activate_generation_cas_refuses_stale_hash():
-    generation = create_generation(
-        input_hash="in",
+    manifest_a = GenerationManifest(
+        input_hash="in-a",
+        attempt_hash="attempt-a",
+        aggregate_hash="aggregate-a",
         config_fingerprint="cfg",
         decision_status="activated_all",
         groups=[
@@ -95,15 +103,32 @@ def test_activate_generation_cas_refuses_stale_hash():
                 "n_total": 10,
             }
         ],
+        compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "abc"},
+        counts={"retained_pairs": 10},
     )
-    activate_generation(generation, expected_hash=generation.generation_hash)
-    from nextseek_api.assistant.models_db import ActiveGenerationPointer
-
-    pointer = ActiveGenerationPointer.objects.get(pk=1)
-    pointer.expected_hash = "stale-hash"
-    pointer.save(update_fields=["expected_hash"])
+    manifest_b = GenerationManifest(
+        input_hash="in-b",
+        attempt_hash="attempt-b",
+        aggregate_hash="aggregate-b",
+        config_fingerprint="cfg",
+        decision_status="activated_all",
+        groups=[
+            {
+                "name": "sample_search",
+                "route": "container_cc",
+                "posterior_mean": 0.91,
+                "band": "Reliable",
+                "n_total": 11,
+            }
+        ],
+        compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "abc"},
+        counts={"retained_pairs": 10},
+    )
+    gen_a = publish_generation(manifest_a)
+    gen_b = publish_generation(manifest_b)
+    activate_generation(gen_a, expected_hash=EMPTY_ACTIVE_HASH)
     with pytest.raises(ActivationError, match="stale CAS"):
-        activate_generation(generation, expected_hash=generation.generation_hash)
+        activate_generation(gen_b, expected_hash=gen_b.generation_hash)
 
 
 def test_manifest_hash_is_stable():

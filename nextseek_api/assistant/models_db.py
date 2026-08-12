@@ -80,6 +80,8 @@ class TurnLedger(models.Model):
     route_source = models.CharField(max_length=32)
     task_family = models.CharField(max_length=128, null=True, blank=True)
     family_source = models.CharField(max_length=32, null=True, blank=True)
+    pinned_generation_id = models.BigIntegerField(null=True, blank=True)
+    pinned_generation_hash = models.CharField(max_length=64, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -186,6 +188,21 @@ class ActiveGenerationPointer(models.Model):
 
     class Meta:
         db_table = "eval_active_generation_pointer"
+        app_label = "nextseek_api"
+
+
+class GenerationActivationAudit(models.Model):
+    """Append-only activation/rollback audit trail (V4-5)."""
+
+    action = models.CharField(max_length=16)
+    previous_hash = models.CharField(max_length=64, blank=True, default="")
+    active_hash = models.CharField(max_length=64)
+    activated_by = models.CharField(max_length=128)
+    activated_at = models.DateTimeField(auto_now_add=True)
+    isolation_level = models.CharField(max_length=64, blank=True, default="")
+
+    class Meta:
+        db_table = "eval_generation_activation_audit"
         app_label = "nextseek_api"
 
 

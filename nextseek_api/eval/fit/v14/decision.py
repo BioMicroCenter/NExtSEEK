@@ -20,6 +20,7 @@ __all__ = [
     "GenerationDecision",
     "apply_complete_set_fdr",
     "decide_family",
+    "decision_status_to_band",
     "discordant_pair_count",
     "evaluate_generation",
     "legacy_fallback",
@@ -64,6 +65,21 @@ def legacy_fallback(family: str) -> CandidateDecision:
 
 def unrelated_spend_gate_path(family: str) -> CandidateDecision:
     return CandidateDecision(family=family, status=DecisionStatus.unrelated_canned, local_error_prob=1.0)
+
+
+def decision_status_to_band(status: str) -> str:
+    if status in {
+        DecisionStatus.legacy_fallback.value,
+        DecisionStatus.indecisive.value,
+        DecisionStatus.multiplicity_indecisive.value,
+        DecisionStatus.too_uncertain.value,
+    }:
+        return "TooUncertain"
+    if status.startswith("quality_") or status.startswith("latency_"):
+        return "Reliable"
+    if status == DecisionStatus.unrelated_canned.value:
+        return "Brittle"
+    return "Watch"
 
 
 def discordant_pair_count(rows: Sequence[PairFitRow], family: str) -> int:
