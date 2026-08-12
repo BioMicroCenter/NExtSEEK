@@ -14,7 +14,7 @@
   "v4_6_status": "CLOSED",
   "v4_6_closeout": "evidence/plan018-v4-6-closeout.json",
   "v4_6_vault_sync": "evidence/plan018-v4-6-vault-sync.json",
-  "worktree_sha": "b2cca5d7",
+  "worktree_sha": "c6086d92",
   "base_sha": "b2cca5d7cf56330673442024612be27819b69a9c",
   "migration_leaf_baseline": "0015_v4_5_generation_audit_and_turn_pin",
   "migration_leaf_target": "0016_paired_run_registry",

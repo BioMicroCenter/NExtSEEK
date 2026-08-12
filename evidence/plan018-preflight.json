@@ -4,7 +4,7 @@
   "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
   "integration_branch": "ultraplan/hibayes-eval-routing",
   "worktree": "/home/taishajo/work/NExtSEEK-plan018",
-  "dirty_diff_sha256": "c1b96317396369bee18f092c9315ac48be4d93ee606829157cfa459e1a95ca2e",
+  "dirty_diff_sha256": "post_v4_7_commit_clean",
   "ownership_map_accepted": true,
   "ownership_map": "evidence/plan018-v4-0-ownership-map.md",
   "ownership_map_acceptance": "evidence/plan018-v4-0-ownership-map-acceptance.json",
@@ -133,7 +133,7 @@
     "verifier": "evidence/plan018-v4-7-verifier.sidecar.json",
     "cold_review": "evidence/plan018-v4-7-cold-outcome-review.md"
   },
-  "next_gate_was": "V4-7",
+  "next_gate_was": "V4-5",
   "v4_6_evidence": {
     "phase0_publish": "evidence/plan018-v4-6-phase0-publish.json",
     "prereq": "evidence/plan018-v4-6-prereq.json",
@@ -145,7 +145,6 @@
     "verifier": "evidence/plan018-v4-6-verifier.sidecar.json",
     "cold_review": "evidence/plan018-v4-6-cold-outcome-review.md"
   },
-  "next_gate_was": "V4-6",
   "v4_5_evidence": {
     "phase0_publish": "evidence/plan018-v4-5-phase0-publish.json",
     "prereq": "evidence/plan018-v4-5-prereq.json",
@@ -159,7 +158,6 @@
     "verifier": "evidence/plan018-v4-5-verifier.sidecar.json",
     "cold_review": "evidence/plan018-v4-5-cold-outcome-review.md"
   },
-  "next_gate_was": "V4-5",
   "v4_4_evidence": {
     "phase0_publish": "evidence/plan018-v4-4-phase0-publish.json",
     "prereq": "evidence/plan018-v4-4-prereq.json",

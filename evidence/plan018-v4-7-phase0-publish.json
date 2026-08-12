@@ -4,7 +4,7 @@
   "gate": "PASS-WITH-LOCAL-DEPLOYDOCS",
   "worktree": "/home/taishajo/work/NExtSEEK-plan018",
   "implementation_branch": "ultraplan/hibayes-eval-routing",
-  "worktree_sha": "b2cca5d7",
+  "worktree_sha": "c6086d92",
   "deploydocs_branch": "dev",
   "deploydocs_sha": "local-uncommitted",
   "living_plan_sha256": "baf034865a69d0439c7b75024445e6f6bc0c63b0a57af74f8d2523ec2f165062",
