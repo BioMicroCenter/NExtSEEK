@@ -1095,10 +1095,10 @@ route. V14 resolves the former V4-4 design STOP; it does not execute or authoriz
 
 ### V4-5 — Immutable generation publication and activation
 
-> **Progress (2026-08-12):** V4-5 **hermetic CLOSED** (post-remediation cold PASS @ `a89fb3dc`).
-> Lane C 32/32, Lane M 11/11 (disposable MySQL REPEATABLE-READ), verifier 22/22. Remote/vault
-> still at Phase 0 “starting” `2ec98a63` until maintainer vault-sync authorization. Live DB
-> activation and production routing enablement remain separately gated.
+> **Progress (2026-08-12):** V4-5 **hermetic CLOSED** (post-remediation cold PASS @ `a89fb3dc`;
+> vault-sync DONE @ deploydocs `d3153692` / registry SHA `24c03eb…`). Lane C 32/32, Lane M 11/11
+> (disposable MySQL REPEATABLE-READ), verifier 22/22. Live DB activation and production routing
+> enablement remain separately gated.
 
 Candidate activation means changing the active posterior-generation pointer. Candidate creation,
 test-database activation, and local or isolated-harness activation require no approval. Ask first
@@ -1122,6 +1122,11 @@ activation, and rollback are exercised against the real store; none can produce 
 view or silently activate a candidate.
 
 ### V4-6 — Router split and explicit call-count contract
+
+> **Progress (2026-08-12):** V4-6 **hermetic SDD authorized and starting** on worktree
+> `ultraplan/hibayes-eval-routing` @ `0a5b052a`. Checkboxes remain open until cold PASS;
+> `NEXTSEEK_POSTERIOR_ROUTING_ENABLED` stays default-off; live DB activation and production
+> routing enablement remain separately gated.
 
 The classifier and router must be structurally separate. The classifier schema returns only a
 taxonomy version plus family/unrelated classification and classification provenance; it contains no
