@@ -4,7 +4,7 @@
   "recorded_at": "2026-08-12T14:30:00Z",
   "gate": "PASS",
   "exit_status": 0,
-  "counts": {"passed": 63, "failed": 0},
+  "counts": {"passed": 30, "failed": 0},
   "modules": [
     "nextseek_api/eval/tests/test_v14_pair_input.py",
     "nextseek_api/eval/tests/test_v14_decision.py",

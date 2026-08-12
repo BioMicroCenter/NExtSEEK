@@ -1,4 +1,7 @@
 {
+  "superseded": true,
+  "superseded_by": "evidence/plan018-v4-4-recovery-mcmc.json",
+  "superseded_reason": "use_mcmc=False fast path (~0s durations); not valid DONE evidence — see plan018-v4-4-matrix-refreeze.md",
   "gate": "PASS",
   "matrix_fingerprint": "f7d1b57f9f29bcbd0cbce1dd05221aec27ff0fac841acd44abc1d635a10dcf80",
   "completed": 40,

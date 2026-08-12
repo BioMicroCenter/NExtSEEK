@@ -1,12 +1,13 @@
 {
   "schema": "plan018-v4-4-remediation-closeout/v1",
-  "recorded_at": "2026-08-12T14:30:00Z",
+  "recorded_at": "2026-08-12T23:30:00Z",
+  "worktree_sha": "3c6a17e246633883b299a497841b5a00c4229e8f",
   "gate": "PASS",
   "prior_cold_review": "FAIL (2026-08-12 pre-remediation)",
   "cold_review_after_remediation": "PASS (evidence/plan018-v4-4-cold-outcome-review.md)",
   "ruling_b": "evidence/plan018-v4-4-v14b-amendment.json",
   "summary": {
-    "eval_unit_tests_passed": 63,
+    "eval_unit_tests_passed": 30,
     "product_tests_passed": 28,
     "verifier_checks_passed": 13,
     "recovery_mcmc_gate": "PASS",

@@ -1,9 +1,36 @@
 {
-  "gate": "FAIL",
+  "schema": "plan018-v4-4-recovery-feasibility/v2",
+  "recorded_at": "2026-08-12T23:30:00Z",
+  "gate": "PASS",
+  "supersedes_prior_fail": "2026-08-12 baseline MCMC feasibility (1/5 diagnostics_ok false at 300/500); remediated with 600/2000/2 sample bump per plan018-v4-4-matrix-refreeze.md",
   "matrix_fingerprint": "43b8228bdd141adc3ea5916c1e476e3d48fbfbf6b3633c003ca56d3f94fcacfd",
+  "mcmc_config": "num_warmup=600 num_samples=2000 num_chains=2",
   "completed": 5,
-  "serial_s": 73.831,
-  "wall_s": 73.833,
+  "serial_s": 91.034,
+  "wall_s": 91.034,
+  "feasibility_slot_indices": [
+    0,
+    5,
+    10,
+    15,
+    30
+  ],
+  "projections": {
+    "method": "linear_scale_from_representative_five",
+    "feasibility_mean_slot_s": 18.207,
+    "projected_serial_s_40": 728.268,
+    "projected_wall_s_40": 728.268,
+    "wall_limit_s": 3600,
+    "within_budget_projected": true,
+    "validated_by_full_run": {
+      "artifact": "evidence/plan018-v4-4-recovery-mcmc.json",
+      "completed": 40,
+      "actual_serial_s": 633.118,
+      "actual_wall_s": 633.124,
+      "gate": "PASS",
+      "note": "Full 40-run MCMC confirms projected budget; actual wall 633s well under 60m cap"
+    }
+  },
   "acceptance": {
     "strong_effect": {
       "ns_strong_quality": {
@@ -30,28 +57,26 @@
       }
     },
     "wrong_direction": 0,
-    "diagnostics_failures": 1,
-    "reasons": [
-      "diagnostics_ok false on 1/5 slots"
-    ]
+    "diagnostics_failures": 0,
+    "reasons": []
   },
   "results": [
     {
       "slot_index": 0,
       "scenario": "null_equal",
       "seed": 11,
-      "duration_s": 22.759,
+      "duration_s": 21.282,
       "ground_truth": "indecisive",
       "winner": "none",
       "activated": [],
       "generation_status": "empty_candidate_set",
-      "diagnostics_ok": false
+      "diagnostics_ok": true
     },
     {
       "slot_index": 5,
       "scenario": "ns_strong_quality",
       "seed": 11,
-      "duration_s": 10.761,
+      "duration_s": 16.155,
       "ground_truth": "strong_ns",
       "winner": "ns",
       "activated": [
@@ -64,7 +89,7 @@
       "slot_index": 10,
       "scenario": "cc_strong_quality",
       "seed": 11,
-      "duration_s": 11.554,
+      "duration_s": 17.358,
       "ground_truth": "strong_cc",
       "winner": "cc",
       "activated": [
@@ -77,7 +102,7 @@
       "slot_index": 15,
       "scenario": "quality_eq_ns_faster",
       "seed": 11,
-      "duration_s": 14.864,
+      "duration_s": 23.481,
       "ground_truth": "strong_ns",
       "winner": "ns",
       "activated": [
@@ -90,7 +115,7 @@
       "slot_index": 30,
       "scenario": "right_censor_30pct",
       "seed": 11,
-      "duration_s": 13.893,
+      "duration_s": 12.758,
       "ground_truth": "indecisive",
       "winner": "none",
       "activated": [],
