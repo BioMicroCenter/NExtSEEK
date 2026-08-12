@@ -3,7 +3,11 @@ from __future__ import annotations
 
 from nextseek_api.assistant.models_db import TurnLedger
 from nextseek_api.eval.evidence_kinds import EvidenceKind, ONLINE_OBSERVATION_SCHEMA_VERSION
-from nextseek_api.eval.online_observation import DEFAULT_SELECTION_CAVEAT, OnlineObservationalRow
+from nextseek_api.eval.online_observation import (
+    DEFAULT_SELECTION_CAVEAT,
+    PROPENSITY_UNAVAILABLE_REASON,
+    OnlineObservationalRow,
+)
 from nextseek_api.eval.router_models_proposal import RouteSource
 
 EVAL_ROW_SCHEMA_VERSION = 3
@@ -49,6 +53,25 @@ def ledger_row_to_observational(row: TurnLedger) -> OnlineObservationalRow:
     if route_source is RouteSource.forced:
         raise ValueError("forced ledger rows are paired experimental, not observational export")
     observation_id = f"{row.session_id}:{row.turn_number}"
+    ledger_propensity = getattr(row, "assignment_propensity", None)
+    if ledger_propensity is not None:
+        return OnlineObservationalRow(
+            schema_version=ONLINE_OBSERVATION_SCHEMA_VERSION,
+            evidence_kind=EvidenceKind.online_observational,
+            observation_id=observation_id,
+            session_id=str(row.session_id),
+            turn_number=row.turn_number,
+            route=row.route,
+            route_source=route_source,
+            task_family=row.task_family,
+            assignment_propensity=float(ledger_propensity),
+            propensity_unavailable=False,
+            propensity_unavailable_reason=None,
+            assignment_policy=row.route_source,
+            generation_id=row.pinned_generation_id,
+            generation_hash=row.pinned_generation_hash or None,
+            selection_caveat=DEFAULT_SELECTION_CAVEAT,
+        )
     return OnlineObservationalRow(
         schema_version=ONLINE_OBSERVATION_SCHEMA_VERSION,
         evidence_kind=EvidenceKind.online_observational,
@@ -59,6 +82,8 @@ def ledger_row_to_observational(row: TurnLedger) -> OnlineObservationalRow:
         route_source=route_source,
         task_family=row.task_family,
         assignment_propensity=None,
+        propensity_unavailable=True,
+        propensity_unavailable_reason=PROPENSITY_UNAVAILABLE_REASON,
         assignment_policy=row.route_source,
         generation_id=row.pinned_generation_id,
         generation_hash=row.pinned_generation_hash or None,
