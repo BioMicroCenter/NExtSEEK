@@ -3,7 +3,7 @@
   "recorded_at": "2026-08-12T22:00:00Z",
   "gate": "PASS",
   "worktree_sha": "a89fb3dc912df5109dc0950951cdf858bb58f133",
-  "implementation_note": "V4-5 remediation cold PASS 2026-08-12; push authorized post-PASS (ruling 3B); vault-sync DONE pending maintainer ask",
+  "implementation_note": "V4-5 remediation cold PASS 2026-08-12; push @ a4d99286; vault-sync DONE @ deploydocs d3153692 / registry SHA 24c03eb…",
   "base_sha": "f515392b",
   "next_gate": "V4-6",
   "summary": {
@@ -42,7 +42,14 @@
     "crash_activation_boundary"
   ],
   "residual_debt": [
-    "Living-plan V4-5 DONE progress local only until maintainer vault-sync/push authorized (ruling 2C)",
     "V4-6 posterior selector and live DB activation remain separately gated"
-  ]
+  ],
+  "vault_sync": {
+    "deploydocs_branch": "dev",
+    "deploydocs_sha": "d3153692",
+    "living_plan_sha256": "24c03ebda4a8f6f132ea9c3fcb73fb8ebb9f0ed27dfd2a1edabaebea449421ac",
+    "registry_asset": "nextseek--plan-018",
+    "registry_commit": "42a5ece",
+    "recorded_at": "2026-08-12T22:30:00Z"
+  }
 }
