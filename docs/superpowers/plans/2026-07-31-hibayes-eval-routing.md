@@ -1124,7 +1124,7 @@ view or silently activate a candidate.
 ### V4-6 — Router split and explicit call-count contract
 
 > **Progress (2026-08-12):** V4-6 **hermetic CLOSED** (cold PASS @ `3da7aedd` on
-> `ultraplan/hibayes-eval-routing`; vault-sync DONE @ deploydocs `b885fe9d` / registry SHA
+> `ultraplan/hibayes-eval-routing`; vault-sync DONE @ deploydocs `3792e61e` / registry SHA
 > `853263c9…`). Lane C **42/42** (`evidence/plan018-v4-6-lane-c.log`); verifier **28/28**.
 > `NEXTSEEK_POSTERIOR_ROUTING_ENABLED` stays default-off; live DB activation and production
 > routing enablement remain separately gated.
