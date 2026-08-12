@@ -84,25 +84,53 @@ def test_mutation_force_route_beats_sticky_not_relabled_baml():
     assert d.route == cc_router.ROUTE_NS
 
 
-def test_mutation_same_session_task_ids_must_differ_across_arms():
-    """Copied-arms killer: disjoint task_ids required for paired arms."""
-    def _disjoint(ns_ids, cc_ids):
-        assert set(ns_ids).isdisjoint(set(cc_ids))
+def _arm(route, task_ids, arm_id="a1"):
+    from nessie_tests.manifest import NessieManifestEntry
 
-    _disjoint(["task-a"], ["task-b"])
-    with pytest.raises(AssertionError):
-        _disjoint(["task-a"], ["task-a"])
+    return NessieManifestEntry(
+        id=arm_id,
+        family="f",
+        tier="route",
+        status="passed",
+        route=route,
+        route_source="forced",
+        route_sources=["forced"],
+        task_ids=task_ids,
+    )
+
+
+def test_mutation_same_session_task_ids_must_differ_across_arms():
+    """Copied-arms killer: verifier rejects overlapping task_ids on paired arms."""
+    from nessie_tests import bayes_manifest as bm
+    from nessie_tests import v4_2_verifier as v4
+
+    pair = bm.BayesPair(
+        id="p1",
+        family="f",
+        ns=_arm("nextseek_query", ["shared"]),
+        cc=_arm("container_cc", ["shared"], "a2"),
+    )
+    m = bm.BayesManifest(pairs=[pair])
+    err = v4.validate_manifest_route_policy(m)
+    assert err is not None
+    assert "shared task_ids" in err
 
 
 def test_mutation_swapped_routes_on_forced_arms():
-    """Swapped routes killer: forced arms must match expected route strings."""
-    def _check_forced(ns_route, cc_route):
-        assert ns_route == cc_router.ROUTE_NS
-        assert cc_route == cc_router.ROUTE_CC
+    """Swapped routes killer: verifier rejects ns/cc route swap on forced arms."""
+    from nessie_tests import bayes_manifest as bm
+    from nessie_tests import v4_2_verifier as v4
 
-    _check_forced(cc_router.ROUTE_NS, cc_router.ROUTE_CC)
-    with pytest.raises(AssertionError):
-        _check_forced(cc_router.ROUTE_CC, cc_router.ROUTE_NS)
+    pair = bm.BayesPair(
+        id="p1",
+        family="f",
+        ns=_arm("container_cc", ["t-ns"]),
+        cc=_arm("nextseek_query", ["t-cc"], "a2"),
+    )
+    m = bm.BayesManifest(pairs=[pair])
+    err = v4.validate_manifest_route_policy(m)
+    assert err is not None
+    assert "route" in err
 
 
 def test_mutation_force_route_schema_rejects_unknown():

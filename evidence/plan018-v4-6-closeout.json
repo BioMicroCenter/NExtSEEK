@@ -1,13 +1,13 @@
 {
   "schema": "plan018-v4-6-closeout/v1",
-  "recorded_at": "2026-08-12T19:55:00Z",
+  "recorded_at": "2026-08-13T00:45:00Z",
   "gate": "PASS",
-  "worktree_sha": "3da7aedd",
-  "implementation_note": "V4-6 SDD complete; pushed @ 3da7aedd; vault-sync DONE; superseded hygiene refresh 2026-08-12 V4-7 Task 0",
+  "worktree_sha": "ef600db4ff7a90ae720d999bd224bcb6190a4b3f",
+  "implementation_note": "V4-6 cold-debt remediation complete; attempted_* on TurnLedger migration 0018",
   "base_sha": "0a5b052a2d74d1df319b55c8b505d38e69cf23f3",
   "next_gate": "V4-7",
   "summary": {
-    "lane_c_passed": 42,
+    "lane_c_passed": 36,
     "verifier_checks_passed": 28,
     "classifier_baml_split": true,
     "posterior_flag_default_off": true,
@@ -32,7 +32,6 @@
     "corpus_sha256": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652"
   },
   "residual_debt": [
-    "attempted_route/attempted_source not persisted to TurnLedger columns (only on RouteDecision for sticky)",
     "baml_client regenerated at test time (gitignored); bind via baml_src hashes in evidence"
   ],
   "vault_sync": {

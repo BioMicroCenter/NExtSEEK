@@ -2,8 +2,8 @@
   "schema": "plan018-v4-5-closeout/v1",
   "recorded_at": "2026-08-13T00:30:00Z",
   "gate": "PASS",
-  "worktree_sha": "3c6a17e246633883b299a497841b5a00c4229e8f",
-  "implementation_note": "V4-5 cold-debt remediation 2026-08-12: closeout refresh @ branch tip 3c6a17e (uncommitted payload-canonical tamper + SDD review); prior remediation @ a89fb3dc pushed @ a4d99286",
+  "worktree_sha": "ef600db4ff7a90ae720d999bd224bcb6190a4b3f",
+  "implementation_note": "V4-5 cold-debt remediation complete; closeout @ post-remediation tip ef600db4",
   "base_sha": "f515392b",
   "next_gate": "V4-6",
   "summary": {
