@@ -1160,9 +1160,9 @@ with two thin wrappers around one route-bearing output.
 ### V4-7 — Separate experimental evidence from observational monitoring
 
 > **Progress (2026-08-12):** V4-7 **hermetic CLOSED** (cold PASS @ `62911a17` on
-> `ultraplan/hibayes-eval-routing`; vault-sync DONE — deploydocs and registry SHA recorded in
-> `evidence/plan018-v4-7-vault-sync.json`). Lane C **30/30**; Lane M **15/15**; verifier **30/30**.
-> Live DB activation and production routing enablement remain separately gated.
+> `ultraplan/hibayes-eval-routing`; vault-sync DONE @ deploydocs `b22227a2` / registry SHA
+> `70bee91d…`). Lane C **30/30**; Lane M **15/15**; verifier **30/30**. Live DB activation and
+> production routing enablement remain separately gated.
 
 Forced paired evidence and policy-selected online traffic are different data products with distinct
 schemas, lineage, storage, fit entry points, and publication labels.
