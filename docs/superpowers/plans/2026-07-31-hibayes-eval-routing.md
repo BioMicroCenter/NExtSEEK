@@ -1182,6 +1182,10 @@ self-confirming feedback loop.
 
 ### V4-8 — Paid-run authorization, reservation, and resumability
 
+> **Progress (2026-08-12):** V4-8 **hermetic SDD authorized** (start @ `fa48b42b` on
+> `ultraplan/hibayes-eval-routing`; checkboxes remain `[ ]` until cold PASS). Real paid pilot,
+> live DB activation, and production routing enablement remain separately gated.
+
 No live/provider call occurs before a maintainer approves an immutable run manifest hash binding:
 corpus and question IDs/hashes, taxonomy, requested pairs/turns/arms, three judge calls for every
 eligible completed arm scheduled for judgment (not merely the unknown post-judgment retained set),
