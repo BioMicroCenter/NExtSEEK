@@ -1,7 +1,7 @@
 {
   "schema": "plan018-migration-leaf/v1",
   "base_sha": "b2cca5d7",
-  "leaf": "0016_paired_run_registry.py",
+  "leaf": "0018_turn_ledger_attempted_provenance.py",
   "files": [
     "0001_initial.py",
     "0002_querytask.py",
@@ -19,7 +19,9 @@
     "0013_family_posterior.py",
     "0014_generation_activation_and_reservation.py",
     "0015_v4_5_generation_audit_and_turn_pin.py",
-    "0016_paired_run_registry.py"
+    "0016_paired_run_registry.py",
+    "0017_paid_run_state.py",
+    "0018_turn_ledger_attempted_provenance.py"
   ],
-  "note": "V4-7 adds PairedRunRegistry approved-run lineage"
+  "note": "V4-8 adds PaidRunState; V4-6 remediation adds TurnLedger attempted_route/source"
 }
