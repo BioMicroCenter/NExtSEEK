@@ -76,3 +76,81 @@ def test_missing_posterior_falls_back(settings):
 def test_poisoned_generation_status_falls_back(settings):
     _activate_generation(decision_status="multiplicity_indecisive")
     assert posterior_selector.select_route("sample_search") is None
+
+
+def test_stale_generation_fallback(settings):
+    snap = _snapshot(
+        decision_status="legacy_fallback",
+        posteriors=(
+            _posterior_row("sample_search", "nextseek_query", 0.9, "Reliable"),
+        ),
+    )
+    assert posterior_selector.select_route("sample_search", snapshot=snap) is None
+
+
+def test_malformed_generation_fallback_invalid_route(settings):
+    snap = _snapshot(
+        posteriors=(
+            _posterior_row("sample_search", "not_a_valid_route", 0.9, "Reliable"),
+        ),
+    )
+    assert posterior_selector.select_route("sample_search", snapshot=snap) is None
+
+
+def test_incompatible_generation_fallback_indecisive_tie(settings):
+    snap = _snapshot(
+        posteriors=(
+            _posterior_row("sample_search", "nextseek_query", 0.50, "Reliable"),
+            _posterior_row("sample_search", "container_cc", 0.52, "Reliable"),
+        ),
+    )
+    assert posterior_selector.select_route("sample_search", snapshot=snap) is None
+
+
+def test_poisoned_store_non_blocking_on_decide_path(settings, monkeypatch):
+    """Poisoned active generation must not block the user turn."""
+    _activate_generation(decision_status="multiplicity_indecisive")
+    from dmac_assistant.router.baml_client import b
+    from dmac_assistant.router.baml_client.types import ClassificationDecision, Route, RouterDecision
+
+    async def classify_ok(*args, **kwargs):
+        return ClassificationDecision(task_family="sample_search", reasoning="ok")
+
+    async def route_ok(*args, **kwargs):
+        return RouterDecision(route=Route.NextseekQuery, model_class=None, reasoning="fallback")
+
+    from nextseek_api.cc_assistant import router as cc_router
+    from nextseek_api.cc_assistant import transport_trace
+
+    transport_trace.reset_transport_hooks()
+    monkeypatch.setattr(b, "ClassifyQuery", classify_ok)
+    monkeypatch.setattr(b, "RouteQuery", route_ok)
+    transport_trace.install_transport_hooks(b)
+    settings.NEXTSEEK_POSTERIOR_ROUTING_ENABLED = True
+    decision = cc_router.decide("find mice")
+    assert decision.route == cc_router.ROUTE_NS
+    assert decision.task_family == "sample_search"
+
+
+def _posterior_row(task_family, route, mean, band):
+    from nextseek_api.assistant.models_db import FamilyPosterior
+
+    return FamilyPosterior(
+        task_family=task_family,
+        route=route,
+        posterior_mean=mean,
+        band=band,
+        n_total=10,
+        fitted_at=timezone.now(),
+    )
+
+
+def _snapshot(*, generation_id=99, generation_hash="e" * 64, decision_status="activated_all", posteriors=()):
+    from nextseek_api.eval.generation_store import GenerationSnapshot
+
+    return GenerationSnapshot(
+        generation_id=generation_id,
+        generation_hash=generation_hash,
+        decision_status=decision_status,
+        posteriors=tuple(posteriors),
+    )

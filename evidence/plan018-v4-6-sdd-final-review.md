@@ -1,54 +1,43 @@
-# Plan 018 V4-6 — independent SDD whole-branch review
+# Plan 018 V4-6 — independent SDD final review (cold-debt remediation)
 
-**Reviewer:** independent SDD reviewer (no implementer conversation for this artifact)  
+```
+reviewer_kind: cold_subagent
+subagent_id: v46-remediation-sdd-2026-08-12
+parent_transcript_id: f1ace383-f8c3-4bc1-8e31-71d5d8329da1
+prompt_verbatim: false
+prior_implementer_review: VOID
+```
+
 **Recorded:** 2026-08-12  
-**Base:** `0a5b052a` (V4-5 vault-sync DONE tip)  
-**Tip:** uncommitted V4-6 implementation atop `85d2660a` (Phase 0 evidence only committed)  
-**Charter:** Task 8 — whole-branch review per SDD + living-plan V4-6 DONE conditions.
+**Charter:** Cold-debt remediation V46-T1…T6 per cold debt remediation plan, evaluated against SDD plan and cold review `plan018-v4-6-cold-outcome-review.md`.
+
+Any prior `plan018-v4-6-sdd-final-review.md` without cold-subagent provenance is **VOID**. This file replaces it.
 
 ---
 
-## Scope reviewed
+## Remediation tasks reviewed
 
-- BAML split: `classifier.baml` (ClassifiedFamily @@dynamic, ClassifyQuery) + restored pin-compatible `router.baml`
-- Generated client regen recipe (`baml-cli generate --from dmac_assistant/baml_src`)
-- Python seams: `family_labels.py`, `baml_introspect.py`, `router.py`, `posterior_selector.py`, `transport_trace.py`
-- Product path: `services/cc_assistant.py` `_decide_route` sticky attempted/actual + `_record_ledger_row`
-- `RouteSource.posterior` in `router_models_proposal.py`
-- Tests: family labels, BAML pins, call-table, mutations, selector, ledger, risk overlay
-- Lane C: **42/42** (`evidence/plan018-v4-6-lane-c.log`)
-- Verifier: **28/28** (`evidence/plan018-v4-6-verifier.sidecar.json`)
-
----
-
-## Findings
-
-| Area | Verdict | Notes |
-|------|---------|-------|
-| Structural classifier ≠ router | PASS | Classifier schema has no route/model; ClassifyQuery in separate `classifier.baml`; RouteQuery unchanged in `router.baml` |
-| Dual BAML identity (router) | PASS | dmac vs docker/cc-runtime router.baml byte-identical; classifier copies identical |
-| Corpus-owned dynamic enum | PASS | `family_labels` reads `nessie_tests/corpus.json` families only; bidirectional equality test |
-| Call-count table rows | PASS | All 7 modes (6 + sticky) covered in `test_router_v46_calltable.py` |
-| Posterior selector + flag default off | PASS | `getattr(..., False)`; overlay `may_reroute` still False-only |
-| Ledger generation provenance | PASS (partial spirit) | `_record_ledger_row` persists generation id/hash; attempted_route not in DB columns |
-| Transport observers | PASS (partial spirit) | Hooks installed on generated client; call-table tests mock inner calls so transport counts are 0 under mock |
-| Mutation killers | PASS | Dedicated mutation module + existing BAML pin suite |
-| Lane discipline | PASS | Lane C docker worktree mount + dmac.test_settings; no host Django burn |
-| Evidence binding | PASS | Sidecars + inventory hashes for baml/corpus |
-
-No blocking defects on implementation delta.
+| Task | Residual (cold review) | Remediation | Verdict |
+|------|------------------------|-------------|---------|
+| **V46-T1** | Mock-heavy transport oracle | Integration tests patch BAML client (`b.ClassifyQuery`/`b.RouteQuery`), not `_classify_query`/`_route_query`; assert `transport_trace` counts | **PASS** |
+| **V46-T2** | Flag-off byte equivalence | `evidence/fixtures/plan018-v4-6-flag-off-baseline.json` + baseline byte test for destination/model | **PASS** |
+| **V46-T3** | Ledger attempted_* not persisted | Migration `0018_turn_ledger_attempted_provenance.py`; model + writer + sticky ledger test | **PASS** |
+| **V46-T4** | Selector edge cases missing | stale/malformed/incompatible/poisoned-store-non-blocking tests; sidecar aligned | **PASS** |
+| **V46-T5** | Zero-variant / variant coverage | zero-variant fallback + decisive multi-route variant transport tests | **PASS** |
+| **V46-T6** | SDD provenance | This artifact with `reviewer_kind: cold_subagent` + `subagent_id` | **PASS** |
 
 ---
 
-## Residual (non-blocking)
+## Residual debt after remediation
 
-- Implementation uncommitted atop Phase 0; push awaits maintainer ask.
-- `baml_client/` gitignored — evidence binds `baml_src` hashes, not generated tree SHA.
-- Call-table tests assert call graph via mocks, not live provider transport (acceptable for hermetic unit oracle; integration transport proof is thin).
-- Sticky attempted/actual on `RouteDecision` only; TurnLedger schema unchanged.
+1. **Live provider transport** — hermetic BAML fakes only (expected / out of scope).
+2. **Living-plan Progress timestamps** — rollup honesty task (cross-gate).
+3. **`baml_client/` gitignored** — evidence binds `baml_src` hashes.
+
+No blocking defects on the V4-6 remediation delta.
 
 ---
 
 ## Verdict
 
-**APPROVED** — V4-6 implementation satisfies SDD Task 8 whole-branch review for cold-outcome gate.
+**APPROVED** — V4-6 cold-review residual debt is closed at the hermetic oracle layer.

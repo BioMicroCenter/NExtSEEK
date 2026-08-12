@@ -82,6 +82,8 @@ class TurnLedger(models.Model):
     family_source = models.CharField(max_length=32, null=True, blank=True)
     pinned_generation_id = models.BigIntegerField(null=True, blank=True)
     pinned_generation_hash = models.CharField(max_length=64, blank=True, default="")
+    attempted_route = models.CharField(max_length=64, null=True, blank=True)
+    attempted_source = models.CharField(max_length=32, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -261,6 +263,41 @@ class SpendReservation(models.Model):
     class Meta:
         db_table = "eval_spend_reservation"
         app_label = "nextseek_api"
+
+
+class PaidRunState(models.Model):
+    """Durable arm/attempt resume state for V4-8 paid eval runs."""
+
+    STATUS_PENDING = "pending"
+    STATUS_SUCCEEDED = "succeeded"
+    STATUS_FAILED = "failed"
+    STATUS_CACHED = "cached"
+
+    run_id = models.CharField(max_length=128, db_index=True)
+    manifest = models.ForeignKey(
+        ApprovedRunManifest,
+        on_delete=models.CASCADE,
+        related_name="paid_run_states",
+    )
+    overlap_lock = models.CharField(max_length=128, unique=True)
+    arm_id = models.CharField(max_length=64)
+    attempt_id = models.CharField(max_length=64)
+    status = models.CharField(max_length=16, default=STATUS_PENDING)
+    cache_key = models.CharField(max_length=256, blank=True, default="")
+    failure_reason = models.TextField(blank=True, default="")
+    backoff_until = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "eval_paid_run_state"
+        app_label = "nextseek_api"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run_id", "arm_id", "attempt_id"],
+                name="uniq_paid_run_arm_attempt",
+            )
+        ]
 
 
 class CCSessionTranscript(models.Model):

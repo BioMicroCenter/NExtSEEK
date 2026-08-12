@@ -233,65 +233,64 @@ def _legacy_decide(query: str, history: list[HistoryTurn] | None = None) -> Rout
 
 
 def _posterior_enabled_decide(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision:
-    with transport_trace.trace_context() as trace:
-        try:
-            snap = corpus_snapshot()
-            type_builder(snap)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("CC router: corpus/typebuilder invalid pre-transport (%s)", type(exc).__name__)
-            routed = _route_query(query, history)
-            decision = routed if routed is not None else _heuristic(query)
-            return replace(
-                decision,
-                task_family=None,
-                family_source=None,
-                reasoning=f"pre-transport invalid: {exc}; {decision.reasoning}",
-            )
-
-        task_family, family_source, classify_reason = _classify_query(query, history)
-        if task_family is None and "unrelated" in (classify_reason or "").lower():
-            return RouteDecision(
-                route=ROUTE_UNRELATED,
-                model_class=None,
-                model_id=None,
-                reasoning=classify_reason,
-                source="baml",
-                task_family=None,
-                family_source=None,
-            )
-
-        if task_family is None:
-            routed = _route_query(query, history)
-            decision = routed if routed is not None else _heuristic(query)
-            return replace(
-                decision,
-                task_family=None,
-                family_source=None,
-                reasoning=f"classification failed: {classify_reason}; {decision.reasoning}",
-            )
-
-        selected = posterior_selector.select_route(task_family)
-        if selected is not None:
-            return RouteDecision(
-                route=selected.route,
-                model_class="opus" if selected.route == ROUTE_CC else None,
-                model_id=_resolve_cc_model_id() if selected.route == ROUTE_CC else None,
-                reasoning=selected.reasoning,
-                source="posterior",
-                task_family=task_family,
-                family_source=family_source,
-                generation_id=selected.generation_id,
-                generation_hash=selected.generation_hash,
-            )
-
+    try:
+        snap = corpus_snapshot()
+        type_builder(snap)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CC router: corpus/typebuilder invalid pre-transport (%s)", type(exc).__name__)
         routed = _route_query(query, history)
         decision = routed if routed is not None else _heuristic(query)
         return replace(
             decision,
+            task_family=None,
+            family_source=None,
+            reasoning=f"pre-transport invalid: {exc}; {decision.reasoning}",
+        )
+
+    task_family, family_source, classify_reason = _classify_query(query, history)
+    if task_family is None and "unrelated" in (classify_reason or "").lower():
+        return RouteDecision(
+            route=ROUTE_UNRELATED,
+            model_class=None,
+            model_id=None,
+            reasoning=classify_reason,
+            source="baml",
+            task_family=None,
+            family_source=None,
+        )
+
+    if task_family is None:
+        routed = _route_query(query, history)
+        decision = routed if routed is not None else _heuristic(query)
+        return replace(
+            decision,
+            task_family=None,
+            family_source=None,
+            reasoning=f"classification failed: {classify_reason}; {decision.reasoning}",
+        )
+
+    selected = posterior_selector.select_route(task_family)
+    if selected is not None:
+        return RouteDecision(
+            route=selected.route,
+            model_class="opus" if selected.route == ROUTE_CC else None,
+            model_id=_resolve_cc_model_id() if selected.route == ROUTE_CC else None,
+            reasoning=selected.reasoning,
+            source="posterior",
             task_family=task_family,
             family_source=family_source,
-            reasoning=f"posterior fallback: {decision.reasoning}",
+            generation_id=selected.generation_id,
+            generation_hash=selected.generation_hash,
         )
+
+    routed = _route_query(query, history)
+    decision = routed if routed is not None else _heuristic(query)
+    return replace(
+        decision,
+        task_family=task_family,
+        family_source=family_source,
+        reasoning=f"posterior fallback: {decision.reasoning}",
+    )
 
 
 def decide(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision:

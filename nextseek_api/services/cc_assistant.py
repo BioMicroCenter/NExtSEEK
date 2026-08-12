@@ -212,6 +212,8 @@ def _record_ledger_row(chat_session: ChatSession, decision: cc_router.RouteDecis
             decision.family_source,
             pinned_generation_id=decision.generation_id,
             pinned_generation_hash=decision.generation_hash or "",
+            attempted_route=decision.attempted_route,
+            attempted_source=decision.attempted_source,
         )
     except LedgerCollision:
         logger.warning(

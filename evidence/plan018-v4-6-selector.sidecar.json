@@ -13,7 +13,7 @@
     "nextseek_api/cc_assistant/tests/test_posterior_selector.py"
   ],
   "counts": {
-    "passed": 5,
+    "passed": 9,
     "failed": 0,
     "skipped": 0
   },

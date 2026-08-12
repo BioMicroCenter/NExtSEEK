@@ -1,4 +1,6 @@
 """V4-6 call-count table and transport tracing."""
+import json
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -7,6 +9,42 @@ from nextseek_api.cc_assistant import router as cc_router
 from nextseek_api.cc_assistant import transport_trace
 
 pytestmark = pytest.mark.django_db
+
+_REPO = Path(__file__).resolve().parents[3]
+_FLAG_OFF_BASELINE = _REPO / "evidence" / "fixtures" / "plan018-v4-6-flag-off-baseline.json"
+
+
+@pytest.fixture(autouse=True)
+def _reset_transport_hooks():
+    transport_trace.reset_transport_hooks()
+    yield
+    transport_trace.reset_transport_hooks()
+
+
+def _install_traced_baml_fakes(monkeypatch, *, classify_impl=None, route_impl=None):
+    """Install transport hooks on fake BAML dispatch (not _classify_query/_route_query)."""
+    from dmac_assistant.router.baml_client import b
+    from dmac_assistant.router.baml_client.types import (
+        ClassificationDecision,
+        Route,
+        RouterDecision,
+    )
+
+    async def _default_classify(*args, **kwargs):
+        return ClassificationDecision(task_family="sample_search", reasoning="ok")
+
+    async def _default_route(*args, **kwargs):
+        return RouterDecision(
+            route=Route.NextseekQuery,
+            model_class=None,
+            reasoning="baml route",
+        )
+
+    monkeypatch.setattr(b, "ClassifyQuery", classify_impl or _default_classify)
+    monkeypatch.setattr(b, "RouteQuery", route_impl or _default_route)
+    transport_trace.install_transport_hooks(b)
+    cc_router._load_router_deps()
+    return b
 
 
 def _route_decision(route="nextseek_query", source="baml", **kwargs):
@@ -140,4 +178,97 @@ def test_sticky_override_records_attempted_vs_actual(settings):
     assert final.source == "sticky"
     assert final.attempted_route == cc_router.ROUTE_NS
     assert final.attempted_source == "baml"
+
+
+def test_flag_off_transport_integration_counts_real_baml_dispatch(settings, monkeypatch):
+    """Call-table integration: no _classify_query/_route_query mocks; assert transport_trace."""
+    settings.NEXTSEEK_POSTERIOR_ROUTING_ENABLED = False
+    _install_traced_baml_fakes(monkeypatch)
+    with transport_trace.trace_context() as trace:
+        decision = cc_router.decide("find mice treated with NDMA")
+    assert decision.route == cc_router.ROUTE_NS
+    assert trace.classify_calls == 0
+    assert trace.route_calls == 1
+    assert "RouteQuery" in trace.events
+
+
+def test_flag_off_byte_equivalent_destination_model_vs_frozen_baseline(settings, monkeypatch):
+    """Flag-off path must match frozen pre-split baseline bytes for destination/model."""
+    baseline = json.loads(_FLAG_OFF_BASELINE.read_text())
+    from dmac_assistant.router.baml_client.types import Route, RouterDecision
+
+    async def frozen_route(*args, **kwargs):
+        return RouterDecision(
+            route=Route.NextseekQuery,
+            model_class=baseline["model_class"],
+            reasoning=baseline["reasoning_prefix"],
+        )
+
+    settings.NEXTSEEK_POSTERIOR_ROUTING_ENABLED = False
+    _install_traced_baml_fakes(monkeypatch, route_impl=frozen_route)
+    decision = cc_router.decide(baseline["query"])
+    assert decision.route == baseline["destination"]
+    assert decision.model_class == baseline["model_class"]
+    assert decision.model_id == baseline["model_id"]
+    assert decision.source == baseline["route_source"]
+
+
+def test_flag_on_zero_variant_family_one_classify_one_route_transport(settings, monkeypatch):
+    """Zero-variant family: classified family with no posterior rows falls back via real BAML."""
+    settings.NEXTSEEK_POSTERIOR_ROUTING_ENABLED = True
+    from dmac_assistant.router.baml_client.types import ClassificationDecision
+
+    async def classify_family(*args, **kwargs):
+        return ClassificationDecision(task_family="sample_search", reasoning="classified")
+
+    _install_traced_baml_fakes(monkeypatch, classify_impl=classify_family)
+    with transport_trace.trace_context() as trace:
+        decision = cc_router.decide("find mice")
+    assert decision.task_family == "sample_search"
+    assert decision.route == cc_router.ROUTE_NS
+    assert trace.classify_calls == 1
+    assert trace.route_calls == 1
+
+
+def test_flag_on_posterior_decisive_transport_skips_route_llm(settings, monkeypatch):
+    """Variant coverage: decisive posterior skips RouteQuery; transport shows classify only."""
+    settings.NEXTSEEK_POSTERIOR_ROUTING_ENABLED = True
+    from django.utils import timezone
+
+    from dmac_assistant.router.baml_client.types import ClassificationDecision
+    from nextseek_api.assistant.models_db import FamilyPosterior, PosteriorGeneration
+    from nextseek_api.eval.generation_store import ActiveGenerationPointer
+
+    gen = PosteriorGeneration.objects.create(
+        generation_hash="d" * 64,
+        input_hash="input-z",
+        config_fingerprint="cfg-z",
+        decision_status="activated_all",
+        payload={},
+    )
+    ActiveGenerationPointer.objects.update_or_create(
+        id=1,
+        defaults={"active": gen},
+    )
+    for route, mean in (("nextseek_query", 0.91), ("container_cc", 0.35)):
+        FamilyPosterior.objects.create(
+            generation=gen,
+            task_family="sample_search",
+            route=route,
+            posterior_mean=mean,
+            band="Reliable",
+            n_total=12,
+            fitted_at=timezone.now(),
+        )
+
+    async def classify_family(*args, **kwargs):
+        return ClassificationDecision(task_family="sample_search", reasoning="classified")
+
+    _install_traced_baml_fakes(monkeypatch, classify_impl=classify_family)
+    with transport_trace.trace_context() as trace:
+        decision = cc_router.decide("find mice")
+    assert decision.source == "posterior"
+    assert decision.route == cc_router.ROUTE_NS
+    assert trace.classify_calls == 1
+    assert trace.route_calls == 0
 

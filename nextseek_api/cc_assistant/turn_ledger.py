@@ -20,6 +20,8 @@ def record_turn(
     *,
     pinned_generation_id=None,
     pinned_generation_hash="",
+    attempted_route=None,
+    attempted_source=None,
 ):
     try:
         with transaction.atomic():
@@ -32,6 +34,8 @@ def record_turn(
                 family_source=family_source,
                 pinned_generation_id=pinned_generation_id,
                 pinned_generation_hash=pinned_generation_hash or "",
+                attempted_route=attempted_route,
+                attempted_source=attempted_source,
             )
     except IntegrityError as exc:
         raise LedgerCollision(
