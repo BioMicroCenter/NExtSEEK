@@ -40,6 +40,7 @@ def test_r03_log_block_untouched():                  # R-03
 def test_no_new_migrations():                        # Global Constraint
     dirs = sorted(str(p.relative_to(_REPO))
                   for p in _REPO.glob("nextseek_api/**/migrations/*.py"))
+    # Pin updated V4-6: baseline 0a5b052a already carries V4-4/V4-5 ledger+generation migrations.
     assert dirs == [
         "nextseek_api/migrations/0001_initial.py",
         "nextseek_api/migrations/0002_querytask.py",
@@ -51,6 +52,12 @@ def test_no_new_migrations():                        # Global Constraint
         "nextseek_api/migrations/0007_ccsessiontranscript.py",
         "nextseek_api/migrations/0008_heal_cc_transcript_fk.py",
         "nextseek_api/migrations/0009_normalize_chat_log_turn_ids.py",
+        "nextseek_api/migrations/0010_turn_ledger.py",
+        "nextseek_api/migrations/0011_turn_judgment.py",
+        "nextseek_api/migrations/0012_posterior_generation.py",
+        "nextseek_api/migrations/0013_family_posterior.py",
+        "nextseek_api/migrations/0014_generation_activation_and_reservation.py",
+        "nextseek_api/migrations/0015_v4_5_generation_audit_and_turn_pin.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
         "nextseek_api/migrations/_chat_log_normalize.py",

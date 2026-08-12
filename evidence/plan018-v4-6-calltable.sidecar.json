@@ -1,0 +1,32 @@
+{
+  "schema": "plan018-v4-6-calltable/v1",
+  "recorded_at": "2026-08-12T19:20:00Z",
+  "gate": "PASS",
+  "lane": "C",
+  "lane_recipe": "docker worktree mount + dmac.test_settings (V4-3)",
+  "tests": [
+    "nextseek_api/cc_assistant/tests/test_router_v46_calltable.py",
+    "nextseek_api/cc_assistant/tests/test_router_v46_mutations.py"
+  ],
+  "call_table_rows": [
+    "flag_off",
+    "flag_on_unrelated",
+    "flag_on_pretransport_invalid",
+    "flag_on_posttransport_failure",
+    "flag_on_decisive_posterior",
+    "flag_on_indecisive_fallback",
+    "sticky_override"
+  ],
+  "transport_observers": "nextseek_api/cc_assistant/transport_trace.py on generated baml client",
+  "counts": {
+    "passed": 14,
+    "failed": 0,
+    "skipped": 0,
+    "unexpected_skip": 0,
+    "unexpected_xfail": 0,
+    "unexpected_deselect": 0
+  },
+  "sticky_attempted_vs_actual": true,
+  "classification_never_fabricates_family": true,
+  "paid_or_live_resources_used": false
+}

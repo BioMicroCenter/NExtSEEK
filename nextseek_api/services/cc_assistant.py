@@ -196,6 +196,33 @@ def _prev_route_was_cc(history: list[router_context.HistoryTurn] | None) -> bool
     return False
 
 
+def _record_ledger_row(chat_session: ChatSession, decision: cc_router.RouteDecision) -> None:
+    """Best-effort ledger write; must not fail the user turn."""
+    from nextseek_api.cc_assistant.turn_ledger import LedgerCollision, record_turn
+
+    chat_log = (chat_session.extra_state or {}).get("chat_log") or []
+    turn_number = len(chat_log) + 1
+    try:
+        record_turn(
+            str(chat_session.session_id),
+            turn_number,
+            decision.route,
+            decision.source,
+            decision.task_family,
+            decision.family_source,
+            pinned_generation_id=decision.generation_id,
+            pinned_generation_hash=decision.generation_hash or "",
+        )
+    except LedgerCollision:
+        logger.warning(
+            "ledger collision for session=%s turn=%s",
+            chat_session.session_id,
+            turn_number,
+        )
+    except Exception:
+        logger.exception("ledger write failed for session=%s turn=%s", chat_session.session_id, turn_number)
+
+
 def _decide_route(
     user,
     req,
@@ -254,6 +281,12 @@ def _decide_route(
             model_id=cc_router._resolve_cc_model_id(),
             reasoning=f"sticky_cc; router said ns ({decision.reasoning})",
             source="sticky",
+            task_family=decision.task_family,
+            family_source=decision.family_source,
+            generation_id=decision.generation_id,
+            generation_hash=decision.generation_hash,
+            attempted_route=decision.route,
+            attempted_source=decision.source,
         )
     return decision
 
@@ -344,6 +377,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                     "route": decision.route, "model_class": decision.model_class,
                     "source": decision.source, "reasoning": decision.reasoning,
                 })
+                _record_ledger_row(chat_session, decision)
 
                 if decision.route == cc_router.ROUTE_UNRELATED:
                     from django.utils import timezone

@@ -1,0 +1,30 @@
+{
+  "schema": "plan018-v4-6-selector/v1",
+  "recorded_at": "2026-08-12T19:20:00Z",
+  "gate": "PASS",
+  "lane": "C",
+  "lane_recipe": "docker worktree mount + dmac.test_settings (V4-3)",
+  "module": "nextseek_api/cc_assistant/posterior_selector.py",
+  "flag": "NEXTSEEK_POSTERIOR_ROUTING_ENABLED",
+  "flag_default": false,
+  "route_source_posterior": true,
+  "overlay_may_reroute": false,
+  "tests": [
+    "nextseek_api/cc_assistant/tests/test_posterior_selector.py"
+  ],
+  "counts": {
+    "passed": 5,
+    "failed": 0,
+    "skipped": 0
+  },
+  "differential_cases": [
+    "decisive_compatible_changes_route",
+    "too_uncertain_fallback",
+    "missing_generation_fallback",
+    "stale_generation_fallback",
+    "malformed_generation_fallback",
+    "incompatible_generation_fallback",
+    "poisoned_store_non_blocking"
+  ],
+  "paid_or_live_resources_used": false
+}

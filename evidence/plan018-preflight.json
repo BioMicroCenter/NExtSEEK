@@ -113,7 +113,22 @@
   "v4_5_status": "CLOSED",
   "v4_5_closed_at": "2026-08-12T22:00:00Z",
   "v4_5_closeout": "evidence/plan018-v4-5-closeout.json",
-  "next_gate": "V4-6",
+  "v4_6_status": "CLOSED",
+  "v4_6_closed_at": "2026-08-12T19:25:00Z",
+  "v4_6_closeout": "evidence/plan018-v4-6-closeout.json",
+  "next_gate": "V4-7",
+  "v4_6_evidence": {
+    "phase0_publish": "evidence/plan018-v4-6-phase0-publish.json",
+    "prereq": "evidence/plan018-v4-6-prereq.json",
+    "family_labels": "evidence/plan018-v4-6-family-labels.sidecar.json",
+    "calltable": "evidence/plan018-v4-6-calltable.sidecar.json",
+    "selector": "evidence/plan018-v4-6-selector.sidecar.json",
+    "inventory": "evidence/plan018-v4-6-callsite-inventory.json",
+    "lane_c_log": "evidence/plan018-v4-6-lane-c.log",
+    "verifier": "evidence/plan018-v4-6-verifier.sidecar.json",
+    "cold_review": "evidence/plan018-v4-6-cold-outcome-review.md"
+  },
+  "next_gate_was": "V4-6",
   "v4_5_evidence": {
     "phase0_publish": "evidence/plan018-v4-5-phase0-publish.json",
     "prereq": "evidence/plan018-v4-5-prereq.json",

@@ -36,7 +36,7 @@ Canonical owner = the task that may create/modify the path. Consumers may read b
 | Task 9 | `eval/tasks.py` Celery nightly + reservation | paid-gated runs | Task 10 |
 | Task 10 / V4-4 | fit adapter + `publish.py` | immutable posterior generations | Task 11/12 |
 | Task 11 | `playbook.py` | playbook consumer | monitoring only |
-| Task 12 / V4-6 | posterior selector (flag-gated) | `route_source="posterior"` | online routing |
+| Task 12 / V4-6 | `nextseek_api/cc_assistant/posterior_selector.py`, `nextseek_api/cc_assistant/tests/test_posterior_selector.py`, `nextseek_api/cc_assistant/transport_trace.py` (consumers: `router.py`, `services/cc_assistant.py`) | `route_source="posterior"` comparative selector (flag-gated) | online routing |
 | Task 13 / V5 | coverage manifest + release/recovery proofs | gate | Phase close |
 | V4-7 | schema/type boundary online vs paired | hard separation | fitter must refuse online rows |
 | V4-8 | authorization/reservation/spend controls | budget safety | Task 9 paid path |

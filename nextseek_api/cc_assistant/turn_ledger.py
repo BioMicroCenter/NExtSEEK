@@ -10,7 +10,17 @@ class LedgerCollision(RuntimeError):
     """Two turns claimed the same (session, turn_number)."""
 
 
-def record_turn(session_id, turn_number, route, route_source, task_family, family_source):
+def record_turn(
+    session_id,
+    turn_number,
+    route,
+    route_source,
+    task_family,
+    family_source,
+    *,
+    pinned_generation_id=None,
+    pinned_generation_hash="",
+):
     try:
         with transaction.atomic():
             return TurnLedger.objects.create(
@@ -20,6 +30,8 @@ def record_turn(session_id, turn_number, route, route_source, task_family, famil
                 route_source=route_source,
                 task_family=task_family,
                 family_source=family_source,
+                pinned_generation_id=pinned_generation_id,
+                pinned_generation_hash=pinned_generation_hash or "",
             )
     except IntegrityError as exc:
         raise LedgerCollision(

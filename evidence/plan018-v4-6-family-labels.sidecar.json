@@ -1,0 +1,24 @@
+{
+  "schema": "plan018-v4-6-family-labels/v1",
+  "recorded_at": "2026-08-12T19:20:00Z",
+  "gate": "PASS",
+  "lane": "C",
+  "lane_recipe": "docker worktree mount + dmac.test_settings (V4-3)",
+  "authority": "OPS-TESTING-HARNESSES.md §3.1 worktree-mount pattern",
+  "modules": [
+    "nextseek_api/cc_assistant/family_labels.py",
+    "nextseek_api/cc_assistant/baml_introspect.py"
+  ],
+  "tests": [
+    "nextseek_api/cc_assistant/tests/test_router_family.py"
+  ],
+  "counts": {
+    "passed": 6,
+    "failed": 0,
+    "skipped": 0
+  },
+  "corpus_sha256": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652",
+  "no_route_capabilities_reads": true,
+  "bidirectional_enum_equality": true,
+  "paid_or_live_resources_used": false
+}
