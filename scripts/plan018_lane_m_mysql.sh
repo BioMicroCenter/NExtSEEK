@@ -14,7 +14,11 @@ OVERLAY="${OVERLAY:-$REPO/startup/dev/lane_local_settings.py}"
 NET="plan018-lane-m-$$"
 SIDECAR="plan018-mysql-$$"
 PW="${LANE_MYSQL_ROOT_PASSWORD:-plan018lane-$(python3 -c 'import secrets; print(secrets.token_hex(8))')}"
-LOG="$REPO/evidence/plan018-v4-5-realstore.log"
+LOG="${LANE_M_LOG:-$REPO/evidence/plan018-v4-8-lane-m.log}"
+SIDECAR_OUT="${LANE_M_SIDECAR:-$REPO/evidence/plan018-v4-8-lane-m.sidecar.json}"
+PYTEST_TARGET="${LANE_M_PYTEST:-nextseek_api/eval/tests/test_v4_8_mysql.py}"
+JUNIT_OUT="${LANE_M_JUNIT:-$REPO/evidence/plan018-v4-8-lane-m.junit.xml}"
+SIDECAR_SCHEMA="${LANE_M_SIDECAR_SCHEMA:-plan018-v4-8-lane-m/v1}"
 
 cleanup() {
   docker rm -f "$SIDECAR" >/dev/null 2>&1 || true
@@ -75,7 +79,7 @@ _lane_env=(
   echo "MYSQL_IMAGE=$MYSQL_IMAGE"
   echo "OVERLAY=$OVERLAY"
   echo "NET=$NET"
-  echo "===== migrate --noinput (worktree overlay, leaf through 0015) ====="
+  echo "===== migrate --noinput (worktree overlay, leaf through 0017) ====="
 } | tee -a "$LOG"
 
 docker run --rm --network "$NET" --entrypoint sh \
@@ -97,7 +101,7 @@ docker run --rm --network "$NET" --entrypoint sh \
   -w /work \
   "${_lane_env[@]}" \
   "$APP_IMAGE" \
-  -c 'python -m pytest nextseek_api/eval/tests/test_generation_store_mysql.py -q --tb=line -p no:cacheprovider --reuse-db --junitxml=/work/evidence/plan018-v4-5-realstore.junit.xml' \
+  -c 'python -m pytest '"$PYTEST_TARGET"' -q --tb=line -p no:cacheprovider --reuse-db --junitxml='"$JUNIT_OUT" \
   2>&1 | tee -a "$LOG"
 PYTEST_EXIT=${PIPESTATUS[0]}
 set -o pipefail
@@ -109,18 +113,23 @@ fi
 
 ISOLATION=$(docker exec "$SIDECAR" mysql -uroot -p"$PW" -N -e "SELECT @@transaction_isolation" 2>/dev/null || echo "unknown")
 python3 - <<PY
-import json, pathlib
+import json, os, pathlib
 repo = pathlib.Path("$REPO")
-sidecar = {
-    "schema": "plan018-v4-5-realstore/v1",
-    "gate": "PASS",
-    "lane": "M",
-    "recipe": "within-chat-lane.sh shape + V4-0 forward-migrate sidecar",
-    "settings_module": "dmac.test_settings_realstack",
-    "local_settings_overlay": "$OVERLAY",
-    "mysql_image": "$MYSQL_IMAGE",
-    "isolation_level": "$ISOLATION",
-    "oracles": [
+default_oracles = [
+    "nway_contention_multiprocess",
+    "idempotency_replay_multiprocess",
+    "crash_before_reserve",
+    "crash_after_reserve",
+    "crash_after_provider",
+    "crash_before_reconcile",
+    "crash_release_on_provider_exception",
+    "broker_redelivery",
+    "orphan_release",
+    "expiry_sweep",
+]
+target = os.environ.get("LANE_M_PYTEST", "$PYTEST_TARGET")
+if "test_generation_store_mysql" in target:
+    default_oracles = [
         "stale_cas",
         "two_activators",
         "parent_mismatch_refused",
@@ -128,14 +137,27 @@ sidecar = {
         "rollback",
         "reader_single_hash",
         "corruption",
+        "payload_canonical_tamper",
         "taxonomy_corpus_incompat",
         "partial_publish_refused",
         "crash_publish_boundary",
         "crash_activation_boundary",
-    ],
+    ]
+oracles = json.loads(os.environ.get("LANE_M_ORACLES", json.dumps(default_oracles)))
+sidecar = {
+    "schema": "$SIDECAR_SCHEMA",
+    "gate": "PASS",
+    "lane": "M",
+    "recipe": "within-chat-lane.sh shape + V4-0 forward-migrate sidecar",
+    "settings_module": "dmac.test_settings_realstack",
+    "local_settings_overlay": "$OVERLAY",
+    "mysql_image": "$MYSQL_IMAGE",
+    "isolation_level": "$ISOLATION",
+    "pytest_target": "$PYTEST_TARGET",
+    "oracles": oracles,
     "paid_or_live_resources_used": False,
 }
-(repo / "evidence/plan018-v4-5-realstore.sidecar.json").write_text(json.dumps(sidecar, indent=2) + "\n")
+pathlib.Path("$SIDECAR_OUT").write_text(json.dumps(sidecar, indent=2) + "\n")
 PY
 
 echo "Lane M complete — sidecar written"
