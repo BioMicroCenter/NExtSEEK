@@ -1,15 +1,15 @@
 {
   "schema": "plan018-v4-5-closeout/v1",
-  "recorded_at": "2026-08-12T17:30:00Z",
+  "recorded_at": "2026-08-12T22:00:00Z",
   "gate": "PASS",
-  "worktree_sha": "0bd1549c345b63a493d339ad9750ab3ddeeef24c",
-  "implementation_note": "V4-5 code present locally; commit pending maintainer push authorization",
+  "worktree_sha": "a89fb3dc912df5109dc0950951cdf858bb58f133",
+  "implementation_note": "V4-5 remediation cold PASS 2026-08-12; push authorized post-PASS (ruling 3B); vault-sync DONE pending maintainer ask",
   "base_sha": "f515392b",
   "next_gate": "V4-6",
   "summary": {
-    "lane_c_passed": 24,
-    "lane_m_passed": 6,
-    "verifier_checks_passed": 16,
+    "lane_c_passed": 32,
+    "lane_m_passed": 11,
+    "verifier_checks_passed": 22,
     "migration_leaf": "0015_v4_5_generation_audit_and_turn_pin.py",
     "mysql_isolation": "REPEATABLE-READ",
     "paid_or_live_resources_used": false
@@ -19,6 +19,7 @@
     "prereq": "evidence/plan018-v4-5-prereq.json",
     "publish": "evidence/plan018-v4-5-publish.sidecar.json",
     "validate": "evidence/plan018-v4-5-validate.sidecar.json",
+    "remediation_lane_c": "evidence/plan018-v4-5-remediation-lane-c.sidecar.json",
     "cas": "evidence/plan018-v4-5-cas.sidecar.json",
     "snapshot": "evidence/plan018-v4-5-snapshot.sidecar.json",
     "overlay": "evidence/plan018-v4-5-overlay.sidecar.json",
@@ -27,11 +28,21 @@
     "sdd_review": "evidence/plan018-v4-5-sdd-final-review.md",
     "cold_review": "evidence/plan018-v4-5-cold-outcome-review.md"
   },
+  "mysql_oracles": [
+    "stale_cas",
+    "two_activators",
+    "parent_mismatch_refused",
+    "immutable_overwrite_refused",
+    "rollback",
+    "reader_single_hash",
+    "corruption",
+    "taxonomy_corpus_incompat",
+    "partial_publish_refused",
+    "crash_publish_boundary",
+    "crash_activation_boundary"
+  ],
   "residual_debt": [
-    "Lane M recipe initially used ad-hoc test_settings_lane_m; corrected to within-chat-lane + V4-0 forward-migrate shape (test_settings_realstack + lane_local_settings)",
-    "No explicit crash-at-publish/activation-boundary MySQL oracle (partial publish flag covered in Lane C only)",
-    "Verifier negative_validation_fails uses skip path on FakeGen id type — should use real ORM row in follow-up",
-    "Living-plan V4-5 DONE progress local only until maintainer vault-sync/push authorized",
+    "Living-plan V4-5 DONE progress local only until maintainer vault-sync/push authorized (ruling 2C)",
     "V4-6 posterior selector and live DB activation remain separately gated"
   ]
 }

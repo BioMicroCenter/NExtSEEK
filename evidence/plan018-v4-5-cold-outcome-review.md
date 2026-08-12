@@ -1,10 +1,13 @@
-# Plan 018 V4-5 — independent cold-context outcome review
+# Plan 018 V4-5 — independent cold-context outcome review (post-remediation)
 
 **Reviewer:** independent cold agent (no implementer conversation history)  
 **Date:** 2026-08-12  
 **Worktree:** `/home/taishajo/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
 **Base:** `f515392b` (V4-4 cold PASS remediation)  
-**HEAD:** `0bd1549c` (Phase 0 evidence only committed; V4-5 implementation uncommitted on disk)
+**HEAD:** `a89fb3dc` (remediation commit atop `90383381` WIP)  
+**deploydocs:** `/home/taishajo/work/NExtSEEK-deploydocs` @ `60d661c0` (local, not pushed)
+
+Prior PARTIAL review (same date, pre-remediation @ `0bd1549c`) superseded by this document.
 
 ---
 
@@ -18,86 +21,97 @@
 
 | Check | Result |
 |-------|--------|
-| `rg '_band_from_status'` in `publish.py` | **absent** (confirmed) |
-| Lane C log (`plan018-v4-5-lane-c.log`) | **24 passed** |
-| Lane M log tail (`plan018-v4-5-realstore.log`) | **6 passed** on disposable MySQL |
-| Verifier sidecar | **16/16** checks PASS |
-| Lane M settings | `dmac.test_settings_realstack` + `lane_local_settings.py` overlay (established recipe, not ad-hoc) |
-| MySQL image digest | `mysql:8.0@sha256:7dcddc01…` per V4-0 sidecar |
-| Isolation level | **REPEATABLE-READ** documented in realstore sidecar |
-| Crash-at-boundary oracle on MySQL | **not present** in `test_generation_store_mysql.py` |
-| Corruption oracle on MySQL | **not present** |
-| `plan018-v4-5-debt-product-tests.log` | **not used** as PASS oracle (log shows failures) |
-| Git state | 1 commit ahead of `f515392b` (Phase 0 only); ~450 LOC implementation + tests + migration **uncommitted** |
-| deploydocs remote | Phase 0 pushed `2ec98a63` (“starting”); living-plan **CLOSED** edit is **local uncommitted** in deploydocs worktree |
+| Commits | `90383381` (feat) + `a89fb3dc` (remediation); git clean except untracked `.superpowers/sdd/` noise |
+| `rg '_band_from_status'` | **absent** |
+| Lane C remediation log | **32 passed** (`plan018-v4-5-remediation-lane-c.log`) |
+| Lane M log | **11 passed** on disposable MySQL (`plan018-v4-5-realstore.log`) |
+| Verifier sidecar | **22/22** checks PASS |
+| MySQL image digest | `mysql:8.0@sha256:7dcddc01…` per realstore sidecar |
+| Isolation level | **REPEATABLE-READ** documented |
+| `test_settings_lane_m.py` | **absent** |
+| Abort hooks | `PublishAbort` / `ActivationAbort` in `generation_store.py`; test-only flags default off |
+| Verifier negative check | Real `PosteriorGeneration` row, hash tampered, `validate_generation_for_activation` → `ok=False`; exception → FAIL (no skip-as-pass) |
+| deploydocs living-plan | **Remediation in progress / not DONE**; unchecked `[ ]`; banner cites prior PARTIAL + remediation scope |
+| closeout.json | **Stale** — still references `0bd1549c`, 24/6/16 counts, pre-remediation residual_debt |
+| preflight.json / OI | **Premature** `v4_5_status: CLOSED` / “cold PASS 2026-08-12” before this review |
 
 ---
 
-## Per-task verdicts
+## Per-task verdicts (remediation plan tasks 0–7)
 
 | Task | Verdict | Rationale |
 |------|---------|-----------|
-| Phase 0 republish | **pass** | `plan018-v4-5-phase0-publish.json` gate PASS; deploydocs `2ec98a63` and vault SHA `c23579cf…` match phase0 record. Remotes record V4-5 **starting**, not DONE — correct for Phase 0 scope. |
-| Task 0 prereq | **pass** | `plan018-v4-5-prereq.json` gate PASS; V4-0…4 CLOSED; Lane C/M recipes cited; hard refuses listed; `paid_or_live_resources_used: false`. |
-| Task 1 publish contract | **partial** | `_band_from_status` removed; bands flow from fit decision via `decision_status_to_band`; content-hash idempotency and overwrite refusal implemented and Lane-C-tested. **Gaps:** no test for `CombinedFitResult` publish path (`_groups_from_combined` in `publish.py` is untested); create vs activate permission seam exists (`require_publish_permission` / `require_activate_permission`) but has no dedicated test. |
-| Task 2 validate before activation | **partial** | `validate_generation_for_activation` + `require_valid_for_activation` wired into `activate_generation`; fail-closed paths tested for compatibility, partial_publish, hash mismatch, parent (MySQL). **Gaps vs plan checklist:** no tests for `filename_only_validation`, staleness (`stale: true`), invalid `decision_status`, or precision/sample floor refusals despite code paths existing in `generation_validation.py`. Sidecar lists only three refusal classes. |
-| Task 3 CAS + audit + rollback | **pass** | `expected_hash` = currently active token; A→B activation, stale refuse, rollback under CAS, append-only `GenerationActivationAudit` — all exercised in Lane C; two-activator race on MySQL. |
-| Task 4 per-turn snapshot | **pass** | `TurnLedger` pin fields (migration 0015); `pin_generation_for_turn` / `get_pinned_snapshot_for_turn`; test proves mid-turn activation does not change pinned hash. |
-| Task 5 risk overlay | **pass** | `risk_overlay.assess(..., may_reroute=False)` only; grep shows six `False` assignments, zero `True`; `test_overlay_can_never_authorise_a_reroute` present; 5/5 Lane C. |
-| Task 6 MySQL real-store barrier (V5-3) | **partial** | Six named oracles PASS on disposable MySQL REPEATABLE-READ using corrected established recipe (`scripts/plan018_lane_m_mysql.sh` → `test_settings_realstack` + V4-0 migrate overlay). **Missing vs living-plan V5-3 / V4-5 DONE quote:** corruption oracle, crash-at-publish/activation-boundary simulation, and “incompatibility” as a real-store barrier case. Partial-publish refusal is Lane C (SQLite) only. Controlling contract voids SQLite as DONE oracle — Lane C cannot substitute. |
-| Task 7 verifier | **partial** | `scripts/plan018_v4_5_verifier.py` exits 0 with 16/16 sidecar checks including migration leaf, realstore gate, grep invariants. **Gap:** `negative_validation_fails` passes via **skip fallback** when `_FakeGen` triggers ORM type error — does not prove a corrupt real row fails (spirit of “deliberately broken fixture would fail”). Several checks are presence/grep-only. |
-| Task 8 closeout | **partial** | `plan018-v4-5-closeout.json` gate PASS; preflight `next_gate: V4-6`; residual debt honestly listed; no push/live mutation. **Gap:** living-plan in deploydocs worktree locally marks V4-5 CLOSED with checkboxes `[x]` before maintainer vault-sync authorization — honest in banner (“local only”) but premature if read without that caveat. |
-| Task 9 SDD whole-branch review | **pass** | `plan018-v4-5-sdd-final-review.md` APPROVED; load-bearing findings (Lane M recipe correction) addressed; no blocking defects recorded. |
-| Task 10 cold review | **pass** | This artifact (fresh independent review, 2026-08-12). |
+| **0** Commit V4-5 WIP locally | **pass** | Two logical commits (`90383381`, `a89fb3dc`) atop Phase 0 evidence; no push; V4-5 paths committed; only excluded SDD noise untracked. |
+| **1** Living-plan honesty | **pass** | deploydocs `60d661c0` reverts premature CLOSED markers; Progress banner reads “remediation in progress — not DONE”; checkboxes unchecked; remote/vault remain Phase 0 “starting”; local-only commit, no push. |
+| **2** Lane C validation + CombinedFitResult + permissions | **pass** | Sidecar gate PASS, 32/32; refusal classes include compatibility, partial_publish, filename_only_validation, stale_generation, invalid_decision_status, precision floors, live publish/activate; `test_publish_combined_fit_result_uses_decision_bands` exercises `CombinedFitResult` → `publish()`; `live:` actor tests on create/activate. |
+| **3** MySQL oracles + abort hooks | **pass** | Sidecar lists 11 named oracles (incl. corruption, taxonomy_corpus_incompat, partial_publish_refused, crash_publish_boundary, crash_activation_boundary); log 11/11; abort hooks mid-create/mid-activate with transactional rollback asserted; `paid_or_live_resources_used: false`. |
+| **4** Verifier hardening | **pass** | 22/22 checks; `negative_validation_fails` uses real ORM row + migrate, not `_FakeGen` skip; requires remediation Lane C + realstore sidecars gate PASS; deliberately broken path fails closed on exception. |
+| **5** Re-run lanes + refresh evidence | **pass** | Lane C 32, Lane M 11, verifier 22/22 all PASS; sidecars refreshed; no `_band_from_status`; no stale lane_m settings. |
+| **6** Closeout / preflight / OI hygiene | **partial** | Living-plan correctly **not** marked CLOSED (ruling 2C). **Gaps:** `plan018-v4-5-closeout.json` still records pre-remediation SHA/counts/residual_debt and claims gate PASS; `plan018-preflight.json` sets `v4_5_status: CLOSED` prematurely; OI `next_action` falsely claims “cold PASS 2026-08-12” when prior review was PARTIAL. Bookkeeping not refreshed post-`a89fb3dc`. |
+| **7** Cold review (this artifact) | **pass** | Fresh independent re-derivation from disk; prior PARTIAL findings re-checked. |
+
+Tasks 8 (push) and 9 (auth menu) are out of scope for this reviewer.
+
+---
+
+## Original V4-5 spec / V5-3 DONE oracle (post-remediation)
+
+| Original concern (prior PARTIAL) | Status |
+|----------------------------------|--------|
+| Uncommitted implementation | **Closed** — committed @ `90383381`/`a89fb3dc` |
+| MySQL corruption oracle | **Closed** — `test_mysql_corruption_refused_on_activate` |
+| Crash at publish/activation boundary | **Closed** — abort-flag oracles with rollback assertions |
+| taxonomy/corpus incompat + partial_publish on MySQL | **Closed** — dedicated Lane M tests |
+| Validation refusal matrix (filename/stale/decision/precision) | **Closed** — Lane C tests + sidecar refusal_classes |
+| CombinedFitResult publish path | **Closed** — `test_publish_combined_fit_result_uses_decision_bands` |
+| Verifier skip-as-pass | **Closed** — real ORM negative check |
+| Permission seams (`live:`) | **Closed** — dedicated Lane C tests |
+| V5-3 real-store barrier set | **Closed** — 11/11 oracles on disposable MySQL REPEATABLE-READ |
+
+**V4-5 DONE quote** (“corruption, mixed generations, incompatibility, failed validation, concurrent activation, and rollback against the real store”): satisfied via Lane M oracles — `reader_single_hash` covers mixed-generation reader view; two_activators covers concurrent activation; rollback/stale_cas/immutable_overwrite/parent_mismatch round out the set. Failed validation classes exercised on Lane C with MySQL barriers for store-specific refusals.
 
 ---
 
 ## Spirit gaps
 
-1. **V5-3 real-store completeness:** Living-plan V5-3 (~L1330–1335) and V4-5 DONE quote require corruption and crash at every publish/activation boundary on the **production MySQL ORM harness**. Six passing MySQL tests cover concurrency/CAS/immutability well but do not satisfy the full DONE oracle wording. Lane C hash-mismatch and partial_publish tests are necessary but, per controlling contract, **cannot** close this gap alone.
+1. **Closeout / preflight / OI ahead of cold PASS:** Evidence files and OI text declare V4-5 CLOSED/cold-PASS before this independent review completed. Living-plan honesty (Task 1) is correct; cross-session bookkeeping is not yet aligned — skimmers could misread preflight/OI as authoritative over the living-plan banner.
 
-2. **Checkbox / Progress honesty:** deploydocs living plan locally shows V4-5 **hermetic CLOSED** with all checkboxes ticked while remote remains at Phase 0 “starting” and implementation is uncommitted. The banner disclaims “local only,” but the visual `[x]` state could mislead skimmers.
+2. **Corruption oracle scope:** Tests tamper `generation_hash` only, not canonical payload fields. Plan wording allowed “and/or”; hash mismatch is the primary integrity gate and is proven on MySQL + verifier, but payload tampering is untested.
 
-3. **CombinedFitResult path:** Plan Task 1 explicitly requires covering `FitResult` **and** `CombinedFitResult`. Code implements `_groups_from_combined`; zero tests invoke it — technically present, not proven.
+3. **Abort hooks are test-only module flags:** Acceptable per maintainer ruling 1A; production default never sets them. Spirit OK for hermetic barrier proof; not a production crash-recovery mechanism.
 
-4. **Verifier negative check:** Passing a check via exception skip is “technically 16/16” but not adversarial proof that validation rejects corrupt stored generations.
-
-5. **Validation breadth:** Refusal logic for filename-only, staleness, and decision-status gates exists in code but lacks refusal-class tests the plan asked for (“at least one failing case per checklist refusal class”).
+4. **`publish_generation(actor="live:…")` not named separately:** Covered by delegation to `create_generation`; functionally equivalent but plan listed all three entry points explicitly.
 
 ---
 
 ## Final verdict on maintainer's will
 
-**Partial carry — hermetic core delivered, DONE oracle incomplete, delivery hygiene unfinished.**
+**PASS — substantive V4-5 remediation complete; hermetic DONE oracle satisfied.**
 
-The maintainer's central intent — immutable generation publish/activate with content hashing, fail-closed pre-activation validation, correct CAS semantics (A→B, stale refuse), audit + rollback, per-turn reader snapshot pin, and telemetry-only risk overlay — is **implemented in code and substantially evidenced** on the correct lanes (Lane C iterative, Lane M disposable MySQL). The session did not touch live DB or production routing, consistent with hard refuses.
+The maintainer's central intent — immutable generation publish/activate with content hashing, fail-closed pre-activation validation, CAS semantics, audit + rollback, per-turn reader snapshot pin, telemetry-only risk overlay, and full V5-3 real-store barrier coverage on disposable MySQL — is **implemented, committed, and evidenced** on the established lanes. Prior PARTIAL findings are closed on disk. Hard refuses respected (no live DB activation, no push, no vault-sync DONE).
 
-However, the **binding V5-3 / V4-5 DONE oracle** (“corruption, mixed generations, incompatibility, failed validation, concurrent activation, and rollback are exercised against the **real store** … crash at every publish/activation boundary”) is **not fully satisfied**: MySQL barriers omit corruption and crash-boundary cases; several validation refusal classes lack tests; and the implementation remains **uncommitted** with living-plan DONE markers only local. I would **not** treat V4-5 as fully closed for vault republish or V4-6 scope authorization without maintainer ruling on the oracle gaps and a commit/push pass.
-
----
-
-## Residual debt (actionable)
-
-1. **Commit V4-5 implementation** — one or more logical commits atop `0bd1549c` (store, validation, overlay, migration 0015, MySQL tests, lane script, verifier); currently ~450 LOC modified + new files untracked.
-2. **MySQL barrier oracles** — add real-store tests for corruption (tampered hash/payload) and crash/partial-boundary at publish/activate (or obtain explicit maintainer deferral ruling documented in evidence).
-3. **Validation test matrix** — add Lane C refusal tests for `filename_only_validation`, staleness, invalid `decision_status`, precision/sample floors.
-4. **CombinedFitResult publish test** — exercise `_groups_from_combined` end-to-end.
-5. **Verifier hardening** — replace `_FakeGen` skip with corrupt `PosteriorGeneration` fixture; fail verifier if negative check skips.
-6. **Living-plan republish discipline** — push/vault-sync CLOSED Progress only after maintainer authorizes; keep remote at “starting” until then.
-7. **Permission seam tests** — assert `live:` actor raises on publish/activate.
-8. **Cleanup** — confirm no stale `test_settings_lane_m.py` left behind (SDD review noted supersession; glob shows none present).
+Task 6 bookkeeping remains incomplete: closeout/preflight/OI must be refreshed to `a89fb3dc` counts (32/11/22) before push or vault-sync; living-plan CLOSED markers should wait for maintainer authorization after this PASS (ruling 2C).
 
 ---
 
-## Authorization menu
+## Residual debt
 
-| Item | Recommendation |
-|------|----------------|
-| **Proceed to V4-6 hermetic?** | **Ask maintainer.** Core V4-5 mechanics are usable for V4-6 selector work, but oracle gaps and uncommitted state should be resolved or explicitly waived first. |
-| **Push V4-5 implementation commits?** | **Recommended after commit.** Branch is 1 commit ahead of `f515392b` (Phase 0 evidence only); implementation not on remote. Push when maintainer approves. |
-| **Vault-sync / republish living-plan V4-5 DONE?** | **Not yet.** Remote/vault still at Phase 0 “starting” SHA; local CLOSED edit uncommitted in deploydocs. Republish after cold review acceptance + implementation commit. |
-| **Live DB activation / production enablement?** | **No** — remain separately gated; no evidence of live mutation this session. |
+1. **Refresh `plan018-v4-5-closeout.json`** — update `worktree_sha` to `a89fb3dc`, counts 32/11/22, oracle list, empty residual_debt except auth-gated items (push, vault-sync, V4-6, live activation).
+2. **Correct `plan018-preflight.json` and OI `next_action`** — remove premature “cold PASS / CLOSED” until maintainer accepts this review; point `next_gate: V4-6` with explicit auth asks.
+3. **Post-PASS living-plan CLOSED** — local deploydocs `[x]` + vault-sync only after maintainer authorization (Task 9).
+4. **Optional hardening:** payload-canonical corruption tamper test on MySQL (low priority; hash path proven).
 
 ---
 
-*Review method: read plan SDD, controlling contract V4-5 voids, living-plan V4-5/V5-3 quotes, all `evidence/plan018-v4-5-*` sidecars/logs, implementation modules, migration 0015, lane scripts, git status, and deploydocs remote vs local state. Prior cold-review and SDD artifacts treated as pointers only; all verdicts re-derived from disk.*
+## Authorization menu (informational — Task 9 is implementer scope)
+
+| Item | Status |
+|------|--------|
+| Push `ultraplan/hibayes-eval-routing` | Ready after closeout refresh; ruling 3B allows push post cold PASS without further ask |
+| Vault-sync living-plan V4-5 DONE | **Ask maintainer** (ruling 2C) |
+| Proceed to V4-6 hermetic | **Ask maintainer** |
+| Live DB activation | **No** — separately gated |
+
+---
+
+*Review method: read remediation plan, living-plan V4-5/V5-3 quotes, all post-remediation sidecars/logs, implementation modules, migration 0015, lane scripts, verifier source, git log @ `a89fb3dc`, deploydocs @ `60d661c0`, and prior PARTIAL review. All verdicts re-derived from disk; no implementer history used.*

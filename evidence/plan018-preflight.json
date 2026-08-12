@@ -111,7 +111,7 @@
   "v4_4_closed_at": "2026-08-11T21:50:00Z",
   "v4_4_closeout": "evidence/plan018-v4-4-closeout.json",
   "v4_5_status": "CLOSED",
-  "v4_5_closed_at": "2026-08-12T17:30:00Z",
+  "v4_5_closed_at": "2026-08-12T22:00:00Z",
   "v4_5_closeout": "evidence/plan018-v4-5-closeout.json",
   "next_gate": "V4-6",
   "v4_5_evidence": {
@@ -119,6 +119,7 @@
     "prereq": "evidence/plan018-v4-5-prereq.json",
     "publish": "evidence/plan018-v4-5-publish.sidecar.json",
     "validate": "evidence/plan018-v4-5-validate.sidecar.json",
+    "remediation_lane_c": "evidence/plan018-v4-5-remediation-lane-c.sidecar.json",
     "cas": "evidence/plan018-v4-5-cas.sidecar.json",
     "snapshot": "evidence/plan018-v4-5-snapshot.sidecar.json",
     "overlay": "evidence/plan018-v4-5-overlay.sidecar.json",
