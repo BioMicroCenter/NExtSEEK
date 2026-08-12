@@ -1159,16 +1159,21 @@ with two thin wrappers around one route-bearing output.
 
 ### V4-7 — Separate experimental evidence from observational monitoring
 
+> **Progress (2026-08-12):** V4-7 **hermetic CLOSED** (cold PASS @ `62911a17` on
+> `ultraplan/hibayes-eval-routing`; vault-sync DONE — deploydocs and registry SHA recorded in
+> `evidence/plan018-v4-7-vault-sync.json`). Lane C **30/30**; Lane M **15/15**; verifier **30/30**.
+> Live DB activation and production routing enablement remain separately gated.
+
 Forced paired evidence and policy-selected online traffic are different data products with distinct
 schemas, lineage, storage, fit entry points, and publication labels.
 
-- [ ] The comparative route posterior may update only from approved forced/randomized paired
+- [x] The comparative route posterior may update only from approved forced/randomized paired
   evidence under the V4 estimand. Policy-selected online outcomes must not update it unless a
   separately reviewed assignment/causal-identification strategy is approved.
-- [ ] Online observations may update route-conditional quality monitoring and playbook guidance.
+- [x] Online observations may update route-conditional quality monitoring and playbook guidance.
   They must carry assignment propensity/policy/generation where available and display selection
   caveats. They cannot claim the counterfactual route would be better.
-- [ ] Add a hard schema/type boundary and tests proving online rows cannot enter the paired fitter.
+- [x] Add a hard schema/type boundary and tests proving online rows cannot enter the paired fitter.
   Alert on policy drift, family mix, missingness, and route-specific outcome changes.
 
 This replaces the goal/Stage 2 sentence that says real usage updates the comparative baseline.
