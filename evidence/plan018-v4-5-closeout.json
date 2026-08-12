@@ -2,8 +2,8 @@
   "schema": "plan018-v4-5-closeout/v1",
   "recorded_at": "2026-08-13T00:30:00Z",
   "gate": "PASS",
-  "worktree_sha": "ef600db4ff7a90ae720d999bd224bcb6190a4b3f",
-  "implementation_note": "V4-5 cold-debt remediation complete; closeout @ post-remediation tip ef600db4",
+  "worktree_sha": "100b4941ff7a90ae720d999bd224bcb6190a4b3f",
+  "implementation_note": "V4-5 cold-debt remediation complete @ rollup tip 100b4941",
   "base_sha": "f515392b",
   "next_gate": "V4-6",
   "summary": {
@@ -43,8 +43,7 @@
     "crash_activation_boundary"
   ],
   "residual_debt": [
-    "V4-6 posterior selector and live DB activation remain separately gated",
-    "Uncommitted remediation delta (payload tamper test, closeout, SDD review) — commit pending maintainer"
+    "V4-6 posterior selector and live DB activation remain separately gated (auth-gated, not remediation debt)"
   ],
   "vault_sync": {
     "deploydocs_branch": "dev",

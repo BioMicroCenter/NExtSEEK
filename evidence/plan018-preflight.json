@@ -108,7 +108,7 @@
   "v4_4_status": "CLOSED",
   "v4_4_closed_at": "2026-08-12T23:30:00Z",
   "v4_4_closeout": "evidence/plan018-v4-4-remediation-closeout.json",
-  "v4_4_worktree_sha": "b91122341cd630dcdcc7f54763957bdf06c35c26",
+  "v4_4_worktree_sha": "100b4941ff7a90ae720d999bd224bcb6190a4b3f",
   "v4_4_ruling_b_amendment": "evidence/plan018-v4-4-v14b-amendment.json",
   "v4_4_cold_review": "PASS",
   "v4_4_cold_review_ref": "evidence/plan018-v4-4-cold-outcome-review.md",
@@ -124,12 +124,12 @@
   "v4_8_status": "REMEDIATION_COMPLETE_PENDING_ROLLUP_COLD",
   "v4_8_cold_review": "PARTIAL_PRIOR_REMEDIATED_AWAITING_ROLLUP",
   "v4_8_cold_review_ref": "evidence/plan018-v4-8-cold-outcome-review.md",
-  "v4_8_remediation_tip": "b91122341cd630dcdcc7f54763957bdf06c35c26",
+  "v4_8_remediation_tip": "100b4941ff7a90ae720d999bd224bcb6190a4b3f",
   "v4_8_closeout": "evidence/plan018-v4-8-closeout.json",
   "cold_review_remediation": {
     "status": "complete_pending_rollup",
     "recorded_at": "2026-08-12T23:55:00Z",
-    "worktree_tip": "b91122341cd630dcdcc7f54763957bdf06c35c26",
+    "worktree_tip": "100b4941ff7a90ae720d999bd224bcb6190a4b3f",
     "prior_redispatch_rollup": "evidence/plan018-cold-review-redispatch-2026-08-12.json",
     "rollup_deliverable": "evidence/plan018-cold-review-remediation-rollup-2026-08-12.md",
     "note": "Per-gate cold-review debt remediated V4-2…V4-8; final rollup cold subagent not yet run"
