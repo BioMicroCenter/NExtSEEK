@@ -2,9 +2,10 @@
   "schema": "plan018-v4-7-closeout/v1",
   "recorded_at": "2026-08-12T20:20:00Z",
   "gate": "PASS",
-  "worktree_sha": "c6086d92",
+  "worktree_sha": "62911a17",
   "base_sha": "b2cca5d7cf56330673442024612be27819b69a9c",
   "next_gate": "V4-8",
+  "implementation_sha": "62911a17",
   "summary": {
     "lane_a_schemas_passed": 11,
     "lane_c_passed": 30,
@@ -27,7 +28,8 @@
     "lane_a_log": "evidence/plan018-v4-7-lane-a-schemas.log",
     "verifier": "evidence/plan018-v4-7-verifier.sidecar.json",
     "sdd_review": "evidence/plan018-v4-7-sdd-final-review.md",
-    "cold_review": "evidence/plan018-v4-7-cold-outcome-review.md"
+    "cold_review": "evidence/plan018-v4-7-cold-outcome-review.md",
+    "vault_sync": "evidence/plan018-v4-7-vault-sync.json"
   },
   "hashes": {
     "evidence_kinds_sha256": "41bd4c3566fdea543f00a95d11d282545742cb71bbca0783c012b64b7d3395e0",
@@ -36,15 +38,15 @@
     "route_monitoring_sha256": "f1993aded7700eb87953227432465b408dac0ca0657da29fb3d7d13b5653fa1c"
   },
   "residual_debt": [
-    "Implementation + evidence commits local only; push awaits maintainer authorization",
-    "deploydocs V4-7 Progress edited locally; Phase 0 push/vault-sync deferred",
-    "Living-plan V4-7 checkboxes remain open until maintainer accepts cold PASS and vault-sync",
     "Task 11 full playbook.py/ns_digest out of scope; route_monitoring is thin monitoring only",
-    "Existing tests calling publish_generation without provenance updated (risk_overlay, eval_publish); broader suite not re-run as full \u00a73.1 baseline"
+    "Existing tests calling publish_generation without provenance updated (risk_overlay, eval_publish); broader suite not re-run as full §3.1 baseline"
   ],
   "vault_sync": {
-    "status": "not_requested",
-    "note": "V4-7 DONE republish awaits maintainer authorization after cold PASS"
-  },
-  "implementation_sha": "c6086d92"
+    "status": "DONE",
+    "ref": "evidence/plan018-v4-7-vault-sync.json",
+    "deploydocs_sha": "f701ac12",
+    "living_plan_sha256": "9cfd9dd3938ee58466e61e476cb25c188af38e639e8d19d954e34420cce6e0c6",
+    "implementation_sha": "62911a17",
+    "registry_commit": "9cf4e03"
+  }
 }
