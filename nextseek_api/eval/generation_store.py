@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import threading
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -18,11 +20,14 @@ from nextseek_api.assistant.models_db import (
 )
 
 __all__ = [
+    "ActivationAbort",
     "ActivationError",
     "EMPTY_ACTIVE_HASH",
     "GenerationManifest",
     "GenerationSnapshot",
+    "PublishAbort",
     "PublishError",
+    "PermissionError",
     "activate_generation",
     "create_generation",
     "get_active_snapshot",
@@ -35,9 +40,42 @@ __all__ = [
     "require_activate_permission",
     "require_publish_permission",
     "rollback_generation",
+    "set_test_abort_activate_after_pointer_mutate",
+    "set_test_abort_publish_after_generation",
 ]
 
 EMPTY_ACTIVE_HASH = ""
+
+
+_test_hooks = threading.local()
+
+
+class PublishAbort(RuntimeError):
+    """Test-only abort mid-publish; rolls back the enclosing transaction."""
+
+
+class ActivationAbort(RuntimeError):
+    """Test-only abort mid-activation; rolls back the enclosing transaction."""
+
+
+def set_test_abort_publish_after_generation(enabled: bool) -> None:
+    _test_hooks.abort_publish_after_generation = enabled
+
+
+def set_test_abort_activate_after_pointer_mutate(enabled: bool) -> None:
+    _test_hooks.abort_activate_after_pointer_mutate = enabled
+
+
+def _should_abort_publish_after_generation() -> bool:
+    return os.environ.get("PLAN018_TEST_ABORT_PUBLISH_AFTER_GENERATION") == "1" or bool(
+        getattr(_test_hooks, "abort_publish_after_generation", False)
+    )
+
+
+def _should_abort_activate_after_pointer_mutate() -> bool:
+    return os.environ.get("PLAN018_TEST_ABORT_ACTIVATE_AFTER_POINTER") == "1" or bool(
+        getattr(_test_hooks, "abort_activate_after_pointer_mutate", False)
+    )
 
 
 class ActivationError(RuntimeError):
@@ -213,6 +251,10 @@ def create_generation(
             payload=payload,
             parent=parent,
         )
+        if _should_abort_publish_after_generation():
+            raise PublishAbort(
+                "test abort after generation row before family posteriors"
+            )
         fitted_at = dj_timezone.now()
         for group in manifest.groups:
             FamilyPosterior.objects.create(
@@ -318,6 +360,8 @@ def activate_generation(
                 "activated_at",
             ]
         )
+        if _should_abort_activate_after_pointer_mutate():
+            raise ActivationAbort("test abort after pointer mutate before audit")
         _record_audit(
             action="activate",
             previous_hash=previous_hash,

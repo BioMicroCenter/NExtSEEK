@@ -127,6 +127,11 @@ sidecar = {
         "immutable_overwrite_refused",
         "rollback",
         "reader_single_hash",
+        "corruption",
+        "taxonomy_corpus_incompat",
+        "partial_publish_refused",
+        "crash_publish_boundary",
+        "crash_activation_boundary",
     ],
     "paid_or_live_resources_used": False,
 }

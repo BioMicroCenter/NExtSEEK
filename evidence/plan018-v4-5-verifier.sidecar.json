@@ -1,8 +1,8 @@
 {
   "schema": "plan018-v4-5-verifier/v1",
   "gate": "PASS",
-  "checks_passed": 16,
-  "checks_total": 16,
+  "checks_passed": 22,
+  "checks_total": 22,
   "errors": [],
   "checks": [
     {
@@ -41,6 +41,16 @@
       "detail": "PASS"
     },
     {
+      "name": "evidence_plan018-v4-5-remediation-lane-c.sidecar.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-5-remediation-lane-c.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-5-remediation-lane-c.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
       "name": "realstore_sidecar_exists",
       "pass": true,
       "detail": "/repo/evidence/plan018-v4-5-realstore.sidecar.json"
@@ -54,6 +64,11 @@
       "name": "mysql_isolation_documented",
       "pass": true,
       "detail": "REPEATABLE-READ"
+    },
+    {
+      "name": "realstore_oracles_complete",
+      "pass": true,
+      "detail": "all"
     },
     {
       "name": "cas_uses_empty_active_hash",
@@ -76,14 +91,29 @@
       "detail": "present"
     },
     {
+      "name": "publish_abort_hook",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "name": "activation_abort_hook",
+      "pass": true,
+      "detail": "present"
+    },
+    {
       "name": "publish_no_band_from_status",
+      "pass": true,
+      "detail": "absent"
+    },
+    {
+      "name": "no_stale_test_settings_lane_m",
       "pass": true,
       "detail": "absent"
     },
     {
       "name": "negative_validation_fails",
       "pass": true,
-      "detail": "skipped runtime: Field 'id' expected a number but got <__main__.main.<locals>._FakeGen object at 0x7f6906431400>."
+      "detail": "('hash: content hash does not match stored generation_hash',)"
     }
   ],
   "paid_or_live_resources_used": false

@@ -1,6 +1,11 @@
+import numpy as np
 import pytest
 
 from nextseek_api.assistant.models_db import FamilyPosterior, PosteriorGeneration
+from nextseek_api.eval.fit.v14.combined import CombinedFitResult
+from nextseek_api.eval.fit.v14.decision import CandidateDecision, DecisionStatus, GenerationDecision
+from nextseek_api.eval.fit.v14.latency_model import LatencyFitResult
+from nextseek_api.eval.fit.v14.quality_model import QualityFitResult
 from nextseek_api.eval.publish import FitGroup, FitResult, publish
 
 pytestmark = pytest.mark.django_db
@@ -73,3 +78,52 @@ def test_republishing_replaces_rather_than_duplicates(fit_result):
         FamilyPosterior.objects.filter(task_family=fit_result.groups[0].name).count()
         == 1
     )
+
+
+def test_publish_combined_fit_result_uses_decision_bands():
+    decision = GenerationDecision(
+        candidates=(
+            CandidateDecision(
+                family="sample_search",
+                status=DecisionStatus.quality_cc,
+                local_error_prob=0.05,
+                activated=True,
+            ),
+        ),
+        posterior_expected_fdr=0.01,
+        activated_families=("sample_search",),
+        generation_status="activated_all",
+        config_fingerprint="fp-combined-test",
+    )
+    combined = CombinedFitResult(
+        quality={
+            "sample_search": QualityFitResult(
+                family="sample_search",
+                state_probs=np.array([0.7, 0.1, 0.1, 0.1]),
+                quality_advantage_ns=0.2,
+                posterior_samples_advantage=np.array([0.2, 0.19, 0.21]),
+                divergences=0,
+                rhat_max=1.0,
+                ess_bulk_min=100.0,
+                ess_tail_min=100.0,
+            )
+        },
+        latency={
+            "sample_search": LatencyFitResult(
+                family="sample_search",
+                posterior_log_d=np.array([-0.1, 0.0, 0.1]),
+                posterior_ns_faster_prob=0.4,
+                divergences=0,
+                rhat_max=1.0,
+                ess_bulk_min=100.0,
+                ess_tail_min=100.0,
+            )
+        },
+        decision=decision,
+        diagnostics_ok=True,
+    )
+    count = publish(combined)
+    assert count == 1
+    row = FamilyPosterior.objects.get(task_family="sample_search")
+    assert row.band == "Reliable"
+    assert row.route == "container_cc"
