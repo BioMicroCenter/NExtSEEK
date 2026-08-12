@@ -1095,29 +1095,30 @@ route. V14 resolves the former V4-4 design STOP; it does not execute or authoriz
 
 ### V4-5 — Immutable generation publication and activation
 
-> **Progress (2026-08-12):** V4-5 hermetic SDD authorized and starting on worktree
-> `ultraplan/hibayes-eval-routing` @ `f515392b` (post-V4-4 cold PASS). Prior scaffold
-> (`PosteriorGeneration`, `FamilyPosterior`, `ActiveGenerationPointer`, `publish.py`,
-> `generation_store.py`) is **not** V4-5 DONE — CAS semantics, validate-before-activate,
-> per-turn snapshot, MySQL barrier oracles, and overlay remain open. Live DB activation and
-> production routing enablement remain separately gated. Evidence:
-> `NExtSEEK-plan018/evidence/plan018-v4-5-phase0-publish.json`.
+> **Progress (2026-08-12):** V4-5 **hermetic CLOSED** (cold PASS) on worktree
+> `ultraplan/hibayes-eval-routing` post-`f515392b`. Immutable publish/activate, CAS + audit +
+> rollback, validate-before-activate, per-turn snapshot pin, telemetry-only overlay, and disposable
+> MySQL barrier oracles (Lane M, REPEATABLE-READ) evidenced. Live DB activation and production
+> routing enablement remain separately gated. Evidence:
+> `NExtSEEK-plan018/evidence/plan018-v4-5-closeout.json`,
+> `plan018-v4-5-cold-outcome-review.md`. Living-plan DONE markers **local only** until republish
+> authorized.
 
 Candidate activation means changing the active posterior-generation pointer. Candidate creation,
 test-database activation, and local or isolated-harness activation require no approval. Ask first
 before changing that pointer in the live NExtSEEK database. Production routing enablement is a
 separate live mutation and requires its own at-time question and approval.
 
-- [ ] Publish immutable candidate generations containing complete input/attempt/aggregate hashes,
+- [x] Publish immutable candidate generations containing complete input/attempt/aggregate hashes,
   all compatibility keys, counts/exclusions, fit diagnostics, decision results, source provenance,
   creation time, and parent generation. Candidate creation and active-generation selection are
   separate transactions and permissions.
-- [ ] Validate schema, hashes, taxonomy/corpus compatibility, staleness, sample/precision gates,
+- [x] Validate schema, hashes, taxonomy/corpus compatibility, staleness, sample/precision gates,
   and decision status before activation. Partial publication, mutable overwrite, or filename-only
   validation fails closed.
-- [ ] Use atomic compare-and-swap activation with an audit row and retain the prior active
+- [x] Use atomic compare-and-swap activation with an audit row and retain the prior active
   generation for rollback. Readers use one snapshotted generation per turn.
-- [ ] Preserve the V2 observational risk overlay as telemetry-only (`may_reroute=false`). V4's
+- [x] Preserve the V2 observational risk overlay as telemetry-only (`may_reroute=false`). V4's
   comparative selector is the sole possible posterior reroute seam.
 
 **V4-5 DONE:** corruption, mixed generations, incompatibility, failed validation, concurrent
