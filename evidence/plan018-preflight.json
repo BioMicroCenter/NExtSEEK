@@ -4,7 +4,7 @@
   "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
   "integration_branch": "ultraplan/hibayes-eval-routing",
   "worktree": "/home/taishajo/work/NExtSEEK-plan018",
-  "dirty_diff_sha256": "post_v4_7_commit_clean",
+  "dirty_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "ownership_map_accepted": true,
   "ownership_map": "evidence/plan018-v4-0-ownership-map.md",
   "ownership_map_acceptance": "evidence/plan018-v4-0-ownership-map-acceptance.json",
@@ -94,9 +94,7 @@
     "baseline_s31": "PASS-WITH-DOCUMENTED-RESIDUAL",
     "baseline_s33": "PASS"
   },
-  "dirty_paths": [
-    "evidence/"
-  ],
+  "dirty_paths": [],
   "v4_0_status": "CLOSED",
   "v4_1_status": "CLOSED",
   "v4_1_closed_at": "2026-08-11T15:00:29Z",
