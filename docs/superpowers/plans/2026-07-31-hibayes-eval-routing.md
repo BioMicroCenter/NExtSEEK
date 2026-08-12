@@ -1095,14 +1095,10 @@ route. V14 resolves the former V4-4 design STOP; it does not execute or authoriz
 
 ### V4-5 — Immutable generation publication and activation
 
-> **Progress (2026-08-12):** V4-5 **hermetic CLOSED** (cold PASS) on worktree
-> `ultraplan/hibayes-eval-routing` post-`f515392b`. Immutable publish/activate, CAS + audit +
-> rollback, validate-before-activate, per-turn snapshot pin, telemetry-only overlay, and disposable
-> MySQL barrier oracles (Lane M, REPEATABLE-READ) evidenced. Live DB activation and production
-> routing enablement remain separately gated. Evidence:
-> `NExtSEEK-plan018/evidence/plan018-v4-5-closeout.json`,
-> `plan018-v4-5-cold-outcome-review.md`. Living-plan DONE markers **local only** until republish
-> authorized.
+> **Progress (2026-08-12):** V4-5 **hermetic CLOSED** (post-remediation cold PASS @ `a89fb3dc`).
+> Lane C 32/32, Lane M 11/11 (disposable MySQL REPEATABLE-READ), verifier 22/22. Remote/vault
+> still at Phase 0 “starting” `2ec98a63` until maintainer vault-sync authorization. Live DB
+> activation and production routing enablement remain separately gated.
 
 Candidate activation means changing the active posterior-generation pointer. Candidate creation,
 test-database activation, and local or isolated-harness activation require no approval. Ask first
