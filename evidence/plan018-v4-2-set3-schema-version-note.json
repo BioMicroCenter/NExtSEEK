@@ -1,0 +1,11 @@
+{
+  "schema": "plan018-evidence-note/v1",
+  "gate": "V4-2",
+  "topic": "set3_historical_schema_version",
+  "recorded_at": "2026-08-12T23:15:00Z",
+  "summary": "Transferred set3_final bayes_manifest.json predates explicit schema_version field on stored artifact; strict pydantic models accept via default for replay-only gate.",
+  "historical_artifact": "testquestions/set3_final/bayes_manifest.json",
+  "v13a_bayes_sha256": "b2afcb1cbfcf908662419db49aa16f82f22afbd9533b7a25053acf6a5641e6c0",
+  "acceptance": "Verifier replays set3 without re-execution; new producer writes must emit schema_version per test_producer_write_emits_schema_versioned_bayes_manifest",
+  "verifier_check": "plan018_v4_2_verifier.py run_verifier PASS on transferred bytes"
+}
