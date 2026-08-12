@@ -59,6 +59,36 @@ def test_online_row_requires_caveat():
         selection_caveat=DEFAULT_SELECTION_CAVEAT,
     )
     assert row.evidence_kind is EvidenceKind.online_observational
+    assert row.propensity_unavailable is True
+
+
+def test_online_row_propensity_available_requires_flag_clear():
+    row = OnlineObservationalRow(
+        observation_id="obs-2",
+        session_id="s1",
+        turn_number=2,
+        route="container_cc",
+        route_source=RouteSource.baml,
+        assignment_propensity=0.75,
+        propensity_unavailable=False,
+        propensity_unavailable_reason=None,
+        selection_caveat=DEFAULT_SELECTION_CAVEAT,
+    )
+    assert row.assignment_propensity == 0.75
+
+
+def test_online_row_rejects_propensity_with_unavailable_flag():
+    with pytest.raises((OnlineEvidenceRejected, Exception)):
+        OnlineObservationalRow(
+            observation_id="obs-3",
+            session_id="s1",
+            turn_number=3,
+            route="container_cc",
+            route_source=RouteSource.baml,
+            assignment_propensity=0.5,
+            propensity_unavailable=True,
+            selection_caveat=DEFAULT_SELECTION_CAVEAT,
+        )
 
 
 def test_online_row_rejects_forced_route_source():

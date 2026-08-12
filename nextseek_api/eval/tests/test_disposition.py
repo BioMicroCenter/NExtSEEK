@@ -87,6 +87,65 @@ def test_missing_arm_pending() -> None:
     assert bucket.bucket is OutcomeBucket.pending
 
 
+def test_exclusion_census_counts_reasons() -> None:
+    from nextseek_api.eval.disposition import ArmBucket, exclusion_census, ExclusionReason
+
+    buckets = [
+        ArmBucket(
+            query_id="q1",
+            route="ns",
+            bucket=OutcomeBucket.excluded,
+            exclusion_reason=ExclusionReason.zero_criteria,
+        )
+    ]
+    census = exclusion_census(buckets)
+    assert census["by_reason"]["zero_criteria"] == 1
+
+
 def test_unknown_value_fail_closed() -> None:
     with pytest.raises(ValueError):
         classify_unknown_value("totally_unknown")
+
+
+def test_timeout_scored_zero() -> None:
+    row = _row(
+        timed_out=True,
+        runtime_success=False,
+        failure_mode=FailureMode.timeout,
+        functional_success=None,
+    )
+    bucket = classify_arm(row)
+    assert bucket.bucket is OutcomeBucket.not_desired
+    assert bucket.scored_value is False
+    assert row.outcome() is False
+
+
+def test_code_error_scored_zero() -> None:
+    row = _row(
+        is_error=True,
+        runtime_success=False,
+        error_class=ErrorClass.code_error,
+        functional_success=None,
+    )
+    bucket = classify_arm(row)
+    assert bucket.bucket is OutcomeBucket.not_desired
+    assert bucket.scored_value is False
+
+
+def test_usage_policy_scored_zero() -> None:
+    row = _row(
+        is_error=True,
+        runtime_success=False,
+        error_class=ErrorClass.usage_policy,
+        functional_success=None,
+    )
+    bucket = classify_arm(row)
+    assert bucket.bucket is OutcomeBucket.not_desired
+    assert bucket.scored_value is False
+
+
+def test_unevaluable_excluded() -> None:
+    row = _row(functional_success=True)
+    bucket = classify_arm(row, unevaluable=True)
+    assert bucket.bucket is OutcomeBucket.excluded
+    assert should_call_judge(row, unevaluable=True) is False

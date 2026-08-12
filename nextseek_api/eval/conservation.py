@@ -10,11 +10,15 @@ from nextseek_api.eval.disposition import ArmBucket, OutcomeBucket, exclusion_ce
 
 __all__ = [
     "ConservationReport",
+    "DifferentialAttritionReport",
     "FitAdmission",
     "SupportGateConfig",
     "build_conservation_report",
+    "build_differential_attrition_report",
     "build_fit_admission",
     "check_support_gate",
+    "compute_sensitivity_bounds",
+    "count_discordant_pairs",
 ]
 
 
@@ -46,6 +50,14 @@ class ConservationReport:
         )
 
 
+@dataclass(frozen=True)
+class DifferentialAttritionReport:
+    by_route: dict[str, dict[str, int]]
+    exclusion_rate_delta: float
+    route_imbalance: bool
+    detail: str
+
+
 class FitAdmission(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -65,6 +77,89 @@ def build_conservation_report(buckets: list[ArmBucket]) -> ConservationReport:
         pending=totals["pending"],
         by_reason=census["by_reason"],
     )
+
+
+def build_differential_attrition_report(buckets: list[ArmBucket]) -> DifferentialAttritionReport:
+    """Per-route exclusion/pending rates; flag route-specific imbalance."""
+    by_route: dict[str, dict[str, int]] = {}
+    for bucket in buckets:
+        route = bucket.route or "unknown"
+        stats = by_route.setdefault(
+            route,
+            {"input": 0, "excluded": 0, "pending": 0, "scored": 0},
+        )
+        stats["input"] += 1
+        if bucket.bucket is OutcomeBucket.excluded:
+            stats["excluded"] += 1
+        elif bucket.bucket is OutcomeBucket.pending:
+            stats["pending"] += 1
+        else:
+            stats["scored"] += 1
+
+    rates: dict[str, float] = {}
+    for route, stats in by_route.items():
+        if stats["input"]:
+            rates[route] = (stats["excluded"] + stats["pending"]) / stats["input"]
+
+    if len(rates) >= 2:
+        values = list(rates.values())
+        delta = max(values) - min(values)
+        imbalance = delta > 0.25
+        detail = f"exclusion+pending rate delta={delta:.3f} across routes {sorted(rates)}"
+    elif rates:
+        delta = 0.0
+        imbalance = False
+        detail = f"single route attrition rate={next(iter(rates.values())):.3f}"
+    else:
+        delta = 0.0
+        imbalance = False
+        detail = "no buckets"
+
+    return DifferentialAttritionReport(
+        by_route=by_route,
+        exclusion_rate_delta=delta,
+        route_imbalance=imbalance,
+        detail=detail,
+    )
+
+
+def compute_sensitivity_bounds(
+    admission: FitAdmission,
+    pairs: list[dict[str, Any]],
+    buckets_by_arm: dict[str, ArmBucket],
+    *,
+    config: SupportGateConfig | None = None,
+) -> dict[str, Any]:
+    """Bounds on retained/discordant pairs if pending arms resolve favorably or unfavorably."""
+    cfg = config or SupportGateConfig()
+    retained = len(admission.retained_pairs)
+    discordant = count_discordant_pairs(pairs, buckets_by_arm)
+    pending_pairs = len(admission.pending_pair_ids)
+    excluded_pairs = len(admission.excluded_pair_ids)
+
+    max_retained = retained + pending_pairs + excluded_pairs
+    max_discordant = discordant + pending_pairs + excluded_pairs
+    min_retained = retained
+    min_discordant = discordant
+
+    return {
+        "retained_pairs": {
+            "observed": retained,
+            "min": min_retained,
+            "max": max_retained,
+            "min_passes_gate": min_retained >= cfg.min_retained_pairs,
+            "max_passes_gate": max_retained >= cfg.min_retained_pairs,
+        },
+        "discordant_pairs": {
+            "observed": discordant,
+            "min": min_discordant,
+            "max": max_discordant,
+            "min_passes_gate": min_discordant >= cfg.min_discordant_pairs,
+            "max_passes_gate": max_discordant >= cfg.min_discordant_pairs,
+        },
+        "pending_pairs": pending_pairs,
+        "excluded_pairs": excluded_pairs,
+    }
 
 
 def build_fit_admission(
@@ -114,11 +209,34 @@ def check_support_gate(
     config: SupportGateConfig | None = None,
     *,
     discordant_pairs: int | None = None,
+    buckets: list[ArmBucket] | None = None,
+    pairs: list[dict[str, Any]] | None = None,
+    buckets_by_arm: dict[str, ArmBucket] | None = None,
 ) -> dict[str, Any]:
     cfg = config or SupportGateConfig()
     discordant = discordant_pairs if discordant_pairs is not None else 0
     retained = len(admission.retained_pairs)
     passes = retained >= cfg.min_retained_pairs and discordant >= cfg.min_discordant_pairs
+
+    differential: dict[str, Any] | None = None
+    if buckets is not None:
+        report = build_differential_attrition_report(buckets)
+        differential = {
+            "by_route": report.by_route,
+            "exclusion_rate_delta": report.exclusion_rate_delta,
+            "route_imbalance": report.route_imbalance,
+            "detail": report.detail,
+        }
+
+    sensitivity: dict[str, Any] | None = None
+    if pairs is not None and buckets_by_arm is not None:
+        sensitivity = compute_sensitivity_bounds(
+            admission,
+            pairs,
+            buckets_by_arm,
+            config=cfg,
+        )
+
     return {
         "passes": passes,
         "retained_pairs": retained,
@@ -129,6 +247,8 @@ def check_support_gate(
             "excluded_pairs": len(admission.excluded_pair_ids),
             "pending_pairs": len(admission.pending_pair_ids),
         },
+        "differential_attrition": differential,
+        "sensitivity_bounds": sensitivity,
     }
 
 

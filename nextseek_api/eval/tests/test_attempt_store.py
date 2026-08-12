@@ -73,3 +73,65 @@ def test_invalid_call_index_rejected(tmp_path: Path) -> None:
             response_bytes=b"resp",
             status="succeeded",
         )
+
+
+def test_store_reload_existing_index(tmp_path: Path) -> None:
+    store = AttemptStore(tmp_path)
+    rec = store.write_attempt(
+        arm_id="arm-1",
+        call_index=0,
+        input_fingerprint="fp1",
+        model_id="mock",
+        prompt_version="v1",
+        evaluator_version="v1",
+        request_bytes=b"req",
+        response_bytes=b"resp",
+        status="succeeded",
+    )
+    reloaded = AttemptStore(tmp_path)
+    assert reloaded.load_attempt(rec.attempt_id).arm_id == "arm-1"
+
+
+def test_empty_payload_bytes_rejected(tmp_path: Path) -> None:
+    store = AttemptStore(tmp_path)
+    with pytest.raises(AttemptStoreError):
+        store.write_attempt(
+            arm_id="arm-1",
+            call_index=0,
+            input_fingerprint="fp1",
+            model_id="mock",
+            prompt_version="v1",
+            evaluator_version="v1",
+            request_bytes=b"",
+            response_bytes=b"resp",
+            status="succeeded",
+        )
+
+
+def test_export_manifest_and_list_arm(tmp_path: Path) -> None:
+    store = AttemptStore(tmp_path)
+    store.write_attempt(
+        arm_id="arm-1",
+        call_index=1,
+        input_fingerprint="fp1",
+        model_id="mock",
+        prompt_version="v1",
+        evaluator_version="v1",
+        request_bytes=b"req1",
+        response_bytes=b"resp1",
+        status="succeeded",
+    )
+    store.write_attempt(
+        arm_id="arm-1",
+        call_index=0,
+        input_fingerprint="fp1",
+        model_id="mock",
+        prompt_version="v1",
+        evaluator_version="v1",
+        request_bytes=b"req0",
+        response_bytes=b"resp0",
+        status="succeeded",
+    )
+    listed = store.list_arm_attempts("arm-1")
+    assert [r.call_index for r in listed] == [0, 1]
+    assert len(store.export_manifest()) == 2

@@ -1,0 +1,27 @@
+{
+  "schema": "plan018-v4-3-coverage/v1",
+  "recorded_at": "2026-08-12T23:45:00Z",
+  "gate": "PASS",
+  "threshold_line_pct": 95,
+  "lane": "A_host_hermetic",
+  "command": "PYTHONPATH=$PWD uv run --no-project --with pytest --with pytest-cov --with pydantic --with orjson python -m pytest nextseek_api/eval/tests/test_{human_annotations,conservation,disposition,judge_mutations,judge_aggregation,attempt_store,stage_c_runner}.py --cov=nextseek_api.eval.{human_annotations,conservation,disposition,judge,judge_models,attempt_store,stage_c_runner} --noconftest -q",
+  "tests_passed": 80,
+  "modules": {
+    "nextseek_api/eval/human_annotations.py": {"statements": 110, "missed": 6, "line_pct": 95},
+    "nextseek_api/eval/conservation.py": {"statements": 128, "missed": 5, "line_pct": 96},
+    "nextseek_api/eval/disposition.py": {"statements": 73, "missed": 3, "line_pct": 96},
+    "nextseek_api/eval/judge.py": {"statements": 57, "missed": 1, "line_pct": 98},
+    "nextseek_api/eval/judge_models.py": {"statements": 84, "missed": 0, "line_pct": 100},
+    "nextseek_api/eval/attempt_store.py": {"statements": 110, "missed": 4, "line_pct": 96},
+    "nextseek_api/eval/stage_c_runner.py": {"statements": 65, "missed": 1, "line_pct": 98}
+  },
+  "total_line_pct": 97,
+  "coverage_json": "evidence/plan018-v4-3-coverage.json",
+  "lane_c_confirmation": {
+    "lane": "C_docker_worktree_mount",
+    "tests_passed": 80,
+    "junitxml": "evidence/plan018-v4-3-remediation-lane-c.junit.xml"
+  },
+  "verifier_checks": 14,
+  "paid_or_live_resources_used": false
+}

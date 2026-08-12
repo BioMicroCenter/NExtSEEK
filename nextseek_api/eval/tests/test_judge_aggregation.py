@@ -4,6 +4,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
@@ -98,6 +100,16 @@ def test_aggregate_three_evaluations_exactly_three() -> None:
     agg = aggregate_three_evaluations(evs)
     assert agg["stage_c_call_count"] == 3
     assert agg["functional_success"] is True
+
+
+def test_aggregate_three_evaluations_rejects_wrong_count() -> None:
+    with pytest.raises(ValueError):
+        aggregate_three_evaluations((_ev(), _ev()))
+
+
+def test_unknown_primary_issue_fail_closed() -> None:
+    with pytest.raises(ValueError, match="unknown primary_issue"):
+        aggregate_primary_issue(("NoIssue", "NoIssue", "TotallyUnknown"))
 
 
 def test_no_confidence_field_in_judge_module() -> None:

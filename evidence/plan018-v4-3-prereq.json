@@ -1,8 +1,9 @@
 {
   "schema": "plan018-v4-3-prereq/v1",
-  "recorded_at": "2026-08-11T19:35:00Z",
+  "recorded_at": "2026-08-12T23:30:00Z",
   "gate": "PASS",
-  "worktree_sha": "35b46d3a6f75614915d2075b2cd7f59df440c0ac",
+  "remediation": "cold-review-debt-v43",
+  "worktree_sha": "3c6a17e246633883b299a497841b5a00c4229e8f",
   "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
   "checks": {
     "preflight_v4_0_closed": true,
@@ -11,12 +12,23 @@
     "preflight_next_gate_v4_3": true,
     "vendor_pin_dcca50c": true,
     "aggregation_operators_present": true,
-    "judge_py_absent": true,
+    "judge_py_absent_on_entry": true,
     "v4_1_gate_pass": true,
     "test_lane_ops_harness": "/home/taishajo/work/OPS-TESTING-HARNESSES.md",
     "test_lane_v4_2_host_sidecar": "evidence/plan018-v4-2-host-lane.sidecar.json",
     "test_lane_v4_2_product_sidecar": "evidence/plan018-v4-2-product-seams.sidecar.json",
     "default_lanes": ["A_host_hermetic", "C_docker_worktree_mount"]
+  },
+  "v13a": {
+    "authority": "V13-A",
+    "delivery_path": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07",
+    "zip_path": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip",
+    "zip_sha256": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814",
+    "manifest_sha256": "d14cb4b153448e295110f3bfdbc5004f1e0455e0673ebcac15ecfe9d635227c2",
+    "corpus_sha256": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652",
+    "bayes_manifest_sha256": "b2afcb1cbfcf908662419db49aa16f82f22afbd9533b7a25053acf6a5641e6c0",
+    "v4_1_verify_json": "evidence/plan018-v4-1-v13a-verify.json",
+    "rebind_at_prereq": true
   },
   "hard_refuses_in_force": true,
   "paid_or_live_resources_used": false

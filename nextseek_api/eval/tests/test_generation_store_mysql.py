@@ -150,6 +150,20 @@ def test_mysql_corruption_refused_on_activate():
     assert get_current_active_hash() == before
 
 
+def test_mysql_payload_canonical_tamper_refused_on_activate():
+    generation = publish_generation(_manifest("canonical-tamper"))
+    before = get_current_active_hash()
+    payload = dict(generation.payload or {})
+    canonical = dict(payload.get("_canonical_hash_inputs") or {})
+    canonical["aggregate_hash"] = "tampered-aggregate-hash"
+    payload["_canonical_hash_inputs"] = canonical
+    generation.payload = payload
+    generation.save(update_fields=["payload"])
+    with pytest.raises(ValidationError, match="hash"):
+        activate_generation(generation, expected_hash=EMPTY_ACTIVE_HASH)
+    assert get_current_active_hash() == before
+
+
 def test_mysql_taxonomy_corpus_incompat_refused():
     generation = publish_generation(_manifest("incompat", compatibility_keys={}))
     with pytest.raises(ValidationError, match="compatibility"):

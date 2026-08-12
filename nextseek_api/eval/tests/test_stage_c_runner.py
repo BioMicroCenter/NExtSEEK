@@ -67,3 +67,48 @@ def test_stage_c_rejects_non_three_max_calls(tmp_path: Path) -> None:
 def test_unknown_outcome_fail_closed_on_aggregate() -> None:
     with pytest.raises(ValueError, match="unknown outcome"):
         aggregate_outcome(("FullySatisfied", "FullySatisfied", "TotallyUnknown"))
+
+
+def test_stage_c_partial_on_evaluator_failure(tmp_path: Path) -> None:
+    store = AttemptStore(tmp_path)
+    runner = StageCRunner(store)
+
+    def evaluator(arm_id: str, call_index: int, fp: str) -> FunctionalEvaluation:
+        if call_index == 1:
+            raise RuntimeError("provider blip")
+        return _ev()
+
+    result = runner.run_arm("arm-fail", "fp", evaluator)
+    assert result.call_count == 2
+    assert result.status != STAGE_C_STATUS_COMPLETE
+    assert result.aggregate.get("partial") is True
+
+
+def test_stage_c_failed_when_all_calls_fail(tmp_path: Path) -> None:
+    store = AttemptStore(tmp_path)
+    runner = StageCRunner(store)
+
+    def evaluator(arm_id: str, call_index: int, fp: str) -> FunctionalEvaluation:
+        raise RuntimeError("down")
+
+    result = runner.run_arm("arm-down", "fp", evaluator)
+    assert result.call_count == 0
+    assert result.aggregate.get("failed") is True
+
+
+def test_stage_c_replay_partial_when_incomplete(tmp_path: Path) -> None:
+    store = AttemptStore(tmp_path)
+    runner = StageCRunner(store)
+    runner.run_arm("arm-partial", "fp", lambda *a: _ev())
+    # only one attempt persisted manually by partial run - use evaluator that fails after 1
+    store2 = AttemptStore(tmp_path / "other")
+    runner2 = StageCRunner(store2)
+
+    def flaky(arm_id: str, call_index: int, fp: str) -> FunctionalEvaluation:
+        if call_index > 0:
+            raise RuntimeError("stop")
+        return _ev()
+
+    runner2.run_arm("arm-x", "fp", flaky)
+    replay = runner2.replay_arm("arm-x")
+    assert replay.aggregate.get("replay_partial") is True

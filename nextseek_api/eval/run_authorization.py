@@ -5,21 +5,25 @@ import hashlib
 import json
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
 
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 
 from nextseek_api.assistant.models_db import ApprovedRunManifest, SpendReservation
+from nextseek_api.eval.run_manifest import RunManifest, manifest_body_hash, validate_manifest_dict
 
 __all__ = [
     "AuthorizationError",
     "ApprovedManifest",
     "ReservationResult",
     "approve_manifest",
+    "approve_run_manifest",
     "manifest_hash",
     "reconcile_reservation",
     "release_reservation",
+    "expire_stale_reservations",
     "require_reservation",
     "reserve_budget",
 ]
@@ -44,31 +48,69 @@ class ReservationResult:
     remaining_calls: int
 
 
-def manifest_hash(manifest: dict) -> str:
-    return hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
+def manifest_hash(manifest: dict[str, Any]) -> str:
+    return manifest_body_hash(validate_manifest_dict(manifest))
+
+
+def approve_run_manifest(manifest: RunManifest | dict[str, Any]) -> ApprovedRunManifest:
+    if isinstance(manifest, RunManifest):
+        body = manifest.model_dump(mode="json")
+    else:
+        body = validate_manifest_dict(manifest)
+    fp = manifest_body_hash(body)
+    if ApprovedRunManifest.objects.filter(manifest_hash=fp).exists():
+        existing = ApprovedRunManifest.objects.get(manifest_hash=fp)
+        if existing.manifest != body:
+            raise AuthorizationError("manifest hash collision with different body")
+        if existing.consumed:
+            raise AuthorizationError("manifest already consumed")
+        return existing
+    expires_at = manifest.approval_expires_at if isinstance(manifest, RunManifest) else body["approval_expires_at"]
+    if isinstance(expires_at, str):
+        from datetime import datetime
+
+        expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    return ApprovedRunManifest.objects.create(
+        manifest_hash=fp,
+        manifest=body,
+        approved_at=timezone.now(),
+        expires_at=expires_at,
+        max_spend_usd=Decimal(str(body["hard_cap_usd"])),
+        max_calls=int(body["max_calls"]),
+        consumed=False,
+    )
 
 
 def approve_manifest(
-    manifest: dict,
+    manifest: dict[str, Any],
     *,
-    max_spend_usd: Decimal,
-    max_calls: int,
+    max_spend_usd: Decimal | None = None,
+    max_calls: int | None = None,
     ttl_seconds: int = 3600,
 ) -> ApprovedRunManifest:
+    body = validate_manifest_dict(manifest)
+    if max_spend_usd is None:
+        max_spend_usd = Decimal(str(body["hard_cap_usd"]))
+    if max_calls is None:
+        max_calls = int(body["max_calls"])
+    fp = manifest_body_hash(body)
+    if ApprovedRunManifest.objects.filter(manifest_hash=fp).exists():
+        existing = ApprovedRunManifest.objects.get(manifest_hash=fp)
+        if existing.manifest != body:
+            raise AuthorizationError("manifest hash collision with different body")
+        if existing.consumed:
+            raise AuthorizationError("manifest already consumed")
+        return existing
     now = timezone.now()
-    fp = manifest_hash(manifest)
-    record, _ = ApprovedRunManifest.objects.update_or_create(
+    return ApprovedRunManifest.objects.create(
         manifest_hash=fp,
-        defaults={
-            "manifest": manifest,
-            "approved_at": now,
-            "expires_at": now + timezone.timedelta(seconds=ttl_seconds),
-            "max_spend_usd": max_spend_usd,
-            "max_calls": max_calls,
-            "consumed": False,
-        },
+        manifest=body,
+        approved_at=now,
+        expires_at=now + timezone.timedelta(seconds=ttl_seconds),
+        max_spend_usd=max_spend_usd,
+        max_calls=max_calls,
+        consumed=False,
     )
-    return record
 
 
 def _load_manifest(manifest_hash_value: str) -> ApprovedRunManifest:
@@ -87,6 +129,12 @@ def _reserved_totals(record: ApprovedRunManifest) -> tuple[Decimal, int]:
     pending = record.reservations.filter(status=SpendReservation.STATUS_PENDING)
     reserved_usd = pending.aggregate(total=Sum("reserved_usd"))["total"] or Decimal("0")
     return reserved_usd, pending.count()
+
+
+def _reconciled_total(record: ApprovedRunManifest) -> Decimal:
+    return record.reservations.filter(status=SpendReservation.STATUS_RECONCILED).aggregate(
+        total=Sum("actual_usd")
+    )["total"] or Decimal("0")
 
 
 def reserve_budget(
@@ -111,20 +159,22 @@ def reserve_budget(
         existing = SpendReservation.objects.filter(idempotency_key=idempotency_key).first()
         if existing is not None:
             reserved_usd, pending_calls = _reserved_totals(record)
+            reconciled = _reconciled_total(record)
             return ReservationResult(
                 attempt_id=existing.attempt_id,
                 reserved_usd=existing.reserved_usd,
-                remaining_usd=record.max_spend_usd - reserved_usd,
+                remaining_usd=record.max_spend_usd - reserved_usd - reconciled,
                 remaining_calls=record.max_calls - pending_calls,
             )
 
         reserved_usd, pending_calls = _reserved_totals(record)
-        reconciled = record.reservations.filter(status=SpendReservation.STATUS_RECONCILED).aggregate(
-            total=Sum("actual_usd")
-        )["total"] or Decimal("0")
+        reconciled = _reconciled_total(record)
         if reserved_usd + reconciled + max_cost_usd > record.max_spend_usd:
             raise AuthorizationError("spend cap exceeded")
-        if pending_calls + record.reservations.filter(status=SpendReservation.STATUS_RECONCILED).count() >= record.max_calls:
+        reconciled_count = record.reservations.filter(
+            status=SpendReservation.STATUS_RECONCILED
+        ).count()
+        if pending_calls + reconciled_count >= record.max_calls:
             raise AuthorizationError("call cap exceeded")
 
         SpendReservation.objects.create(
@@ -176,6 +226,15 @@ def release_reservation(attempt_id: str) -> SpendReservation:
             reservation.reconciled_at = timezone.now()
             reservation.save(update_fields=["status", "reconciled_at"])
     return reservation
+
+
+def expire_stale_reservations(*, older_than_seconds: int = 3600) -> int:
+    cutoff = timezone.now() - timezone.timedelta(seconds=older_than_seconds)
+    updated = SpendReservation.objects.filter(
+        status=SpendReservation.STATUS_PENDING,
+        created_at__lt=cutoff,
+    ).update(status=SpendReservation.STATUS_EXPIRED, reconciled_at=timezone.now())
+    return updated
 
 
 def mark_manifest_consumed(manifest_hash_value: str) -> None:

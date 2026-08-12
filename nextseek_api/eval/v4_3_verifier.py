@@ -12,8 +12,10 @@ from nextseek_api.eval.attempt_store import AttemptStore
 from nextseek_api.eval.conservation import (
     SupportGateConfig,
     build_conservation_report,
+    build_differential_attrition_report,
     build_fit_admission,
     check_support_gate,
+    compute_sensitivity_bounds,
     count_discordant_pairs,
 )
 from nextseek_api.eval.disposition import ArmBucket, OutcomeBucket, classify_arm
@@ -152,10 +154,33 @@ def run_verifier(*, zip_path: Path = V13A_ZIP) -> VerifierReport:
         )
     )
     discordant = count_discordant_pairs(pairs, bmap)
-    gate = check_support_gate(admission, SupportGateConfig(min_retained_pairs=1, min_discordant_pairs=1))
-    gate["discordant_pairs"] = discordant
+    gate = check_support_gate(
+        admission,
+        SupportGateConfig(min_retained_pairs=1, min_discordant_pairs=1),
+        discordant_pairs=discordant,
+        buckets=list(bmap.values()),
+        pairs=pairs,
+        buckets_by_arm=bmap,
+    )
     gate["passes"] = len(admission.retained_pairs) >= 1 and discordant >= 1
     checks.append(_check("support_gate_fixture", gate["passes"], json.dumps(gate)))
+
+    diff = build_differential_attrition_report(list(bmap.values()))
+    checks.append(
+        _check(
+            "differential_attrition_report",
+            bool(diff.by_route),
+            diff.detail,
+        )
+    )
+    bounds = compute_sensitivity_bounds(admission, pairs, bmap, config=SupportGateConfig(min_retained_pairs=1, min_discordant_pairs=1))
+    checks.append(
+        _check(
+            "sensitivity_bounds_present",
+            "retained_pairs" in bounds and "discordant_pairs" in bounds,
+            json.dumps(bounds),
+        )
+    )
 
     checks.append(
         _check(

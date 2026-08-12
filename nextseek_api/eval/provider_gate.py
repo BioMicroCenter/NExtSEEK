@@ -14,7 +14,20 @@ from nextseek_api.eval.run_authorization import (
 
 T = TypeVar("T")
 
-__all__ = ["AuthorizationError", "guarded_provider_call"]
+# Test-only crash injection (default off — mirror V4-5 abort hooks).
+CRASH_BEFORE_RESERVE = False
+CRASH_AFTER_RESERVE = False
+CRASH_AFTER_PROVIDER = False
+CRASH_BEFORE_RECONCILE = False
+
+__all__ = [
+    "AuthorizationError",
+    "CRASH_AFTER_PROVIDER",
+    "CRASH_AFTER_RESERVE",
+    "CRASH_BEFORE_RECONCILE",
+    "CRASH_BEFORE_RESERVE",
+    "guarded_provider_call",
+]
 
 
 def guarded_provider_call(
@@ -26,18 +39,30 @@ def guarded_provider_call(
     fn: Callable[[], T],
     actual_cost_fn: Callable[[T], Decimal] | None = None,
 ) -> T:
+    if CRASH_BEFORE_RESERVE:
+        raise RuntimeError("crash before reserve")
+
     reserve_budget(
         manifest_hash_value,
         attempt_id=attempt_id,
         idempotency_key=idempotency_key,
         max_cost_usd=max_cost_usd,
     )
+    if CRASH_AFTER_RESERVE:
+        raise RuntimeError("crash after reserve")
+
     require_reservation(manifest_hash_value, attempt_id)
     try:
         result = fn()
     except Exception:
         release_reservation(attempt_id)
         raise
+
+    if CRASH_AFTER_PROVIDER:
+        raise RuntimeError("crash after provider")
+
     actual = actual_cost_fn(result) if actual_cost_fn else max_cost_usd
+    if CRASH_BEFORE_RECONCILE:
+        raise RuntimeError("crash before reconcile")
     reconcile_reservation(attempt_id, actual_usd=actual)
     return result
