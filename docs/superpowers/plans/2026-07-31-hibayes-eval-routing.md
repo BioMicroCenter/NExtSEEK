@@ -896,21 +896,25 @@ completed `set3_final` evidence.
 - [x] Enforce the conservation equation for every run and each arm:
   `input = scored_desired + scored_not_desired + excluded_by_reason + pending`.
   Pair inclusion additionally requires two retained arms.
-- [x] Apply V14's configurable default minimum of five retained pairs and two discordant pairs for
-  any winner. Report differential attrition and sensitivity bounds; never hide a route-specific
-  exclusion imbalance or use it to bypass the support rule.
+- [x] Apply V14's configurable default minimum of five retained pairs for any winner, and two
+  discordant pairs for **quality** winners only (ruling B, 2026-08-12). Latency winners after ROPE
+  require retained minimum plus ROPE and latency posteriors, not discordant count. Report differential
+  attrition and sensitivity bounds; never hide a route-specific exclusion imbalance or use it to
+  bypass the support rule.
 
 **V4-3 DONE:** raw-attempt replay deterministically reproduces aggregates and totals, deliberate
 failure/outage/unknown-status tests fail safely, and no excluded or pending case reaches the fit.
 
 ### V4-4 — Paired model and operational decision contract (resolved by V14)
 
-> **Progress (2026-08-11):** V4-4 closed on worktree `45e5227f` (`ultraplan/hibayes-eval-routing`).
-> V14 pair-preserving fitter, quality/latency/decision/FDR modules, vendor scaffold, eval image,
-> 48 eval unit tests, 40-slot recovery matrix (fast path), verifier PASS (12 checks). Residual debt
-> closeout added migrations (TurnLedger/TurnJudgment/PosteriorGeneration), judge cache, publish +
-> generation store, V4-8 reservation gate. Evidence: `NExtSEEK-plan018/evidence/plan018-v4-4-closeout.json`,
-> `plan018-v4-4-debt-closeout.json`. MCMC recovery evidence: `plan018-v4-4-recovery-mcmc.json`.
+> **Progress (2026-08-12):** V4-4 remediation closed cold-review FAIL items on worktree
+> `ultraplan/hibayes-eval-routing`. Ruling **B** amended V14 support (discordance for quality winners
+> only; latency-after-ROPE uses retained minimum + ROPE + latency posteriors). Matrix re-frozen under
+> `v14b-ruling-b`; fail-closed `recovery_runner` + `recovery_acceptance.py`; 63 Lane A unit tests;
+> 28 Lane C product tests; verifier 13/13; **40/40 MCMC recovery PASS** (`diagnostics_ok` 0 failures,
+> wrong-direction 0, strong 4/5+, indecisive 5/5). MCMC config bump: warmup 600 / samples 2000 / chains 2.
+> Evidence: `NExtSEEK-plan018/evidence/plan018-v4-4-remediation-closeout.json`,
+> `plan018-v4-4-recovery-mcmc.json`, `plan018-v4-4-cold-outcome-review.md` (PASS).
 
 `nextseek_api/eval/router_models_proposal.py` already defines the arm-level pydantic data contract.
 V4-4 is not another row-schema design exercise. It covers only the remaining pair-preserving
@@ -972,10 +976,11 @@ fingerprinted defaults. A clear quality winner is selected regardless of latency
 veto or overturn it. There are no taxonomy-specific exceptions; genuine one-route-only capability
 is protected by combined-success evidence itself.
 
-**Quality equivalence gate.** Latency may affect a winner only when support passes and
-`P(abs(quality_advantage_ns) <= 0.10 | evidence) >= 0.95`. The ROPE half-width `0.10` and
-equivalence probability `0.95` are configurable, versioned and fingerprinted. Outside a clear
-quality winner or this equivalence gate, the result is indecisive and uses the exact legacy fallback.
+**Quality equivalence gate.** Latency may affect a winner only when the retained-pair minimum passes
+and `P(abs(quality_advantage_ns) <= 0.10 | evidence) >= 0.95`. Discordant-pair count is not required
+on the latency path (ruling B). The ROPE half-width `0.10` and equivalence probability `0.95` are
+configurable, versioned and fingerprinted. Outside a clear quality winner or this equivalence gate,
+the result is indecisive and uses the exact legacy fallback.
 
 **Paired robust latency model.** Let
 `d = log(latency_ns / latency_cc) = log(latency_ns) - log(latency_cc)`. Model `d` with the paired
@@ -1068,8 +1073,9 @@ frequentist calibration, coverage, type-I error or power. V4-4 DONE requires:
 - independent recomputation matching eligibility and winner exactly for every fit, with negative
   controls publishing no winner; and
 - mutation tests proving cost and the `25%` slowdown warning cannot affect a winner, latency cannot
-  overturn a quality winner, insufficient support/discordance cannot win, the complete-set FDR rule
-  cannot cherry-pick, and `unrelated` always takes its permanent canned spend-gate path.
+  overturn a quality winner, insufficient retained support cannot win, insufficient discordance cannot
+  **quality**-win (latency may win with zero discordance when ROPE and speed hold), the complete-set
+  FDR rule cannot cherry-pick, and `unrelated` always takes its permanent canned spend-gate path.
 
 Before the suite proceeds, run five representative fits selected from the already frozen
 eight-by-five matrix and measure their durations. Those five are the first five of the required
