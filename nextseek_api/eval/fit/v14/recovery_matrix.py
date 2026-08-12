@@ -45,7 +45,11 @@ class RecoverySlot:
 
 
 def matrix_fingerprint() -> str:
-    payload = {"scenarios": [s.value for s in RECOVERY_SCENARIOS], "seeds": list(recovery_seeds())}
+    payload = {
+        "contract": "v14b-ruling-b",
+        "scenarios": [s.value for s in RECOVERY_SCENARIOS],
+        "seeds": list(recovery_seeds()),
+    }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
@@ -69,35 +73,148 @@ def build_scenario_rows(scenario: RecoveryScenario) -> list[PairFitRow]:
 
     rows: list[PairFitRow] = []
     if scenario == RecoveryScenario.below_min_support:
-        for i in range(3):
-            rows.append(_mk_row(i, "small_fam", JointQualityState.both_succeed, LatencyObservationKind.observed, log_latency_ns=math.log(2.0), log_latency_cc=math.log(2.1)))
+        for i in range(4):
+            base = 2.0 + i * 0.08
+            rows.append(
+                _mk_row(
+                    i,
+                    "small_fam",
+                    JointQualityState.both_succeed,
+                    LatencyObservationKind.observed,
+                    log_latency_ns=math.log(base),
+                    log_latency_cc=math.log(base * 1.04),
+                )
+            )
         return rows
 
     n = 8
+    if scenario in {
+        RecoveryScenario.quality_eq_ns_faster,
+        RecoveryScenario.quality_eq_cc_faster,
+        RecoveryScenario.null_equal,
+        RecoveryScenario.adversarial_outliers,
+        RecoveryScenario.right_censor_30pct,
+    }:
+        n = 12
     for i in range(n):
         if scenario == RecoveryScenario.null_equal:
-            st = JointQualityState.both_succeed if i % 2 == 0 else JointQualityState.both_fail
-        elif scenario == RecoveryScenario.ns_strong_quality:
+            if i % 3 == 0:
+                rows.append(_mk_row(i, "fam_a", JointQualityState.both_fail, LatencyObservationKind.latency_uninformative))
+                continue
+            base = 2.0 + i * 0.05
+            if i % 2 == 0:
+                log_ns, log_cc = math.log(base), math.log(base * 1.05)
+            else:
+                log_ns, log_cc = math.log(base * 1.05), math.log(base)
+            rows.append(
+                _mk_row(
+                    i,
+                    "fam_a",
+                    JointQualityState.both_succeed,
+                    LatencyObservationKind.observed,
+                    log_latency_ns=log_ns,
+                    log_latency_cc=log_cc,
+                )
+            )
+            continue
+        if scenario == RecoveryScenario.ns_strong_quality:
             st = JointQualityState.nextseek_only_succeeds
         elif scenario == RecoveryScenario.cc_strong_quality:
             st = JointQualityState.container_cc_only_succeeds
-        elif scenario == RecoveryScenario.quality_eq_ns_faster:
+        elif scenario in {RecoveryScenario.quality_eq_ns_faster, RecoveryScenario.quality_eq_cc_faster, RecoveryScenario.right_censor_30pct}:
             st = JointQualityState.both_succeed
-        elif scenario == RecoveryScenario.quality_eq_cc_faster:
-            st = JointQualityState.both_succeed
-        elif scenario == RecoveryScenario.right_censor_30pct:
-            st = JointQualityState.both_succeed
+        elif scenario == RecoveryScenario.adversarial_outliers:
+            st = JointQualityState.both_fail if i % 4 == 0 else JointQualityState.both_succeed
         else:
             st = JointQualityState.nextseek_only_succeeds if i % 5 else JointQualityState.container_cc_only_succeeds
 
         if scenario == RecoveryScenario.right_censor_30pct and i % 3 == 0:
             rows.append(_mk_row(i, "fam_a", st, LatencyObservationKind.both_censored))
             continue
+        if scenario == RecoveryScenario.right_censor_30pct:
+            base = 2.0 + i * 0.05
+            if i % 2 == 0:
+                log_ns, log_cc = math.log(base), math.log(base * 1.04)
+            else:
+                log_ns, log_cc = math.log(base * 1.04), math.log(base)
+            rows.append(
+                _mk_row(
+                    i,
+                    "fam_a",
+                    st,
+                    LatencyObservationKind.observed,
+                    log_latency_ns=log_ns,
+                    log_latency_cc=log_cc,
+                )
+            )
+            continue
         if scenario == RecoveryScenario.quality_eq_ns_faster:
-            rows.append(_mk_row(i, "fam_a", st, LatencyObservationKind.observed, log_latency_ns=math.log(1.0), log_latency_cc=math.log(2.0)))
+            rows.append(
+                _mk_row(
+                    i,
+                    "fam_a",
+                    st,
+                    LatencyObservationKind.observed,
+                    log_latency_ns=math.log(1.0 + i * 0.02),
+                    log_latency_cc=math.log(2.0 + i * 0.02),
+                )
+            )
             continue
         if scenario == RecoveryScenario.quality_eq_cc_faster:
-            rows.append(_mk_row(i, "fam_a", st, LatencyObservationKind.observed, log_latency_ns=math.log(2.0), log_latency_cc=math.log(1.0)))
+            rows.append(
+                _mk_row(
+                    i,
+                    "fam_a",
+                    st,
+                    LatencyObservationKind.observed,
+                    log_latency_ns=math.log(2.0 + i * 0.02),
+                    log_latency_cc=math.log(1.0 + i * 0.02),
+                )
+            )
+            continue
+        if scenario == RecoveryScenario.adversarial_outliers:
+            if i % 4 == 0:
+                rows.append(_mk_row(i, "fam_a", JointQualityState.both_fail, LatencyObservationKind.latency_uninformative))
+                continue
+            base = 2.0 + i * 0.04
+            if i % 2 == 0:
+                log_ns, log_cc = math.log(base), math.log(base * 1.04)
+            else:
+                log_ns, log_cc = math.log(base * 1.04), math.log(base)
+            rows.append(
+                _mk_row(
+                    i,
+                    "fam_a",
+                    JointQualityState.both_succeed,
+                    LatencyObservationKind.observed,
+                    log_latency_ns=log_ns,
+                    log_latency_cc=log_cc,
+                )
+            )
+            continue
+        if scenario == RecoveryScenario.ns_strong_quality:
+            rows.append(
+                _mk_row(
+                    i,
+                    "fam_a",
+                    st,
+                    LatencyObservationKind.observed,
+                    log_latency_ns=math.log(1.2 + i * 0.04),
+                    log_latency_cc=math.log(2.4 + i * 0.04),
+                )
+            )
+            continue
+        if scenario == RecoveryScenario.cc_strong_quality:
+            rows.append(
+                _mk_row(
+                    i,
+                    "fam_a",
+                    st,
+                    LatencyObservationKind.observed,
+                    log_latency_ns=math.log(2.4 + i * 0.04),
+                    log_latency_cc=math.log(1.2 + i * 0.04),
+                )
+            )
             continue
         rows.append(_mk_row(i, "fam_a", st, LatencyObservationKind.observed, log_latency_ns=math.log(2.0 + i * 0.01), log_latency_cc=math.log(2.1)))
     return rows

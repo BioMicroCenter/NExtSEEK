@@ -1,14 +1,17 @@
 {
   "schema": "plan018-evidence-sidecar/v1",
   "lane": "A-hermetic",
-  "recorded_at": "2026-08-11T21:45:00Z",
+  "recorded_at": "2026-08-12T14:30:00Z",
   "gate": "PASS",
   "exit_status": 0,
-  "counts": {"passed": 48, "failed": 0},
+  "counts": {"passed": 63, "failed": 0},
   "modules": [
     "nextseek_api/eval/tests/test_v14_pair_input.py",
-    "nextseek_api/eval/tests/test_v14_decision.py"
+    "nextseek_api/eval/tests/test_v14_decision.py",
+    "nextseek_api/eval/tests/test_v14_censoring.py",
+    "nextseek_api/eval/tests/test_v14_recovery_matrix.py"
   ],
-  "log": "evidence/plan018-v4-4-decision-tests.log",
+  "ruling_b_amendment": "evidence/plan018-v4-4-v14b-amendment.json",
+  "matrix_refreeze": "evidence/plan018-v4-4-matrix-refreeze.md",
   "paid_or_live_resources_used": false
 }

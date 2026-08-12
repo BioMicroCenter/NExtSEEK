@@ -8,6 +8,11 @@ from pathlib import Path
 
 from nextseek_api.eval.fit.v14.combined import run_v14_generation
 from nextseek_api.eval.fit.v14.fit_config import V14FitConfig
+from nextseek_api.eval.fit.v14.recovery_acceptance import (
+    FEASIBILITY_SLOT_INDICES,
+    evaluate_recovery_results,
+    slot_winner,
+)
 from nextseek_api.eval.fit.v14.recovery_matrix import (
     RECOVERY_SCENARIOS,
     RecoverySlot,
@@ -30,57 +35,79 @@ def all_slots() -> list[RecoverySlot]:
 
 def run_recovery(
     *,
-    max_slots: int | None = None,
-    start_slot: int = 0,
+    slot_indices: list[int] | None = None,
     use_mcmc: bool = True,
     wall_limit_s: float = 3600.0,
 ) -> dict:
-    cfg = V14FitConfig(num_warmup=150, num_samples=250, num_chains=2)
-    slots = all_slots()[start_slot : (start_slot + max_slots if max_slots else None)]
+    cfg = V14FitConfig()
+    all_s = all_slots()
+    if slot_indices is None:
+        chosen = all_s
+    else:
+        chosen = [all_s[i] for i in slot_indices if 0 <= i < len(all_s)]
     t0 = time.monotonic()
     results = []
-    for slot in slots:
+    for slot in chosen:
         if time.monotonic() - t0 > wall_limit_s:
-            return {"gate": "INCONCLUSIVE", "reason": "wall_clock_cap", "completed": len(results)}
+            report = evaluate_recovery_results(results, use_mcmc=use_mcmc, wall_s=time.monotonic() - t0, serial_s=sum(r["duration_s"] for r in results))
+            return {
+                "gate": "INCONCLUSIVE",
+                "reason": "wall_clock_cap",
+                "completed": len(results),
+                "matrix_fingerprint": matrix_fingerprint(),
+                "acceptance": report.__dict__,
+                "results": results,
+            }
         rows = build_scenario_rows(slot.scenario)
         t1 = time.monotonic()
         fit = run_v14_generation(rows, cfg, seed=slot.seed, use_mcmc=use_mcmc)
         duration = time.monotonic() - t1
         gt = ground_truth(slot.scenario)
-        activated = fit.decision.activated_families
-        winner = "ns" if any(c.status.name.startswith("quality_ns") or c.status.name == "latency_ns" for c in fit.decision.candidates if c.activated) else (
-            "cc" if any(c.status.name.startswith("quality_cc") or c.status.name == "latency_cc" for c in fit.decision.candidates if c.activated) else "none"
+        winner = slot_winner(fit.decision)
+        results.append(
+            {
+                "slot_index": slot.slot_index,
+                "scenario": slot.scenario.value,
+                "seed": slot.seed,
+                "duration_s": round(duration, 3),
+                "ground_truth": gt,
+                "winner": winner,
+                "activated": list(fit.decision.activated_families),
+                "generation_status": fit.decision.generation_status,
+                "diagnostics_ok": fit.diagnostics_ok,
+            }
         )
-        results.append({
-            "slot_index": slot.slot_index,
-            "scenario": slot.scenario.value,
-            "seed": slot.seed,
-            "duration_s": round(duration, 3),
-            "ground_truth": gt,
-            "winner": winner,
-            "activated": list(activated),
-            "generation_status": fit.decision.generation_status,
-            "diagnostics_ok": fit.diagnostics_ok,
-        })
-    serial = sum(r["duration_s"] for r in results)
+    wall_s = round(time.monotonic() - t0, 3)
+    serial_s = sum(r["duration_s"] for r in results)
+    report = evaluate_recovery_results(results, use_mcmc=use_mcmc, wall_s=wall_s, serial_s=serial_s, wall_limit_s=wall_limit_s)
     return {
-        "gate": "PASS",
+        "gate": report.gate,
         "matrix_fingerprint": matrix_fingerprint(),
         "completed": len(results),
-        "serial_s": serial,
-        "wall_s": round(time.monotonic() - t0, 3),
+        "serial_s": serial_s,
+        "wall_s": wall_s,
+        "acceptance": {
+            "strong_effect": report.strong_effect,
+            "indecisive": report.indecisive,
+            "wrong_direction": report.wrong_direction,
+            "diagnostics_failures": report.diagnostics_failures,
+            "reasons": list(report.reasons),
+        },
         "results": results,
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--max-slots", type=int, default=None)
-    parser.add_argument("--start-slot", type=int, default=0)
+    parser.add_argument("--feasibility", action="store_true", help="Run five representative slots only")
+    parser.add_argument("--slot", action="append", type=int, default=None, dest="slots")
     parser.add_argument("--no-mcmc", action="store_true")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    payload = run_recovery(max_slots=args.max_slots, start_slot=args.start_slot, use_mcmc=not args.no_mcmc)
+    indices = args.slots
+    if args.feasibility:
+        indices = list(FEASIBILITY_SLOT_INDICES)
+    payload = run_recovery(slot_indices=indices, use_mcmc=not args.no_mcmc)
     args.out.write_text(json.dumps(payload, indent=2))
     print(json.dumps({"gate": payload["gate"], "completed": payload.get("completed")}))
     return 0 if payload.get("gate") == "PASS" else 1

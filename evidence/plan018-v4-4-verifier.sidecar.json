@@ -1,8 +1,8 @@
 {
   "schema": "plan018-v4-4-verifier/v1",
   "gate": "PASS",
-  "checks_passed": 12,
-  "checks_total": 12,
+  "checks_passed": 13,
+  "checks_total": 13,
   "errors": [],
   "checks": [
     {
@@ -18,7 +18,7 @@
     {
       "name": "config_fingerprint",
       "pass": true,
-      "detail": "aef07561e66ce17a"
+      "detail": "d4416307e48a2de6"
     },
     {
       "name": "strong_quality_decision",
@@ -26,24 +26,14 @@
       "detail": "activated_all"
     },
     {
-      "name": "no_route_execution",
+      "name": "cost_excluded_from_fit",
       "pass": true,
-      "detail": "hermetic only"
-    },
-    {
-      "name": "no_set3_rerun",
-      "pass": true,
-      "detail": "read-only V13-A binding"
-    },
-    {
-      "name": "cost_excluded",
-      "pass": true,
-      "detail": "cost nullable only"
+      "detail": "nullable cost only in fixtures"
     },
     {
       "name": "matrix_fingerprint",
       "pass": true,
-      "detail": "f7d1b57f9f29bcbd"
+      "detail": "43b8228bdd141adc"
     },
     {
       "name": "fdr_complete_set",
@@ -51,22 +41,38 @@
       "detail": "activated_all"
     },
     {
-      "name": "support_gate_fixture",
-      "pass": true,
-      "detail": "deterministic tests cover gate"
-    },
-    {
       "name": "independent_recompute",
       "pass": true,
-      "detail": "aef07561e66ce17a"
+      "detail": "d4416307e48a2de6"
     },
     {
-      "name": "v4_8_note",
+      "name": "quality_eq_retained_support",
       "pass": true,
-      "detail": "Live MCMC at scale requires separate authorization"
+      "detail": "retained>=5"
+    },
+    {
+      "name": "quality_eq_no_discordance",
+      "pass": true,
+      "detail": "zero discordant under both_succeed"
+    },
+    {
+      "name": "mcmc_recovery_gate",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "mcmc_diagnostics_ok",
+      "pass": true,
+      "detail": "0"
+    },
+    {
+      "name": "mcmc_wrong_direction",
+      "pass": true,
+      "detail": "0"
     }
   ],
   "route_execution": false,
   "set3_rerun": false,
-  "paid_or_live_resources_used": false
+  "paid_or_live_resources_used": false,
+  "matrix_fingerprint": "43b8228bdd141adc3ea5916c1e476e3d48fbfbf6b3633c003ca56d3f94fcacfd"
 }

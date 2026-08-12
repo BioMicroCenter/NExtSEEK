@@ -95,6 +95,10 @@ def fit_quality_model(
         with numpyro.plate("pairs", len(fam_rows)):
             numpyro.sample("y", dist.Categorical(logits=logits4), obs=state_ids)
 
+    import numpyro
+
+    numpyro.set_host_device_count(max(cfg.num_chains, 1))
+
     nuts = NUTS(model)
     mcmc = MCMC(nuts, num_warmup=cfg.num_warmup, num_samples=cfg.num_samples, num_chains=cfg.num_chains)
     mcmc.run(jax_key(seed), extra_fields=("diverging",))

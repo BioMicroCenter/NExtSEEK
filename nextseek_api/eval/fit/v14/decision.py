@@ -20,8 +20,11 @@ __all__ = [
     "GenerationDecision",
     "apply_complete_set_fdr",
     "decide_family",
+    "discordant_pair_count",
     "evaluate_generation",
     "legacy_fallback",
+    "quality_discordance_ok",
+    "retained_support_ok",
     "unrelated_spend_gate_path",
 ]
 
@@ -63,18 +66,27 @@ def unrelated_spend_gate_path(family: str) -> CandidateDecision:
     return CandidateDecision(family=family, status=DecisionStatus.unrelated_canned, local_error_prob=1.0)
 
 
-def _support_ok(rows: Sequence[PairFitRow], family: str, cfg: V14FitConfig) -> bool:
-    fam = [r for r in rows if r.family == family]
-    retained = len(fam)
-    discordant = sum(
+def discordant_pair_count(rows: Sequence[PairFitRow], family: str) -> int:
+    return sum(
         1
-        for r in fam
-        if (
-            r.joint_state in {JointQualityState.nextseek_only_succeeds, JointQualityState.container_cc_only_succeeds}
-        )
+        for r in rows
+        if r.family == family
+        and r.joint_state
+        in {JointQualityState.nextseek_only_succeeds, JointQualityState.container_cc_only_succeeds}
     )
-    from nextseek_api.eval.conservation import FitAdmission
 
+
+def _family_rows(rows: Sequence[PairFitRow], family: str) -> list[PairFitRow]:
+    return [r for r in rows if r.family == family]
+
+
+def retained_support_ok(rows: Sequence[PairFitRow], family: str, cfg: V14FitConfig) -> bool:
+    return len(_family_rows(rows, family)) >= cfg.min_retained_pairs
+
+
+def quality_discordance_ok(rows: Sequence[PairFitRow], family: str, cfg: V14FitConfig) -> bool:
+    fam = _family_rows(rows, family)
+    discordant = discordant_pair_count(rows, family)
     admission = FitAdmission(
         retained_pairs=[(r.pair_id, r.query_id, r.family) for r in fam],
         excluded_pair_ids=[],
@@ -97,30 +109,47 @@ def decide_family(
 ) -> CandidateDecision:
     if family == "unrelated":
         return unrelated_spend_gate_path(family)
-    if not _support_ok(rows, family, cfg):
+    if not retained_support_ok(rows, family, cfg):
         return legacy_fallback(family)
 
     adv = quality.posterior_samples_advantage
     thr = cfg.quality_advantage_threshold
     p_thr = cfg.posterior_probability_threshold
-    p_ns = float(np.mean(adv >= thr))
-    p_cc = float(np.mean(adv <= -thr))
-    p_eq = float(np.mean(np.abs(adv) <= cfg.rope_half_width))
+    quality_ok = quality_discordance_ok(rows, family, cfg)
 
-    if p_ns >= p_thr:
-        err = float(np.mean(adv < thr))
-        return CandidateDecision(family=family, status=DecisionStatus.quality_ns, local_error_prob=err)
-    if p_cc >= p_thr:
-        err = float(np.mean(adv > -thr))
-        return CandidateDecision(family=family, status=DecisionStatus.quality_cc, local_error_prob=err)
+    if quality_ok:
+        p_ns = float(np.mean(adv >= thr))
+        p_cc = float(np.mean(adv <= -thr))
+        if p_ns >= p_thr:
+            err = float(np.mean(adv < thr))
+            return CandidateDecision(family=family, status=DecisionStatus.quality_ns, local_error_prob=err)
+        if p_cc >= p_thr:
+            err = float(np.mean(adv > -thr))
+            return CandidateDecision(family=family, status=DecisionStatus.quality_cc, local_error_prob=err)
+
+    p_eq = float(np.mean(np.abs(adv) <= cfg.rope_half_width))
     if p_eq >= p_thr:
-        ns_lat_p = latency_win_probability(latency.posterior_log_d, ratio_threshold=cfg.latency_ratio_threshold, ns_wins=True)
-        cc_lat_p = latency_win_probability(latency.posterior_log_d, ratio_threshold=cfg.latency_ratio_threshold, ns_wins=False)
+        ns_lat_p = latency_win_probability(
+            latency.posterior_log_d, ratio_threshold=cfg.latency_ratio_threshold, ns_wins=True
+        )
+        cc_lat_p = latency_win_probability(
+            latency.posterior_log_d, ratio_threshold=cfg.latency_ratio_threshold, ns_wins=False
+        )
         if ns_lat_p >= p_thr:
-            err = 1.0 - float(np.mean((np.abs(adv) <= cfg.rope_half_width) & (latency.posterior_log_d <= np.log(cfg.latency_ratio_threshold))))
+            err = 1.0 - float(
+                np.mean(
+                    (np.abs(adv) <= cfg.rope_half_width)
+                    & (latency.posterior_log_d <= np.log(cfg.latency_ratio_threshold))
+                )
+            )
             return CandidateDecision(family=family, status=DecisionStatus.latency_ns, local_error_prob=err)
         if cc_lat_p >= p_thr:
-            err = 1.0 - float(np.mean((np.abs(adv) <= cfg.rope_half_width) & (latency.posterior_log_d >= -np.log(cfg.latency_ratio_threshold))))
+            err = 1.0 - float(
+                np.mean(
+                    (np.abs(adv) <= cfg.rope_half_width)
+                    & (latency.posterior_log_d >= -np.log(cfg.latency_ratio_threshold))
+                )
+            )
             return CandidateDecision(family=family, status=DecisionStatus.latency_cc, local_error_prob=err)
     return CandidateDecision(family=family, status=DecisionStatus.indecisive, local_error_prob=1.0)
 

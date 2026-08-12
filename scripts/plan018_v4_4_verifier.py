@@ -16,9 +16,16 @@ V13A_ZIP = Path("/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testq
 V13A_SHA = "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814"
 
 from nextseek_api.eval.fit.v14.combined import run_v14_generation
-from nextseek_api.eval.fit.v14.decision import DecisionStatus
+from nextseek_api.eval.fit.v14.decision import DecisionStatus, retained_support_ok, quality_discordance_ok
 from nextseek_api.eval.fit.v14.fit_config import V14FitConfig, config_fingerprint
-from nextseek_api.eval.fit.v14.recovery_matrix import build_scenario_rows, matrix_fingerprint
+from nextseek_api.eval.fit.v14.recovery_acceptance import evaluate_recovery_results
+from nextseek_api.eval.fit.v14.recovery_matrix import (
+    RECOVERY_SCENARIOS,
+    RecoveryScenario,
+    build_scenario_rows,
+    ground_truth,
+    matrix_fingerprint,
+)
 
 
 def main() -> int:
@@ -39,17 +46,45 @@ def main() -> int:
     fp = config_fingerprint(cfg)
     record("config_fingerprint", len(fp) == 64, fp[:16])
 
-    rows = build_scenario_rows(__import__("nextseek_api.eval.fit.v14.recovery_matrix", fromlist=["RecoveryScenario"]).RecoveryScenario.ns_strong_quality)
+    rows = build_scenario_rows(RecoveryScenario.ns_strong_quality)
     fit = run_v14_generation(rows, cfg, seed=11, use_mcmc=False)
-    record("strong_quality_decision", any(c.status == DecisionStatus.quality_ns for c in fit.decision.candidates), fit.decision.generation_status)
-    record("no_route_execution", True, "hermetic only")
-    record("no_set3_rerun", True, "read-only V13-A binding")
-    record("cost_excluded", all(r.cost_usd is None or True for r in rows), "cost nullable only")
+    record(
+        "strong_quality_decision",
+        any(c.status == DecisionStatus.quality_ns for c in fit.decision.candidates),
+        fit.decision.generation_status,
+    )
+    record("cost_excluded_from_fit", all(r.cost_usd is None for r in rows), "nullable cost only in fixtures")
     record("matrix_fingerprint", len(matrix_fingerprint()) == 64, matrix_fingerprint()[:16])
-    record("fdr_complete_set", fit.decision.generation_status in {"activated_all", "empty_candidate_set", "multiplicity_indecisive"}, fit.decision.generation_status)
-    record("support_gate_fixture", True, "deterministic tests cover gate")
+    record(
+        "fdr_complete_set",
+        fit.decision.generation_status in {"activated_all", "empty_candidate_set", "multiplicity_indecisive"},
+        fit.decision.generation_status,
+    )
     record("independent_recompute", fit.decision.config_fingerprint == fp, fp[:16])
-    record("v4_8_note", True, "Live MCMC at scale requires separate authorization")
+
+    # Ruling B: quality_eq fixtures retain support without discordance.
+    eq_rows = build_scenario_rows(RecoveryScenario.quality_eq_ns_faster)
+    record("quality_eq_retained_support", retained_support_ok(eq_rows, "fam_a", cfg), "retained>=5")
+    record(
+        "quality_eq_no_discordance",
+        not quality_discordance_ok(eq_rows, "fam_a", cfg),
+        "zero discordant under both_succeed",
+    )
+
+    mcmc_path = _REPO / "evidence" / "plan018-v4-4-recovery-mcmc.json"
+    if mcmc_path.is_file():
+        mcmc = json.loads(mcmc_path.read_text())
+        report = evaluate_recovery_results(
+            mcmc.get("results", []),
+            use_mcmc=True,
+            wall_s=float(mcmc.get("wall_s", 0)),
+            serial_s=float(mcmc.get("serial_s", 0)),
+        )
+        record("mcmc_recovery_gate", report.gate == "PASS", report.gate)
+        record("mcmc_diagnostics_ok", report.diagnostics_failures == 0, str(report.diagnostics_failures))
+        record("mcmc_wrong_direction", report.wrong_direction == 0, str(report.wrong_direction))
+    else:
+        record("mcmc_recovery_artifact", False, "missing plan018-v4-4-recovery-mcmc.json")
 
     sidecar = {
         "schema": "plan018-v4-4-verifier/v1",
@@ -61,8 +96,9 @@ def main() -> int:
         "route_execution": False,
         "set3_rerun": False,
         "paid_or_live_resources_used": False,
+        "matrix_fingerprint": matrix_fingerprint(),
     }
-    out = Path(__file__).resolve().parents[1] / "evidence" / "plan018-v4-4-verifier.sidecar.json"
+    out = _REPO / "evidence" / "plan018-v4-4-verifier.sidecar.json"
     out.write_text(json.dumps(sidecar, indent=2))
     print(json.dumps({"gate": sidecar["gate"], "checks": f"{sidecar['checks_passed']}/{sidecar['checks_total']}"}))
     return 0 if not errors else 1

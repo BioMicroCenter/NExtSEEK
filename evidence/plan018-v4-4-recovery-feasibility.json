@@ -1,0 +1,101 @@
+{
+  "gate": "FAIL",
+  "matrix_fingerprint": "43b8228bdd141adc3ea5916c1e476e3d48fbfbf6b3633c003ca56d3f94fcacfd",
+  "completed": 5,
+  "serial_s": 73.831,
+  "wall_s": 73.833,
+  "acceptance": {
+    "strong_effect": {
+      "ns_strong_quality": {
+        "correct": 1,
+        "total": 1
+      },
+      "cc_strong_quality": {
+        "correct": 1,
+        "total": 1
+      },
+      "quality_eq_ns_faster": {
+        "correct": 1,
+        "total": 1
+      }
+    },
+    "indecisive": {
+      "null_equal": {
+        "correct": 1,
+        "total": 1
+      },
+      "right_censor_30pct": {
+        "correct": 1,
+        "total": 1
+      }
+    },
+    "wrong_direction": 0,
+    "diagnostics_failures": 1,
+    "reasons": [
+      "diagnostics_ok false on 1/5 slots"
+    ]
+  },
+  "results": [
+    {
+      "slot_index": 0,
+      "scenario": "null_equal",
+      "seed": 11,
+      "duration_s": 22.759,
+      "ground_truth": "indecisive",
+      "winner": "none",
+      "activated": [],
+      "generation_status": "empty_candidate_set",
+      "diagnostics_ok": false
+    },
+    {
+      "slot_index": 5,
+      "scenario": "ns_strong_quality",
+      "seed": 11,
+      "duration_s": 10.761,
+      "ground_truth": "strong_ns",
+      "winner": "ns",
+      "activated": [
+        "fam_a"
+      ],
+      "generation_status": "activated_all",
+      "diagnostics_ok": true
+    },
+    {
+      "slot_index": 10,
+      "scenario": "cc_strong_quality",
+      "seed": 11,
+      "duration_s": 11.554,
+      "ground_truth": "strong_cc",
+      "winner": "cc",
+      "activated": [
+        "fam_a"
+      ],
+      "generation_status": "activated_all",
+      "diagnostics_ok": true
+    },
+    {
+      "slot_index": 15,
+      "scenario": "quality_eq_ns_faster",
+      "seed": 11,
+      "duration_s": 14.864,
+      "ground_truth": "strong_ns",
+      "winner": "ns",
+      "activated": [
+        "fam_a"
+      ],
+      "generation_status": "activated_all",
+      "diagnostics_ok": true
+    },
+    {
+      "slot_index": 30,
+      "scenario": "right_censor_30pct",
+      "seed": 11,
+      "duration_s": 13.893,
+      "ground_truth": "indecisive",
+      "winner": "none",
+      "activated": [],
+      "generation_status": "empty_candidate_set",
+      "diagnostics_ok": true
+    }
+  ]
+}

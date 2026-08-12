@@ -86,6 +86,10 @@ def fit_latency_model(
                 elif kind == "upper":
                     numpyro.sample(f"d_{i}", dist.TruncatedNormal(loc, sigma, high=y[i]), obs=y[i])
 
+    import numpyro
+
+    numpyro.set_host_device_count(max(cfg.num_chains, 1))
+
     nuts = NUTS(model)
     mcmc = MCMC(nuts, num_warmup=cfg.num_warmup, num_samples=cfg.num_samples, num_chains=cfg.num_chains)
     mcmc.run(_jax_key(seed))

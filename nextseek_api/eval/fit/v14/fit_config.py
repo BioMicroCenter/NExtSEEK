@@ -44,8 +44,8 @@ class V14FitConfig(BaseModel):
     min_discordant_pairs: int = 2
     rhat_max: float = 1.01
     ess_min: float = 400.0
-    num_warmup: int = 300
-    num_samples: int = 500
+    num_warmup: int = 600
+    num_samples: int = 2000
     num_chains: int = 2
 
 
