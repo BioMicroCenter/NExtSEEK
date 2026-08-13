@@ -109,4 +109,6 @@ return HttpResponse(
 uv run python scripts/validate_viewset_conventions.py
 ```
 
-Do not extend `EXTEND_SCHEMA_EXAMPLES_ALLOWLIST` or `INLINE_DESCRIPTION_ALLOWLIST` in the validator — fix the ViewSet instead.
+Do not extend `GRANDFATHER_OPS` or the derived allowlists in the validator — fix the ViewSet instead.
+
+Description scan scope: `endpoint_descriptions.py`, `descriptions_evaluator.py`, `descriptions_cc.py` — not `assistant/descriptions.py`. Inline `description=` grandfather: `views.py` NHP/timeline only (`AdminSampleViewSet` / `EvaluatorViewSet` use `IsAdminUser` — do not copy).

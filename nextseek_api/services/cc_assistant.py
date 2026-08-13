@@ -38,6 +38,11 @@ from rest_framework.authentication import (
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from pydantic import ValidationError
 
+from nextseek_api.assistant.descriptions_cc import (
+    CC_ASSISTANT_CC_QUERY_ASYNC_DESC,
+    CC_ASSISTANT_QUERY_ASYNC_DESC,
+    CC_ASSISTANT_TASK_PROGRESS_DESC,
+)
 from nextseek_api.assistant.models_api import AsyncQueryResponse, QueryRequest, TaskProgressResponse
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
@@ -468,10 +473,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
     # ------------------------------------------------------------------ routes
     @extend_schema(
         operation_id="CC Assistant: Query (Async, routed)",
-        description="Router-dispatched async query. The dmac_assistant BAML router "
-                    "decides between the deterministic NExtSEEK pipeline (chat_nextseek) "
-                    "and the sandboxed Container-Claude-Code agent. Returns a task_id; "
-                    "stream progress over the existing ws/assistant/progress/{task_id}/.",
+        description=CC_ASSISTANT_QUERY_ASYNC_DESC,
         tags=["Assistant (CC)"],
         request=QueryRequest,
         responses={202: AsyncQueryResponse},
@@ -493,12 +495,25 @@ class CCAssistantViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="CC Assistant: Query (Async, force Container-CC)",
-        description="Force the Container-Claude-Code route (bypass the router). "
-                    "Runs a sandboxed claude container; streams progress over the "
-                    "existing assistant websocket.",
+        description=CC_ASSISTANT_CC_QUERY_ASYNC_DESC,
         tags=["Assistant (CC)"],
         request=QueryRequest,
         responses={202: AsyncQueryResponse},
+        examples=[
+            OpenApiExample(
+                name="Force CC query",
+                value={"query": "Find me mice treated with NDMA"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Accepted",
+                value={
+                    "task_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "session_id": "sess-746-vaccine-dose",
+                },
+                response_only=True,
+            ),
+        ],
     )
     @action(detail=False, methods=["post"], url_path="cc/query/async")
     def cc_query_async(self, request):
@@ -513,10 +528,22 @@ class CCAssistantViewSet(viewsets.ViewSet):
 
     @extend_schema(
         operation_id="CC Assistant: Task Progress (poll fallback)",
-        description="Poll a routed/CC task's progress (same shape as the existing "
-                    "assistant). The websocket is the primary channel; this is the fallback.",
+        description=CC_ASSISTANT_TASK_PROGRESS_DESC,
         tags=["Assistant (CC)"],
         responses={200: TaskProgressResponse},
+        examples=[
+            OpenApiExample(
+                name="In progress",
+                value={
+                    "task_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "session_id": "sess-746-vaccine-dose",
+                    "status": "running",
+                    "progress": [{"event": "step", "data": {}}],
+                    "result": None,
+                },
+                response_only=True,
+            ),
+        ],
     )
     @action(detail=False, methods=["get"], url_path=r"tasks/(?P<task_id>[0-9a-f-]+)/progress")
     def task_progress(self, request, task_id=None):

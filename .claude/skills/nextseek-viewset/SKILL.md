@@ -41,7 +41,7 @@ scoping, and error-envelope patterns. New actions still need full `*_DESC`,
 
 - Default: `permission_classes = [IsAuthenticated]`.
 - Superuser-only: `[IsAuthenticated, IsDjangoSuperuser]` — import `IsDjangoSuperuser` from [`nextseek_api/services/users.py`](../../../nextseek_api/services/users.py). Gate on `is_superuser`, not `is_staff`.
-- **Do not use `IsAdminUser`.** SEEK-mirrored Django users are created with `is_staff=True`; `IsAdminUser` collapses to any authenticated user.
+- **Do not use `IsAdminUser`.** SEEK-mirrored Django users are created with `is_staff=True`; `IsAdminUser` collapses to any authenticated user. Known live anti-patterns: [`AdminSampleViewSet`](../../../nextseek_api/views.py), [`EvaluatorViewSet`](../../../nextseek_api/services/evaluator.py).
 
 ## 4. Project-scoping
 
@@ -72,7 +72,7 @@ Set `tags=["MyResource"]` and a stable `operation_id` for each action (see [`ref
 
 ## 7. Endpoint descriptions
 
-Add a `*_DESC` constant to [`nextseek_api/endpoint_descriptions.py`](../../../nextseek_api/endpoint_descriptions.py) (or the assistant/evaluator description modules when appropriate). Required sections in order:
+Add a `*_DESC` constant to [`nextseek_api/endpoint_descriptions.py`](../../../nextseek_api/endpoint_descriptions.py) (or [`descriptions_evaluator.py`](../../../nextseek_api/assistant/descriptions_evaluator.py) / [`descriptions_cc.py`](../../../nextseek_api/assistant/descriptions_cc.py) when appropriate). The validator scans those three modules only — **not** [`assistant/descriptions.py`](../../../nextseek_api/assistant/descriptions.py) (legacy NS assistant prose, off spectacular). Required sections in order:
 
 1. **SUMMARY**
 2. **USE WHEN**
@@ -85,7 +85,7 @@ Add a `*_DESC` constant to [`nextseek_api/endpoint_descriptions.py`](../../../ne
 
 Import the constant into the ViewSet: `@extend_schema(description=MY_FETCH_DESC, ...)`.
 
-Pass `description=<CONST_NAME>` — a `*_DESC` import from the description modules. **Do not** use inline string descriptions on `@extend_schema`; the validator rejects them (legacy NHP/timeline ops are grandfathered only).
+Pass `description=<CONST_NAME>` — a `*_DESC` import from the description modules. **Do not** use inline string descriptions on `@extend_schema`; the validator rejects them (legacy NHP/timeline ops in [`views.py`](../../../nextseek_api/views.py) are grandfathered only).
 
 ## 8. OpenAPI examples
 
@@ -110,7 +110,7 @@ uv run python scripts/validate_viewset_conventions.py
 uv run pytest nextseek_api/tests/test_viewset_conventions.py nextseek_api/tests/test_viewset_conventions_schema.py -q
 ```
 
-**Do not** add entries to `EXTEND_SCHEMA_EXAMPLES_ALLOWLIST` or `INLINE_DESCRIPTION_ALLOWLIST` in `validate_viewset_conventions.py`.
+**Do not** add entries to `GRANDFATHER_OPS` or the derived allowlists (`EXTEND_SCHEMA_EXAMPLES_ALLOWLIST`, `INLINE_DESCRIPTION_ALLOWLIST`, `SCHEMA_EXAMPLES_OPERATION_ID_ALLOWLIST`) in `validate_viewset_conventions.py`.
 
 ## 10. Testing expectations
 
