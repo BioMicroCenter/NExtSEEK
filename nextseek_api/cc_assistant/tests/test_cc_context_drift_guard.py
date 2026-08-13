@@ -15,6 +15,11 @@ sample mutation endpoints to the API agent") removed ``POST /samples/``,
 but the baked copy kept advertising all three to the CC agent for months — a
 live privilege regression (#65a).
 
+A third axis is guarded further down: ``read_safe_endpoints.json`` has no
+counterpart in the source pack, but it does have one outside both directories —
+``nextseek_api/assistant/read_safe_endpoints.json``, the copy the Django write
+gate actually loads to permit or block an ``api-read`` op (#83).
+
 These tests are the missing sync check. Hermetic: stdlib only, no docker, no
 network, no DB.
 """
@@ -29,6 +34,27 @@ SOURCE_DIR = REPO_ROOT / "chat_nextseek" / "src" / "chat_nextseek" / "context"
 BAKED_DIR = (
     REPO_ROOT / "docker" / "cc-runtime" / "build_context" / "plugins" / "nextseek" / "context"
 )
+
+# ---------------------------------------------------------------------------
+# #83: the enforcing copy of the read-safe allowlist
+# ---------------------------------------------------------------------------
+# read_safe_endpoints.json exists at exactly TWO paths in this repo (the sidecar
+# has none — docker/ns-sidecar/app/write_gate.py says so in its first line):
+#
+#   nextseek_api/assistant/read_safe_endpoints.json   ENFORCED. write_gate's
+#       default_allowlist_path() resolves here; build_gate() blocks any api-read
+#       whose (endpoint, METHOD) is absent from it.
+#   docker/.../plugins/nextseek/context/read_safe_endpoints.json   ADVERTISED.
+#       Baked into the agent image; what the agent reads to decide what it
+#       believes is read-safe.
+#
+# The equality set below cannot reach the enforced copy: _shared_names() is an
+# INTERSECTION of SOURCE_DIR and BAKED_DIR, and neither is nextseek_api/assistant/.
+# So this pair gets its own explicit comparison. If the advertised copy and the
+# enforced copy disagree, the agent's belief about what it may call and the gate
+# that constrains it are out of step, and nothing else in the tree notices.
+ENFORCED_ALLOWLIST = REPO_ROOT / "nextseek_api" / "assistant" / "read_safe_endpoints.json"
+BAKED_ALLOWLIST = BAKED_DIR / "read_safe_endpoints.json"
 
 # The baked pack is small and hand-maintained, so it is pinned exactly. Pinning
 # it is what makes the equality check below meaningful in BOTH directions: the
@@ -143,6 +169,75 @@ def test_known_divergences_still_actually_diverge(name):
     assert baked != source, (
         f"{name} is now in sync — delete it from KNOWN_DIVERGENCES (and this "
         "docstring's rationale) so the drift guard covers it again."
+    )
+
+
+# ---------------------------------------------------------------------------
+# #83: advertised read-safety must equal enforced read-safety
+# ---------------------------------------------------------------------------
+# write_gate is imported inside each test rather than at module scope so the
+# top of this file stays stdlib-only. write_gate itself pulls in nothing beyond
+# json/os/typing, so these tests remain hermetic: no docker, no network, no DB.
+
+
+def test_write_gate_loads_the_allowlist_this_guard_watches():
+    """The guard must watch the file the gate actually reads.
+
+    Pinned rather than derived: if someone moves read_safe_endpoints.json, this
+    fails loudly instead of the guard silently following it to a new path and
+    leaving the old one — or a stale duplicate — uncompared.
+    """
+    from nextseek_api.assistant import write_gate
+
+    actual = Path(write_gate.default_allowlist_path()).resolve()
+    assert actual == ENFORCED_ALLOWLIST.resolve(), (
+        "write_gate.default_allowlist_path() no longer resolves to the file this "
+        f"guard compares.\n  gate loads: {actual}\n  guard watches: {ENFORCED_ALLOWLIST}\n"
+        "Point ENFORCED_ALLOWLIST at the new location (and check nothing still "
+        "reads the old one)."
+    )
+
+
+def test_enforced_allowlist_matches_the_baked_agent_copy():
+    """Byte equality between the enforced copy and the agent's advertised copy.
+
+    Nothing in the build syncs these two, exactly as nothing syncs the two
+    context packs above. This is the check that closes #83.
+    """
+    enforced = ENFORCED_ALLOWLIST.read_bytes()
+    baked = BAKED_ALLOWLIST.read_bytes()
+    assert baked == enforced, (
+        "read_safe_endpoints.json has drifted between the copy the write gate "
+        "enforces and the copy baked into the CC agent image.\n"
+        f"  enforced: {ENFORCED_ALLOWLIST}\n"
+        f"  baked:    {BAKED_ALLOWLIST}\n"
+        "Nothing syncs these automatically — reconcile them and rebuild the "
+        "cc-agent image."
+    )
+
+
+def test_enforced_and_baked_allowlists_agree_on_endpoint_methods():
+    """Semantic diff, so a failure names the endpoints rather than the bytes.
+
+    Deliberately not redundant with the byte check: this one survives a
+    whitespace-only reformat and reports exactly which (endpoint, METHOD) pairs
+    the agent believes it may call but the gate would block, and vice versa.
+    """
+    from nextseek_api.assistant import write_gate
+
+    enforced = write_gate.load_allowlist_from_entries(
+        json.loads(ENFORCED_ALLOWLIST.read_text(encoding="utf-8"))
+    )
+    baked = write_gate.load_allowlist_from_entries(
+        json.loads(BAKED_ALLOWLIST.read_text(encoding="utf-8"))
+    )
+    advertised_but_blocked = sorted(baked - enforced)
+    enforced_but_unadvertised = sorted(enforced - baked)
+    assert baked == enforced, (
+        "the CC agent's advertised read-safe set and the write gate's enforced "
+        "set disagree.\n"
+        f"  agent believes read-safe, gate would BLOCK: {advertised_but_blocked or 'none'}\n"
+        f"  gate permits, agent never told about: {enforced_but_unadvertised or 'none'}"
     )
 
 
