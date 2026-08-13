@@ -13,6 +13,7 @@ from nextseek_api.eval.generation_store import (
     publish_generation,
     rollback_generation,
 )
+from nextseek_api.eval.paired_run_registry import register_paired_run
 
 pytestmark = pytest.mark.django_db
 
@@ -28,6 +29,11 @@ def _group(name="sample_search", **kwargs):
 
 
 def _manifest(**overrides):
+    register_paired_run(
+        paired_run_id="generation-store-v45",
+        schema_version="paired_run/v1",
+        content_hash="generation-store-v45-hash",
+    )
     base = GenerationManifest(
         input_hash="input-a",
         attempt_hash="attempt-a",
@@ -37,7 +43,13 @@ def _manifest(**overrides):
         groups=[_group()],
         compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "corpus-a"},
         counts={"retained_pairs": 10},
-        source_provenance={"origin": "test"},
+        source_provenance={
+            "origin": "test",
+            "paired_run_id": "generation-store-v45",
+            "paired_run_content_hash": "generation-store-v45-hash",
+            "evidence_kind": "paired_experimental",
+            "route_source": "forced",
+        },
     )
     return replace(base, **overrides)
 

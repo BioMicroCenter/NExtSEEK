@@ -31,6 +31,7 @@ def _manifest(suffix: str, **overrides):
         "counts": {"retained_pairs": 10},
         "source_provenance": {
             "paired_run_id": f"paired-{suffix}",
+            "paired_run_content_hash": f"hash-{suffix}",
             "evidence_kind": "paired_experimental",
             "route_source": "forced",
         },
@@ -71,11 +72,28 @@ def test_publish_accepts_approved_paired_run():
     )
     manifest = _manifest("approved", source_provenance={
         "paired_run_id": "paired-approved",
+        "paired_run_content_hash": "hash-approved",
         "evidence_kind": "paired_experimental",
         "route_source": "forced",
     })
     gen = publish_generation(manifest)
     assert gen.generation_hash
+
+
+def test_publish_refuses_registered_run_with_wrong_content_hash():
+    register_paired_run(
+        paired_run_id="paired-wrong-hash",
+        schema_version="paired_run/v1",
+        content_hash="registered-hash",
+    )
+    manifest = _manifest("wrong-hash", source_provenance={
+        "paired_run_id": "paired-wrong-hash",
+        "paired_run_content_hash": "forged-hash",
+        "evidence_kind": "paired_experimental",
+        "route_source": "forced",
+    })
+    with pytest.raises(UnapprovedPairedRun, match="content_hash mismatch"):
+        publish_generation(manifest)
 
 
 def test_publish_refuses_online_provenance():

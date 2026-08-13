@@ -258,7 +258,7 @@ def test_flag_on_posterior_decisive_transport_skips_route_llm(settings, monkeypa
         ],
         compatibility_keys={"taxonomy_version": current.taxonomy_version, "corpus_hash": current.corpus_sha256},
         counts={"retained_pairs": 12},
-        source_provenance={"paired_run_id": paired_run_id, "evidence_kind": "paired_experimental", "route_source": "forced"},
+        source_provenance={"paired_run_id": paired_run_id, "paired_run_content_hash": "0" * 64, "evidence_kind": "paired_experimental", "route_source": "forced"},
     ))
     activate_generation(gen, expected_hash=EMPTY_ACTIVE_HASH)
 

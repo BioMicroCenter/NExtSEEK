@@ -48,11 +48,23 @@ def assert_paired_experimental_only(obj: Any) -> None:
             raise OnlineEvidenceRejected("object declares online_observational kind")
 
 
-def require_approved_paired_run(paired_run_id: str) -> None:
+def require_approved_paired_run(
+    paired_run_id: str,
+    *,
+    expected_content_hash: str | None = None,
+) -> None:
     from nextseek_api.eval.paired_run_registry import is_paired_run_approved
 
     if not is_paired_run_approved(paired_run_id):
         raise UnapprovedPairedRun(f"paired_run_id {paired_run_id!r} is not approved")
+    if expected_content_hash is not None:
+        from nextseek_api.assistant.models_db import PairedRunRegistry
+
+        registered = PairedRunRegistry.objects.get(paired_run_id=paired_run_id)
+        if registered.content_hash != expected_content_hash:
+            raise UnapprovedPairedRun(
+                f"paired_run_id {paired_run_id!r} content_hash mismatch"
+            )
 
 
 def compute_paired_input_hash(batch: PairedExperimentalBatch) -> str:
@@ -107,4 +119,9 @@ def validate_publish_provenance(source_provenance: dict[str, Any]) -> None:
         raise OnlineEvidenceRejected(f"publish provenance evidence_kind {kind!r} refused")
     if source_provenance.get("route_source") not in (None, "forced"):
         raise OnlineEvidenceRejected("policy-selected online provenance cannot publish comparative generation")
-    require_approved_paired_run(run_id)
+    content_hash = source_provenance.get("paired_run_content_hash")
+    if not isinstance(content_hash, str) or not content_hash:
+        raise UnapprovedPairedRun(
+            "publish provenance requires paired_run_content_hash"
+        )
+    require_approved_paired_run(run_id, expected_content_hash=content_hash)

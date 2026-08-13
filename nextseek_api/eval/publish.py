@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from nextseek_api.eval.generation_store import GenerationManifest, publish_generation
+from nextseek_api.eval.generation_store import GenerationManifest
 
 __all__ = [
     "FitGroup",
@@ -54,6 +54,7 @@ class PublicationEvidence:
             raise PublicationEvidenceRequired("counts.retained_pairs is required")
         required_provenance = {
             "paired_run_id",
+            "paired_run_content_hash",
             "evidence_kind",
             "route_source",
             "model_mode",
@@ -247,38 +248,11 @@ def publish(
     evidence: PublicationEvidence | None = None,
     allow_initial_release_override: bool = False,
 ) -> int:
-    """Create or return an immutable generation; returns group count."""
+    """Refuse public publication; the release path is ``publish_human_grade_fit``."""
     if isinstance(fit_result, FitResult):
-        manifest = _manifest_from_fit_result(fit_result)
-        PublicationEvidence(
-            input_hash=fit_result.input_hash,
-            attempt_hash=fit_result.attempt_hash,
-            aggregate_hash=fit_result.aggregate_hash,
-            compatibility_keys=dict(manifest.compatibility_keys),
-            counts=dict(manifest.counts),
-            exclusions=dict(manifest.exclusions),
-            fit_diagnostics=dict(manifest.fit_diagnostics),
-            source_provenance=dict(manifest.source_provenance),
-            family_retained_pairs={group.name: group.n_total for group in fit_result.groups},
-        ).validate(
-            for_publication=True,
-            allow_initial_release_override=allow_initial_release_override,
+        raise PublicationEvidenceRequired(
+            "generic FitResult publication is disabled for this release"
         )
-        groups = fit_result.groups
-    else:
-        if evidence is None:
-            raise PublicationEvidenceRequired(
-                "CombinedFitResult requires explicit PublicationEvidence"
-            )
-        manifest = manifest_for_combined(
-            fit_result,
-            evidence,
-            for_publication=True,
-            allow_initial_release_override=allow_initial_release_override,
-        )
-        groups = manifest.groups
-    from nextseek_api.eval.fit.fit_boundary import validate_publish_provenance
-
-    validate_publish_provenance(dict(manifest.source_provenance or {}))
-    publish_generation(manifest)
-    return len(groups)
+    raise PublicationEvidenceRequired(
+        "direct CombinedFitResult publication is disabled; use publish_human_grade_fit"
+    )

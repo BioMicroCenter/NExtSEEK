@@ -46,6 +46,7 @@ def _manifest(suffix: str, **overrides):
         "counts": {"retained_pairs": 10},
         "source_provenance": {
             "paired_run_id": run_id,
+            "paired_run_content_hash": f"hash-{suffix}",
             "evidence_kind": "paired_experimental",
             "route_source": "forced",
         },

@@ -14,6 +14,7 @@ pytestmark = pytest.mark.django_db
 
 _PAIRED_PROVENANCE = {
     "paired_run_id": "risk-overlay-test-run",
+    "paired_run_content_hash": "risk-overlay-test-hash",
     "evidence_kind": "paired_experimental",
     "route_source": "forced",
 }

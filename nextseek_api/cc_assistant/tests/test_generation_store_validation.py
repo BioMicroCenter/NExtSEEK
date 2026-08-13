@@ -56,6 +56,7 @@ def _manifest(**overrides):
         counts={"retained_pairs": 10},
         source_provenance={
             "paired_run_id": paired_run_id,
+            "paired_run_content_hash": "0" * 64,
             "evidence_kind": "paired_experimental",
             "route_source": "forced",
         },

@@ -131,6 +131,30 @@ def test_authenticated_manifest_selected_ids_must_exactly_match_pairs(monkeypatc
         build_human_grade_fit(DELIVERY)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("mode", "ordinary", "run_meta.mode"),
+        ("arms", ["cc", "ns"], "run_meta.arms"),
+        ("max_usd", -0.01, "run_meta.max_usd"),
+        ("resumed", "false", "run_meta.resumed"),
+        ("superseded_runs", {}, "run_meta.superseded_runs"),
+    ],
+)
+def test_authenticated_manifest_run_meta_semantics_fail_closed(
+    monkeypatch,
+    field,
+    value,
+    message,
+):
+    _patch_authenticated_bayes_manifest(
+        monkeypatch,
+        lambda manifest: manifest["run_meta"].__setitem__(field, value),
+    )
+    with pytest.raises(EvidenceIntegrityError, match=message):
+        build_human_grade_fit(DELIVERY)
+
+
 def test_dev_dry_run_report_is_deterministic_and_explicitly_non_authoritative(prepared):
     assert prepared.report_json() == prepared.report_json()
     report = prepared.report()
@@ -146,7 +170,7 @@ def test_combined_fit_cannot_publish_without_explicit_evidence(prepared):
 
 
 def test_generic_fit_result_cannot_receive_fabricated_local_defaults():
-    with pytest.raises(PublicationEvidenceRequired, match="missing explicit fields"):
+    with pytest.raises(PublicationEvidenceRequired, match="FitResult publication is disabled"):
         publish(FitResult())
 
 
@@ -211,6 +235,95 @@ def test_nested_paired_batch_mutation_refuses_before_any_durable_write(initial_r
     with pytest.raises(EvidenceIntegrityError, match="paired batch content hash"):
         publish_human_grade_fit(
             changed,
+            allow_initial_release_override=True,
+        )
+    assert PairedRunRegistry.objects.count() == 0
+    assert PosteriorGeneration.objects.count() == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        lambda evidence: replace(evidence, aggregate_hash="forged-aggregate"),
+        lambda evidence: replace(
+            evidence,
+            family_retained_pairs={
+                **evidence.family_retained_pairs,
+                next(iter(evidence.family_retained_pairs)): 999,
+            },
+        ),
+    ],
+)
+def test_derived_publication_evidence_tampering_refuses_before_write(initial_release, tamper):
+    from nextseek_api.assistant.models_db import PairedRunRegistry, PosteriorGeneration
+
+    changed = replace(
+        initial_release,
+        publication_evidence=tamper(initial_release.publication_evidence),
+    )
+    with pytest.raises(EvidenceIntegrityError, match="derived publication evidence"):
+        publish_human_grade_fit(changed, allow_initial_release_override=True)
+    assert PairedRunRegistry.objects.count() == 0
+    assert PosteriorGeneration.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_forged_authority_and_stack_provenance_refuse_before_write(initial_release):
+    from nextseek_api.assistant.models_db import PairedRunRegistry, PosteriorGeneration
+
+    provenance = dict(initial_release.publication_evidence.source_provenance)
+    provenance.pop("stack_identity_status")
+    provenance.update(
+        model_mode="authoritative_mcmc",
+        initial_release_override=False,
+    )
+    changed = replace(
+        initial_release,
+        publication_evidence=replace(
+            initial_release.publication_evidence,
+            fit_diagnostics={"authoritative": True, "diagnostics_ok": True},
+            source_provenance=provenance,
+        ),
+    )
+    with pytest.raises(EvidenceIntegrityError, match="derived publication evidence"):
+        publish_human_grade_fit(changed)
+    assert PairedRunRegistry.objects.count() == 0
+    assert PosteriorGeneration.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_wrong_registered_content_hash_refuses_generation_publication(initial_release):
+    from nextseek_api.assistant.models_db import PairedRunRegistry, PosteriorGeneration
+    from nextseek_api.eval.evidence_kinds import UnapprovedPairedRun
+    from nextseek_api.eval.paired_run_registry import register_paired_run
+
+    register_paired_run(
+        paired_run_id=initial_release.paired_batch.paired_run_id,
+        schema_version=initial_release.paired_batch.schema_version,
+        content_hash="wrong-content-hash",
+    )
+    with pytest.raises((ValueError, UnapprovedPairedRun), match="content_hash mismatch"):
+        publish_human_grade_fit(
+            initial_release,
+            allow_initial_release_override=True,
+        )
+    assert PairedRunRegistry.objects.count() == 1
+    assert PosteriorGeneration.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_post_registration_publish_failure_rolls_back_registry(initial_release, monkeypatch):
+    from nextseek_api.assistant.models_db import PairedRunRegistry, PosteriorGeneration
+    from nextseek_api.eval import generation_store
+
+    def fail_publish(*args, **kwargs):
+        raise RuntimeError("synthetic publish failure")
+
+    monkeypatch.setattr(generation_store, "publish_generation", fail_publish)
+    with pytest.raises(RuntimeError, match="synthetic publish failure"):
+        publish_human_grade_fit(
+            initial_release,
             allow_initial_release_override=True,
         )
     assert PairedRunRegistry.objects.count() == 0

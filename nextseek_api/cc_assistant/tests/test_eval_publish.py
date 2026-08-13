@@ -88,39 +88,31 @@ def sparse_fit_result():
 
 
 def test_publish_stores_one_row_per_family_route_pair(fit_result):
-    assert publish(fit_result) == len(fit_result.groups)
-    assert FamilyPosterior.objects.count() == 2
-    assert PosteriorGeneration.objects.count() == 1
+    with pytest.raises(PublicationEvidenceRequired, match="FitResult publication is disabled"):
+        publish(fit_result)
+    assert FamilyPosterior.objects.count() == 0
+    assert PosteriorGeneration.objects.count() == 0
 
 
 def test_band_and_n_are_persisted_for_consumers(fit_result):
-    publish(fit_result)
-    row = FamilyPosterior.objects.first()
-    assert row.band in {"Reliable", "Watch", "Brittle", "TooUncertain"}
-    assert row.n_total >= 0
+    with pytest.raises(PublicationEvidenceRequired, match="FitResult publication is disabled"):
+        publish(fit_result)
 
 
 def test_a_family_below_the_floor_is_too_uncertain(sparse_fit_result):
-    publish(sparse_fit_result)
-    assert (
-        FamilyPosterior.objects.get(task_family="cross_session_memory").band
-        == "TooUncertain"
-    )
+    with pytest.raises(PublicationEvidenceRequired, match="FitResult publication is disabled"):
+        publish(sparse_fit_result)
 
 
 def test_republishing_replaces_rather_than_duplicates(fit_result):
-    publish(fit_result)
-    publish(fit_result)
-    assert PosteriorGeneration.objects.count() == 1
-    assert (
-        FamilyPosterior.objects.filter(task_family=fit_result.groups[0].name).count()
-        == 1
-    )
+    with pytest.raises(PublicationEvidenceRequired, match="FitResult publication is disabled"):
+        publish(fit_result)
+    assert PosteriorGeneration.objects.count() == 0
 
 
 def test_generic_publish_refuses_non_authoritative_result_without_override(fit_result):
     fit_result.fit_diagnostics = {"authoritative": False, "diagnostics_ok": False}
-    with pytest.raises(PublicationEvidenceRequired, match="authoritative diagnostics"):
+    with pytest.raises(PublicationEvidenceRequired, match="FitResult publication is disabled"):
         publish(fit_result)
     assert PosteriorGeneration.objects.count() == 0
 
@@ -130,7 +122,7 @@ def test_fit_group_has_no_fabricated_statistical_defaults():
         FitGroup("family-only")
 
 
-def test_publish_combined_fit_result_uses_decision_bands():
+def test_direct_combined_fit_publication_is_disabled():
     decision = GenerationDecision(
         candidates=(
             CandidateDecision(
@@ -189,8 +181,7 @@ def test_publish_combined_fit_result_uses_decision_bands():
         },
         family_retained_pairs={"sample_search": 5},
     )
-    count = publish(combined, evidence=evidence)
-    assert count == 1
-    row = FamilyPosterior.objects.get(task_family="sample_search")
-    assert row.band == "Reliable"
-    assert row.route == "container_cc"
+    with pytest.raises(PublicationEvidenceRequired, match="publish_human_grade_fit"):
+        publish(combined, evidence=evidence)
+    assert FamilyPosterior.objects.count() == 0
+    assert PosteriorGeneration.objects.count() == 0

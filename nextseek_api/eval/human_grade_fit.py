@@ -330,6 +330,156 @@ def _stack_identity(run_meta: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     }
 
 
+def _validate_run_meta(
+    run_meta: Any,
+    *,
+    corpus_sha256: str,
+    pair_ids: list[str],
+) -> dict[str, Any]:
+    if not isinstance(run_meta, dict):
+        raise EvidenceIntegrityError("bayes_manifest run_meta must be an object")
+    if run_meta.get("mode") != "bayesian":
+        raise EvidenceIntegrityError("bayes_manifest run_meta.mode must be 'bayesian'")
+    if run_meta.get("arms") != ["ns", "cc"]:
+        raise EvidenceIntegrityError(
+            "bayes_manifest run_meta.arms must be exactly ['ns', 'cc']"
+        )
+    if run_meta.get("corpus_fingerprint") != corpus_sha256:
+        raise EvidenceIntegrityError(
+            "authenticated bayes_manifest run_meta.corpus_fingerprint does not "
+            "match the current router corpus"
+        )
+    if run_meta.get("selected_ids") != pair_ids:
+        raise EvidenceIntegrityError(
+            "authenticated bayes_manifest run_meta.selected_ids must exactly match "
+            "the ordered pair IDs"
+        )
+    max_usd = run_meta.get("max_usd")
+    if isinstance(max_usd, bool) or not isinstance(max_usd, (int, float)) or max_usd < 0:
+        raise EvidenceIntegrityError(
+            "bayes_manifest run_meta.max_usd must be a nonnegative number"
+        )
+    if not isinstance(run_meta.get("resumed"), bool):
+        raise EvidenceIntegrityError("bayes_manifest run_meta.resumed must be boolean")
+    if not isinstance(run_meta.get("superseded_runs"), list):
+        raise EvidenceIntegrityError("bayes_manifest run_meta.superseded_runs must be a list")
+    return run_meta
+
+
+def _aggregate_rows(arms: Iterable[HumanFitArm]) -> list[dict[str, Any]]:
+    return [
+        {
+            "arm_id": arm.arm_id,
+            "bucket": arm.bucket.bucket.value,
+            "exclusion_reason": (
+                arm.bucket.exclusion_reason.value if arm.bucket.exclusion_reason else None
+            ),
+            "combined_success": arm.combined_success,
+        }
+        for arm in arms
+    ]
+
+
+def _publication_evidence_from_derived_facts(
+    *,
+    model_mode: ModelMode,
+    fit: CombinedFitResult,
+    source_hashes: dict[str, Any],
+    paired_batch: PairedExperimentalBatch,
+    paired_content_hash: str,
+    arms: tuple[HumanFitArm, ...],
+    conservation: ConservationReport,
+    admission: FitAdmission,
+    pair_rows: tuple[PairFitRow, ...],
+):
+    from nextseek_api.eval.publish import PublicationEvidence
+
+    current = corpus_snapshot()
+    if source_hashes.get("corpus_sha256") != current.corpus_sha256:
+        raise EvidenceIntegrityError("prepared source corpus no longer matches the router corpus")
+    grade_hashes = source_hashes.get("human_grade_sha256")
+    if not isinstance(grade_hashes, dict) or set(grade_hashes) != {"ns", "cc"}:
+        raise EvidenceIntegrityError("prepared human-grade source hashes are incomplete")
+    stack_provenance = source_hashes.get("stack_identity")
+    if not isinstance(stack_provenance, dict):
+        raise EvidenceIntegrityError("prepared stack identity provenance is missing")
+
+    family_retained = Counter(row.family for row in pair_rows)
+    counts = {
+        "input_arms": len(arms),
+        "scored_desired": conservation.scored_desired,
+        "scored_not_desired": conservation.scored_not_desired,
+        "excluded_arms": conservation.excluded_by_reason,
+        "pending_arms": conservation.pending,
+        "retained_pairs": len(admission.retained_pairs),
+        "excluded_pairs": len(admission.excluded_pair_ids),
+        "pending_pairs": len(admission.pending_pair_ids),
+        "functional_success_true": sum(arm.row.functional_success is True for arm in arms),
+        "functional_success_false": sum(arm.row.functional_success is False for arm in arms),
+        "runtime_failures": sum(not arm.row.runtime_success for arm in arms),
+        "artifact_failures": sum(not arm.row.artifact_success for arm in arms),
+    }
+    provenance = {
+        "origin": "set3_final_human_functional_grade_initial_fit",
+        "paired_run_id": paired_batch.paired_run_id,
+        "paired_run_content_hash": paired_content_hash,
+        "evidence_kind": "paired_experimental",
+        "route_source": "forced",
+        "functional_success_source": "human_grades",
+        "human_grades_are_judge_attempts": False,
+        "judge_calls_used": 0,
+        "judge_comparison_gates_initial_fit": False,
+        "corpus_version": 2,
+        "corpus_sha256": current.corpus_sha256,
+        "model_mode": model_mode.value,
+        "initial_release_override": model_mode is ModelMode.initial_human_grade,
+        "source_hashes": source_hashes,
+        **stack_provenance,
+    }
+    diagnostics = {
+        "model_mode": model_mode.value,
+        "authoritative": model_mode.authoritative,
+        "initial_release_override": model_mode is ModelMode.initial_human_grade,
+        "diagnostics_ok": fit.diagnostics_ok,
+        "quality": {
+            family: {
+                "divergences": result.divergences,
+                "rhat_max": result.rhat_max,
+                "ess_bulk_min": result.ess_bulk_min,
+                "ess_tail_min": result.ess_tail_min,
+            }
+            for family, result in sorted(fit.quality.items())
+        },
+        "latency": {
+            family: {
+                "divergences": result.divergences,
+                "rhat_max": result.rhat_max,
+                "ess_bulk_min": result.ess_bulk_min,
+                "ess_tail_min": result.ess_tail_min,
+            }
+            for family, result in sorted(fit.latency.items())
+        },
+    }
+    return PublicationEvidence(
+        input_hash=_canonical_hash(
+            {"sources": source_hashes, "paired_run": paired_content_hash}
+        ),
+        attempt_hash=_canonical_hash(
+            {"kind": "human_functional_grades", "files": grade_hashes}
+        ),
+        aggregate_hash=_canonical_hash(_aggregate_rows(arms)),
+        compatibility_keys={
+            "taxonomy_version": current.taxonomy_version,
+            "corpus_hash": current.corpus_sha256,
+        },
+        counts=counts,
+        exclusions=dict(sorted(conservation.by_reason.items())),
+        fit_diagnostics=diagnostics,
+        source_provenance=provenance,
+        family_retained_pairs=dict(sorted(family_retained.items())),
+    )
+
+
 def build_human_grade_fit(
     delivery: str | Path,
     *,
@@ -390,17 +540,11 @@ def build_human_grade_fit(
     if len(set(pair_ids)) != 149:
         raise EvidenceIntegrityError("paired manifest contains duplicate pair ids")
     expected_ids = set(pair_ids)
-    run_meta = manifest_raw.get("run_meta") or {}
-    if run_meta.get("corpus_fingerprint") != current.corpus_sha256:
-        raise EvidenceIntegrityError(
-            "authenticated bayes_manifest run_meta.corpus_fingerprint does not "
-            "match the current router corpus"
-        )
-    if run_meta.get("selected_ids") != pair_ids:
-        raise EvidenceIntegrityError(
-            "authenticated bayes_manifest run_meta.selected_ids must exactly match "
-            "the ordered pair IDs"
-        )
+    run_meta = _validate_run_meta(
+        manifest_raw.get("run_meta"),
+        corpus_sha256=current.corpus_sha256,
+        pair_ids=pair_ids,
+    )
     stack_id, stack_provenance = _stack_identity(run_meta)
     for arm in ("ns", "cc"):
         if set(runtime[arm]) != expected_ids or set(grades[arm]) != expected_ids:
@@ -498,7 +642,6 @@ def build_human_grade_fit(
         seed=seed,
         use_mcmc=model_mode.authoritative,
     )
-    family_retained = Counter(row.family for row in pair_rows)
     grade_hashes = {
         arm: identity.member_sha256[
             f"set3_final/hibayes/hibayes_functional_usefulness_human_{arm}.csv"
@@ -515,97 +658,30 @@ def build_human_grade_fit(
         "corpus_sha256": current.corpus_sha256,
         "stack_identity": stack_provenance,
     }
-    aggregate_rows = [
-        {
-            "arm_id": arm.arm_id,
-            "bucket": arm.bucket.bucket.value,
-            "exclusion_reason": arm.bucket.exclusion_reason.value if arm.bucket.exclusion_reason else None,
-            "combined_success": arm.combined_success,
-        }
-        for arm in arms
-    ]
-    counts = {
-        "input_arms": 298,
-        "scored_desired": conservation.scored_desired,
-        "scored_not_desired": conservation.scored_not_desired,
-        "excluded_arms": conservation.excluded_by_reason,
-        "pending_arms": conservation.pending,
-        "retained_pairs": len(admission.retained_pairs),
-        "excluded_pairs": len(admission.excluded_pair_ids),
-        "pending_pairs": len(admission.pending_pair_ids),
-        "functional_success_true": sum(arm.row.functional_success is True for arm in arms),
-        "functional_success_false": sum(arm.row.functional_success is False for arm in arms),
-        "runtime_failures": sum(not arm.row.runtime_success for arm in arms),
-        "artifact_failures": sum(not arm.row.artifact_success for arm in arms),
-    }
-    provenance = {
-        "origin": "set3_final_human_functional_grade_initial_fit",
-        "paired_run_id": paired_run_id,
-        "paired_run_content_hash": paired_content_hash,
-        "evidence_kind": "paired_experimental",
-        "route_source": "forced",
-        "functional_success_source": "human_grades",
-        "human_grades_are_judge_attempts": False,
-        "judge_calls_used": 0,
-        "judge_comparison_gates_initial_fit": False,
-        "corpus_version": 2,
-        "corpus_sha256": current.corpus_sha256,
-        "model_mode": model_mode.value,
-        "initial_release_override": model_mode is ModelMode.initial_human_grade,
-        "source_hashes": source_hashes,
-        **stack_provenance,
-    }
-    diagnostics = {
-        "model_mode": model_mode.value,
-        "authoritative": model_mode.authoritative,
-        "initial_release_override": model_mode is ModelMode.initial_human_grade,
-        "diagnostics_ok": fit.diagnostics_ok,
-        "quality": {
-            family: {
-                "divergences": result.divergences,
-                "rhat_max": result.rhat_max,
-                "ess_bulk_min": result.ess_bulk_min,
-                "ess_tail_min": result.ess_tail_min,
-            }
-            for family, result in sorted(fit.quality.items())
-        },
-        "latency": {
-            family: {
-                "divergences": result.divergences,
-                "rhat_max": result.rhat_max,
-                "ess_bulk_min": result.ess_bulk_min,
-                "ess_tail_min": result.ess_tail_min,
-            }
-            for family, result in sorted(fit.latency.items())
-        },
-    }
-    from nextseek_api.eval.publish import PublicationEvidence
-
-    publication_evidence = PublicationEvidence(
-        input_hash=_canonical_hash({"sources": source_hashes, "paired_run": paired_content_hash}),
-        attempt_hash=_canonical_hash({"kind": "human_functional_grades", "files": grade_hashes}),
-        aggregate_hash=_canonical_hash(aggregate_rows),
-        compatibility_keys={
-            "taxonomy_version": current.taxonomy_version,
-            "corpus_hash": current.corpus_sha256,
-        },
-        counts=counts,
-        exclusions=dict(sorted(conservation.by_reason.items())),
-        fit_diagnostics=diagnostics,
-        source_provenance=provenance,
-        family_retained_pairs=dict(sorted(family_retained.items())),
+    arms_tuple = tuple(arms)
+    pair_rows_tuple = tuple(pair_rows)
+    publication_evidence = _publication_evidence_from_derived_facts(
+        model_mode=model_mode,
+        fit=fit,
+        source_hashes=source_hashes,
+        paired_batch=paired_batch,
+        paired_content_hash=paired_content_hash,
+        arms=arms_tuple,
+        conservation=conservation,
+        admission=admission,
+        pair_rows=pair_rows_tuple,
     )
     return HumanGradeFit(
         model_mode=model_mode,
         fit_config=cfg,
         seed=seed,
-        arms=tuple(arms),
+        arms=arms_tuple,
         eval_rows=tuple(arm.row for arm in arms),
         conservation=conservation,
         admission=admission,
         paired_batch=paired_batch,
         paired_content_hash=paired_content_hash,
-        pair_rows=tuple(pair_rows),
+        pair_rows=pair_rows_tuple,
         fit=fit,
         publication_evidence=publication_evidence,
         source_hashes=source_hashes,
@@ -626,9 +702,16 @@ def publish_human_grade_fit(
     allow_initial_release_override: bool = False,
 ):
     """Register the exact paired batch and publish; never activates implicitly."""
+    from django.db import transaction
+
     from nextseek_api.eval.conservation import build_fit_admission as checked_admission
+    from nextseek_api.eval.disposition import classify_arm as checked_classify_arm
     from nextseek_api.eval.fit.v14.pair_rows import build_pair_rows as checked_pair_rows
-    from nextseek_api.eval.generation_store import publish_generation
+    from nextseek_api.eval.fit.fit_boundary import (
+        assert_paired_experimental_only,
+        validate_publish_provenance,
+    )
+    from nextseek_api.eval import generation_store
     from nextseek_api.eval.paired_run_registry import register_paired_run
     from nextseek_api.eval.publish import manifest_for_combined as _manifest
 
@@ -643,61 +726,98 @@ def publish_human_grade_fit(
         raise EvidenceIntegrityError(
             "prepared paired batch content hash changed after authentication"
         )
-    provenance = prepared.publication_evidence.source_provenance
-    if provenance.get("paired_run_content_hash") != actual_paired_hash:
-        raise EvidenceIntegrityError(
-            "source provenance is not bound to the paired batch content hash"
-        )
-    if provenance.get("source_hashes") != prepared.source_hashes:
-        raise EvidenceIntegrityError("publication source hashes changed after preparation")
-    expected_input_hash = _canonical_hash(
-        {"sources": prepared.source_hashes, "paired_run": actual_paired_hash}
-    )
-    if prepared.publication_evidence.input_hash != expected_input_hash:
-        raise EvidenceIntegrityError(
-            "publication input hash is not bound to authenticated source and paired content"
+    assert_paired_experimental_only(prepared.paired_batch)
+
+    arm_records = prepared.paired_batch.arm_records
+    if len({arm.arm_id for arm in prepared.arms}) != len(prepared.arms):
+        raise EvidenceIntegrityError("prepared fit contains duplicate arm ids")
+    if {arm.arm_id for arm in prepared.arms} != set(arm_records):
+        raise EvidenceIntegrityError("prepared fit arms do not match paired batch arms")
+    checked_arms: list[HumanFitArm] = []
+    for arm in prepared.arms:
+        bucket = checked_classify_arm(arm.row)
+        combined = arm.row.outcome()
+        if bucket != arm.bucket or combined != arm.combined_success:
+            raise EvidenceIntegrityError(
+                f"prepared arm outcome changed after authentication: {arm.arm_id}"
+            )
+        suffix = arm.arm_id.rsplit("::", 1)[-1]
+        expected_record = {
+            "pair_id": arm.row.query_id,
+            "route": "nextseek" if suffix == "ns" else "container_cc",
+            "query_id": arm.row.query_id,
+            "combined_success": combined,
+            "latency_seconds": arm.row.latency_seconds,
+            "latency_censored": not arm.row.runtime_success,
+            "cost_usd": arm.row.cost_usd,
+        }
+        if arm_records.get(arm.arm_id) != expected_record:
+            raise EvidenceIntegrityError(
+                f"prepared arm facts do not match paired batch: {arm.arm_id}"
+            )
+        checked_arms.append(
+            HumanFitArm(
+                arm_id=arm.arm_id,
+                row=arm.row,
+                bucket=bucket,
+                combined_success=combined,
+            )
         )
 
-    # Refuse an unauthorized/non-authoritative publication before the registry
-    # or any other durable state is mutated.
-    _manifest(
-        prepared.fit,
-        prepared.publication_evidence,
-        for_publication=True,
-        allow_initial_release_override=allow_initial_release_override,
-    )
-    register_paired_run(
-        paired_run_id=prepared.paired_batch.paired_run_id,
-        schema_version=prepared.paired_batch.schema_version,
-        content_hash=prepared.paired_content_hash,
-    )
-    buckets_by_arm = {arm.arm_id: arm.bucket for arm in prepared.arms}
+    checked_arms_tuple = tuple(checked_arms)
+    conservation = build_conservation_report([arm.bucket for arm in checked_arms_tuple])
+    if not conservation.balanced or conservation.input_count != 298:
+        raise EvidenceIntegrityError("publish-time 298-arm conservation failed")
+    buckets_by_arm = {arm.arm_id: arm.bucket for arm in checked_arms_tuple}
     admission = checked_admission(
         prepared.paired_batch.pairs,
         buckets_by_arm,
-        paired_batch=prepared.paired_batch,
     )
     checked_rows = checked_pair_rows(
         admission,
-        prepared.paired_batch.arm_records,
-        paired_batch=prepared.paired_batch,
+        arm_records,
     )
-    # The actual publish fit crosses the approved paired-experimental boundary;
-    # the earlier dry-run fit is report-only and never treated as approval.
     checked_fit = run_v14_generation(
         checked_rows,
         prepared.fit_config,
         seed=prepared.seed,
         use_mcmc=prepared.model_mode.authoritative,
-        paired_batch=prepared.paired_batch,
     )
+    derived_evidence = _publication_evidence_from_derived_facts(
+        model_mode=prepared.model_mode,
+        fit=checked_fit,
+        source_hashes=prepared.source_hashes,
+        paired_batch=prepared.paired_batch,
+        paired_content_hash=actual_paired_hash,
+        arms=checked_arms_tuple,
+        conservation=conservation,
+        admission=admission,
+        pair_rows=tuple(checked_rows),
+    )
+    if derived_evidence != prepared.publication_evidence:
+        raise EvidenceIntegrityError(
+            "prepared derived publication evidence changed after authentication"
+        )
+    if conservation != prepared.conservation or admission != prepared.admission:
+        raise EvidenceIntegrityError("prepared conservation/admission changed after authentication")
+    if tuple(checked_rows) != prepared.pair_rows:
+        raise EvidenceIntegrityError("prepared pair rows changed after authentication")
+
+    # Refuse authority/provenance defects before any durable state is mutated.
     manifest = _manifest(
         checked_fit,
-        prepared.publication_evidence,
+        derived_evidence,
         for_publication=True,
         allow_initial_release_override=allow_initial_release_override,
     )
-    return publish_generation(manifest, actor=actor)
+    with transaction.atomic():
+        register_paired_run(
+            paired_run_id=prepared.paired_batch.paired_run_id,
+            schema_version=prepared.paired_batch.schema_version,
+            content_hash=actual_paired_hash,
+        )
+        validate_publish_provenance(derived_evidence.source_provenance)
+        return generation_store.publish_generation(manifest, actor=actor)
 
 
 def activate_human_grade_generation(
