@@ -90,6 +90,84 @@ def test_manifest_is_outside_the_dir_the_agent_can_write(tmp_path):
     )
 
 
+def test_a_nested_projects_dir_cannot_relocate_the_manifest(tmp_path):
+    """#76-A regression, reported with a working repro by the batch reviewer.
+
+    The session dir has to be DERIVED from a bare transcript path, because
+    ``cc_sweep`` has nothing else. Deriving it from the NEAREST ``projects``
+    ancestor let a hostile agent mkdir a nested store inside its own read-write
+    mount and thereby move the watermark somewhere it could write:
+
+        transcript  <cc_state_mnt>/projects/evil/projects/x/t.jsonl
+        nearest  -> <cc_state_mnt>/projects/evil
+        manifest -> <cc_state_mnt>/projects/.evil.scrub.json   ← agent-writable
+
+    It then forged an entry and `transcript_is_verified_scrubbed` returned True
+    for a transcript that still held the plaintext password. Taking the
+    OUTERMOST ``projects`` ancestor closes it: the agent's writable root IS the
+    session dir, so anything it fabricates is strictly deeper than the genuine
+    store and can never be outermost.
+    """
+    cc_state = tmp_path / "cc-state" / "sess-a"
+    evil = cc_state / "projects" / "evil" / "projects" / "x"
+    evil.mkdir(parents=True)
+    planted = evil / "t.jsonl"
+    planted.write_bytes(DIRTY)
+
+    # The forgery: a manifest at the location the OLD derivation looked in,
+    # which is inside the dir the agent mounts read-write.
+    forged_root = cc_state / "projects" / "evil"
+    cc_engine._write_scrub_manifest(
+        forged_root, {"projects/x/t.jsonl": hashlib.sha256(DIRTY).hexdigest()})
+    assert cc_state in cc_engine._scrub_manifest_path(forged_root).parents, (
+        "fixture is only meaningful if the forged manifest really does land "
+        "inside the agent's read-write mount"
+    )
+
+    assert PW.encode() in planted.read_bytes(), "fixture must start dirty"
+    assert cc_engine.transcript_is_verified_scrubbed(planted, DIRTY) is False, (
+        "a watermark written from inside the sandbox verified a transcript "
+        "that was never scrubbed"
+    )
+
+
+def test_a_genuinely_deep_transcript_still_verifies(tmp_path):
+    """Positive control for the test above: taking the outermost ancestor must
+    not break real stores, whose jsonl sits several levels below ``projects``
+    (claude encodes the cwd as a path segment)."""
+    cc_state = tmp_path / "cc-state" / "sess-a"
+    deep = cc_state / "projects" / "-home-user" / "sub" / "deeper"
+    deep.mkdir(parents=True)
+    f = deep / "t.jsonl"
+    f.write_bytes(DIRTY)
+
+    cc_engine.scrub_transcript_store(cc_state, ENV)
+
+    assert PW.encode() not in f.read_bytes()
+    assert _verified(f) is True
+
+
+def test_the_manifest_stays_outside_the_mount_for_a_nested_store(tmp_path):
+    """Even when the transcript is inside a nested ``projects``, the watermark
+    consulted for it is the session's own — outside the agent's mount."""
+    cc_state = tmp_path / "cc-state" / "sess-a"
+    evil = cc_state / "projects" / "evil" / "projects" / "x"
+    evil.mkdir(parents=True)
+    planted = evil / "t.jsonl"
+    planted.write_bytes(CLEAN)
+
+    # A real scrub pass covers it, because rglob finds it under the real store.
+    report = cc_engine.scrub_transcript_store(cc_state, ENV)
+
+    assert report == (0, 0)
+    recorded = cc_engine._read_scrub_manifest(cc_state)
+    assert "projects/evil/projects/x/t.jsonl" in recorded, (
+        "the real pass must record it under the SESSION's manifest"
+    )
+    assert cc_engine.transcript_is_verified_scrubbed(planted, CLEAN) is True
+    assert cc_state not in cc_engine._scrub_manifest_path(cc_state).parents
+
+
 def test_manifest_is_not_picked_up_by_the_transcript_globs(tmp_path):
     cc_state = tmp_path / "cc-state" / "sess-a"
     _store(cc_state)

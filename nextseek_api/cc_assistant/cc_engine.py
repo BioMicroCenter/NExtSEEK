@@ -460,9 +460,13 @@ def _scrub_manifest_path(cc_state_dir: Path | str) -> Path:
     <session_id>``) READ-WRITE at ``/home/user/.claude``, so anything written
     inside that dir is forgeable from inside the sandbox — including a
     watermark claiming a transcript full of plaintext is clean. Its PARENT
-    (``.../cc-state/``) is mounted into no agent at all, so the watermark is
-    outside every sandbox's reach. The leading dot keeps it out of the
-    ``*.jsonl`` globs that walk this tree.
+    (``.../cc-state/``) is mounted into no agent at all. The leading dot keeps
+    it out of the ``*.jsonl`` globs that walk this tree.
+
+    The placement only holds if ``cc_state_dir`` is the REAL session dir. It is
+    ``transcript_is_verified_scrubbed`` that has to establish that from a bare
+    transcript path, and getting that derivation wrong puts this file back
+    inside the agent's mount — see the attack recorded there.
     """
     cc_state_dir = Path(cc_state_dir)
     return cc_state_dir.parent / f".{cc_state_dir.name}.scrub.json"
@@ -539,15 +543,41 @@ def transcript_is_verified_scrubbed(transcript_path: Path | str, raw: bytes) -> 
     mismatch — all ``False``. A skipped session is retried on the next beat and
     is repaired the next time its owner runs a CC turn (see
     ``scrub_sibling_transcript_stores``).
+
+    #76-A — why the OUTERMOST ``projects`` ancestor, not the nearest. The
+    caller (``cc_sweep``) has only a transcript path, so the session dir has to
+    be derived from it, and the first version of this took the nearest
+    ``projects`` ancestor. That is forgeable from inside the sandbox. An agent
+    that mkdirs a NESTED store inside its own read-write mount::
+
+        transcript  <cc_state_mnt>/projects/evil/projects/x/t.jsonl
+        nearest  -> cc_state_dir = <cc_state_mnt>/projects/evil
+        manifest -> <cc_state_mnt>/projects/.evil.scrub.json   ← agent-writable
+
+    relocates the watermark into a directory it can write, and the forged entry
+    then verifies bytes that were never scrubbed. ``_session_metas`` rglobs the
+    store, so such a path really can become ``tgt.transcript_path``.
+
+    Taking the OUTERMOST match closes it. The agent's writable root IS
+    ``cc_state_dir`` and the genuine store is its direct child, so every path
+    the agent can fabricate lies strictly BELOW the genuine ``projects`` and can
+    never be the outermost one. The agent cannot create a directory above its
+    own mount root, which is what it would need.
+
+    Known liveness caveat, not a security one: if a path component ABOVE the
+    cc-state dir is itself literally named ``projects`` — a Django username of
+    ``projects`` (``_validate_user_id`` permits it), or a
+    ``DMAC_USER_ROOT_MOUNT`` containing one — this resolves to the wrong dir
+    and nothing in that deployment ever verifies. That fails CLOSED: the sweep
+    skips instead of leaking, and the in-request readers scrub at their own read
+    point regardless.
     """
     path = Path(transcript_path)
-    cc_state_dir = None
-    for parent in path.parents:
-        if parent.name == _TRANSCRIPT_STORE_DIRNAME:
-            cc_state_dir = parent.parent
-            break
-    if cc_state_dir is None:
+    store_roots = [p for p in path.parents if p.name == _TRANSCRIPT_STORE_DIRNAME]
+    if not store_roots:
         return False
+    # path.parents runs nearest -> root, so [-1] is the outermost match.
+    cc_state_dir = store_roots[-1].parent
     try:
         rel = str(path.relative_to(cc_state_dir))
     except ValueError:
@@ -681,6 +711,22 @@ def scrub_sibling_transcript_stores(
     dirty transcript, and it costs a truncated ``--resume`` tail rather than a
     wrong answer — which is the right side of the trade against leaving a
     plaintext credential in the volume.
+
+    COST, paid on every turn (#76-B). This is a SECOND full pass over the
+    user's cc-state tree, and a heavier one than the pass already there:
+    ``_session_metas`` reads only the NEWEST jsonl per session, to fingerprint
+    it, whereas this reads EVERY jsonl in every session store and rewrites the
+    dirty ones. Per-turn I/O therefore scales with the user's total retained
+    transcript BYTES, not with their session count — and transcripts are kept
+    indefinitely for ``--resume`` with nothing pruning them, so it grows without
+    bound for a heavy user.
+
+    Accepted because the alternative is leaving a plaintext credential on disk,
+    and because the steady state is read-only: a file that is already clean
+    short-circuits at ``clean == raw`` and is never rewritten. It is still real
+    work on the turn's critical path. The obvious bounded version — skip a store
+    whose manifest already covers every file at its current size and mtime — is
+    the next step if this shows up in turn latency.
     """
     root = Path(cc_state_root)
     if not root.is_dir():
@@ -1321,6 +1367,14 @@ def run_cc_turn(
                 # credential — and a session whose own turn died before this
                 # finally ran is otherwise never revisited. Same best-effort
                 # contract: it must not fail the turn.
+                #
+                # #76-B: this reads EVERY jsonl the user has retained, not just
+                # the newest one per session that _session_metas already reads,
+                # so it scales with total transcript bytes and grows without
+                # bound (nothing prunes transcripts — --resume needs them). It
+                # runs AFTER the reply has been sent, so it costs the user no
+                # latency, but it does hold the turn's thread. See the
+                # scrub_sibling_transcript_stores docstring for the trade.
                 siblings = scrub_sibling_transcript_stores(
                     current.parent, environment, exclude=current)
                 total_skipped = report.skipped + siblings.skipped
