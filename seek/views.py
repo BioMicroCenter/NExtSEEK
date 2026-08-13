@@ -1193,25 +1193,39 @@ def get_children_uids(sample_uids, user_project_ids, admin):
     conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
     cursor = conn.cursor()
 
-    uids_str = ', '.join(f"'{uid}'" for uid in uids)
-    project_ids_str = ', '.join(f"'{pid}'" for pid in user_project_ids)
+    # Bound, never inlined: a quote in a uuid or a project id broke out of the
+    # literal. Second copy of #78 -- the twin in dbtable_sample.py:906 was fixed
+    # by feaa816, this one was outside that scope. Shape mirrors the view-layer
+    # prior art at nextseek_api/views.py:829-852 (7698848). The uuids are not
+    # request data but r[0]['uuids'] read back out of Neo4j above, so the taint
+    # is second-order; user_project_ids comes from SEEK's getCurrentUser().
+    # Only the schema name, from settings, is still interpolated.
+    uid_placeholders = ', '.join(['%s'] * len(uids))
 
     if admin:
         query = f"""
         SELECT id,sample_type_id,uuid,json_metadata
         FROM {db["NAME"]}.samples
-        WHERE uuid IN ({uids_str})
+        WHERE uuid IN ({uid_placeholders})
         """
+        params = list(uids)
     else:
+        # user_project_ids is a single-pass map() (views.py:1247), so it is
+        # consumed here and only on the branch that needs it. The sentinel keeps
+        # the statement valid, and matching nothing, when the caller has no
+        # mapped projects; it used to emit `IN ()`, a MySQL syntax error.
+        scoped_project_ids = [str(pid) for pid in user_project_ids] or ['']
+        project_placeholders = ', '.join(['%s'] * len(scoped_project_ids))
         query = f"""
         SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
         FROM {db["NAME"]}.samples s
         JOIN {db["NAME"]}.projects_samples ps
         ON s.id = ps.sample_id
-        WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
+        WHERE s.uuid IN ({uid_placeholders}) AND ps.sample_id = s.id AND ps.project_id IN ({project_placeholders})
         """
+        params = list(uids) + scoped_project_ids
 
-    cursor.execute(query)
+    cursor.execute(query, params)
     columns = [col[0] for col in cursor.description]
     rows = cursor.fetchall()
     samples_retrieved_df = pd.DataFrame(rows, columns=columns)
