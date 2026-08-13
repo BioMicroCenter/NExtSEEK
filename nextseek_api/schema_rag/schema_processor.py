@@ -58,6 +58,98 @@ def _own_public_hosts() -> set:
     return hosts
 
 
+def _own_hosts() -> set:
+    """Every hostname that is US: the public ones plus the container-internal one.
+
+    Deliberately separate from `_own_public_hosts()`, which must keep meaning
+    exactly "hosts whose URLs need rewriting to the internal base" — folding the
+    internal host into it would change `resolve_transport_url`.
+    """
+    hosts = set(_own_public_hosts())
+    internal = (os.getenv("NEXTSEEK_INTERNAL_BASE_URL") or "").strip()
+    if internal and "*" not in internal:
+        entry = internal if "//" in internal else "//" + internal
+        host = urlsplit(entry).hostname
+        if host:
+            hosts.add(host.lower())
+    return hosts
+
+
+def self_schema_route_path() -> Optional[str]:
+    """Path of THIS instance's OpenAPI schema route, or None if unavailable.
+
+    `reverse` is imported lazily and every failure is swallowed because this
+    module is importable standalone, with Django unconfigured (same reason
+    `_own_public_hosts` guards its `settings` access).
+    """
+    try:
+        from django.urls import reverse
+
+        return reverse("nextseek_api:schema")
+    except Exception:  # settings/urls unavailable, or the route was renamed
+        return None
+
+
+def is_self_schema_url(url: str) -> bool:
+    """True only for a URL naming OUR OWN OpenAPI schema route.
+
+    BOTH halves are required, and matching on hostname alone would be a
+    security bug: `https://<our own host>/anything/else` is still an arbitrary
+    fetch of an arbitrary document, and treating it as "ours" would let a
+    caller-supplied `schema_url` be answered with our in-process schema — or,
+    under any credential-attaching variant of this fix, get our credentials
+    attached to a request we never meant to authenticate.
+    """
+    route = self_schema_route_path()
+    if not route:
+        return False
+
+    parts = urlsplit(url or "")
+    if not parts.hostname:
+        return False
+    if parts.hostname.lower() not in _own_hosts():
+        return False
+    return parts.path.rstrip("/") == route.rstrip("/")
+
+
+def _generate_own_schema() -> Optional[dict]:
+    """Build this instance's OpenAPI document in-process, or return None.
+
+    This is exactly what `SpectacularAPIView` serves, minus the HTTP round trip
+    to a route we ourselves gate behind `IsAuthenticated` (#77 / #94).
+
+    Returns None — never raises — on ANY failure, so `fetch_schema` can fall
+    through to the pre-existing HTTP path and nothing that worked before stops
+    working. `drf_spectacular` is imported lazily for the same standalone-import
+    reason as `self_schema_route_path`.
+    """
+    try:
+        from drf_spectacular.generators import SchemaGenerator
+    except Exception as e:  # drf_spectacular absent or Django unconfigured
+        logger.warning(
+            "Cannot import drf_spectacular for in-process schema generation "
+            "(%s); falling back to HTTP", e
+        )
+        return None
+
+    try:
+        document = SchemaGenerator().get_schema(request=None, public=True)
+    except Exception as e:
+        logger.warning(
+            "In-process OpenAPI generation failed (%s); falling back to HTTP", e
+        )
+        return None
+
+    if not isinstance(document, dict):
+        logger.warning(
+            "In-process OpenAPI generation returned %s, not a dict; "
+            "falling back to HTTP", type(document).__name__
+        )
+        return None
+
+    return document
+
+
 def resolve_transport_url(schema_url: str) -> str:
     """Rewrite a schema URL pointing at our OWN public host to the internal one.
 
@@ -131,6 +223,23 @@ class OpenAPISchemaProcessor:
         Raises:
             SchemaFetchError: If fetch, parse, or resolution fails.
         """
+        # Step 0: our OWN schema route is generated in-process, never fetched
+        # over HTTP. #77 put IsAuthenticated on /nextseek_api/schema/, so the
+        # anonymous self-fetch this used to do now 401s (#94), and no service
+        # credential exists to attach. Strictly additive: if generation is
+        # unavailable for any reason we fall through to the HTTP path below.
+        if is_self_schema_url(schema_url):
+            own_document = _generate_own_schema()
+            if own_document is not None:
+                logger.info(
+                    "Serving our own OpenAPI schema in-process for %s", schema_url
+                )
+                return self._resolve_refs(own_document, schema_url)
+            logger.warning(
+                "In-process generation unavailable for our own schema %s; "
+                "falling back to the HTTP fetch", schema_url
+            )
+
         # Step 1: HTTP GET. Fetch over the container-internal URL when the
         # caller named our own public host, which is not resolvable from in
         # here; the caller-supplied schema_url is still what gets recorded.
@@ -159,6 +268,25 @@ class OpenAPISchemaProcessor:
             raise SchemaFetchError(f"Schema parsing failed: {e}") from e
 
         # Step 3: Resolve all $ref pointers
+        return self._resolve_refs(parsed, schema_url)
+
+    def _resolve_refs(self, parsed: Any, schema_url: str) -> Any:
+        """
+        Resolve all $ref pointers in a parsed OpenAPI document.
+
+        Shared by the in-process and HTTP paths of fetch_schema so both report
+        resolution failures identically.
+
+        Args:
+            parsed: Parsed OpenAPI document (dict from JSON/YAML or generator).
+            schema_url: URL the document came from, for error reporting only.
+
+        Returns:
+            The document with all $ref resolved, as plain Python objects.
+
+        Raises:
+            SchemaFetchError: If $ref resolution fails.
+        """
         try:
             resolved = jsonref.replace_refs(parsed)
             # Convert back to regular dict (jsonref returns proxy objects)

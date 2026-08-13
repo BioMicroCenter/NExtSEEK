@@ -586,8 +586,16 @@ class TestResolveTransportUrl(TestCase):
 class TestFetchSchemaUsesInternalUrl(TestCase):
     """fetch_schema must GET the rewritten URL."""
 
+    @patch(
+        'nextseek_api.schema_rag.schema_processor._generate_own_schema',
+        return_value=None,
+    )
     @patch('nextseek_api.schema_rag.schema_processor.requests.get')
-    def test_fetch_schema_gets_the_internal_url(self, mock_get):
+    def test_fetch_schema_gets_the_internal_url(self, mock_get, _mock_generate):
+        """The URL used here is now also OUR OWN schema route, which #94 made
+        fetch_schema serve in-process. The internal-URL rewrite still has to
+        hold for the HTTP path, so the generator is disabled and the original
+        assertion is exercised through the #94 fallback, unchanged."""
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.text = '{"openapi": "3.0.0", "info": {"title": "T", "version": "1"}}'
