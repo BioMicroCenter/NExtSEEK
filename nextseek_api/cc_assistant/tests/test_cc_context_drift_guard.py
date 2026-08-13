@@ -24,6 +24,7 @@ These tests are the missing sync check. Hermetic: stdlib only, no docker, no
 network, no DB.
 """
 
+import ast
 import json
 from pathlib import Path
 
@@ -101,9 +102,10 @@ EXPECTED_BAKED_ONLY = frozenset({
 # pack's files are re-fetched from a live Neo4j and rewritten into this directory
 # whenever chat_nextseek's config is loaded and the on-disk copy is not from
 # today (chat_nextseek/src/chat_nextseek/config.py:1732 _ensure_schema_file, via
-# :1747, :1796, :1841) — neo4j_schema.json, neo4j_assay-sample-conn.json and
-# neo4j_protocol_schema.json. Deleting one of those and re-running the suite
-# silently recreates it, so use one of the other five to prove this pin bites.
+# :1747, :1796, :1841) — neo4j_schema.json (shared, not listed here) plus the
+# two listed below, neo4j_assay-sample-conn.json and neo4j_protocol_schema.json.
+# Deleting one of those and re-running the suite silently recreates it, so use
+# one of the other six entries here to prove this pin bites.
 EXPECTED_SOURCE_ONLY = frozenset({
     ".gitignore",                     # not context; _files() uses iterdir(), which keeps dotfiles
     "assays_db.json",                 # full catalog; the agent gets min_assays_db.json instead
@@ -238,9 +240,12 @@ def test_known_divergences_still_actually_diverge(name):
 def test_write_gate_loads_the_allowlist_this_guard_watches():
     """The guard must watch the file the gate actually reads.
 
-    Pinned rather than derived: if someone moves read_safe_endpoints.json, this
-    fails loudly instead of the guard silently following it to a new path and
-    leaving the old one — or a stale duplicate — uncompared.
+    What this pins is the *code* in write_gate.default_allowlist_path(): edit it
+    to point somewhere else and this fails, so the equality check below cannot
+    be left silently guarding an allowlist nothing enforces. Both sides are
+    static path strings and Path.resolve() does not touch the filesystem, so the
+    existence assertion is separate and explicit — without it, deleting the
+    allowlist would leave this test green.
     """
     from nextseek_api.assistant import write_gate
 
@@ -250,6 +255,11 @@ def test_write_gate_loads_the_allowlist_this_guard_watches():
         f"guard compares.\n  gate loads: {actual}\n  guard watches: {ENFORCED_ALLOWLIST}\n"
         "Point ENFORCED_ALLOWLIST at the new location (and check nothing still "
         "reads the old one)."
+    )
+    assert actual.is_file(), (
+        f"the write gate's read-safe allowlist is missing from disk at {actual}. "
+        "load_allowlist() raises AllowlistMissingError there, which the viewset "
+        "maps to CONFIG_ERROR, so every api-read op fails closed."
     )
 
 
@@ -449,10 +459,12 @@ def test_post_as_read_endpoints_are_attested_in_the_read_safety_audit():
 # first-call case, since RetrieveRequest accepts schema_url with no session_id
 # (nextseek_api/models.py:2123-2136) — it calls ingest_schema, the same function
 # behind POST /schema_rag/ingest/, which this table already labels WRITE. That
-# path deletes .duckdb files (session.py cleanup_expired_sessions), performs an
-# uncredentialed server-side HTTP GET of the caller-supplied URL (the fetch #94
-# is about), creates a DuckDB file and inserts rows (session.py create_session,
-# db.py init_session_db / insert_endpoints).
+# path deletes .duckdb files (session.py:188 cleanup_expired_sessions), performs
+# an uncredentialed server-side HTTP GET of the caller-supplied URL (the fetch
+# #94 is about), creates a DuckDB file and inserts rows (session.py:73
+# create_session, db.py:31 init_session_db, db.py:92 insert_endpoints).
+# Corroborated by
+# nextseek_api/tests/test_schema_rag_retrieve_coverage.py::TestRetrieveEndpointsAutoIngest.
 #
 # Attesting it read-safe would have un-gated all of that for the agent's
 # api-read op, which write_gate blocks today precisely because the endpoint is
@@ -460,7 +472,8 @@ def test_post_as_read_endpoints_are_attested_in_the_read_safety_audit():
 # a maintainer ruling, not a test change, and is left open.
 SCHEMA_RAG_RETRIEVE = ("POST", "/nextseek_api/schema_rag/retrieve/")
 SCHEMA_RAG_SERVICE = REPO_ROOT / "nextseek_api" / "schema_rag" / "service.py"
-SCHEMA_RAG_RETRIEVE_AUTO_INGEST = "ingest_schema("
+SCHEMA_RAG_RETRIEVE_FN = "retrieve_endpoints"
+SCHEMA_RAG_INGEST_FN = "ingest_schema"
 
 
 def test_schema_rag_retrieve_is_classified_write():
@@ -472,30 +485,58 @@ def test_schema_rag_retrieve_is_classified_write():
     )
 
 
+def _called_function_names(node: ast.AST) -> set[str]:
+    """Every function name called anywhere inside ``node``.
+
+    Handles both bare calls (``ingest_schema(...)``) and attribute calls
+    (``service.ingest_schema(...)``).
+    """
+    names: set[str] = set()
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        func = child.func
+        if isinstance(func, ast.Name):
+            names.add(func.id)
+        elif isinstance(func, ast.Attribute):
+            names.add(func.attr)
+    return names
+
+
 def test_schema_rag_retrieve_still_auto_ingests():
     """Self-cleaning attestation, like test_known_divergences_still_actually_diverge.
 
-    The WRITE label above rests on one fact: retrieve_endpoints can call
-    ingest_schema. If that branch is ever removed, this fails and forces the
+    The WRITE label above rests on one fact: retrieve_endpoints itself calls
+    ingest_schema. If that call is ever removed, this fails and forces the
     classification to be re-derived rather than silently inherited from an audit
     whose premise no longer holds.
 
-    Read as source text rather than imported so this module stays stdlib-only.
+    Parsed with ``ast`` rather than imported, so this module stays stdlib-only
+    and pulls in no Django settings. ``ast`` is also what makes the check honest:
+    an earlier text-slice version of this test could be satisfied by a call in a
+    *neighbouring* function or by a commented-out line. The parse scopes the
+    search to this one function definition, and comments are not in the tree.
     """
-    text = SCHEMA_RAG_SERVICE.read_text(encoding="utf-8")
-    marker = "\ndef retrieve_endpoints("
-    start = text.find(marker)
-    assert start != -1, (
-        f"retrieve_endpoints is gone from {SCHEMA_RAG_SERVICE} — re-run the "
-        "read-safety audit of POST /schema_rag/retrieve/ against whatever "
-        "replaced it."
+    tree = ast.parse(SCHEMA_RAG_SERVICE.read_text(encoding="utf-8"))
+    definitions = [
+        node for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == SCHEMA_RAG_RETRIEVE_FN
+    ]
+    assert definitions, (
+        f"no module-level {SCHEMA_RAG_RETRIEVE_FN}() in {SCHEMA_RAG_SERVICE} — "
+        "re-run the read-safety audit of POST /schema_rag/retrieve/ against "
+        "whatever replaced it."
     )
-    end = text.find("\ndef ", start + len(marker))
-    body = text[start:end if end != -1 else len(text)]
-    assert SCHEMA_RAG_RETRIEVE_AUTO_INGEST in body, (
-        "retrieve_endpoints no longer calls ingest_schema, which is the whole "
-        "basis for classifying POST /schema_rag/retrieve/ as WRITE above.\n"
+    called = set()
+    for definition in definitions:
+        called |= _called_function_names(definition)
+    assert SCHEMA_RAG_INGEST_FN in called, (
+        f"{SCHEMA_RAG_RETRIEVE_FN}() no longer calls {SCHEMA_RAG_INGEST_FN}(), "
+        "which is the whole basis for classifying POST /schema_rag/retrieve/ as "
+        "WRITE above.\n"
         "Re-run the read-safety audit: if it is now genuinely non-mutating it "
-        "can become POST_AS_READ with an entry in read_safe_endpoints.json; "
-        "until someone checks, leave it WRITE."
+        "can become POST_AS_READ with an entry in read_safe_endpoints.json; if "
+        "the call merely moved into a helper it is still a write. Until someone "
+        "checks, leave it WRITE."
     )
