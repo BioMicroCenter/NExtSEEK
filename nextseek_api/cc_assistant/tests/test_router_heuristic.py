@@ -3,7 +3,7 @@
 These exercise the keyword fallback used when dmac's BAML router is
 unavailable. They are hermetic and zero-spend in ANY environment: the pure
 heuristic cases call ``_heuristic`` directly, and the ``decide()`` fallback case
-monkeypatches ``_baml_decision`` to report "unavailable" instead of relying on
+monkeypatches ``_route_query`` to report "unavailable" instead of relying on
 dmac_assistant being absent -- so no real BAML/LLM call is ever made even when
 dmac_assistant IS installed (e.g. the full app container).
 
@@ -57,7 +57,8 @@ def test_decide_falls_back_to_heuristic_when_baml_unavailable(monkeypatch):
         consulted.append(query)
         return None  # signal "BAML router unavailable" -> decide() uses heuristic
 
-    monkeypatch.setattr(cc_router, "_baml_decision", _unavailable)
+    monkeypatch.setattr(cc_router.posterior_selector, "posterior_routing_enabled", lambda: False)
+    monkeypatch.setattr(cc_router, "_route_query", _unavailable)
     d = cc_router.decide("Find me all mice treated with NDMA.")
     assert consulted == ["Find me all mice treated with NDMA."]  # decide() consulted BAML...
     assert d.route == cc_router.ROUTE_NS                          # ...then fell back to heuristic

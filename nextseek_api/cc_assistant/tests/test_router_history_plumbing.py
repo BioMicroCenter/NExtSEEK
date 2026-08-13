@@ -41,7 +41,8 @@ def test_decide_passes_history_through(monkeypatch):
             source="baml",
         )
 
-    monkeypatch.setattr(cc_router, "_baml_decision", capturing)
+    monkeypatch.setattr(cc_router.posterior_selector, "posterior_routing_enabled", lambda: False)
+    monkeypatch.setattr(cc_router, "_route_query", capturing)
     hist = _sample_history()
     cc_router.decide("counts of those monkeys", history=hist)
     assert captured["query"] == "counts of those monkeys"
@@ -55,13 +56,15 @@ def test_decide_default_empty_history(monkeypatch):
         captured["history"] = history
         return None
 
-    monkeypatch.setattr(cc_router, "_baml_decision", capturing)
+    monkeypatch.setattr(cc_router.posterior_selector, "posterior_routing_enabled", lambda: False)
+    monkeypatch.setattr(cc_router, "_route_query", capturing)
     cc_router.decide("hello")
     assert captured["history"] is None
 
 
 def test_heuristic_ignores_history(monkeypatch):
-    monkeypatch.setattr(cc_router, "_baml_decision", lambda q, history=None: None)
+    monkeypatch.setattr(cc_router.posterior_selector, "posterior_routing_enabled", lambda: False)
+    monkeypatch.setattr(cc_router, "_route_query", lambda q, history=None: None)
     d_none = cc_router.decide("Find me all mice treated with NDMA.")
     d_hist = cc_router.decide(
         "Find me all mice treated with NDMA.", history=_sample_history()
@@ -70,7 +73,7 @@ def test_heuristic_ignores_history(monkeypatch):
     assert d_none.source == d_hist.source == "heuristic"
 
 
-def test_baml_decision_surfaces_real_reasoning(monkeypatch):
+def test_route_query_surfaces_real_reasoning(monkeypatch):
     class FakeDecision:
         route = Route.NextseekQuery
         reasoning = "follow-up to turn 1"
@@ -83,11 +86,15 @@ def test_baml_decision_surfaces_real_reasoning(monkeypatch):
         async def route(self, user_query, history=None):
             return FakeDecision()
 
+    class FakeBamlClient:
+        async def RouteQuery(self, input):
+            return FakeDecision()
+
     def fake_load():
-        return FakeAgent, lambda path=None: [], Route
+        return FakeAgent, lambda path=None: [], Route, FakeBamlClient()
 
     monkeypatch.setattr(cc_router, "_load_router_deps", fake_load)
-    d = cc_router._baml_decision("q", history=[])
+    d = cc_router._route_query("q", history=[])
     assert d is not None
     assert d.reasoning == "follow-up to turn 1"
     assert d.source == "baml"
