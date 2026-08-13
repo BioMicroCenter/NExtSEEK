@@ -9,6 +9,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from xml.etree import ElementTree
 
 _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
@@ -98,16 +99,33 @@ def main() -> int:
     record("boundary_validate_publish", "validate_publish_provenance" in boundary, "fn")
     record("boundary_require_approved", "require_approved_paired_run" in boundary, "fn")
 
-    lane_log = _REPO / "evidence/plan018-v4-7-lane-c.log"
-    record("lane_c_log_exists", lane_log.is_file(), str(lane_log))
-    if lane_log.is_file():
-        text = lane_log.read_text()
-        record("lane_c_all_passed", " passed" in text and " failed" not in text.split("\n")[-3:], text.strip().split("\n")[-1])
+    lane_junit = _REPO / "evidence/plan018-v4-7-lane-c.junit.xml"
+    record("lane_c_junit_exists", lane_junit.is_file(), str(lane_junit))
+    if lane_junit.is_file():
+        try:
+            suite = ElementTree.parse(lane_junit).getroot().find("testsuite")
+            tests = int(suite.attrib.get("tests", "0")) if suite is not None else 0
+            failures = int(suite.attrib.get("failures", "-1")) if suite is not None else -1
+            errors_count = int(suite.attrib.get("errors", "-1")) if suite is not None else -1
+            record(
+                "lane_c_junit_all_passed",
+                tests > 0 and failures == 0 and errors_count == 0,
+                f"tests={tests},failures={failures},errors={errors_count}",
+            )
+        except ElementTree.ParseError as exc:
+            record("lane_c_junit_all_passed", False, f"invalid junit: {exc}")
 
     leaf = _REPO / "evidence/plan018-migration-leaf.json"
+    record("migration_leaf_evidence_exists", leaf.is_file(), str(leaf))
     if leaf.is_file():
         data = json.loads(leaf.read_text())
-        record("migration_leaf_0016", "0016_paired_run_registry" in data.get("leaf", ""), data.get("leaf", ""))
+        files = set(data.get("files") or [])
+        record("migration_0016_in_lineage", "0016_paired_run_registry.py" in files, ",".join(sorted(files)))
+        record(
+            "migration_leaf_0018",
+            data.get("leaf") == "0018_turn_ledger_attempted_provenance.py",
+            data.get("leaf", ""),
+        )
 
     sidecar = {
         "schema": "plan018-v4-7-verifier/v1",

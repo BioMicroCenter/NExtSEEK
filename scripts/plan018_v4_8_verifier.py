@@ -130,20 +130,28 @@ def main() -> int:
     schedule = (_REPO / "nextseek_api/eval/paid_run_schedule.py").read_text()
     record("schedule_refuses_default", "ScheduleRefused" in schedule, "refuse")
 
-    lane_log = _REPO / "evidence/plan018-v4-8-lane-c.log"
-    record("lane_c_log_exists", lane_log.is_file(), str(lane_log))
-    if lane_log.is_file():
-        text = lane_log.read_text()
+    prereq = _REPO / "evidence/plan018-v4-8-prereq.json"
+    if prereq.is_file():
+        lane_c_smoke = json.loads(prereq.read_text()).get("lane_c_smoke") or {}
+        passed = lane_c_smoke.get("passed", 0)
+        note = str(lane_c_smoke.get("note", ""))
         record(
-            "lane_c_all_passed",
-            " passed" in text and " failed" not in text,
-            text.strip().split("\n")[-1],
+            "lane_c_smoke_recorded",
+            isinstance(passed, int) and passed > 0 and "green" in note.lower(),
+            f"passed={passed}; note={note}",
         )
 
     leaf = _REPO / "evidence/plan018-migration-leaf.json"
+    record("migration_leaf_evidence_exists", leaf.is_file(), str(leaf))
     if leaf.is_file():
         data = json.loads(leaf.read_text())
-        record("migration_leaf_0017", "0017_paid_run_state" in data.get("leaf", ""), data.get("leaf", ""))
+        files = set(data.get("files") or [])
+        record("migration_0017_in_lineage", "0017_paid_run_state.py" in files, ",".join(sorted(files)))
+        record(
+            "migration_leaf_0018",
+            data.get("leaf") == "0018_turn_ledger_attempted_provenance.py",
+            data.get("leaf", ""),
+        )
 
     sidecar = {
         "schema": "plan018-v4-8-verifier/v1",

@@ -1,15 +1,15 @@
 {
   "schema": "plan018-v4-7-verifier/v1",
-  "recorded_at": "2026-08-12T20:15:59Z",
+  "recorded_at": "2026-08-13T01:15:26Z",
   "gate": "PASS",
-  "checks_passed": 30,
-  "checks_total": 30,
+  "checks_passed": 32,
+  "checks_total": 32,
   "errors": [],
   "checks": [
     {
       "name": "evidence_plan018-v4-7-prereq.json",
       "pass": true,
-      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-prereq.json"
+      "detail": "/repo/evidence/plan018-v4-7-prereq.json"
     },
     {
       "name": "plan018-v4-7-prereq.json_gate_pass",
@@ -19,7 +19,7 @@
     {
       "name": "evidence_plan018-v4-7-schemas.sidecar.json",
       "pass": true,
-      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-schemas.sidecar.json"
+      "detail": "/repo/evidence/plan018-v4-7-schemas.sidecar.json"
     },
     {
       "name": "plan018-v4-7-schemas.sidecar.json_gate_pass",
@@ -29,7 +29,7 @@
     {
       "name": "evidence_plan018-v4-7-fit-refuse.sidecar.json",
       "pass": true,
-      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-fit-refuse.sidecar.json"
+      "detail": "/repo/evidence/plan018-v4-7-fit-refuse.sidecar.json"
     },
     {
       "name": "plan018-v4-7-fit-refuse.sidecar.json_gate_pass",
@@ -39,7 +39,7 @@
     {
       "name": "evidence_plan018-v4-7-registry.sidecar.json",
       "pass": true,
-      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-registry.sidecar.json"
+      "detail": "/repo/evidence/plan018-v4-7-registry.sidecar.json"
     },
     {
       "name": "plan018-v4-7-registry.sidecar.json_gate_pass",
@@ -49,7 +49,7 @@
     {
       "name": "evidence_plan018-v4-7-monitoring.sidecar.json",
       "pass": true,
-      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-monitoring.sidecar.json"
+      "detail": "/repo/evidence/plan018-v4-7-monitoring.sidecar.json"
     },
     {
       "name": "plan018-v4-7-monitoring.sidecar.json_gate_pass",
@@ -59,7 +59,7 @@
     {
       "name": "evidence_plan018-v4-7-lane-m.sidecar.json",
       "pass": true,
-      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-lane-m.sidecar.json"
+      "detail": "/repo/evidence/plan018-v4-7-lane-m.sidecar.json"
     },
     {
       "name": "plan018-v4-7-lane-m.sidecar.json_gate_pass",
@@ -104,7 +104,7 @@
     {
       "name": "inventory_exists",
       "pass": true,
-      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-seam-inventory.json"
+      "detail": "/repo/evidence/plan018-v4-7-seam-inventory.json"
     },
     {
       "name": "inventory_complete",
@@ -142,19 +142,29 @@
       "detail": "fn"
     },
     {
-      "name": "lane_c_log_exists",
+      "name": "lane_c_junit_exists",
       "pass": true,
-      "detail": "/home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-7-lane-c.log"
+      "detail": "/repo/evidence/plan018-v4-7-lane-c.junit.xml"
     },
     {
-      "name": "lane_c_all_passed",
+      "name": "lane_c_junit_all_passed",
       "pass": true,
-      "detail": "30 passed in 2.12s"
+      "detail": "tests=30,failures=0,errors=0"
     },
     {
-      "name": "migration_leaf_0016",
+      "name": "migration_leaf_evidence_exists",
       "pass": true,
-      "detail": "0016_paired_run_registry.py"
+      "detail": "/repo/evidence/plan018-migration-leaf.json"
+    },
+    {
+      "name": "migration_0016_in_lineage",
+      "pass": true,
+      "detail": "0001_initial.py,0002_querytask.py,0003_chatsession_title.py,0004_chatsession_extra_state_state_only.py,0005_chatsession_extra_state_column.py,0005_ensure_chatsession_extra_state_column.py,0006_merge_extra_state_guards.py,0007_ccsessiontranscript.py,0008_heal_cc_transcript_fk.py,0009_normalize_chat_log_turn_ids.py,0010_turn_ledger.py,0011_turn_judgment.py,0012_posterior_generation.py,0013_family_posterior.py,0014_generation_activation_and_reservation.py,0015_v4_5_generation_audit_and_turn_pin.py,0016_paired_run_registry.py,0017_paid_run_state.py,0018_turn_ledger_attempted_provenance.py"
+    },
+    {
+      "name": "migration_leaf_0018",
+      "pass": true,
+      "detail": "0018_turn_ledger_attempted_provenance.py"
     }
   ],
   "hashes": {

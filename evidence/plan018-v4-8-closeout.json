@@ -5,15 +5,22 @@
   "worktree_sha": "5bec28d9",
   "base_sha": "fa48b42b",
   "next_gate": "V4-9",
-  "v4_8_status": "HERMETIC_PARTIAL_COLD_REVIEW",
-  "v4_8_cold_review": "PARTIAL",
+  "v4_8_status": "HERMETIC_ROLLUP_COLD_PASS",
+  "v4_8_cold_review": "PARTIAL_HISTORICAL_SUPERSEDED_BY_ROLLUP_PASS",
   "v4_8_cold_review_ref": "evidence/plan018-v4-8-cold-outcome-review.md",
+  "v4_8_rollup_cold_review": {
+    "verdict": "PASS",
+    "ref": "evidence/plan018-cold-review-remediation-rollup-2026-08-12.md",
+    "subagent_id": "07c68592-3fe7-4b5c-b33b-7a443b84e0a7",
+    "evaluation_sha": "3060e3e9ccf4aafacbd16ce79547755d83da23a2"
+  },
   "summary": {
     "lane_a_passed": 7,
     "lane_c_passed": 35,
-    "lane_m_passed": 5,
-    "verifier_checks_passed": 34,
-    "migration_leaf": "0017_paid_run_state.py",
+    "lane_m_passed": 10,
+    "verifier_checks_passed": 40,
+    "v4_8_migration": "0017_paid_run_state.py",
+    "migration_leaf": "0018_turn_ledger_attempted_provenance.py",
     "paid_or_live_resources_used": false
   },
   "evidence": {
@@ -26,11 +33,12 @@
     "lane_m": "evidence/plan018-v4-8-lane-m.sidecar.json",
     "inventory": "evidence/plan018-v4-8-provider-seam-inventory.json",
     "lane_a_log": "evidence/plan018-v4-8-lane-a.log",
-    "lane_c_log": "evidence/plan018-v4-8-lane-c.log",
+    "lane_c_prereq": "evidence/plan018-v4-8-prereq.json#lane_c_smoke",
     "lane_m_log": "evidence/plan018-v4-8-lane-m.log",
     "verifier": "evidence/plan018-v4-8-verifier.sidecar.json",
     "sdd_review": "evidence/plan018-v4-8-sdd-final-review.md",
-    "cold_review": "evidence/plan018-v4-8-cold-outcome-review.md"
+    "cold_review": "evidence/plan018-v4-8-cold-outcome-review.md",
+    "rollup_cold_review": "evidence/plan018-cold-review-remediation-rollup-2026-08-12.md"
   },
   "hashes": {
     "run_manifest_sha256": "0e938608a22649a57df811c4150963d7f6d99008927dddad4c1240e62278f7b4",
@@ -38,10 +46,8 @@
     "migration_0017_sha256": "e59b06d8344394ec8ecbd2051fc5a3d6f03bf5c68ca5edd3e70fe928fa22e4fa"
   },
   "residual_debt": [
-    "Implementation uncommitted on worktree atop 5bec28d9",
     "Real provider transport unplugged; fake transport only",
-    "Online chat BAML seams classified out_of_v48_scope — not wired through eval manifests",
-    "Living-plan V4-8 checkboxes remain open until cold PASS + maintainer vault-sync"
+    "Online chat BAML seams classified out_of_v48_scope — not wired through eval manifests"
   ],
   "authorization_asks": [
     "Proceed to V4-9 hermetic?",

@@ -111,6 +111,14 @@ def main() -> int:
         call_command("migrate", "--run-syncdb", verbosity=0, interactive=False)
         from nextseek_api.eval.generation_store import GenerationManifest, publish_generation
         from nextseek_api.eval.generation_validation import validate_generation_for_activation
+        from nextseek_api.eval.paired_run_registry import register_paired_run
+
+        paired_run_id = "verifier-negative-run"
+        register_paired_run(
+            paired_run_id=paired_run_id,
+            schema_version="v1",
+            content_hash="0" * 64,
+        )
 
         manifest = GenerationManifest(
             input_hash="verifier-negative",
@@ -129,6 +137,11 @@ def main() -> int:
             ],
             compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "verifier-negative"},
             counts={"retained_pairs": 10},
+            source_provenance={
+                "paired_run_id": paired_run_id,
+                "evidence_kind": "paired_experimental",
+                "route_source": "forced",
+            },
         )
         generation = publish_generation(manifest)
         generation.generation_hash = "0" * 64

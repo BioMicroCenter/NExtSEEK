@@ -121,20 +121,27 @@
   "v4_7_status": "CLOSED",
   "v4_7_closed_at": "2026-08-12T20:20:00Z",
   "v4_7_closeout": "evidence/plan018-v4-7-closeout.json",
-  "v4_8_status": "REMEDIATION_COMPLETE_PENDING_ROLLUP_COLD",
-  "v4_8_cold_review": "PARTIAL_PRIOR_REMEDIATED_AWAITING_ROLLUP",
+  "v4_8_status": "CLOSED_BY_REMEDIATION_ROLLUP_PASS",
+  "v4_8_cold_review": "PARTIAL_HISTORICAL_SUPERSEDED_BY_ROLLUP_PASS",
   "v4_8_cold_review_ref": "evidence/plan018-v4-8-cold-outcome-review.md",
   "v4_8_remediation_tip": "100b4941ff7a90ae720d999bd224bcb6190a4b3f",
   "v4_8_closeout": "evidence/plan018-v4-8-closeout.json",
+  "v4_8_rollup_cold_review": {
+    "verdict": "PASS",
+    "ref": "evidence/plan018-cold-review-remediation-rollup-2026-08-12.md",
+    "subagent_id": "07c68592-3fe7-4b5c-b33b-7a443b84e0a7",
+    "evaluation_sha": "3060e3e9ccf4aafacbd16ce79547755d83da23a2"
+  },
   "cold_review_remediation": {
-    "status": "complete_pending_rollup",
-    "recorded_at": "2026-08-12T23:55:00Z",
-    "worktree_tip": "100b4941ff7a90ae720d999bd224bcb6190a4b3f",
+    "status": "PASS",
+    "recorded_at": "2026-08-13T01:15:00Z",
+    "worktree_tip": "3060e3e9ccf4aafacbd16ce79547755d83da23a2",
     "prior_redispatch_rollup": "evidence/plan018-cold-review-redispatch-2026-08-12.json",
     "rollup_deliverable": "evidence/plan018-cold-review-remediation-rollup-2026-08-12.md",
-    "note": "Per-gate cold-review debt remediated V4-2…V4-8; final rollup cold subagent not yet run"
+    "rollup_subagent_id": "07c68592-3fe7-4b5c-b33b-7a443b84e0a7",
+    "note": "Per-gate cold-review debt remediated V4-2…V4-8; provenance-bearing rollup cold subagent returned PASS"
   },
-  "next_gate": "rollup-cold-review-then-V4-9-ask",
+  "next_gate": "V4-9",
   "v4_8_evidence": {
     "phase0": "evidence/plan018-v4-8-phase0-publish.json",
     "prereq": "evidence/plan018-v4-8-prereq.json",
@@ -145,9 +152,10 @@
     "lane_m": "evidence/plan018-v4-8-lane-m.sidecar.json",
     "inventory": "evidence/plan018-v4-8-provider-seam-inventory.json",
     "lane_a_log": "evidence/plan018-v4-8-lane-a.log",
-    "lane_c_log": "evidence/plan018-v4-8-lane-c.log",
+    "lane_c_prereq": "evidence/plan018-v4-8-prereq.json#lane_c_smoke",
     "verifier": "evidence/plan018-v4-8-verifier.sidecar.json",
-    "cold_review": "evidence/plan018-v4-8-cold-outcome-review.md"
+    "cold_review": "evidence/plan018-v4-8-cold-outcome-review.md",
+    "rollup_cold_review": "evidence/plan018-cold-review-remediation-rollup-2026-08-12.md"
   },
   "next_gate_was": "V4-8",
   "v4_7_evidence": {
@@ -159,7 +167,7 @@
     "monitoring": "evidence/plan018-v4-7-monitoring.sidecar.json",
     "lane_m": "evidence/plan018-v4-7-lane-m.sidecar.json",
     "inventory": "evidence/plan018-v4-7-seam-inventory.json",
-    "lane_c_log": "evidence/plan018-v4-7-lane-c.log",
+    "lane_c_junit": "evidence/plan018-v4-7-lane-c.junit.xml",
     "verifier": "evidence/plan018-v4-7-verifier.sidecar.json",
     "cold_review": "evidence/plan018-v4-7-cold-outcome-review.md"
   },
@@ -171,7 +179,7 @@
     "calltable": "evidence/plan018-v4-6-calltable.sidecar.json",
     "selector": "evidence/plan018-v4-6-selector.sidecar.json",
     "inventory": "evidence/plan018-v4-6-callsite-inventory.json",
-    "lane_c_log": "evidence/plan018-v4-6-lane-c.log",
+    "lane_c_junit": "evidence/plan018-v4-6-lane-c.junit.xml",
     "verifier": "evidence/plan018-v4-6-verifier.sidecar.json",
     "cold_review": "evidence/plan018-v4-6-cold-outcome-review.md"
   },

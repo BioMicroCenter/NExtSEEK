@@ -9,6 +9,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from xml.etree import ElementTree
 
 _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
@@ -97,11 +98,21 @@ def main() -> int:
     rmp = (_REPO / "nextseek_api/eval/router_models_proposal.py").read_text()
     record("route_source_posterior", '"posterior"' in rmp or "'posterior'" in rmp, "enum")
 
-    lane_log = _REPO / "evidence/plan018-v4-6-lane-c.log"
-    record("lane_c_log_exists", lane_log.is_file(), str(lane_log))
-    if lane_log.is_file():
-        text = lane_log.read_text()
-        record("lane_c_all_passed", " failed" not in text.split("\n")[-3:] and "passed" in text, text.strip().split("\n")[-1])
+    lane_junit = _REPO / "evidence/plan018-v4-6-lane-c.junit.xml"
+    record("lane_c_junit_exists", lane_junit.is_file(), str(lane_junit))
+    if lane_junit.is_file():
+        try:
+            suite = ElementTree.parse(lane_junit).getroot().find("testsuite")
+            tests = int(suite.attrib.get("tests", "0")) if suite is not None else 0
+            failures = int(suite.attrib.get("failures", "-1")) if suite is not None else -1
+            errors_count = int(suite.attrib.get("errors", "-1")) if suite is not None else -1
+            record(
+                "lane_c_junit_all_passed",
+                tests > 0 and failures == 0 and errors_count == 0,
+                f"tests={tests},failures={failures},errors={errors_count}",
+            )
+        except ElementTree.ParseError as exc:
+            record("lane_c_junit_all_passed", False, f"invalid junit: {exc}")
 
     calltable = _REPO / "evidence/plan018-v4-6-calltable.sidecar.json"
     if calltable.is_file():
