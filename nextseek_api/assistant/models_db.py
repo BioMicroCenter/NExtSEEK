@@ -75,10 +75,19 @@ class CCSessionTranscript(models.Model):
     Stored in its OWN table (NOT ChatSession.extra_state) so it is loaded only on
     demand and never bloats hot ChatSession reads (SPEC-3 §7, E6).
 
-    A row is written for EVERY CC invocation, including turns that FAILED — a
-    ``query_error``, a watchdog timeout, or an exception out of ``run_cc_turn``
-    (#68). It used to be written only from the ``query_complete`` branch, which
-    left exactly the turns worth triaging as the only ones with no durable record.
+    A row is written for every CC invocation THAT APPENDED RECORDS OF ITS OWN,
+    including turns that FAILED — a ``query_error``, a watchdog timeout, or an
+    exception out of ``run_cc_turn`` (#68). It used to be written only from the
+    ``query_complete`` branch, which left exactly the turns worth triaging as
+    the only ones with no durable record.
+
+    Two failure shapes still persist NOTHING, deliberately (``run_cc_turn``'s
+    ``finally``), so a missing row is not impossible and the turn-addressed
+    recover endpoint still 404s: a turn whose agent produced no transcript at
+    all (a spawn that died before the agent ran), and a turn whose store gained
+    no records — there the only bytes available are EARLIER turns' and filing
+    them under this ``turn_id`` would misattribute another turn's transcript.
+    Both log at WARNING. Do not "fix" either into writing a row.
 
     ``blob`` holds only THAT turn's records, not the cumulative ``--resume``
     session file: Claude Code appends every turn of a chat to one session jsonl,

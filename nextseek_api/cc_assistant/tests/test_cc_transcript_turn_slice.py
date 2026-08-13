@@ -27,6 +27,8 @@ import os
 import time as _real_time
 from pathlib import Path
 
+import pytest
+
 from nextseek_api.cc_assistant import cc_engine, cc_summary
 
 PW = "hunter2-s3cr3t"
@@ -219,11 +221,23 @@ def test_transcript_line_counts_skips_an_unreadable_file(tmp_path, monkeypatch):
     one file exercises the handler itself, and the assertion is exact (the good
     file counted, the bad one absent) rather than a set containment that both
     outcomes satisfy.
+
+    THE WALK ORDER IS PINNED, and that is the point of the ``rglob`` patch.
+    This test has to distinguish the INNER per-file handler from the OUTER
+    whole-walk one, and only the inner one skips-and-continues. Delete the
+    inner handler alone and the outer returns the counts gathered so far — which
+    equals ``{good: 1}`` precisely when the walk reached ``good.jsonl`` first.
+    Real ``rglob`` yields in ``os.scandir`` order, which is neither creation
+    nor sort order, so an unpinned version of this test passes or fails on
+    which name the filesystem happens to hand back first. Yielding ``bad``
+    first makes the inner-handler-only mutant return ``{}`` every time.
     """
     good = tmp_path / "good.jsonl"
     good.write_bytes(_jsonl("1"))
     bad = tmp_path / "bad.jsonl"
     bad.write_bytes(_jsonl("1", "2"))
+
+    monkeypatch.setattr(Path, "rglob", lambda self, pattern: iter([bad, good]))
 
     real_read_bytes = Path.read_bytes
 
@@ -488,6 +502,33 @@ def test_an_empty_capture_keeps_its_two_field_spelling():
     assert cc_engine.CapturedTranscript(b"", b"").turn_is_attributable is True
 
 
+def test_read_turn_transcript_swallows_an_unreadable_PROJECTS_ROOT(
+    tmp_path, monkeypatch
+):
+    """The same EACCES hole ``_transcript_line_counts`` had, one function away.
+
+    ``Path.is_dir()`` swallows ENOENT/ENOTDIR/ELOOP but RE-RAISES EACCES, and
+    the probe sat ahead of the ``try`` — so an unreadable parent directory
+    escaped a function whose docstring promises to return
+    ``CapturedTranscript(b"", b"")`` rather than raise. Contained in practice,
+    since both callers wrap it, but on the SUCCESS path the escape lands in the
+    persist ``try`` and costs the user a reply they had already earned.
+    """
+    turn_start = 10_000.0
+    mnt, _ = _store(tmp_path, body=_jsonl("a"), mtime=turn_start + 1)
+
+    def _denied(self):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "is_dir", _denied)
+
+    got = cc_engine._read_turn_transcript(
+        mnt, turn_start=turn_start, prior_lines={}, environment=ENV
+    )
+
+    assert got == cc_engine.CapturedTranscript(b"", b"")
+
+
 def test_read_turn_transcript_swallows_a_failure_in_the_LOCATE_step(
     tmp_path, monkeypatch
 ):
@@ -514,6 +555,40 @@ def test_read_turn_transcript_swallows_a_failure_in_the_LOCATE_step(
     )
 
     assert got == cc_engine.CapturedTranscript(b"", b"")
+
+
+# --------------------------------------------------------------------------
+# _write_raw_turn_copy — the one raw/ writer both terminal paths share
+# --------------------------------------------------------------------------
+
+
+def test_write_raw_turn_copy_writes_under_raw_and_creates_the_dir(tmp_path):
+    out = cc_engine._write_raw_turn_copy(tmp_path / "output", "aa11", b'{"n":1}\n')
+
+    assert out == tmp_path / "output" / "raw" / "transcript-aa11.jsonl"
+    assert out.read_bytes() == b'{"n":1}\n'
+
+
+def test_write_raw_turn_copy_rejects_a_run_id_that_would_escape_raw(tmp_path):
+    """Why the basename check alone is vestigial, demonstrated.
+
+    ``Path.name`` is a single component by construction and this one always
+    ends ``.jsonl``, so ``_safe_relpath`` on it can never fail — yet a
+    ``run_id`` of ``a/b`` yields the perfectly "safe" basename
+    ``transcript-b.jsonl`` while landing the file in ``<output_mnt>/raw/a/``.
+    The parent check is the one that fires.
+
+    Unreachable through ``run_cc_turn``, which calls ``_validate_user_id(run_id)``
+    before any of this and rejects ``/`` outright. Defence in depth, so it is
+    tested where it lives rather than through the engine.
+    """
+    with pytest.raises(ValueError):
+        cc_engine._write_raw_turn_copy(tmp_path / "output", "a/b", b"x")
+
+    assert not (tmp_path / "output").exists(), (
+        "validate-then-mkdir: a path about to be rejected must not leave a "
+        "directory behind"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -612,6 +687,12 @@ def test_no_per_turn_sink_is_handed_the_WHOLE_session():
     Stated over the call sites rather than as an exact list of source strings:
     a third terminal path growing its own capture under its own local name is
     fine, as long as it too writes the slice.
+
+    The ``write_bytes`` assertion below is KNOWINGLY over-broad: it bans every
+    ``write_bytes`` in ``run_cc_turn``, not only a transcript one, so an
+    unrelated future write would trip it and read the failure message as being
+    about transcripts. Accepted — narrowing it means guessing at the target,
+    and ``run_cc_turn`` has no other ``write_bytes`` today.
     """
     fn = _run_cc_turn_ast()
 
@@ -695,7 +776,7 @@ def test_the_pre_spawn_snapshot_uses_the_same_root_expression_as_the_read():
     calls = _calls(_run_cc_turn_ast(), name="_transcript_line_counts")
 
     assert len(calls) == 1
-    assert ast.unparse(calls[0].args[0]) == (
+    assert _arg_src(calls[0], 0) == (
         "Path(dirs.cc_state_mnt) / 'projects' if dirs.cc_state_mnt else None"
     )
 

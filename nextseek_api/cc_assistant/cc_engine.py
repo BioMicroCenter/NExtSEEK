@@ -1544,12 +1544,26 @@ def _write_raw_turn_copy(output_mnt: str | os.PathLike[str], run_id: object,
     should not leave a directory behind.
 
     ``payload`` must ALREADY be scrubbed (#72) — this writes bytes, it does not
-    redact them. Raises ``ValueError`` on a basename that is not a safe relative
-    path, and lets OS errors propagate; both callers wrap it.
+    redact them. Raises ``ValueError`` on a path that would land outside
+    ``<output_mnt>/raw``, and lets OS errors propagate; both callers wrap it.
+
+    ON THE TWO CHECKS. ``_safe_relpath(raw_copy.name)`` came from both original
+    call sites and is kept, but on its own it is VESTIGIAL and must not be read
+    as the containment guard: ``Path.name`` is a single component by
+    construction and this one always ends ``.jsonl``, so it can never be
+    absolute, empty, or ``..``. A ``run_id`` of ``a/b`` would escape into
+    ``<output_mnt>/raw/a/`` while presenting a perfectly "safe" basename. The
+    parent check is the one that can actually fire, and it is pure path
+    arithmetic — no ``resolve()``, no I/O, nothing to fail.
+
+    Neither is reachable today: ``run_cc_turn`` runs ``_validate_user_id(run_id)``
+    before any of this, and that rejects ``/`` outright. This is defence in
+    depth for the day ``run_id``'s provenance widens.
     """
-    raw_copy = Path(output_mnt) / "raw" / f"transcript-{run_id}.jsonl"
-    if not _safe_relpath(raw_copy.name):
-        raise ValueError("bad transcript basename")
+    raw_dir = Path(output_mnt) / "raw"
+    raw_copy = raw_dir / f"transcript-{run_id}.jsonl"
+    if not _safe_relpath(raw_copy.name) or raw_copy.parent != raw_dir:
+        raise ValueError(f"unsafe transcript path for run_id {run_id!r}")
     raw_copy.parent.mkdir(parents=True, exist_ok=True)
     raw_copy.write_bytes(payload)
     return raw_copy
@@ -1754,25 +1768,34 @@ def _read_turn_transcript(
     rather than raising when ``cc_state_mnt`` is falsy, the ``projects`` dir does
     not exist (turn 1 of a chat), no recent-enough jsonl appears within
     ``attempts``, or ANY of the file I/O fails. That last clause covers the
-    LOCATE step as well as the read: ``_newest_jsonl_under`` calls ``p.stat()``
-    twice per candidate with no handler of its own, so a transcript vanishing
-    between the ``rglob`` and the ``stat`` raises ``OSError`` out of the search
-    — and everything past the guards below is pure byte work that cannot fail.
+    DIRECTORY PROBE and the LOCATE step as well as the read: ``Path.is_dir()``
+    re-raises ``EACCES`` (it only swallows ENOENT/ENOTDIR/ELOOP), and
+    ``_newest_jsonl_under`` calls ``p.stat()`` twice per candidate with no
+    handler of its own, so a transcript vanishing between the ``rglob`` and the
+    ``stat`` raises ``OSError`` out of the search — and everything past the
+    guards below is pure byte work that cannot fail.
     """
     if not cc_state_mnt:
         return CapturedTranscript(b"", b"")
     root = Path(cc_state_mnt) / "projects"
-    # Checked up front rather than left to rglob: on turn 1 the store does not
-    # exist yet, and retrying an absent directory would spend the back-off
-    # budget as pure latency on the user's reply.
-    if not root.is_dir():
-        return CapturedTranscript(b"", b"")
 
     # The LOCATE step is inside the try, not only the read: the store is live —
     # the agent, a concurrent sweep or a sibling turn can unlink a jsonl between
     # the rglob and the stat — and this helper is called from run_cc_turn's
     # finally, where an escape would skip the #72/#76 scrub that follows it.
+    #
+    # ``root.is_dir()`` is inside it too, for the same reason it is inside
+    # ``_transcript_line_counts``': it swallows ENOENT/ENOTDIR/ELOOP but
+    # RE-RAISES EACCES, so an unreadable parent directory would escape a
+    # function whose docstring promises to be total. Both callers happen to
+    # wrap this today, but on the SUCCESS path that escape costs the user the
+    # reply they had already earned.
     try:
+        # Checked up front rather than left to rglob: on turn 1 the store does
+        # not exist yet, and retrying an absent directory would spend the
+        # back-off budget as pure latency on the user's reply.
+        if not root.is_dir():
+            return CapturedTranscript(b"", b"")
         jsonl_path = None
         for attempt in range(attempts):
             jsonl_path = _newest_jsonl_under(root, min_mtime=turn_start - 1)
