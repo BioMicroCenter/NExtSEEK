@@ -1291,14 +1291,10 @@ def run_cc_turn(
                 environment=environment,
             )
             if captured.turn:
-                raw_copy = Path(dirs.output_mnt) / "raw" / f"transcript-{run_id}.jsonl"
-                raw_copy.parent.mkdir(parents=True, exist_ok=True)
-                if not _safe_relpath(raw_copy.name):
-                    raise ValueError("bad transcript basename")
                 # The SCRUBBED per-TURN slice (not shutil.copy2 of the raw file):
                 # this copy is named for run_id, so it must hold that run's
                 # records rather than the whole conversation so far.
-                raw_copy.write_bytes(captured.turn)
+                _write_raw_turn_copy(dirs.output_mnt, run_id, captured.turn)
             # ...but the trace keeps the FULL session. extract_trace's steps,
             # transcript_line_count and turn_count are conversation-scoped;
             # feeding it the slice would change every Debug-panel trace, which is
@@ -1450,11 +1446,7 @@ def run_cc_turn(
                         "EARLIER turns' and are not this turn's to claim",
                         run_id, _terminal_class)
                 else:
-                    raw_copy = Path(dirs.output_mnt) / "raw" / f"transcript-{run_id}.jsonl"
-                    if not _safe_relpath(raw_copy.name):
-                        raise ValueError("bad transcript basename")
-                    raw_copy.parent.mkdir(parents=True, exist_ok=True)
-                    raw_copy.write_bytes(fallback.turn)
+                    _write_raw_turn_copy(dirs.output_mnt, run_id, fallback.turn)
                     cc_transcript_store.store_transcript(
                         chat_session=chat_session,
                         cc_session_id=translator.session_id or "",
@@ -1537,6 +1529,32 @@ def _safe_relpath(rel: str) -> bool:
     return not path.is_absolute() and ".." not in path.parts
 
 
+def _write_raw_turn_copy(output_mnt: str | os.PathLike[str], run_id: object,
+                         payload: bytes) -> Path:
+    """Write ONE turn's transcript slice to ``<output_mnt>/raw/transcript-<run_id>.jsonl``.
+
+    The on-disk half of the per-turn transcript record, and the sibling of the
+    ``CCSessionTranscript`` row. ``run_cc_turn`` writes it from two places — the
+    ``query_complete`` path and the #68 fallback in its ``finally`` — and this
+    exists so those two cannot drift: they already had the basename check and
+    the ``mkdir`` in opposite orders, which is exactly the kind of divergence
+    that ends with one path validating and the other not.
+
+    Order here is validate-then-``mkdir``: a name that is about to be rejected
+    should not leave a directory behind.
+
+    ``payload`` must ALREADY be scrubbed (#72) — this writes bytes, it does not
+    redact them. Raises ``ValueError`` on a basename that is not a safe relative
+    path, and lets OS errors propagate; both callers wrap it.
+    """
+    raw_copy = Path(output_mnt) / "raw" / f"transcript-{run_id}.jsonl"
+    if not _safe_relpath(raw_copy.name):
+        raise ValueError("bad transcript basename")
+    raw_copy.parent.mkdir(parents=True, exist_ok=True)
+    raw_copy.write_bytes(payload)
+    return raw_copy
+
+
 def _newest_jsonl_under(root: Path, *, min_mtime: float | None = None) -> Path | None:
     """Pick newest *.jsonl under root; if min_mtime set, only files with mtime >= min_mtime."""
     candidates = [p for p in root.rglob("*.jsonl") if p.is_file()]
@@ -1616,9 +1634,16 @@ def _transcript_line_counts(store_root: Path | str | None) -> dict[str, int]:
     """Map ``str(path) -> _jsonl_line_count`` for every ``*.jsonl`` under a store.
 
     The pre-spawn snapshot whose values later feed ``_turn_slice``'s
-    ``prior_lines``. Keyed by absolute path string because the same chat's
-    session file is the one that will have grown, and ``--resume`` may or may
-    not reuse it.
+    ``prior_lines``.
+
+    KEY SPELLING IS THE CALLER'S, not a normal form. Keys are ``str(path)`` for
+    whatever ``root.rglob`` yields, and nothing here calls ``.resolve()``: the
+    spelling of ``store_root`` going in is the spelling coming out. The reader
+    (``_read_turn_transcript``) looks its own resolved path up in this mapping,
+    so the two must build the root from the SAME expression — and normalising on
+    one side only would break an agreement that holds today. A key that does not
+    match is not an error: it reads as ``prior_lines = 0`` downstream, which
+    degrades to storing the whole cumulative session, the safe direction.
 
     Line counts rather than sizes or offsets for the reason in the block
     comment above: the #72 scrub rewrites these files in place and changes their
@@ -1627,23 +1652,32 @@ def _transcript_line_counts(store_root: Path | str | None) -> dict[str, int]:
     Total-function on purpose — it runs on the turn's hot path, before the agent
     is even spawned, and must never be the reason a turn fails. Returns ``{}``
     for a falsy root or a path that is not a directory; skips symlinks and
-    non-files; skips a file it cannot read rather than raising. A file missing
-    from the result simply reads as ``prior_lines = 0`` downstream, which
-    degrades to storing the whole session — the safe direction.
+    non-files; skips a file it cannot read rather than raising; and returns
+    whatever it had counted so far if the walk itself dies.
     """
     if not store_root:
         return {}
     root = Path(store_root)
-    if not root.is_dir():
-        return {}
     counts: dict[str, int] = {}
-    for path in root.rglob("*.jsonl"):
-        try:
-            if path.is_symlink() or not path.is_file():
+    # ``is_dir()`` and ``rglob`` are INSIDE the try, not ahead of it.
+    # ``Path.is_dir()`` swallows ENOENT/ENOTDIR/ELOOP but re-raises EACCES, so
+    # an unreadable parent directory would otherwise propagate straight past
+    # this function's "must never be the reason a turn fails" guarantee; and
+    # ``rglob`` is a generator, so anything it raises surfaces at iteration.
+    try:
+        if not root.is_dir():
+            return {}
+        for path in root.rglob("*.jsonl"):
+            try:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                counts[str(path)] = _jsonl_line_count(path.read_bytes())
+            except OSError:
                 continue
-            counts[str(path)] = _jsonl_line_count(path.read_bytes())
-        except OSError:
-            continue
+    except OSError:
+        # Partial counts are still correct counts for the files they name, and
+        # a file that never got counted just reads as 0 — same safe direction.
+        return counts
     return counts
 
 

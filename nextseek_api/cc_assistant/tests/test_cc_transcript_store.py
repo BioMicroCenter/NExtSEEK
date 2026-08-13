@@ -34,14 +34,17 @@ def test_decompress_bomb_is_bounded():
         decompress(blob, max_bytes=1024)    # cap below the real size -> reject
 
 
-_CONTAINER_FIELDS = ("body", "orelse", "finalbody", "handlers")
+_CONTAINER_FIELDS = ("body", "orelse", "finalbody", "handlers", "cases")
 
 
 def _module_level_imported_modules(tree: ast.Module) -> set[str]:
     """Modules imported at module scope, i.e. NOT inside any def/class.
 
-    Recurses through ``if``/``try``/``with`` so a *guarded* top-level import
-    still counts as top-level, but stops at every function and class boundary.
+    Recurses through ``if``/``try``/``with``/``match`` so a *guarded* top-level
+    import still counts as top-level, but stops at every function and class
+    boundary. ``cases`` is in ``_CONTAINER_FIELDS`` for that last one: without
+    it, a module-scope ``match``/``case`` holding an import would be invisible
+    to this walk and would evade the guard entirely.
     """
     found: set[str] = set()
     stack: list[ast.AST] = list(tree.body)
@@ -85,10 +88,19 @@ def test_store_transcript_rejects_positional_args():
 def test_django_import_stays_lazy():
     """Structural guard: no models_db / django import at module scope.
 
-    test_ccsessiontranscript_model_shape below has to configure Django settings
-    itself, which proves this module is imported with Django unconfigured. A
-    module-level `from nextseek_api.assistant.models_db import ...` would raise
-    ImproperlyConfigured at collection time and take the whole file with it.
+    THE TWO ASSERTIONS BELOW ARE THE GUARANTEE. Nothing about *running* this
+    file proves the module is importable with Django unconfigured, because the
+    mandated lane never presents that state: `pytest-django` reads
+    `DJANGO_SETTINGS_MODULE=dmac.test_settings` and configures settings at
+    plugin init, before collection. So the `if not settings.configured` fallback
+    in `test_ccsessiontranscript_model_shape` is defensive scaffolding for a
+    bare-pytest run, not evidence — under the real lane that branch is never
+    taken.
+
+    The AST check is what actually holds the line: it reads the source, so it
+    fails on a module-level `from nextseek_api.assistant.models_db import ...`
+    (or any `django.*` import) whether or not the environment running it happens
+    to have settings configured.
     """
     tree = ast.parse(Path(cc_transcript_store.__file__).read_text())
     top_level = _module_level_imported_modules(tree)

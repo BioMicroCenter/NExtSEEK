@@ -208,21 +208,51 @@ def test_transcript_line_counts_skips_symlinks(tmp_path):
     assert cc_engine._transcript_line_counts(tmp_path) == {str(real): 2}
 
 
-def test_transcript_line_counts_skips_an_unreadable_file(tmp_path):
-    """It runs on the turn's hot path; one bad file must not raise."""
+def test_transcript_line_counts_skips_an_unreadable_file(tmp_path, monkeypatch):
+    """It runs on the turn's hot path; one bad file must not raise.
+
+    Injected at the OS boundary, NOT with ``chmod 0o000``. The only lane this
+    suite runs in is the container, which runs as euid 0, and root reads a
+    0o000 file happily — so a permissions fixture here demonstrates nothing:
+    it passes just as well against a ``_transcript_line_counts`` with no
+    ``except OSError`` in it at all. Raising from ``Path.read_bytes`` for the
+    one file exercises the handler itself, and the assertion is exact (the good
+    file counted, the bad one absent) rather than a set containment that both
+    outcomes satisfy.
+    """
     good = tmp_path / "good.jsonl"
     good.write_bytes(_jsonl("1"))
     bad = tmp_path / "bad.jsonl"
     bad.write_bytes(_jsonl("1", "2"))
-    os.chmod(bad, 0o000)
-    try:
-        counts = cc_engine._transcript_line_counts(tmp_path)
-    finally:
-        os.chmod(bad, 0o644)
-    # root (as the container runs) can read a 0o000 file, so accept either the
-    # skip or the successful read — what must NOT happen is an exception.
-    assert counts.get(str(good)) == 1
-    assert set(counts) <= {str(good), str(bad)}
+
+    real_read_bytes = Path.read_bytes
+
+    def _selective(self, *args, **kwargs):
+        if self == bad:
+            raise PermissionError(13, "Permission denied", str(bad))
+        return real_read_bytes(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", _selective)
+
+    counts = cc_engine._transcript_line_counts(tmp_path)
+
+    assert counts == {str(good): 1}, (
+        "the readable file must still be counted and the unreadable one skipped"
+    )
+
+
+def test_transcript_line_counts_survives_an_unreadable_ROOT(tmp_path, monkeypatch):
+    """``Path.is_dir()`` swallows ENOENT/ENOTDIR/ELOOP but RE-RAISES EACCES, so
+    a root whose parent directory cannot be traversed used to escape past the
+    ``{}`` guard entirely — contradicting the docstring's "must never be the
+    reason a turn fails". It runs before the agent is even spawned, so an
+    escape here kills the turn before it starts."""
+    def _denied(self):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "is_dir", _denied)
+
+    assert cc_engine._transcript_line_counts(tmp_path) == {}
 
 
 # --------------------------------------------------------------------------
@@ -491,27 +521,51 @@ def test_read_turn_transcript_swallows_a_failure_in_the_LOCATE_step(
 # --------------------------------------------------------------------------
 
 
-def _run_cc_turn_ast():
-    src = Path(cc_engine.__file__).with_suffix(".py").read_text()
-    tree = ast.parse(src)
+def _cc_engine_ast():
+    return ast.parse(Path(cc_engine.__file__).with_suffix(".py").read_text())
+
+
+def _run_cc_turn_ast(tree=None):
+    """``run_cc_turn``'s node. Pass ``tree`` when the caller also needs
+    module-scope nodes: node identity is only comparable within ONE parse."""
+    tree = _cc_engine_ast() if tree is None else tree
     return next(
         n for n in ast.walk(tree)
         if isinstance(n, ast.FunctionDef) and n.name == "run_cc_turn"
     )
 
 
-def _calls(fn, *, name=None, attr=None):
-    """Every ``ast.Call`` in ``fn`` to a bare name or to an ``x.attr``."""
+def _calls(node, *, name=None, attr=None):
+    """Every ``ast.Call`` under ``node`` to a bare name or to an ``x.attr``."""
     out = []
-    for node in ast.walk(fn):
-        if not isinstance(node, ast.Call):
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
             continue
-        func = node.func
+        func = child.func
         if name is not None and isinstance(func, ast.Name) and func.id == name:
-            out.append(node)
+            out.append(child)
         elif attr is not None and isinstance(func, ast.Attribute) and func.attr == attr:
-            out.append(node)
+            out.append(child)
     return out
+
+
+def _arg_src(call, index: int) -> str:
+    """``ast.unparse`` of positional arg ``index``, or a readable sentinel.
+
+    Guarded rather than indexed. A call rewritten with fewer positional
+    arguments than an assertion below expects should make that assertion FAIL
+    with its own message; indexing raises ``IndexError`` out of the test body
+    instead, which turns a real regression into an unreadable error.
+    """
+    if index >= len(call.args):
+        return f"<no positional arg {index}>"
+    return ast.unparse(call.args[index])
+
+
+# ``_write_raw_turn_copy(output_mnt, run_id, payload)`` — the one helper both
+# terminal paths use for the ``raw/transcript-<run_id>.jsonl`` copy.
+_RAW_COPY = "_write_raw_turn_copy"
+_PAYLOAD_ARG = 2
 
 
 def test_the_debug_trace_still_parses_the_FULL_session():
@@ -522,31 +576,115 @@ def test_the_debug_trace_still_parses_the_FULL_session():
     calls = _calls(_run_cc_turn_ast(), attr="parse_transcript")
 
     assert len(calls) == 1, "expected exactly one parse_transcript call"
-    assert ast.unparse(calls[0].args[0]) == "captured.session"
+    assert _arg_src(calls[0], 0) == "captured.session"
 
 
-def test_the_two_per_turn_sinks_get_the_TURN_slice():
-    """The ``raw/transcript-<run_id>.jsonl`` copy and the ``CCSessionTranscript``
-    blob are both keyed per TURN, so both must hold one turn's records.
+def test_the_SUCCESS_path_raw_copy_gets_that_turns_slice():
+    """Bound to the ``if captured.turn:`` body, not to the function at large.
 
-    Stated as "no per-turn sink is handed a ``.session`` member" rather than as
-    an exact call list: the failure-path fallback adds a second capture with its
-    own local name, and that is correct as long as it too writes the slice.
+    There are TWO ``raw/`` copies in ``run_cc_turn`` now — the success path's
+    and the #68 failure fallback's — so a bare "``captured.turn`` appears
+    somewhere among the payloads" is satisfied by either one, and the success
+    path could be swapped to ``captured.session`` with no assertion noticing.
+    This one names the branch it is about.
     """
     fn = _run_cc_turn_ast()
 
-    written = [ast.unparse(c.args[0]) for c in _calls(fn, attr="write_bytes")]
-    assert "captured.turn" in written, (
-        f"the success path's raw/ copy must write the slice, got {written}"
+    gates = [n for n in ast.walk(fn)
+             if isinstance(n, ast.If) and ast.unparse(n.test) == "captured.turn"]
+    assert len(gates) == 1, "the success path's one `if captured.turn:` gate"
+
+    calls = [c for stmt in gates[0].body for c in _calls(stmt, name=_RAW_COPY)]
+    assert len(calls) == 1, (
+        f"expected exactly one {_RAW_COPY} call on the success path, got {len(calls)}"
     )
-    assert not [a for a in written if a.endswith(".session")], (
-        f"a per-turn raw/ copy must never be handed the whole session: {written}"
+    assert _arg_src(calls[0], _PAYLOAD_ARG) == "captured.turn", (
+        "the success path's raw/ copy is named for run_id, so it must hold that "
+        f"run's records: got {_arg_src(calls[0], _PAYLOAD_ARG)}"
     )
 
-    payloads = _calls(fn, name="TurnCompletePayload")
-    assert len(payloads) == 1
-    keywords = {k.arg: k.value for k in payloads[0].keywords}
+
+def test_no_per_turn_sink_is_handed_the_WHOLE_session():
+    """The path-agnostic half. The ``raw/transcript-<run_id>.jsonl`` copy and
+    the ``CCSessionTranscript`` blob are both keyed per TURN, so whatever writes
+    them must be handed a ``.turn``, never a ``.session``.
+
+    Stated over the call sites rather than as an exact list of source strings:
+    a third terminal path growing its own capture under its own local name is
+    fine, as long as it too writes the slice.
+    """
+    fn = _run_cc_turn_ast()
+
+    copies = _calls(fn, name=_RAW_COPY)
+    assert len(copies) == 2, (
+        "the success path and the #68 failure fallback, both through the one "
+        f"helper that carries the basename check and the mkdir; got {len(copies)}"
+    )
+    payloads = [_arg_src(c, _PAYLOAD_ARG) for c in copies]
+    assert not [p for p in payloads if p.endswith(".session")], payloads
+    assert all(p.endswith(".turn") for p in payloads), payloads
+
+    direct = [_arg_src(c, 0) for c in _calls(fn, attr="write_bytes")]
+    assert direct == [], (
+        f"a raw/ transcript copy must go through {_RAW_COPY} — that is where "
+        f"the basename check and the mkdir live, and inlining it again is how "
+        f"the two paths drifted apart in the first place; got {direct}"
+    )
+
+    turn_complete = _calls(fn, name="TurnCompletePayload")
+    assert len(turn_complete) == 1
+    keywords = {k.arg: k.value for k in turn_complete[0].keywords}
     assert ast.unparse(keywords["raw_jsonl"]) == "captured.turn"
+
+    stores = _calls(fn, attr="store_transcript")
+    assert len(stores) == 1, "the #68 fallback's one row write"
+    store_kw = {k.arg: k.value for k in stores[0].keywords}
+    assert ast.unparse(store_kw["raw_jsonl"]) == "fallback.turn"
+
+
+def test_turn_is_attributable_is_read_ONLY_from_the_finally():
+    """Nothing else may consult the flag — the success path least of all.
+
+    ``_turn_slice``'s whole-file recovery ("storing too much beats storing
+    nothing") is deliberate and CORRECT for a turn that completed: such a turn
+    definitionally appended something, so a non-increasing line count can only
+    mean a stale snapshot, and the recovery is what keeps that turn's row from
+    being empty. ``turn_is_attributable`` exists solely so the FAILURE path can
+    DECLINE that recovery, where "the agent appended nothing" is a first-class
+    expected state and the recovered bytes are an earlier turn's.
+
+    A success path that started gating on the flag would silently switch off the
+    recovery — no error, no test, just rows quietly missing from turns whose
+    snapshot went stale. Until now only a docstring said not to.
+    """
+    tree = _cc_engine_ast()
+    fn = _run_cc_turn_ast(tree)
+
+    reads = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Attribute) and n.attr == "turn_is_attributable"]
+    # Not vacuous-by-accident: if the flag stops being read at all, the #68
+    # fallback has stopped declining the misattributed recovery and this test
+    # must say so rather than pass on an empty list.
+    assert reads, "nothing reads turn_is_attributable any more"
+
+    tries = [n for n in fn.body if isinstance(n, ast.Try) and n.finalbody]
+    assert len(tries) == 1, "run_cc_turn's one top-level try/finally"
+    in_finally = {id(n) for stmt in tries[0].finalbody for n in ast.walk(stmt)}
+    assert all(id(n) in in_finally for n in reads), (
+        "turn_is_attributable is read outside run_cc_turn's finally (line(s) "
+        f"{[n.lineno for n in reads if id(n) not in in_finally]}); only the #68 "
+        "failure fallback may decline the whole-file recovery"
+    )
+
+    gate = [n for n in ast.walk(fn) if isinstance(n, ast.If)
+            and "query_complete" in ast.unparse(n.test)
+            and "on_turn_complete" in ast.unparse(n.test)]
+    assert len(gate) == 1, "the query_complete persist gate"
+    in_gate = {id(n) for stmt in gate[0].body for n in ast.walk(stmt)}
+    assert not [n for n in reads if id(n) in in_gate], (
+        "the query_complete gate must NOT consult turn_is_attributable: doing so "
+        "would disable the whole-file recovery for exactly the turns it is right for"
+    )
 
 
 def test_the_pre_spawn_snapshot_uses_the_same_root_expression_as_the_read():
