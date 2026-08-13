@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import difflib
 import hashlib
 import importlib.util
 import json
@@ -34,6 +35,7 @@ TASK_DEPENDENCIES = {
     "task-06": ("task-00", "task-03"), "task-07": ("task-03", "task-05", "task-06"),
     "task-08": ("task-02", "task-03", "task-07"),
     "task-09": ("task-02", "task-04", "task-05", "task-07", "task-08"),
+    "task-09p": ("task-02", "task-04", "task-05", "task-07", "task-08"),
     "task-10": ("task-09",), "task-11": ("task-10",),
 }
 TASK_REQUIRED_LANES = {
@@ -45,8 +47,9 @@ TASK_REQUIRED_LANES = {
     "task-05": {"unit", "db", "collect", "lint", "coverage", "mutants"},
     "task-06": {"unit", "db", "benchmark", "mutants", "coverage", "collect", "lint"},
     "task-07": {"unit", "db", "coverage", "collect", "lint"},
-    "task-08": {"unit", "db", "worker", "coverage", "collect", "lint"},
+    "task-08": {"unit", "db", "worker", "coverage", "collect", "lint", "mutants"},
     "task-09": {"unit", "db", "openapi", "coverage", "collect", "lint"},
+    "task-09p": {"unit", "db", "worker", "openapi", "coverage", "collect", "lint", "mutants"},
     "task-10": {"unit", "benchmark", "coverage", "collect", "lint"},
     "task-11": {"unit", "db", "schema", "worker", "openapi", "benchmark", "coverage", "collect", "lint", "raw-full", "full", "mutants"},
 }
@@ -62,6 +65,8 @@ TASK_REQUIRED_MUTANTS = {
                 "M-PLAN-ORDER-01"),
     "task-06": ("M-REWRITE-BOUNDARY-01",),
     "task-07": ("M-LOCK-01", "M-VERSION-01", "M-TXN-01", "M-RECOVER-01"),
+    "task-08": ("M-DELIVERY-01", "M-CANCEL-01", "M-WORKER-01"),
+    "task-09p": ("M-HTTP-01", "M-ROUTE-01"),
     "task-11": ("M-AUTH-01", "M-AUTH-02", "M-UID-01", "M-TITLE-01", "M-DRY-01",
                 "M-LOCK-01", "M-VERSION-01", "M-TXN-01", "M-RECOVER-01",
                 "M-DELIVERY-01", "M-CANCEL-01", "M-CANCEL-02", "M-HTTP-01",
@@ -163,6 +168,12 @@ def observed_dependencies(cwd, head, task_id):
 
 
 def validate(record, manifest, artifact_root=None, logical_only=False, runner_exit=None):
+    deadline = manifest.get("deadline_contract", {})
+    if not logical_only and manifest.get("deadline_execution_freeze") and (
+        record.get("task_id") in deadline.get("forbidden_tasks_while_frozen", ())
+        or record.get("lane") in deadline.get("forbidden_lanes_while_frozen", ())
+    ):
+        raise Rejected("E_DEADLINE_EXECUTION_FROZEN")
     for field in manifest["evidence_record_contract"]["required_fields"]:
         if field not in record:
             raise Rejected("E_REQUIRED_FIELD")
@@ -173,7 +184,7 @@ def validate(record, manifest, artifact_root=None, logical_only=False, runner_ex
     expected_argv = manifest["runner_contract"]["commands"].get(record["lane"])
     if expected_argv is None or record["argv"] != expected_argv:
         raise Rejected("E_ARGV_MISMATCH")
-    if not re.fullmatch(r"task-(?:0[0-9]|1[01])", str(record["task_id"])):
+    if not re.fullmatch(r"task-(?:0[0-9]|1[01]|09p)", str(record["task_id"])):
         raise Rejected("E_TASK_ID")
     if record["base_sha"] != manifest["source_identity"]["base_sha"]:
         raise Rejected("E_BASE_SHA_MISMATCH")
@@ -255,6 +266,60 @@ def validate(record, manifest, artifact_root=None, logical_only=False, runner_ex
         reported = {Path(name).as_posix() for name in report.get("files", {})}
         if any(not any(name == relative or name.endswith(f"/{relative}") for name in reported) for relative in observed_hashes):
             raise Rejected("E_COVERAGE_SOURCE")
+        deadline = manifest.get("deadline_contract", {})
+        def one_file(suffix):
+            matches = [row for name, row in report["files"].items() if name.endswith(suffix)]
+            if len(matches) != 1:
+                raise Rejected("E_COVERAGE_SOURCE")
+            return matches[0]
+        if record["task_id"] == "task-08":
+            for suffix, baseline in deadline["t08_coverage_baselines"].items():
+                entry = one_file(suffix)
+                summary = entry["summary"]
+                if not (
+                    hashlib.sha256((cwd / suffix).read_bytes()).hexdigest() == baseline["source_sha256"]
+                    and summary["covered_lines"] >= baseline["minimum_covered_statements"]
+                    and summary["num_statements"] <= baseline["maximum_statements"]
+                    and summary["missing_lines"] <= baseline["maximum_missing_statements"]
+                    and summary["covered_branches"] >= baseline["minimum_covered_branches"]
+                    and summary["num_branches"] <= baseline["maximum_branches"]
+                    and set(entry["missing_lines"]) <= set(baseline["maximum_missing_lines"])
+                    and {tuple(branch) for branch in entry["missing_branches"]} <= {
+                        tuple(branch) for branch in baseline["maximum_missing_branches"]
+                    }
+                    and entry["excluded_lines"] == baseline["excluded_lines"]
+                ):
+                    raise Rejected("E_COVERAGE_THRESHOLD")
+        if record["task_id"] == "task-09p":
+            contract = deadline["t09p_coverage"]
+            for suffix in contract["new_modules"]:
+                summary = one_file(suffix)["summary"]
+                if (summary["percent_covered"] < contract["minimum_percent_each"]
+                        or summary["excluded_lines"] != 0):
+                    raise Rejected("E_COVERAGE_THRESHOLD")
+            jobs = contract["jobs_baseline"]
+            critical = contract.get("critical_lines", {})
+            if (not jobs.get("git_blob_oid") or not jobs.get("sha256")
+                    or set(critical) != set(contract["critical_obligations"])
+                    or any(not isinstance(lines, list) or not lines for lines in critical.values())):
+                raise Rejected("E_COVERAGE_THRESHOLD")
+            baseline = subprocess.run(
+                ["git", "cat-file", "blob", jobs["git_blob_oid"]], cwd=cwd,
+                check=True, capture_output=True,
+            ).stdout
+            if hashlib.sha256(baseline).hexdigest() != jobs["sha256"]:
+                raise Rejected("E_COVERAGE_THRESHOLD")
+            current_lines = (cwd / jobs["path"]).read_text().splitlines()
+            added = set()
+            for tag, _i1, _i2, j1, j2 in difflib.SequenceMatcher(
+                    a=baseline.decode().splitlines(), b=current_lines, autojunk=False).get_opcodes():
+                if tag in {"replace", "insert"}:
+                    added.update(range(j1 + 1, j2 + 1))
+            if added & set(one_file(jobs["path"])["missing_lines"]):
+                raise Rejected("E_COVERAGE_THRESHOLD")
+            for obligation, lines in critical.items():
+                if set(lines) & set(one_file(contract["critical_obligations"][obligation])["missing_lines"]):
+                    raise Rejected("E_COVERAGE_THRESHOLD")
     seen = set()
     for artifact in record["artifacts"]:
         path = Path(artifact["path"])
@@ -326,6 +391,26 @@ def validate(record, manifest, artifact_root=None, logical_only=False, runner_ex
         observed = {name: sum(row["outcome"] == name for row in rows) for name in allowed}
         if any(observed[name] != record[name] for name in allowed):
             raise Rejected("E_TEST_COUNTS")
+    if (record["task_id"] == "task-09p" and record["lane"] in {"unit", "db", "worker", "openapi"}
+            and evidence_boundary and not logical_only):
+        rows = json.loads((artifact_root / "node-results.json").read_text())
+        if (not isinstance(rows, list) or rows != sorted(rows, key=lambda row: row.get("nodeid", ""))
+                or any(set(row) != {"nodeid", "outcome"} or row["outcome"] != "passed" for row in rows)
+                or len(rows) != len({row["nodeid"] for row in rows})
+                or len(rows) != record["collected"] or len(rows) != record["passed"]):
+            raise Rejected("E_NODE_RESULTS")
+        actual = {row["nodeid"] for row in rows}
+        matrix = manifest["deadline_contract"]["t09p_primary_nodes"]
+        expected = set(matrix[record["lane"]])
+        all_primary = {node for lane_nodes in matrix.values() for node in lane_nodes}
+        parameterized = manifest["deadline_contract"]["t09p_parameterized_primary"]
+        supplemental = set(manifest["deadline_contract"]["t09p_supplemental_nodes"].get(record["lane"], ()))
+        expected_actual = supplemental | {node for node in expected if node not in parameterized}
+        for base, case_ids in parameterized.items():
+            if base in expected:
+                expected_actual.update(f"{base}[{case_id}]" for case_id in case_ids)
+        if actual != expected_actual:
+            raise Rejected("E_TEST_SELECTION_DRIFT")
     if record["lane"] == "mutants" and evidence_boundary and not logical_only:
         report = json.loads((artifact_root / "mutants.json").read_text())
         keys = {"killed", "survived", "timed_out", "skipped", "errored"}
@@ -364,6 +449,30 @@ def validate(record, manifest, artifact_root=None, logical_only=False, runner_ex
                     or proof["loaded_mutated_sha256"] != proof["mutated_sha256"]
                     or proof["restored_sha256"] != proof["pre_sha256"]
                     or proof["applied"] is not True or proof["restored"] is not True):
+                raise Rejected("E_MUTANT_REPORT")
+        reports = json.loads((artifact_root / "mutant-pytest-reports.json").read_text())
+        report_keys = {"schema_version", "killer", "proof_phase", "collected_nodeids", "phases", "pytest_exit_code"}
+        if set(reports) != expected:
+            raise Rejected("E_MUTANT_REPORT")
+        for mutant_id, by_phase in reports.items():
+            killer = rules[mutant_id]["killer"]
+            if set(by_phase) != {"original", "mutated", "restored"}:
+                raise Rejected("E_MUTANT_REPORT")
+            for phase, phase_report in by_phase.items():
+                if (set(phase_report) != report_keys or phase_report["proof_phase"] != phase
+                        or phase_report["killer"] != killer or not phase_report["collected_nodeids"]
+                        or any(node != killer and not node.startswith(killer + "[")
+                               for node in phase_report["collected_nodeids"])):
+                    raise Rejected("E_MUTANT_REPORT")
+            clean = all(
+                by_phase[phase]["pytest_exit_code"] == 0
+                and all(row["outcome"] == "passed" for row in by_phase[phase]["phases"] if row["phase"] == "call")
+                for phase in ("original", "restored")
+            )
+            mutated_assertions = [row for row in by_phase["mutated"]["phases"]
+                                  if row["phase"] == "call" and row["outcome"] == "failed"
+                                  and row["failure_kind"] == "assertion"]
+            if not clean or by_phase["mutated"]["pytest_exit_code"] != 1 or not mutated_assertions:
                 raise Rejected("E_MUTANT_REPORT")
     return "ACCEPT"
 
@@ -836,6 +945,8 @@ def main():
 
 
 def _validate_task(args, manifest):
+    if manifest.get("deadline_execution_freeze") and args.task in manifest.get("deadline_contract", {}).get("forbidden_tasks_while_frozen", ()):
+        raise Rejected("E_DEADLINE_EXECUTION_FROZEN")
     results = {}
     if args.selection is None:
         root = args.root.resolve(strict=True) if args.root.exists() else args.root
@@ -882,7 +993,8 @@ def _validate_task(args, manifest):
     if len({record["source_tree_sha256"] for record in records}) != 1:
         raise Rejected("E_SOURCE_TREE_SIBLING_MISMATCH")
     focused = sum(record["passed"] for record in records if record["lane"] in {"unit", "db", "schema", "worker", "openapi", "mutants"})
-    if focused < manifest["minimum_collected_tests"][args.task]:
+    if (args.task == "task-09p" and focused != manifest["deadline_contract"]["t09p_exact_focused_passed"]
+            or args.task != "task-09p" and focused < manifest["minimum_collected_tests"][args.task]):
         raise Rejected("E_TEST_MINIMUM")
     task_heads = {record["task_head_sha"] for record in records}
     dependencies = {json.dumps(record["dependency_shas"], sort_keys=True) for record in records}

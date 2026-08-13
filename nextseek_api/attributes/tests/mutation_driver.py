@@ -46,6 +46,9 @@ def _reload_after_mutation(module_name: str) -> None:
 
 
 def pytest_configure(config):
+    proof_phase = os.environ.get("ATTRIBUTE_MUTANT_PROOF_PHASE", "mutated")
+    if proof_phase not in {"original", "mutated", "restored"}:
+        raise pytest.UsageError("invalid mutant proof phase")
     mutant_id = os.environ["ATTRIBUTE_ACTIVE_MUTANT_ID"]
     table = json.loads(Path(os.environ["ATTRIBUTE_MUTATION_ADAPTERS"]).read_text())
     matches = [row for row in table["rules"] if row["id"] == mutant_id]
@@ -54,6 +57,12 @@ def pytest_configure(config):
     rule = matches[0]
     path = Path.cwd() / rule["path"]
     original = path.read_bytes()
+    module_name = Path(rule["path"]).with_suffix("").as_posix().replace("/", ".")
+    if proof_phase != "mutated":
+        _state.update(rule=rule, path=path, original=original, mutated=None,
+                      observed=[], loaded=_digest(original), module_name=module_name,
+                      proof_phase=proof_phase)
+        return
     text = original.decode("utf-8")
     observed = []
     for transform in rule["transforms"]:
@@ -67,22 +76,23 @@ def pytest_configure(config):
     mutated = text.encode("utf-8")
     compile(text, str(path), "exec")
     _atomic_write(path, mutated)
-    module_name = Path(rule["path"]).with_suffix("").as_posix().replace("/", ".")
     _reload_after_mutation(module_name)
     _state.update(rule=rule, path=path, original=original, mutated=mutated,
-                  observed=observed, loaded=None, module_name=module_name)
+                  observed=observed, loaded=None, module_name=module_name,
+                  proof_phase=proof_phase)
 
 
 def pytest_collection_finish(session):
     _collected.extend(item.nodeid for item in session.items)
     current = _state["path"].read_bytes()
-    if _digest(current) != _digest(_state["mutated"]):
-        raise pytest.UsageError("mutated source was not present during collection")
+    expected = _state["mutated"] if _state["proof_phase"] == "mutated" else _state["original"]
+    if _digest(current) != _digest(expected):
+        raise pytest.UsageError(f"{_state['proof_phase']} source was not present during collection")
     module_name = _state.get("module_name") or Path(_state["rule"]["path"]).with_suffix("").as_posix().replace("/", ".")
     if module_name not in sys.modules:
         raise pytest.UsageError("mutated production module was not loaded by the killer")
     # Pytest's assertion rewriter loader lacks get_source(); disk is authoritative.
-    _state["loaded"] = _digest(_state["mutated"])
+    _state["loaded"] = _digest(expected)
 
 
 def pytest_runtest_logreport(report):
@@ -99,6 +109,7 @@ def pytest_runtest_logreport(report):
 def pytest_sessionfinish(session, exitstatus):
     killer = _state["rule"]["killer"] if _state else ""
     payload = {"schema_version": "attribute-mutant-pytest-report/v1", "killer": killer,
+               "proof_phase": _state.get("proof_phase", "mutated"),
                "collected_nodeids": sorted(_collected), "phases": _phases,
                "pytest_exit_code": int(exitstatus)}
     target = Path(os.environ["ATTRIBUTE_MUTANT_PYTEST_REPORT"])
@@ -106,7 +117,7 @@ def pytest_sessionfinish(session, exitstatus):
 
 
 def pytest_unconfigure(config):
-    if not _state:
+    if not _state or _state.get("proof_phase") != "mutated":
         return
     _atomic_write(_state["path"], _state["original"])
     restored = _state["path"].read_bytes()

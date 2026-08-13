@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -21,6 +23,10 @@ SOURCE_PATHS = (
     "nextseek_api/batch_upload/celery_app.py",
 )
 PYTEST_SELECTION = ("nextseek_api/tests", "nextseek_api/attributes/tests", "startup/tests")
+PYTEST_IGNORES = (
+    "nextseek_api/attributes/tests/test_performance_metadata.py",
+    "nextseek_api/attributes/tests/test_metadata_benchmark.py",
+)
 
 
 def include_patterns() -> list[str]:
@@ -136,6 +142,71 @@ def ensure_report_lists_all_sources(coverage: Coverage, output: Path) -> None:
     output.write_text(json.dumps(payload, indent=4) + "\n")
 
 
+def _one_file(payload: dict, suffix: str) -> dict:
+    matches = [row for name, row in payload["files"].items() if name.endswith(suffix)]
+    if len(matches) != 1:
+        raise SystemExit(f"coverage report does not contain exactly one {suffix}")
+    return matches[0]
+
+
+def enforce_deadline_coverage(task_id: str, manifest: dict, payload: dict) -> None:
+    deadline = manifest.get("deadline_contract", {})
+    if task_id == "task-08":
+        for suffix, baseline in deadline["t08_coverage_baselines"].items():
+            entry = _one_file(payload, suffix)
+            summary = entry["summary"]
+            checks = (
+                hashlib.sha256((ROOT / suffix).read_bytes()).hexdigest() == baseline["source_sha256"],
+                summary["covered_lines"] >= baseline["minimum_covered_statements"],
+                summary["num_statements"] <= baseline["maximum_statements"],
+                summary["missing_lines"] <= baseline["maximum_missing_statements"],
+                summary["covered_branches"] >= baseline["minimum_covered_branches"],
+                summary["num_branches"] <= baseline["maximum_branches"],
+                set(entry["missing_lines"]) <= set(baseline["maximum_missing_lines"]),
+                {tuple(branch) for branch in entry["missing_branches"]} <= {
+                    tuple(branch) for branch in baseline["maximum_missing_branches"]
+                },
+                entry["excluded_lines"] == baseline["excluded_lines"],
+            )
+            if not all(checks):
+                raise SystemExit(f"task-08 residual coverage regressed for {suffix}")
+    if task_id == "task-09p":
+        contract = deadline["t09p_coverage"]
+        for suffix in contract["new_modules"]:
+            summary = _one_file(payload, suffix)["summary"]
+            if (summary["percent_covered"] < contract["minimum_percent_each"]
+                    or summary["excluded_lines"] != 0):
+                raise SystemExit(f"task-09p per-module coverage failed for {suffix}")
+        jobs = contract["jobs_baseline"]
+        if not jobs.get("git_blob_oid") or not jobs.get("sha256"):
+            raise SystemExit("task-09p jobs.py baseline is not frozen after T08")
+        baseline = subprocess.run(
+            ["git", "cat-file", "blob", jobs["git_blob_oid"]], cwd=ROOT,
+            check=True, capture_output=True,
+        ).stdout
+        if hashlib.sha256(baseline).hexdigest() != jobs["sha256"]:
+            raise SystemExit("task-09p jobs.py baseline hash drift")
+        current_lines = (ROOT / jobs["path"]).read_text().splitlines()
+        baseline_lines = baseline.decode().splitlines()
+        import difflib
+        added = set()
+        for tag, _i1, _i2, j1, j2 in difflib.SequenceMatcher(
+                a=baseline_lines, b=current_lines, autojunk=False).get_opcodes():
+            if tag in {"replace", "insert"}:
+                added.update(range(j1 + 1, j2 + 1))
+        report = _one_file(payload, jobs["path"])
+        if added & set(report["missing_lines"]):
+            raise SystemExit("task-09p added jobs.py statement is not covered")
+        critical = contract.get("critical_lines", {})
+        if set(critical) != set(contract["critical_obligations"]) or any(
+                not isinstance(lines, list) or not lines for lines in critical.values()):
+            raise SystemExit("task-09p critical coverage lines are not frozen")
+        for obligation, lines in critical.items():
+            suffix = contract["critical_obligations"][obligation]
+            if set(lines) & set(_one_file(payload, suffix)["missing_lines"]):
+                raise SystemExit(f"task-09p critical coverage miss: {obligation}")
+
+
 def main() -> int:
     raw_full = sys.argv[1:] == ["--raw-full"]
     if sys.argv[1:] not in ([], ["--raw-full"]):
@@ -157,20 +228,19 @@ def main() -> int:
     # nodes only, so the two benchmark files are excluded unconditionally
     # (plan-008 Ruling 2, 2026-08-04 -- T06's own lane already excluded them;
     # this is parity, not weakening).
-    pytest_args += [
-        "--ignore=nextseek_api/attributes/tests/test_performance_metadata.py",
-        "--ignore=nextseek_api/attributes/tests/test_metadata_benchmark.py",
-    ]
+    pytest_args += [f"--ignore={path}" for path in PYTEST_IGNORES]
     pytest_exit = pytest.main([*pytest_args, *PYTEST_SELECTION])
     coverage.stop()
     coverage.save()
     coverage.json_report(outfile=str(output), pretty_print=True, show_contexts=False, include=include_patterns())
     ensure_report_lists_all_sources(coverage, output)
+    payload = json.loads(output.read_text())
     aggregate_percent = coverage.report(include=include_patterns())
     minimum = float(manifest["coverage_contract"]["minimum_line_percent"])
     if aggregate_percent < minimum:
         print(f"aggregate coverage {aggregate_percent:.1f}% is below {minimum:.1f}%")
         return 1
+    enforce_deadline_coverage(os.environ.get("ATTRIBUTE_EVIDENCE_TASK_ID", ""), manifest, payload)
     if os.environ.get("ATTRIBUTE_EVIDENCE_TASK_ID") == "task-01":
         payload = json.loads(output.read_text())
         schemas_suffix = "nextseek_api/attributes/schemas.py"
