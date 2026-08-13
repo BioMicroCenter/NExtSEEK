@@ -1,4 +1,5 @@
 from django.urls import re_path, include
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.routers import DefaultRouter
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 from . import views
@@ -38,11 +39,29 @@ router.register(r"admin/project-export", views.ProjectExportViewSet, basename="a
 
 
 urlpatterns = [
-    # OpenAPI Schema Documentation
-    re_path(r'^schema/$', SpectacularAPIView.as_view(), name='schema'),
-    re_path(r'^swagger/$', SpectacularSwaggerView.as_view(url_name='nextseek_api:schema'), name='swagger-ui'),
-    re_path(r'^redoc/$', SpectacularRedocView.as_view(url_name='nextseek_api:schema'), name='redoc'),
-    
+    # OpenAPI Schema Documentation.
+    #
+    # permission_classes is declared HERE and not left to DRF's
+    # DEFAULT_PERMISSION_CLASSES: each drf-spectacular serve-view assigns
+    # `permission_classes = spectacular_settings.SERVE_PERMISSIONS` in its own class
+    # body, and the package default is [AllowAny], so the project default never
+    # applies. Registered plainly, these three routes publish the entire API surface
+    # -- every path, parameter, request body and model, admin/ and evaluator/
+    # included -- to anyone who can reach the host (#77).
+    #
+    # IsAuthenticated, deliberately, and NOT an admin gate:
+    #   * IsAdminUser checks is_staff, which dmac/views.py:80,97 sets on every SEEK
+    #     user at login -- it is IsAuthenticated under a misleading name (#74, #75).
+    #   * IsSuperUser would over-gate: this is the working reference for legitimate
+    #     token-holding API consumers, and it describes endpoints, it returns no
+    #     records. docs/endpoint-authorization-register.md buckets all three as
+    #     "public-to-authenticated".
+    # Authentication is untouched: SERVE_AUTHENTICATION is unset, so the views fall
+    # back to DEFAULT_AUTHENTICATION_CLASSES (Token, Session, Basic).
+    re_path(r'^schema/$', SpectacularAPIView.as_view(permission_classes=[IsAuthenticated]), name='schema'),
+    re_path(r'^swagger/$', SpectacularSwaggerView.as_view(url_name='nextseek_api:schema', permission_classes=[IsAuthenticated]), name='swagger-ui'),
+    re_path(r'^redoc/$', SpectacularRedocView.as_view(url_name='nextseek_api:schema', permission_classes=[IsAuthenticated]), name='redoc'),
+
     # Include router URLs
     re_path(r'^', include(router.urls))
 ]
