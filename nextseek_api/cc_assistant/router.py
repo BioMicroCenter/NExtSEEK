@@ -19,7 +19,11 @@ except ImportError:
 from nextseek_api.cc_assistant import posterior_selector
 from nextseek_api.cc_assistant import transport_trace
 from nextseek_api.cc_assistant.baml_introspect import declared_family_members, validate_member
-from nextseek_api.cc_assistant.family_labels import corpus_snapshot, type_builder
+from nextseek_api.cc_assistant.family_labels import (
+    corpus_snapshot,
+    runtime_type_builder,
+    type_builder,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -191,8 +195,9 @@ def _classify_query(query: str, history: list[HistoryTurn] | None = None) -> tup
 
         snap = corpus_snapshot()
         allowed = declared_family_members(type_builder(snap))
+        builder = runtime_type_builder(snap)
         request = ClassificationInput(user_query=query, history=_history_to_baml(history, Route))
-        decision = asyncio.run(b.ClassifyQuery(input=request))
+        decision = asyncio.run(b.ClassifyQuery(input=request, baml_options={"tb": builder}))
         label = getattr(decision.task_family, "value", decision.task_family) if decision.task_family else None
         if label is None:
             return None, None, decision.reasoning or "unrelated"
@@ -235,6 +240,9 @@ def _legacy_decide(query: str, history: list[HistoryTurn] | None = None) -> Rout
 def _posterior_enabled_decide(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision:
     try:
         snap = corpus_snapshot()
+        # Validate the source-derived recipe before any provider transport.
+        # The generated runtime builder is constructed in _classify_query and
+        # passed to that exact BAML call.
         type_builder(snap)
     except Exception as exc:  # noqa: BLE001
         logger.warning("CC router: corpus/typebuilder invalid pre-transport (%s)", type(exc).__name__)
@@ -269,7 +277,11 @@ def _posterior_enabled_decide(query: str, history: list[HistoryTurn] | None = No
             reasoning=f"classification failed: {classify_reason}; {decision.reasoning}",
         )
 
-    selected = posterior_selector.select_route(task_family)
+    try:
+        selected = posterior_selector.select_route(task_family)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CC router: posterior selection failed (%s)", type(exc).__name__)
+        selected = None
     if selected is not None:
         return RouteDecision(
             route=selected.route,

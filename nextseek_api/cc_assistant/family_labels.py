@@ -15,6 +15,7 @@ __all__ = [
     "corpus_snapshot",
     "declared_labels",
     "type_builder",
+    "runtime_type_builder",
 ]
 
 _CORPUS_PATH = Path(__file__).resolve().parents[2] / "nessie_tests" / "corpus.json"
@@ -71,3 +72,20 @@ def type_builder(snapshot: CorpusSnapshot | None = None) -> dict[str, Any]:
             for name in snap.families
         ],
     }
+
+
+def runtime_type_builder(snapshot: CorpusSnapshot | None = None):
+    """Build the generated BAML ``TypeBuilder`` for ``ClassifiedFamily``.
+
+    The serializable recipe above remains the auditable/source-derived view;
+    this function is the runtime bridge that must be supplied to BAML.
+    """
+    from dmac_assistant.router.baml_client.type_builder import TypeBuilder
+
+    builder = TypeBuilder()
+    for member in type_builder(snapshot).get("members", []):
+        value = builder.ClassifiedFamily.add_value(member["name"])
+        description = member.get("description")
+        if description:
+            value.description(description)
+    return builder

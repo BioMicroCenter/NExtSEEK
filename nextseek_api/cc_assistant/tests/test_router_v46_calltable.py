@@ -233,33 +233,34 @@ def test_flag_on_zero_variant_family_one_classify_one_route_transport(settings, 
 def test_flag_on_posterior_decisive_transport_skips_route_llm(settings, monkeypatch):
     """Variant coverage: decisive posterior skips RouteQuery; transport shows classify only."""
     settings.NEXTSEEK_POSTERIOR_ROUTING_ENABLED = True
-    from django.utils import timezone
-
     from dmac_assistant.router.baml_client.types import ClassificationDecision
-    from nextseek_api.assistant.models_db import FamilyPosterior, PosteriorGeneration
-    from nextseek_api.eval.generation_store import ActiveGenerationPointer
+    from nextseek_api.cc_assistant.family_labels import corpus_snapshot
+    from nextseek_api.eval.generation_store import (
+        EMPTY_ACTIVE_HASH,
+        GenerationManifest,
+        activate_generation,
+        publish_generation,
+    )
+    from nextseek_api.eval.paired_run_registry import register_paired_run
 
-    gen = PosteriorGeneration.objects.create(
-        generation_hash="d" * 64,
+    current = corpus_snapshot()
+    paired_run_id = "v46-decisive-transport"
+    register_paired_run(paired_run_id=paired_run_id, schema_version="v1", content_hash="0" * 64)
+    gen = publish_generation(GenerationManifest(
         input_hash="input-z",
+        attempt_hash="attempt-z",
+        aggregate_hash="aggregate-z",
         config_fingerprint="cfg-z",
         decision_status="activated_all",
-        payload={},
-    )
-    ActiveGenerationPointer.objects.update_or_create(
-        id=1,
-        defaults={"active": gen},
-    )
-    for route, mean in (("nextseek_query", 0.91), ("container_cc", 0.35)):
-        FamilyPosterior.objects.create(
-            generation=gen,
-            task_family="sample_search",
-            route=route,
-            posterior_mean=mean,
-            band="Reliable",
-            n_total=12,
-            fitted_at=timezone.now(),
-        )
+        groups=[
+            {"name": "sample_search", "route": route, "posterior_mean": mean, "band": "Reliable", "n_total": 12}
+            for route, mean in (("nextseek_query", 0.91), ("container_cc", 0.35))
+        ],
+        compatibility_keys={"taxonomy_version": current.taxonomy_version, "corpus_hash": current.corpus_sha256},
+        counts={"retained_pairs": 12},
+        source_provenance={"paired_run_id": paired_run_id, "evidence_kind": "paired_experimental", "route_source": "forced"},
+    ))
+    activate_generation(gen, expected_hash=EMPTY_ACTIVE_HASH)
 
     async def classify_family(*args, **kwargs):
         return ClassificationDecision(task_family="sample_search", reasoning="classified")
@@ -271,4 +272,3 @@ def test_flag_on_posterior_decisive_transport_skips_route_llm(settings, monkeypa
     assert decision.route == cc_router.ROUTE_NS
     assert trace.classify_calls == 1
     assert trace.route_calls == 0
-

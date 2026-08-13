@@ -11,6 +11,10 @@ from django.utils.translation import gettext_lazy as _
 ########################
 
 DEBUG = (os.getenv("DJANGO_DEBUG") or "").strip().lower() in ("1", "true", "yes")
+NEXTSEEK_POSTERIOR_ROUTING_ENABLED = (
+    (os.getenv("NEXTSEEK_POSTERIOR_ROUTING_ENABLED") or "").strip().lower()
+    in ("1", "true", "yes", "on")
+)
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 

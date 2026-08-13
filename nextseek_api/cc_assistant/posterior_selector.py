@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from django.conf import settings
 
+from nextseek_api.cc_assistant.family_labels import corpus_snapshot
 from nextseek_api.eval.generation_store import GenerationSnapshot, get_active_snapshot
 
 __all__ = ["SelectorResult", "posterior_routing_enabled", "select_route"]
@@ -42,8 +43,22 @@ def select_route(task_family: str, *, snapshot: GenerationSnapshot | None = None
     if not task_family or task_family == "unrelated":
         return None
 
-    snap = snapshot if snapshot is not None else get_active_snapshot()
+    try:
+        snap = snapshot if snapshot is not None else get_active_snapshot()
+    except Exception:  # DB/store failures must never block an assistant turn.
+        return None
     if snap is None:
+        return None
+
+    try:
+        current = corpus_snapshot()
+    except Exception:
+        return None
+    if (
+        not snap.content_valid
+        or snap.taxonomy_version != current.taxonomy_version
+        or snap.corpus_hash != current.corpus_sha256
+    ):
         return None
 
     if snap.decision_status in _FALLBACK_STATUSES:

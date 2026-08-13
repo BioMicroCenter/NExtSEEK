@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from nextseek_api.assistant.models_db import FamilyPosterior, PosteriorGeneration
 from nextseek_api.cc_assistant import posterior_selector
+from nextseek_api.cc_assistant.family_labels import corpus_snapshot
 from nextseek_api.eval.generation_store import GenerationSnapshot, get_active_snapshot
 
 pytestmark = pytest.mark.django_db
@@ -29,29 +30,23 @@ def test_posterior_routing_disabled_by_default(settings):
 
 
 def test_decisive_posterior_selects_route(settings):
-    gen = _activate_generation()
-    FamilyPosterior.objects.create(
-        generation=gen,
-        task_family="sample_search",
-        route="nextseek_query",
-        posterior_mean=0.92,
-        band="Reliable",
-        n_total=10,
-        fitted_at=timezone.now(),
+    current = corpus_snapshot()
+    snap = GenerationSnapshot(
+        generation_id=1,
+        generation_hash="a" * 64,
+        decision_status="activated_all",
+        posteriors=(
+            _posterior_row("sample_search", "nextseek_query", 0.92, "Reliable"),
+            _posterior_row("sample_search", "container_cc", 0.40, "Reliable"),
+        ),
+        taxonomy_version=current.taxonomy_version,
+        corpus_hash=current.corpus_sha256,
+        content_valid=True,
     )
-    FamilyPosterior.objects.create(
-        generation=gen,
-        task_family="sample_search",
-        route="container_cc",
-        posterior_mean=0.40,
-        band="Reliable",
-        n_total=10,
-        fitted_at=timezone.now(),
-    )
-    result = posterior_selector.select_route("sample_search")
+    result = posterior_selector.select_route("sample_search", snapshot=snap)
     assert result is not None
     assert result.route == "nextseek_query"
-    assert result.generation_id == gen.id
+    assert result.generation_id == 1
 
 
 def test_too_uncertain_falls_back(settings):
@@ -147,10 +142,14 @@ def _posterior_row(task_family, route, mean, band):
 
 def _snapshot(*, generation_id=99, generation_hash="e" * 64, decision_status="activated_all", posteriors=()):
     from nextseek_api.eval.generation_store import GenerationSnapshot
+    current = corpus_snapshot()
 
     return GenerationSnapshot(
         generation_id=generation_id,
         generation_hash=generation_hash,
         decision_status=decision_status,
         posteriors=tuple(posteriors),
+        taxonomy_version=current.taxonomy_version,
+        corpus_hash=current.corpus_sha256,
+        content_valid=True,
     )

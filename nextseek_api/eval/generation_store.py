@@ -142,6 +142,9 @@ class GenerationSnapshot:
     generation_hash: str
     decision_status: str
     posteriors: tuple[FamilyPosterior, ...]
+    taxonomy_version: str = ""
+    corpus_hash: str = ""
+    content_valid: bool = False
 
 
 def generation_content_hash(**kwargs: Any) -> str:
@@ -287,27 +290,26 @@ def get_active_snapshot() -> GenerationSnapshot | None:
     pointer = ActiveGenerationPointer.objects.select_related("active").first()
     if pointer is None or pointer.active_id is None:
         return None
-    generation = pointer.active
-    posteriors = tuple(
-        FamilyPosterior.objects.filter(generation=generation).order_by("task_family", "route")
-    )
-    return GenerationSnapshot(
-        generation_id=generation.id,
-        generation_hash=generation.generation_hash,
-        decision_status=generation.decision_status,
-        posteriors=posteriors,
-    )
+    return _snapshot_for_generation(pointer.active)
 
 
 def _snapshot_for_generation(generation: PosteriorGeneration) -> GenerationSnapshot:
     posteriors = tuple(
         FamilyPosterior.objects.filter(generation=generation).order_by("task_family", "route")
     )
+    manifest = manifest_from_generation(generation, list(posteriors))
+    compatibility = manifest.compatibility_keys
+    from nextseek_api.eval.generation_validation import validate_generation_for_activation
+
+    validation = validate_generation_for_activation(generation, require_current_compatibility=False)
     return GenerationSnapshot(
         generation_id=generation.id,
         generation_hash=generation.generation_hash,
         decision_status=generation.decision_status,
         posteriors=posteriors,
+        taxonomy_version=str(compatibility.get("taxonomy_version") or ""),
+        corpus_hash=str(compatibility.get("corpus_hash") or ""),
+        content_valid=validation.ok,
     )
 
 

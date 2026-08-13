@@ -31,7 +31,27 @@ class ValidationResult:
     reasons: tuple[str, ...] = ()
 
 
-def validate_generation_for_activation(generation: PosteriorGeneration) -> ValidationResult:
+def _canonical_groups(groups) -> list[dict]:
+    return sorted(
+        [
+            {
+                "name": str(group.get("name")),
+                "route": str(group.get("route")),
+                "posterior_mean": float(group.get("posterior_mean")),
+                "band": str(group.get("band")),
+                "n_total": int(group.get("n_total")),
+            }
+            for group in groups
+        ],
+        key=lambda group: (group["name"], group["route"]),
+    )
+
+
+def validate_generation_for_activation(
+    generation: PosteriorGeneration,
+    *,
+    require_current_compatibility: bool = True,
+) -> ValidationResult:
     from nextseek_api.eval.generation_store import generation_content_hash, manifest_from_generation
 
     reasons: list[str] = []
@@ -51,11 +71,42 @@ def validate_generation_for_activation(generation: PosteriorGeneration) -> Valid
         reasons.append("hash: content hash does not match stored generation_hash")
 
     payload = generation.payload or {}
+    canonical = payload.get("_canonical_hash_inputs")
+    if not isinstance(canonical, dict):
+        reasons.append("hash: canonical hash inputs missing")
+    else:
+        actual_groups = _canonical_groups(
+            {
+                "name": row.task_family,
+                "route": row.route,
+                "posterior_mean": row.posterior_mean,
+                "band": row.band,
+                "n_total": row.n_total,
+            }
+            for row in posteriors
+        )
+        if actual_groups != _canonical_groups(canonical.get("groups") or []):
+            reasons.append("hash: family posterior rows differ from canonical generation")
+        for key in ("compatibility_keys", "counts", "exclusions", "fit_diagnostics", "decision_results", "source_provenance"):
+            if (payload.get(key) or {}) != (canonical.get(key) or {}):
+                reasons.append(f"hash: payload {key} differs from canonical generation")
+
     compat = payload.get("compatibility_keys") or {}
     required_compat = {"taxonomy_version", "corpus_hash"}
     missing_compat = required_compat - set(compat)
     if missing_compat:
         reasons.append(f"compatibility: missing keys {sorted(missing_compat)}")
+    elif require_current_compatibility:
+        try:
+            from nextseek_api.cc_assistant.family_labels import corpus_snapshot
+
+            current = corpus_snapshot()
+            if str(compat.get("taxonomy_version")) != current.taxonomy_version:
+                reasons.append("compatibility: taxonomy_version does not match current corpus")
+            if str(compat.get("corpus_hash")) != current.corpus_sha256:
+                reasons.append("compatibility: corpus_hash does not match current corpus")
+        except Exception as exc:  # noqa: BLE001
+            reasons.append(f"compatibility: current corpus unavailable ({type(exc).__name__})")
 
     if generation.parent_id:
         parent_hash = generation.parent.generation_hash
