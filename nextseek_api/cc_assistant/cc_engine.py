@@ -1429,6 +1429,106 @@ def _newest_jsonl_under(root: Path, *, min_mtime: float | None = None) -> Path |
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
+# --------------------------------------------------------------------------
+# #68 — the per-turn transcript slice.
+#
+# ``--resume`` appends every turn of a chat to ONE session jsonl, but
+# ``CCSessionTranscript`` rows are keyed per turn, so reading the whole file
+# into each row makes row N hold turns 1..N and the stored bytes grow
+# quadratically in turn count. These three pure helpers let a caller snapshot
+# the store's line counts BEFORE spawn and afterwards keep only the records
+# this turn appended.
+#
+# The boundary is a LINE INDEX and not a byte offset, deliberately.
+# ``_scrub_secret_bytes`` (#72) replaces each secret with the literal
+# ``b"<REDACTED>"``, which contains no newline: the scrub is therefore
+# line-count preserving but NOT length preserving. A byte offset recorded
+# before the turn is measured against the DIRTY bytes and is invalidated the
+# moment the preceding turns' records are scrubbed in place — it would then cut
+# mid-record. A line index survives that rewrite untouched.
+# --------------------------------------------------------------------------
+
+def _jsonl_line_count(raw: bytes) -> int:
+    """Count jsonl records in ``raw`` the way this codebase already counts them.
+
+    Same convention as ``cc_summary.parse_transcript``, and it MUST stay that
+    way: split on ``b"\\n"``, drop ONE trailing empty element (the artefact of a
+    final newline), keep interior blank/malformed lines. A boundary recorded by
+    one convention and applied by the other would be off by a record.
+    ``test_cc_transcript_turn_slice.py`` pins the agreement.
+    """
+    lines = raw.split(b"\n")
+    if lines and lines[-1] == b"":
+        lines.pop()
+    return len(lines)
+
+
+def _turn_slice(raw: bytes, prior_lines: int) -> bytes:
+    """Return only the records ``raw`` gained after its first ``prior_lines``.
+
+    ``prior_lines`` is the line count of the same session jsonl snapshotted
+    before this turn's agent was spawned (see ``_transcript_line_counts``). A
+    LINE index rather than a byte offset because ``<REDACTED>`` carries no
+    newline, so the #72 in-place scrub preserves line counts but not byte
+    offsets — see the block comment above.
+
+    Returns ``raw`` UNCHANGED when ``prior_lines <= 0`` or when the current line
+    count is ``<= prior_lines`` (the file shrank, was rewritten, or the turn
+    appended nothing). That fallback is deliberate and load-bearing, not
+    laziness: it gives the invariant *the slice is empty only if the input is
+    empty*, which is what stops a caller from persisting a transcript row with
+    an empty blob. Storing too much always beats storing nothing.
+
+    A returned slice always ends in a newline even when ``raw`` did not — a
+    killed agent can leave a truncated final line, and the slice is persisted as
+    a standalone jsonl blob, so it is normalised rather than propagated. The
+    unsliced fallback paths above return ``raw`` byte-for-byte.
+    """
+    if prior_lines <= 0 or not raw:
+        return raw
+    lines = raw.split(b"\n")
+    if lines and lines[-1] == b"":
+        lines.pop()
+    if len(lines) <= prior_lines:
+        return raw
+    return b"\n".join(lines[prior_lines:]) + b"\n"
+
+
+def _transcript_line_counts(store_root: Path | str | None) -> dict[str, int]:
+    """Map ``str(path) -> _jsonl_line_count`` for every ``*.jsonl`` under a store.
+
+    The pre-spawn snapshot whose values later feed ``_turn_slice``'s
+    ``prior_lines``. Keyed by absolute path string because the same chat's
+    session file is the one that will have grown, and ``--resume`` may or may
+    not reuse it.
+
+    Line counts rather than sizes or offsets for the reason in the block
+    comment above: the #72 scrub rewrites these files in place and changes their
+    length, but never their line count.
+
+    Total-function on purpose — it runs on the turn's hot path, before the agent
+    is even spawned, and must never be the reason a turn fails. Returns ``{}``
+    for a falsy root or a path that is not a directory; skips symlinks and
+    non-files; skips a file it cannot read rather than raising. A file missing
+    from the result simply reads as ``prior_lines = 0`` downstream, which
+    degrades to storing the whole session — the safe direction.
+    """
+    if not store_root:
+        return {}
+    root = Path(store_root)
+    if not root.is_dir():
+        return {}
+    counts: dict[str, int] = {}
+    for path in root.rglob("*.jsonl"):
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            counts[str(path)] = _jsonl_line_count(path.read_bytes())
+        except OSError:
+            continue
+    return counts
+
+
 def _publish_artifacts(
     scratch_mount: Path,
     output_mount: Path,
