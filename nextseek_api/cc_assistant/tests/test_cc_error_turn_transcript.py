@@ -393,6 +393,91 @@ def test_the_on_disk_source_is_still_scrubbed_and_watermarked(harness):
     assert cc_engine.transcript_is_verified_scrubbed(harness.session_path, body) is True
 
 
+def test_a_turn_that_appended_nothing_persists_no_row(harness, caplog):
+    """The other half of "only that turn's records" (SPEC.md).
+
+    ``_turn_slice`` returns the WHOLE file when the line count did not exceed
+    the pre-spawn snapshot, justified as "storing too much beats storing
+    nothing". That is right for a turn that COMPLETED — a completed turn
+    definitionally appended something, so a non-increasing count can only mean a
+    stale snapshot. It is wrong for a turn that FAILED, where "the agent never
+    wrote" is a first-class expected state: the recovered bytes are then the
+    PRIOR turns' records, and a row keyed on this ``run_id`` would file another
+    turn's transcript under this one.
+
+    The reachable shape of it, pinned here: the mtime window
+    (``turn_start - 1``) normally excludes an untouched session file, so this
+    needs the file to be touched inside the window without gaining a record —
+    a back-to-back ``--resume`` turn right after the previous turn's own scrub
+    restamped the file via ``os.replace``, which is what an automated corpus run
+    does.
+    """
+    from docker.errors import APIError
+
+    prior = _jsonl("turn 1, which is NOT this turn", "still turn 1")
+    harness.plant(prior)
+
+    with caplog.at_level(logging.WARNING,
+                         logger="nextseek_api.cc_assistant.cc_engine"):
+        harness.run(
+            spawn_error=APIError("spawn intercepted by test"),
+            # touch, do not append: the file is inside the mtime window but the
+            # agent contributed nothing to it.
+            on_spawn=lambda: os.utime(harness.session_path, None),
+        )
+
+    assert harness.terminal == "query_error"
+    assert harness.rows(RUN1) == [], (
+        "an earlier turn's records must not be filed under this run's turn_id"
+    )
+    assert not harness.raw_copy(RUN1).exists()
+
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert RUN1 in logged and "not persisting" in logged, (
+        "persisting nothing must be visible to an operator, or it is "
+        "indistinguishable from the fallback never having run"
+    )
+
+
+def test_a_turn_with_no_transcript_at_all_logs_that_it_found_none(harness, caplog):
+    """The other non-persisting outcome. Turn 1 of a chat whose spawn failed has
+    no store at all; that must reach the log too, at a level an operator sees."""
+    from docker.errors import APIError
+
+    with caplog.at_level(logging.WARNING,
+                         logger="nextseek_api.cc_assistant.cc_engine"):
+        harness.run(spawn_error=APIError("spawn intercepted by test"))
+
+    assert harness.rows() == []
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert RUN1 in logged and "no transcript found" in logged
+
+
+def test_the_fallback_never_calls_on_turn_complete(harness):
+    """``on_turn_complete`` is ``_append_cc_turn_complete``, which ALSO appends a
+    ``chat_log`` entry with ``status: "completed"``. The service layer's own
+    ``finally`` already appends a ``status: "error"`` entry for this same turn,
+    so calling it here would double-log, mislabel a failed turn as completed,
+    and — because ``chat_log`` is what the sticky-CC rule reads — wrongly make
+    the chat sticky on a CC turn that FAILED.
+
+    Every other error-path test leaves the harness default ``None``, where a
+    regression that called it would raise ``TypeError`` inside the block's own
+    ``except`` and be swallowed. A real callable is the only way to see it.
+    """
+    calls: list = []
+
+    body = _jsonl("this turn wrote, then failed")
+    harness.run(
+        script=_frames_script([INIT, ERROR_RESULT],
+                              append_to=harness.session_path, appended=body),
+        on_turn_complete=lambda payload: calls.append(payload),
+    )
+
+    assert harness.blob(RUN1) == body, "the fallback must still have persisted"
+    assert calls == [], "the failure path must not run the turn-complete writer"
+
+
 def test_the_capture_runs_before_the_scrub_restamps_every_jsonl(harness):
     """Position, asserted behaviourally rather than structurally.
 

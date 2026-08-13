@@ -1425,7 +1425,31 @@ def run_cc_turn(
                     prior_lines=pre_turn_lines,
                     environment=environment,
                 )
-                if fallback.turn:
+                if not fallback.turn:
+                    # Every outcome of this block logs, including the two that
+                    # persist nothing: "the fallback ran and found no
+                    # transcript" must not be indistinguishable from "the
+                    # fallback never ran", or a silent drop here would be a
+                    # worse defect than the missing row this exists to fix.
+                    logger.warning(
+                        "cc #68: no transcript found for a turn that did not "
+                        "complete (run_id=%s, terminal=%s); that turn has no "
+                        "durable record", run_id, _terminal_class)
+                elif not fallback.turn_is_attributable:
+                    # The store held records before this turn ran and gained
+                    # none, so _turn_slice recovered the WHOLE file. Persisting
+                    # it would file the PRIOR turns' transcript under this
+                    # run_id — the same misattribution the pre-scrub capture
+                    # ordering above guards against, and SPEC.md's "only that
+                    # turn's records" is the requirement it would break. No row
+                    # is the honest answer; the earlier turns keep their own.
+                    logger.warning(
+                        "cc #68: not persisting a transcript for a turn that did "
+                        "not complete (run_id=%s, terminal=%s): the store gained "
+                        "no records this turn, so the only bytes available are "
+                        "EARLIER turns' and are not this turn's to claim",
+                        run_id, _terminal_class)
+                else:
                     raw_copy = Path(dirs.output_mnt) / "raw" / f"transcript-{run_id}.jsonl"
                     if not _safe_relpath(raw_copy.name):
                         raise ValueError("bad transcript basename")
@@ -1636,10 +1660,29 @@ class CapturedTranscript(NamedTuple):
     Both are ``b""`` when there was nothing to capture, and by ``_turn_slice``'s
     invariant ``turn`` is empty only when ``session`` is: a caller can gate on
     either without risking a content-free transcript row.
+
+    ``turn_is_attributable`` disambiguates the one case where ``turn`` is a
+    RECOVERY rather than a slice. ``_turn_slice`` deliberately returns the whole
+    file when the current line count did not exceed the pre-spawn snapshot —
+    "storing too much beats storing nothing" — which is right for a turn that
+    COMPLETED, where a non-increasing count can only mean a stale snapshot. It is
+    wrong for a turn that FAILED, where "the agent appended nothing" is a
+    first-class expected state (a spawn that raised before the agent ever wrote):
+    there the recovered bytes are the PRIOR turns' records, and persisting them
+    under this turn's ``turn_id`` misattributes another turn's transcript.
+
+    So this flag is False exactly when the snapshot saw records for this file
+    (``prior_lines > 0``) and the file did not grow. A file the snapshot never
+    saw, or saw as empty, reads as ``prior_lines == 0`` — a fresh session, whose
+    whole content genuinely IS this turn's — and stays True. It is meaningful
+    only when ``turn`` is non-empty; an empty capture is trivially attributable,
+    hence the default, which also keeps ``CapturedTranscript(b"", b"")`` a valid
+    and equal spelling of "nothing captured".
     """
 
     session: bytes
     turn: bytes
+    turn_is_attributable: bool = True
 
 
 def _read_turn_transcript(
@@ -1712,9 +1755,16 @@ def _read_turn_transcript(
         return CapturedTranscript(b"", b"")
 
     session = _scrub_secret_bytes(raw, environment)
+    prior = prior_lines.get(str(jsonl_path), 0)
     return CapturedTranscript(
         session=session,
-        turn=_turn_slice(session, prior_lines.get(str(jsonl_path), 0)),
+        turn=_turn_slice(session, prior),
+        # The slice is a genuine slice unless _turn_slice fell back to the whole
+        # file on a store that had records before this turn ran. See the
+        # CapturedTranscript docstring for why the failure-path caller cannot
+        # treat that recovery as this turn's records.
+        turn_is_attributable=(prior <= 0
+                              or _jsonl_line_count(session) > prior),
     )
 
 

@@ -416,6 +416,48 @@ def test_read_turn_transcript_swallows_an_unreadable_session(tmp_path, monkeypat
     assert got == cc_engine.CapturedTranscript(b"", b"")
 
 
+def test_turn_is_attributable_marks_the_whole_file_recovery(tmp_path):
+    """``_turn_slice``'s "storing too much beats storing nothing" fallback is
+    right for a turn that COMPLETED and wrong for one that FAILED, where "the
+    agent appended nothing" is an expected state and the recovered bytes are the
+    PRIOR turns'. The helper cannot pick for both callers, so it reports which
+    case this is and each caller decides. ``turn`` itself is unchanged.
+    """
+    turn_start = 10_000.0
+    body = _jsonl("a", "b")
+    mnt, path = _store(tmp_path, body=body, mtime=turn_start + 1)
+
+    def _read(prior):
+        return cc_engine._read_turn_transcript(
+            mnt, turn_start=turn_start, prior_lines=prior, environment=ENV)
+
+    # grew this turn -> a genuine slice
+    grew = _read({str(path): 1})
+    assert grew.turn_is_attributable is True
+    assert grew.turn == _jsonl("a", "b").split(b"\n")[1] + b"\n"
+
+    # did NOT grow -> the whole file came back, and it is NOT this turn's
+    for stale in (2, 5, 99):
+        got = _read({str(path): stale})
+        assert got.turn == body, stale          # unchanged recovery behaviour
+        assert got.turn_is_attributable is False, stale
+
+    # a fresh session -- the snapshot saw no records for this file -- IS this
+    # turn's, whether by an explicit 0 or by a key the snapshot never held.
+    assert _read({str(path): 0}).turn_is_attributable is True
+    assert _read({}).turn_is_attributable is True
+    assert _read({"/some/other/session.jsonl": 2}).turn_is_attributable is True
+
+
+def test_an_empty_capture_keeps_its_two_field_spelling():
+    """The default keeps ``CapturedTranscript(b"", b"")`` a valid and EQUAL
+    spelling of "nothing captured" — every early return in the helper, and every
+    test that compares against it, relies on that."""
+    assert cc_engine.CapturedTranscript(b"", b"") == \
+        cc_engine.CapturedTranscript(b"", b"", True)
+    assert cc_engine.CapturedTranscript(b"", b"").turn_is_attributable is True
+
+
 def test_read_turn_transcript_swallows_a_failure_in_the_LOCATE_step(
     tmp_path, monkeypatch
 ):
