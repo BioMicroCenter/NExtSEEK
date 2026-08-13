@@ -36,7 +36,6 @@ __all__ = [
     "generation_content_hash",
     "manifest_from_generation",
     "pin_generation_for_turn",
-    "publish_generation",
     "require_activate_permission",
     "require_publish_permission",
     "rollback_generation",
@@ -88,6 +87,13 @@ class PublishError(RuntimeError):
 
 class PermissionError(RuntimeError):
     pass
+
+
+class _AuthenticatedHumanPublishCapability:
+    __slots__ = ()
+
+
+_AUTHENTICATED_HUMAN_PUBLISH_CAPABILITY = _AuthenticatedHumanPublishCapability()
 
 
 @dataclass(frozen=True)
@@ -272,11 +278,25 @@ def create_generation(
     return generation
 
 
-def publish_generation(manifest: GenerationManifest, *, actor: str = "local") -> PosteriorGeneration:
+def _publish_authenticated_generation(
+    manifest: GenerationManifest,
+    *,
+    capability: _AuthenticatedHumanPublishCapability,
+    actor: str = "local",
+) -> PosteriorGeneration:
+    if capability is not _AUTHENTICATED_HUMAN_PUBLISH_CAPABILITY:
+        raise PublishError("invalid authenticated human-fit publication capability")
     from nextseek_api.eval.fit.fit_boundary import validate_publish_provenance
 
     validate_publish_provenance(dict(manifest.source_provenance or {}))
     return create_generation(manifest, actor=actor)
+
+
+def publish_generation(manifest: GenerationManifest, *, actor: str = "local") -> PosteriorGeneration:
+    del manifest, actor
+    raise PublishError(
+        "direct generation publication is disabled; use the authenticated human-fit publisher"
+    )
 
 
 def get_current_active_hash() -> str:

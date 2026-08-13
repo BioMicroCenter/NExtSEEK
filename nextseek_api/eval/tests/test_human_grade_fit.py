@@ -155,6 +155,37 @@ def test_authenticated_manifest_run_meta_semantics_fail_closed(
         build_human_grade_fit(DELIVERY)
 
 
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda meta: meta.__setitem__("max_usd", float("nan")), "run_meta.max_usd"),
+        (lambda meta: meta.__setitem__("max_usd", float("inf")), "run_meta.max_usd"),
+        (lambda meta: meta.__setitem__("base_url", "localhost:8000"), "run_meta.base_url"),
+        (lambda meta: meta.__setitem__("base_url", "http://user:pass@localhost"), "run_meta.base_url"),
+        (lambda meta: meta.__setitem__("git_sha", "not-a-git-sha"), "run_meta.git_sha"),
+        (lambda meta: meta.__setitem__("superseded_runs", ["not-an-object"]), "superseded_runs.0"),
+        (
+            lambda meta: meta.__setitem__(
+                "superseded_runs",
+                [{**meta, "superseded_runs": [], "git_sha": "not-a-git-sha"}],
+            ),
+            "superseded_runs.0.git_sha",
+        ),
+    ],
+)
+def test_authenticated_manifest_run_meta_identity_details_fail_closed(
+    monkeypatch,
+    mutate,
+    message,
+):
+    _patch_authenticated_bayes_manifest(
+        monkeypatch,
+        lambda manifest: mutate(manifest["run_meta"]),
+    )
+    with pytest.raises(EvidenceIntegrityError, match=message):
+        build_human_grade_fit(DELIVERY)
+
+
 def test_dev_dry_run_report_is_deterministic_and_explicitly_non_authoritative(prepared):
     assert prepared.report_json() == prepared.report_json()
     report = prepared.report()
@@ -293,6 +324,35 @@ def test_forged_authority_and_stack_provenance_refuse_before_write(initial_relea
 
 
 @pytest.mark.django_db
+def test_coordinated_source_hash_and_evidence_forgery_is_reauthenticated(initial_release):
+    from nextseek_api.assistant.models_db import PairedRunRegistry, PosteriorGeneration
+    from nextseek_api.eval import human_grade_fit
+
+    forged_sources = deepcopy(initial_release.source_hashes)
+    forged_sources["archive_sha256"] = "0" * 64
+    forged_evidence = human_grade_fit._publication_evidence_from_derived_facts(
+        model_mode=initial_release.model_mode,
+        fit=initial_release.fit,
+        source_hashes=forged_sources,
+        paired_batch=initial_release.paired_batch,
+        paired_content_hash=initial_release.paired_content_hash,
+        arms=initial_release.arms,
+        conservation=initial_release.conservation,
+        admission=initial_release.admission,
+        pair_rows=initial_release.pair_rows,
+    )
+    changed = replace(
+        initial_release,
+        source_hashes=forged_sources,
+        publication_evidence=forged_evidence,
+    )
+    with pytest.raises(EvidenceIntegrityError, match="source delivery changed"):
+        publish_human_grade_fit(changed, allow_initial_release_override=True)
+    assert PairedRunRegistry.objects.count() == 0
+    assert PosteriorGeneration.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_wrong_registered_content_hash_refuses_generation_publication(initial_release):
     from nextseek_api.assistant.models_db import PairedRunRegistry, PosteriorGeneration
     from nextseek_api.eval.evidence_kinds import UnapprovedPairedRun
@@ -320,7 +380,7 @@ def test_post_registration_publish_failure_rolls_back_registry(initial_release, 
     def fail_publish(*args, **kwargs):
         raise RuntimeError("synthetic publish failure")
 
-    monkeypatch.setattr(generation_store, "publish_generation", fail_publish)
+    monkeypatch.setattr(generation_store, "_publish_authenticated_generation", fail_publish)
     with pytest.raises(RuntimeError, match="synthetic publish failure"):
         publish_human_grade_fit(
             initial_release,

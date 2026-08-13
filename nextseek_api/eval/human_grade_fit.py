@@ -11,6 +11,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 import re
 import zipfile
 from collections import Counter
@@ -18,6 +19,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlsplit
 
 from nextseek_api.cc_assistant.family_labels import corpus_snapshot
 from nextseek_api.eval.conservation import (
@@ -66,6 +68,7 @@ _STACK_COMPONENTS = (
     "seek_image",
 )
 _OCI_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_GIT_SHA_RE = re.compile(r"[0-9a-f]{7,40}\Z")
 _LEGACY_STACK_DEBT = (
     "authenticated transferred evidence records only the source git SHA; "
     "the original four immutable runtime image digests cannot be reconstructed"
@@ -115,6 +118,7 @@ class HumanFitArm:
 
 @dataclass(frozen=True)
 class HumanGradeFit:
+    delivery_path: Path
     model_mode: ModelMode
     fit_config: V14FitConfig
     seed: int
@@ -338,32 +342,85 @@ def _validate_run_meta(
 ) -> dict[str, Any]:
     if not isinstance(run_meta, dict):
         raise EvidenceIntegrityError("bayes_manifest run_meta must be an object")
-    if run_meta.get("mode") != "bayesian":
-        raise EvidenceIntegrityError("bayes_manifest run_meta.mode must be 'bayesian'")
-    if run_meta.get("arms") != ["ns", "cc"]:
-        raise EvidenceIntegrityError(
-            "bayes_manifest run_meta.arms must be exactly ['ns', 'cc']"
+    _validate_run_meta_identity(
+        run_meta,
+        path="run_meta",
+        corpus_sha256=corpus_sha256,
+        pair_ids=pair_ids,
+    )
+    if not isinstance(run_meta.get("superseded_runs"), list):
+        raise EvidenceIntegrityError("bayes_manifest run_meta.superseded_runs must be a list")
+    for index, superseded in enumerate(run_meta["superseded_runs"]):
+        path = f"run_meta.superseded_runs.{index}"
+        if not isinstance(superseded, dict):
+            raise EvidenceIntegrityError(f"bayes_manifest {path} must be an object")
+        _validate_run_meta_identity(
+            superseded,
+            path=path,
+            corpus_sha256=corpus_sha256,
+            pair_ids=pair_ids,
         )
+        if "superseded_runs" in superseded:
+            raise EvidenceIntegrityError(
+                f"bayes_manifest {path}.superseded_runs must not be nested"
+            )
+    return run_meta
+
+
+def _validate_run_meta_identity(
+    run_meta: dict[str, Any],
+    *,
+    path: str,
+    corpus_sha256: str,
+    pair_ids: list[str],
+) -> None:
+    prefix = f"bayes_manifest {path}"
+    if run_meta.get("mode") != "bayesian":
+        raise EvidenceIntegrityError(f"{prefix}.mode must be 'bayesian'")
+    if run_meta.get("arms") != ["ns", "cc"]:
+        raise EvidenceIntegrityError(f"{prefix}.arms must be exactly ['ns', 'cc']")
     if run_meta.get("corpus_fingerprint") != corpus_sha256:
         raise EvidenceIntegrityError(
-            "authenticated bayes_manifest run_meta.corpus_fingerprint does not "
-            "match the current router corpus"
+            f"authenticated {prefix}.corpus_fingerprint does not match the current router corpus"
         )
     if run_meta.get("selected_ids") != pair_ids:
         raise EvidenceIntegrityError(
-            "authenticated bayes_manifest run_meta.selected_ids must exactly match "
-            "the ordered pair IDs"
+            f"authenticated {prefix}.selected_ids must exactly match the ordered pair IDs"
         )
-    max_usd = run_meta.get("max_usd")
-    if isinstance(max_usd, bool) or not isinstance(max_usd, (int, float)) or max_usd < 0:
+    git_sha = run_meta.get("git_sha")
+    if not isinstance(git_sha, str) or _GIT_SHA_RE.fullmatch(git_sha) is None:
+        raise EvidenceIntegrityError(f"{prefix}.git_sha must be a lowercase 7-40 hex git SHA")
+    base_url = run_meta.get("base_url")
+    if not isinstance(base_url, str) or base_url != base_url.strip():
+        raise EvidenceIntegrityError(f"{prefix}.base_url must be an absolute HTTP(S) origin")
+    parsed = urlsplit(base_url)
+    try:
+        port = parsed.port
+    except ValueError as exc:
         raise EvidenceIntegrityError(
-            "bayes_manifest run_meta.max_usd must be a nonnegative number"
-        )
+            f"{prefix}.base_url must contain a valid port"
+        ) from exc
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+        or port is not None and not (1 <= port <= 65535)
+    ):
+        raise EvidenceIntegrityError(f"{prefix}.base_url must be an absolute HTTP(S) origin")
+    max_usd = run_meta.get("max_usd")
+    if (
+        isinstance(max_usd, bool)
+        or not isinstance(max_usd, (int, float))
+        or not math.isfinite(max_usd)
+        or max_usd < 0
+    ):
+        raise EvidenceIntegrityError(f"{prefix}.max_usd must be a finite nonnegative number")
     if not isinstance(run_meta.get("resumed"), bool):
-        raise EvidenceIntegrityError("bayes_manifest run_meta.resumed must be boolean")
-    if not isinstance(run_meta.get("superseded_runs"), list):
-        raise EvidenceIntegrityError("bayes_manifest run_meta.superseded_runs must be a list")
-    return run_meta
+        raise EvidenceIntegrityError(f"{prefix}.resumed must be boolean")
 
 
 def _aggregate_rows(arms: Iterable[HumanFitArm]) -> list[dict[str, Any]]:
@@ -672,6 +729,7 @@ def build_human_grade_fit(
         pair_rows=pair_rows_tuple,
     )
     return HumanGradeFit(
+        delivery_path=delivery_path,
         model_mode=model_mode,
         fit_config=cfg,
         seed=seed,
@@ -727,6 +785,23 @@ def publish_human_grade_fit(
             "prepared paired batch content hash changed after authentication"
         )
     assert_paired_experimental_only(prepared.paired_batch)
+
+    # Publication always reopens and reauthenticates the maintained release
+    # identity. A prepared object's mutable source hashes are never authority.
+    authenticated = build_human_grade_fit(
+        prepared.delivery_path,
+        identity=DEFAULT_EVIDENCE_IDENTITY,
+        model_mode=prepared.model_mode,
+        config=prepared.fit_config,
+        seed=prepared.seed,
+    )
+    if authenticated.source_hashes != prepared.source_hashes:
+        raise EvidenceIntegrityError("authenticated source delivery changed after preparation")
+    if (
+        authenticated.paired_content_hash != actual_paired_hash
+        or authenticated.paired_batch != prepared.paired_batch
+    ):
+        raise EvidenceIntegrityError("authenticated source delivery changed after preparation")
 
     arm_records = prepared.paired_batch.arm_records
     if len({arm.arm_id for arm in prepared.arms}) != len(prepared.arms):
@@ -817,7 +892,11 @@ def publish_human_grade_fit(
             content_hash=actual_paired_hash,
         )
         validate_publish_provenance(derived_evidence.source_provenance)
-        return generation_store.publish_generation(manifest, actor=actor)
+        return generation_store._publish_authenticated_generation(
+            manifest,
+            capability=generation_store._AUTHENTICATED_HUMAN_PUBLISH_CAPABILITY,
+            actor=actor,
+        )
 
 
 def activate_human_grade_generation(

@@ -5,7 +5,7 @@ import pytest
 
 from nextseek_api.eval.evidence_kinds import OnlineEvidenceRejected, UnapprovedPairedRun
 from nextseek_api.eval.fit.fit_boundary import validate_publish_provenance
-from nextseek_api.eval.generation_store import GenerationManifest, publish_generation
+from nextseek_api.eval.generation_store import GenerationManifest, PublishError, publish_generation
 from nextseek_api.eval.paired_run_registry import register_paired_run
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -60,11 +60,11 @@ def test_registry_immutable_content_hash():
 
 
 def test_publish_refuses_unapproved_paired_run():
-    with pytest.raises(UnapprovedPairedRun):
+    with pytest.raises(PublishError, match="authenticated human-fit publisher"):
         publish_generation(_manifest("unapproved"))
 
 
-def test_publish_accepts_approved_paired_run():
+def test_self_registered_arbitrary_manifest_cannot_publish():
     register_paired_run(
         paired_run_id="paired-approved",
         schema_version="paired_run/v1",
@@ -76,8 +76,8 @@ def test_publish_accepts_approved_paired_run():
         "evidence_kind": "paired_experimental",
         "route_source": "forced",
     })
-    gen = publish_generation(manifest)
-    assert gen.generation_hash
+    with pytest.raises(PublishError, match="authenticated human-fit publisher"):
+        publish_generation(manifest)
 
 
 def test_publish_refuses_registered_run_with_wrong_content_hash():
@@ -93,7 +93,7 @@ def test_publish_refuses_registered_run_with_wrong_content_hash():
         "route_source": "forced",
     })
     with pytest.raises(UnapprovedPairedRun, match="content_hash mismatch"):
-        publish_generation(manifest)
+        validate_publish_provenance(manifest.source_provenance)
 
 
 def test_publish_refuses_online_provenance():
