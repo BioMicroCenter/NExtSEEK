@@ -8,6 +8,14 @@ and were swept into the image by ``COPY . /app``. These tests evaluate the
 actual .dockerignore rules (last-match-wins, ``**`` and ``!`` semantics) against
 representative paths, so the protection is functional, not textual.
 Hermetic: stdlib only, no git, no docker.
+
+Lanes: everything here reads .dockerignore, which the image ships, so it runs
+everywhere -- except ``test_gitignore_covers_env_bak_copies``, which reads
+``<repo>/.gitignore``. .dockerignore strips `.gitignore` from the build
+context by design, and REPO_ROOT is ``/app`` inside the image, so that one test
+is marked ``host_only``: deselected in the image lane, run in the host lane
+(DEPLOYMENT.md:446) and in worktree lanes, which bind-mount a real checkout.
+The IMAGE_ABSENT_INPUTS guards at the bottom keep that marker honest (#89).
 """
 
 import ast
@@ -108,6 +116,9 @@ def test_templates_and_source_stay_included(path):
     assert not _excluded(path), f"{path} is wrongly excluded from the build context"
 
 
+# host_only: reads <repo>/.gitignore, which the `.gitignore` rule in
+# .dockerignore keeps out of the image -- do not remove (#89).
+@pytest.mark.host_only
 def test_gitignore_covers_env_bak_copies():
     lines = [
         ln.strip()
