@@ -15,14 +15,14 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, List, Optional, Sequence, Tuple
+from typing import Iterator, List, Optional, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 DESCRIPTION_FILES: tuple[str, ...] = (
     "nextseek_api/endpoint_descriptions.py",
-    "nextseek_api/assistant/descriptions.py",
     "nextseek_api/assistant/descriptions_evaluator.py",
+    "nextseek_api/assistant/descriptions_cc.py",
 )
 
 # ViewSet modules scanned for @extend_schema(examples=...) and description=...
@@ -50,80 +50,168 @@ REQUIRED_DESC_HEADINGS: tuple[str, ...] = (
 
 OPTIONAL_DESC_HEADINGS: frozenset[str] = frozenset({"DO NOT USE WHEN"})
 
-# Plain-prose session list/delete/patch descriptions (assistant-only, pre-template).
-DESCRIPTION_SCHEMA_ALLOWLIST: frozenset[str] = frozenset(
-    {
-        "ASSISTANT_SESSIONS_LIST_DESC",
-        "ASSISTANT_SESSION_DELETE_DESC",
-        "ASSISTANT_SESSION_PATCH_DESC",
-    }
-)
-
 HEADING_RE = re.compile(r"\*\*([^*]+):\*\*")
 EXAMPLES_BULLET_RE = re.compile(r"^\s*-\s+", re.MULTILINE)
 
-# Grandfather: legacy ops missing OpenApiExample lists (do not extend).
-EXTEND_SCHEMA_EXAMPLES_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("nextseek_api/batch_upload/views.py", "cancel"),
-        ("nextseek_api/batch_upload/views.py", "job_status"),
-        ("nextseek_api/batch_upload/views.py", "list"),
-        ("nextseek_api/batch_upload/views.py", "start"),
-        ("nextseek_api/batch_upload/views.py", "summary"),
-        ("nextseek_api/batch_upload/views.py", "validate"),
-        ("nextseek_api/services/cc_assistant.py", "cc_query_async"),
-        ("nextseek_api/services/cc_assistant.py", "task_progress"),
-        ("nextseek_api/services/evaluator.py", "retry_context_by_bundle"),
-        ("nextseek_api/services/evaluator.py", "retry_context_by_task"),
-        ("nextseek_api/services/evaluator.py", "retry_execute"),
-        ("nextseek_api/services/evaluator.py", "runs_list"),
-        ("nextseek_api/services/sample_types.py", "create"),
-        ("nextseek_api/services/sample_types.py", "partial_update"),
-        ("nextseek_api/services/sample_types.py", "retrieve"),
-        ("nextseek_api/services/samples.py", "destroy"),
-        ("nextseek_api/views.py", "download"),
-    }
+
+@dataclass(frozen=True)
+class GrandfatherOp:
+    """Single grandfather entry for AST and/or SchemaGenerator example guards."""
+
+    rel_path: Optional[str] = None
+    func_name: Optional[str] = None
+    operation_ids: tuple[str, ...] = ()
+    ast_missing_examples: bool = False
+    inline_description: bool = False
+
+
+# SoT for legacy ops missing OpenApiExample lists and/or inline descriptions.
+# Do not extend — fix the ViewSet instead.
+GRANDFATHER_OPS: tuple[GrandfatherOp, ...] = (
+    GrandfatherOp(
+        rel_path="nextseek_api/batch_upload/views.py",
+        func_name="cancel",
+        operation_ids=("batch_upload_cancel_destroy",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/batch_upload/views.py",
+        func_name="job_status",
+        operation_ids=("batch_upload_status_retrieve",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/batch_upload/views.py",
+        func_name="list",
+        operation_ids=("batch_upload_list",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/batch_upload/views.py",
+        func_name="start",
+        operation_ids=("batch_upload_start_create",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/batch_upload/views.py",
+        func_name="summary",
+        operation_ids=("batch_upload_summary_retrieve",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/batch_upload/views.py",
+        func_name="validate",
+        operation_ids=("batch_upload_validate_create",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/services/evaluator.py",
+        func_name="retry_context_by_bundle",
+        operation_ids=("Evaluator: Retry Context by Bundle",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/services/evaluator.py",
+        func_name="retry_context_by_task",
+        operation_ids=("Evaluator: Retry Context by Task",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/services/evaluator.py",
+        func_name="retry_execute",
+        operation_ids=("Evaluator: Execute Retry",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/services/evaluator.py",
+        func_name="runs_list",
+        operation_ids=("Evaluator: List Runs",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/services/sample_types.py",
+        func_name="create",
+        operation_ids=("Create a SampleType",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/services/sample_types.py",
+        func_name="partial_update",
+        operation_ids=("Update a SampleType",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/services/sample_types.py",
+        func_name="retrieve",
+        operation_ids=("Fetch a SampleType",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/services/samples.py",
+        func_name="destroy",
+        operation_ids=("Delete a Sample",),
+        ast_missing_examples=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/views.py",
+        func_name="download",
+        operation_ids=("Download NHP Data",),
+        ast_missing_examples=True,
+        inline_description=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/views.py",
+        func_name="events",
+        inline_description=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/views.py",
+        func_name="info",
+        inline_description=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/views.py",
+        func_name="retrieve_samples",
+        inline_description=True,
+    ),
+    GrandfatherOp(
+        rel_path="nextseek_api/views.py",
+        func_name="timeline",
+        inline_description=True,
+    ),
+    GrandfatherOp(operation_ids=("cc_assistant_artifacts_download_retrieve",)),
+    GrandfatherOp(operation_ids=("cc_assistant_transcript_retrieve",)),
+    GrandfatherOp(operation_ids=("cc_assistant_upload_create",)),
+    GrandfatherOp(operation_ids=("cc_assistant_upload_list_retrieve",)),
+    GrandfatherOp(operation_ids=("cc_assistant_upload_status_retrieve",)),
 )
 
-# Grandfather: inline description= strings (legacy NHP/timeline + cc-assistant debt).
-INLINE_DESCRIPTION_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("nextseek_api/services/cc_assistant.py", "cc_query_async"),
-        ("nextseek_api/services/cc_assistant.py", "query_async"),
-        ("nextseek_api/services/cc_assistant.py", "task_progress"),
-        ("nextseek_api/views.py", "download"),
-        ("nextseek_api/views.py", "events"),
-        ("nextseek_api/views.py", "info"),
-        ("nextseek_api/views.py", "retrieve_samples"),
-        ("nextseek_api/views.py", "timeline"),
-    }
-)
 
-# operationId allowlist for SchemaGenerator examples guard (calibrated empirically).
-SCHEMA_EXAMPLES_OPERATION_ID_ALLOWLIST: frozenset[str] = frozenset(
-    {
-        "batch_upload_cancel_destroy",
-        "batch_upload_list",
-        "batch_upload_start_create",
-        "batch_upload_status_retrieve",
-        "batch_upload_summary_retrieve",
-        "CC Assistant: Query (Async, force Container-CC)",
-        "CC Assistant: Task Progress (poll fallback)",
-        "cc_assistant_artifacts_download_retrieve",
-        "cc_assistant_transcript_retrieve",
-        "cc_assistant_upload_create",
-        "cc_assistant_upload_list_retrieve",
-        "cc_assistant_upload_status_retrieve",
-        "Create a SampleType",
-        "Delete a Sample",
-        "Evaluator: Execute Retry",
-        "Evaluator: List Runs",
-        "Evaluator: Retry Context by Bundle",
-        "Evaluator: Retry Context by Task",
-        "Fetch a SampleType",
-        "Update a SampleType",
-    }
-)
+def _derive_grandfather_allowlists() -> tuple[
+    frozenset[tuple[str, str]],
+    frozenset[tuple[str, str]],
+    frozenset[str],
+]:
+    ast_examples: set[tuple[str, str]] = set()
+    inline: set[tuple[str, str]] = set()
+    schema_ops: set[str] = set()
+    for entry in GRANDFATHER_OPS:
+        schema_ops.update(entry.operation_ids)
+        if entry.rel_path is None or entry.func_name is None:
+            continue
+        key = (entry.rel_path, entry.func_name)
+        if entry.ast_missing_examples:
+            ast_examples.add(key)
+        if entry.inline_description:
+            inline.add(key)
+    return frozenset(ast_examples), frozenset(inline), frozenset(schema_ops)
+
+
+(
+    EXTEND_SCHEMA_EXAMPLES_ALLOWLIST,
+    INLINE_DESCRIPTION_ALLOWLIST,
+    SCHEMA_EXAMPLES_OPERATION_ID_ALLOWLIST,
+) = _derive_grandfather_allowlists()
 
 
 @dataclass(frozen=True)
@@ -252,7 +340,6 @@ def _iter_desc_constants(path: Path) -> Iterator[Tuple[str, str]]:
             if isinstance(value, ast.Constant) and isinstance(value.value, str):
                 yield target.id, value.value
             elif isinstance(value, (ast.Tuple, ast.JoinedStr)):
-                # Concatenated string literal: ("a" "b") or implicit join via parens
                 try:
                     compiled = ast.literal_eval(value) if isinstance(value, ast.Tuple) else None
                 except (ValueError, SyntaxError):
@@ -260,7 +347,6 @@ def _iter_desc_constants(path: Path) -> Iterator[Tuple[str, str]]:
                 if isinstance(compiled, str):
                     yield target.id, compiled
                 else:
-                    # Fallback: evaluate concatenated Str nodes
                     parts: List[str] = []
                     for piece in ast.walk(value):
                         if isinstance(piece, ast.Constant) and isinstance(piece.value, str):
@@ -277,12 +363,6 @@ def validate_description_files(repo_root: Path = REPO_ROOT) -> List[Violation]:
             violations.append(Violation("description", rel, "description file missing"))
             continue
         for const_name, text in _iter_desc_constants(path):
-            if const_name in DESCRIPTION_SCHEMA_ALLOWLIST:
-                if not text.strip():
-                    violations.append(
-                        Violation("description", f"{rel}:{const_name}", "description is empty")
-                    )
-                continue
             loc = f"{rel}:{const_name}"
             violations.extend(validate_desc_text(text, location=loc))
     return violations
