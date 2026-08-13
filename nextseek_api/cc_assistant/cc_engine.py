@@ -21,6 +21,7 @@ while the bridge reads/writes the same dirs at ``CCPaths.user_root_mount``.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -446,6 +447,115 @@ class ScrubReport(NamedTuple):
     skipped: int
 
 
+# #76: the per-session transcript store lives at <cc_state_dir>/projects.
+_TRANSCRIPT_STORE_DIRNAME = "projects"
+_SCRUB_MANIFEST_VERSION = 1
+
+
+def _scrub_manifest_path(cc_state_dir: Path | str) -> Path:
+    """#76: where the clean-watermark for ``cc_state_dir`` is recorded.
+
+    ONE LEVEL ABOVE the per-session cc-state dir, deliberately. The agent
+    container mounts ``cc_state_subpath`` (``<project>/<user>/cc-state/
+    <session_id>``) READ-WRITE at ``/home/user/.claude``, so anything written
+    inside that dir is forgeable from inside the sandbox — including a
+    watermark claiming a transcript full of plaintext is clean. Its PARENT
+    (``.../cc-state/``) is mounted into no agent at all, so the watermark is
+    outside every sandbox's reach. The leading dot keeps it out of the
+    ``*.jsonl`` globs that walk this tree.
+    """
+    cc_state_dir = Path(cc_state_dir)
+    return cc_state_dir.parent / f".{cc_state_dir.name}.scrub.json"
+
+
+def _transcript_digest(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _read_scrub_manifest(cc_state_dir: Path | str) -> dict[str, str]:
+    """Recorded ``{relpath-under-cc_state_dir: sha256-of-clean-bytes}``.
+
+    Returns ``{}`` — i.e. "nothing is known to be clean" — for every failure:
+    absent, unreadable, not JSON, wrong shape, wrong version. The single
+    consumer treats an unrecorded file as unscrubbed, so every error path here
+    has to fail towards "unknown", never towards "clean".
+    """
+    try:
+        blob = _scrub_manifest_path(cc_state_dir).read_bytes()
+    except OSError:
+        return {}
+    try:
+        data = json.loads(blob)
+    except ValueError:
+        return {}
+    if not isinstance(data, dict) or data.get("version") != _SCRUB_MANIFEST_VERSION:
+        return {}
+    files = data.get("files")
+    if not isinstance(files, dict):
+        return {}
+    return {str(k): str(v) for k, v in files.items() if isinstance(v, str)}
+
+
+def _write_scrub_manifest(cc_state_dir: Path | str, files: dict[str, str]) -> None:
+    """Replace the watermark for ``cc_state_dir`` with exactly ``files``.
+
+    A WHOLE-FILE replace, not a merge: an entry whose transcript has since been
+    deleted, or which this pass could not read, must not survive as a stale
+    "clean" claim. tmp + ``os.replace`` so a concurrent reader never sees a
+    half-written manifest and read it as ``{}``-on-parse-error.
+    """
+    path = _scrub_manifest_path(cc_state_dir)
+    payload = json.dumps(
+        {"version": _SCRUB_MANIFEST_VERSION, "files": files},
+        sort_keys=True, separators=(",", ":"),
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, path)
+    try:
+        os.chmod(path, 0o644)
+    except OSError:
+        pass
+
+
+def transcript_is_verified_scrubbed(transcript_path: Path | str, raw: bytes) -> bool:
+    """#76: has EXACTLY these bytes been through ``scrub_transcript_store``?
+
+    ``cc_sweep`` runs on a Celery beat with no request and therefore no
+    credentials, so it cannot scrub the transcript it is about to feed to a
+    third-party summarizer — its safety depends entirely on the source having
+    been scrubbed already. That scrub runs in the ``finally`` of a turn on a
+    ``daemon=True`` thread, which a worker recycle or a SIGKILL skips outright,
+    leaving the user's plaintext password in a file the sweep then reads raw.
+
+    This is the sweep's gate. The digest is of the bytes the scrub LEFT
+    BEHIND, so a transcript the agent appended to after the last scrub also
+    fails it: "verified" means this exact content was cleaned, not that this
+    path was cleaned once.
+
+    Fail-closed on every unknown: no ``projects`` ancestor to locate the
+    manifest from, no manifest, unparseable manifest, no entry, digest
+    mismatch — all ``False``. A skipped session is retried on the next beat and
+    is repaired the next time its owner runs a CC turn (see
+    ``scrub_sibling_transcript_stores``).
+    """
+    path = Path(transcript_path)
+    cc_state_dir = None
+    for parent in path.parents:
+        if parent.name == _TRANSCRIPT_STORE_DIRNAME:
+            cc_state_dir = parent.parent
+            break
+    if cc_state_dir is None:
+        return False
+    try:
+        rel = str(path.relative_to(cc_state_dir))
+    except ValueError:
+        return False
+    recorded = _read_scrub_manifest(cc_state_dir).get(rel)
+    return bool(recorded) and recorded == _transcript_digest(raw)
+
+
 def scrub_transcript_store(
     cc_state_dir: Path | str, environment: Mapping[str, str]
 ) -> ScrubReport:
@@ -472,14 +582,30 @@ def scrub_transcript_store(
     quietly is a silent leak into the merged ``CLAUDE.md``, and a bare return
     count cannot distinguish "scrubbed 0, skipped 0" from "scrubbed 0,
     skipped 4".
+
+    #76: every file this pass leaves VERIFIED CLEAN — the already-clean branch
+    as much as the rewritten one — is recorded in a durable watermark next to
+    the store (``_scrub_manifest_path``), keyed by relpath and digested over
+    the bytes left behind. That watermark is what lets ``cc_sweep`` tell "this
+    was scrubbed" from "this was never touched because the process died before
+    the ``finally`` ran". Files this pass skipped are deliberately NOT recorded,
+    and the manifest is replaced wholesale rather than merged, so a previous
+    pass's claim about a file that has since become unreadable does not
+    survive.
     """
-    root = Path(cc_state_dir) / "projects"
+    cc_state_dir = Path(cc_state_dir)
+    root = cc_state_dir / _TRANSCRIPT_STORE_DIRNAME
     if not root.is_dir():
         return ScrubReport(0, 0)
     rewritten = 0
     skipped = 0
+    verified: dict[str, str] = {}
     for path in root.rglob("*.jsonl"):
         if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            rel = str(path.relative_to(cc_state_dir))
+        except ValueError:  # pragma: no cover - rglob cannot leave its root
             continue
         try:
             raw = path.read_bytes()
@@ -490,6 +616,7 @@ def scrub_transcript_store(
             continue
         clean = _scrub_secret_bytes(raw, environment)
         if clean == raw:
+            verified[rel] = _transcript_digest(raw)
             continue
         tmp = path.with_name(path.name + ".scrub-tmp")
         try:
@@ -503,6 +630,7 @@ def scrub_transcript_store(
             except OSError:
                 pass
             rewritten += 1
+            verified[rel] = _transcript_digest(clean)
         except OSError as exc:
             skipped += 1
             logger.warning("cc #72: failed to scrub transcript %s, left "
@@ -511,6 +639,71 @@ def scrub_transcript_store(
                 tmp.unlink()
             except OSError:
                 pass
+    try:
+        _write_scrub_manifest(cc_state_dir, verified)
+    except OSError as exc:
+        # The files ARE scrubbed; only the proof is missing. Deliberately does
+        # not touch the counts: an unrecorded file is treated as unscrubbed by
+        # cc_sweep, which is the safe direction, and the next turn re-records it.
+        logger.warning("cc #76: could not record scrub watermark for %s: %r",
+                       cc_state_dir, exc)
+    return ScrubReport(rewritten=rewritten, skipped=skipped)
+
+
+def scrub_sibling_transcript_stores(
+    cc_state_root: Path | str,
+    environment: Mapping[str, str],
+    *,
+    exclude: Path | str | None = None,
+) -> ScrubReport:
+    """#76: scrub the user's OTHER session transcript stores under
+    ``cc_state_root`` (``<project>/<user>/cc-state/``).
+
+    ``scrub_transcript_store`` is turn-scoped: it only ever sees the store of
+    the session whose turn is running. The durability requirement is
+    process-lifetime — the turn runs on a ``daemon=True`` thread, so a worker
+    recycle or SIGKILL skips its ``finally`` entirely — and no boot-time repair
+    is possible, because the secret being scrubbed for is the per-request
+    user's plaintext SEEK password and a startup hook has neither a request nor
+    a user. Scrubbing for an empty environment produces no needles at all and
+    would report success having done nothing.
+
+    The next moment that credential legitimately exists is that user's next CC
+    turn. So this widens the repair to every session store they own: a
+    transcript orphaned by an abrupt death is cleaned, and re-watermarked, then
+    — rather than never.
+
+    Accepted race, inherited and widened rather than introduced: the rewrite is
+    read -> ``os.replace``, so bytes a CONCURRENTLY RUNNING agent appends
+    between the two are lost. The caller closes that for the current session by
+    stopping its container first; for a sibling session it cannot. It requires
+    a second live CC turn for the same user in a different chat AND a genuinely
+    dirty transcript, and it costs a truncated ``--resume`` tail rather than a
+    wrong answer — which is the right side of the trade against leaving a
+    plaintext credential in the volume.
+    """
+    root = Path(cc_state_root)
+    if not root.is_dir():
+        return ScrubReport(0, 0)
+    skip_name = Path(exclude).name if exclude is not None else None
+    rewritten = 0
+    skipped = 0
+    try:
+        entries = sorted(root.iterdir())
+    except OSError as exc:
+        logger.warning("cc #76: cannot list cc-state root %s: %r", root, exc)
+        return ScrubReport(0, 0)
+    for child in entries:
+        # Skips the current session, the ".<sid>.scrub.json" manifests that
+        # live at this level, and any symlink (which could point out of the
+        # user's tree entirely).
+        if child.name == skip_name or child.is_symlink() or not child.is_dir():
+            continue
+        if not (child / _TRANSCRIPT_STORE_DIRNAME).is_dir():
+            continue
+        report = scrub_transcript_store(child, environment)
+        rewritten += report.rewritten
+        skipped += report.skipped
     return ScrubReport(rewritten=rewritten, skipped=skipped)
 
 
@@ -1121,12 +1314,24 @@ def run_cc_turn(
         # summarizer. Best-effort: a scrub failure must never fail the turn.
         try:
             if dirs.cc_state_mnt:
-                report = scrub_transcript_store(Path(dirs.cc_state_mnt), environment)
-                if report.skipped:
+                current = Path(dirs.cc_state_mnt)
+                report = scrub_transcript_store(current, environment)
+                # #76: and every OTHER session store this user owns. This turn
+                # holds the only thing that can clean them — the user's own
+                # credential — and a session whose own turn died before this
+                # finally ran is otherwise never revisited. Same best-effort
+                # contract: it must not fail the turn.
+                siblings = scrub_sibling_transcript_stores(
+                    current.parent, environment, exclude=current)
+                total_skipped = report.skipped + siblings.skipped
+                if total_skipped:
+                    total_files = (total_skipped + report.rewritten
+                                   + siblings.rewritten)
                     logger.warning(
-                        "cc #72: transcript store scrub left %d of %d file(s) "
-                        "UNSCRUBBED (run_id=%s) — cc_sweep will read those raw",
-                        report.skipped, report.skipped + report.rewritten, run_id)
+                        "cc #72/#76: transcript store scrub left %d of %d file(s) "
+                        "UNSCRUBBED (run_id=%s) — those carry no scrub watermark, "
+                        "so cc_sweep will SKIP them until a later turn cleans them",
+                        total_skipped, total_files, run_id)
         except Exception:  # noqa: BLE001
             logger.warning("cc #72: transcript store scrub failed", exc_info=True)
 
