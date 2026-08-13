@@ -81,6 +81,40 @@ EXPECTED_BAKED_ONLY = frozenset({
     "read_safe_endpoints.json",  # write-safety classification, agent-specific
 })
 
+# Source-only by design — the mirror of EXPECTED_BAKED_ONLY, and the whole point
+# of #84. _shared_names() is an INTERSECTION, so a file added to the source pack
+# and forgotten in the baked pack is outside the equality check by construction:
+# nothing fails, and the agent silently runs without it. EXPECTED_BAKED_FILES
+# pins the baked side against that; this pins the source side.
+#
+# Together the two pins close all four directions:
+#   new file in source only  -> here
+#   new file in baked only   -> EXPECTED_BAKED_FILES + EXPECTED_BAKED_ONLY
+#   new file in both         -> EXPECTED_BAKED_FILES
+#   source file deleted      -> here (if source-only) or EXPECTED_BAKED_ONLY (if shared)
+#
+# Adding a name here is the deliberate act of declaring "the agent does not need
+# this"; the alternative is to bake it. All 16 files in the source pack are
+# git-tracked, so this set is stable rather than dependent on build artefacts.
+#
+# Caveat for anyone testing this guard by deleting a file: three of the source
+# pack's files are re-fetched from a live Neo4j and rewritten into this directory
+# whenever chat_nextseek's config is loaded and the on-disk copy is not from
+# today (chat_nextseek/src/chat_nextseek/config.py:1732 _ensure_schema_file, via
+# :1747, :1796, :1841) — neo4j_schema.json, neo4j_assay-sample-conn.json and
+# neo4j_protocol_schema.json. Deleting one of those and re-running the suite
+# silently recreates it, so use one of the other five to prove this pin bites.
+EXPECTED_SOURCE_ONLY = frozenset({
+    ".gitignore",                     # not context; _files() uses iterdir(), which keeps dotfiles
+    "assays_db.json",                 # full catalog; the agent gets min_assays_db.json instead
+    "sampletypes_db.json",            # full catalog; the agent gets min_sampletypes_db.json
+    "nextseek_api.yaml",              # full OpenAPI spec; the agent gets min_api_endpoints*.json
+    "neo4j_assay-sample-conn.json",   # pipeline-internal graph connectivity map
+    "neo4j_protocol_schema.json",     # pipeline-internal protocol schema
+    "neo4j_schema_dev.json",          # per-environment snapshots; the agent gets neo4j_schema.json
+    "neo4j_schema_prod.json",
+})
+
 # ---------------------------------------------------------------------------
 # Known, deliberately-unresolved divergence
 # ---------------------------------------------------------------------------
@@ -137,6 +171,27 @@ def test_baked_only_files_are_the_expected_ones():
     assert baked_only == set(EXPECTED_BAKED_ONLY), (
         "a baked context file lost (or gained) its source-of-truth counterpart; "
         "either restore the counterpart or justify it in EXPECTED_BAKED_ONLY"
+    )
+
+
+def test_source_only_files_are_the_expected_ones():
+    """Direction 3 (#84): a source file that never got baked cannot hide.
+
+    The equality check is an intersection, so a new file in the source pack that
+    nobody copied into the baked pack is compared against nothing and passes
+    silently — the agent then runs without context the pipeline has. This is the
+    source-side mirror of test_baked_only_files_are_the_expected_ones.
+    """
+    source_only = _files(SOURCE_DIR) - _files(BAKED_DIR)
+    unbaked = sorted(source_only - set(EXPECTED_SOURCE_ONLY))
+    vanished = sorted(set(EXPECTED_SOURCE_ONLY) - source_only)
+    assert source_only == set(EXPECTED_SOURCE_ONLY), (
+        "the source context pack's un-baked file set changed.\n"
+        f"  in source, never baked, undeclared: {unbaked or 'none'}\n"
+        f"  declared source-only but gone (deleted, or now baked): {vanished or 'none'}\n"
+        "For a new file: either copy it into the baked pack and rebuild the "
+        "cc-agent image, or add it to EXPECTED_SOURCE_ONLY with the reason the "
+        "agent does not need it."
     )
 
 
