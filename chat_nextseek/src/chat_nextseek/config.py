@@ -1331,12 +1331,23 @@ class ChatConfig:
         if resp.status_code != 200:
             print(f"[CONFIG][SCHEMA] Non-200 when fetching schema: {resp.status_code}")
             if resp.status_code in (401, 403):
-                # Name the account only. NEVER the password -- not the value,
-                # not a mask, not a length hint (orchestrator.py:200-201).
-                account = api_user or "<unset>"
+                # "Rejected" and "never sent" are different failures and the
+                # operator reading this log has to tell them apart: one means
+                # the account is wrong, the other means it is missing.
+                if auth is None:
+                    cause = (
+                        "NO CREDENTIALS SENT: API_USER / API_PASS are not both "
+                        "set, so the request went out anonymously"
+                    )
+                else:
+                    # Name the account only. NEVER the password -- not the
+                    # value, not a mask, not a length hint (orchestrator.py).
+                    cause = (
+                        "CREDENTIALS REJECTED: the schema endpoint refused user "
+                        f"{api_user!r}"
+                    )
                 print(
-                    "[CONFIG][SCHEMA] CREDENTIALS REJECTED by the schema endpoint "
-                    f"(sent as user {account!r}). Set API_USER / API_PASS to an "
+                    f"[CONFIG][SCHEMA] {cause}. Set API_USER / API_PASS to an "
                     "account that can read /nextseek_api/schema/. "
                     "Request-body validation is now DISABLED: "
                     "validate_request_body will pass every body through unchecked."

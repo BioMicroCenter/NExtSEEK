@@ -58,21 +58,73 @@ def _own_public_hosts() -> set:
     return hosts
 
 
-def _own_hosts() -> set:
-    """Every hostname that is US: the public ones plus the container-internal one.
+# Only these two schemes can ever name us; the port is implied when a URL
+# omits it. Anything else (ftp:, file:, gopher:) is not this instance.
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 
-    Deliberately separate from `_own_public_hosts()`, which must keep meaning
-    exactly "hosts whose URLs need rewriting to the internal base" — folding the
-    internal host into it would change `resolve_transport_url`.
+
+def _add_origin(origins: set, entry: str) -> None:
+    """Record the (host, port) pair an env value or ALLOWED_HOSTS entry names.
+
+    Accepts bare hosts, `host:port`, and full URLs alike. A value that carries
+    no port at all could be reached on either standard port, so it contributes
+    both rather than guessing one.
     """
-    hosts = set(_own_public_hosts())
-    internal = (os.getenv("NEXTSEEK_INTERNAL_BASE_URL") or "").strip()
-    if internal and "*" not in internal:
-        entry = internal if "//" in internal else "//" + internal
-        host = urlsplit(entry).hostname
-        if host:
-            hosts.add(host.lower())
-    return hosts
+    entry = (entry or "").strip()
+    if not entry or "*" in entry:
+        return
+    if "//" not in entry:
+        entry = "//" + entry
+    parts = urlsplit(entry)
+    host = parts.hostname
+    if not host:
+        return
+    try:
+        port = parts.port
+    except ValueError:  # malformed port — not a usable origin
+        return
+    if port is not None:
+        origins.add((host.lower(), port))
+        return
+    scheme_port = _DEFAULT_PORTS.get((parts.scheme or "").lower())
+    if scheme_port is not None:
+        origins.add((host.lower(), scheme_port))
+    else:  # a bare hostname carries no scheme, so allow both standard ports
+        origins.update((host.lower(), p) for p in _DEFAULT_PORTS.values())
+
+
+def _own_origins() -> set:
+    """Every (hostname, port) pair on which THIS instance answers.
+
+    Ports matter. `resolve_transport_url` deliberately matches on hostname
+    alone, because the published port is auto-bumped when 8000 is busy and it
+    only ever REWRITES the transport. This check does something stronger — it
+    decides to answer a request from our own in-process generator instead of
+    fetching what was asked for — so a same-host, different-port service (a
+    second NExtSEEK instance under `INSTANCE_PREFIX`, say) must NOT be
+    mistaken for us. Getting that wrong returns the wrong schema and reports
+    success, which is worse than an error.
+
+    Deliberately built alongside `_own_public_hosts()` rather than by widening
+    it: that function must keep meaning exactly "hosts whose URLs need
+    rewriting to the internal base", or `resolve_transport_url` changes.
+    """
+    origins: set = set()
+    for env_key in (
+        "NEXTSEEK_BASE_URL",
+        "NEXTSEEK_HOSTNAME",
+        "NEXTSEEK_PROD_URL",
+        "NEXTSEEK_INTERNAL_BASE_URL",
+    ):
+        _add_origin(origins, os.getenv(env_key) or "")
+    try:
+        from django.conf import settings
+
+        for raw in settings.ALLOWED_HOSTS or []:
+            _add_origin(origins, raw)
+    except Exception:  # settings unconfigured (standalone import) — env only
+        pass
+    return origins
 
 
 def self_schema_route_path() -> Optional[str]:
@@ -93,21 +145,37 @@ def self_schema_route_path() -> Optional[str]:
 def is_self_schema_url(url: str) -> bool:
     """True only for a URL naming OUR OWN OpenAPI schema route.
 
-    BOTH halves are required, and matching on hostname alone would be a
-    security bug: `https://<our own host>/anything/else` is still an arbitrary
-    fetch of an arbitrary document, and treating it as "ours" would let a
-    caller-supplied `schema_url` be answered with our in-process schema — or,
-    under any credential-attaching variant of this fix, get our credentials
-    attached to a request we never meant to authenticate.
+    ALL of scheme, host, port and path must be ours. Matching on less than the
+    full origin is a correctness bug, and matching on hostname alone would also
+    be a security one:
+
+    * `https://<our own host>/anything/else` is an arbitrary document, and
+      treating it as ours would answer a caller-supplied `schema_url` with our
+      in-process schema — or, under any credential-attaching variant of this
+      fix, attach our credentials to a request we never meant to authenticate.
+    * `http://<our own host>:9001/nextseek_api/schema/` is a DIFFERENT service.
+      Serving our schema for it succeeds while returning the wrong endpoints,
+      which is worse than failing.
+    * a non-HTTP scheme is never this instance.
     """
     route = self_schema_route_path()
     if not route:
         return False
 
     parts = urlsplit(url or "")
-    if not parts.hostname:
+    scheme = (parts.scheme or "").lower()
+    if scheme not in _DEFAULT_PORTS:
         return False
-    if parts.hostname.lower() not in _own_hosts():
+    host = parts.hostname
+    if not host:
+        return False
+    try:
+        port = parts.port
+    except ValueError:  # malformed port, e.g. "host:notaport"
+        return False
+    if port is None:
+        port = _DEFAULT_PORTS[scheme]
+    if (host.lower(), port) not in _own_origins():
         return False
     return parts.path.rstrip("/") == route.rstrip("/")
 

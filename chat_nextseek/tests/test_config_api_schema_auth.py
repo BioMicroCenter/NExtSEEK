@@ -176,6 +176,46 @@ class TestCredentialFailureIsLoud:
         assert "*" * 4 not in out
         assert str(len(PASSWORD)) not in out
 
+    def test_never_sent_is_not_reported_as_rejected(self, monkeypatch, capsys):
+        """Rejected and never-sent are different failures: one means the account
+        is wrong, the other means it is missing. Claiming "REJECTED ... sent as
+        user '<unset>'" for a request that carried no credentials at all sends
+        the reader looking for a bad password that does not exist."""
+        cfg = _bare_config()  # no API_USER / API_PASS at all
+        _capture_get(monkeypatch, _Resp(401, "Unauthorized"))
+
+        assert cfg._load_api_schema_from_remote() == {}
+        out = capsys.readouterr().out
+        assert "NO CREDENTIALS SENT" in out
+        assert "REJECTED" not in out
+        assert "<unset>" not in out
+        # still tells the operator what to set and what it costs
+        assert "API_USER" in out and "API_PASS" in out
+        assert "validation" in out.lower()
+
+    def test_half_configured_credentials_report_never_sent(self, monkeypatch, capsys):
+        """A username with no password sends nothing, so it is the never-sent
+        case even though API_USER is set."""
+        cfg = _bare_config("demo", "")
+        _capture_get(monkeypatch, _Resp(401, "Unauthorized"))
+
+        assert cfg._load_api_schema_from_remote() == {}
+        out = capsys.readouterr().out
+        assert "NO CREDENTIALS SENT" in out
+        assert "REJECTED" not in out
+
+    def test_rejection_is_not_reported_as_never_sent(self, monkeypatch, capsys):
+        """The other direction: credentials WERE sent and refused."""
+        cfg = _bare_config("demo", PASSWORD)
+        _capture_get(monkeypatch, _Resp(401, "Unauthorized"))
+
+        assert cfg._load_api_schema_from_remote() == {}
+        out = capsys.readouterr().out
+        assert "CREDENTIALS REJECTED" in out
+        assert "NO CREDENTIALS SENT" not in out
+        assert "'demo'" in out  # the account is named
+        assert PASSWORD not in out  # the password never is
+
     def test_non_auth_failure_keeps_the_plain_diagnostic(self, monkeypatch, capsys):
         """The credential line must be distinct — a 500 is not a credential
         problem and must not accuse the operator's config."""

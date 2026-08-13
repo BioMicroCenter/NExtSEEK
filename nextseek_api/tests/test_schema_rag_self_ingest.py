@@ -112,11 +112,68 @@ class TestIsSelfSchemaUrl(TestCase):
                 _sp().is_self_schema_url(f"{INTERNAL}/nextseek_api/schema/")
             )
 
-    def test_own_hosts_unions_public_and_internal(self):
+    def test_own_origins_unions_public_and_internal_with_ports(self):
         with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL):
-            hosts = _sp()._own_hosts()
-        self.assertIn(PUBLIC_HOST, hosts)
-        self.assertIn(INTERNAL_HOST, hosts)
+            origins = _sp()._own_origins()
+        # ALLOWED_HOSTS carries no scheme, so a bare name means both standard ports.
+        self.assertIn((PUBLIC_HOST, 443), origins)
+        self.assertIn((PUBLIC_HOST, 80), origins)
+        # ...whereas the internal base URL names one exact port and only that one.
+        self.assertIn((INTERNAL_HOST, 8000), origins)
+        self.assertNotIn((INTERNAL_HOST, 9001), origins)
+
+    # --- the reviewer's finding: the origin, not just the host -------------
+
+    def test_a_different_port_on_our_own_host_is_NOT_us(self):
+        """A same-host, different-port service (a second NExtSEEK instance under
+        INSTANCE_PREFIX, say) must not be answered with OUR schema. Doing so
+        reports success while returning the wrong endpoints, which is worse
+        than an error."""
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL):
+            self.assertFalse(
+                _sp().is_self_schema_url(f"http://{INTERNAL_HOST}:9001/nextseek_api/schema/")
+            )
+            self.assertFalse(
+                _sp().is_self_schema_url(f"http://{PUBLIC_HOST}:9001/nextseek_api/schema/")
+            )
+
+    def test_our_own_port_on_our_own_host_still_is_us(self):
+        """The other direction: tightening must not break the case #94 fixes."""
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL):
+            self.assertTrue(
+                _sp().is_self_schema_url(f"{INTERNAL}/nextseek_api/schema/")
+            )
+        with _env(NEXTSEEK_BASE_URL=f"http://{PUBLIC_HOST}:8123"):
+            self.assertTrue(
+                _sp().is_self_schema_url(f"http://{PUBLIC_HOST}:8123/nextseek_api/schema/")
+            )
+
+    def test_a_non_http_scheme_is_never_us(self):
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL):
+            for url in (
+                f"ftp://{PUBLIC_HOST}/nextseek_api/schema/",
+                f"file://{PUBLIC_HOST}/nextseek_api/schema/",
+                f"gopher://{INTERNAL_HOST}:8000/nextseek_api/schema/",
+                f"//{PUBLIC_HOST}/nextseek_api/schema/",  # scheme-relative
+            ):
+                self.assertFalse(_sp().is_self_schema_url(url), url)
+
+    def test_both_http_and_https_on_a_bare_allowed_host_are_us(self):
+        """ALLOWED_HOSTS entries carry no scheme, so neither standard port can
+        be ruled out for them."""
+        with _env():
+            self.assertTrue(
+                _sp().is_self_schema_url(f"https://{PUBLIC_HOST}/nextseek_api/schema/")
+            )
+            self.assertTrue(
+                _sp().is_self_schema_url(f"http://{PUBLIC_HOST}/nextseek_api/schema/")
+            )
+
+    def test_a_malformed_port_is_not_us(self):
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL):
+            self.assertFalse(
+                _sp().is_self_schema_url(f"http://{INTERNAL_HOST}:notaport/nextseek_api/schema/")
+            )
 
     def test_own_public_hosts_is_left_alone(self):
         """`resolve_transport_url` keys off `_own_public_hosts`; adding the
@@ -144,7 +201,6 @@ class TestIsSelfSchemaUrl(TestCase):
                 f"https://{PUBLIC_HOST}/nextseek_api/schema/?format=yaml",
                 f"https://{PUBLIC_HOST}/nextseek_api/schema?format=json#top",
                 f"https://{PUBLIC_HOST}/nextseek_api/schema",
-                f"http://{PUBLIC_HOST}:9001/nextseek_api/schema/",
             ):
                 self.assertTrue(_sp().is_self_schema_url(url), url)
 
